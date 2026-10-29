@@ -1172,6 +1172,16 @@ func cookieNotice() []pages.CookieRow {
 			Scope:    adminauth.CookiePath,
 			Flags:    flags,
 		},
+		// M14-22: the link that adds the person's other businesses, between the e-mail and the press.
+		{
+			Name: accountLinkCookieName,
+			Purpose: "Carries the link that adds your other businesses to your sign-in, from the email to the " +
+				"button that confirms it, so the link stays out of the address bar and out of browser " +
+				"history. Cleared when the button is pressed.",
+			Lifetime: humanSeconds(accountLinkCookieMaxAge),
+			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
 		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.
 		{
 			Name: adminInviteCookieName,

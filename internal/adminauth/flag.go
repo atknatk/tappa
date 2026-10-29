@@ -36,8 +36,9 @@ const (
 	// states -- every session shows it, linked or not.
 	SurfaceShellBusinessName Surface = "shell-business-name"
 	// SurfaceAccountIdentity is the account page's identity sections -- "Your businesses", "Verify your
-	// e-mail", the confirmation list, "Link a business", "Sign out everywhere" (M14-11, M14-18):
-	// closed = the page as it is today.
+	// e-mail", the confirmation list, "Sign out everywhere" (M14-11, M14-18) and, since M14-22, the
+	// panel's "Another business uses your email" banner and its link by e-mail: closed = the page as it is
+	// today.
 	SurfaceAccountIdentity Surface = "account-identity-sections"
 	// SurfaceAdminInvites is sending and accepting an administrator invitation (M14-15): closed = 404.
 	SurfaceAdminInvites Surface = "admin-invites"

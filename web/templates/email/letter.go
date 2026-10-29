@@ -1,6 +1,7 @@
 package email
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -99,6 +100,59 @@ func verificationLetter(life string) letter {
 				"until you press the button.",
 		},
 		closing: "If you did not ask for this, you can ignore this email — nothing changes unless the link is used.",
+	}
+}
+
+// linkBusinessesLetter is the link by e-mail (M14-22; ADR 0031 §5.7's note of 2026-10-29): the person
+// pressed "Add it" on the panel's banner, and the link adds every business that uses this address to the
+// sign-in -- in the browser where they are signed in, after one press (R19: opening it changes nothing).
+// It names no business: nothing does before this mailbox proof (the user's decision).
+func linkBusinessesLetter(life string) letter {
+	return letter{
+		subject: subjectLinkBusinesses,
+		heading: "Add your businesses to your sign-in",
+		before: []string{
+			greetingWithoutName,
+			"Someone signed in to Taptime asked to add the other businesses that use this email address " +
+				"to their sign-in. If it was you, open the link below in the browser where you are signed in " +
+				"to Taptime, then press the button on the page it opens.",
+		},
+		action: "Add my businesses",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Opening it adds nothing until you " +
+				"press the button.",
+			"When you do, those businesses' own passwords stop working, and any device signed in to them " +
+				"(a shop tablet, for example) is signed out.",
+			"Afterwards you move between your businesses with Switch business, without signing out, and " +
+				"you sign in to all of them with your Taptime password.",
+		},
+		closing: "If you did not ask for this, you can ignore this email — nothing changes unless the link is used.",
+	}
+}
+
+// businessesAddedLetter is the one notice after the link by e-mail (M14-22): how many businesses were
+// added to the sign-in. It names none (BusinessesAddedView says why). Its one action is the sign-in page,
+// which changes nothing by being opened.
+func businessesAddedLetter(n int) letter {
+	what := "1 business was"
+	if n != 1 {
+		what = strconv.Itoa(n) + " businesses were"
+	}
+	return letter{
+		subject: subjectBusinessesAdded,
+		heading: "Businesses were added to your sign-in",
+		before: []string{
+			what + " just added to the Taptime sign-in that uses this email address. Their own passwords " +
+				"no longer work: you sign in to them with your Taptime password, and every device that was " +
+				"signed in to them was signed out.",
+		},
+		action: "Go to the sign-in page",
+		after: []string{
+			"If you added them, there is nothing more to do.",
+			"If you did not, someone else may be signed in to your Taptime account. Open the sign-in page " +
+				"and use its forgotten-password link to set a new password straight away.",
+		},
+		closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
 	}
 }
 

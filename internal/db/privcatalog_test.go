@@ -251,8 +251,8 @@ column admin_identity_resets tappa_identitydefiner INSERT identity_id,token_hash
 column admin_identity_resets tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at,cancelled_at
 column admin_identity_resets tappa_identitydefiner UPDATE used_at,cancelled_at
 column admin_identity_resets tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at,cancelled_at
-column admin_identity_verifications tappa_identitydefiner INSERT identity_id,token_hash,expires_at
-column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at
+column admin_identity_verifications tappa_identitydefiner INSERT identity_id,token_hash,expires_at,purpose
+column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,created_at,expires_at,used_at,purpose
 column admin_identity_verifications tappa_identitydefiner UPDATE used_at
 column admin_identity_verifications tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at
 column admin_invites tappa_app INSERT tenant_id,email,full_name,role,token_hash,invited_by,expires_at
@@ -407,6 +407,7 @@ function identity_consume_reset(text,text) owner=tappa_identitydefiner definer=t
 function identity_consume_row_reset(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_create_for_signup(uuid,uuid) owner=tappa_identitydefiner definer=true execute=tappa_identitydefiner
 function identity_keep_all(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_link_by_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
@@ -416,7 +417,7 @@ function identity_password_for_session(text) owner=tappa_identitydefiner definer
 function identity_reconcile() owner=tappa_identitydefiner definer=true execute=tappa_identitydefiner
 function identity_record_failed_login(uuid,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_relink_refused(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
-function identity_request_verification(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_request_verification(text,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_revoke_sessions(text,boolean) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_set_password(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_sweep_events() owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

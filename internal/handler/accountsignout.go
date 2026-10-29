@@ -110,8 +110,8 @@ func (a *AdminAuth) accountSignOutEverywhere(w http.ResponseWriter, r *http.Requ
 		// TAPPA_ADMIN_IDENTITY on, and a fallback here is an UNLINKED row signing out -- countable. M14-19's
 		// precheck does NOT promise every row is linked: its identityless count skips an address that
 		// already has an identity, so a second row of such an address (M14-06's expected one: the older
-		// row got the identity, this one did not) stays unlinked until the person links it on the
-		// account page ("Link a business"; the runbook's mandatory smoke step) -- and so does a row the
+		// row got the identity, this one did not) stays unlinked until the person links it -- since M14-22
+		// from the panel's banner, by e-mail proof (the runbook's smoke) -- and so does a row the
 		// person refused. The other half of the same gap: a LINKED session's "everywhere" (the branch
 		// above) reaches only the rows linked to the identity, never such a row's sessions. The count is
 		// this business's own.

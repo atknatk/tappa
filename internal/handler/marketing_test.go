@@ -2642,6 +2642,8 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_confirm": {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	// M14-18: the e-mail verification link's cookie, through the same setter.
 	"tappa_admin_verify": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// M14-22: the link by e-mail's cookie, through the same setter.
+	"tappa_admin_link": {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	// M14-15: the invitation link's cookie (its own narrow path, like the recovery link's).
 	"tappa_admin_invite": {[]string{"internal", "handler", "admininvites.go"}, "setInviteLink"},
 	// The two the sign-up wizard sets (M7-02). They share a setter for the same

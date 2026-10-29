@@ -11,8 +11,8 @@ import (
 )
 
 // identityaccount_db_test.go -- M14-18 against real Postgres: the account page's identity acts end to
-// end through this package (the e-mail verification, the window's read, Keep all, unlink and Undo,
-// "Link a business" in both directions). Fixtures are committed through newIDWorld
+// end through this package (the e-mail verification, the window's read, Keep all, unlink and Undo).
+// M14-22's link by e-mail is identitylinkemail_db_test.go. Fixtures are committed through newIDWorld
 // (identity_db_test.go).
 
 // verifiedOn signs w in through the identity (flag on) in tenant and returns the session's Resolved
@@ -257,119 +257,6 @@ func TestUnlink_OfTheCurrentBusinessEndsTheSession(t *testing.T) {
 	}
 }
 
-// TestLinkBusiness_ASixMinuteOldSessionLinksWithThePasswordTypedAgain is S6: the identity session is
-// six minutes old (identity_link_legacy wants five), the person types its password again and the old
-// business's -- the row is linked, its proof session and the fresh identity session are revoked, the
-// person's own session lives on. A wrong OLD password links nothing and is the same nil-error answer
-// (the one result); a wrong CURRENT password is ErrBadCredentials; a refused row is no candidate.
-func TestLinkBusiness_ASixMinuteOldSessionLinksWithThePasswordTypedAgain(t *testing.T) {
-	d := testDB(t)
-	m := testManager(t, d)
-	w := newIDWorld(t, ownerConn(t), true)
-	ta, tl, tr := w.tenant("M14-18 Link A"), w.tenant("M14-18 Link Legacy"), w.tenant("M14-18 Link Refused")
-	w.linked(ta, "active", "backfill", 48*time.Hour)
-	oldPW := "old-" + uuid.NewString()
-	legacy := w.row(tl, fixtureDigest(t, oldPW), "active", 24*time.Hour)
-	refused := w.row(tr, fixtureDigest(t, oldPW), "active", 24*time.Hour)
-	w.exec(`UPDATE admin_users SET unlinked_at = now() WHERE id = $1`, refused)
-	ctx := context.Background()
-	ra, tok := w.verifiedOn(m, ta)
-	w.age(ra, 6*time.Minute)
-
-	if _, err := m.LinkBusiness(ctx, ra, "not-the-password", oldPW, generousBudget()); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("a wrong current password: %v, want ErrBadCredentials", err)
-	}
-	res, err := m.LinkBusiness(ctx, ra, w.pw, "not-the-old-one", generousBudget())
-	if err != nil || res.Linked != 0 {
-		t.Fatalf("a wrong old password: %+v, %v; want the one result (nothing, nil)", res, err)
-	}
-	if id, _ := w.link(legacy); id != uuid.Nil {
-		t.Fatal("a wrong old password linked the row")
-	}
-	res, err = m.LinkBusiness(ctx, ra, w.pw, oldPW, generousBudget())
-	if err != nil || res.Linked != 1 {
-		t.Fatalf("LinkBusiness on a six-minute-old session = %+v, %v; want one row linked", res, err)
-	}
-	if id, via := w.link(legacy); id != w.ident || via != "password" {
-		t.Fatalf("the legacy row is %s/%q, want linked", id, via)
-	}
-	if id, _ := w.link(refused); id != uuid.Nil {
-		t.Fatal("the refused row was linked (it is no candidate)")
-	}
-	for i, s := range res.Temporary {
-		if !res.Revoked[i] || w.int(`SELECT count(*) FROM admin_sessions WHERE id = $1 AND revoked_at IS NULL`, s.ID) != 0 {
-			t.Errorf("fresh session %s still live", s.ID)
-		}
-	}
-	if n := w.int(`SELECT count(*) FROM admin_sessions WHERE tenant_id = $1 AND revoked_at IS NULL`, tl); n != 0 {
-		t.Errorf("%d live sessions left in the linked business (the proof session must be gone)", n)
-	}
-	if _, err := m.Verify(ctx, tok); err != nil {
-		t.Fatalf("the person's own session: %v", err)
-	}
-	w.digestInvariant()
-}
-
-// TestLinkBusiness_FromAnUnlinkedSessionLinksThisRow is the reverse direction (the card's last
-// criterion; M14-13's Choose paragraph sends an unlinked person to the account page): an older
-// per-business sign-in -- its row UNLINKED, its session old -- types its own password and the
-// identity's; this row is linked to the identity, the person's session lives on and now resolves
-// linked; no session opened for the proof stays live. A wrong identity password and an address with
-// no identity are the one nil-error answer; a wrong own password is ErrBadCredentials.
-func TestLinkBusiness_FromAnUnlinkedSessionLinksThisRow(t *testing.T) {
-	d := testDB(t)
-	m := testManager(t, d)
-	w := newIDWorld(t, ownerConn(t), true)
-	ta, tl := w.tenant("M14-18 Reverse A"), w.tenant("M14-18 Reverse Legacy")
-	w.linked(ta, "active", "backfill", 48*time.Hour)
-	rowPW := "row-" + uuid.NewString()
-	legacy := w.row(tl, fixtureDigest(t, rowPW), "active", 24*time.Hour)
-	ctx := context.Background()
-	rl, tok := w.legacyOn(m, rowPW, tl)
-	if rl.Linked {
-		t.Fatal("PREMISE: the legacy session resolves linked")
-	}
-	w.age(rl, 6*time.Minute)
-
-	if _, err := m.LinkBusiness(ctx, rl, "not-this-rows", w.pw, generousBudget()); !errors.Is(err, ErrBadCredentials) {
-		t.Fatalf("a wrong own password: %v, want ErrBadCredentials", err)
-	}
-	if res, err := m.LinkBusiness(ctx, rl, rowPW, "not-the-identitys", generousBudget()); err != nil || res.Linked != 0 {
-		t.Fatalf("a wrong identity password: %+v, %v; want the one result", res, err)
-	}
-	if n := w.int(`SELECT count(*) FROM admin_sessions WHERE tenant_id = $1 AND revoked_at IS NULL`, tl); n != 1 {
-		t.Fatalf("%d live sessions in the legacy business after a refused link, want the person's one (the proof revoked)", n)
-	}
-	res, err := m.LinkBusiness(ctx, rl, rowPW, w.pw, generousBudget())
-	if err != nil || res.Linked != 1 {
-		t.Fatalf("the reverse link = %+v, %v; want this row linked", res, err)
-	}
-	if id, _ := w.link(legacy); id != w.ident {
-		t.Fatal("the row is not linked to the identity")
-	}
-	now, err := m.Verify(ctx, tok)
-	if err != nil || !now.Linked {
-		t.Fatalf("the person's own session after the link: %+v, %v; want live and linked", now, err)
-	}
-	if n := w.int(`SELECT count(*) FROM admin_sessions WHERE tenant_id = $1 AND revoked_at IS NULL`, tl); n != 1 {
-		t.Errorf("%d live sessions in the linked business, want the person's one", n)
-	}
-	for i, s := range res.Temporary {
-		if !res.Revoked[i] || w.int(`SELECT count(*) FROM admin_sessions WHERE id = $1 AND revoked_at IS NULL`, s.ID) != 0 {
-			t.Errorf("the fresh identity session %s is still live", s.ID)
-		}
-	}
-	w.digestInvariant()
-
-	nobody := newIDWorld(t, w.owner, false)
-	tn := nobody.tenant("M14-18 Reverse Nobody")
-	nobody.row(tn, nobody.digest, "active", time.Hour)
-	rn, _ := nobody.legacyOn(m, nobody.pw, tn)
-	if res, err := m.LinkBusiness(ctx, rn, nobody.pw, "anything", generousBudget()); err != nil || res.Linked != 0 {
-		t.Errorf("an address with no identity: %+v, %v; want the one result", res, err)
-	}
-}
-
 // TestAccountActs_TheRowsAddressMustNameTheSessionsOwnIdentity: the acts find the identity by the
 // session row's address and hold it to the SESSION's person (the bucket): a row linked to X that
 // carries Y's address (a shape no writer makes -- the defence layer behind "linked rows share the
@@ -397,12 +284,12 @@ func TestAccountActs_TheRowsAddressMustNameTheSessionsOwnIdentity(t *testing.T) 
 		if _, _, err := m.Unlink(ctx, ra, pw, ty, generousBudget()); !errors.Is(err, ErrNotLinked) {
 			t.Errorf("unlink through a row naming another identity: %v, want ErrNotLinked", err)
 		}
-		if _, err := m.LinkBusiness(ctx, ra, pw, "x", generousBudget()); !errors.Is(err, ErrNotLinked) {
-			t.Errorf("link through a row naming another identity: %v, want ErrNotLinked", err)
-		}
 	}
 	if _, err := m.RequestVerification(ctx, ra, tok); !errors.Is(err, ErrNotLinked) {
 		t.Errorf("a verification through a row naming another identity: %v, want ErrNotLinked", err)
+	}
+	if _, err := m.RequestLink(ctx, ra, tok); !errors.Is(err, ErrNotLinked) {
+		t.Errorf("a link link through a row naming another identity: %v, want ErrNotLinked", err)
 	}
 	if id, _ := y.link(y.int2(ty)); id != y.ident {
 		t.Error("Y's membership was touched through X's session")
@@ -423,8 +310,7 @@ func (w *idWorld) int2(tenant uuid.UUID) uuid.UUID {
 // the same identity's sessions in two businesses share one bucket; another identity's is another; no
 // bucket carries a uuid. An UNLINKED row of the person's address -- the pre-seeded attacker's row --
 // gets its own row bucket, never the person's (so its presses cannot spend the person's window and
-// verification budget), and its ReverseBucket is a key the person's acts never use, shared by every
-// unlinked row of the address. MUTATION: AccountBucket giving an unlinked row the bucket its address
+// verification budget). (M14-22 removed the reverse link and its ReverseBucket.) MUTATION: AccountBucket giving an unlinked row the bucket its address
 // names (the pre-fix code) -> red.
 func TestAccountBucket_IsThePersonsAndAnUnlinkedRowNeverGetsIt(t *testing.T) {
 	d := testDB(t)
@@ -452,30 +338,20 @@ func TestAccountBucket_IsThePersonsAndAnUnlinkedRowNeverGetsIt(t *testing.T) {
 		}
 		return b
 	}
-	reverse := func(r Resolved) string {
-		b, err := m.ReverseBucket(ctx, r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return b
-	}
 	if bucket(ra) != bucket(rb) {
 		t.Error("one identity's sessions in two businesses have two buckets")
 	}
 	if bucket(ra) == bucket(ro) {
 		t.Error("two identities share a bucket")
 	}
-	if bucket(rz) == bucket(ra) || reverse(rz) == bucket(ra) {
+	if bucket(rz) == bucket(ra) {
 		t.Error("an unlinked row of the person's address is charged in the person's own bucket")
 	}
 	if bucket(rz) == bucket(ry) {
 		t.Error("two unlinked rows share a row bucket")
 	}
-	if reverse(rz) != reverse(ry) {
-		t.Error("the reverse link's guesses from two unlinked rows of one address are not bounded together")
-	}
 	uuidRe := regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-	for _, b := range []string{bucket(ra), bucket(ro), bucket(rz), reverse(rz)} {
+	for _, b := range []string{bucket(ra), bucket(ro), bucket(rz)} {
 		if uuidRe.MatchString(b) {
 			t.Errorf("bucket %q carries a uuid", b)
 		}

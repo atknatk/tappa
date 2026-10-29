@@ -135,6 +135,11 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	a.mountGated(r, adminauth.SurfaceAdminInvites, func(r chi.Router) {
 		r.Get(managersHref, a.managersPage)
 	})
+	// THE LINK BY E-MAIL'S PAGE (M14-22): a read -- the state, and in the browser holding the mailed
+	// link the one press; it spends nothing. Mounted only while TAPPA_ADMIN_IDENTITY is on.
+	a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
+		r.Get(accountLinkBusinessesHref, a.linkBusinessesPage)
+	})
 }
 
 // mountWriting registers the panel's state-changing routes: the review decision
@@ -365,14 +370,18 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// any live admin, like the password.
 		a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
 			r.Post(accountSignOutEverywhereHref, a.accountSignOutEverywhere)
-			// M14-18 (ADR 0025's M14 note): the person's own address, the confirmation window and
-			// "Link a business" -- personal acts, beside the password; any live admin.
+			// M14-18 (ADR 0025's M14 note): the person's own address and the confirmation window --
+			// personal acts, beside the password; any live admin.
 			r.Post(accountVerifyHref, a.accountVerifyRequest)
 			r.Post(accountVerifyConfirmHref, a.accountVerifyConfirm)
 			r.Post(accountKeepAllHref, a.accountKeepAll)
 			r.Post(accountUnlinkHref, a.accountUnlink)
 			r.Post(accountUndoHref, a.accountUndo)
-			r.Post(accountLinkHref, a.accountLink)
+			// M14-22: adding the person's other businesses by e-mail proof -- the request ("Add it")
+			// and the press that spends the mailed link. (M14-18's two-password "Link a business" is
+			// gone.)
+			r.Post(accountLinkBusinessesHref, a.accountLinkRequest)
+			r.Post(accountLinkBusinessesConfirmHref, a.accountLinkConfirm)
 		})
 		// SWITCHING BUSINESSES (M14-10): moving into or out of a suspended business stays open
 		// (ADR 0031 §5.4, ADR 0025's M14 note -- sign-in and reading are open during a
