@@ -300,7 +300,8 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	if a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
 		v.SignOutEverywhereHref = accountSignOutEverywhereHref
 		v.SignOutEverywhereEveryBusiness = id.Admin.Linked
-		// M14-18: "Your businesses", the verification, the window and "Link a business".
+		// M14-18: "Your businesses", the verification and the window. (M14-22: another business of the
+		// address is added from the panel's banner, not from this page.)
 		v.Identity = a.accountIdentityView(r, id, zone)
 	}
 	fillAccountVAT(&v, s.VAT, zone)

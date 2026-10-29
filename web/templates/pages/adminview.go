@@ -493,6 +493,11 @@ type PanelChrome struct {
 	// finds a shift the business day cuts (M15-08 step 3a). The zero value draws nothing; a
 	// manager's chrome never carries it.
 	BusinessDayCheck PanelBusinessDayCheck
+
+	// AddBusiness is the banner a linked sign-in sees on every section while another business uses
+	// its e-mail address and is on no sign-in (M14-22, linkbusinesses.templ). The zero value draws
+	// nothing, and the chrome is then byte-for-byte what it was before M14-22.
+	AddBusiness PanelAddBusiness
 }
 
 // Crumb is one step of a section's breadcrumb trail.

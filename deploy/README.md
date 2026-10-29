@@ -2424,6 +2424,8 @@ KM'de birer owner üyeliği, ikisi bağlı; davet için kendi posta kutusu):
    **ulaşmaz**. Kişi Hesap → **"Link a business"**'te kendi parolasını ve o işletmenin (eski) parolasını
    girer → satır bağlanır (yerel provada ölçüldü, aşağıda (f)); sonra (a)'nın S19 sorgusu ve haftalık
    sayımın `unlinked_active_rows`'u bir azalmış olmalı. Choose paragrafı onu oraya yönlendirir.
+   **M14-22'den sonra:** iki parolalı form kalktı; aynı satır panelin bandından e-postayla bağlanır — aşağıdaki
+   *"M14-22 — e-postayla bağlama"* bölümünün dumanı.
 
 Herhangi bir adım 5xx verirse ya da beklenenden saparsa → (f).
 
@@ -2505,6 +2507,8 @@ SELECT toStartOfDay(fromUnixTimestamp64Nano(timestamp)) AS day,
        countIf(JSONExtractString(body,'msg') = 'panel sign-in' AND JSONExtractString(body,'path') = 'legacy') AS legacy_sign_ins,
        sumIf(JSONExtractInt(body,'linked'), JSONExtractString(body,'msg') = 'panel sign-in' AND JSONExtractString(body,'path') = 'identity') AS linked_at_sign_in,
        countIf(JSONExtractString(body,'msg') = 'panel identity link' AND JSONExtractString(body,'outcome') = 'linked') AS linked_on_account_page,
+       -- M14-22: the link by e-mail's press (the account page's two-password form is gone).
+       countIf(JSONExtractString(body,'msg') = 'panel link by e-mail' AND JSONExtractString(body,'outcome') = 'linked') AS linked_by_email,
        countIf(JSONExtractString(body,'msg') = 'panel switched business') AS switches,
        countIf(JSONExtractString(body,'msg') IN ('panel switch refused', 'panel switch refused: synchronizer missing or wrong',
                                                  'panel switch refused: no live admin session', 'panel switch budget reached')) AS switch_refusals
@@ -2552,6 +2556,93 @@ SQL
 beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `ROLLBACK`. Contract A ancak `T = 0` iken konuşulur
 (ADR 0031 §8, plan M14-20a); `RT` ayrı raporlanır. Satır, adres, ad ya da kimlik id'si basılmaz
 (CLAUDE.md §7). `internal/db/adminflag_test.go` bu bölümün sorgularını yazıldıkları gibi bir dünyada koşar.
+
+### M14-22 — e-postayla bağlama: `00084`
+
+Bayrak açıldıktan sonra kişinin aynı adresteki **bağlanmamış** satırları (M14-06'nın backfill'i farklı
+parolalı satırları birleştirmedi) "Switch business"te görünmüyordu ve iki parolalı "Link a business"
+kullanıcı kararıyla kalktı. Bu deploy'dan sonra bağlı bir oturumun adresinde bağsız aktif bir satır varsa
+panelin her bölümünde bir bant çıkar (işletme adlandırmaz); "Add it" kimliğin adresine **tek** link gönderir,
+link aynı tarayıcıda açılıp basılınca adresin **bütün** aktif, reddedilmemiş, bağsız satırları tek
+transaction'da bağlanır (ADR 0031 §5.2 ve §5.7'nin M14-22 notları).
+
+**`00084` ne yapar** (tek dosya, tek transaction; şema-yalnız, veri yazmaz): `admin_identity_verifications`'a
+`purpose` sütunu (`'verify'` varsayılan; sıcak değil); `admin_users_linked_via_known` CHECK'ine `'email'`
+(aynı ad; `admin_users` **sıcak** — `ACCESS EXCLUSIVE` küçük tablonun bir taraması kadar, `lock_timeout =
+'1s'`; aşılırsa 55P03 → hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden); `identity_request_verification`
+üçüncü argümanla (`p_purpose DEFAULT 'verify'`; eski binary'nin iki argümanlı çağrısı aynı davranışla çözülür);
+yeni `identity_link_by_email`. **`identity_link_legacy`'ye dokunmaz** — önceki binary (fd53d34e) onu hesap
+formundan ve girişin otomatik bağından çağırır, bu binary girişten çağırmaya devam eder; `REVOKE` kullanıcının
+kararına bırakıldı (plan, M14-22'nin uygulama notu). Postcondition iki fonksiyonun biçimini, ACL'ini ve
+`tappa_app`'ın `identity_link_legacy` `EXECUTE`'unun durduğunu doğrular.
+
+**Rollout:** eski pod yeni şemada çalışır (iki argümanlı talep `DEFAULT`'la çözülür; eski form
+`identity_link_legacy`'yi çağırmaya devam eder). Geri dönüş = önceki binary; **Down canlıda koşulmaz** (e-postayla
+bağlanmış bir satır ya da canlı bir link varken reddeder).
+
+**(a) Ön kontrol** (salt okuma, yalnız sayı; kullanıcı koşar):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+-- Adresinde bağsız, aktif, reddedilmemiş bir satır olan kimlik | o satırların sayısı | bunlardan yazdırılabilir
+-- ASCII olmayan (homoglif — bağlanmaz, bant onlar için de çıkar: adlandırılmış kalıntı).
+SELECT count(DISTINCT i.id)                                       AS identities_with_business_to_add,
+       count(*)                                                   AS rows_to_add,
+       count(*) FILTER (WHERE a.email::text !~ '^[\x21-\x7e]+$')  AS rows_not_ascii
+  FROM admin_identities i
+  JOIN admin_users a ON a.email = i.email
+ WHERE a.identity_id IS NULL AND a.unlinked_at IS NULL AND a.status = 'active';
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `83` · `1|1|0` (kullanıcının KM satırı; 2026-10-29'da tahmin — ölçülmedi) · `ROLLBACK`.
+`rows_not_ascii > 0` → **DUR**, kullanıcıya bildir (bant o kişide link sonrası da kalır).
+
+**(b) Deploy'dan sonra** (salt okuma; Job log'unda `OK   00084_link_businesses_by_email.sql`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+SELECT has_function_privilege('tappa_app', 'public.identity_link_by_email(text,text)', 'EXECUTE')                AS app_links_by_email,
+       has_function_privilege('tappa_app', 'public.identity_request_verification(text,text,text)', 'EXECUTE')   AS app_requests,
+       to_regprocedure('public.identity_request_verification(text,text)') IS NULL                              AS two_arg_form_gone,
+       has_function_privilege('tappa_app', 'public.identity_link_legacy(text,text)', 'EXECUTE')                 AS app_keeps_link_legacy,
+       has_function_privilege('tappa_operator', 'public.identity_link_by_email(text,text)', 'EXECUTE')          AS operator_links;
+SELECT pg_get_constraintdef(oid) LIKE '%''email''%' AS linked_via_takes_email
+  FROM pg_constraint WHERE conname = 'admin_users_linked_via_known';
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `84` · `t|t|t|t|f` · `t` · `ROLLBACK`. Başka bir sonuç → migration'ın koştuğu sürüm yanlış;
+incele.
+
+**(c) Duman** (`https://taptime.mt/admin`, kullanıcının kendi hesabı: KF'de bağlı kimlik, aynı adreste KM'de
+bağsız satır, kendi posta kutusu):
+
+1. KF'ye kimlikle gir. Her bölümün tepesinde bant: *"Another business uses your email. Add it to this
+   sign-in."* — KM'nin adı ya da bir sayı **yok**.
+2. **Add it** → *"Check your inbox"* sayfası (işletme adı yok). Posta kutusunda *"Add your businesses to your
+   Taptime sign-in"*.
+3. Linki **aynı tarayıcıda** aç → *"Add your businesses"* sayfası, tek düğme **Add them** (açmak bir şey
+   değiştirmez). Bas → *"Done. Every business that uses your email address is now on this sign-in."*; ikinci
+   e-posta *"1 business was just added …"* (ad yok). Bant artık çıkmaz.
+4. **Switch business** → KF ve KM listelenir; KM'ye **tek tıkla** geç; shell KM'yi adlandırır.
+5. Geçişten önce açık kalmış bir KF sekmesinden bir form gönder → `409` *"This page belongs to another business —
+   reload it."*
+6. KM'nin **eski** parolasıyla giriş dene → genel hata (artık çalışmaz); kimlik parolası KM'ye de girer.
+7. İkinci bir tarayıcıda gir; ilkinde Hesap → **Sign out everywhere** → iki tarayıcı da, **KM dahil** her
+   işletmede çıkmış olur (artık bağlı olduğu için).
+8. (a)'yı yeniden koş: beklenen `84` · `0|0|0`.
+
+Herhangi bir adım 5xx verirse → geri dönüş önceki binary'dir (şema 84'te kalır; eski binary onu kullanır,
+`'email'` bağları sıradan bağlı satırlardır).
 
 ### Panel formlarının tenant bağı (M14-10a)
 

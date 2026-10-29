@@ -18,7 +18,9 @@ import (
 )
 
 // THE ACCOUNT PAGE'S IDENTITY SECTIONS (M14-18, ADR 0031 §5.7, §5.8, §8): "Your businesses", "Verify
-// your e-mail", the confirmation window (Keep all, unlink, Undo) and "Link a business".
+// your e-mail" and the confirmation window (Keep all, unlink, Undo). M14-22 took "Link a business" (the
+// two-password form) away: another business of the address is added by e-mail proof
+// (accountlinkbusinesses.go).
 //
 // 🔴 FLAG-GATED, EVERY ROUTE AND EVERY SECTION. Each route is mounted through mountGated
 // (adminauth.SurfaceAccountIdentity): with TAPPA_ADMIN_IDENTITY off it is a path the panel never had
@@ -52,8 +54,6 @@ var (
 	accountKeepAllHref = accountHref + "/confirm/keep-all"
 	accountUnlinkHref  = accountHref + "/confirm/unlink"
 	accountUndoHref    = accountHref + "/confirm/undo"
-	// accountLinkHref is "Link a business", both directions.
-	accountLinkHref = accountHref + "/link"
 )
 
 // verifyLinkPath is the e-mailed link's landing: adminauth.VerifyPath, the link's own path (under
@@ -72,8 +72,8 @@ const (
 
 // The account page's identity words (accountDoneWords / accountProblemWords take them).
 var (
-	accountIdentityDoneWords    = []string{"verify-sent", "verified", "kept", "unlinked", "relinked", "linked"}
-	accountIdentityProblemWords = []string{"verify-refused", "verify-unsent", "no-mail", "mail-down", "already-verified", "window-refused", "too-many", "identity-unavailable"}
+	accountIdentityDoneWords    = []string{"verify-sent", "verified", "kept", "unlinked", "relinked"}
+	accountIdentityProblemWords = []string{"verify-refused", "verify-unsent", "no-mail", "mail-down", "already-verified", "window-refused", "too-many"}
 )
 
 // accountIdentityNotice places a done or problem word in its card.
@@ -89,9 +89,6 @@ func accountIdentityNotice(v *pages.AccountIdentityView, done, problem string) {
 		v.WindowNotice = "That business is no longer on your sign-in. You can put it back from this list until the date above."
 	case "relinked":
 		v.WindowNotice = "That business is back on your sign-in."
-	case "linked":
-		// ONE SENTENCE whether or not anything was linked (ADR 0031 §5.7 (2)).
-		v.LinkNotice = "We checked both passwords. If they belong to the same person, the business is now on this sign-in and appears under Your businesses."
 	}
 	switch problem {
 	case "verify-refused":
@@ -107,9 +104,7 @@ func accountIdentityNotice(v *pages.AccountIdentityView, done, problem string) {
 	case "window-refused":
 		v.WindowProblem = "That could not be done. The check may have ended, or the business is no longer on the list."
 	case "too-many":
-		v.LinkProblem = "Too many attempts from this sign-in. Wait a few minutes and try again."
-	case "identity-unavailable":
-		v.LinkProblem = "That could not be done just now. Nothing was changed; please try again."
+		v.WindowProblem = "Too many attempts from this sign-in. Wait a few minutes and try again."
 	}
 }
 
@@ -119,7 +114,6 @@ func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity,
 	v := &pages.AccountIdentityView{
 		Linked:            id.Admin.Linked,
 		SwitchHref:        adminSwitchHref,
-		LinkHref:          accountLinkHref,
 		KeepAllHref:       accountKeepAllHref,
 		UnlinkHref:        accountUnlinkHref,
 		UndoHref:          accountUndoHref,
@@ -224,29 +218,6 @@ func (a *AdminAuth) accountActBudget(w http.ResponseWriter, r *http.Request, id 
 	if n := a.identityActLimiter.Charge(bucket); n > adminIdentityActLimit {
 		if a.identityActLimiter.FirstOverLimit(n) {
 			a.log.Warn("panel identity act rate limited", "actor_id", id.Admin.AdminUserID, "at", where)
-		}
-		a.accountIdentityAgain(w, r, http.StatusTooManyRequests, func(v *pages.AccountIdentityView) {
-			accountIdentityNotice(v, "", "too-many")
-			v.WindowProblem = v.LinkProblem
-		})
-		return false
-	}
-	return true
-}
-
-// reverseLinkBudget is the reverse link's SECOND bucket: the guesses of the password of the identity
-// the unlinked row's address names, keyed "reverse|..." (adminauth.ReverseBucket) -- bounded across
-// every unlinked row of that address, and never the key of the identity's own acts.
-func (a *AdminAuth) reverseLinkBudget(w http.ResponseWriter, r *http.Request, id httpx.AdminIdentity) bool {
-	key, err := a.admins.ReverseBucket(r.Context(), id.Admin)
-	if err != nil {
-		a.log.Error("panel: the reverse link's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
-		return false
-	}
-	if n := a.identityActLimiter.Charge(key); n > adminIdentityActLimit {
-		if a.identityActLimiter.FirstOverLimit(n) {
-			a.log.Warn("panel identity act rate limited", "actor_id", id.Admin.AdminUserID, "at", "reverse_link")
 		}
 		a.accountIdentityAgain(w, r, http.StatusTooManyRequests, func(v *pages.AccountIdentityView) {
 			accountIdentityNotice(v, "", "too-many")
@@ -504,50 +475,4 @@ func (a *AdminAuth) accountWindowAct(w http.ResponseWriter, r *http.Request, act
 		return
 	}
 	a.redirect(w, accountReturn("relinked", ""))
-}
-
-// ---------------------------------------------------------------- link a business --
-
-// accountLink serves POST accountLinkHref: both passwords, both sides proven in this request with
-// fresh sessions, the link (ADR 0031 §5.7 (2); S6: an old session is no obstacle -- the password is
-// asked again). The answer is the same for "linked" and "nothing to link" (the one redirect);
-// only the person's own current password being wrong is said.
-func (a *AdminAuth) accountLink(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := a.accountIdentityBegin(w, r, "link")
-	if !ok {
-		return
-	}
-	current, other := r.PostFormValue("current_password"), r.PostFormValue("other_password")
-	if current == "" || other == "" {
-		a.accountIdentityAgain(w, r, http.StatusOK, func(v *pages.AccountIdentityView) {
-			v.LinkProblem = "Type both passwords."
-		})
-		return
-	}
-	if !a.accountActBudget(w, r, id, "link") {
-		return
-	}
-	if !id.Admin.Linked && !a.reverseLinkBudget(w, r, id) {
-		return
-	}
-	res, err := a.admins.LinkBusiness(r.Context(), id.Admin, current, other, a.accountLimiter)
-	a.recordFresh(r, res.FreshAct, "link")
-	switch {
-	case errors.Is(err, adminauth.ErrBadCredentials):
-		a.accountIdentityAgain(w, r, http.StatusOK, func(v *pages.AccountIdentityView) {
-			v.LinkProblem = "Your password for this sign-in is not right."
-		})
-		return
-	case errors.Is(err, adminauth.ErrNotLinked), errors.Is(err, adminauth.ErrWindowRefused), errors.Is(err, adminauth.ErrNoSuchAdmin):
-		a.redirect(w, accountReturn("", "identity-unavailable"))
-		return
-	case err != nil:
-		a.log.Error("panel: linking a business failed", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
-		return
-	}
-	// A STABLE EVENT NAME (ADR 0031 §5.15's counters), no count: the number of businesses linked would
-	// tell this business's log about the person's others.
-	a.log.Info("panel identity link", "actor_id", id.Admin.AdminUserID, "outcome", map[bool]string{true: "linked", false: "none"}[res.Linked > 0])
-	a.redirect(w, accountReturn("linked", ""))
 }

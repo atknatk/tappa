@@ -122,86 +122,11 @@ func TestAccountIdentityDB_VerifyOnlyFromTheSameIdentitysBrowser(t *testing.T) {
 	}
 }
 
-// TestAccountIdentityDB_AnUnlinkedSessionLinksItselfFromTheAccountPage is the card's last criterion
-// end to end: the person's older per-business sign-in -- UNLINKED, its own password -- signs in with
-// the flag on (the identity's password differs, so the legacy arm signs it in; M14-13's Choose
-// paragraph would send them to the account page), and the account page's "Link to your Taptime
-// sign-in" with both passwords links THIS row to the identity: the same browser stays signed in, its
-// session now resolves linked ("Your businesses" lists the other business too), no session opened
-// for the proof is left live.
-func TestAccountIdentityDB_AnUnlinkedSessionLinksItselfFromTheAccountPage(t *testing.T) {
-	p := newPanelHarnessWith(t, panelHarnessOptions{adminIdentity: true, tenantName: "Reverse E2E A Ltd"})
-	owner := linkHarness(t, p)
-	forgetIdentityRows(t, owner, p.email)
-	ctx := context.Background()
-	var ident uuid.UUID
-	if err := owner.QueryRow(ctx, `SELECT identity_id FROM admin_users WHERE id = $1`, p.adminID).Scan(&ident); err != nil {
-		t.Fatal(err)
-	}
-	// The identity's password becomes another one (B carries it), and A -- this browser's row -- is an
-	// older, unlinked sign-in of the same address with the harness's own password.
-	b := addBusiness(t, p, owner, uuid.Nil, "Reverse E2E B Ltd")
-	for _, sql := range []string{
-		`UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL WHERE id = $1`,
-		`UPDATE admin_identities SET password_hash = $2 WHERE id = $1`,
-	} {
-		args := []any{p.adminID}
-		if strings.Contains(sql, "$2") {
-			args = []any{ident, victimDigest}
-		}
-		if _, err := owner.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("%s: %v", sql, err)
-		}
-	}
-	// B carries the identity's digest, then is linked (the trigger refuses a digest write to a linked row).
-	if _, err := owner.Exec(ctx, `UPDATE admin_users SET password_hash = $2 WHERE id = $1`, b.admin, victimDigest); err != nil {
-		t.Fatalf("B's digest copy: %v", err)
-	}
-	if _, err := owner.Exec(ctx, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() WHERE id = $1`, b.admin, ident); err != nil {
-		t.Fatalf("link B: %v", err)
-	}
-	t.Cleanup(func() {
-		// A is linked by the test: linkHarness's cleanup unlinks every row of the identity.
-		if _, err := owner.Exec(context.Background(), `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL WHERE id = $1`, b.admin); err != nil {
-			t.Errorf("cleanup B: %v", err)
-		}
-	})
-	p.signInTo(t, p.tenantID)
-	_, page := p.get(t, accountHref)
-	if !strings.Contains(page, "Link to your Taptime sign-in") {
-		t.Fatal("the unlinked session is not offered the reverse link")
-	}
-
-	res, _ := p.post(t, accountLinkHref, url.Values{"current_password": {p.password}, "other_password": {victimPassword}})
-	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "done=linked") {
-		t.Fatalf("the reverse link: %d %q", res.StatusCode, res.Header.Get("Location"))
-	}
-	var linked *uuid.UUID
-	if err := owner.QueryRow(ctx, `SELECT identity_id FROM admin_users WHERE id = $1`, p.adminID).Scan(&linked); err != nil {
-		t.Fatal(err)
-	}
-	if linked == nil || *linked != ident {
-		t.Fatalf("A's row is linked to %v, want the identity", linked)
-	}
-	if !p.signedIn(t) {
-		t.Fatal("the browser was signed out by its own link")
-	}
-	if _, page := p.get(t, accountHref); !strings.Contains(page, "Reverse E2E B Ltd") || strings.Contains(page, "Link to your Taptime sign-in") {
-		t.Fatal("after the link the page does not list B as one of the person's businesses on a linked sign-in")
-	}
-	if n := p.liveSessionsOf(t, b.tenant, b.admin); n != 0 {
-		t.Errorf("%d live sessions in B (the fresh identity session must be revoked)", n)
-	}
-	if n := p.liveSessionsOf(t, p.tenantID, p.adminID); n != 1 {
-		t.Errorf("%d live sessions in A, want the browser's one", n)
-	}
-}
-
 // TestAccountIdentityDB_AnUnlinkedRowCannotSpendThePersonsBudget is the security audit's YÜKSEK, end to
 // end (ADR 0031 §5.8, S3/T1's pre-seeded attacker): the attacker's UNLINKED row Z carries the person's
-// address and its own password. From Z's browser: eleven junk unlinks, eleven junk links and six
-// verification asks. The person's own unlink press and verification ask are then NOT refused by a
-// budget (no 429); the attacker's own link presses are (its row and the reverse key). MUTATION:
+// address and its own password. From Z's browser: eleven junk unlinks, eleven "Add it" presses (M14-22;
+// refused before any charge) and six verification asks. The person's own unlink press and
+// verification ask are then NOT refused by a budget (no 429). MUTATION:
 // AccountBucket giving an unlinked row the bucket its address names -> the person's unlink is 429, red.
 func TestAccountIdentityDB_AnUnlinkedRowCannotSpendThePersonsBudget(t *testing.T) {
 	p := newPanelHarnessWith(t, panelHarnessOptions{adminIdentity: true, tenantName: "Budget E2E A Ltd"})
@@ -227,19 +152,17 @@ func TestAccountIdentityDB_AnUnlinkedRowCannotSpendThePersonsBudget(t *testing.T
 	p.signInTo(t, p.tenantID)
 
 	junk := url.Values{"tenant_id": {p.tenantID.String()}, "password": {"junk"}}
-	linked := 0
 	for i := 0; i < adminIdentityActLimit+1; i++ {
 		attacker.post(t, accountUnlinkHref, junk)
-		res, _ := attacker.post(t, accountLinkHref, url.Values{"current_password": {victimPassword}, "other_password": {"junk"}})
-		if res.StatusCode == http.StatusTooManyRequests {
-			linked++
+		// M14-22: the link by e-mail's "Add it" from the attacker's unlinked row is refused before any
+		// charge (the two-password form this loop pressed is gone).
+		if res, _ := attacker.post(t, accountLinkBusinessesHref, url.Values{}); res.StatusCode != http.StatusSeeOther ||
+			!strings.Contains(res.Header.Get("Location"), "problem=unavailable") {
+			t.Fatalf("the attacker's unlinked row asked for a link: %d %q", res.StatusCode, res.Header.Get("Location"))
 		}
 	}
 	for i := 0; i < adminVerifyRequestLimit+1; i++ {
 		attacker.post(t, accountVerifyHref, url.Values{})
-	}
-	if linked == 0 {
-		t.Error("CONTROL: the attacker's own link presses were never limited")
 	}
 	res, _ := p.post(t, accountUnlinkHref, url.Values{"tenant_id": {z.tenant.String()}, "password": {"not-the-password"}})
 	if res.StatusCode == http.StatusTooManyRequests {

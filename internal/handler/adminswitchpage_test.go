@@ -179,7 +179,9 @@ func TestAdminChoose_TheParagraphNamesTheSwitchOnlyWhereItExists(t *testing.T) {
 	a := adminauth.Attempt{AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: true, Active: true}
 	c := adminauth.Attempt{AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: true, Active: true}
 	const today = "You manage more than one. Pick the one you want to work in — you can sign out and switch at any time."
-	const linkThem = "To move between them without signing out, link them to one sign-in on your account page."
+	// M14-22: the sentence points to the banner's e-mailed link, not to the account page's two-password
+	// form (gone).
+	const linkThem = "To move between them without signing out, sign in with your Taptime sign-in's password: the panel then offers to add your other businesses to it, with a link we email you."
 
 	off := newBrowser(t, newAdminRouter(t, &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
 		return legacyOf(a, c), nil

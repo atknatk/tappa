@@ -60,9 +60,12 @@ type adminAuthenticator interface {
 	VerifyEmail(ctx context.Context, raw string, current adminauth.Token) (bool, error)
 	Unlink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, bool, error)
 	Relink(ctx context.Context, s adminauth.Resolved, password string, target uuid.UUID, budget adminauth.FailureBudget) (adminauth.FreshAct, error)
-	LinkBusiness(ctx context.Context, s adminauth.Resolved, current, other string, budget adminauth.FailureBudget) (adminauth.LinkResult, error)
 	AccountBucket(ctx context.Context, s adminauth.Resolved) (string, error)
-	ReverseBucket(ctx context.Context, s adminauth.Resolved) (string, error)
+	// The link by e-mail (M14-22, accountlinkbusinesses.go): the banner's yes or no, the mailed link,
+	// and its press -- keyed by the verified session and the cookie's token.
+	HasBusinessToAdd(ctx context.Context, s adminauth.Resolved) (bool, error)
+	RequestLink(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedLink, error)
+	LinkByEmail(ctx context.Context, raw string, current adminauth.Token) (adminauth.LinkedBusinesses, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -639,6 +642,8 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	// (R19). Its own flood ceiling; mounted only while TAPPA_ADMIN_IDENTITY is on.
 	a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
 		r.With(a.floodGate("admin_verify_link")).Get(verifyLinkPath, a.verifyLinkLanding)
+		// M14-22: the link by e-mail's landing -- the same shape (a cookie and a redirect, nothing spent).
+		r.With(a.floodGate("admin_link_landing")).Get(linkLandingPath, a.linkLanding)
 	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts

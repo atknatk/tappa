@@ -214,8 +214,8 @@ type AccountView struct {
 // AccountIdentityView is the account page's identity sections (M14-18). Every sentence on it is the
 // handler's, from closed vocabularies; nothing a request typed is echoed.
 type AccountIdentityView struct {
-	// Linked: the session's row is linked to an identity (the forward link, the verification and the
-	// window exist); false is an older per-business sign-in -- the reverse link is offered instead.
+	// Linked: the session's row is linked to an identity (the verification and the window exist); false
+	// is an older per-business sign-in -- the page says to sign in with the Taptime sign-in instead.
 	Linked bool
 	// Businesses is the person's businesses (identity_memberships), the current one first; Unreadable
 	// says the list could not be read (shown instead of an empty list -- §4.6).
@@ -241,11 +241,6 @@ type AccountIdentityView struct {
 	UndoHref      string
 	WindowNotice  string
 	WindowProblem string
-
-	// "Link a business" (ADR 0031 §5.7 (2)): LinkHref posts both passwords.
-	LinkHref    string
-	LinkNotice  string
-	LinkProblem string
 }
 
 // AccountBusiness is one business of the person, for display.

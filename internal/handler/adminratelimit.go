@@ -852,8 +852,8 @@ const (
 	adminVerifyRequestPeriod = time.Hour
 
 	// adminIdentityActLimit / adminIdentityActPeriod: the account page's password-gated identity
-	// acts -- "Link a business" (up to 1 + MaxCandidates bcrypt comparisons), the window's unlink and
-	// Undo (one) -- per PERSON (adminauth.AccountBucket: the identity, or for an unlinked row the
+	// acts -- the window's unlink and Undo (one bcrypt comparison each; M14-22 removed "Link a business")
+	// -- per PERSON (adminauth.AccountBucket: the identity, or for an unlinked row the
 	// identity its address names). Ten in ten minutes is far above a person working through a list
 	// by hand and bounds a held cookie's guessing of another password at one a minute.
 	adminIdentityActLimit  = 10

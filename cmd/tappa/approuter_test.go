@@ -140,6 +140,12 @@ func (silentDB) UnlinkMembership(context.Context, string, uuid.UUID) (db.Unlinke
 func (silentDB) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUID, error) {
 	return uuid.Nil, errSilent
 }
+func (silentDB) RequestIdentityLink(context.Context, string, string) (db.IdentityVerification, error) {
+	return db.IdentityVerification{}, errSilent
+}
+func (silentDB) LinkByEmail(context.Context, string, string) (db.LinkedByEmail, error) {
+	return db.LinkedByEmail{}, errSilent
+}
 func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
 	return db.ConsumedIdentityRowReset{}, errSilent
 }
@@ -423,7 +429,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// M14-18: the account page's identity acts (ADR 0025's M14 note).
 		"POST /admin/account/verify-email": true, "POST /admin/account/verify-email/confirm": true,
 		"POST /admin/account/confirm/keep-all": true, "POST /admin/account/confirm/unlink": true,
-		"POST /admin/account/confirm/undo": true, "POST /admin/account/link": true,
+		"POST /admin/account/confirm/undo": true,
+		// M14-22: the link by e-mail's request and press replace M14-18's two-password "Link a business".
+		"POST /admin/account/link-businesses": true, "POST /admin/account/link-businesses/confirm": true,
 		// M14-16: the two narrowing membership presses.
 		"POST /admin/account/managers/disable": true, "POST /admin/account/managers/make-manager": true}
 	// Named routes that exist only with the optional surfaces on.
