@@ -95,6 +95,9 @@ var identityTenantWideReads = map[string]int{
 	// M14-15 (00077): the lock on every membership of the identity before the business's row and the
 	// invitation are locked (the lock order).
 	"identity_accept_invite": 1,
+	// M14-22 (00084): the lock on every membership of the identity before the rows to be linked (the lock
+	// order: identity -> memberships -> candidates -> the link -> the session).
+	"identity_link_by_email": 1,
 }
 
 // identitySessionKeyLookups names, per function, how many statements find a session -- or (M14-05) a
@@ -126,12 +129,16 @@ var identitySessionKeyLookups = map[string]int{
 	"resolve_admin_invite_by_token_hash": 1,
 	"identity_accept_invite":             2,
 	"identity_accept_invite_new":         1,
+	// M14-22 (00084): the clicking browser's session -- the second secret beside the mailed link.
+	"identity_link_by_email": 1,
 }
 
 // identityEmailWideReads names, per function, how many statements read admin_users by ONE ADDRESS
 // across every tenant (`<alias>.email OPERATOR(public.=) <trusted value>`, the belt's third class).
-// Only a named exception of ADR 0031 §5.2 may: such a read is how an e-mail reaches a writer, which
-// the rule "a writer finds the identity only through a secret" otherwise forbids.
+// Such a read is how an e-mail reaches a writer, which the rule "a writer finds the identity only
+// through a secret" otherwise forbids: it is named here per function, with its reason -- a named
+// exception of ADR 0031 §5.2, or (M14-18, M14-22) a read of the identity's OWN address that a secret
+// found first.
 var identityEmailWideReads = map[string]int{
 	// M14-08 (00074): "the address is in no other admin_users row" -- an existence test, under the
 	// address's namespaced lock; it returns nothing and writes nothing. M14-08a (00076): a FOR loop
@@ -141,6 +148,12 @@ var identityEmailWideReads = map[string]int{
 	// identity's address, read from the identity row the session found; unlinked_at >= the window's
 	// opening), LIMIT 50. It writes nothing (STABLE) and lists only what the person may take back.
 	"identity_confirm_window": 1,
+	// M14-22 (00084): the rows the link adds -- every active, unrefused, unlinked row of the identity's OWN
+	// registered address (read from the identity row the two secrets found), locked FOR UPDATE; each
+	// write it drives is pinned to the loop record's id and tenant. Not a named exception of §5.2: the
+	// identity is found from the secrets, the address only says WHICH rows its mailbox proof covers (the
+	// user's decision of 2026-10-29); 6b refuses a homoglyph row before anything is written.
+	"identity_link_by_email": 1,
 }
 
 // identityClaimAddressKeys names, per function, how many statements key an admin_identities alias by
@@ -962,6 +975,7 @@ const (
 	identityBeltAcceptNewFn  = "public.identity_accept_invite_new(text, text)"
 	identityBeltClaimFn      = "public.identity_claim_signup(text, uuid, text, text)"
 	identityBeltReconcileFn  = "public.identity_reconcile()"
+	identityBeltLinkEmailFn  = "public.identity_link_by_email(text, text)"
 	identityBeltSwitchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	identityBeltPlainRevoke  = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
 	identityBeltViewRevoke   = "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
@@ -980,6 +994,7 @@ var identityBeltFamilies = map[string]func() []identityBeltControl{
 	"TestIdentityBodies_TheInvitationIsHeldByTheBelt":              identityBeltInvitationControls,
 	"TestIdentityBodies_TheReconciliationIsHeldByTheBelt":          identityBeltReconcileControls,
 	"TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt":    identityBeltClaimsPasswordControls,
+	"TestIdentityBodies_TheLinkByEmailIsHeldByTheBelt":             identityBeltLinkByEmailControls,
 }
 
 // identityBeltFamily is the calling test's family.
@@ -1012,6 +1027,13 @@ var identityBeltExpectedControls = []string{
 	"M14-06b: one more unkeyed identity statement",
 	"M14-06b: the reconcile link without its tenant",
 	"M14-06b: the tenant read by a scan of another tenant table",
+	"M14-22: the e-mail link's candidates through another operator",
+	"M14-22: the e-mail link's membership lock without its identity",
+	"M14-22: the e-mail link's membership test without its tenant",
+	"M14-22: the e-mail link's row linked without its tenant",
+	"M14-22: the e-mail link's session joined by half its key",
+	"M14-22: the e-mail link's sessions revoked without their tenant",
+	"M14-22: the e-mail link spent without its key",
 	"M5: the membership list without its identity",
 	"M9: the revoke correlated to itself",
 	"P3: a tenant read off an unkeyed identity row",
@@ -1348,6 +1370,38 @@ func identityBeltInvitationControls() []identityBeltControl {
 			put: "     WHERE v.id = v_invite\n       AND v.used_at IS NULL;"},
 		{name: "the resolver without the invitation's token", fn: "public.resolve_admin_invite_by_token_hash(text)",
 			cut: "WHERE v.token_hash = p_token_hash", put: "WHERE v.used_at IS NULL"},
+	}
+}
+
+// TestIdentityBodies_TheLinkByEmailIsHeldByTheBelt: M14-22's (00084) identity_link_by_email, each
+// statement without what holds it (identityBeltLinkByEmailControls) -- the e-mail-wide read, the
+// membership lock, the per-business test, the link, the revocation, the session's join and the spent
+// link.
+func TestIdentityBodies_TheLinkByEmailIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltLinkByEmailControls() []identityBeltControl {
+	const fn = identityBeltLinkEmailFn
+	return []identityBeltControl{
+		{name: "M14-22: the e-mail link's row linked without its tenant", fn: fn,
+			cut: "         WHERE a.id = r.id\n           AND a.tenant_id = r.tenant_id\n", put: "         WHERE a.id = r.id\n"},
+		{name: "M14-22: the e-mail link's sessions revoked without their tenant", fn: fn,
+			cut: "         WHERE s.tenant_id = r.tenant_id\n           AND s.admin_user_id = r.id\n", put: "         WHERE s.admin_user_id = r.id\n"},
+		{name: "M14-22: the e-mail link's membership test without its tenant", fn: fn,
+			cut: "WHERE o.tenant_id = r.tenant_id AND o.identity_id = v_identity;", put: "WHERE o.identity_id = v_identity;"},
+		{name: "M14-22: the e-mail link's membership lock without its identity", fn: fn,
+			cut: "PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;",
+			put: "PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id IS NOT NULL FOR UPDATE;"},
+		{name: "M14-22: the e-mail link's candidates through another operator", fn: fn,
+			cut: "WHERE a.email OPERATOR(public.=) v_identity_email", put: "WHERE a.email = v_identity_email"},
+		{name: "M14-22: the e-mail link's session joined by half its key", fn: fn,
+			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id",
+			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id"},
+		{name: "M14-22: the e-mail link spent without its key", fn: fn,
+			cut: "SET used_at = pg_catalog.now()\n     WHERE v.id = v_verification\n       AND v.identity_id = v_identity\n",
+			put: "SET used_at = pg_catalog.now()\n     WHERE v.used_at IS NULL\n"},
 	}
 }
 

@@ -89,6 +89,7 @@ güvenlik kartları 3–6 denetim turu sürdü, aşağıdaki toplam bunu içerir
 | M14-17 | P5 | Kayıt: e-posta doğrulaması (EM-11), `admin_signup_claims`, var olan adres | XL | `tappa-db-migrator` + yapıcı + `tappa-brand` + güvenlik | M14-08, M14-14 |
 | M14-18 | P5 | Hesap: "Your businesses", e-posta doğrulama, ilk doğrulama onay listesi, "Link a business" | L | yapıcı (`tappa-brand`) + güvenlik | M14-05, M14-07, M14-12 |
 | M14-19 | P6 | Bayrağı açma (05-config commit + deploy, ön kontroller, migration: onay pencerelerinin taşınması + `identity_create_for_signup` EXECUTE REVOKE, izleme sayaçları) | S–M | yapıcı + `tappa-db-migrator` + kullanıcı | M14-06b, M14-09 … M14-13, M14-14, M14-17, M14-18 |
+| M14-22 | P6 | E-posta onayıyla bağlama: bant → tek e-posta linki → `identity_link_by_email` (00084); iki parolalı "Link a business" kalkar | L | yapıcı (`tappa-brand`) + `tappa-db-migrator` + güvenlik | M14-19 canlıda |
 | M14-20a | P6 | Contract A: binary eski kolu bırakır, bayrak kalkar, şema aynı | L | yapıcı + güvenlik | M14-19 + K-3 + ön koşullar |
 | M14-20b | P6 | Contract B: tetikleyici değişimi, digest kopyalayan definer gövdelerinin aynı imzayla yenilenmesi, DROP/REVOKE/NULL, `created_at`'li VALID CHECK (sonraki deploy) | L | `tappa-db-migrator` + güvenlik | M14-20a canlıda |
 | M14-21 | P7 | Faz sonu doğrulaması | M | denetçi + güvenlik | hepsi |
@@ -800,6 +801,111 @@ NULL` süzer).
 - İzleme: e-postasız SigNoz sayaçları (kimlik yolu / eski kol girişleri, geçiş reddi, bağlama) ve
   haftalık "bağlanmamış satır", "tek owner'ı bağlanmamış tenant" ve ayrı olarak "reddedilmiş satırların
   tenant'ları" sayımı `state.md`'ye.
+
+## M14-22 — E-posta onayıyla bağlama
+
+- **Bağımlılık:** M14-19 canlıda (bayrak açık, goose 83)
+- **Kırmızı çizgi:** §4.5 (3) (kapalı listeye bir fonksiyon; §6.1'in sır listesinde adıyla) · §7 · §9 (panel bandı)
+- **Araç:** yapıcı (skill `tappa-brand`) + agent `tappa-db-migrator` (tek migration, `00084`) + güvenlik
+- **Boyut:** L
+- **Commit:** `feat(db): link a person's businesses by e-mail proof` + `feat(panel): add the person's other businesses from a banner`
+
+**Neden (2026-10-28/29).** Bayrak açıldıktan sonra (Deploy 3) duman testinde kişinin kimliği yalnız KF'ye
+bağlıydı; aynı adresteki KM satırı (başka parola) bağlanmamıştı — M14-06'nın backfill'i farklı parolalı
+satırları birleştirmez — ve "Switch business" yalnız KF'yi listeledi. Var olan yol, M14-18'in iki parolalı
+"Link a business"ı (ADR 0031 §5.7 (2)), kullanıcıya görünmedi ve tasarımı reddedildi: *"hiç ömrümde böyle
+linkleme görmedim, gerçek dünya ile alakası yok, zorlama ve kırılgan; belki 10 işletme bağlayacağım"*.
+
+**Kullanıcı kararları (2026-10-28/29):**
+1. **"E-posta koduyla, tek tık"** — Slack deseni: kanıt **posta kutusudur**, parolalar değil.
+2. **"Adı söylemesin"** — bant posta kutusu kanıtından önce işletmeyi (ve sayıyı) **adlandırmaz**.
+
+Bu karttan sonra günlük yol yalnız "Switch business"tir; yeni işletmeler (kayıt sahiplenmesi, davet) zaten
+bağlı doğar.
+
+**Kabul kriterleri** (kullanıcı onaylı).
+
+*Davranış*
+1. Bağlı bir kimlik oturumunun kimliğinin adresinde ≥ 1 bağsız aktif satır varsa panelin tepesinde (kabuk,
+   her sayfa; sayfa başına kapatılabilirlik gerekmez) bant: *"Another business uses your email. Add it to
+   this sign-in."* + tek düğme *"Add it"*. İşletme ve sayı adlandırmaz. Böyle satırı olmayan kimlik ve eski
+   (bağlanmamış) oturum bandı hiç görmez. UI skill `tappa-brand`'a uyar; bant panel kabuğudur, tap ekranı
+   değil.
+2. *"Add it"* (POST, her panel formu gibi CSRF/Origin + `tb` bağı) kimliğin adresine **tek** doğrulama linki
+   gönderir: tek kullanım, ≤ 24 saat, kişi başına oran (var olan sınırlayıcı deseni, işten önce
+   `TryCharge`), var olan mektup üslubunda şablon; yanıt sayfası işletme adlandırmadan *"Check your
+   inbox"* der. Var olan kimlik doğrulama altyapısı uyduğu yerde kullanılır (`admin_identity_verifications`,
+   `identity_request_verification` / `identity_verify_email`, M14-18'in akışı) — ya da karıştırmak M14-18'in
+   anlamını değiştirecekse kardeş tablo/kapsam; seçim gerekçelendirilir.
+3. Linkin açılması (GET **tüketmez** — M14-18'in "GET harcamaz, POST onaylar" kuralı) bir onay sayfası
+   gösterir; onay (POST, kimliğin canlı oturumu da gerekir) kimliğin adresindeki **bütün** aktif,
+   reddedilmemiş (`unlinked_at IS NULL`), bağsız satırları **tek transaction'da** bağlar. 1, 2 ve 10
+   işletmeyle testler.
+4. Bağlanan satırlar kimliğin parola digest'ini alır (dual-write, ADR 0031 §5.1); var olan oturumları
+   iptal edilir; eski parolaları artık giriş yapmaz (test edilir).
+5. Onaydan sonra "Switch business" her işletmeyi listeler; geçiş tek tıktır (M14-10 davranışı — bir handler
+   testinde uçtan uca kanıtlanır).
+6. Bağlanan her işletmenin `audit_log`'una bir satır; satır başka tenant'ı, üyelik sayısını, `identity_id`'yi
+   anmaz.
+7. Kişiye bir bildirim e-postası: *"N businesses were added to your sign-in"* (sayı posta kutusu sahibine
+   söylenebilir; ad gerekmez — yapıcının kararı, gerekçeli).
+8. İki parolalı "Link a business" formu (`accountLinkCard`, handler'ı/rotası), uygulama yolu
+   (`identity_link_legacy`: migration'da `tappa_app`'tan `REVOKE EXECUTE`; fonksiyon contract B'ye dek kalır —
+   ADR'de yazılır) ve M14-13'ün ona gönderen Choose cümlesi kalkar (bant akışını gösteren cümleyle). Bunları
+   pinleyen her test/envanter bilerek, gerekçeyle güncellenir.
+
+*Güvenlik ve veri*
+9. Bağlama yalnız posta kutusu kanıtıyla: doğrulama token'ı **ve** o kimliğin canlı oturumu. Kimliği
+   e-postadan bulup yazan yol yok (§4.5 (3): yazarlar kimliği sırdan bulur — e-posta token'ı bir sırdır; yeni
+   adlandırılmış istisna gerekmemeli — doğrulanır ve söylenir).
+10. ASCII adres kuralı (00076 yüklem 6b, bayt-aynı, `IF (…) IS NOT TRUE THEN CONTINUE`/ret) aday satırlarda —
+    homoglif satır asla bağlanmaz; bağlayıcılara uygulanıyorsa `TestIdentityAddressRule_EveryIdentityInsertDecidesIt`
+    / kemer envanterleri yeni fonksiyonu kapsar. Reddedilmiş satır asla bağlanmaz. Eşzamanlı çift onay (aynı
+    token'la iki POST) → 500 yok, çift bağ yok, tam bir başarı (`-race`, N goroutine). Kilit sırası giriş/geçişle
+    tutarlı (kimlik, sonra üyelik) — kilitlenme yok.
+11. Migration `00084`: yeni kapalı-liste fonksiyonu `identity_link_by_email(p_session_hash, p_verification_hash)`,
+    sahibi `tappa_identitydefiner`, `SET search_path`, `REVOKE ALL FROM PUBLIC`, `GRANT EXECUTE` yalnız
+    `tappa_app`'a; BYPASSRLS gövdesinde her tenant-tablo ifadesinde açık `tenant_id` yüklemi (kimlik kemeri
+    tutar — T178 deseninde bir aile testinde kontrolleri, `identityBeltFamilies`, aile başına ≤ 10);
+    `linked_via` `'email'` değerini alır (CHECK güncellemesi); `identity_link_legacy` `tappa_app`'tan REVOKE;
+    sıcak tablolarda `lock_timeout`; Down geri alınabilir; eski binary (fd53d34e) rollout boyunca yeni şemada
+    çalışır (o `identity_link_legacy`'yi çağırır — REVOKE eski pod'un formunu rollout dakikalarında kırar: bedeli
+    adlandır ya da sırala; expand/contract kuralı aynı deploy'da önceki binary'nin çağırdığını REVOKE etmez —
+    kural ısırırsa **dur ve seçenekleri raporla**).
+12. CLAUDE.md §4.5 (3) ve ADR 0031 §6.1 bayt-aynı güncellenir (`TestClaudeMD_TheIdentityExceptionIsADR0031sSection61`)
+    — listenin adlandırıldığı yere `identity_link_by_email`, başka bir şey değil; ADR §5.2 (kapalı liste + fiil
+    × sütun matrisi) ve §5.7 fonksiyonu ve iki kullanıcı kararının tarihli notunu alır; privcatalog /
+    identitycatalog / m11schema güncellenir.
+13. Log: adres, token, `identity_id` yok (CLAUDE.md §7); redline temiz.
+
+*Doğrulama*
+14. Her yeni korumanın MUTASYON KANITI; gerçek Postgres'e karşı davranış testleri; dal CI yeşil.
+15. "Link a business"ın canlıda neden görünmediği (bayrak açık, kimlik oturumu, KF bağlı, aynı adreste bağsız
+    aktif KM satırı): üretim binary'sinin koduyla (main fd53d34e) lane DB'de o şekil için hesap sayfası
+    çizilir, ne çizildiği ve neden raporlanır.
+16. Gerçekçilik denetimi (kullanıcı kuralı, "piyasa deseni önce"): raporda kullanıcıya görünen her adımın
+    karşılığı (Slack'in "find your workspaces" e-posta onayı; Notion/Linear tek hesap + çalışma alanı
+    değiştirici).
+
+*Canlıya alma*
+17. `deploy/README.md`: "M14-22" bölümü — ön kontroller (adresinde bağsız aktif satır olan kimlik sayısı, salt
+    okuma; beklenen şimdi: 1), deploy sonrası kontroller (goose 84, ACL'ler) ve duman: bant → bağla → Switch
+    hepsini listeler; eski sekme 409; "Sign out everywhere" artık her işletmeyi kapsar.
+
+**Uygulama notu (2026-10-29, yapıcı):** madde 11'in `REVOKE`'u bu kartta **yapılmadı** — kural ısırdı:
+`identity_link_legacy`'yi önceki binary (fd53d34e) hem hesap formundan **hem de** girişin otomatik
+bağından (ADR 0031 §5.6, §5.7 (1); aynı parolalı bağlanmamış satır) çağırıyor, bu kartın binary'si de
+girişten çağırmaya devam ediyor. Seçenekler kullanıcıya (orkestratör) raporlandı; `00084`'ün son
+koşulu `tappa_app`'ın `EXECUTE`'unun durduğunu doğrular.
+
+**Madde 15'in bulgusu (2026-10-29, lane DB, fd53d34e'nin kodu = bu dalın tabanı):** o şekilde (bayrak açık,
+kimlik oturumu KF'de, KM'de aynı adreste başka parolalı bağsız aktif satır) `/admin/account` `200` döndü ve
+"Link a business" kartı **çizildi** — kapı doğru açıktı (`SurfaceAccountIdentity` on, `v.Identity` dolu). Sorun
+bulunabilirlikti: kart hesap sayfasının iki sütunlu ızgarasında beşinci kart (Identity, Your brand, Your
+password, Your businesses'tan sonra), ekranın altında; sayfa dışında ona giden hiçbir yol yoktu —
+`/admin/switch` tek işletmede *"KF is the only business on this sign-in, so there is nothing to switch to"*
+der ve bağlantı vermez, kabukta işaret yok, M14-13'ün hesap sayfasına yönlendiren Choose cümlesi yalnız eski
+kolun seçicisinde (aynı parolayla birden çok bağsız satır) çizilir — kimlik girişi onu hiç görmez.
 
 ## M14-20a — Contract A (kod)
 

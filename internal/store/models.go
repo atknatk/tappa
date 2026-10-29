@@ -50,6 +50,7 @@ type AdminIdentityVerification struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	UsedAt     *time.Time
+	Purpose    string
 }
 
 type AdminInvite struct {

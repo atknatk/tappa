@@ -82,8 +82,7 @@ var identitySignaturesM1405 = []identitySignature{
 	{"identity_link_legacy", "p_identity_session_hash text, p_legacy_session_hash text", "TABLE(admin_user_id uuid, tenant_id uuid)", "tappa_identitydefiner"},
 	{"identity_unlink_backfilled", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid, revoked_sessions integer)", "tappa_identitydefiner"},
 	{"identity_relink_refused", "p_session_hash text, p_tenant uuid", "TABLE(admin_user_id uuid)", "tappa_identitydefiner"},
-	{"identity_request_verification", "p_session_hash text, p_token_hash text",
-		"TABLE(verification_id uuid, expires_at timestamp with time zone)", "tappa_identitydefiner"},
+	// M14-22 (00084): identity_request_verification gained its purpose -- identitySignaturesM1422.
 	{"identity_verify_email", "p_verification_hash text, p_session_hash text", "TABLE(first_verification boolean)", "tappa_identitydefiner"},
 	{"identity_record_failed_login", "p_identity_id uuid, p_event text", "TABLE(recorded boolean)", "tappa_identitydefiner"},
 	{"identity_sweep_events", "", "TABLE(deleted bigint)", "tappa_identitydefiner"},
@@ -143,10 +142,21 @@ var identitySignaturesM1406b = []identitySignature{
 	{"identity_reconcile", "", "integer", "tappa_identitydefiner"},
 }
 
+// identitySignaturesM1422 is M14-22's part (migration 00084; ADR 0031 §5.2's note of 2026-10-29, the
+// user's decisions): the request's third argument, the link's purpose (DEFAULT 'verify' -- the binary
+// before 00084 calls it with two; the identity arguments carry no default, as identity_claim_signup's
+// do not), and the link by e-mail -- two secrets, the identity's address's rows.
+var identitySignaturesM1422 = []identitySignature{
+	{"identity_request_verification", "p_session_hash text, p_token_hash text, p_purpose text",
+		"TABLE(verification_id uuid, expires_at timestamp with time zone)", "tappa_identitydefiner"},
+	{"identity_link_by_email", "p_session_hash text, p_verification_hash text",
+		"TABLE(linked integer, first_verification boolean, email text)", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
 var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415,
-	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b, identitySignaturesM1406b)
+	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b, identitySignaturesM1406b, identitySignaturesM1422)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -541,9 +551,18 @@ var identityDefinerMatrixM1406b = map[string]string{
 	"admin_identities:INSERT": "email,password_hash",
 }
 
+// identityDefinerMatrixM1422 is what 00084 grants tappa_identitydefiner: the link's purpose, written by
+// identity_request_verification and read by identity_link_by_email. The link reads and writes nothing
+// else that 00071/00072 did not grant (the identity's address, digest and window; the rows' link columns
+// and digest; the sessions' revocation; the audit row; the email_verified event).
+var identityDefinerMatrixM1422 = map[string]string{
+	"admin_identity_verifications:SELECT": "purpose",
+	"admin_identity_verifications:INSERT": "purpose",
+}
+
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
 var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415, identityDefinerMatrixM1417,
-	identityDefinerMatrixM1406b}
+	identityDefinerMatrixM1406b, identityDefinerMatrixM1422}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -953,6 +972,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 		identityStep{name: "M14-17 sweep", sql: sweepSignupClaimsSQL},
 	)
 	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)
+	steps = append(steps, identityExerciseM1422(t, ctx, sp)...)
 	// M14-16b (00081): business A's owners who can sign in, in A's own context (plain is its owner).
 	steps = append(steps, identityStep{name: "M14-16b owners who can sign in",
 		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,

@@ -470,12 +470,13 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 	"identity_password_for_session(text)":                     true,
 	"identity_record_failed_login(uuid,text)":                 true,
 	"identity_relink_refused(text,uuid)":                      true,
-	"identity_request_verification(text,text)":                true,
-	"identity_revoke_sessions(text,boolean)":                  true,
-	"identity_set_password(text,text)":                        true,
-	"identity_switch_session(text,uuid,text)":                 true,
-	"identity_unlink_backfilled(text,uuid)":                   true,
-	"identity_verify_email(text,text)":                        true,
+	// M14-22 (00084): the request gained its purpose argument (DROP + CREATE) -- still no identity row.
+	"identity_request_verification(text,text,text)": true,
+	"identity_revoke_sessions(text,boolean)":        true,
+	"identity_set_password(text,text)":              true,
+	"identity_switch_session(text,uuid,text)":       true,
+	"identity_unlink_backfilled(text,uuid)":         true,
+	"identity_verify_email(text,text)":              true,
 	// M14-18 (00079): the window's reader (STABLE: it reads the identity by its key) and "Keep all"
 	// (an UPDATE of the window's three columns by the key) -- neither writes an identity row.
 	"identity_confirm_window(text)": true,
@@ -484,6 +485,11 @@ var identityAdminIdentitiesNonWriters = map[string]bool{
 	// on the first mailbox proof, UPDATEs its email_verified_at and window; its two addresses are held
 	// to printable ASCII before it links anything (TestAdminInvites00077_NoIdentityIsBornOrLinkedForANonASCIIAddress).
 	"identity_accept_invite(text,text)": true,
+	// M14-22 (00084): the link by e-mail births no identity -- it locks the identity the two secrets found and,
+	// on the first mailbox proof, UPDATEs its email_verified_at and window; it carries 6b as a refusal on every
+	// candidate row (`IF (...) IS NOT TRUE THEN CONTINUE`), and its behaviour test holds that refusal to the row
+	// linked (TestIdentityLinkByEmail00084_EveryGuardHoldsItsCase).
+	"identity_link_by_email(text,text)": true,
 }
 
 // identityAddressRuleWriters are the functions that DO insert into admin_identities, each carrying
