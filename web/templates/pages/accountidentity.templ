@@ -7,7 +7,9 @@ import (
 )
 
 // The account page's IDENTITY SECTIONS (M14-18, ADR 0031 §5.7, §5.8, §8): "Your businesses" with the
-// e-mail verification, the confirmation window, and "Link a business". Drawn only while the panel
+// e-mail verification, and the confirmation window. (M14-22 took "Link a business" -- the two-password
+// form -- away: another business of the address is added from the panel's banner, by e-mail proof --
+// linkbusinesses.templ.) Drawn only while the panel
 // identity flag is on (AccountView.Identity is nil otherwise, and then nothing of this file is
 // written -- the page is today's).
 //
@@ -127,8 +129,9 @@ templ accountBusinessesCard(v AccountIdentityView) {
 		}
 		if !v.Linked {
 			<p class="text-[13px] leading-normal text-ink/70">
-				This business has its own sign-in. Link it to your Taptime sign-in below to move between
-				your businesses without signing out.
+				This business has its own sign-in. To move between your businesses without signing out,
+				sign in with your Taptime sign-in: a banner at the top of the panel offers to add this
+				business to it, with a link we email you.
 			</p>
 		} else if len(v.Businesses) > 1 {
 			<div>
@@ -167,63 +170,6 @@ templ accountBusinessesCard(v AccountIdentityView) {
 			</form>
 		}
 	</section>
-}
-
-// accountLinkCard is "Link a business" (ADR 0031 §5.7 (2)): two passwords -- this sign-in's own,
-// asked again, and the other side's. A linked sign-in links an older per-business sign-in of the same
-// address; an unlinked one (M14-13's Choose paragraph sends that person here) links itself to the
-// Taptime sign-in. The answer is the same sentence whether or not anything was linked.
-templ accountLinkCard(v AccountIdentityView) {
-	<form method="post" action={ templ.URL(components.Bound(ctx, v.LinkHref)) } class="panel-card min-w-0" aria-labelledby="account-link-heading">
-		if v.Linked {
-			@accountCardHeading("account-link-heading", "Link a business")
-			<p class="text-[13px] leading-normal text-ink/70">
-				Do you manage a business on Taptime with the same email address but a different password?
-				Type both passwords to put it on this sign-in.
-			</p>
-		} else {
-			@accountCardHeading("account-link-heading", "Link to your Taptime sign-in")
-			<p class="text-[13px] leading-normal text-ink/70">
-				Do you also manage other businesses on Taptime with this email address? Type both
-				passwords to put this business on that sign-in.
-			</p>
-		}
-		if v.LinkNotice != "" {
-			@components.PanelNotice(components.ToneOK, "Checked") {
-				<p>{ v.LinkNotice }</p>
-			}
-		}
-		if v.LinkProblem != "" {
-			@components.PanelNotice(components.ToneAlert, "Nothing was linked") {
-				<p>{ v.LinkProblem }</p>
-			}
-		}
-		<div class="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-			<div class="field-stack min-w-0">
-				<label class="lbl" for="account-link-current">
-					if v.Linked {
-						Your password
-					} else {
-						This business's password
-					}
-				</label>
-				<input class="field-input field-input--mono" id="account-link-current" type="password" name="current_password" autocomplete="current-password" required/>
-			</div>
-			<div class="field-stack min-w-0">
-				<label class="lbl" for="account-link-other">
-					if v.Linked {
-						The other business's password
-					} else {
-						Your Taptime sign-in's password
-					}
-				</label>
-				<input class="field-input field-input--mono" id="account-link-other" type="password" name="other_password" autocomplete="off" required/>
-			</div>
-		</div>
-		<div>
-			<button class="btn btn--primary rounded-xl" type="submit">Link</button>
-		</div>
-	</form>
 }
 
 // windowRowHref is the row's form target: the Undo for a row refused in this window, the unlink

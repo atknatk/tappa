@@ -230,6 +230,10 @@ const (
 	subjectSignupKnown  = "A Taptime registration used your address"
 	// subjectAdminInvitation is the manager invitation's (M14-15, ADR 0031 §5.14).
 	subjectAdminInvitation = "You're invited to manage a business on Taptime"
+	// M14-22 (ADR 0031 §5.7's note of 2026-10-29): the link that adds the person's other businesses to
+	// their sign-in, and the one notice after it.
+	subjectLinkBusinesses  = "Add your businesses to your Taptime sign-in"
+	subjectBusinessesAdded = "Businesses were added to your Taptime sign-in"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -253,6 +257,11 @@ const (
 	// the link from its constants, this package checks it (TestRender_AcceptsTheVerificationLinkAdminauthMints).
 	verifyPath  = "/admin/verify-email"
 	verifyParam = "t"
+	// linkPath / linkParam are the link by e-mail's link (M14-22): internal/adminauth's LinkPath and
+	// LinkParam written a second time for signInPath's reason
+	// (TestRender_AcceptsTheLinkBusinessesLinkAdminauthMints).
+	linkPath  = "/admin/link-businesses"
+	linkParam = "t"
 	// signupConfirmPath is the registration link's page (M14-17): internal/handler's
 	// signupConfirmPath, held here like signInPath (the handler's constructor renders once at boot).
 	signupConfirmPath  = "/admin/signup/confirm"
@@ -277,6 +286,8 @@ var (
 	ErrLink = errors.New("email: the link is not the expected address under the base URL")
 	// ErrLifetime: the link's lifetime is under a minute.
 	ErrLifetime = errors.New("email: the link's lifetime is under a minute")
+	// ErrCount: the notice of added businesses was asked for with no business added (M14-22).
+	ErrCount = errors.New("email: the notice counts no business")
 )
 
 // InvitationView is what the invitation says besides its link. It carries no
@@ -425,6 +436,55 @@ func RenderEmailVerification(ctx context.Context, link string, v EmailVerificati
 		return mail.Message{}, err
 	}
 	return render(ctx, verificationLetter(life), link)
+}
+
+// LinkBusinessesView is what the link by e-mail says besides its link (M14-22; ADR 0031 §5.7's note
+// of 2026-10-29).
+//
+// IT NAMES NOBODY AND NO BUSINESS: it is sent to the identity's own registered address, and before the
+// link is used nothing names the other businesses (the user's decision). Its one value slot is the
+// lifetime.
+type LinkBusinessesView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/link-businesses?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime (24 hours, 00084).
+	ValidFor time.Duration
+}
+
+// RenderLinkBusinesses renders the link by e-mail for its link. The returned Message has Subject, Text
+// and HTML; the caller sets To and Ref.
+func RenderLinkBusinesses(ctx context.Context, link string, v LinkBusinessesView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, linkPath, linkParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, linkBusinessesLetter(life), link)
+}
+
+// BusinessesAddedView is what the notice after the link says besides its link (M14-22): the count of
+// businesses the link added -- the mailbox owner's own fact (the link's sender and reader are one
+// person) -- and NO name: a notice that names nothing is the same shape for every person, and nothing
+// a business typed reaches a letter Taptime signs.
+type BusinessesAddedView struct {
+	// BaseURL is cfg.BaseURL; the link must be exactly BaseURL + "/admin/login".
+	BaseURL string
+	// Count is how many businesses were added: at least 1 (a click that added none sends no notice).
+	Count int
+}
+
+// RenderBusinessesAdded renders the notice for the sign-in page's address. The returned Message has
+// Subject, Text and HTML; the caller sets To and Ref.
+func RenderBusinessesAdded(ctx context.Context, link string, v BusinessesAddedView) (mail.Message, error) {
+	if err := checkSignInLink(v.BaseURL, link); err != nil {
+		return mail.Message{}, err
+	}
+	if v.Count < 1 {
+		return mail.Message{}, ErrCount
+	}
+	return render(ctx, businessesAddedLetter(v.Count), link)
 }
 
 // AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).

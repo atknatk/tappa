@@ -126,10 +126,20 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("e-mail verification: %v", err)
 	}
+	// M14-22: the link by e-mail and the notice after it, held to every property the others are.
+	lnk := testBase + linkPath + "?" + linkParam + "=" + randomValue(t)
+	ml, err := RenderLinkBusinesses(ctx, lnk, LinkBusinessesView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("link by e-mail: %v", err)
+	}
+	mn, err := RenderBusinessesAdded(ctx, sin, BusinessesAddedView{BaseURL: testBase, Count: 2})
+	if err != nil {
+		t.Fatalf("businesses-added notice: %v", err)
+	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
 		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
 		{"registration verification", sgv, msv}, {"registration, known address", sgk, msk}, {"manager invitation", adm, ma},
-		{"e-mail verification", ver, mv}}
+		{"e-mail verification", ver, mv}, {"link by e-mail", lnk, ml}, {"businesses added", sin, mn}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -501,6 +511,57 @@ func TestRender_AcceptsTheVerificationLinkAdminauthMints(t *testing.T) {
 	}
 	if _, err := RenderEmailVerification(context.Background(), testBase+resetPath+"?t="+randomValue(t), EmailVerificationView{BaseURL: testBase, ValidFor: time.Hour}); err == nil {
 		t.Error("CONTROL: a reset link passed as a verification link")
+	}
+}
+
+// TestRender_AcceptsTheLinkBusinessesLinkAdminauthMints holds this package's linkPath / linkParam to
+// internal/adminauth's LinkPath / LinkParam (M14-22): the link adminauth mints renders, and another
+// page's link -- the verification's -- is refused.
+func TestRender_AcceptsTheLinkBusinessesLinkAdminauthMints(t *testing.T) {
+	if adminauth.LinkPath != linkPath || adminauth.LinkParam != linkParam {
+		t.Fatalf("adminauth mints %s?%s=, this package checks %s?%s=", adminauth.LinkPath, adminauth.LinkParam, linkPath, linkParam)
+	}
+	link := testBase + adminauth.LinkPath + "?" + adminauth.LinkParam + "=" + randomValue(t)
+	m, err := RenderLinkBusinesses(context.Background(), link, LinkBusinessesView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("the link adminauth mints was refused: %v", err)
+	}
+	if !strings.Contains(m.Text, link) || m.Subject != subjectLinkBusinesses {
+		t.Error("the letter does not carry its link or its subject")
+	}
+	// The third eye's DÜŞÜK (2026-10-29): what the press does to the other businesses' sign-ins, said
+	// before it is pressed.
+	if !strings.Contains(m.Text, "own passwords stop working, and any device signed in to them") {
+		t.Error("the letter does not say the old passwords stop working and their devices are signed out")
+	}
+	if _, err := RenderLinkBusinesses(context.Background(), testBase+verifyPath+"?t="+randomValue(t), LinkBusinessesView{BaseURL: testBase, ValidFor: time.Hour}); err == nil {
+		t.Error("CONTROL: a verification link passed as a link link")
+	}
+}
+
+// TestBusinessesAdded_CountsAndNamesNothing (M14-22): the notice after the link counts the businesses
+// added -- singular and plural -- names none, carries the sign-in page as its one link, and refuses a
+// count below one (no notice is sent for nothing).
+func TestBusinessesAdded_CountsAndNamesNothing(t *testing.T) {
+	ctx := context.Background()
+	sin := testBase + signInPath
+	for n, want := range map[int]string{1: "1 business was just added", 3: "3 businesses were just added"} {
+		m, err := RenderBusinessesAdded(ctx, sin, BusinessesAddedView{BaseURL: testBase, Count: n})
+		if err != nil {
+			t.Fatalf("%d: %v", n, err)
+		}
+		if !strings.Contains(m.Text, want) || !strings.Contains(m.HTML, want) || m.Subject != subjectBusinessesAdded {
+			t.Errorf("%d: the notice does not say %q", n, want)
+		}
+		if strings.Count(m.Text, "://") != 1 || strings.Contains(m.Text, "?") {
+			t.Errorf("%d: the notice carries more than the sign-in page", n)
+		}
+	}
+	if _, err := RenderBusinessesAdded(ctx, sin, BusinessesAddedView{BaseURL: testBase, Count: 0}); err != ErrCount {
+		t.Errorf("a notice for nothing: %v, want ErrCount", err)
+	}
+	if _, err := RenderBusinessesAdded(ctx, sin+"?t=x", BusinessesAddedView{BaseURL: testBase, Count: 1}); err == nil {
+		t.Error("CONTROL: a link with a query passed as the sign-in page")
 	}
 }
 
@@ -1447,13 +1508,16 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"registration, known address":      signupKnownLetter("1 day"),
 		"manager invitation":               adminInvitationLetter("Kebab Factory Ltd.", true, "3 days"),
 		"e-mail verification":              verificationLetter("1 day"),
+		"link by e-mail":                   linkBusinessesLetter("1 day"),
+		"businesses added":                 businessesAddedLetter(2),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
 		t.Fatalf("renderEach renders %d message(s) and this test knows %d letter(s); a message is missing from one of them", len(r), len(letters))
 	}
 	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business",
-		"registration verification", "registration, known address", "manager invitation", "e-mail verification"} {
+		"registration verification", "registration, known address", "manager invitation", "e-mail verification",
+		"link by e-mail", "businesses added"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}

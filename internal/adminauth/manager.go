@@ -65,6 +65,9 @@ type Database interface {
 	KeepAll(ctx context.Context, sessionHash string) error
 	UnlinkMembership(ctx context.Context, freshSessionHash string, tenant uuid.UUID) (db.UnlinkedMembership, error)
 	RelinkMembership(ctx context.Context, freshSessionHash string, tenant uuid.UUID) (uuid.UUID, error)
+	// The link by e-mail (M14-22, identityaccount.go).
+	RequestIdentityLink(ctx context.Context, sessionHash, tokenHash string) (db.IdentityVerification, error)
+	LinkByEmail(ctx context.Context, linkHash, sessionHash string) (db.LinkedByEmail, error)
 }
 
 // The one implementation, bound at compile time (reset.go's ResetDatabase has the same line).
@@ -236,6 +239,9 @@ type Manager struct {
 	// verifyKey hashes an e-mail verification link (identityaccount.go, M14-18), derived like hmacKey
 	// under its own label: a session hash and a verification hash never share a key.
 	verifyKey []byte
+	// linkKey hashes a link link (identityaccount.go, M14-22) under a label of its own: a verification
+	// token never hashes to a link's hash, nor the reverse.
+	linkKey []byte
 	// compareFn is the ONE bcrypt comparison every login path runs through (nil = Compare). It
 	// exists so a test can COUNT the comparisons of each sign-in exit exactly (ADR 0031 §5.6: every
 	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
@@ -276,7 +282,11 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, verifyKey: verifyKey, openCost: newCostMeter(openCostDefault)}, nil
+	linkKey, err := deriveLinkKey(cfg.SessionHMACKey)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, verifyKey: verifyKey, linkKey: linkKey, openCost: newCostMeter(openCostDefault)}, nil
 }
 
 // hash is the one digest a password change writes (see hashFn).

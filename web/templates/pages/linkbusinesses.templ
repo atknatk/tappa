@@ -1,0 +1,101 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// THE LINK BY E-MAIL (M14-22; ADR 0031 §5.7's note of 2026-10-29): the shell's banner and the page the
+// e-mailed link brings the person to. The pattern is the mainstream one -- Slack's "find your
+// workspaces" confirmation, one account with a workspace switcher in Notion and Linear: the proof that
+// another business's sign-in is the person's is their mailbox, and a link they open in the browser
+// where they are signed in.
+//
+// THE BANNER NAMES NO BUSINESS AND NO NUMBER (the user's decision of 2026-10-29): before the mailbox
+// proof it says "another business". Its one form carries the tenant binding in its action like every
+// panel form (components.Bound, ADR 0031 §5.5). It is panel chrome, never the tap screen.
+//
+// THE PAGE'S GET SPENDS NOTHING (R19): the press does, and only with this browser's session.
+
+// panelAddBusiness is the banner: the offer ("Add it" sends the e-mail) or, in a browser that already
+// holds the e-mailed link, the way to the page that spends it.
+templ panelAddBusiness(b PanelAddBusiness) {
+	@components.PanelNotice(components.ToneWarn, "Another business uses your email.") {
+		if b.Finish {
+			<p>You opened the link we emailed you. Finish adding it to this sign-in.</p>
+			<p><a class="inline-flex min-h-11 items-center font-display font-bold tracking-tight text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(b.Href) }>Finish adding it</a></p>
+		} else {
+			<form method="post" action={ templ.URL(components.Bound(ctx, b.Href)) } class="flex flex-wrap items-center gap-3">
+				<p>Add it to this sign-in.</p>
+				<button class="btn btn--primary rounded-xl" type="submit">Add it</button>
+			</form>
+		}
+	}
+}
+
+// AdminLinkBusinesses is the page: "Check your inbox" after the request, the one press in the browser
+// that opened the link, and the outcome.
+templ AdminLinkBusinesses(v LinkBusinessesView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex flex-col gap-5 md:gap-6">
+			if v.Problem != "" {
+				@components.PanelNotice(components.ToneAlert, "Nothing was added") {
+					<p>{ v.Problem }</p>
+				}
+			}
+			if v.Done != "" {
+				@components.PanelNotice(components.ToneOK, "") {
+					<p>{ v.Done }</p>
+				}
+			}
+			<section class="panel-card min-w-0" aria-labelledby="link-businesses-heading">
+				if v.ConfirmHref != "" {
+					@accountCardHeading("link-businesses-heading", "Add your businesses")
+					<p class="text-[13px] leading-normal text-ink/85">
+						You opened the link we emailed you. Press the button to add every business that uses
+						your email address to this sign-in. Then you move between them with Switch business,
+						without signing out.
+					</p>
+					<p class="text-[13px] leading-normal text-ink/85">
+						Their own passwords will stop working, and any device signed in to them — a shop tablet,
+						for example — will be signed out. You sign in to them with your Taptime password.
+					</p>
+					<form method="post" action={ templ.URL(components.Bound(ctx, v.ConfirmHref)) }>
+						<button class="btn btn--primary rounded-xl" type="submit">Add them</button>
+					</form>
+				} else if v.Sent {
+					@accountCardHeading("link-businesses-heading", "Check your inbox")
+					<p class="text-[13px] leading-normal text-ink/85">
+						We sent a link to your email address. Open it in this browser while you are signed in,
+						then press the button on the page it opens. The link works once, for a day.
+					</p>
+				} else if v.SwitchHref != "" {
+					@accountCardHeading("link-businesses-heading", "Your businesses")
+					<p class="text-[13px] leading-normal text-ink/85">
+						Every business that uses your email address is on this sign-in.
+					</p>
+					<div>
+						<a class="btn btn--line" href={ templ.URL(v.SwitchHref) }>Switch business</a>
+					</div>
+				} else if v.RequestHref != "" {
+					@accountCardHeading("link-businesses-heading", "Add your businesses")
+					<p class="text-[13px] leading-normal text-ink/85">
+						Another business uses your email address. We will email you a link; open it in this
+						browser while you are signed in to add it to this sign-in.
+					</p>
+					<form method="post" action={ templ.URL(components.Bound(ctx, v.RequestHref)) }>
+						<button class="btn btn--primary rounded-xl" type="submit">Send me the link</button>
+					</form>
+				} else if v.Unlinked {
+					@accountCardHeading("link-businesses-heading", "Add your businesses")
+					<p class="text-[13px] leading-normal text-ink/85">
+						This business has its own sign-in. Sign in with your Taptime sign-in's password to add
+						your businesses to it.
+					</p>
+				} else {
+					@accountCardHeading("link-businesses-heading", "Add your businesses")
+					<p class="text-[13px] leading-normal text-ink/85">
+						No other business uses your email address. There is nothing to add.
+					</p>
+				}
+			</section>
+		</div>
+	}
+}

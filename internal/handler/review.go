@@ -656,6 +656,9 @@ func (a *AdminAuth) chromeInGroup(r *http.Request, tab pages.PanelTab, inGroup b
 	// section of the owner's panel carries it while a setting cuts a shift. A manager's chrome
 	// reads nothing for it (businessdaycheck.go).
 	c.BusinessDayCheck = businessDayCheckNotice(a.businessDayCheckOf(r))
+	// THE LINK BY E-MAIL'S BANNER (M14-22): every section of a linked sign-in while another business
+	// of its address is on no sign-in (accountlinkbusinesses.go). Nothing is read for anybody else.
+	c.AddBusiness = a.addBusinessBanner(r, id)
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not count the review queue", "err", err)

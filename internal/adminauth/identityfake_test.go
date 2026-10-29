@@ -69,6 +69,15 @@ func (noIdentityData) ConfirmWindow(context.Context, string) ([]db.ConfirmWindow
 
 func (noIdentityData) KeepAll(context.Context, string) error { return errNoIdentityData }
 
+// The link by e-mail's two (M14-22): not reached by the fakes' subjects either.
+func (noIdentityData) RequestIdentityLink(context.Context, string, string) (db.IdentityVerification, error) {
+	return db.IdentityVerification{}, errNoIdentityData
+}
+
+func (noIdentityData) LinkByEmail(context.Context, string, string) (db.LinkedByEmail, error) {
+	return db.LinkedByEmail{}, errNoIdentityData
+}
+
 func (noIdentityData) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
 	return db.UnlinkedMembership{}, errNoIdentityData
 }

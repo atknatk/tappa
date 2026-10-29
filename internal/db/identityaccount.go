@@ -147,3 +147,48 @@ func (d *DB) RelinkMembership(ctx context.Context, freshSessionHash string, tena
 	}
 	return id, nil
 }
+
+// The link of a person's other businesses by e-mail proof (ADR 0031 §5.2's M14-22 note; migration
+// 00084): identity_request_verification with the 'link' purpose writes the mailed link, and
+// identity_link_by_email spends it with the clicking browser's live session of the same identity.
+const requestIdentityLinkSQL = `SELECT verification_id, expires_at
+FROM identity_request_verification($1, $2, 'link')`
+
+const linkByEmailSQL = `SELECT linked, first_verification, email
+FROM identity_link_by_email($1, $2)`
+
+// RequestIdentityLink writes a link link (purpose 'link', 24 hours) bound to the IDENTITY behind the
+// live, linked session -- verified address or not (00084). pgx.ErrNoRows: the session is not live or not
+// linked.
+func (d *DB) RequestIdentityLink(ctx context.Context, sessionHash, tokenHash string) (IdentityVerification, error) {
+	var v IdentityVerification
+	if err := d.pool.QueryRow(ctx, requestIdentityLinkSQL, sessionHash, tokenHash).Scan(&v.ID, &v.ExpiresAt); err != nil {
+		return IdentityVerification{}, fmt.Errorf("db: request identity link: %w", err)
+	}
+	return v, nil
+}
+
+// LinkedByEmail is identity_link_by_email's row: how many businesses it linked, whether the click was
+// the address's first verification, and the identity's REGISTERED address -- the one notice's
+// recipient (personal data: never logged).
+type LinkedByEmail struct {
+	Linked            int
+	FirstVerification bool
+	Email             string
+}
+
+// LinkByEmail spends a link link with the clicking browser's session (sessionHash: that browser's
+// cookie's hash) and links every active, unrefused, unlinked row of the identity's address (00084).
+// pgx.ErrNoRows: the link is unknown, a verification link, spent or expired, or the session is not one
+// of the link's identity.
+func (d *DB) LinkByEmail(ctx context.Context, linkHash, sessionHash string) (LinkedByEmail, error) {
+	var (
+		l LinkedByEmail
+		n int32
+	)
+	if err := d.pool.QueryRow(ctx, linkByEmailSQL, sessionHash, linkHash).Scan(&n, &l.FirstVerification, &l.Email); err != nil {
+		return LinkedByEmail{}, fmt.Errorf("db: link by email: %w", err)
+	}
+	l.Linked = int(n)
+	return l, nil
+}

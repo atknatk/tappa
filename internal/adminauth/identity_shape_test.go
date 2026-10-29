@@ -156,6 +156,17 @@ func (s *shapeDB) RelinkMembership(context.Context, string, uuid.UUID) (uuid.UUI
 	return uuid.Nil, errNoIdentityData
 }
 
+// The link by e-mail's two (M14-22): not the sign-in's either.
+func (s *shapeDB) RequestIdentityLink(context.Context, string, string) (db.IdentityVerification, error) {
+	s.op("request-link")
+	return db.IdentityVerification{}, errNoIdentityData
+}
+
+func (s *shapeDB) LinkByEmail(context.Context, string, string) (db.LinkedByEmail, error) {
+	s.op("link-by-email")
+	return db.LinkedByEmail{}, errNoIdentityData
+}
+
 // countingBudget is a FailureBudget with a small limit, so the over-limit branch is reachable; it is
 // safe for concurrent use, like httpx.Limiter.
 type countingBudget struct {

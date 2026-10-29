@@ -174,6 +174,9 @@ var opAtVersionSkips = map[int]string{
 	73: "the admin identity backfill (M14-06) -- no operator object; data only: its Up links rows and births " +
 		"identities, its Down unlinks the backfill's rows and deletes their identities, and refuses while one of " +
 		"them has lived",
+	84: "the link by e-mail (M14-22): the verification table's purpose, linked_via's 'email', the request's purpose " +
+		"argument and identity_link_by_email -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_users and " +
+		"admin_identity_verifications, and refuses while a business is linked by e-mail or a link e-mail is live",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

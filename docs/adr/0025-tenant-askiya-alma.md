@@ -1394,5 +1394,14 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     iki basış askı halkalı gruptadır. Sınırı son-owner değişmezidir (işletme en az bir aktif owner'la
     kalır) ve simetriktir: aynı daraltma meşru owner'ın da elindedir. Kod değişikliği yok; askı
     kaldırılınca geri alma bugünkü panel basışıdır.
+  - **M14-22 (2026-10-29, ADR 0031 §5.7'nin M14-22 notu):** M14-18'in iki parolalı "Link a business"
+    rotası (`POST /admin/account/link`) **kalktı**; yerine e-postayla bağlamanın iki rotası aynı kardeş
+    grupta, `mountGated(SurfaceAccountIdentity)` ile — talep ("Add it", `POST
+    /admin/account/link-businesses`) ve e-postadaki linkin onayı (`…/link-businesses/confirm`). İkisi de
+    kişinin kendi girişidir, işletmenin iş verisine dokunmaz; askıdaki bir işletme kişinin öbür işletmelerini
+    girişine eklemesini engellememeli (giriş ve geçiş askıda açıktır). Liste **bayrak `off` iken on bir, `on`
+    iken yirmi iki rotadır**; iki test aynı commit'te güncellendi. Linkin iniş sayfası (`GET
+    /admin/link-businesses`) ve sayfa (`GET /admin/account/link-businesses`) birer okumadır (çerez,
+    yönlendirme, çizim — hiçbir şey harcanmaz).
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.

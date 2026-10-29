@@ -309,7 +309,8 @@ templ adminLoginDocket(venue, name, when, tilt string, stamped bool, foot string
 // Open, a person reaches this picker only on the transition arm (§5.6: several rows not
 // yet linked to one sign-in verified), and those sessions cannot switch in the panel —
 // the switch needs a linked row (§5.4 step 1) — so the sentence says what makes
-// switching without signing out possible rather than promising it.
+// switching without signing out possible rather than promising it. (M14-22: that is the panel's
+// banner and its e-mailed link -- the account page's two-password form is gone.)
 templ AdminChoose(v AdminChooseView) {
 	@layout.Auth("Which business? — Taptime", "") {
 		@AuthHeader("")
@@ -322,7 +323,7 @@ templ AdminChoose(v AdminChooseView) {
 						You manage more than one with this password. Pick the one you want to work in.
 					</p>
 					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
-						To move between them without signing out, link them to one sign-in on your account page. Until then, sign out and sign in again to pick another.
+						To move between them without signing out, sign in with your Taptime sign-in's password: the panel then offers to add your other businesses to it, with a link we email you. Until then, sign out and sign in again to pick another.
 					</p>
 				} else {
 					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
@@ -531,6 +532,9 @@ templ panelChrome(c PanelChrome) {
 				}
 				if c.BusinessDayCheck.Shown() {
 					@panelBusinessDayCheckNotice(c.BusinessDayCheck)
+				}
+				if c.AddBusiness.Shown() {
+					@panelAddBusiness(c.AddBusiness)
 				}
 				if a := panelActionsOf(ctx); c.hasHead(a) {
 					@panelHead(c, a)

@@ -68,12 +68,16 @@ func accountIdentityRoutes() [][2]string {
 		{http.MethodPost, accountKeepAllHref},
 		{http.MethodPost, accountUnlinkHref},
 		{http.MethodPost, accountUndoHref},
-		{http.MethodPost, accountLinkHref},
+		// M14-22: the link by e-mail (M14-18's two-password route is gone).
+		{http.MethodGet, linkLandingPath},
+		{http.MethodGet, accountLinkBusinessesHref},
+		{http.MethodPost, accountLinkBusinessesHref},
+		{http.MethodPost, accountLinkBusinessesConfirmHref},
 	}
 }
 
 // TestAccountIdentity_FlagOffIsAPathThePanelNeverHad (ADR 0031 §8): with TAPPA_ADMIN_IDENTITY off each
-// of the seven routes answers every method with the router's own 404 -- a path that never existed --
+// of the ten routes answers every method with the router's own 404 -- a path that never existed --
 // and the account page draws none of the sections; with it on each is mounted (not 404 / 405).
 // MUTATION (measured): one route mounted outside mountGated -> red.
 func TestAccountIdentity_FlagOffIsAPathThePanelNeverHad(t *testing.T) {
@@ -88,7 +92,7 @@ func TestAccountIdentity_FlagOffIsAPathThePanelNeverHad(t *testing.T) {
 		}
 	}
 	page := b.do(http.MethodGet, accountHref, nil).Body.String()
-	for _, s := range []string{"Your businesses", "Link a business", "Link to your Taptime sign-in", "Keep all", "verify-email", "confirm/"} {
+	for _, s := range []string{"Your businesses", "Link a business", "Link to your Taptime sign-in", "Keep all", "verify-email", "confirm/", "link-businesses", "Another business uses your email."} {
 		if strings.Contains(page, s) {
 			t.Errorf("flag off, the account page carries %q", s)
 		}
@@ -190,107 +194,58 @@ func TestAccountIdentity_TheVerificationBudgetRefusesTheSixthAsk(t *testing.T) {
 	}
 }
 
-// TestAccountIdentity_TheActBudgetRefusesTheEleventhPress: adminIdentityActLimit presses of "Link a
-// business" reach LinkBusiness; the next is 429 and reaches nothing. The same bucket covers unlink
-// and Undo (a press of either after the link presses is refused too).
+// TestAccountIdentity_TheActBudgetRefusesTheEleventhPress: adminIdentityActLimit unlink presses reach
+// Unlink; the next is 429 and reaches nothing, and so is an Undo -- one bucket for the window's acts.
+// (M14-18 counted "Link a business" presses here; M14-22 removed that form.)
 func TestAccountIdentity_TheActBudgetRefusesTheEleventhPress(t *testing.T) {
 	admins := &fakeAdmins{}
 	b, _ := identityPanel(t, true, true, admins, nil)
-	links := func() int {
+	acts := func() int {
 		n := 0
 		for _, c := range admins.identCalls() {
-			if c == "link" || c == "unlink" {
+			if c == "unlink" || c == "relink" {
 				n++
 			}
 		}
 		return n
 	}
-	form := url.Values{"current_password": {"a"}, "other_password": {"b"}}
+	form := url.Values{"tenant_id": {uuid.NewString()}, "password": {"a"}}
 	for i := 0; i < adminIdentityActLimit; i++ {
-		b.do(http.MethodPost, accountLinkHref, form)
+		b.do(http.MethodPost, accountUnlinkHref, form)
 	}
-	if links() != adminIdentityActLimit {
-		t.Fatalf("%d presses reached LinkBusiness, want %d", links(), adminIdentityActLimit)
+	if acts() != adminIdentityActLimit {
+		t.Fatalf("%d presses reached Unlink, want %d", acts(), adminIdentityActLimit)
 	}
-	if res := b.do(http.MethodPost, accountLinkHref, form); res.Code != http.StatusTooManyRequests || links() != adminIdentityActLimit {
-		t.Fatalf("press %d: %d, %d calls; want 429 and none", adminIdentityActLimit+1, res.Code, links())
+	if res := b.do(http.MethodPost, accountUnlinkHref, form); res.Code != http.StatusTooManyRequests || acts() != adminIdentityActLimit {
+		t.Fatalf("press %d: %d, %d calls; want 429 and none", adminIdentityActLimit+1, res.Code, acts())
 	}
-	if res := b.do(http.MethodPost, accountUnlinkHref, url.Values{"tenant_id": {uuid.NewString()}, "password": {"a"}}); res.Code != http.StatusTooManyRequests || links() != adminIdentityActLimit {
-		t.Fatalf("an unlink past the budget: %d, %d calls", res.Code, links())
-	}
-}
-
-// TestAccountIdentity_LinkABusinessHasOneAnswer (ADR 0031 §5.7 (2)): "linked one" and "linked none"
-// are the same redirect; only the person's own wrong password is said (on the page, 200, nothing in
-// the address bar). Each fresh session adminauth hands back gets one ordinary sign-out row.
-func TestAccountIdentity_LinkABusinessHasOneAnswer(t *testing.T) {
-	fresh := adminauth.Session{ID: uuid.New(), TenantID: panelTestTenant, AdminUserID: panelTestAdmin}
-	var answers []string
-	for _, linked := range []int{0, 1} {
-		admins := &fakeAdmins{}
-		admins.ident.linkBusiness = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
-			return adminauth.LinkResult{Linked: linked, FreshAct: adminauth.FreshAct{Temporary: []adminauth.Session{fresh}, Revoked: []bool{true}}}, nil
-		}
-		b, trail := identityPanel(t, true, true, admins, nil)
-		res := b.do(http.MethodPost, accountLinkHref, url.Values{"current_password": {"a"}, "other_password": {"b"}})
-		answers = append(answers, res.Header().Get("Location")+"|"+res.Body.String())
-		outs := 0
-		for _, e := range trail.eventsSnapshot() {
-			if e.Action == ActionAdminLoggedOut && e.TenantID == fresh.TenantID {
-				outs++
-			}
-		}
-		if outs != 1 {
-			t.Errorf("linked %d: %d sign-out rows for the fresh session, want 1", linked, outs)
-		}
-	}
-	if answers[0] != answers[1] || !strings.Contains(answers[0], "done=linked") {
-		t.Fatalf("the two answers differ or are not the one redirect: %q vs %q", answers[0], answers[1])
-	}
-	admins := &fakeAdmins{}
-	admins.ident.linkBusiness = func(adminauth.Resolved, string, string) (adminauth.LinkResult, error) {
-		return adminauth.LinkResult{}, adminauth.ErrBadCredentials
-	}
-	b, _ := identityPanel(t, true, true, admins, nil)
-	res := b.do(http.MethodPost, accountLinkHref, url.Values{"current_password": {"a"}, "other_password": {"b"}})
-	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Your password for this sign-in is not right.") {
-		t.Fatalf("a wrong own password: %d", res.Code)
+	if res := b.do(http.MethodPost, accountUndoHref, form); res.Code != http.StatusTooManyRequests || acts() != adminIdentityActLimit {
+		t.Fatalf("an Undo past the budget: %d, %d calls", res.Code, acts())
 	}
 }
 
-// TestAccountIdentity_AnUnlinkedSessionIsOfferedTheReverseLink is the card's last criterion's handler
-// half: an UNLINKED (older per-business) session's account page offers "Link to your Taptime sign-in"
-// with this business's password and the sign-in's -- no verification, no window -- and the press
-// reaches LinkBusiness with the session's own unlinked Resolved.
-func TestAccountIdentity_AnUnlinkedSessionIsOfferedTheReverseLink(t *testing.T) {
+// TestAccountIdentity_AnUnlinkedSessionIsPointedToItsSignIn: an UNLINKED (older per-business) session's
+// account page lists its business and says how to reach the others -- the banner of the Taptime
+// sign-in (M14-22) -- with no verification, no window and no two-password form (M14-18's reverse link
+// is gone).
+func TestAccountIdentity_AnUnlinkedSessionIsPointedToItsSignIn(t *testing.T) {
 	admins := &fakeAdmins{}
-	var got adminauth.Resolved
-	admins.ident.linkBusiness = func(s adminauth.Resolved, _, _ string) (adminauth.LinkResult, error) {
-		got = s
-		return adminauth.LinkResult{Linked: 1}, nil
-	}
 	b, _ := identityPanel(t, true, false, admins, nil)
 	page := html.UnescapeString(b.do(http.MethodGet, accountHref, nil).Body.String())
-	for _, want := range []string{"Link to your Taptime sign-in", "This business's password", "Your Taptime sign-in's password", "Your businesses"} {
+	for _, want := range []string{"Your businesses", "sign in with your Taptime sign-in"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the unlinked page lacks %q", want)
 		}
 	}
-	for _, not := range []string{"Send me a confirmation link", "Keep all"} {
+	for _, not := range []string{"Send me a confirmation link", "Keep all", "Link to your Taptime sign-in", "Link a business", "other_password", "Another business uses your email."} {
 		if strings.Contains(page, not) {
 			t.Errorf("the unlinked page offers %q", not)
 		}
 	}
 	for _, c := range admins.identCalls() {
-		if c == "window" {
-			t.Error("an unlinked session's page read a window")
+		if c == "window" || c == "has-business-to-add" {
+			t.Errorf("an unlinked session's page asked %q", c)
 		}
-	}
-	if res := b.do(http.MethodPost, accountLinkHref, url.Values{"current_password": {"a"}, "other_password": {"b"}}); !strings.Contains(res.Header().Get("Location"), "done=linked") {
-		t.Fatalf("the reverse link: %q", res.Header().Get("Location"))
-	}
-	if got.Linked || got.AdminUserID != panelTestAdmin || got.TenantID != panelTestTenant {
-		t.Errorf("LinkBusiness was handed %+v, want this unlinked session", got)
 	}
 }
 
