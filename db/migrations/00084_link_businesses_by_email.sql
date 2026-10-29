@@ -9,7 +9,11 @@
 --      one place a mailed link of an EXISTING identity lives (ADR 0031 §5.1, M14-18); the column keeps
 --      the two intents apart: a verification link never links a business, and a link link is issued
 --      to an identity whose address is already verified (identity_request_verification's 'verify'
---      purpose refuses one -- M14-18's rule, unchanged).
+--      purpose refuses one -- M14-18's rule, unchanged). Both directions are refused in the database:
+--      identity_link_by_email spends 'link' rows alone, and identity_verify_email -- redefined here with
+--      the SAME signature (CREATE OR REPLACE), its two reads of the link gaining `AND v.purpose =
+--      'verify'` and nothing else -- spends 'verify' rows alone. The binary before this file only ever
+--      issues 'verify' rows (it calls the two-argument form), so the filter changes nothing it does.
 --   2. admin_users.linked_via gains 'email' (the CHECK keeps its name: identity_unlink_backfilled
 --      reads it by name, 00072/00079).
 --   3. identity_request_verification gains a third argument, p_purpose text DEFAULT 'verify' (DROP +
@@ -24,6 +28,8 @@
 --      address (CLAUDE.md §4.5 (3): no new named exception), and then links every ACTIVE, UNREFUSED,
 --      UNLINKED row of the identity's own registered address, in one transaction:
 --        - 6b (00076's address rule) on every candidate row: a homoglyph row is never linked;
+--        - only rows born BEFORE the link (admin_users.created_at < the link's created_at): a row that
+--          appeared after the person asked is not swept in by the press;
 --        - the row takes the identity's digest (the dual-write, ADR 0031 §5.1), linked_via 'email',
 --          linked_at now; its sessions are revoked; its business gets admin.membership.linked
 --          (identity_link_legacy's row, byte for byte: no other business, no count, no identity);
@@ -38,9 +44,11 @@
 -- old pod during the rollout and the new binary's sign-in after it (ADR 0031 §8's expand/contract
 -- rule). The function stays until contract B either way.
 --
--- LOCK ORDER (00072's header): the identity, every membership of it, the candidate rows (FOR UPDATE, in
--- (tenant, id) order), the link, the session. Two presses of one link queue on the identity's lock; the
--- second finds the link spent under its own lock and links nothing.
+-- LOCK ORDER (00072's header): the identity, every membership of it, the link (re-checked, then spent),
+-- the session (re-checked), and last the candidate rows (FOR UPDATE, in (tenant, id) order, inside the
+-- loop). Two presses of one link queue on the identity's lock; the second finds the link spent under its
+-- own lock and links nothing. The candidates are rows no other identity holds, so taking them after the
+-- link and the session crosses no order another writer keeps.
 --
 -- LOCKS: admin_users and admin_sessions are hot (every panel request); this file alters only admin_users
 -- (admin_sessions is untouched). The CHECK swap takes ACCESS EXCLUSIVE on admin_users for one scan of a
@@ -73,7 +81,7 @@ $$;
 ALTER TABLE admin_identity_verifications
     ADD COLUMN purpose text NOT NULL DEFAULT 'verify',
     ADD CONSTRAINT admin_identity_verifications_purpose_known CHECK (purpose IN ('verify', 'link'));
-GRANT SELECT (purpose), INSERT (purpose) ON admin_identity_verifications TO tappa_identitydefiner;
+GRANT SELECT (purpose, created_at), INSERT (purpose) ON admin_identity_verifications TO tappa_identitydefiner;
 
 -- ---------------------------------------------------------------------------
 -- 2. linked_via gains 'email'
@@ -143,6 +151,104 @@ REVOKE ALL ON FUNCTION public.identity_request_verification(text, text, text) FR
 GRANT EXECUTE ON FUNCTION public.identity_request_verification(text, text, text) TO tappa_app;
 
 -- ---------------------------------------------------------------------------
+-- 3b. identity_verify_email: verification links alone
+-- ---------------------------------------------------------------------------
+-- 00072's body, the same signature (CREATE OR REPLACE; the properties and the grants restated -- T5),
+-- its two reads of the link each gaining `AND v.purpose = 'verify'` and nothing else: a link link
+-- verifies nothing (identity_link_by_email spends it). Expand-safe: the binary before this file issues
+-- 'verify' rows alone.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_verify_email(p_verification_hash text, p_session_hash text)
+    RETURNS TABLE (first_verification boolean)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_verification uuid;
+    v_identity     uuid;
+    v_first        boolean;
+    v_session      uuid;
+    v_tenant       uuid;
+    v_now          timestamptz;
+    v_expires      timestamptz;
+    v_found        boolean;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    SELECT v.id, v.identity_id INTO v_verification, v_identity
+      FROM public.admin_identity_verifications AS v
+     WHERE v.token_hash = p_verification_hash
+       AND v.purpose = 'verify'
+       AND v.used_at IS NULL
+       AND v.expires_at > v_now;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    SELECT s.id, s.tenant_id INTO v_session, v_tenant
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.token_hash = p_session_hash
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    -- The identity first, then the link and the session, re-checked.
+    SELECT i.email_verified_at IS NULL INTO v_first
+      FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
+    SELECT v.expires_at INTO v_expires FROM public.admin_identity_verifications AS v
+     WHERE v.id = v_verification AND v.used_at IS NULL
+       AND v.purpose = 'verify'
+       FOR UPDATE;
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session
+       AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    UPDATE public.admin_identity_verifications AS v SET used_at = now() WHERE v.id = v_verification AND v.used_at IS NULL;
+    IF v_first IS TRUE THEN
+        UPDATE public.admin_identities AS i
+           SET email_verified_at  = now(),
+               confirm_opened_at  = now(),
+               confirm_open_until = now() + interval '7 days',
+               confirm_scope      = 'first_verify'
+         WHERE i.id = v_identity;
+        INSERT INTO public.admin_identity_events (identity_id, event, detail)
+        VALUES (v_identity, 'email_verified', pg_catalog.jsonb_build_object('scope', 'first_verify'));
+    END IF;
+    RETURN QUERY SELECT v_first;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_verify_email(text, text) OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_verify_email(text, text) SECURITY DEFINER;
+ALTER FUNCTION public.identity_verify_email(text, text) SET search_path = pg_catalog, pg_temp;
+REVOKE ALL ON FUNCTION public.identity_verify_email(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_verify_email(text, text) TO tappa_app;
+
+-- ---------------------------------------------------------------------------
 -- 4. identity_link_by_email
 -- ---------------------------------------------------------------------------
 -- 0 rows (nothing written, the link not spent) when: the link is unknown, a verification link, spent
@@ -168,6 +274,7 @@ DECLARE
     v_digest         text;
     v_verified       timestamptz;
     v_expires        timestamptz;
+    v_born           timestamptz;
     v_found          boolean;
     v_now            timestamptz;
     v_member         boolean;
@@ -202,7 +309,8 @@ BEGIN
     END IF;
 
     -- Lock order (00072's header, sign-in and switch alike): the identity FIRST, then every membership
-    -- of it, then the rows to be linked, then the link and the session.
+    -- of it, then the link and the session (re-checked), and only then -- after the link is spent --
+    -- the rows to be linked, FOR UPDATE in the loop below.
     SELECT i.email, i.password_hash, i.email_verified_at INTO v_identity_email, v_digest, v_verified
       FROM public.admin_identities AS i
      WHERE i.id = v_identity
@@ -211,7 +319,7 @@ BEGIN
 
     -- The link again, under its own lock, the expiry with the clock read again (NULL fails closed):
     -- of two presses of one link, the second finds it spent here and links nothing.
-    SELECT v.expires_at INTO v_expires
+    SELECT v.expires_at, v.created_at INTO v_expires, v_born
       FROM public.admin_identity_verifications AS v
      WHERE v.id = v_verification
        AND v.identity_id = v_identity
@@ -245,8 +353,11 @@ BEGIN
        AND v.used_at IS NULL;
 
     -- NAMED E-MAIL-WIDE READ (the identity's OWN registered address, read above from the row the two
-    -- secrets found): every business's active, unrefused, unlinked row of it, locked in (tenant, id)
-    -- order. The mailbox proof is the link; the person's live session is the second key.
+    -- secrets found): every business's active, unrefused, unlinked row of it that existed BEFORE the link
+    -- was asked for, locked in (tenant, id) order. The mailbox proof is the link; the person's live
+    -- session is the second key. A row born after the link (created_at is the database's, never the
+    -- application's -- 00017) is not what the person saw on the banner when they asked: it waits for a
+    -- link of its own.
     FOR r IN
         SELECT a.id, a.tenant_id, a.email
           FROM public.admin_users AS a
@@ -254,6 +365,7 @@ BEGIN
            AND a.identity_id IS NULL
            AND a.unlinked_at IS NULL
            AND a.status = 'active'
+           AND a.created_at < v_born
          ORDER BY a.tenant_id, a.id
            FOR UPDATE
     LOOP
@@ -336,7 +448,8 @@ BEGIN
     -- tappa_app and nobody else but the owner; the link function carries 6b.
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
                 WHERE p.oid IN ('public.identity_request_verification(text,text,text)'::pg_catalog.regprocedure,
-                                'public.identity_link_by_email(text,text)'::pg_catalog.regprocedure)
+                                'public.identity_link_by_email(text,text)'::pg_catalog.regprocedure,
+                                'public.identity_verify_email(text,text)'::pg_catalog.regprocedure)
                   AND (NOT p.prosecdef
                        OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']
                        OR p.proowner <> 'tappa_identitydefiner'::pg_catalog.regrole
@@ -347,6 +460,9 @@ BEGIN
        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
                        WHERE p.oid = 'public.identity_link_by_email(text,text)'::pg_catalog.regprocedure
                          AND pg_catalog.strpos(p.prosrc, '-- 6b. THE ADDRESS RULE (M14-08a') > 0)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                       WHERE p.oid = 'public.identity_verify_email(text,text)'::pg_catalog.regprocedure
+                         AND pg_catalog.strpos(p.prosrc, 'AND v.purpose = ''verify''') > 0)
        OR pg_catalog.to_regprocedure('public.identity_request_verification(text,text)') IS NOT NULL THEN
         RAISE EXCEPTION 'migration 00084 postcondition: the request or the link function is not the ADR''s shape (ADR 0031 5.2). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
@@ -380,6 +496,97 @@ BEGIN
 END
 $$;
 -- +goose StatementEnd
+
+-- 00072's identity_verify_email, byte for byte (the same signature: CREATE OR REPLACE), its properties
+-- and grants restated.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION public.identity_verify_email(p_verification_hash text, p_session_hash text)
+    RETURNS TABLE (first_verification boolean)
+    LANGUAGE plpgsql
+    VOLATILE
+    SECURITY DEFINER
+    SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_verification uuid;
+    v_identity     uuid;
+    v_first        boolean;
+    v_session      uuid;
+    v_tenant       uuid;
+    v_now          timestamptz;
+    v_expires      timestamptz;
+    v_found        boolean;
+BEGIN
+    v_now := pg_catalog.clock_timestamp();
+    SELECT v.id, v.identity_id INTO v_verification, v_identity
+      FROM public.admin_identity_verifications AS v
+     WHERE v.token_hash = p_verification_hash
+       AND v.used_at IS NULL
+       AND v.expires_at > v_now;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    SELECT s.id, s.tenant_id INTO v_session, v_tenant
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.token_hash = p_session_hash
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    -- The identity first, then the link and the session, re-checked.
+    SELECT i.email_verified_at IS NULL INTO v_first
+      FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
+    SELECT v.expires_at INTO v_expires FROM public.admin_identity_verifications AS v
+     WHERE v.id = v_verification AND v.used_at IS NULL
+       FOR UPDATE;
+    -- The expiry after the link's own lock, with the clock read again (NULL fails closed).
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_expires > v_now) IS NOT TRUE THEN
+        RETURN;
+    END IF;
+    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
+    -- reset or a revocation that committed while this call waited).
+    PERFORM 1
+      FROM public.admin_sessions AS s
+      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
+     WHERE s.id = v_session
+       AND s.tenant_id = v_tenant
+       AND s.revoked_at IS NULL
+       AND a.status = 'active'
+       AND a.unlinked_at IS NULL
+       AND a.identity_id = v_identity
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    UPDATE public.admin_identity_verifications AS v SET used_at = now() WHERE v.id = v_verification AND v.used_at IS NULL;
+    IF v_first IS TRUE THEN
+        UPDATE public.admin_identities AS i
+           SET email_verified_at  = now(),
+               confirm_opened_at  = now(),
+               confirm_open_until = now() + interval '7 days',
+               confirm_scope      = 'first_verify'
+         WHERE i.id = v_identity;
+        INSERT INTO public.admin_identity_events (identity_id, event, detail)
+        VALUES (v_identity, 'email_verified', pg_catalog.jsonb_build_object('scope', 'first_verify'));
+    END IF;
+    RETURN QUERY SELECT v_first;
+END;
+$$;
+-- +goose StatementEnd
+ALTER FUNCTION public.identity_verify_email(text, text) OWNER TO tappa_identitydefiner;
+ALTER FUNCTION public.identity_verify_email(text, text) SECURITY DEFINER;
+ALTER FUNCTION public.identity_verify_email(text, text) SET search_path = pg_catalog, pg_temp;
+REVOKE ALL ON FUNCTION public.identity_verify_email(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.identity_verify_email(text, text) TO tappa_app;
 
 DROP FUNCTION public.identity_link_by_email(text, text);
 DROP FUNCTION public.identity_request_verification(text, text, text);
@@ -432,7 +639,7 @@ ALTER TABLE admin_users
     ADD CONSTRAINT admin_users_linked_via_known
         CHECK (linked_via IN ('backfill', 'reconcile', 'password', 'account', 'invite', 'signup', 'claim'));
 
-REVOKE SELECT (purpose), INSERT (purpose) ON admin_identity_verifications FROM tappa_identitydefiner;
+REVOKE SELECT (purpose, created_at), INSERT (purpose) ON admin_identity_verifications FROM tappa_identitydefiner;
 ALTER TABLE admin_identity_verifications
     DROP CONSTRAINT admin_identity_verifications_purpose_known,
     DROP COLUMN purpose;

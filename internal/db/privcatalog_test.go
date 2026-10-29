@@ -252,7 +252,7 @@ column admin_identity_resets tappa_identitydefiner SELECT id,identity_id,token_h
 column admin_identity_resets tappa_identitydefiner UPDATE used_at,cancelled_at
 column admin_identity_resets tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at,cancelled_at
 column admin_identity_verifications tappa_identitydefiner INSERT identity_id,token_hash,expires_at,purpose
-column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,expires_at,used_at,purpose
+column admin_identity_verifications tappa_identitydefiner SELECT id,identity_id,token_hash,created_at,expires_at,used_at,purpose
 column admin_identity_verifications tappa_identitydefiner UPDATE used_at
 column admin_identity_verifications tappa_resolver SELECT id,identity_id,token_hash,expires_at,used_at
 column admin_invites tappa_app INSERT tenant_id,email,full_name,role,token_hash,invited_by,expires_at

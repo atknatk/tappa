@@ -976,6 +976,7 @@ const (
 	identityBeltClaimFn      = "public.identity_claim_signup(text, uuid, text, text)"
 	identityBeltReconcileFn  = "public.identity_reconcile()"
 	identityBeltLinkEmailFn  = "public.identity_link_by_email(text, text)"
+	identityBeltVerifyFn     = "public.identity_verify_email(text, text)"
 	identityBeltSwitchRevoke = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.tenant_id = v_tenant\n       AND o.revoked_at IS NULL;"
 	identityBeltPlainRevoke  = "    UPDATE public.admin_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE "
 	identityBeltViewRevoke   = "    UPDATE public.zz_belt_sessions AS o\n       SET revoked_at = pg_catalog.now()\n     WHERE o.id = v_session\n       AND o.revoked_at IS NULL;"
@@ -1034,6 +1035,7 @@ var identityBeltExpectedControls = []string{
 	"M14-22: the e-mail link's session joined by half its key",
 	"M14-22: the e-mail link's sessions revoked without their tenant",
 	"M14-22: the e-mail link spent without its key",
+	"M14-22: the verification (redefined) spent without its key",
 	"M5: the membership list without its identity",
 	"M9: the revoke correlated to itself",
 	"P3: a tenant read off an unkeyed identity row",
@@ -1399,6 +1401,10 @@ func identityBeltLinkByEmailControls() []identityBeltControl {
 		{name: "M14-22: the e-mail link's session joined by half its key", fn: fn,
 			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id",
 			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id"},
+		// 00084 redefines identity_verify_email (its purpose filter): the redefinition is held like the rest.
+		{name: "M14-22: the verification (redefined) spent without its key", fn: identityBeltVerifyFn,
+			cut: "UPDATE public.admin_identity_verifications AS v SET used_at = now() WHERE v.id = v_verification AND v.used_at IS NULL;",
+			put: "UPDATE public.admin_identity_verifications AS v SET used_at = now() WHERE v.used_at IS NULL;"},
 		{name: "M14-22: the e-mail link spent without its key", fn: fn,
 			cut: "SET used_at = pg_catalog.now()\n     WHERE v.id = v_verification\n       AND v.identity_id = v_identity\n",
 			put: "SET used_at = pg_catalog.now()\n     WHERE v.used_at IS NULL\n"},

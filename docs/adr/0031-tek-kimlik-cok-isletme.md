@@ -306,7 +306,7 @@ tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi taşır (
 | `identity_relink_refused(p_session_hash, p_tenant)` | **taze** canlı oturum + kimlik parolasının yeniden girilmesi | S4/T4: çözme pencere açıkken **geri alınabilir**. Yüklem: `tenant_id = p_tenant` **ve** `email OPERATOR(public.=) identity.email` (e-posta global tekil; K-15 kapsam dışı) **ve** `unlinked_at >= confirm_opened_at` (yalnız **bu** pencerede reddedilmiş satır) **ve** `now() < confirm_open_until`; o tenant'ta kimliğin başka bir üyeliği varsa (arada davetle doğmuş — `UNIQUE (tenant_id, identity_id)`) 0 satır. Satırı yeniden bağlar (`linked_via='account'`, **özgün `linked_at` korunur** → satır pencerenin geri kalanında listede kalır; ele geçirilmiş 5 dakikalık bir oturumun ya da yanlış tıklamanın etkisi aynı pencerede geri alınabilir), `unlinked_at = NULL`, digest kopyası contract B'ye dek. Pencere kapandıktan sonra satır için geri alma yolu **yoktur**; üyelik ancak owner'ın **yeni bir daveti** ile döner ve kabul **aynı satırı** yeniden bağlar (§5.11, ONAY notu 3). Arada "davetle doğmuş başka üyelik" dalı bu yüzden oluşamaz (aynı tenant'ta aynı e-postalı ikinci satır `00006:96-97` ile imkânsızdır); 0 satır kuralı savunma olarak kalır |
 | `identity_request_verification(p_session_hash, p_token_hash, p_purpose DEFAULT 'verify')` | canlı oturum | Doğrulama token'ını **isteyen kimliğe** bağlı yazar. `'verify'` (M14-18): doğrulanmış kimliğe hiçbir şey; (M14-22, `00084`) `'link'`: doğrulanmış kimliğe de — adresin öbür işletmelerini bağlama linki; başka amaç 0 satır |
 | `identity_verify_email(p_verification_hash, p_session_hash)` | doğrulama token'ı + tıklayan tarayıcıdaki **aynı kimliğin** canlı oturumu | Tıklayan tarayıcıda token'ı isteyen **kimliğin** canlı bir oturumu yoksa 0 satır (R2: başka bir tarayıcıdan tıklama kimseyi doğrulamaz). Bağ oturuma değil kimliğe: istek ile tıklama arasında işletme değiştiren (yeni oturum) kişi kırılmaz (S16). `email_verified_at`; ilk doğrulamada `first_verify` kapsamlı onay penceresi |
-| `identity_link_by_email(p_session_hash, p_verification_hash)` → `TABLE (linked integer, first_verification boolean, email text)` | **iki sır:** `'link'` amaçlı doğrulama token'ı + tıklayan tarayıcıdaki **aynı kimliğin** canlı oturumu | M14-22 (2026-10-29 kullanıcı kararları, `00084`). Kimlik sırlardan bulunur (adresten değil); kimlik kilidi altında kimliğin **kendi kayıtlı adresinin** bütün `status='active'`, `unlinked_at IS NULL`, `identity_id IS NULL` satırları `(tenant_id, id)` sırasıyla `FOR UPDATE` kilitlenir ve **tek transaction'da** bağlanır: 6b (ASCII adres kuralı) her aday satırda `IF (…) IS NOT TRUE THEN CONTINUE`, kimliğin o işletmede üyeliği varsa satır atlanır; satır kimliğin digest'ini alır (dual-write), `linked_via='email'`, `linked_at=now()`, oturumları iptal, işletmesine `admin.membership.linked` (`identity_link_legacy`'ninkiyle bayt-aynı: karşı tenant, sayı, kimlik yok). Link harcanır; ilk posta kutusu kanıtında `email_verified_at` + `first_verify` penceresi + `email_verified` olayı. Dönüş: bağlanan sayı (0 da olabilir), ilk doğrulama mı, kimliğin kayıtlı adresi (tek bildirimin alıcısı — 00075 emsali). Ret (bilinmeyen / `'verify'` amaçlı / harcanmış / süresi dolmuş link, başka kimliğin oturumu): 0 satır, hiçbir şey yazılmaz. Kilit sırası: kimlik → üyelikler → adaylar → link → oturum |
+| `identity_link_by_email(p_session_hash, p_verification_hash)` → `TABLE (linked integer, first_verification boolean, email text)` | **iki sır:** `'link'` amaçlı doğrulama token'ı + tıklayan tarayıcıdaki **aynı kimliğin** canlı oturumu | M14-22 (2026-10-29 kullanıcı kararları, `00084`). Kimlik sırlardan bulunur (adresten değil); kimlik kilidi altında kimliğin **kendi kayıtlı adresinin** bütün `status='active'`, `unlinked_at IS NULL`, `identity_id IS NULL` satırları `(tenant_id, id)` sırasıyla `FOR UPDATE` kilitlenir ve **tek transaction'da** bağlanır: 6b (ASCII adres kuralı) her aday satırda `IF (…) IS NOT TRUE THEN CONTINUE`, kimliğin o işletmede üyeliği varsa satır atlanır; satır kimliğin digest'ini alır (dual-write), `linked_via='email'`, `linked_at=now()`, oturumları iptal, işletmesine `admin.membership.linked` (`identity_link_legacy`'ninkiyle bayt-aynı: karşı tenant, sayı, kimlik yok). Link harcanır; ilk posta kutusu kanıtında `email_verified_at` + `first_verify` penceresi + `email_verified` olayı. Dönüş: bağlanan sayı (0 da olabilir), ilk doğrulama mı, kimliğin kayıtlı adresi (tek bildirimin alıcısı — 00075 emsali). Adaylar **linkten önce doğmuş** satırlardır (`admin_users.created_at <` linkin `created_at`'i — denetim turu 1). Ret (bilinmeyen / `'verify'` amaçlı / harcanmış / süresi dolmuş link, başka kimliğin oturumu): 0 satır, hiçbir şey yazılmaz. Kilit sırası (koddaki): kimlik → üyelikler → link (yeniden denetim, harcanır) → oturum (yeniden denetim) → adaylar (döngüde `FOR UPDATE`) |
 | `identity_confirm_window(p_session_hash)` → `TABLE (verified boolean, scope text, open_until timestamptz, tenant_id uuid, tenant_name text, role text, refused boolean, last_active_owner boolean)` | canlı oturum (taze değil) | M14-18, 2026-10-27 kullanıcı kararı: onay penceresinin **okuyucusu** (STABLE). İlk satır başlıktır (`tenant_id` NULL; `verified`, pencere açıksa `scope` ve `open_until`); pencere açıkken (`email_verified_at` dolu **ve** `now() < confirm_open_until`) ardından kapsamdaki üyelikler (`identity_unlink_backfilled`'ın iki kapsam testi aynen) ve **bu pencerede** reddedilmiş satırlar (`refused`, `identity_relink_refused`'ın yüklemi: kimliğin adresi, `identity_id IS NULL`, `unlinked_at >= confirm_opened_at`). `last_active_owner`: satır aktif owner ve işletmesinde başka aktif, reddedilmemiş owner yok (S4 uyarısı; sayı değil). Toplam en çok 50 satır. Bağlanmamış satırın oturumu 0 satır. Kemer: oturum kendi anahtarıyla, üyelik listesi kimlikle sınırlı adlı geniş okuma, reddedilmiş satırlar adlı e-posta-geniş okuma (kimliğin kendi adresi) |
 | `identity_keep_all(p_session_hash)` → `TABLE (kept boolean)` | canlı oturum (taze değil — **tek tık**, T11) | M14-18, 2026-10-27 kullanıcı kararı: **"Keep all"** — açık pencerenin üç sütunu (`confirm_opened_at`, `confirm_open_until`, `confirm_scope`) **tek UPDATE'te** NULL (00069'un `admin_identities_confirm_window_whole` CHECK'i başka biçimi reddeder), `email_verified_at` korunur, tek `confirm_kept` olayı (`detail` yalnız kapatılan `scope`). Kimlik kilidi önce, oturum kilit altında yeniden denetlenir; pencere kilitlerden sonra hâlâ açık değilse 0 satır. Üyeliğe ve `audit_log`'a yazmaz. Sonrasında çözme ve geri alma pencere kapalı olduğu için 0 satırdır |
 | `identity_accept_invite(p_invite_hash, p_session_hash)` | davet token'ı + canlı oturum | `identity.email = invite.email` (`OPERATOR(public.=)`) değilse 0 satır (iletilmiş link, bulgu 12). Üyelik doğar (`linked_via='invite'`, digest kopyası); **yeni oturum vermez**. Tıklama, aynı e-postalı kimliğin canlı oturumuyla yapıldığı için **posta kutusu kanıtıdır**: `email_verified_at` doluysa dokunulmaz, boşsa doldurulur ve onay penceresi açılır (orkestratör kararı, §13 K-7) |
@@ -549,25 +549,34 @@ satır) — ve `identity_request_verification` üçüncü bir argüman alır, `p
 PUBLIC`, `GRANT EXECUTE … TO tappa_app` yeniden yazılır — T5). **Neden ikinci fonksiyon değil, amaç
 argümanı:** linki basmak bir yazardır; M14-18'in yazarı doğrulanmış kimliğe link basmaz (kuralı aynen
 kalır), ayrı bir `identity_request_link` kapalı listeyi iki adla büyütürdü. Aynı tablo, aynı 24 saatlik
-tavan, aynı kimliğe bağlılık (S16); amaç sütunu iki niyeti ayırır — doğrulama linki hiçbir işletme bağlamaz
-(`identity_link_by_email` `purpose = 'link'` ister), uygulamada ayrıca iki ayrı HMAC anahtarı (birinin
-token'ı öbürünün hash'ine hiç çözülmez). Eski binary'nin iki argümanlı çağrısı `DEFAULT` ile yeni fonksiyona
+tavan, aynı kimliğe bağlılık (S16); amaç sütunu iki niyeti **iki yönde de** veritabanında ayırır — doğrulama
+linki hiçbir işletme bağlamaz (`identity_link_by_email` `purpose = 'link'` ister) ve link linki hiçbir adresi
+doğrulamaz (`identity_verify_email` 00084'te **aynı imzayla** yeniden tanımlanır, iki okumasına `AND v.purpose =
+'verify'` eklenir, başka bir şey değil; Down 00072'nin gövdesini bayt bayt geri koyar — denetim turu 1);
+uygulamada ayrıca iki ayrı HMAC anahtarı (birinin token'ı öbürünün hash'ine hiç çözülmez). Eski binary yalnız
+`'verify'` satırı bastığı için filtre onun davranışını değiştirmez. Eski binary'nin iki argümanlı çağrısı `DEFAULT` ile yeni fonksiyona
 çözülür ve M14-18'in davranışını verir (`TestIdentityRequestVerification00084_ThePurposeAndTheOldBinarysCall`);
 Down 00072'nin tanımını ve ACL'ini bayt bayt geri koyar (`TestIdentity00084_DownGivesBack00072sRequestByteForByte`).
 - **İstisna doğmaz (CLAUDE.md §4.5 (3)):** `identity_link_by_email` kimliği iki **sırdan** bulur — linkin
   token'ı (posta kutusu) ve tıklayan tarayıcının oturumu; adres yalnız *hangi satırların* bu kanıtın
   kapsamında olduğunu söyler (kimliğin kendi kayıtlı adresi, kimlik satırından okunur). §6.1 metni
   fonksiyonu sır listesinde adıyla sayar, başka bir şey değişmez.
-- **Matris eki:** `admin_identity_verifications` SELECT (`purpose`), INSERT (`purpose`). Başka GRANT yok:
-  gövde 00071/00072'nin hücrelerinde koşar.
+- **Matris eki:** `admin_identity_verifications` SELECT (`purpose`, `created_at` — linkin doğumu, adayların
+  sınırı), INSERT (`purpose`). Başka GRANT yok: gövde 00071/00072'nin hücrelerinde koşar.
+- **Bütçe:** doğrulanmamış adreste doğrulama ve link mektupları kişi başına **tek** bütçeyi paylaşır
+  (`adminauth.LinkBucket`: saatte en çok 5 mektup toplam); doğrulanmış adreste linkin kendi kovası vardır.
 - **Kemer:** e-posta-geniş okuma sınıfına (`identityEmailWideReads`) bir giriş — kimliğin kendi adresi,
   `identity_confirm_window`'un emsali; üyelik kilidi (`identityTenantWideReads`: 1); oturum araması
   (`identitySessionKeyLookups`: 1); kontrol ailesi `TestIdentityBodies_TheLinkByEmailIsHeldByTheBelt`.
 - **`identity_link_legacy` kalır ve `tappa_app`'in `EXECUTE`'u bu kartta alınmaz:** önceki binary hesap
   sayfasının iki parolalı formundan **ve** girişin otomatik bağından (§5.6, §5.7 (1)) çağırır; bu kartın
   binary'si girişin otomatik bağından hâlâ çağırır. Aynı deploy'da `REVOKE` expand/contract kuralını bozar
-  (eski pod'un formu ve girişi 500) ve yeni binary'nin aynı-parolalı girişini kırardı — kullanıcı kararına
-  bırakıldı (M14-22 kartı). Fonksiyonun kendisi contract B'ye kadar durur.
+  (eski pod'un formu ve girişi 500) ve yeni binary'nin aynı-parolalı girişini kırardı. **(a) seçildi,
+  2026-10-29: REVOKE contract A/B'ye taşındı** (girişin otomatik bağı onu çağırır; REVOKE sonrası çağrı
+  `42501` → giriş 500, lane DB'de ölçüldü). Fonksiyonun kendisi contract B'ye kadar durur (plan, M14-20a/b).
+- **Contract A'ya bağımlılık:** bant ve "Add it" `resolve_admin_by_email`'i okur (`unlinkedAtAddress`);
+  contract B onu DROP eder. Contract A'dan önce ayrı bir migration bu okumayı dar bir boolean definer'a
+  taşır — kapalı listeye ekleme, **kullanıcı onayı + bu ADR'nin değişikliği** ister (plan, M14-20a).
 
 **M14-08 uygulama notları (2026-10-23; kart dışı kararlar, denetime açık):**
 - `identity_create_for_signup(p_tenant_id uuid, p_admin_user_id uuid)` → **`boolean`** (bağladı mı)
@@ -1005,6 +1014,10 @@ yerini şuna bırakır:
    görür. Onay sayfası da işletmeleri adlandırmaz (adları okuyacak bir okuyucu kapalı listede yok; adlar onaydan
    sonra "Switch business"te görünür); ayıklama yolu `reset` kapsamlı onay penceresidir (`'email'` bağları o
    listededir). (1)'in otomatik bağı (aynı parola) aynen kalır.
+   **Sınır (denetim turu 1, 2026-10-29):** basış yalnız linkten **önce** doğmuş satırları bağlar
+   (`admin_users.created_at <` linkin `created_at`'i; ikisi de veritabanının saati, uygulama yazamaz). Link
+   basıldıktan sonra adreste doğan bir satır — kişinin bantta gördüğü değil — o basışla süpürülmez; bant onu
+   yeniden sunar ve kendi linkini bekler.
 
 ### 5.8 Backfill, uzlaştırma, onay penceresi
 

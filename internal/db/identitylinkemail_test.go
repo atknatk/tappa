@@ -27,7 +27,9 @@ func identityExerciseM1422(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	email := aiEmail()
 	ident := aiIdentity(t, ctx, sp, email)
 	pi := aiAdmin(t, ctx, sp, i, email)
-	aiAdmin(t, ctx, sp, j, email)
+	pj := aiAdmin(t, ctx, sp, j, email)
+	// Born before the link (00084: only such rows are candidates).
+	aiExec(t, ctx, sp, `UPDATE admin_users SET created_at = now() - interval '1 hour' WHERE id = $1`, pj)
 	aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now(),
 	                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, pi, ident)
 	si := idSession(t, ctx, sp, i, pi, nil)
@@ -59,13 +61,14 @@ func newILEWorld(t *testing.T, ctx context.Context, tx pgx.Tx) ileWorld {
 	return w
 }
 
-// candidate adds a business with an active, unlinked row of address (its own digest).
+// candidate adds a business with an active, unlinked row of address (its own digest), born an hour ago
+// -- before any link the test asks for (00084: a row born after the link is no candidate).
 func (w ileWorld) candidate(t *testing.T, ctx context.Context, tx pgx.Tx, address string) (tenant, row uuid.UUID) {
 	t.Helper()
 	tenant = idTenant(t, ctx, tx, "M14-22 candidate")
 	row = uuid.New()
-	aiExec(t, ctx, tx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-	                   VALUES ($1, $2, 'M14-22 Row', $3, $4, 'owner')`, row, tenant, address, opFakeDigest("z"))
+	aiExec(t, ctx, tx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, created_at)
+	                   VALUES ($1, $2, 'M14-22 Row', $3, $4, 'owner', now() - interval '1 hour')`, row, tenant, address, opFakeDigest("z"))
 	return tenant, row
 }
 
@@ -142,6 +145,7 @@ func ileRewrite(t *testing.T, ctx context.Context, sp pgx.Tx, cut, put string) {
 //	a refused row                     unlinked_at IS NULL (both)  -> never linked
 //	a disabled row                    status = 'active'           -> never linked
 //	an expired link                   the expiry under the lock   -> refused
+//	a row born after the link         a.created_at < v_born       -> never linked
 func TestIdentityLinkByEmail00084_EveryGuardHoldsItsCase(t *testing.T) {
 	ctx, tx := opTx(t)
 	rule := func(sp pgx.Tx) string {
@@ -189,14 +193,23 @@ func TestIdentityLinkByEmail00084_EveryGuardHoldsItsCase(t *testing.T) {
 			_, row := w.candidate(t, ctx, sp, w.email)
 			aiExec(t, ctx, sp, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, row)
 			return w.session, w.request(t, ctx, sp, "link"), row
-		}, cut: "           AND a.status = 'active'\n         ORDER BY", put: "         ORDER BY"},
+		}, cut: "           AND a.status = 'active'\n           AND a.created_at < v_born\n", put: "           AND a.created_at < v_born\n"},
 		{name: "an expired link", setup: func(sp pgx.Tx) (string, string, uuid.UUID) {
 			w := newILEWorld(t, ctx, sp)
-			w.candidate(t, ctx, sp, w.email)
+			_, row := w.candidate(t, ctx, sp, w.email)
+			// Born before the (backdated) link, so the mutation's press has a row to link.
+			aiExec(t, ctx, sp, `UPDATE admin_users SET created_at = now() - interval '3 days' WHERE id = $1`, row)
 			h := w.request(t, ctx, sp, "link")
 			aiExec(t, ctx, sp, `UPDATE admin_identity_verifications SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE token_hash = $1`, h)
 			return w.session, h, uuid.Nil
 		}, cut: "IF (v_found AND v_expires > v_now) IS NOT TRUE THEN", put: "IF (v_found) IS NOT TRUE THEN"},
+		{name: "a row born after the link", setup: func(sp pgx.Tx) (string, string, uuid.UUID) {
+			w := newILEWorld(t, ctx, sp)
+			h := w.request(t, ctx, sp, "link")
+			_, row := w.candidate(t, ctx, sp, w.email)
+			aiExec(t, ctx, sp, `UPDATE admin_users SET created_at = now() + interval '1 second' WHERE id = $1`, row)
+			return w.session, h, row
+		}, cut: "AND a.created_at < v_born", put: "AND a.created_at IS NOT NULL"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -255,8 +268,8 @@ func TestIdentityLinkByEmail00084_ABusinessWithAMembershipIsLeftAlone(t *testing
 		aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'invite', linked_at = now(),
 		                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, member, w.ident)
 		row := uuid.New()
-		aiExec(t, ctx, sp, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-		                   VALUES ($1, $2, 'M14-22 Row', $3, $4, 'owner')`, row, m, w.email, opFakeDigest("z"))
+		aiExec(t, ctx, sp, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, created_at)
+		                   VALUES ($1, $2, 'M14-22 Row', $3, $4, 'owner', now() - interval '1 hour')`, row, m, w.email, opFakeDigest("z"))
 		_, other := w.candidate(t, ctx, sp, w.email)
 		return w, w.request(t, ctx, sp, "link"), row, other
 	}
@@ -278,6 +291,61 @@ func TestIdentityLinkByEmail00084_ABusinessWithAMembershipIsLeftAlone(t *testing
 		w, h, _, _ := build(sp)
 		if n, ok := ileLink(t, ctx, sp, w.session, h); ok {
 			t.Fatalf("MUTATION: with the per-business test cut the press still linked %d", n)
+		}
+	})
+}
+
+// TestIdentityVerifyEmail00084_ALinkLinkVerifiesNothing (the audits' DÜŞÜK, 2026-10-29): the purpose is
+// refused in BOTH directions -- a link link handed to identity_verify_email (same identity, live session,
+// unverified address) verifies nothing and stays unspent; a verification link of the same person
+// verifies (the control). MUTATION: the two `AND v.purpose = 'verify'` filters cut out of
+// identity_verify_email -> the link link verifies the address, red.
+func TestIdentityVerifyEmail00084_ALinkLinkVerifiesNothing(t *testing.T) {
+	ctx, tx := opTx(t)
+	verify := func(sp pgx.Tx, w ileWorld, hash string) bool {
+		var first bool
+		found := false
+		if err := opAs(t, ctx, sp, "tappa_app", func(app pgx.Tx) error {
+			err := app.QueryRow(ctx, verifyIdentityEmailSQL, hash, w.session).Scan(&first)
+			if err == pgx.ErrNoRows {
+				return nil
+			}
+			found = err == nil
+			return err
+		}); err != nil {
+			t.Fatalf("identity_verify_email: %v", err)
+		}
+		return found
+	}
+	verified := func(sp pgx.Tx, w ileWorld) bool {
+		var ok bool
+		if err := sp.QueryRow(ctx, `SELECT email_verified_at IS NOT NULL FROM admin_identities WHERE id = $1`, w.ident).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		w := newILEWorld(t, ctx, sp)
+		if verify(sp, w, w.request(t, ctx, sp, "link")) || verified(sp, w) {
+			t.Fatal("a link link verified the address")
+		}
+		if !verify(sp, w, w.request(t, ctx, sp, "verify")) || !verified(sp, w) {
+			t.Fatal("CONTROL: the verification link does not verify")
+		}
+	})
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		var def string
+		if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef('public.identity_verify_email(text,text)'::regprocedure)`).Scan(&def); err != nil {
+			t.Fatal(err)
+		}
+		const filter = "\n       AND v.purpose = 'verify'"
+		if strings.Count(def, filter) != 2 {
+			t.Fatalf("PREMISE: identity_verify_email holds the purpose filter %d times, want 2", strings.Count(def, filter))
+		}
+		aiExec(t, ctx, sp, strings.ReplaceAll(def, filter, ""))
+		w := newILEWorld(t, ctx, sp)
+		if !verify(sp, w, w.request(t, ctx, sp, "link")) {
+			t.Fatal("MUTATION: with the filter cut the link link still verifies nothing -- the test does not hold it")
 		}
 	})
 }
@@ -369,6 +437,15 @@ func TestIdentity00084_DownGivesBack00072sRequestByteForByte(t *testing.T) {
 		}
 		if d.owner != "tappa_identitydefiner" || d.config != "search_path=pg_catalog, pg_temp/true" || d.acl != head.acl {
 			t.Errorf("after the Down: owner %s, config %q, acl %q; want the definer, the pinned search_path, HEAD's acl %q", d.owner, d.config, d.acl, head.acl)
+		}
+		var verifySrc string
+		if err := sp.QueryRow(ctx, `SELECT prosrc FROM pg_proc WHERE oid = 'public.identity_verify_email(text,text)'::regprocedure`).Scan(&verifySrc); err != nil {
+			t.Fatal(err)
+		}
+		vi := strings.Index(up72, "CREATE FUNCTION public.identity_verify_email(")
+		vrest := up72[vi:]
+		if want := vrest[strings.Index(vrest, "AS $$")+len("AS $$") : strings.Index(vrest, "\n$$;")+1]; verifySrc != want {
+			t.Error("after the Down: identity_verify_email is not 00072's body byte for byte")
 		}
 		var gone bool
 		if err := sp.QueryRow(ctx, `SELECT to_regprocedure('public.identity_link_by_email(text,text)') IS NULL

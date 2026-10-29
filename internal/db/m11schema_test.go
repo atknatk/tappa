@@ -144,9 +144,9 @@ var m11Tables = map[string]map[string]m11TableACL{
 	"admin_identity_verifications": {
 		"tappa_resolver": {Select: "id,identity_id,token_hash,expires_at,used_at"},
 		// 00084 (M14-22): + purpose -- written by identity_request_verification, read by
-		// identity_link_by_email.
+		// identity_link_by_email; + created_at, the link's birth -- the candidates' bound.
 		"tappa_identitydefiner": {
-			Select: "id,identity_id,token_hash,expires_at,used_at,purpose",
+			Select: "id,identity_id,token_hash,created_at,expires_at,used_at,purpose",
 			Insert: "identity_id,token_hash,expires_at,purpose",
 			Update: "used_at",
 		},

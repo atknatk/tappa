@@ -2571,9 +2571,12 @@ transaction'da bağlanır (ADR 0031 §5.2 ve §5.7'nin M14-22 notları).
 (aynı ad; `admin_users` **sıcak** — `ACCESS EXCLUSIVE` küçük tablonun bir taraması kadar, `lock_timeout =
 '1s'`; aşılırsa 55P03 → hiçbir şey yazılmaz, Job `Failed`, sakin bir anda yeniden); `identity_request_verification`
 üçüncü argümanla (`p_purpose DEFAULT 'verify'`; eski binary'nin iki argümanlı çağrısı aynı davranışla çözülür);
-yeni `identity_link_by_email`. **`identity_link_legacy`'ye dokunmaz** — önceki binary (fd53d34e) onu hesap
-formundan ve girişin otomatik bağından çağırır, bu binary girişten çağırmaya devam eder; `REVOKE` kullanıcının
-kararına bırakıldı (plan, M14-22'nin uygulama notu). Postcondition iki fonksiyonun biçimini, ACL'ini ve
+`identity_verify_email` aynı imzayla yeniden (iki okumasına `AND v.purpose = 'verify'`: link linki adres
+doğrulamaz; eski binary yalnız `'verify'` bastığından onu etkilemez); yeni `identity_link_by_email` (adaylar
+linkten **önce** doğmuş satırlar). **`identity_link_legacy`'ye dokunmaz** — önceki binary (fd53d34e) onu hesap
+formundan ve girişin otomatik bağından çağırır, bu binary girişten çağırmaya devam eder. **(a) seçildi,
+2026-10-29: REVOKE contract A/B'ye taşındı** (girişin otomatik bağı onu çağırır; REVOKE sonrası `42501` → giriş
+500); görev planın M14-20a/b kartlarında. Postcondition üç fonksiyonun biçimini, ACL'ini ve
 `tappa_app`'ın `identity_link_legacy` `EXECUTE`'unun durduğunu doğrular.
 
 **Rollout:** eski pod yeni şemada çalışır (iki argümanlı talep `DEFAULT`'la çözülür; eski form
@@ -2631,7 +2634,8 @@ bağsız satır, kendi posta kutusu):
 2. **Add it** → *"Check your inbox"* sayfası (işletme adı yok). Posta kutusunda *"Add your businesses to your
    Taptime sign-in"*.
 3. Linki **aynı tarayıcıda** aç → *"Add your businesses"* sayfası, tek düğme **Add them** (açmak bir şey
-   değiştirmez). Bas → *"Done. Every business that uses your email address is now on this sign-in."*; ikinci
+   değiştirmez); sayfa basmadan önce eski parolaların biteceğini ve o işletmelerdeki cihazların çıkış
+   yapacağını söyler. Bas → *"Done. Every business that uses your email address is now on this sign-in."*; ikinci
    e-posta *"1 business was just added …"* (ad yok). Bant artık çıkmaz.
 4. **Switch business** → KF ve KM listelenir; KM'ye **tek tıkla** geç; shell KM'yi adlandırır.
 5. Geçişten önce açık kalmış bir KF sekmesinden bir form gönder → `409` *"This page belongs to another business —

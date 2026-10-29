@@ -552,11 +552,12 @@ var identityDefinerMatrixM1406b = map[string]string{
 }
 
 // identityDefinerMatrixM1422 is what 00084 grants tappa_identitydefiner: the link's purpose, written by
-// identity_request_verification and read by identity_link_by_email. The link reads and writes nothing
+// identity_request_verification and read by identity_link_by_email and identity_verify_email, and the
+// link's created_at -- the candidates' bound (only rows born before the link). The link reads and writes nothing
 // else that 00071/00072 did not grant (the identity's address, digest and window; the rows' link columns
 // and digest; the sessions' revocation; the audit row; the email_verified event).
 var identityDefinerMatrixM1422 = map[string]string{
-	"admin_identity_verifications:SELECT": "purpose",
+	"admin_identity_verifications:SELECT": "purpose,created_at",
 	"admin_identity_verifications:INSERT": "purpose",
 }
 

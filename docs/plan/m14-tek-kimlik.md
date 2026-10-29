@@ -895,8 +895,16 @@ bağlı doğar.
 **Uygulama notu (2026-10-29, yapıcı):** madde 11'in `REVOKE`'u bu kartta **yapılmadı** — kural ısırdı:
 `identity_link_legacy`'yi önceki binary (fd53d34e) hem hesap formundan **hem de** girişin otomatik
 bağından (ADR 0031 §5.6, §5.7 (1); aynı parolalı bağlanmamış satır) çağırıyor, bu kartın binary'si de
-girişten çağırmaya devam ediyor. Seçenekler kullanıcıya (orkestratör) raporlandı; `00084`'ün son
-koşulu `tappa_app`'ın `EXECUTE`'unun durduğunu doğrular.
+girişten çağırmaya devam ediyor. **(a) seçildi, 2026-10-29: REVOKE contract A/B'ye taşındı** (girişin
+otomatik bağı onu çağırıyor; REVOKE sonrası `42501` → giriş 500). `00084`'ün son koşulu `tappa_app`'ın
+`EXECUTE`'unun durduğunu doğrular; görev M14-20a/b kartlarında.
+
+**Denetim turu 1'in düzeltmeleri (2026-10-29):** `identity_verify_email` 00084'te aynı imzayla yeniden
+tanımlandı (iki okumasına `AND v.purpose = 'verify'` — link linki doğrulamaz); adaylar linkten **önce**
+doğmuş satırlarla sınırlı (`a.created_at < v_born`, linkin `created_at`'i — definer'a `SELECT
+(created_at)`); doğrulanmamış adreste doğrulama ve link mektupları **tek** bütçeyi paylaşır
+(`adminauth.LinkBucket`); onay sayfası ve link mektubu basmadan önce eski parolaların biteceğini ve o
+işletmelerdeki cihazların çıkış yapacağını söyler; kilit sırasının metni koda göre düzeltildi.
 
 **Madde 15'in bulgusu (2026-10-29, lane DB, fd53d34e'nin kodu = bu dalın tabanı):** o şekilde (bayrak açık,
 kimlik oturumu KF'de, KM'de aynı adreste başka parolalı bağsız aktif satır) `/admin/account` `200` döndü ve
@@ -926,6 +934,21 @@ kimlik"); `TestMaxCandidates_IsTheMeasuredCPUBound` ve seçici testleri yeni idd
 yeniden adlandırılır ya da kaldırılır, `TestEveryNamedTestExists` yeşil; `manager.go:285-292` yorumu
 tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şemasında** çalışır (şema aynı).
 
+**M14-22'den gelen iki bağımlılık (2026-10-29; denetim turu 1'in ORTA bulgusu, orkestratör kaydı):**
+- **Bant ve "Add it" `resolve_admin_by_email`'i okur** — `internal/adminauth/identityaccount.go`'da
+  `unlinkedAtAddress` → `GetAdminByEmail` (`HasBusinessToAdd` her panel sayfasında, `RequestLink` link
+  basmadan önce). Contract A "`resolve_admin_by_email` çağrıları"nı kaldırırken bu okuma da gider ve M14-20b
+  fonksiyonu **DROP** eder. **Contract A'dan önce, AYRI bir migration** bu okumayı dar bir boolean
+  definer'a taşır (ör. canlı oturumla anahtarlı "adresinde bağsız aktif satır var mı" — yalnız evet/hayır,
+  ad/sayı yok). Bu **kapalı listeye eklemedir: kullanıcı onayı + ADR 0031 değişikliği ister**; bu kartta
+  yapılmaz, M14-22'de yapılmadı.
+- **`REVOKE EXECUTE ON FUNCTION identity_link_legacy(text, text) FROM tappa_app`** — girişin otomatik bağı
+  (aynı parolalı bağsız satır, ADR 0031 §5.6, §5.7 (1)) kaldırıldığında. M14-22'de seçenek (a) seçildi
+  (2026-10-29): REVOKE contract A/B'ye taşındı, çünkü giriş onu çağırıyor ve REVOKE sonrası çağrı
+  `42501` verir → giriş 500 (lane DB'de ölçüldü). Görev: contract A otomatik bağı kaldırır; REVOKE aynı
+  deploy'da **değil**, sonraki migration'da (contract B ya da kendi deploy'u) gelir — rollout penceresindeki
+  eski pod hâlâ çağırır (expand/contract kuralı); fonksiyonun DROP'u contract B'nindir.
+
 ## M14-20b — Contract B (şema)
 
 - **Bağımlılık:** M14-20a canlıda
@@ -943,13 +966,16 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
 1b. **Digest kopyalayan definer gövdeleri aynı imzalarla `CREATE OR REPLACE`** (S1, YÜKSEK):
    `identity_set_password`, `identity_consume_reset`, `identity_consume_row_reset`,
    `identity_link_legacy`, `identity_relink_refused`, `identity_accept_invite`,
-   `identity_accept_invite_new`, `identity_claim_signup` artık satırlara digest kopyalamaz; yeni bağlı
+   `identity_accept_invite_new`, `identity_claim_signup` ve (M14-22) `identity_link_by_email` artık
+   satırlara digest kopyalamaz; yeni bağlı
    satırlar `password_hash NULL` doğar. **`identity_unlink_backfilled`** de (T3): contract sonrası çözülen
    satıra nöbetçi değil `NULL` yazar. Her yeniden tanım `SECURITY DEFINER`, `search_path`, sahip ve
    yetkileri açıkça yeniden yazar (T5). İmza katalog testi değişmez.
 2. Bayat digest kopyaları `NULL` (yeni tetikleyiciyle uyumlu); `password_hash` NULL'lanabilir.
 3. `DROP FUNCTION resolve_admin_by_email`, `identity_create_for_signup` (R8) ve `identity_reconcile`
-   (T3).
+   (T3) — `resolve_admin_by_email`'in DROP'u ancak M14-22'nin bant okumasını dar boolean definer'a taşıyan
+   ayrı migration canlıdayken (M14-20a'nın M14-22 bağımlılığı). `identity_link_legacy`: `tappa_app`'tan
+   `REVOKE EXECUTE` (otomatik bağ contract A'da kalktıktan sonra) ve DROP.
 4. `tappa_app`'tan `INSERT (email, password_hash)` ve `UPDATE (password_hash)` REVOKE; owner ve davetli
    satırlarını yalnız definer yazar (matris testi).
 5. `CHECK (identity_id IS NOT NULL OR created_at < '<contract B anı>')` **VALID** (R10); test:
@@ -957,7 +983,7 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
    reddedilir.
 - **Contract A binary'si bu şemada** çalışır (rollout penceresi). **Kabul testi** (S1): contract B
   şemasında contract A binary'siyle parola değiştir, sıfırla (kimlik linki), davet kabul et (iki yol),
-  kaydol (iki yol), hesap sayfasından bağla, pencere içinde çöz ve geri bağla → hepsi yeşil; bağlı
+  kaydol (iki yol), bantla e-postadan bağla (M14-22), pencere içinde çöz ve geri bağla → hepsi yeşil; bağlı
   satırlarda digest `NULL`; çözme yalnız `created_at < contract anı` satırlarda (CHECK ile tutarlı).
 - Down kimlik digest'ini satırlara geri kopyalar, eski tetikleyiciyi geri koyar ve davetle doğmuş NULL
   satırları doldurmadan `NOT NULL`'u geri getirmez (ADR 0031 §8).
