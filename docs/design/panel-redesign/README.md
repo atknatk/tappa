@@ -415,6 +415,16 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   them) could not be read, so it does not depend on them; and the sign-in family, where the
   unauthenticated problems send the reader, stays Taptime's (ADR 0023 §2). The card itself (code chip, owner pill, title, message, hint, one link)
   is the board's.
+- **Wide screens** (the wide-screen pass, 2026-10-30, user decision; the boards are drawn at
+  1440 and say nothing wider). The content well is **no longer centred and stops at 100rem**
+  (`.panel-well`, `input.css`): it stands against the sidebar as the boards' `flex: 999 1 640px`
+  main column does, and the 72rem centred well of M12-01 (§3.6 above) is gone — at 3840 px it
+  left 1220 px of porcelain on each side. A page that is filled in or read through (the venue,
+  department and staff forms, a typed record, Rules, a rule change, Billing, Developers,
+  Managers, linking businesses, a business day review) carries the `.panel-measure` marker and
+  its whole well stops at **70rem** — the FreezeMonth board's 1120 px content row, about the
+  1104 px box every board is drawn in at 1440; the data pages take the full well. Pinned by
+  `internal/handler/panelwide_test.go`.
 
 **Lessons the port paid for** (each one red at least once):
 

@@ -171,7 +171,7 @@ func StaffForm(v StaffFormView) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div class=\"flex flex-col gap-7 desk:flex-row desk:items-start\"><section class=\"panel-card min-w-0 desk:flex-[999_1_520px]\" aria-label=\"Add somebody to this business\"><form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div class=\"panel-measure flex flex-col gap-7 desk:flex-row desk:items-start\"><section class=\"panel-card min-w-0 desk:flex-[999_1_520px]\" aria-label=\"Add somebody to this business\"><form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

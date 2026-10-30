@@ -1,0 +1,253 @@
+package handler
+
+// panelwide_test.go -- the wide-screen pass (2026-10-30, user decision): on a 1x 4K screen the
+// panel's content was a 1152 px island centred in 3592 px of porcelain. The claims held here,
+// each read from the source (web/static/css/input.css and the .templ files), with a CONTROL per
+// claim that breaks the source and must turn the reading red:
+//
+//   - the content well stands against the sidebar and stops at 100rem: its rule centres
+//     nothing (no auto margin) and caps at nothing else;
+//   - a form or a text page keeps the boards' width: the well stops at 70rem when its body
+//     carries the .panel-measure marker (or is the Rules page's pinned .policy-section), and
+//     the marker is written exactly where this file lists it -- the data pages carry none.
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// panelCSSRule is one rule of input.css with the at-rules around it, outermost first.
+type panelCSSRule struct {
+	at       []string // e.g. ["@layer components", "@media (min-width: 2400px)"]
+	selector string   // whitespace collapsed
+	body     string   // whitespace collapsed, without the braces
+}
+
+// readPanelCSSRules walks input.css's braces: every block that holds no block of its own is a rule,
+// and the preludes of the blocks around it are its at-rules. Comments go first, so a brace or a
+// selector in a comment is not read.
+func readPanelCSSRules(css string) []panelCSSRule {
+	src := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	norm := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	var (
+		rules   []panelCSSRule
+		stack   []string
+		prelude strings.Builder
+		start   []int
+		leaf    []bool
+	)
+	for i := 0; i < len(src); i++ {
+		switch src[i] {
+		case '{':
+			stack = append(stack, norm(prelude.String()))
+			prelude.Reset()
+			start = append(start, i+1)
+			if len(leaf) > 0 {
+				leaf[len(leaf)-1] = false
+			}
+			leaf = append(leaf, true)
+		case '}':
+			if len(stack) == 0 {
+				continue
+			}
+			n := len(stack) - 1
+			if leaf[n] {
+				rules = append(rules, panelCSSRule{at: slices.Clone(stack[:n]), selector: stack[n], body: norm(src[start[n]:i])})
+			}
+			stack, start, leaf = stack[:n], start[:n], leaf[:n]
+			prelude.Reset()
+		case ';':
+			// a statement at block level (an @import, a declaration of an outer block) is not a prelude
+			prelude.Reset()
+		default:
+			prelude.WriteByte(src[i])
+		}
+	}
+	return rules
+}
+
+// panelRulesNaming are the rules whose selector list names the class -- every spelling, so a second rule
+// for the same element somewhere else in the 2 800 lines is counted rather than missed.
+func panelRulesNaming(rules []panelCSSRule, class string) []panelCSSRule {
+	word := regexp.MustCompile(regexp.QuoteMeta(class) + `($|[^A-Za-z0-9_-])`)
+	var out []panelCSSRule
+	for _, r := range rules {
+		if word.MatchString(r.selector) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// applied is the utilities of a rule's @apply, nil when the body is not one @apply.
+func panelApplied(body string) []string {
+	m := regexp.MustCompile(`^@apply ([^;]+);$`).FindStringSubmatch(body)
+	if m == nil {
+		return nil
+	}
+	return strings.Fields(m[1])
+}
+
+// readPanelShellWidth is the reading of the well's two rules: one finding per decision broken.
+func readPanelShellWidth(css string) []string {
+	rules := readPanelCSSRules(css)
+	var findings []string
+	well := panelRulesNaming(rules, ".panel-well")
+	var base, measured []panelCSSRule
+	for _, r := range well {
+		switch r.selector {
+		case ".panel-well":
+			base = append(base, r)
+		case ".panel-well:has(.panel-measure, .policy-section)":
+			measured = append(measured, r)
+		default:
+			findings = append(findings, fmt.Sprintf("a rule `%s` also styles the well: the well's width has two rules, the base and the measure", r.selector))
+		}
+	}
+	if len(base) != 1 {
+		findings = append(findings, fmt.Sprintf("%d `.panel-well` rules, want 1", len(base)))
+	} else {
+		us := panelApplied(base[0].body)
+		if len(base[0].at) != 1 || base[0].at[0] != "@layer components" {
+			findings = append(findings, fmt.Sprintf("`.panel-well` sits in %v, want the components layer alone (no width may restyle it)", base[0].at))
+		}
+		for _, want := range []string{"w-full", "max-w-[100rem]"} {
+			if !slices.Contains(us, want) {
+				findings = append(findings, "`.panel-well` does not apply "+want+": the well is as wide as the box up to 100rem")
+			}
+		}
+		for _, u := range us {
+			if strings.HasPrefix(u, "mx-") || strings.HasPrefix(u, "ml-") || strings.HasPrefix(u, "mr-") || strings.HasPrefix(u, "m-") ||
+				strings.Contains(u, ":mx-") || strings.Contains(u, ":ml-") {
+				findings = append(findings, "`.panel-well` applies "+u+": the well stands against the sidebar, it is not centred or pushed")
+			}
+			if strings.Contains(u, "max-w-") && u != "max-w-[100rem]" {
+				findings = append(findings, "`.panel-well` applies "+u+": the only cap is 100rem")
+			}
+		}
+	}
+	if len(measured) != 1 {
+		findings = append(findings, fmt.Sprintf("%d `.panel-well:has(.panel-measure, .policy-section)` rules, want 1", len(measured)))
+	} else if measured[0].body != "max-width: 70rem;" {
+		findings = append(findings, fmt.Sprintf("the measured well declares %q, want exactly max-width: 70rem", measured[0].body))
+	}
+	if n := len(panelRulesNaming(rules, ".panel-measure")); n != 1 {
+		findings = append(findings, fmt.Sprintf("%d rules name .panel-measure, want 1 (the marker draws nothing of its own)", n))
+	}
+	return findings
+}
+
+func TestPanelWide_TheWellStandsAgainstTheSidebarAndStopsAt100rem(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, f := range readPanelShellWidth(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"the well centred again", "@apply flex w-full max-w-[100rem] flex-col gap-6;", "@apply mx-auto flex w-full max-w-[100rem] flex-col gap-6;"},
+		{"the old 72rem cap", "@apply flex w-full max-w-[100rem] flex-col gap-6;", "@apply flex w-full max-w-6xl flex-col gap-6;"},
+		{"no cap", "@apply flex w-full max-w-[100rem] flex-col gap-6;", "@apply flex w-full flex-col gap-6;"},
+		{"a second rule for the well", ".panel-head { @apply", ".panel-well { margin-left: auto; }\n  .panel-head { @apply"},
+		{"a width step that recentres it", ".panel-head { @apply", "@media (min-width: 2000px) { .panel-well { margin-inline: auto; } }\n  .panel-head { @apply"},
+		{"the measure widened", "  .panel-well:has(.panel-measure, .policy-section) {\n    max-width: 70rem;", "  .panel-well:has(.panel-measure, .policy-section) {\n    max-width: 80rem;"},
+		{"the measure losing the Rules page", ".panel-well:has(.panel-measure, .policy-section) {", ".panel-well:has(.panel-measure) {"},
+		{"the measure gone", ".panel-well:has(.panel-measure, .policy-section) {", ".panel-gone {"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readPanelShellWidth(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// panelMeasuredTemplates is every .templ that writes the .panel-measure marker, and how many times:
+// the bodies a reader fills in or reads through. Odd shapes, The Pass, the ledger, The Spike,
+// People, the venues list, The Roll and the Account cards are data and take the full well.
+var panelMeasuredTemplates = map[string]int{
+	"components/staffform.templ": 1, // New person
+	"components/venue.templ":     2, // the venue form and the department form
+	"pages/manualentry.templ":    1, // a record typed by hand
+	"pages/billing.templ":        2, // Billing and freezing a month
+	"pages/apikeys.templ":        1, // Developers
+	"pages/admininvites.templ":   1, // Managers
+	"pages/linkbusinesses.templ": 1, // Your other businesses
+	"pages/policychange.templ":   2, // a rule change and a rule version
+	"pages/employees.templ":      2, // the invitation, shown and e-mailed
+	"pages/daycutoff.templ":      1, // reviewing a business day change
+}
+
+// readPanelMeasureMarkers counts the marker in every template against the list above.
+func readPanelMeasureMarkers(files map[string]string) []string {
+	marker := regexp.MustCompile(`class="([^"]*\s)?panel-measure(\s[^"]*)?"`)
+	var findings []string
+	for name, src := range files {
+		got := len(marker.FindAllString(src, -1))
+		if want := panelMeasuredTemplates[name]; got != want {
+			findings = append(findings, fmt.Sprintf("%s writes the measure marker %d time(s), want %d", name, got, want))
+		}
+	}
+	for name := range panelMeasuredTemplates {
+		if _, ok := files[name]; !ok {
+			findings = append(findings, name+" is not among the templates")
+		}
+	}
+	return findings
+}
+
+func readPanelTemplates(t *testing.T) map[string]string {
+	t.Helper()
+	root := filepath.Join("..", "..", "web", "templates")
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".templ") {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		files[filepath.ToSlash(rel)] = string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestPanelWide_FormAndTextPagesCarryTheMeasureAndDataPagesDoNot(t *testing.T) {
+	files := readPanelTemplates(t)
+	for _, f := range readPanelMeasureMarkers(files) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, file, from, to string }{
+		{"the staff form unmeasured", "components/staffform.templ", `class="panel-measure flex`, `class="flex`},
+		{"a data page measured", "pages/reports.templ", `<div class="`, `<div class="panel-measure `},
+		{"the marker spelled into a longer class", "pages/apikeys.templ", `class="panel-measure flex`, `class="panel-measured flex`},
+	} {
+		mutated := map[string]string{}
+		for k, v := range files {
+			mutated[k] = v
+		}
+		next := strings.Replace(files[c.file], c.from, c.to, 1)
+		if next == files[c.file] {
+			t.Fatalf("CONTROL %s: %q is not in %s", c.what, c.from, c.file)
+		}
+		mutated[c.file] = next
+		if len(readPanelMeasureMarkers(mutated)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}

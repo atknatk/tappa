@@ -161,7 +161,7 @@ func AdminPolicyChange(v PolicyChangeView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex flex-col gap-6\"><p class=\"max-w-3xl text-sm leading-normal text-ink/70 md:text-[15px]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"panel-measure flex flex-col gap-6\"><p class=\"max-w-3xl text-sm leading-normal text-ink/70 md:text-[15px]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1312,7 +1312,7 @@ func AdminPolicyVersion(v PolicyVersionPageView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div class=\"flex max-w-2xl flex-col gap-5\"><article class=\"docket flex flex-col gap-2.5 px-4 pb-5 pt-4 md:px-[18px]\" aria-labelledby=\"version-name\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><p id=\"version-name\" class=\"font-display text-[15px] font-bold text-ink [overflow-wrap:anywhere]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div class=\"panel-measure flex max-w-2xl flex-col gap-5\"><article class=\"docket flex flex-col gap-2.5 px-4 pb-5 pt-4 md:px-[18px]\" aria-labelledby=\"version-name\"><div class=\"flex flex-wrap items-baseline justify-between gap-2\"><p id=\"version-name\" class=\"font-display text-[15px] font-bold text-ink [overflow-wrap:anywhere]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

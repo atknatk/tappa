@@ -32,7 +32,7 @@ import (
 templ AdminAPIKeys(v APIKeysView) {
 	@PanelActions(apiKeysGuideNote()) {
 		@PanelShell(v.PanelChrome) {
-			<div class="flex flex-col gap-5 md:gap-6">
+			<div class="panel-measure flex flex-col gap-5 md:gap-6">
 				if v.Problem != "" {
 					@components.PanelNotice(components.ToneAlert, "That did not happen") {
 						<p>{ v.Problem }</p>
