@@ -9,7 +9,11 @@ package handler
 //     nothing (no auto margin) and caps at nothing else;
 //   - a form or a text page keeps the boards' width: the well stops at 70rem when its body
 //     carries the .panel-measure marker (or is the Rules page's pinned .policy-section), and
-//     the marker is written exactly where this file lists it -- the data pages carry none.
+//     the marker is written exactly where this file lists it -- the data pages carry none;
+//   - Account's cards and Odd shapes' middle cards flow down columns from the desk width, and
+//     only they do; Odd's paragraphs carry the 70rem prose measure;
+//   - past a 2400 px window the whole frame is zoomed 1.25, past 3200 px 1.5, nothing below,
+//     and each step restates the two viewport heights divided by its zoom.
 
 import (
 	"fmt"
@@ -17,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -370,6 +375,90 @@ func TestPanelWide_AccountAndOddShapesFlowDownColumns(t *testing.T) {
 			}
 		}
 		if len(readPanelCardFlow(mcss, mfiles)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}
+
+// panelZoomSteps are the frame's zoom steps: the window width each starts at and its factor, as
+// input.css writes them. Each starts where the zoomed layout is no narrower than an unzoomed 1920.
+var panelZoomSteps = map[string]string{"(min-width: 2400px)": "1.25", "(min-width: 3200px)": "1.5"}
+
+// readPanelZoom is the reading of the zoom steps: one finding per decision broken.
+func readPanelZoom(css string) []string {
+	rules := readPanelCSSRules(css)
+	var findings []string
+	steps := map[string]int{}
+	for _, r := range rules {
+		if !strings.Contains(r.body, "zoom") {
+			continue
+		}
+		media := ""
+		if n := len(r.at); n > 0 && strings.HasPrefix(r.at[n-1], "@media ") {
+			media = strings.TrimPrefix(r.at[n-1], "@media ")
+		}
+		z, ok := panelZoomSteps[media]
+		if !ok || r.selector != ".panel-frame" {
+			findings = append(findings, fmt.Sprintf("`%s` in %v declares a zoom: only the two steps zoom, and only the frame", r.selector, r.at))
+			continue
+		}
+		steps[media]++
+		if want := fmt.Sprintf("zoom: %s; min-height: calc(100vh / %s);", z, z); r.body != want {
+			findings = append(findings, fmt.Sprintf("the frame at %s declares %q, want %q: a vh inside the zoom is %s screens", media, r.body, want, z))
+		}
+	}
+	for media, z := range panelZoomSteps {
+		if steps[media] != 1 {
+			findings = append(findings, fmt.Sprintf("%d zoomed frame rule(s) at %s, want 1", steps[media], media))
+		}
+		var side []panelCSSRule
+		for _, r := range rules {
+			if r.selector == ".panel-frame .panel-side" && len(r.at) > 0 && r.at[len(r.at)-1] == "@media "+media {
+				side = append(side, r)
+			}
+		}
+		if want := fmt.Sprintf("height: calc(100vh / %s);", z); len(side) != 1 || side[0].body != want {
+			findings = append(findings, fmt.Sprintf("the sidebar at %s is %v, want one `.panel-frame .panel-side { %s }`: its full height is a screen, not %s", media, side, want, z))
+		}
+		if w, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(media, "(min-width: "), "px)")); err != nil || w <= 1920 {
+			findings = append(findings, "a zoom step starts at "+media+": at 1920 and below nothing is zoomed")
+		}
+	}
+	// The override is needed only because the sidebar is a full-height sticky column.
+	for _, r := range panelRulesNaming(rules, ".panel-side") {
+		if r.selector == ".panel-side" {
+			us := panelApplied(r.body)
+			if !slices.Contains(us, "md:sticky") || !slices.Contains(us, "md:h-screen") {
+				findings = append(findings, "`.panel-side` is no longer a full-height sticky column: revisit the zoom steps' height")
+			}
+		}
+	}
+	return findings
+}
+
+func TestPanelWide_AVeryWideScreenZoomsTheFrameInTwoSteps(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, f := range readPanelZoom(css) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, from, to string }{
+		{"a step at 1920", "@media (min-width: 2400px) {\n    .panel-frame { zoom: 1.25;", "@media (min-width: 1920px) {\n    .panel-frame { zoom: 1.25;"},
+		{"the frame's minimum left a zoomed screen", ".panel-frame { zoom: 1.5; min-height: calc(100vh / 1.5); }", ".panel-frame { zoom: 1.5; }"},
+		{"the sidebar 1.25 screens tall", ".panel-frame .panel-side { height: calc(100vh / 1.25); }", ".panel-frame .panel-side { height: 100vh; }"},
+		{"a height divided by the other step", ".panel-frame .panel-side { height: calc(100vh / 1.5); }", ".panel-frame .panel-side { height: calc(100vh / 1.25); }"},
+		{"a third step", "  .panel-side {\n    @apply", "  @media (min-width: 5000px) { .panel-frame { zoom: 2; } }\n  .panel-side {\n    @apply"},
+		{"a zoom on the well", ".panel-well:has(.panel-measure, .policy-section) {\n    max-width: 70rem;", ".panel-well:has(.panel-measure, .policy-section) {\n    zoom: 1.1; max-width: 70rem;"},
+		{"the sidebar no longer sticky", "md:sticky md:top-0 md:h-screen", "md:top-0 md:h-screen"},
+	} {
+		mutated := strings.Replace(css, c.from, c.to, 1)
+		if mutated == css {
+			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		}
+		if len(readPanelZoom(mutated)) == 0 {
 			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
 		}
 	}

@@ -427,7 +427,13 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   cards and Odd shapes' middle cards **flow down columns** from `desk` (`.card-flow`: at least
   25rem a column, at most three) instead of a row grid ([account-auth §1.2](screens/account-auth.md),
   [spike-odd O.3](screens/spike-odd.md#o3-breakpoints)), and a paragraph on a data page may carry
-  `.panel-prose` (70rem). Pinned by `internal/handler/panelwide_test.go`.
+  `.panel-prose` (70rem). **Past a 2400 px window the whole frame is zoomed 1.25, past 3200 px
+  1.5** (sidebar, type, cards and the tenant's stripe and logo alike; nothing changes at 1920 or
+  below): a 1x 4K screen is about 3840 CSS px and the redesign's 11–14 px type is physically small
+  there. Inside the zoom a `vh` is zoomed too, so each step restates the sidebar's height and the
+  frame's minimum as `100vh` divided by its factor — without that the sidebar was 1.25 or 1.5
+  screens tall and every short page scrolled (measured). Pinned by
+  `internal/handler/panelwide_test.go`.
 
 **Lessons the port paid for** (each one red at least once):
 

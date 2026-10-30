@@ -434,6 +434,29 @@
   .panel-frame {
     @apply min-h-screen md:flex;
   }
+  /* A VERY WIDE SCREEN DRAWS THE WHOLE PANEL LARGER (2026-10-30, user decision). A 4K
+     monitor at 1x is about 3840 CSS px across, and the panel's type (11-14 px) and its
+     248 px sidebar are physically small on it; a wider well alone would spread the same
+     small type further. So past 2400 px the frame is zoomed 1.25 and past 3200 px 1.5:
+     sidebar, type, cards and gaps grow together, which no font-size base can do, because
+     the redesign's sizes are mostly fixed pixels, not rems. Two steps rather than a
+     continuous scale: zoom takes a number, not a length ratio, and a step keeps every
+     width testable. Each step starts where the zoomed layout is as wide as an unzoomed
+     1920 px one (2400 / 1.25; 3200 / 1.5 is 2133), so the desk recipes see at least the
+     width they see at 1920 and at most 2560; at 1920 and below nothing changes.
+     THE VIEWPORT UNITS ARE DIVIDED BACK. Inside a zoomed box a vh is multiplied too, so the
+     sidebar's full height (100vh) and the frame's minimum would be 1.25 or 1.5 screens
+     tall -- the sidebar's foot pushed below the fold and every short page scrolling
+     (measured, see the wide-screen tour). The two heights are restated as the screen
+     divided by the zoom. Media queries read the real viewport, so md and desk still fire. */
+  @media (min-width: 2400px) {
+    .panel-frame { zoom: 1.25; min-height: calc(100vh / 1.25); }
+    .panel-frame .panel-side { height: calc(100vh / 1.25); }
+  }
+  @media (min-width: 3200px) {
+    .panel-frame { zoom: 1.5; min-height: calc(100vh / 1.5); }
+    .panel-frame .panel-side { height: calc(100vh / 1.5); }
+  }
   .panel-side {
     @apply flex flex-col bg-porcelain text-ink
            md:sticky md:top-0 md:h-screen md:w-[88px] md:shrink-0 md:gap-4
