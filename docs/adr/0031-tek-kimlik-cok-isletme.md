@@ -33,14 +33,12 @@
   "find your workspaces" deseni) ve bant posta kutusu kanıtından önce işletme **adlandırmaz** (*"Adı
   söylemesin"*). Kapalı listeye `identity_link_by_email` eklenir, `identity_request_verification` bir amaç
   argümanı alır (`00084`); §5.2 ve §5.7'nin M14-22 notları, §6.1'in bir cümlesi.
-  **2026-10-30 (M14-23 — TASARIM, kullanıcı onayı bekliyor; kod yok):** başka **adresteki** işletmeye
-  geçiş, **tarayıcı başına hesap değiştiriciyle** (Google "Add another account", Slack, Microsoft) —
-  kullanıcı kararı 2026-10-30 (AskUserQuestion). İlk tasarım (`b43dbbbb`, kimliklerin kalıcı birleşmesi /
-  takma ad) iki bağımsız denetimde **RET** aldı ve tümüyle **düşürüldü**: `merged_into` yok, takma ad yok,
-  satır taşıma yok, digest değişimi yok. Hesaplar ayrı kalır; eklenen hesaplar **bu cihazda 30 gün
-  hatırlanır** (oturum başına 12 saat aynen). Kapalı listeye dört fonksiyon, bir yeniden tanım, bir
-  tenant-kapsamsız tablo, amaç kümesine bir değer (`00085`). Ayrıntı: §5.7'nin M14-23 notu; §6.1 ve CLAUDE.md
-  §6'ya önerilen üç parça o notun sonunda (uygulanmadı — onaydan sonra).
+  **2026-10-30 (M14-23 — TASARIM, dördüncü tur, kullanıcı onayı bekliyor; kod yok):** başka **adresteki**
+  işletmeye geçiş **tarayıcı başına hesap değiştiriciyle** (kullanıcı kararı 2026-10-30). Kalıcı birleşme
+  (`b43dbbbb`) ve 30 günlük hatırlama (`220a28d7`) denetimlerde RET aldı. Kart bölündü: **M14-23a** (değiştirici +
+  link/kod ile giriş, oturum en çok 12 saat, hatırlama yok) — kapalı listeye iki fonksiyon, üç aynı imzalı yeniden
+  tanım (`00085`); **M14-23b** (bu cihazda hatırlama) planlandı, tasarımı açık. Ayrıntı: §5.7'nin M14-23a ve
+  M14-23b notları; §6.1'e önerilen iki parça ve ADR 0015 notu M14-23a notunun sonunda (uygulanmadı — onaydan sonra).
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab
@@ -1027,286 +1025,275 @@ yerini şuna bırakır:
    basıldıktan sonra adreste doğan bir satır — kişinin bantta gördüğü değil — o basışla süpürülmez; bant onu
    yeniden sunar ve kendi linkini bekler.
 
-**M14-23 notu (2026-10-30) — TASARIM, kullanıcı onayı bekliyor (kapalı listeye dört fonksiyon ve bir yeniden
-tanım, altıncı tenant-kapsamsız tablo; §6.1'e üç parça).** Canlıda (2026-10-30, salt okuma) kişinin işletmeleri **ayrı adreslerde, ayrı kimliklerde**
-(KF: adres #3 → kimlik #1; KM: adres #2 → kimlik #2). 2′ yalnız aynı adresi bağlar. **Kullanıcı kararı
-(2026-10-30, AskUserQuestion): tarayıcı başına hesap değiştirici** — Google'ın "Add another account"ı,
-Slack'in "Sign in to another workspace"i, Microsoft'un hesap değiştiricisi. **Düşürülen tasarım** (`b43dbbbb`,
-kimliklerin kalıcı birleşmesi): iki denetim RET dedi — başka bir kimliğin takma adı üzerinden D4 kırılıyordu;
-taşınan satırlar geri alınamıyordu; bayrak kapalıya dönüşte takma adın posta kutusu eski satır sıfırlamasıyla
-#1'i sıfırlayabiliyordu; paylaşılan tablette tek basış geri dönüşsüz ele geçirmeydi; ve hiçbir yaygın ürün iki
-hesabı birleştirmez. Bu yüzden: **`merged_into` yok, takma ad yok, satır taşıma yok, digest değişimi yok.**
+**M14-23a notu (2026-10-30, dördüncü tur) — TASARIM, kullanıcı onayı bekliyor.** Canlıda (2026-10-30, salt okuma)
+kişinin işletmeleri **ayrı adreslerde, ayrı kimliklerde** (KF: adres #3 → kimlik #1; KM: adres #2 → kimlik #2).
+2′ yalnız aynı adresi bağlar. **Kullanıcı kararı (2026-10-30, AskUserQuestion): tarayıcı başına hesap
+değiştirici.** Tur geçmişi: `b43dbbbb` (kalıcı birleşme / takma ad) iki denetimde RET aldı ve düşürüldü —
+`merged_into`, takma ad, satır taşıma, digest değişimi **yok**; `f4a21168` (değiştirici) denetçilerce yapısı
+sağlam bulundu; `220a28d7` (30 günlük "bu cihazda hatırla") iki denetimde RET aldı. **Orkestratör kararı:** kart
+bölünür — **M14-23a** (değiştirici + link ile giriş, **hatırlama yok**) şimdi; **M14-23b** (bu cihazda hatırlama)
+ayrı bir not, durumu *planlandı, tasarım açık* (aşağıda). M14-23a'da cihaz tablosu, hatırlama fonksiyonları ve
+hatırlama metni **yoktur**.
 
-2″. **Bu tarayıcıya başka bir hesap ekleme** (`identity_open_signin_link` + `identity_signin_by_link`; bu cihazda
-hatırlama: `identity_resume_device` + `identity_forget_device`, `identity_revoke_sessions`'ın yeniden tanımı,
-`admin_identity_devices`; `00085`).
+2″. **Bu tarayıcıya başka bir hesap ekleme** (`identity_open_signin_link` + `identity_signin_by_link`;
+`resolve_admin_session_by_token_hash`, `identity_switch_session` ve `identity_revoke_sessions` aynı imzayla
+yeniden tanım; `00085`).
 
-*Ürün.* "Add a business" ("Switch business" sayfasında — tek işletmede de — ve hesap sayfasında) → bir adres
-yaz → adreste aktif üyeliği olan **canlı bir kimlik** varsa o posta kutusuna **tek** link (tek kullanım, 24
-saat). Link **bu** tarayıcıda açılıp bir kez basılınca o kimlik bu tarayıcıya **ek hesap** olarak girer. Hiçbir
-yerde parola yok. "Switch business" bu tarayıcıdaki **bütün hesapların** işletmelerini listeler; geçiş tek
+*Ürün.* **"Add another account"** (her yerde bu ad: "Switch business" sayfasında — tek işletmede de — ve hesap
+sayfasında) → bir adres yaz → adreste aktif üyeliği olan **canlı bir kimlik** varsa o posta kutusuna **tek**
+mektup: bir link ve yanında **8 karakterlik bir kod** (tek kullanım, 24 saat). Link **bu** tarayıcıda açılır ya da
+kod **bu** tarayıcının bekleyen sayfasına yazılır, bir basış → o kimlik bu tarayıcıya **ek hesap** olarak girer.
+Hiçbir yerde parola yok. "Switch business" bu tarayıcıdaki **bütün hesapların** işletmelerini listeler; geçiş tek
 tıktır, hesaplar arasında da. **Hesaplar ayrı kalır:** her biri kendi parolası, oturumları, sıfırlaması, onay
-penceresi ve "Sign out everywhere"ıyla; kimlik tablolarında ve `admin_users`'ta hiçbir bağ değişmez. Başka
-cihazda hesap yeniden eklenir (kullanıcının kabul ettiği yaygın bedel). Eklenen hesap **bu cihazda 30 gün
-hatırlanır**: günün ilk parola girişi ötekileri link ve parola olmadan geri getirir (1b). Hiçbir adres başka bir kimliğe
-çözülmez; D1 bugünkü hâliyle (`admin_identities.email` UNIQUE) kalır.
+penceresi ve "Sign out everywhere"ıyla; kimlik tablolarında ve `admin_users`'ta hiçbir bağ değişmez; D1
+(`admin_identities.email` UNIQUE) aynen. Eklenen hesabın oturumu **en çok 12 saat** yaşar (sunucuda, aşağıda 1);
+başka cihazda ve ertesi gün yeniden eklenir — hatırlama M14-23b'nindir.
 
-*1. Tarayıcı durumu.*
-- **Etkin oturum çerezi değişmez:** `tappa_admin_session` (`Path=/admin`, HttpOnly, Secure, 12 saat ipucu —
-  `cookie.go`). Her istek, her kapı (`requireAdmin`, `ProtectWriting`, askı, `tb`) yalnız onu okur; istek her an
-  tek oturum, tek tenant bağlamında koşar (§3, §6.1 tablosu).
-- **Yeni çerez `tappa_admin_accounts`:** bu tarayıcının **öbür** hesaplarının oturum token'ları (ham —
-  `tappa_admin_session` ile aynı gizlilik sınıfı; veritabanında yalnız hash'leri durur, bugünkü gibi) ve her
-  birinin yanında eklendiği anda bu tarayıcının yazdığı adresin **maskeli** biçimi (yerel kısım maskeli, alan
-  açık — yalnız değiştiricinin etiketi). HttpOnly, Secure, `SameSite=Lax`, `Path=/admin`, `Max-Age` her
-  yazımda 12 saat (oturum çerezinin ipucu). Sürüm önekli, sabit biçimli, en çok **11** girdi (etkinle **12
-  hesap**; kullanıcı ≈ 10 diyor), ~1 KB < 4 KB; ayrıştırma uzunluk sınırlı, bozuk girdi sessizce düşer
-  (yalnız token yazılır, ziyaretçinin değeri hiçbir şeye yetki vermez — her girdi kendi hash'iyle
-  `resolve_admin_session_by_token_hash`'ten geçer). Aynı kimliğin ikinci girdisi yazılmaz.
-- **Kayıt kanıtı çerezi `tappa_admin_add`:** istekte yazılır (aşağıda), en çok 10 bekleyen ekleme; girdi =
-  rastgele kısa id (linke yazılır, sır değil) + 32 baytlık rastgele **tarayıcı sırrı** + maskeli adres + bitiş;
-  paketin anahtarıyla MAC'li, HttpOnly, Secure, `SameSite=Lax`, `Path=/admin`, 24 saat.
-- **Önceki binary (f4687903) ve bayrak kapalı:** üç yeni çerezi (`tappa_admin_accounts`, `tappa_admin_add`, `tappa_admin_device` — 1b) hiç okumaz ve yazmaz (bilinmeyen çerez adı;
-  her okuma `CookieName` ile). Bayrak kapalıyken yeni binary de onları okumaz ve rotalar bağlanmaz (`mountGated`,
-  404); tek istisna: çıkış (`/admin/logout`) üç yeni çerezi de **siler** — bütün oturumlarda aynı satır,
-  bayrak kapalının bayt-aynılık kuralını bozmaz (M14-08). Adlandırılmış bedel: önceki binary'ye geri dönüşte
-  orada yapılan çıkış listeyi silmez; listedeki oturumlar sunucuda canlı kalır (yeni binary dönünce yeniden
-  görünür) — her hesabın kendi "Sign out everywhere"ı onları bitirir.
-- **Ömür ve düşme:** sunucu tarafı ömür bugünkü gibi yok (§10, `cookie.go`'nun notu). Listedeki bir oturum iptal
-  edilmiş, satırı devre dışı ya da reddedilmiş, işletmesi silinmişse değiştirici onu **sessizce** düşürür ve
-  çerezi yeniden yazar; öbür hesaplar çalışmaya devam eder. Doğrulama tembeldir: yalnız değiştiriciyi çizen ve
-  geçişi yapan istekler listeyi okur (her girdi için bir çözümleyici + `identity_memberships` çağrısı, en çok 11);
-  sıradan panel istekleri okumaz.
-- **Çıkış:** "Sign out" = **bu tarayıcıda bu hesap** (etkin oturum iptal — bugünkü `RevokeAdminSession`; listede
-  canlı bir hesap varsa en eskisi etkin olur ve panel ona iner, yoksa giriş sayfası). Yeni **"Sign out of all
-  accounts on this device"** = etkin + listedeki her oturum iptal (her biri kendi token'ıyla, kendi tenant'ına
-  sıradan çıkış satırı — art arda ayrı `WithTenant`, §6.1 tablosunun kuralı), üç çerez silinir. **"Sign out
-  everywhere" kimlik başına kalır** (`identity_revoke_sessions`) — o kimliğin bu tarayıcıdaki oturumu da biter,
-  liste onu sonraki okumada düşürür. Üçü de cihaz satırlarını iptal eder (1b).
+*1. Link ile açılan oturumun sunucu tarafı sonu (denetimin Y-2 / Y1a'sı) — önce ölçüm.*
+- **Ölçüm (lane DB, 2026-10-30):** `admin_sessions.authenticated_at` 00069'da önce `NULL` sütun olarak eklendi,
+  `DEFAULT now()` sonra kondu (§5.1). 00068'de açılmış bir oturum 00084'e göç ettikten sonra **canlı ve
+  `authenticated_at IS NULL`** (ölçüldü: `t|t`). Ayrıca `identity_switch_session` `authenticated_at`'i eski
+  oturumdan **kopyalar** (00081) — o oturumun her geçiş torunu da `NULL` taşır. Eski kolun `CreateAdminSession`'ı
+  (`admins.sql`) sütunu yazmaz → `DEFAULT now()`. Yani bugün `NULL` = **Deploy 1'den önce açılmış ve hiç
+  kapanmamış** oturumlar + onların geçiş torunları. Canlıdaki sayı runbook'un (a) sorgusuyla ölçülür (yalnız sayı).
+- **Sonuç:** brief'in önerdiği yüklem (`authenticated_at IS NULL AND created_at < now() − 12 saat`) bu oturumları
+  — en eski müşteri oturumları dahil — **çıkış yaptırırdı**; geçiş torunlarını da geçişten 12 saat sonra. Bu
+  yüzden **dar bir işaret** seçildi: `admin_sessions.link_opened_at timestamptz NULL` — yalnız
+  `identity_signin_by_link` yazar (`now()`), `identity_switch_session` eski oturumdan **kopyalar** (yeniden tanım,
+  aynı imza; geçiş sınırı sıfırlamasın diye), başka hiçbir yol yazmaz; `tappa_app`'ın sütunda yetkisi yok.
+- **Kapı:** `resolve_admin_session_by_token_hash` (md.7, her panel isteği) **aynı imzayla** yeniden tanımlanır:
+  `link_opened_at IS NOT NULL AND link_opened_at < now() − interval '12 hours'` ise **0 satır** — Go için bilinmeyen
+  oturumdur (`303 → /admin/login`). `tappa_resolver`'a `admin_sessions SELECT (link_opened_at)`. `NULL` işaretli
+  bütün bugünkü oturumlar bugünkü gibi davranır. Değiştirici listedeki her girdiyi **önce** aynı çözümleyiciden
+  geçirir (aşağıda 3); bir panel isteği hiçbir oturum hash'ini çözümleyicisiz bir definer'a vermez — süresi geçmiş
+  bir link oturumuyla çağrılan `identity_switch_session` işareti kopyaladığı için doğan oturum da hemen reddedilir.
+- **`authenticated_at` link oturumunda açıkça `NULL`:** `identity_signin_by_link`'in INSERT sütun listesi
+  `authenticated_at`'i adıyla taşır ve `NULL` yazar (varsayılan `now()` asla devreye girmez; O-4) — gövde testi ve
+  katalog testi bunu pinler. Posta kutusu kanıtı parola kanıtı **değildir**: tazelik isteyen her eylem (çözme,
+  geri alma, `identity_link_legacy`) bu oturumda 0 satırdır ya da parolayı yeniden sorar (§5.2).
+- **Kalıntı metni (doğru hâli):** liste çerezini (`tappa_admin_accounts`) kopyalayan en çok **11** oturum alır.
+  Link ile açılmış her biri **açıldığı andan en çok 12 saat sonra** sunucuda biter (geçişle uzamaz). Listede,
+  hesaplar arası geçişte etkin olmaktan çıkıp listeye düşmüş **parolayla açılmış** bir oturum da bulunabilir; onun
+  sunucu tarafı sonu bugünkü etkin oturum çereziyle aynıdır (yok — §10, `cookie.go`'nun notu), yani kopya o
+  çerezin kopyası kadar değerlidir, fazlası değil.
 
-*1b. Bu cihazda hatırlama (orkestratörün düzeltmesi, 2026-10-30).* `f4a21168`'de liste 12 saat yaşıyordu: on
-işletmeli kişi her sabah dokuz link tıklardı — hiçbir yaygın ürün böyle değildir (Slack çalışma alanlarını,
-Google eklenen hesapları haftalarca hatırlar). **Oturum** başına 12 saatlik iş günü sınırı aynen kalır
-(`cookie.go`'nun bilinçli sınırı); hatırlanan şey oturum değil, oturumu **yeniden açma hakkıdır**:
-- **Cihaz sırrı.** Tarayıcı ilk hatırlanan eklemede 32 baytlık rastgele bir **cihaz sırrı** D alır; çerez
-  `tappa_admin_device` = D + hatırlanan her hesap için bir girdi (cihaz satırının id'si — opak tutamak, sır değil
-  — ve maskeli adres). HttpOnly, Secure, `SameSite=Lax`, `Path=/admin`, `Max-Age` 30 gün; en çok 12 girdi.
-  Sunucuda yalnız `HMAC(cihaz anahtarı, D)` durur.
-- **Cihaz satırı** (yeni tenant-kapsamsız tablo `admin_identity_devices`, aşağıda 6): (cihaz hash'i, kimlik,
-  **parola damgası**, doğum, bitiş ≤ 30 gün, iptal). Parola damgası = kimliğin o anki `password_hash`'inin
-  `sha256`'sı (definer hesaplar; digest'in kendisi kopyalanmaz, hiçbir fonksiyon döndürmez).
-- **Kim üye olur:** link basışında (`identity_signin_by_link`) hem eklenen kimlik hem — yoksa — **ekleyen**
-  (çapa oturumunun kimliği). Yalnız şu iki durumda: çapa oturumu canlı, **parolayla kanıtlanmış** ve taze
-  (`authenticated_at IS NOT NULL AND authenticated_at > now() − 12 saat`) **ve** (cihazın hiç canlı satırı
-  yok **ya da** çapanın kimliği cihazda zaten canlı bir satıra sahip). Aksi hâlde hesap **yalnız bugün için**
-  eklenir (liste çerezine oturum, cihaz satırı yok) ve sayfa bunu söyler: *"Added for today. This browser
-  already remembers other accounts; sign in to one of them to remember this one too."* — böylece D'yi kopyalayıp
-  **kendi** parolasıyla giren biri kendini cihaza üye yapamaz.
-- **Yeniden açma** (`identity_resume_device`): değiştirici çizilirken (ve hesaplar arası geçişte), listede canlı
-  oturumu olmayan her hatırlanan girdi için Go **çapa** olarak bu tarayıcının parolayla kanıtlanmış taze bir
-  oturumunu (etkin ya da listedeki) seçer ve fonksiyonu (D'nin hash'i, girdinin satır id'si, çapanın hash'i, yeni
-  token'ın hash'i) ile çağırır. Definer: çapa canlı, `authenticated_at` son 12 saatte, çapanın kimliğinin bu
-  cihazda canlı ve damgası tutan bir satırı var; hedef satır **bu cihazın**, iptal edilmemiş, süresi dolmamış,
-  damgası hedef kimliğin **şu anki** digest'iyle tutuyor; hedefin aktif, reddedilmemiş üyeliği var → hedef için
-  **sıradan, taze bir 12 saatlik oturum** (iniş `identity_open_session`'ınki, `authenticated_at = NULL` — çapa
-  olamaz), iniş tenant'ına `admin.login.succeeded` + `via = 'device'`. Kilit sırası: hedef kimlik → üyelikleri →
-  cihaz satırı. Kayan süre **yoktur**: 30. günden sonra tek yeni link. Çapa yoksa (sabah, parola girişinden
-  önce) kimlik hiçbir şey yapmaz; günün ilk parola girişi — **herhangi bir** üye hesaba — ötekileri link ve
-  parola olmadan geri getirir.
-- **İptal:**
-  - parola değişimi ve **her** sıfırlama (kimlik linki, bayrak kapalıyken bağlı satırın eski linki) → damga
-    tutmaz, satır ölür — `identity_set_password`, `identity_consume_reset`, `identity_consume_row_reset`
-    **değişmeden**;
-  - o kimliğin "Sign out everywhere"ı → `identity_revoke_sessions` **aynı imzayla yeniden tanımlanır**, kimliğin
-    bütün cihaz satırlarına `revoked_at` yazar (her cihazda);
-  - hesabın bu tarayıcıdaki "Sign out"u ve "Sign out of all accounts on this device" → `identity_forget_device`
-    (D'nin hash'i; oturum hash'i verilirse yalnız o oturumun kimliğinin satırı, verilmezse cihazın bütün
-    satırları); çerez de silinir;
-  - devre dışı / reddedilmiş üyelik → yeniden açma yalnız aktif, reddedilmemiş üyeliğe iner (`identity_open_session`
-    kuralı); kimliğin böyle üyeliği kalmazsa hiçbir şey açılmaz. Bunu yazan `tappa_app` kimlik tablolarına
-    dokunamadığı için satır tek başına iptal edilmez — **adlandırılmış**: owner üyeliği 30 gün içinde yeniden
-    etkinleştirirse hatırlama da geri gelir (etkinleştirme owner'ın bilinçli eylemidir; M14-16'nın
-    etkinleştirmesi o satırın oturumlarını yine iptal eder).
-- **Tarayıcıya bağ, dürüstçe.** Bağ iki şeydir: (1) D (çerez) + girdinin satır id'si; (2) aynı tarayıcıda, aynı
-  cihaza üye bir kimliğin **parolayla açılmış, 12 saatten taze** bir oturumu. Tek bir kopyalanmış çerez değeri —
-  D, bir girdi ya da bir oturum token'ı — başka bir cihazda tek başına hiçbir şey açmaz. **Durduramadıkları:**
-  tarayıcı profilinin **bütün** çerezlerini parola girişinden sonraki 12 saat içinde kopyalayan (kötü amaçlı
-  yazılım, kopyalanmış disk) çapanın taze kaldığı süre boyunca hatırlanan hesapları başka bir cihazda açabilir;
-  sonra üye bir hesabın parolası gerekir. Gerçek donanım bağı (anahtarın cihazdan çıkmadığı — Chrome'un "Device
-  Bound Session Credentials"ı) yaygın değil ve kullanılmaz; Google ve Slack'in çerezleri de aynı sınıftadır.
-- **Süre: 30 gün.** Daha uzun: kaybolan / satılan bir cihazın etki süresi uzar; daha kısa: on işletmeli kişi
-  ayda birden çok kez yeniden ekler. 30 gün yaygın "bu cihazı hatırla" süresidir ve bir ay sonunda kişiyi
-  posta kutusu kanıtına geri döndürür; günlük parola şartı kimliği tek başına işe yaramaz kılar. Tavan
-  veritabanında (`CHECK (expires_at <= created_at + interval '30 days')`).
-- **Kalıntı, adıyla:** bir cihazda **bir** üye hesabın parolasıyla oturum açabilen herkes (paylaşılan tablet,
-  parolayı bilen bir çalışan) o cihazın hatırladığı öbür hesaplara en çok 30 gün boyunca, her gün yeniden, link
-  ve parola olmadan ulaşır — hesapların sahibi "Sign out everywhere" ya da sıfırlamayla keser. Ek: aile / ortak
-  bilgisayarda üye olmayan biri hesap eklerse yalnız bugün için eklenir (yukarıda); eşzamanlı iki değiştirici
-  çizimi bir hatırlanan hesap için iki oturum açabilir (biri çerezsiz kalır — kapanmış bir sekmenin oturumu
-  gibi); cihaz satırları süpürülmez (büyümesi isteyen kovasıyla sınırlı; süpürme backlog'a).
+*2. Tarayıcı durumu.*
+- **Etkin oturum çerezi değişmez:** `tappa_admin_session` (`Path=/admin`, HttpOnly, Secure, 12 saat ipucu). Her
+  istek, her kapı (`requireAdmin`, `ProtectWriting`, askı, `tb`) yalnız onu okur; istek her an tek oturum, tek
+  tenant bağlamında koşar.
+- **`tappa_admin_accounts`:** bu tarayıcının **öbür** hesaplarının oturum token'ları (ham — etkin çerezle aynı
+  gizlilik sınıfı; veritabanında yalnız hash) ve her birinin yanında eklendiği anda bu tarayıcının yazdığı adresin
+  **maskeli** biçimi (yerel kısım maskeli, alan açık). HttpOnly, Secure, `SameSite=Lax`, `Path=/admin`, `Max-Age`
+  12 saat. Sürüm önekli, en çok **11** girdi (etkinle 12 hesap), ~1 KB; bozuk girdi sessizce düşer; aynı kimliğin
+  ikinci girdisi yazılmaz.
+- **`tappa_admin_add`:** istekte yazılır, en çok 10 bekleyen ekleme; girdi = rastgele kısa id (linkte, sır değil) +
+  32 baytlık rastgele **tarayıcı sırrı** + maskeli adres + bitiş; paketin anahtarıyla MAC'li, HttpOnly, Secure,
+  `SameSite=Lax`, `Path=/admin`, 24 saat.
+- **Önceki binary (f4687903) ve bayrak kapalı:** iki çerezi okumaz ve yazmaz. Bayrak kapalıyken yeni binary de
+  okumaz, rotalar bağlanmaz (`mountGated`, 404); çıkış (`/admin/logout`) iki çerezi de siler — her oturumda aynı
+  satır, M14-08'in bayt-aynılığını bozmaz. Bedel: önceki binary'ye dönüşte oradaki çıkış listeyi silmez; listedeki
+  link oturumları en geç 12 saatte sunucuda biter (1), öbürleri o hesabın "Sign out everywhere"ıyla.
+- **Düşme:** iptal edilmiş, süresi geçmiş (1), devre dışı ya da reddedilmiş bir girdi `/admin/switch` çizilirken
+  sessizce düşer (çerez yeniden yazılır — veritabanına yazma yok); öbürleri çalışır.
 
-*2. Hesaplar arası geçiş.*
-- `POST /admin/switch` (M14-10) iki alan alır: `tenant_id` ve isteğe bağlı `account` — listedeki girdinin
-  **opak tutamağı** (girdinin token'ının paket anahtarıyla MAC'i; token hiçbir sayfaya yazılmaz). Zincir, M14-10'un
-  senkronizörü (etkin oturumdan) ve iki kovası aynen; kovalar **etkin** kişinindir.
-- `account` yoksa: bugünkü `identity_switch_session` (aynı kimlik). `account` varsa: tutamak listedeki bir
-  girdiyle eşleşmeli; girdinin token'ı kendi hash'iyle canlı çözülmeli ve `identity_memberships(o hash)` hedefi
-  içermeli — değilse M14-10'un **tek tip 403**'ü. Sonra **çerez değişimi**: girdi etkin olur, eski etkin listeye
-  girer; hedef girdinin şu anki işletmesi değilse aynı istekte o oturumla `identity_switch_session` (yeni token,
-  eski iptal, M14-10'un iki bayt-aynı audit satırı, `last_used_tenant`). Hedef zaten girdinin işletmesiyse
-  veritabanına **hiçbir şey yazılmaz** (tarayıcı zaten tuttuğu bir oturuma geçer; yetki kazanılmaz) ve audit
-  satırı yoktur. Eşzamanlı N geçişte M14-10'un kuralı: kaybedenler `Set-Cookie` yazmaz.
-- **`tb` (M14-10a):** anahtar **etkin** oturumun ham token'ından türer; değişimden sonra eski sekmelerin bağı yeni
-  etkin oturumda doğrulanmaz → 409 *"This page belongs to another business — reload it."* Hesaplar arasında da
-  aynı.
-- **A'nın verisi B'nin oturumunda çizilmez:** her panel bölümü yalnız etkin oturumla, kendi tenant bağlamında
-  okur. Yalnız değiştirici (sayfa ve kabuğun hesap menüsü) öbür hesapların **işletme adlarını ve rollerini**
-  gösterir ve her birini **o hesabın kendi oturum sırrıyla** okur (`identity_memberships`). Bağlanmamış (eski kol)
-  bir etkin oturum listeye hesap ekleyemez ve listeye eklenmez (değiştirici yalnız bağlı kimliklerindir).
+*3. GET hiçbir şey yazmaz (O2, D1/D-4).* Hiçbir GET oturum açmaz ve audit yazmaz. Kabuğun **hesap menüsü** yalnız
+çerezdeki maskeli adresleri gösterir — veritabanına gitmez. İşletme adları **yalnız** `GET /admin/switch`'te
+okunur: her girdi için `resolve_admin_session_by_token_hash` + `identity_memberships` (ikisi de salt okuma), en
+çok 11; o sayfa öbür hesapların yalnız işletme adlarını ve rollerini, her birini **o hesabın kendi oturum
+sırrıyla** gösterir. Her panel bölümü yalnız etkin oturumla, kendi tenant bağlamında okur — A'nın bölüm verisi B
+etkinken hiçbir yanıtta yoktur.
 
-*3. Link ile giriş — iki fonksiyon.*
+*4. Hesaplar arası geçiş.* `POST /admin/switch` (M14-10) iki alan alır: `tenant_id` ve isteğe bağlı `account` —
+listedeki girdinin **opak tutamağı** (girdinin token'ının paket anahtarıyla MAC'i; token hiçbir sayfaya yazılmaz;
+karşılaştırma sabit zamanlı). Zincir, senkronizör (etkin oturumdan) ve iki kova aynen. `account` yoksa bugünkü
+`identity_switch_session`. Varsa: tutamak bir girdiyle eşleşmeli, girdi çözümleyiciden canlı geçmeli,
+`identity_memberships` hedefi içermeli — değilse M14-10'un tek tip 403'ü. Sonra **çerez değişimi** (girdi etkin,
+eski etkin listeye); hedef girdinin şu anki işletmesi değilse aynı istekte o oturumla `identity_switch_session`
+(iki bayt-aynı audit satırı, `last_used_tenant`). Hedef zaten girdinin işletmesiyse veritabanına hiçbir şey
+yazılmaz. Eşzamanlı N geçişte kaybedenler `Set-Cookie` yazmaz. **`tb` (M14-10a):** anahtar **etkin** oturumun ham
+token'ından türer → değişimden sonra eski sekme 409, hesaplar arasında da.
+
+*5. Çıkış (O4).* "Sign out" = **bu tarayıcıda bu hesap** (etkin oturum iptal). Listede başka hesap kalırsa panel
+**sessizce başka hesaba inmez**: ara sayfa *"Signed out of k•••@example.com. Still signed in here:
+o•••@example.com, …"* + **Continue** (en eski girdiyi etkin yapar; `POST`, `sameOriginGate` — etkin oturum
+olmadığı için `tb` yoktur; sonuç yalnız tarayıcının zaten tuttuğu bir oturuma geçmektir) + **Sign out of all
+accounts on this device**. Bu ikincisi etkin + listedeki her oturumu iptal eder (her biri kendi token'ıyla, kendi
+tenant'ına sıradan çıkış satırı — art arda ayrı `WithTenant`) ve iki çerezi siler. **"Sign out everywhere" kimlik
+başınadır** (`identity_revoke_sessions`) — o kimliğin bu tarayıcıdaki oturumu da biter.
+
+*6. Link ile giriş — iki fonksiyon.*
 - **`identity_open_signin_link(p_session_hash text, p_identity_id uuid, p_token_hash text)` →
   `TABLE (verification_id uuid, expires_at timestamptz)`** — ⚠️ **hedef için sır değil — yazar ama kimlik
-  yazmaz** (`identity_open_reset`'in sınıfı). İsteyeni canlı oturumu bulur (bağlı, aktif, reddedilmemiş satır);
-  hedef `p_identity_id`'yi Go `resolve_identity_by_email`'den alır (§5.2'nin tek e-posta → kimlik yolu, yazmaz).
-  Tek bir `admin_identity_verifications` satırı yazar: `identity_id = hedef`, `purpose = 'signin'`, 24 saat.
-  0 satır (hiçbir şey yazılmaz): isteyen oturum canlı bağlı değil · hedef isteyenin kimliği · hedefin aktif,
-  reddedilmemiş üyeliği yok. Kimliğe, `audit_log`'a ve hiçbir tenant tablosuna yazmaz. **Kimlik başına tek canlı
-  link kuralı yoktur** (EM-7C'den bilinçli ayrılık): her link kendi tarayıcısına bağlıdır, bir yabancının linki
-  meşru eklemeyi engelleyemez; sınır kovalardadır (5).
-- **`identity_signin_by_link(p_verification_hash text, p_new_token_hash text, p_device_hash text, p_anchor_session_hash
-  text)` → `TABLE (session_id uuid, tenant_id uuid, admin_user_id uuid, device_id uuid)`** — `device_id` eklenen
-  kimliğin cihaz satırı (1b'nin üyelik kuralı tutmazsa NULL: "yalnız bugün için"); oturumun açılması bundan
-  bağımsızdır; anahtar **sır**: `p_verification_hash` =
-  `HMAC(signin anahtarı, mektuptaki token ‖ tarayıcı sırrı)`. Kimlik **token'dan** bulunur (satırın
-  `identity_id`'si, isteğin yazdığı), onayda **hiçbir adres okunmaz**. Kilit sırası (giriş ve geçişle aynı): kimlik
-  `FOR UPDATE` → üyelikleri → link (yeniden: `purpose = 'signin'`, harcanmamış, saat yeniden okunarak süresi
-  dolmamış). İniş üyeliği `identity_open_session`'ınki (son kullanılan → en eski aktif, reddedilmemiş, `FOR NO KEY
-  UPDATE` — M14-16b). Aktif üyelik yoksa 0 satır, link harcanmaz. Yoksa: link harcanır, oturum açılır
-  (`authenticated_at = NULL` — posta kutusu kanıtı parola kanıtı **değildir**; tazelik isteyen her eylem (çözme,
-  geri alma) parolayı yeniden sorar, §5.2), `last_used_tenant`, iniş tenant'ına **`identity_open_session`'ın
-  `admin.login.succeeded` satırı** (`outcome`, `session_id`) + kapalı anahtar `via = 'link'` (kişinin öbür
-  işletmelerini anmaz). Tıklama posta kutusu kanıtıdır: `email_verified_at` boşsa dolar, `first_verify` penceresi
-  ve `email_verified` olayı (davet tıklamasının kuralı, §13 K-7). Aynı linkle N eşzamanlı basış: kimlik kilidi
-  sıralar, ikincisi linki harcanmış bulur → **tam bir başarı**.
-- **İki sır, tarayıcıya bağ:** veritabanı token'ı yalnız tarayıcı sırrıyla birleşik hash'iyle tanır — linki
-  posta kutusundan başka bir tarayıcıda açan (`tappa_admin_add` yok) hash'i üretemez, posta kutusu olmayan
-  tarayıcı da. Link URL'si `?t=<token>&n=<girdi id>`; id sır değildir, yalnız hangi girdinin sırrıyla
-  hash'leneceğini seçer. Mektup tarayıcıları ön yüklese bile GET hiçbir şey harcamaz (R19): GET token'ı kısa
-  ömürlü bir çereze alır ve 303 ile temiz sayfaya gider; sayfa:
-  - eşleşen `tappa_admin_add` girdisi + canlı etkin oturum varsa: *"Add **o•••@example.com** to this browser. You'll
-    be able to switch to its businesses here without a password, until it signs out."* + tek düğme **Add
-    account**;
-  - girdi yoksa (başka tarayıcı/cihaz): *"This link only works in the browser where you asked to add the
-    account. Open it there, or ask again from this device."* — hiçbir şey harcanmaz, adlandırılmaz.
-- Basış (POST + `tb`): Go girdinin sırrıyla hash'i hesaplar, yeni bir oturum token'ı üretir, fonksiyonu çağırır;
-  satır dönerse yeni token **listeye** yazılır (etkin oturum değişmez; kişi değiştiriciden geçer), `device_id`
-  doluysa `tappa_admin_device`'a girdi yazılır (D yoksa önce doğar) ve girdi `tappa_admin_add`'den silinir. Liste doluysa (11) basış hiçbir şey çağırmaz ve *"This browser already has 12
-  accounts — sign out of one first"* der.
-- **Yetki eşdeğerliği (bayrak açık ve kapalı):** posta kutusu bugün o kimliğin parolasını parolasız sıfırlar
-  (`identity_open_reset` / `identity_consume_reset`; bayrak kapalıyken bağlı satırın eski linkiyle
-  `identity_consume_row_reset` — kimliği yazar). Link-girişi bundan **azını** verir: parolayı değiştirmez, kimliğin
-  öbür oturumlarını kapatmaz, yalnız **isteyen tarayıcıda** bir oturum açar ve onu kimliğin sahibi "Sign out
-  everywhere" ya da sıfırlamayla bitirir. Bayrak kapalıyken rotalar bağlı değildir (404) — canlı bir link
-  kullanılamaz; fonksiyonun tek çağıranı uygulamadır. Önceki binary'de çağıran yok. Takma ad olmadığı için
-  denetimin YÜKSEK-1'i (bayrak kapalı dönüşte takma adın #1'i sıfırlaması) yapı gereği yoktur.
+  yazmaz** (`identity_open_reset`'in sınıfı): hedef id'si çağırandandır (Go, `resolve_identity_by_email`'in
+  satırı); isteyen kendi canlı, bağlı oturumuyla bulunur. Tek bir `admin_identity_verifications` satırı:
+  `identity_id = hedef`, `purpose = 'signin'`, 24 saat, **`password_stamp`** = hedefin o anki digest'inin
+  `sha256`'sı (definer hesaplar; digest kopyalanmaz, döndürülmez). 0 satır: isteyen canlı bağlı değil · hedef
+  isteyenin kimliği · hedefin aktif, reddedilmemiş üyeliği yok. Kimliğe, `audit_log`'a, tenant tablosuna yazmaz.
+  Kimlik başına tek canlı link kuralı **yoktur** (her link kendi tarayıcısına bağlı; bir yabancının linki meşru
+  eklemeyi engelleyemez) — sınır uygulamanın kovalarındadır (8).
+- **`identity_signin_by_link(p_verification_hash text, p_new_token_hash text)` →
+  `TABLE (session_id uuid, tenant_id uuid, admin_user_id uuid)`** — anahtar **sır**: `p_verification_hash =
+  HMAC(signin anahtarı, kod ‖ tarayıcı sırrı)`. Kimlik **token'dan** (satırın `identity_id`'si, istekte yazılan)
+  bulunur; onayda **hiçbir adres okunmaz**. Kilit altında yeniden: `purpose = 'signin'`, harcanmamış, saat yeniden
+  okunarak süresi dolmamış, **`password_stamp` hâlâ kimliğin şu anki digest'iyle tutuyor**, kimliğin aktif,
+  reddedilmemiş üyeliği var. İniş `identity_open_session`'ınki (son kullanılan → en eski aktif, reddedilmemiş,
+  `FOR NO KEY UPDATE` — M14-16b). Yazar: link `used_at`; oturum — INSERT sütun listesi `(tenant_id, admin_user_id,
+  token_hash, authenticated_at, link_opened_at)`, değerler `(…, NULL, now())`; `last_used_tenant`; iniş tenant'ına
+  **sıradan bir girişin `admin.login.succeeded` satırı, bayt-aynı** (`outcome`, `session_id`; `via` **yok** —
+  O-3: işletmenin sahibi oturumun nereden geldiğini kendi günlüğünden okumaz); kaynak kimlik düzeyinde
+  `admin_identity_events`'e (`event = 'signin_link'`, `detail` boş — tablo uyar: kimlik düzeyi, tenant'sız,
+  90 gün, okuyan uygulama yolu yok; olay kümesi CHECK'i bir değerle büyür, 00079'un emsali). Tıklama posta kutusu
+  kanıtıdır: `email_verified_at` boşsa dolar, `first_verify` penceresi ve `email_verified` olayı (davet tıklaması,
+  §13 K-7). Hiçbir ret bir şey yazmaz.
+- **Kod (O1, telefon posta uygulamaları).** Mektuptaki link `…?c=<kod>&n=<girdi id>` ve aynı **kod** metin olarak:
+  8 karakter, Crockford base32 (karışan harf yok; 40 bit). **Link ile kod aynı sırdır:** linkin token'ı koddur;
+  veritabanındaki hash kod ‖ tarayıcı sırrıdır. Kod **isteyen tarayıcının** bekleyen sayfasına
+  (`/admin/add-account`, girdi başına bir kutu) yazılır; tarayıcı sırrı olmadan hiçbir şeyi açmaz. **Bekleyen girdi
+  başına 5 deneme** — sunucu tarafı sınırlayıcı (`TryCharge`, girdinin id'sinin MAC'iyle anahtarlı; çerezde değil),
+  denemeden **önce** ayrılır; beşinciden sonra girdi ölür (çerezden silinir, sayaç dolu). Tek kullanım: link
+  satırının `used_at`'i. Kaba kuvvet sınırı: tarayıcı sırrı isteyenin kendisindedir — isteyen bir saldırgan
+  (kurbanın adresini yazan) saatte en çok 3 yeni girdi (çift kovası) × 5 deneme = 15 tahmin / saat / hedef / kendi
+  kimliği; 2^40'a karşı ihmal edilebilir. Link aynı tarayıcıda açılınca kod kendiliğinden dolar.
+- **GET hiçbir şey harcamaz (R19).** Link GET'i kodu kısa ömürlü bir çereze alır, 303 → temiz sayfa:
+  - eşleşen bekleyen girdi + canlı etkin oturum: **onay sayfası** — *"Add o•••@example.com to this browser? You'll
+    be able to switch to its businesses here without its password until you sign out of it, or for 12 hours."* +
+    tek düğme **Add account**;
+  - girdi yok (telefon, başka tarayıcı): *"Open Taptime in the browser where you asked to add this account and type
+    the code from this email there."* — hiçbir şey harcanmaz, adlandırılmaz.
+- **Basış** (`POST` + `tb`, ya da kod kutusunun `POST`'u): Go hash'i hesaplar, yeni oturum token'ı üretir,
+  fonksiyonu çağırır; satır dönerse token listeye yazılır (etkin oturum değişmez), girdi silinir, hedefe **yeni
+  cihaz bildirimi** gider. Liste doluysa (11) çağrı yok: *"This browser already has 12 accounts — sign out of one
+  first."* Aynı linkle N eşzamanlı basış: kimlik kilidi sıralar → **tam bir başarı**, kaybedenler `Set-Cookie`
+  yazmaz.
 
-*4. Güvenlik.*
-- Onay sayfası **hangi hesabın** ekleneceğini (maskeli adres, istekte bu tarayıcının yazdığı) ve **bu cihazda**
-  kullanılabileceğini açıkça söyler.
-- Hedefe giden link mektubu (sabit ASCII konu): *"A Taptime sign-in on another device asked to add your account
-  to that browser."* — isteyenin adresi, işletme adı, sayı **yok**; açılıp basılırsa o tarayıcının parolasız
-  geçebileceğini, istemediyse yok saymasını, **"iletme"**yi ve geri almayı söyler: *Account → Sign out everywhere*
-  ya da parola sıfırlama. Basıştan sonra hedefe **yeni cihaz bildirimi** (Google'ın "New sign-in" uyarısı): *"Your
-  Taptime account was added to a browser"* + aynı geri alma cümlesi. Mektuplar `renderEach` altında.
-- **Paylaşılan tablet (denetimin YÜKSEK-2'si):** A'nın oturumuyla açık bir tablette B eklenirse tableti kullanan
-  sonraki kişi B'ye tek tıkla geçebilir — her hesap değiştiricinin bedeli (Google aynı). Artık **geri alınabilir**:
-  B'nin "Sign out everywhere"ı ya da sıfırlaması o tarayıcıdaki oturumu bitirir; B'nin posta kutusuna iki mektup
-  gider. **Kalıntı, adıyla:** B fark edene dek tableti kullanan biri B'nin işletmelerini B'nin rolüyle kullanır;
-  parolasını, adresini, öbür oturumlarını değiştiremez.
-- **Posta kutusu var, isteyen tarayıcı yok:** hiçbir şey (tarayıcı sırrı). **Tarayıcı var, posta kutusu yok:**
-  hiçbir şey. **İletilmiş link:** yalnız isteyen tarayıcıda işe yarar — iletmek, isteyene o tarayıcıda giriş
-  vermektir; mektup uyarır. **Hedefin kendi tarayıcısında basma:** girdi yok → hiçbir şey.
-- **Geri alma:** hesap düzeyinde bütünüyle var (Sign out / Sign out of all accounts on this device / hedefin Sign
-  out everywhere'i / sıfırlama) ve dördü de cihaz satırını öldürür (1b); kalıcı bir bağ yazılmaz (yalnız
-  `email_verified_at`, gerçek bir posta kutusu kanıtı, ve en çok 30 günlük, iptal edilebilir cihaz satırı).
-- 6b (00076'nın yüklemi, bayt-aynı): istekte yazılan adres önce `mail.ValidRecipient`'ten geçer (aynı kural; giriş
-  ve sıfırlama formları gibi yalnız **arar**) ve definer'larda **hiçbir adres karşılaştırması yoktur** — hedef
-  id ile gelir, onay token'la. Mektup alıcısı kimliğin **kayıtlı** yazımıdır (`identityRecipient`, M14-14).
+*7. Bekleyen linkler kurtarmada ölür (O-1).* Seçilen küçük seçenek: **link satırında parola damgası** (yukarıda) —
+parola değişimi ve **her** sıfırlama (kimlik linki; bayrak kapalıyken bağlı satırın eski linki) kimliğin
+digest'ini değiştirir, onay damgayı tutmaz bulur → 0 satır; `identity_set_password`, `identity_consume_reset`,
+`identity_consume_row_reset` **değişmez**. "Sign out everywhere" digest'i değiştirmez → `identity_revoke_sessions`
+**aynı imzayla** yeniden tanımlanır, tek ek: kimliğin canlı `'signin'` linklerine `used_at` (öbür iki seçenek —
+dört yolu da yeniden tanımlamak — üç ek yeniden tanım demekti). Kemer: damga kilit altında okunur.
 
-*5. Numaralandırma ve bütçeler.*
-- İstek (`POST`, bağlı oturum, `protectWritingThroughSuspension` + `tb`): biçim hatası söylenir (varlıktan
-  bağımsız). Sonra **işten önce** `TryCharge`: (a) **isteyen kişi** kovası 15 / saat (on işletme + yeniden
-  denemeler; `SwitchBucket` gibi opak); (b) **çift kovası** (isteyen kişi, hedef adres) 3 / saat — adres
-  anahtarı küçük harfli adresin paket anahtarıyla MAC'i. Bir yabancı yalnız **kendi** çiftini harcar; meşru
-  isteyenin kovalarına dokunamaz → engelleyemez. Spam sınırı: hedef posta kutusu başına `mail.RecipientCap`
-  (yeni bir `scope="signin"`, sevk edilen sayılar aynen: saatte 5 / günde 20) — bir yabancı tek kimliğiyle en
-  çok 3 / saat; tavanı doldurup meşru eklemeyi en çok bir saat geciktirmek **iki ayrı panel kimliği** ister (her
-  biri kayıt ve posta kutusu kanıtıyla doğmuş). Kabul edilen kalıntı; kalıcı engel değildir. Basıştan sonraki
-  yeni cihaz bildirimi bu tavana tabi değildir (kanıttan sonra, parola-değişti bildirimi gibi).
+*8. Numaralandırma ve bütçeler.*
+- İstek (`POST`, bağlı oturum, `protectWritingThroughSuspension` + `tb`): biçim hatası söylenir. **Kendi
+  adresi** (oturum satırının adresine citext-eşit — isteyen onu zaten biliyor, sızıntı değil): dürüst cümle —
+  *"That's the address you're signed in with. If another business uses it, the banner at the top of the page
+  adds it."* Sonra **işten önce** `TryCharge`: (a) isteyen kişi 15 / saat (on işletme + yeniden denemeler;
+  opak, `SwitchBucket` gibi); (b) çift (isteyen kişi, hedef adres) 3 / saat — adres anahtarı küçük harfli adresin
+  paket anahtarıyla MAC'i. Bir yabancı yalnız kendi çiftini harcar → meşru eklemeyi engelleyemez. Spam sınırı:
+  hedef posta kutusu başına `mail.RecipientCap` (yeni `scope="signin"`, sevk edilen sayılar: saatte 5 / günde 20)
+  — tek yabancı kimlik en çok 3 / saat; tavanı doldurup meşru eklemeyi en çok bir saat geciktirmek iki ayrı
+  panel kimliği ister (kalıntı, kalıcı değil). Yeni cihaz bildirimi tavana tabi değildir (kanıttan sonra).
 - Sonra `resolve_identity_by_email` (+ `has_active_membership`) → koşullar tutarsa `identity_open_signin_link` →
-  mektup **kendi outbox kuyruğuna** (`resetOutbox` tipinin ayrı bir örneği, ayrı boyut; açık sıfırlama FIFO'su
-  değil, ADR 0022 §6). Yanıt `resetRequestFloor` deseniyle bir tabana kadar tutulur ve PRG ile **tek tip**
-  sayfa: *"If that address has a Taptime account with a business, we've emailed it a link. Open it in this
-  browser."* `tappa_admin_add` girdisi **her durumda** yazılır (adres olsun olmasın aynı `Set-Cookie`).
-  Kendi adresi, adresi olmayan, üyeliği olmayan, zaten bu tarayıcıda olan: aynı yanıt, aynı süre bandı, aynı
-  log/audit satırı.
-- Log, audit, hata metni: adres, token, tarayıcı sırrı, `identity_id` yok (§7; anahtarlar ADR 0022 §10'un kapalı
-  kümesi). İstek audit satırı yazmaz (hangi işletmeye yazacağı kişinin öbür işletmelerini ele verirdi); izi
-  basıştaki giriş satırıdır.
+  mektup **kendi outbox kuyruğuna** (`resetOutbox` tipinin ayrı örneği; açık sıfırlama FIFO'su değil, ADR 0022
+  §6). Yanıt `resetRequestFloor` deseniyle tabana kadar tutulur, PRG ile **tek tip**: *"If that address has a
+  Taptime account with a business, we've emailed it a link and a code. Open the link in this browser, or type
+  the code below."* Bekleyen girdi **her durumda** yazılır (aynı `Set-Cookie` biçimi). Adres yok / üyeliği yok /
+  var: aynı yanıt, aynı süre bandı, aynı log satırı. İstek audit satırı yazmaz.
 
-*6. Şema ve canlıya alma.* `00085`:
-- `admin_identity_verifications_purpose_known` CHECK'ine `'signin'` (sıcak olmayan tablo, `lock_timeout`).
-- **Yeni tablo `admin_identity_devices`** (tenant-kapsamsız, CLAUDE.md §6'nın kuralları: Up'ta `-- redline:
-  no-tenant-scope(admin_identity_devices)`, `tappa_app`'tan tablo **ve** sıra üzerinde açık `REVOKE ALL`, `ENABLE`
-  + `FORCE ROW LEVEL SECURITY`, politika yok, `tenant_id` adlı sütun yok, silme yok): `id uuid PK`, `identity_id
-  uuid NOT NULL REFERENCES admin_identities(id) ON DELETE RESTRICT`, `device_hash text NOT NULL` (64 hex),
-  `password_stamp text NOT NULL` (64 hex), `created_at timestamptz NOT NULL DEFAULT now()`, `expires_at
-  timestamptz NOT NULL CHECK (expires_at <= created_at + interval '30 days')`, `revoked_at timestamptz NULL`;
-  kısmi UNIQUE `(device_hash, identity_id) WHERE revoked_at IS NULL` (yenileme = eskiyi iptal + yeni satır);
-  `identity_id` üzerinde indeks. **Neden var olan tablo değil:** `admin_identity_verifications`'ın 24 saatlik
-  TTL tavanı CHECK'tir ve `token_hash` UNIQUE'tir (bir cihazın sırrı birden çok kimliğe aittir) — ikisini amaca
-  göre gevşetmek doğrulama ve link linklerinin tavanını zayıflatırdı.
-- Dört fonksiyon (sahip `tappa_identitydefiner`, `SECURITY DEFINER`, `SET search_path`, `REVOKE ALL … FROM PUBLIC`,
-  `EXECUTE` yalnız `tappa_app`): `identity_open_signin_link`, `identity_signin_by_link` (3),
-  `identity_resume_device(p_device_hash text, p_device_id uuid, p_anchor_session_hash text, p_new_token_hash text)` →
-  `TABLE (session_id uuid, tenant_id uuid, admin_user_id uuid)`, `identity_forget_device(p_device_hash text,
-  p_session_hash text DEFAULT NULL)` → `TABLE (forgotten integer)` (1b). `identity_revoke_sessions` **aynı imzayla**
-  yeniden tanımlanır (T5; tek ek: kimliğin cihaz satırlarına `revoked_at`); Down 00071'in gövdesini bayt bayt geri
-  koyar.
-- **Matris eki:** definer'a `admin_identity_devices` SELECT (bütün sütunlar), INSERT (`identity_id`, `device_hash`,
-  `password_stamp`, `expires_at`), UPDATE (`revoked_at`). Geri kalanı var olan hücreler (`admin_identity_verifications`
-  INSERT/SELECT/UPDATE `used_at`, `admin_sessions` INSERT, `admin_identities` SELECT `password_hash` (damga, okunur,
-  döndürülmez) ve UPDATE `last_used_tenant`/`email_verified_at`/pencere, `audit_log` INSERT, olay INSERT) — yapıcı
-  katalogda doğrular, bir hücre eksikse dur. `tappa_resolver`'a ve `tappa_app`'a hiçbir şey. `admin_users` ve
-  `admin_sessions` şeması değişmez; `identity_verify_email` ve `identity_link_by_email` amacı süzdüğü için `'signin'` satırları onlara
-görünmez. Önceki binary yeni şemada çalışır (yeni değer, tablo ve fonksiyonları çağırmaz; yeniden tanımlanan
-`identity_revoke_sessions`'ı aynı imzayla çağırır ve "Sign out everywhere"ı cihaz satırlarını da öldürür —
-istenen davranış). Down: bir `'signin'` ya da bir cihaz satırı varken reddeder (geri dönüş önceki binary'dir,
-şema 85'te kalır). Contract A: bayrak
-kalkınca üç çerez her zaman açık; `resolve_admin_by_email` okunmaz → yeni bağımlılık yok. Contract B: yeni
-fonksiyonlar digest kopyalamaz → 1b listesine girmez.
+*9. Kilit sırası.* Tek kural: **bir kimliğe yazan her fonksiyon önce o kimliği `FOR UPDATE` kilitler** ve
+transaction başına **tek** kimlik kilitler. `identity_switch_session` / `identity_revoke_sessions` (00071/00081:
+oturum kilitsiz okunur → kimlik → oturum `FOR UPDATE OF s` → hedef üyelik `FOR NO KEY UPDATE`), 2′
+(`identity_link_by_email`: kimlik → üyelikler → link → oturum) ve `identity_signin_by_link` (kimlik → üyelikleri →
+link → yeni oturum INSERT) kimlik kilidinde sıraya girer; iç sıralarının farkı bu yüzden bir döngü kuramaz
+(ikisi aynı anda kimlik kilidinin içinde olamaz). Hiçbiri kimlik kilidinden sonra danışma kilidi almaz. Kimliği
+kilitlemeyen üyelik yazarları (M14-16'nın owner satırı kilitleri) bugünkü gibi yalnız üyelik satırlarını alır.
+Hesaplar arası geçiş iki kimliğe dokunur ama **art arda iki ayrı çağrıda** (önce yalnız çerez; gerekirse hedef
+kimlikle tek `identity_switch_session`) — hiçbir transaction iki kimlik kilidi tutmaz. **Planlanan kilitlenme
+testi:** aynı kimlikte eşzamanlı `identity_signin_by_link` × `identity_switch_session` × `identity_revoke_sessions`
+× `identity_link_by_email` × parola değişimi × M14-16 devre dışı bırakma (N goroutine, `-race`) → `40P01` yok,
+her biri ya başarılı ya tek tip ret.
 
-*Kapalı liste ve §6.1.* Dört fonksiyon kapalı listeye girer, `identity_revoke_sessions` yeniden tanımlanır,
-matris ve tablo listesi büyür — hepsi kullanıcı onayı ister (§6.1'in son cümlesi). `identity_signin_by_link`
-doğrulama token'ıyla anahtarlıdır (§6.1'in sır listesi kapsar). `identity_open_signin_link` hedef için sır
-değildir → `identity_open_reset` gibi adıyla sayılır. `identity_resume_device` ve `identity_forget_device` kimliği
-**cihaz sırrından** (satırın kimliği) bulur → sır listesine girer. **Önerilen üç parça** (onaydan sonra CLAUDE.md
-§4.5 (3) ve §6 ile birlikte, bayt bayt; başka bir şey değişmez, yeni adlandırılmış istisna yok):
-1. *"Kişi verisi tenant kapsamsız beş tabloda durur (`admin_identities`, `admin_identity_resets`,
-   `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`);"* → *"Kişi verisi tenant
-   kapsamsız altı tabloda durur (`admin_identities`, `admin_identity_resets`, `admin_identity_verifications`,
-   `admin_signup_claims`, `admin_identity_events`, `admin_identity_devices`);"* — ve CLAUDE.md §6'nın parantezinde
-   (§6.1'in son paragrafının metni) aynı tablo adı listeye eklenir.
-2. *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı; `identity_link_by_email` doğrulama token'ı **ve** aynı
-   kimliğin canlı oturumuyla);"* → *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı; `identity_link_by_email`
-   doğrulama token'ı **ve** aynı kimliğin canlı oturumuyla; `identity_resume_device` cihaz sırrı **ve** aynı cihazda
-   hatırlanan bir kimliğin parolayla açılmış, 12 saatten taze canlı oturumuyla; `identity_forget_device` cihaz
-   sırrıyla);"*
-3. *"`identity_open_reset` (yalnız bir sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı
-   link, EM-7C) ve iki sabit periyotlu süpürme."* → *"`identity_open_reset` (yalnız bir sıfırlama linki + bir
-   `reset_requested` olayı; kimlik başına tek canlı link, EM-7C), `identity_open_signin_link` (yalnız bir giriş
-   linki; isteyen canlı bir oturumdur, link isteyen tarayıcıya bağlıdır) ve iki sabit periyotlu süpürme."*
+*10. Güvenlik.*
+- **Yetki eşdeğerliği (bayrak açık ve kapalı):** posta kutusu bugün o kimliğin parolasını parolasız sıfırlar
+  (bayrak kapalıyken bağlı satırın eski linkiyle `identity_consume_row_reset` — kimliği yazar). Link-girişi
+  bundan **azını** verir: parolayı değiştirmez, öbür oturumları kapatmaz, yalnız **isteyen tarayıcıda**, en çok 12
+  saatlik bir oturum açar; sahibi "Sign out everywhere" ya da sıfırlamayla onu ve bekleyen linkleri bitirir.
+  Bayrak kapalıyken rotalar yoktur (404); önceki binary'de çağıran yok.
+- **Onay sayfası** hangi hesabın (maskeli adres) eklendiğini, **bu tarayıcı** için olduğunu ve ne zamana kadar
+  (12 saat ya da çıkış) açıkça söyler.
+- **Mektuplar** (sabit ASCII konu, `renderEach`): link + kod mektubu — *"A Taptime sign-in on another device asked
+  to add your account to that browser."*; isteyenin adresi, işletme adı, sayı **yok**; "iletme"; istemediyse yok
+  say; geri alma: *Account → Sign out everywhere* ya da parola sıfırlama (ikisi de bekleyen linki de öldürür).
+  Basıştan sonra **yeni cihaz bildirimi** — *"Your Taptime account was added to a browser"* + aynı geri alma.
+- **Paylaşılan tablet (YÜKSEK-2):** A'nın oturumuyla açık bir tablette B eklenirse tableti kullanan biri B'ye tek
+  tıkla geçebilir. Artık sınırlı ve geri alınabilir: oturum **en çok 12 saat**, B'nin "Sign out everywhere"ı ya da
+  sıfırlaması hemen bitirir, B'ye iki mektup gider. **Kalıntı:** o süre içinde tableti kullanan B'nin işletmelerini
+  B'nin rolüyle kullanır; parolasını, adresini, öbür oturumlarını değiştiremez (tazelik isteyen her eylem parola
+  ister).
+- **Posta kutusu var, tarayıcı yok / tarayıcı var, posta kutusu yok / hedef kendi tarayıcısında basar:** hiçbir
+  şey. **İletilmiş link ya da kod:** yalnız isteyen tarayıcıda işe yarar; mektup uyarır.
+- **6b:** istekte yazılan adres `mail.ValidRecipient`'ten geçmeden aranmaz (giriş/sıfırlama formları gibi yalnız
+  arar); definer'larda **adres karşılaştırması yoktur** (hedef id ile gelir, onay token'la). Alıcı kimliğin kayıtlı
+  yazımıdır (`identityRecipient`, M14-14).
+- **Hiçbir zaman loglanmaz** (Faz 2'de CLAUDE.md §7 listesine eklenir): giriş linkinin token'ı / kodu, tarayıcı
+  sırrı, hesap tutamağı — ve bugünkü liste (adres, oturum token'ı, `identity_id`); audit ve hata metinleri dahil.
+
+*11. Şema ve canlıya alma (`00085`).*
+- `admin_sessions` ADD COLUMN `link_opened_at timestamptz NULL` — **sıcak tablo**: kendi `SET LOCAL lock_timeout`'lu
+  ayrı ifade, varsayılansız (yalnız katalog değişimi). `tappa_app`'a yetki yok (sütun düzeyi GRANT'ları sütunu
+  kapsamaz; katalog testi `has_column_privilege` ile pinler).
+- `admin_identity_verifications`: `password_stamp text NULL` (64 hex) + `CHECK ((purpose = 'signin') =
+  (password_stamp IS NOT NULL))`, amaç CHECK'ine `'signin'` (sıcak değil, `lock_timeout`).
+- `admin_identity_events_event_known`'a `'signin_link'`.
+- İki yeni fonksiyon + üç aynı imzalı yeniden tanım (`resolve_admin_session_by_token_hash` — sahibi
+  `tappa_resolver`, `LANGUAGE sql STABLE` korunur; `identity_switch_session`; `identity_revoke_sessions`), T5'in
+  kuralıyla; Down üçünü bayt bayt geri koyar.
+- **Matris eki:** definer'a `admin_sessions` SELECT/INSERT (`link_opened_at`), `admin_identity_verifications`
+  SELECT/INSERT (`password_stamp`); `tappa_resolver`'a `admin_sessions SELECT (link_opened_at)`. Gerisi var olan
+  hücreler (`admin_identities SELECT (password_hash)` — damga için, döndürülmez) — yapıcı katalogda doğrular, eksik
+  bir hücre çıkarsa dur.
+- **Önceki binary yeni şemada:** yeni sütunları ve fonksiyonları çağırmaz; yeniden tanımlananları aynı imzayla
+  çağırır ve bugünkü cevabı alır (link oturumu ve `'signin'` linki yokken). Geri dönüşte link oturumları yine
+  12 saatte biter (kapı veritabanında). Down: bir `'signin'` satırı ya da `link_opened_at` dolu bir oturum varken
+  reddeder (sütunu düşürmek sınırı kaldırırdı); geri dönüş önceki binary'dir.
+- Contract A: bayrak kalkınca çerezler hep açık; `resolve_admin_by_email` okunmaz → bağımlılık yok. Contract B: yeni
+  fonksiyonlar digest kopyalamaz → 1b listesine girmez.
+
+*12. Sayılar (hatırlama yok — M14-23b'ye kadar dürüst bedel).* Bir ekleme = *Add another account* (1) → adres +
+*Send* (1) → mektupta link (1) ya da kodu yaz + gönder (1) → *Add account* (1) = **4 tık, 2 mektup** (link/kod +
+yeni cihaz bildirimi). Oturumlar 12 saatte bittiği için **her iş günü yeniden**: kullanıcının durumu (3 adres → 2
+ek hesap) **her gün 8 tık, 4 mektup**; 10 işletme ayrı kimliklerde (9 ek hesap) **her gün 36 tık, 18 mektup**.
+Her geçiş 2 tık. Bu, M14-23b'nin kapatacağı açıktır; piyasa karşılığı yoktur ve öyle yazılır.
+
+*13. §6.1 ve ilgili metinler — önerilen son cümleler (kullanıcı onayı; onaydan sonra CLAUDE.md §4.5 (3) ile bayt
+bayt).* İki fonksiyon kapalı listeye, üç yeniden tanım ve matris eki — hepsi onay ister (§6.1'in son cümlesi).
+1. Sır listesi: *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı; `identity_link_by_email` doğrulama
+   token'ı **ve** aynı kimliğin canlı oturumuyla);"* → *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı;
+   `identity_link_by_email` doğrulama token'ı **ve** aynı kimliğin canlı oturumuyla; `identity_signin_by_link`
+   giriş linkinin token'ı ‖ tarayıcı sırrıyla — oturum açar, `authenticated_at` NULL);"*
+2. Sırsız yazarlar: *"`identity_open_reset` (yalnız bir sıfırlama linki + bir `reset_requested` olayı; kimlik başına
+   tek canlı link, EM-7C) ve iki sabit periyotlu süpürme."* → *"`identity_open_reset` (yalnız bir sıfırlama linki +
+   bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C), `identity_open_signin_link` (yalnız bir giriş
+   linki; hedef id'si çağırandandır (`identity_open_reset` gibi); kimlik başına sınır uygulamanın kovalarında) ve
+   iki sabit periyotlu süpürme."*
+3. Bu ADR'nin §6 tablosunda *"Tenant sınırını geçen hareketler"* satırının ilk cümlesi: *"Giriş, geçiş, davet
+   kabulü, kayıt sahiplenme, bağlama, sıfırlama — her biri bir **sırra** anahtarlı (dört adlandırılmış istisna
+   hariç), sonucu tek-tenant bir oturum ya da tek-tenant satır yazmaları."* → *"Giriş, geçiş, davet kabulü, kayıt
+   sahiplenme, bağlama, sıfırlama, giriş linki (posta kutusu ‖ isteyen tarayıcı; oturumu en çok 12 saat) — her biri
+   bir **sırra** anahtarlı (dört adlandırılmış istisna hariç), sonucu tek-tenant bir oturum ya da tek-tenant satır
+   yazmaları."*
+4. **ADR 0015'e tarihli not** (Faz 2'de yazılır, onaydan sonra): *"M14-23a notu — 2026-10-30: posta kutusu
+   token'ının **oturum açtığı** ilk fonksiyon `identity_signin_by_link`'tir (ADR 0031 §5.7). Bu ADR'nin kararı —
+   sıfırlama token'ı tek geçişlik bir yetkidir, oturum vermez — sıfırlama için değişmez. Giriş linki ayrı bir
+   amaçtır ve üç şeyle sınırlanır: token isteyen tarayıcının sırrıyla birleşik hash'lenir (başka tarayıcıda hiçbir
+   şey açmaz), açtığı oturum `authenticated_at` NULL'dır (parola kanıtı değildir) ve sunucuda en çok 12 saat yaşar
+   (`link_opened_at`)."*
+Yeni tablo, yeni adlandırılmış istisna yok; beş tablo listesi ve CLAUDE.md §6 parantezi değişmez.
+
+**M14-23b notu (2026-10-30) — PLANLANDI, TASARIM AÇIK (uygulama yok).** "Bu cihazda hatırla": eklenen hesapların
+günlük yeniden eklenmeden kurtulması (M14-23a'nın 12. maddesinin bedeli). `220a28d7`'nin taslağı (cihaz sırrı +
+`admin_identity_devices` + yeniden açma/unutma fonksiyonları, 30 gün) iki denetimde RET aldı. Yeni tasarım şu
+bulguların her birine cevap vermeden yazılmaz:
+- **Y-1 — çapanın rızası:** bir kimliği bir cihaza kaydetmek çapanın parolasının **5 dakika içinde yeniden
+  girilmesini** ister; link ile eklenmiş bir kimlik yeniden açılabilir ama **asla çapa olamaz**; çapaya bildirim
+  gider.
+- **Y2 — çıkış ≠ unutma:** "Sign out" cihazı unutmamalı; ayrı bir **"Remove from this device"**; satırın
+  `added_by` modeli (kimin eklediği).
+- **O-2:** çapanın ele geçirilmesi onun yeniden açtığı oturumları da bitirmeli.
+- **O-5:** iki kimliğe dokunan her ifade iki kimliği **id sırasıyla** kilitler.
+- **D-1, D-2, D-3:** denetimlerin düşük bulguları — **D-2** cihaz satırlarının süpürmesi, **D-3** kişinin kendisini
+  hatırlayan cihazların listesi; D-1 bulgunun kendi metniyle tasarımda cevaplanır.
+Kapsam ve kırmızı çizgi önerisi M14-23b'nin kendi notunda; M14-23a'nın metni bunların hiçbirini içermez.
 
 ### 5.8 Backfill, uzlaştırma, onay penceresi
 
