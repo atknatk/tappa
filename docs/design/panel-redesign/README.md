@@ -423,8 +423,11 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   department and staff forms, a typed record, Rules, a rule change, Billing, Developers,
   Managers, linking businesses, a business day review) carries the `.panel-measure` marker and
   its whole well stops at **70rem** — the FreezeMonth board's 1120 px content row, about the
-  1104 px box every board is drawn in at 1440; the data pages take the full well. Pinned by
-  `internal/handler/panelwide_test.go`.
+  1104 px box every board is drawn in at 1440; the data pages take the full well. The Account
+  cards and Odd shapes' middle cards **flow down columns** from `desk` (`.card-flow`: at least
+  25rem a column, at most three) instead of a row grid ([account-auth §1.2](screens/account-auth.md),
+  [spike-odd O.3](screens/spike-odd.md#o3-breakpoints)), and a paragraph on a data page may carry
+  `.panel-prose` (70rem). Pinned by `internal/handler/panelwide_test.go`.
 
 **Lessons the port paid for** (each one red at least once):
 

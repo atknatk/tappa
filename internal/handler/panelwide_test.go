@@ -251,3 +251,126 @@ func TestPanelWide_FormAndTextPagesCarryTheMeasureAndDataPagesDoNot(t *testing.T
 		}
 	}
 }
+
+// readPanelCardFlow is the reading of the card flow and the prose measure in input.css, and of the
+// two templates that use the flow: one finding per decision broken.
+func readPanelCardFlow(css string, files map[string]string) []string {
+	rules := readPanelCSSRules(css)
+	var findings []string
+	desk := []string{"@layer components", "@screen desk"}
+	want := map[string]string{
+		".card-flow":                        "columns: 25rem 3;",
+		".card-flow > :not(.card-flow-col)": "break-inside: avoid; margin-bottom: 1.25rem;",
+		".card-flow-col > *":                "break-inside: avoid; margin-bottom: 1rem;",
+	}
+	seen := map[string]int{}
+	for _, r := range append(panelRulesNaming(rules, ".card-flow"), panelRulesNaming(rules, ".card-flow-col")...) {
+		seen[r.selector]++
+		w, ok := want[r.selector]
+		switch {
+		case !ok:
+			findings = append(findings, fmt.Sprintf("a rule `%s` also styles the card flow", r.selector))
+		case !slices.Equal(r.at, desk):
+			findings = append(findings, fmt.Sprintf("`%s` sits in %v, want %v: the flow exists from the desk width only", r.selector, r.at, desk))
+		case r.body != w:
+			findings = append(findings, fmt.Sprintf("`%s` declares %q, want %q", r.selector, r.body, w))
+		}
+	}
+	for sel := range want {
+		// ".card-flow > :not(.card-flow-col)" names both classes, so it is collected twice
+		n := 1
+		if strings.Contains(sel, ".card-flow-col") && strings.HasPrefix(sel, ".card-flow ") {
+			n = 2
+		}
+		if seen[sel] != n {
+			findings = append(findings, fmt.Sprintf("%d `%s` rule(s), want 1", seen[sel]/n, sel))
+		}
+	}
+	prose := panelRulesNaming(rules, ".panel-prose")
+	if len(prose) != 1 || prose[0].selector != ".panel-prose" || prose[0].body != "max-width: 70rem;" {
+		findings = append(findings, fmt.Sprintf("the prose measure is %d rule(s) %v, want one `.panel-prose { max-width: 70rem; }`", len(prose), prose))
+	}
+
+	// The templates: Account's cards and Odd shapes' middle flow, and nothing else does.
+	flowBox := regexp.MustCompile(`class="card-flow ([^"]*)"`)
+	flowCol := regexp.MustCompile(`class="card-flow-col ([^"]*)"`)
+	for name, src := range files {
+		boxes, cols := flowBox.FindAllStringSubmatch(src, -1), flowCol.FindAllStringSubmatch(src, -1)
+		switch name {
+		case "pages/account.templ":
+			if len(boxes) != 1 || len(cols) != 0 {
+				findings = append(findings, fmt.Sprintf("account.templ: %d flow box(es), %d column wrapper(s), want 1 and 0", len(boxes), len(cols)))
+				continue
+			}
+			us := strings.Fields(boxes[0][1])
+			if !slices.Contains(us, "desk:block") || slices.ContainsFunc(us, func(u string) bool { return strings.HasPrefix(u, "desk:grid-cols-") }) {
+				findings = append(findings, "account.templ: the cards' box is not a block from the desk width ("+boxes[0][1]+"): the row grid is back")
+			}
+			if strings.Join(us[:3], " ") != "grid grid-cols-1 items-start" {
+				findings = append(findings, "account.templ: the phone and tablet stack changed ("+boxes[0][1]+")")
+			}
+		case "pages/anomalies.templ":
+			if len(boxes) != 1 || len(cols) != 2 {
+				findings = append(findings, fmt.Sprintf("anomalies.templ: %d flow box(es), %d column wrapper(s), want 1 and 2", len(boxes), len(cols)))
+				continue
+			}
+			if boxes[0][1] != "contents md:grid md:grid-cols-2 md:items-start md:gap-4 desk:block" {
+				findings = append(findings, "anomalies.templ: the flow box is "+boxes[0][1]+": the phone's dissolve and the tablet's two columns stay, the desk is a block")
+			}
+			for _, c := range cols {
+				if c[1] != "contents md:flex md:min-w-0 md:flex-col md:gap-4 desk:contents" {
+					findings = append(findings, "anomalies.templ: a column wrapper is "+c[1]+": it dissolves on the phone and from the desk width")
+				}
+			}
+		default:
+			if len(boxes)+len(cols) > 0 {
+				findings = append(findings, name+" uses the card flow: only Account and Odd shapes do")
+			}
+		}
+	}
+	return findings
+}
+
+func TestPanelWide_AccountAndOddShapesFlowDownColumns(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "css", "input.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	files := readPanelTemplates(t)
+	for _, f := range readPanelCardFlow(css, files) {
+		t.Error(f)
+	}
+	for _, c := range []struct{ what, file, from, to string }{
+		{"two columns at most", "", ".card-flow { columns: 25rem 3; }", ".card-flow { columns: 25rem 2; }"},
+		{"a column that may be narrower", "", ".card-flow { columns: 25rem 3; }", ".card-flow { columns: 3; }"},
+		{"a card broken across columns", "", ".card-flow > :not(.card-flow-col) { break-inside: avoid; margin-bottom: 1.25rem; }", ".card-flow > :not(.card-flow-col) { margin-bottom: 1.25rem; }"},
+		{"Odd's cards without their gap", "", ".card-flow-col > * { break-inside: avoid; margin-bottom: 1rem; }", ".card-flow-col > * { break-inside: avoid; }"},
+		{"the flow on the tablet too", "", "  @screen desk {\n    .card-flow { columns: 25rem 3; }", "  @screen md {\n    .card-flow { columns: 25rem 3; }"},
+		{"the prose measure widened", "", "  .panel-prose {\n    max-width: 70rem;", "  .panel-prose {\n    max-width: 90rem;"},
+		{"Account's row grid back", "pages/account.templ", `class="card-flow grid grid-cols-1 items-start gap-5 desk:block"`, `class="card-flow grid grid-cols-1 items-start gap-5 desk:grid-cols-2"`},
+		{"Account's flow gone", "pages/account.templ", `class="card-flow grid`, `class="grid`},
+		{"Odd's tablet columns lost", "pages/anomalies.templ", `class="card-flow contents md:grid md:grid-cols-2`, `class="card-flow contents md:block md:grid-cols-2`},
+		{"an Odd column wrapper kept at the desk", "pages/anomalies.templ", `md:gap-4 desk:contents">`, `md:gap-4">`},
+		{"the flow on another page", "pages/reports.templ", `<div class="`, `<div class="card-flow `},
+	} {
+		mcss, mfiles := css, map[string]string{}
+		for k, v := range files {
+			mfiles[k] = v
+		}
+		if c.file == "" {
+			mcss = strings.Replace(css, c.from, c.to, 1)
+			if mcss == css {
+				t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+			}
+		} else {
+			mfiles[c.file] = strings.Replace(files[c.file], c.from, c.to, 1)
+			if mfiles[c.file] == files[c.file] {
+				t.Fatalf("CONTROL %s: %q is not in %s", c.what, c.from, c.file)
+			}
+		}
+		if len(readPanelCardFlow(mcss, mfiles)) == 0 {
+			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
+		}
+	}
+}

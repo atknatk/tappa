@@ -36,10 +36,16 @@ import "github.com/atknatk/tappa/web/templates/components"
 // column wrappers dissolve (display contents) and each card's order puts it in the phone
 // board's place; from the tablet the order is the markup's again.
 //
-// ⚠️ THE DESK BOARD PUTS THE MIX AND THE RULES INSIDE THE LEFT COLUMN; this page keeps the
-// tablet's arrangement at the desk too. One markup cannot hold both column assignments
-// without a row-aligned grid, and a row-aligned grid leaves a gap as tall as the longer
-// list beside it — fifty people against a two-row card.
+// FROM THE DESK WIDTH THE MIDDLE CARDS FLOW DOWN COLUMNS (the wide-screen pass, 2026-10-30):
+// the two column wrappers dissolve again and the cards, in the markup's order, fill two
+// columns in the desk box and three in a wide one, each card right under the one before it
+// (input.css, the card flow). The tablet's fixed pairing left the shorter column ending
+// hundreds of pixels above the longer one; the flow balances the heights instead.
+//
+// ⚠️ THE DESK BOARD PUTS THE MIX AND THE RULES INSIDE THE LEFT COLUMN; this page keeps them
+// across the top and the bottom at the desk too. One markup cannot hold both column
+// assignments without a row-aligned grid, and a row-aligned grid leaves a gap as tall as the
+// longer list beside it — fifty people against a two-row card.
 //
 // skill tappa-brand governs the surface: kitchen docket as the record motif, every
 // number in IBM Plex Mono, the fixed status-to-colour mapping (a thing to look at is
@@ -55,12 +61,12 @@ templ AdminAnomalies(v AnomaliesView) {
 				@anomalyMissingSources()
 				<div class="flex flex-col gap-4">
 					@anomalyVenues(v)
-					<div class="contents md:grid md:grid-cols-2 md:items-start md:gap-4">
-						<div class="contents md:flex md:min-w-0 md:flex-col md:gap-4">
+					<div class="card-flow contents md:grid md:grid-cols-2 md:items-start md:gap-4 desk:block">
+						<div class="card-flow-col contents md:flex md:min-w-0 md:flex-col md:gap-4 desk:contents">
 							@anomalyPairs(v)
 							@anomalyPeople(v)
 						</div>
-						<div class="contents md:flex md:min-w-0 md:flex-col md:gap-4">
+						<div class="card-flow-col contents md:flex md:min-w-0 md:flex-col md:gap-4 desk:contents">
 							@anomalyPlaques(v)
 							@anomalyDistanceOnly(v)
 							@templ.Join(anomalyOpen(v), anomalyInMissing(v))
@@ -115,7 +121,7 @@ templ anomalyTotals(v AnomaliesView) {
 	<section class="docket flex flex-col gap-2 px-4 pt-[18px] pb-5 md:px-[22px] md:pt-5 md:pb-[22px] desk:px-6 desk:pt-[22px] desk:pb-6" aria-labelledby="odd-totals">
 		<p class="lbl" id="odd-totals">Records examined this week</p>
 		<p class="font-mono text-[26px] font-bold tracking-[-0.02em] text-ink md:text-[28px] desk:text-3xl">{ v.Totals.RecordsLine }</p>
-		<p class="font-display text-[13px] leading-normal text-ink/80">
+		<p class="panel-prose font-display text-[13px] leading-normal text-ink/80">
 			{ v.Totals.JudgedLine }
 			Training taps and manager-typed rows are counted here — a training tap is a real
 			touch of a plaque, and a typed row carries no touch at all. Both are named below.
@@ -124,7 +130,7 @@ templ anomalyTotals(v AnomaliesView) {
 		// the same population, and a reader who notices two different bases without
 		// being told why concludes one of them is wrong. Both numbers are printed so
 		// each figure's base can be matched to the population it names.
-		<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.BasisLine }</p>
+		<p class="panel-prose font-display text-[13px] leading-normal text-ink/70">{ v.Totals.BasisLine }</p>
 		<div class="flex flex-wrap gap-2 pt-1.5">
 			if v.Totals.DistanceOnly > 0 {
 				<span class="odd-chip tally--queued">{ v.Totals.DistanceOnlyLine }</span>
@@ -146,7 +152,7 @@ templ anomalyTotals(v AnomaliesView) {
 			}
 		</div>
 		if v.Totals.OutsideVenue > 0 {
-			<p class="mt-1.5 font-display text-[13px] leading-normal text-ink/80">
+			<p class="panel-prose mt-1.5 font-display text-[13px] leading-normal text-ink/80">
 				{ v.Totals.OutsideVenueOnNetworkLine }
 			</p>
 		}
@@ -155,10 +161,10 @@ templ anomalyTotals(v AnomaliesView) {
 			// gaps, the outside-the-venue reading and the other-venue count are all read
 			// out of the frozen policy snapshot a record carries. Records written before
 			// that column existed, and every manager-typed row, do not have one.
-			<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.UnanswerableLine }</p>
+			<p class="panel-prose font-display text-[13px] leading-normal text-ink/70">{ v.Totals.UnanswerableLine }</p>
 		}
 		if v.Totals.PartnerLine != "" {
-			<p class="font-display text-[13px] leading-normal text-ink/70">{ v.Totals.PartnerLine }</p>
+			<p class="panel-prose font-display text-[13px] leading-normal text-ink/70">{ v.Totals.PartnerLine }</p>
 		}
 	</section>
 }
@@ -178,19 +184,19 @@ templ anomalyTotals(v AnomaliesView) {
 templ anomalyMissingSources() {
 	<section class="odd-callout odd-callout--warn" aria-labelledby="odd-unseen">
 		<h2 class="font-display text-[15px] font-bold" id="odd-unseen">What this page does not see</h2>
-		<p>
+		<p class="panel-prose">
 			A plaque page that was opened and never used is not recorded anywhere, so the
 			number of opened-but-unused pages is not on this screen. What IS on it is the
 			counter gap above: the plaque's own chip counts every read, so collected pages
 			leave a jump behind whether or not they are ever used.
 		</p>
-		<p>
+		<p class="panel-prose">
 			Which device a person signed in from is not recorded either — only a coarse
 			browser family, which every phone of the same make shares. So "several people
 			activated from one device" cannot be told from "several people use the same
 			model of phone", and this page does not guess at it.
 		</p>
-		<p>
+		<p class="panel-prose">
 			The list of people who tap together compares each tap with the ONE before it at
 			that venue. Where three people arrive in a burst, the first and the third are
 			not paired with each other — the two neighbouring pairs are listed instead, so
@@ -283,12 +289,12 @@ templ anomalyVenues(v AnomaliesView) {
 					<h2 class="odd-title" id="odd-mix">Evidence mix by venue</h2>
 					<p class="font-mono text-xs text-ink/70">share of judged records · count = judged</p>
 				</div>
-				<p class="text-[13px] leading-normal text-ink/70">
+				<p class="panel-prose text-[13px] leading-normal text-ink/70">
 					Every venue with taps this week, clean ones included. A high rate at one venue
 					beside a low one at another is as likely to be a Wi-Fi problem as anything else
 					— both are worth knowing.
 				</p>
-				<p class="text-[13px] leading-normal text-ink/70">
+				<p class="panel-prose text-[13px] leading-normal text-ink/70">
 					Each bar splits a venue's judged records by what matched: both its network and
 					the distance reading, the network only, the distance only, or neither.
 				</p>

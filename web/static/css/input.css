@@ -588,6 +588,13 @@
   .panel-well:has(.panel-measure, .policy-section) {
     max-width: 70rem;
   }
+  /* The same measure for a paragraph on a data page: Odd shapes explains itself in
+     paragraphs inside full-width cards, and at 1920 those lines ran to about 210
+     characters (measured). A paragraph marked .panel-prose stops at 70rem, as long as it
+     was at 1440, while its card keeps the full well. Narrower than 1120 px it cannot bind. */
+  .panel-prose {
+    max-width: 70rem;
+  }
   /* The section's heading block (M12-01, pages.panelHead), drawn only when a section set a
      kicker, a breadcrumb trail or actions; a bare title is the h1 alone. The title row wraps:
      the actions sit at its right end, bottom-aligned with the title, and move under it when
@@ -1707,6 +1714,27 @@
   .panel-card {
     @apply flex flex-col gap-4 rounded-[18px] border border-line bg-paper p-4
            md:px-[22px] md:py-5 desk:px-6 desk:py-[22px];
+  }
+  /* CARDS THAT FLOW DOWN COLUMNS (the wide-screen pass, 2026-10-30): the Account cards and
+     the middle of Odd shapes. From the desk width the container is a multi-column box, so
+     each card sits directly under the one before it in its column; a row grid, which both
+     were, makes every row as tall as its tallest card, and on Account that left 1930 px of
+     porcelain beside short cards at 1920 (KF and KM, measured on the 72rem well). The Account board draws two
+     independent columns; one markup cannot assign cards to the board's columns without
+     changing the order a phone reads them in, and a column box keeps the document order
+     (Identity first) and only balances the columns' heights.
+     HOW MANY COLUMNS IS A WIDTH, NOT A BREAKPOINT: at least 25rem (400 px) each, at most
+     three -- two in the 864 px desk box and at 1440, three from a 1240 px box (a 1576 px
+     window) and in every zoomed width. A card is never narrower than 400 px, wider than the
+     phone's card the boards draw (358). The template swaps the display (a utility, so it
+     wins over the tablet's grid); this rule adds the count, keeps a card whole and puts the
+     container's own gap under each card -- 1.25rem on Account, 1rem between Odd shapes'
+     cards, which reach the box through two display-contents column wrappers. Phone and
+     tablet are untouched: none of this exists below the desk width. */
+  @screen desk {
+    .card-flow { columns: 25rem 3; }
+    .card-flow > :not(.card-flow-col) { break-inside: avoid; margin-bottom: 1.25rem; }
+    .card-flow-col > * { break-inside: avoid; margin-bottom: 1rem; }
   }
   .stat-card {
     @apply flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper p-4
