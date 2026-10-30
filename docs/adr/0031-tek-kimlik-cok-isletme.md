@@ -33,6 +33,11 @@
   "find your workspaces" deseni) ve bant posta kutusu kanıtından önce işletme **adlandırmaz** (*"Adı
   söylemesin"*). Kapalı listeye `identity_link_by_email` eklenir, `identity_request_verification` bir amaç
   argümanı alır (`00084`); §5.2 ve §5.7'nin M14-22 notları, §6.1'in bir cümlesi.
+  **2026-10-30 (M14-23 — TASARIM, kullanıcı onayı bekliyor; kod yok):** başka **adresteki** işletmeyi
+  posta kutusu kanıtıyla aynı girişe ekleme. Kimlik modeli: o adresin kimliği **emekli bir takma ada**
+  döner (`admin_identities.merged_into`), adres global tekil kalır; kapalı listeye iki fonksiyon, üç
+  fonksiyon aynı imzayla yeniden tanım (`00085`). Ayrıntı: §5.7'nin M14-23 notu; §6.1'e önerilen tek
+  cümle değişikliği o notun sonunda (uygulanmadı — CLAUDE.md ile birlikte, onaydan sonra).
 - **Tarih:** 2026-10-21
 - **Karar veren:** kullanıcı (ürün sahibi) — 2026-10-21: *"Hesapları birleştir (tek kimlik)"*: bir
   kişi = tek giriş kimliği, birden çok işletmeye (tenant) üye olabilir; ör. Kebab Factory ile Kebab
@@ -1018,6 +1023,213 @@ yerini şuna bırakır:
    (`admin_users.created_at <` linkin `created_at`'i; ikisi de veritabanının saati, uygulama yazamaz). Link
    basıldıktan sonra adreste doğan bir satır — kişinin bantta gördüğü değil — o basışla süpürülmez; bant onu
    yeniden sunar ve kendi linkini bekler.
+
+**M14-23 notu (2026-10-30) — TASARIM, kullanıcı onayı bekliyor (kapalı listeye iki fonksiyon, §6.1'e bir
+cümle).** Canlıda (2026-10-30, salt okuma) kişinin iki işletmesi **iki ayrı adreste, iki ayrı kimliktedir**
+(KF: adres #3 → kimlik #1; KM: adres #2 → kimlik #2); 2′ yalnız **aynı** adresi bağladığı için KF↔KM'ye hiçbir
+şey yapmaz. Kullanıcı kararı: parolasız — *"Add a business" → öbür adresi yaz → o posta kutusuna tek link →
+aynı tarayıcıda bir basış*. Orkestratör kararı: bağ **kalıcı ve hesap düzeyindedir** (tarayıcıya bağlı
+değil; sonradan her cihazda tek Taptime parolasıyla). Buna göre (2′)'nin yanına:
+
+2″. **Başka adresteki işletme** (`identity_request_address_link` + `identity_link_by_address`, `00085`).
+
+*Kimlik modeli — en küçük biçim: takma ad.* `admin_identities` iki sütun alır: `merged_into uuid NULL
+REFERENCES admin_identities(id) ON DELETE RESTRICT` ve `merged_at timestamptz NULL` (`CHECK ((merged_into IS
+NULL) = (merged_at IS NULL))`, `CHECK (merged_into <> id)`). **Yeni tablo yok**, `email` hiçbir satırda
+değişmez (K-15 aynen; definer'da `UPDATE (email)` yine yok), hiçbir kimlik silinmez. Kimlik #2 **emekli bir
+takma ad** olur: satırı ve adresi durur, `merged_into = #1`. Dört değişmez (davranış testleri pinler):
+- **D1 — bir adres en çok bir kimliğe çözülür.** `admin_identities.email` UNIQUE aynen; takma ad satırı
+  adresi tutmaya devam ettiği için tablolar arası tekillik sorunu doğmaz. Çözüm **tek atlamadır**.
+- **D2 — `merged_into` her zaman canlı bir kimliği gösterir** (zincir düzleştirilir: #2 daha önce #4'ü
+  almışsa birleşme `merged_into = #2` olan her satırı `#1`'e çevirir).
+- **D3 — hiçbir `admin_users` satırı emekli bir kimliği göstermez** (birleşme #2'nin bütün satırlarını taşır).
+- **D4 — bağlı her satırın adresi kendi kimliğine çözülür.** M14-22'ye dek bağlı satırın adresi kimliğinkine
+  **eşitti**; bundan sonra eşit **ya da onun bir takma adıdır**. `adminauth.identityOfSession` kimliği oturum
+  satırının adresinden çözer — KM oturumu (adres #2) çözümleyicinin tek atlamasıyla #1'i bulur. Bu yüzden
+  adresinde hiç kimlik olmayan (yalnız bağsız satırlı) bir adres eklenirken definer o adres için bir takma
+  ad satırı **doğurur** (`email` = mektubun gittiği kayıtlı yazım, `password_hash` = nöbetçi digest — §5.2,
+  S20 — ve `merged_into = #1`; INSERT sonra UPDATE, `INSERT (merged_into)` yetkisi verilmez — 00074'ün
+  `email_verified_at` deseni). INSERT 6b'yi `IF (…) IS NOT TRUE THEN RETURN` ile taşır, adresin ad alanlı
+  kilidini (00074'ün anahtarı) ve `ON CONFLICT (email) DO NOTHING`'i kullanır
+  (`TestIdentityAddressRule_EveryIdentityInsertDecidesIt` onu kapsar).
+
+*Birleşmeden sonra adres #2:*
+- **Giriş:** `resolve_identity_by_email(#2)` **#1'in** satırını döndürür (id, digest, `email_verified_at`,
+  `has_active_membership`, `email` = #1'in kayıtlı adresi) → #2 ile **Taptime parolasıyla** girilir, KM'nin ve
+  #2'nin eski parolası çalışmaz (#2'nin digest'i nöbetçiye çevrilir; satırlar #1'in digest'ini alır). Eski kolun
+  adayları zaten yalnız bağsız satırlardır (`identity.go`'nun T2 süzgeci).
+- **Sıfırlama (§5.9):** #2 için istenen sıfırlama **#1'in parolasını** sıfırlar ve link **#1'in giriş adresine**
+  gider — çözümleyicinin `email`'i canlı kimliğinkidir, Go değişmez (`identityRecipient` aynı satırın iki
+  sütunu). **Takma adın sıfırlama yetkisi yoktur.** Neden: aksi hâlde çalınmış bir çerez kendi posta kutusunu
+  ekleyip o adresten sıfırlamayla kimliği **kalıcı** ele geçirirdi; bunu kapatmanın öbür yolu onayda parolayı
+  yeniden sormaktır (GitHub'ın "sudo mode"u) — kullanıcının *"parola yok"* kararıyla çelişir. Piyasa karşılığı:
+  Microsoft hesabının takma adları (giriş her takma adla, kurtarma kodu kayıtlı güvenlik adresine).
+  **md.7 (iii) genişlemesi, adıyla:** takma adda çözümleyicinin `email`'i çağıranın yazdığı anahtarın yazımı
+  değil, **başka bir adrestir** (#1'inki). Yalnız mektup alıcısı olarak kullanılır — giriş, sıfırlama ve kayıt
+  yanıtına, log'a ve audit'e girmez (yanıtlar R18 / EM-7C gereği tek tip). Bedeli: #2'yi yazan bir ziyaretçi
+  #3'e bir sıfırlama/kayıt mektubu düşürebilir — bugünkü kovalar (kimlik başına tek canlı link, alıcı başına
+  `mail.RecipientCap`) aynen sınırlar.
+- **Kayıt (§5.10):** takma adda kimlik "var" sayılır; mektup #1'in kayıtlı adresine gider (bugünkü
+  `signupRecipientOf`). **Go değişikliği:** bilinen adreste taslak, ziyaretçinin yazımıyla değil **kimliğin
+  kayıtlı adresiyle** açılır — `identity_claim_signup`'ın R18 eşitliği (`identity.email = claim.email`) böylece
+  aynen tutar. Definer'ın adresle yaptığı iki okuma `AND i.merged_into IS NULL` alır: birleşmeden **önce**
+  açılmış bir taslak (mektubu #2'ye gitmiş) artık tamamlanmaz — adlandırılmış kalıntı; emekli kimliğin
+  digest'i nöbetçi olduğu için parola kolu zaten 0 satırdır, süzgeç ikinci katmandır.
+- **Davet (§5.11):** davet adresi #2 kalır (owner yazdı; R18 gereği owner takma adı öğrenmez).
+  `identity_accept_invite` aynı imzayla yeniden tanımlanır: davetin adresi oturumun kimliğinin adresi **ya da
+  bir takma adıysa** kabul edilir (iki adres de ASCII — 00077'nin kuralı aynen); tıklama yalnız davet adresi
+  kimliğin **kendi** adresiyse `email_verified_at`'e dokunur (takma adın posta kutusu birleşmede zaten
+  kanıtlandı). `identity_accept_invite_new` değişmez: takma ad satırı "adreste kimlik var" demektir → 0 satır.
+- **Değişmeyen fonksiyonlar (gerekçeyle):** oturumla anahtarlı her fonksiyon (`identity_memberships`,
+  `_switch_session`, `_revoke_sessions`, `_set_password`, `_password_for_session`, `_link_by_email`,
+  `_confirm_window`, `_keep_all`, `_request_verification`, `_verify_email`) kimliği satırın `identity_id`'sinden
+  bulur — D3 gereği canlı; `identity_open_session`, `_open_reset`, `_record_failed_login` id'yi çözümleyiciden
+  alır — canlı; `identity_reconcile` kimliği olan adresi atlar (00082 adım 2) — takma ad da kimliktir;
+  `identity_create_for_signup`'ın uygulama çağıranı yok (M14-19 REVOKE); `identity_link_legacy`'nin
+  e-posta eşitliği savunması bir takma addaki bağsız satırı reddeder → giriş bağlamadan sürer (Go reddi zaten
+  karşılar; birleşme o adresin bağsız satırlarını süpürdüğü için yalnız eski binary'nin doğurabileceği bir
+  şekildir); `identity_relink_refused` / `identity_confirm_window` reddedilmiş satırları kimliğin **kendi**
+  adresinde arar — #2'nin penceresinde reddedilmiş bir satır ret olarak kalır; `identity_consume_reset` /
+  `_consume_row_reset` için birleşme #2'nin canlı kimlik linklerini ve taşınan satırların canlı
+  `password_resets` linklerini iptal eder (aşağıda). `resolve_admin_by_email` değişmez (adres → satırlar).
+
+*Akış (kullanıcının gördüğü her adım ve piyasa karşılığı — plan kartının tablosu):*
+1. "Switch business" sayfasında ve hesabın "Your businesses" kartında **"Add a business"** (Slack: değiştiricide
+   "Add a workspace"; GitHub: Settings → Emails → "Add email address"). Tek işletmeli değiştirici sayfası artık
+   "geçecek bir şey yok" deyip bırakmaz, bu düğmeyi sunar (M14-22'nin bulunabilirlik dersi).
+2. Form: öbür işletmenin e-posta adresi. POST bağlı bir kimlik oturumundan, `protectWritingThroughSuspension` +
+   `tb` (M14-22'nin grubu; ADR 0025'in listesi iki rota büyür). Biçim hatası (`mail.ValidRecipient`) varlıktan
+   bağımsız olduğu için söylenir. **Bütçeler işten önce** (`TryCharge`): kişi kovası (M14-22'nin opak
+   `LinkBucket` deseni; saatte 5) **ve** hedef adres kovası (adresin küçük harfli biçiminin paket anahtarıyla
+   MAC'i — limiter anahtarında adres yok; saatte 3); gönderimde ayrıca `mail.RecipientCap`. Sonra
+   `identity_request_address_link`; satır dönerse mektup **outbox'a** (sıfırlamanın deseni, ADR 0022 §6;
+   istek beklemez); yanıt `resetRequestFloor` deseniyle bir tabana kadar tutulur ve PRG ile **tek tip**
+   sayfaya döner: *"If a business you can add uses that address, we've emailed it a link…"* — adreste işletme
+   olsun olmasın aynı yanıt, aynı süre, aynı satırlar (numaralandırma yok).
+3. Mektup **yalnız yazılan adrese** (kayıtlı yazımına — M14-14 kuralı, ziyaretçinin yazımı asla), yalnız
+   orada eklenecek bir şey varsa; sabit ASCII konu; isteyenin adresi, işletme adı, sayı **yok**; *"başkasına
+   iletme"* uyarısı; 24 saat, tek kullanım (Slack'in sihirli linki; GitHub'ın adres doğrulama mektubu).
+4. Linkin GET'i hiçbir şey harcamaz (R19): ayrı iniş yolu, ayrı çerez, **ayrı HMAC etiketi** (M14-22'nin
+   doğrulama/link ayrımı gibi — bir türün token'ı öbürünün hash'ine çözülmez) → 303 → onay sayfası. Oturum
+   yoksa önce giriş, çerez yarım saat bekler.
+5. Onay sayfası işletme adlandırmaz; basmadan önce söyler: o adresin işletmeleri bu girişe katılır; **kendi
+   parolaları çalışmaz ve o işletmelerde oturum açık cihazlar çıkış yapar** (M14-22'nin cümlesi); sonra o
+   adresle de Taptime parolasıyla girilir ve o adresin sıfırlama mektupları bu girişin adresine gelir. Tek
+   düğme. Basış (POST + `tb`) `identity_link_by_address`'i linkle **ve** bu tarayıcının canlı oturumuyla
+   çağırır. Bir onay arayüzü (GET değil): posta tarayıcılarının ön yüklemesi (R19) — Microsoft/Google'ın
+   "Confirm" ara sayfaları.
+6. Sonuç sayfası + **iki bildirim**, ikisi de yalnız sayı: #1'in kayıtlı adresine *"N businesses were added to
+   your Taptime sign-in from another email address"*, eklenen adrese *"This email address was added to
+   another Taptime sign-in … its old password no longer works … if this was not you, someone else can read
+   this mailbox"* (GitHub/Google'ın "yeni adres eklendi" güvenlik bildirimi, iki adrese).
+
+*`identity_request_address_link(p_session_hash text, p_token_hash text, p_address text)` →
+`TABLE (verification_id uuid, expires_at timestamptz, recipient text)`* — anahtar **canlı oturum**; yazdığı
+tek şey **isteyen** kimliğin link satırıdır (`admin_identity_verifications`, `purpose = 'address'`, `address`,
+24 saat), kimliğe ve hiçbir tenant tablosuna yazmaz. 0 satır (hiçbir şey yazılmaz): oturum canlı bağlı bir
+satırın değil · `p_address` 6b'yi geçmiyor · **eklenecek bir şey yok** · **çakışma**. *Eklenecek* = (i)
+adres, isteyenden başka **canlı** (`merged_into IS NULL`) bir kimliğin kayıtlı adresi ve o kimliğin en az bir
+aktif, reddedilmemiş üyeliği var; ya da (ii) adreste aktif, reddedilmemiş (`unlinked_at IS NULL`), bağsız en
+az bir satır var. Adres bir **takma adsa** onun canlı kimliği taşınmaz (aşağıdaki güvenlik maddesi), yalnız (ii).
+*Çakışma* = isteyenin üyesi olduğu bir işletmede taşınacak bir satır (UNIQUE `(tenant_id, identity_id)`).
+`recipient` = adresin kayıtlı yazımı (adresi taşıyan kimlik satırının `email`'i; kimlik yoksa en eski aday
+satırınki — incumbent-first) ve linkin `address`'ine **o** yazılır. Okuması adlandırılmış bir e-posta-geniş
+okumadır (ziyaretçinin yazdığı adres; yalnız varlık okur, ondan hiçbir şey yazmaz).
+
+*`identity_link_by_address(p_session_hash text, p_verification_hash text)` →
+`TABLE (linked integer, email text, added_email text)`* — **iki sır**: `'address'` amaçlı link token'ı (o
+adrese gitti) + tıklayan tarayıcıdaki **isteyen kimliğin** canlı oturumu. İsteyen kimlik sırlardan bulunur;
+katılan kimlik (#2) **token'ın taşıdığı adresten** — sıfırlama token'ının kimliği o adresten bulmasıyla aynı
+tür (token o posta kutusuna gitti). Tek transaction; herhangi bir ret → 0 satır, hiçbir şey yazılmaz, link
+harcanmaz (`EXCEPTION WHEN unique_violation` M14-22'deki gibi bütün bloğu geri alır):
+1. Linki ve oturumu kilitsiz oku; linkin adresinde 6b (`IF (…) IS NOT TRUE THEN RETURN`, 00076'nın yüklemi
+   bayt-aynı).
+2. **Kilit sırası:** adresin ad alanlı danışma kilidi (`'admin-identity-email:' || lower(adres)`, 00074) →
+   iki kimlik (isteyen ve, varsa, adresin canlı kimliği) **id sırasıyla** `FOR UPDATE` → ikisinin bütün
+   üyelikleri `(tenant_id, id)` sırasıyla `FOR UPDATE` → link (yeniden denetim) → oturum (yeniden denetim) →
+   bağsız adaylar (döngüde `FOR UPDATE`). Tutarlılık: danışma kilidini alan her yazar (kaydın parola kolu,
+   `identity_accept_invite_new`, uzlaştırma, `identity_create_for_signup`) onu **her satır ve kimlik
+   kilidinden önce** alır; hiçbir yazar bir kimlik kilidinden sonra danışma kilidi almaz (kaydın oturum kolu
+   hiç almaz); giriş, geçiş ve 2′ tek kimliği ve üyeliklerini kilitler, danışma kilidi ve ikinci kimlik almaz.
+   Çapraz iki birleşme (A, B'nin adresini; B, A'nınkini) iki ayrı danışma kilidinden sonra kimlik kilitlerinde
+   id sırasıyla sıraya girer; ikincisi kilitten sonra isteyenini emekli bulur → 0 satır. Aynı linkin N basışı
+   danışma kilidinde sıraya girer: **tam bir başarı**.
+3. Kilit altında yeniden: isteyen canlı (`merged_into IS NULL`), adresin kimliği hâlâ o adresin canlı kimliği,
+   çakışma yok.
+4. Linki harca. Adreste hiç kimlik satırı yoksa takma ad satırını doğur (D4).
+5. Adresin canlı kimliğinin (#2) **bütün** satırları (her `status`; D3) ve adresin aktif, reddedilmemiş,
+   bağsız, **linkten önce doğmuş** satırları (6b, `CONTINUE`; M14-22'nin adaylarıyla aynı yüklem) için: satır
+   #1'e bağlanır (`identity_id`, #1'in digest'i — dual-write, `linked_via = 'email'` — **yeni değer yok**:
+   posta kutusu kanıtıyla bağ, aynı sınıf; sıcak `admin_users`'ta CHECK değişimi yok — `linked_at = now()`),
+   oturumları iptal, süresi dolmamış `password_resets` linkleri `cancelled_at` ile iptal (aksi hâlde #2'nin
+   posta kutusuna gitmiş eski bir satır linki **#1'in** parolasını yazardı — `identity_consume_row_reset`),
+   işletmesine `admin.membership.linked` (`identity_link_legacy` / 2′ ile bayt-aynı: karşı tenant, sayı,
+   kimlik, bağ yolu yok).
+6. #2'yi emekli et: `merged_into = #1`, `merged_at = now()`, `password_hash` = nöbetçi, onay penceresinin üç
+   sütunu `NULL` (00069'un bütünlük CHECK'i); `merged_into = #2` olan her satır `#1`'e (D2); #2'nin canlı
+   `admin_identity_resets` linkleri `cancelled_at`, canlı `admin_identity_verifications` linkleri `used_at`.
+   #1'in `email_verified_at`'ine **dokunulmaz** (kanıtlanan posta kutusu #2'dir, #1'in adresi değil).
+7. Dönüş: `linked` (taşınan **aktif** satır sayısı), `email` (#1'in kayıtlı adresi), `added_email` (linkin
+   adresi) — iki bildirimin alıcıları (00075 emsali). Olay satırı yazılmaz: kayıt `merged_into` / `merged_at`'tir.
+
+*Güvenlik analizi.*
+- **Yetki eşdeğerliği.** #2 adresinin posta kutusu bugün #2 kimliğinin parolasını sıfırlayabilir, yani #2'nin
+  **bütün** işletmelerini (takma adlarından gelenler dahil) alabilir. Birleşme isteyene tam bunu verir, fazlasını
+  değil: #2'nin **kayıtlı (birincil) adresinin** posta kutusu + isteyenin canlı oturumu. Bir **takma adın**
+  posta kutusu hiçbir şeyi sıfırlayamaz → takma ad yazıldığında onun canlı kimliği **taşınmaz**, yalnız o
+  adresin bağsız satırları (satır-başı sıfırlamanın bugün kanıtladığı). Ters yönde, birleşme #2'nin posta
+  kutusuna #1 üstünde **hiçbir** yetki vermez (takma adın sıfırlama yetkisi yok; kayıt ve doğrulama mektupları
+  #1'in adresine; davet kabulü #1'in oturumunu ister). İsteyen kimliğin hiçbir işletmesi, sahibinin
+  kanıtlamadığı bir şeye değmez.
+- **Kurbanın oturumu, posta kutusu yok** (çalınmış çerez): saldırgan yalnız **kendi** posta kutusundaki
+  işletmeleri kurbana **bağışlayabilir** — kendi kimliğini kaybeder, kurbanın kimliği üstünde bir şey kazanmaz
+  (takma adı sıfırlayamaz). Kurbana bildirim gider. Adlandırılmış kalıntı (zarar: kurbanın listesinde yabancı
+  bir işletme; ayıklama yolu aşağıda).
+- **Posta kutusu var, oturum yok:** kendi kimliğinin oturumuyla #2'yi alır — bugünkü sıfırlamayla eşdeğer
+  erişim. **Fark, adıyla:** sıfırlama ile ele geçirmede gerçek sahip posta kutusuna hâlâ erişiyorsa geri
+  sıfırlayabilir; birleşmeden sonra #2'nin sıfırlaması saldırganın adresine gider. Bu yeni bir kalıcılık
+  değildir — bugün de posta kutusuyla sıfırlayan saldırgan kendi kimliğini davetle owner yapıp gerçek
+  satırı devre dışı bırakarak işletmeleri kalıcı alır (M14-15/16) — ama self-servis geri dönüş yoktur
+  (operatör kimliğe dokunamaz, K-12; geri dönüş veritabanı müdahalesidir). #2'nin adresine giden bildirim bunu
+  söyler. Kabul edilen kalıntı.
+- **Başka adresleri olan kimlik / zincirler:** #2 yazıldığında #2'nin takma adları (#4 …) onunla gelir (D2);
+  #4 yazıldığında (takma ad) #2 gelmez.
+- **İletilmiş link:** linki isteyen kimliğin oturumuyla açan, adresin bütün işletmelerini alır — iletilmiş
+  bir sıfırlama linkiyle aynı sınıf; mektup *"iletme"* der ve isteyeni adlandırmaz. Hedef posta kutusunun sahibi
+  linke **kendi** tarayıcısında basarsa hiçbir şey olmaz (oturum isteyenin değil, R2).
+- **Üçüncü kişinin posta kutusunu doldurma:** mektup yalnız eklenecek bir şey olan adrese, iki kova işten önce
+  (kişi + hedef adres) ve `mail.RecipientCap`.
+- **Geri alma:** adres düzeyinde **yok** (bu kartın dışında, K-15 gibi ayrı bir kart). Üyelik düzeyinde var
+  olan yol: taşınan satırlar `'email'` bağlarıdır → kişinin **her** sıfırlaması `reset` kapsamlı onay
+  penceresini açar ve onları listeler (`linked_at < confirm_opened_at`), çözme pencere içinde geri alınır
+  (§5.8; 2′'nin ayıklama yolu). `first_verify` listesine girmezler.
+- **Çakışma** (isteyen ve #2 aynı işletmede): bütün birleşme reddedilir — o satırı taşımak UNIQUE'i, bırakmak
+  D3'ü bozardı, reddetmek bir owner koltuğunu düşürebilirdi. Ret sayfası olasılığı söyler. Kalıntı.
+- 6b bayt-aynı (linkin adresinde ve her bağsız adayda); log ve audit'te adres, token, `identity_id`, sayı yok
+  (sayı yalnız posta kutusu sahiplerinin mektubunda).
+
+*Matris eki (kullanıcı onayı ister — §6.1'in son cümlesi):* `tappa_identitydefiner`: `admin_identities`
+SELECT (`merged_into`), UPDATE (`merged_into`, `merged_at`); `admin_identity_verifications` SELECT
+(`address`), INSERT (`address`). `tappa_resolver`: `admin_identities` SELECT (`merged_into`) —
+`resolve_identity_by_email`'in tek atlaması için. `tappa_app`: hiçbir şey (sütunları okuyamaz). Şema eki:
+`admin_identity_verifications.address citext NULL`, amaç CHECK'ine `'address'`, `CHECK ((purpose = 'address')
+= (address IS NOT NULL))` — sıcak olmayan tablo.
+
+*Yeniden tanımlar (`CREATE OR REPLACE`, imza ve dönüş aynı — eski binary çalışır; T5'in sahibi, `SECURITY
+DEFINER`, `search_path`, `REVOKE … FROM PUBLIC`, `GRANT EXECUTE … TO tappa_app` yeniden yazılır; Down
+öncekini bayt bayt geri koyar):* `resolve_identity_by_email` (tek atlama), `identity_accept_invite` (takma ad
+kabulü), `identity_claim_signup` (`merged_into IS NULL`). Birleşme yokken üçü de bugünkü cevabı verir.
+
+*Contract B'ye:* `identity_link_by_address` §8 adım 8.1b'nin listesine girer (satırlara digest kopyalamayı
+bırakır). Contract A'ya yeni bağımlılık yok (yeni akış `resolve_admin_by_email`'i okumaz).
+
+*§6.1'e önerilen değişiklik (tek cümle parçası; kullanıcı onaylayınca CLAUDE.md §4.5 (3) ile birlikte, bayt
+bayt):* *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı; `identity_link_by_email` doğrulama token'ı
+**ve** aynı kimliğin canlı oturumuyla);"* → *"(canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı;
+`identity_link_by_email` ve `identity_link_by_address` doğrulama token'ı **ve** aynı kimliğin canlı
+oturumuyla — ikincisinde katılan kimlik, token'ın gönderildiği adresinkidir);"*. Başka bir şey değişmez:
+yeni tablo yok (beş tablo listesi aynı), yeni adlandırılmış istisna yok, `identity_request_address_link`
+oturumla anahtarlıdır (sayılmayan sınıf, `identity_request_verification` gibi).
 
 ### 5.8 Backfill, uzlaştırma, onay penceresi
 
