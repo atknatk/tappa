@@ -13,7 +13,9 @@ package handler
 //   - Account's cards and Odd shapes' middle cards flow down columns from the desk width, and
 //     only they do; Odd's paragraphs carry the 70rem prose measure;
 //   - past a 2400 px window the whole frame is zoomed 1.25, past 3200 px 1.5, nothing below,
-//     and each step restates the two viewport heights divided by its zoom.
+//     only where zoom exists (@supports), each step restating the two viewport heights divided
+//     by its zoom; the switch page, opened from the sidebar, takes the same steps on its own
+//     wrapper.
 
 import (
 	"fmt"
@@ -384,53 +386,77 @@ func TestPanelWide_AccountAndOddShapesFlowDownColumns(t *testing.T) {
 // input.css writes them. Each starts where the zoomed layout is no narrower than an unzoomed 1920.
 var panelZoomSteps = map[string]string{"(min-width: 2400px)": "1.25", "(min-width: 3200px)": "1.5"}
 
-// readPanelZoom is the reading of the zoom steps: one finding per decision broken.
-func readPanelZoom(css string) []string {
+// readPanelZoom is the reading of the zoom steps in input.css and of the switch page's frame in
+// the templates: one finding per decision broken.
+func readPanelZoom(css string, files map[string]string) []string {
 	rules := readPanelCSSRules(css)
 	var findings []string
-	steps := map[string]int{}
-	for _, r := range rules {
-		if !strings.Contains(r.body, "zoom") {
-			continue
+	// the three rules each step owns, by selector, and the body each must declare
+	want := func(z string) map[string]string {
+		return map[string]string{
+			".panel-frame, .switch-frame": "zoom: " + z + ";",
+			".panel-frame":                "min-height: calc(100vh / " + z + ");",
+			".panel-frame .panel-side":    "height: calc(100vh / " + z + ");",
 		}
+	}
+	seen := map[string]int{}
+	for _, r := range rules {
+		n := len(r.at)
 		media := ""
-		if n := len(r.at); n > 0 && strings.HasPrefix(r.at[n-1], "@media ") {
+		if n > 0 && strings.HasPrefix(r.at[n-1], "@media ") {
 			media = strings.TrimPrefix(r.at[n-1], "@media ")
 		}
-		z, ok := panelZoomSteps[media]
-		if !ok || r.selector != ".panel-frame" {
-			findings = append(findings, fmt.Sprintf("`%s` in %v declares a zoom: only the two steps zoom, and only the frame", r.selector, r.at))
+		z, stepped := panelZoomSteps[media]
+		if !stepped {
+			if strings.Contains(r.body, "zoom") {
+				findings = append(findings, fmt.Sprintf("`%s` in %v declares a zoom: only the two steps zoom", r.selector, r.at))
+			}
 			continue
 		}
-		steps[media]++
-		if want := fmt.Sprintf("zoom: %s; min-height: calc(100vh / %s);", z, z); r.body != want {
-			findings = append(findings, fmt.Sprintf("the frame at %s declares %q, want %q: a vh inside the zoom is %s screens", media, r.body, want, z))
+		w, ok := want(z)[r.selector]
+		if !ok {
+			findings = append(findings, fmt.Sprintf("`%s` also sits in the zoom step %s", r.selector, media))
+			continue
+		}
+		seen[media+" "+r.selector]++
+		if n < 2 || r.at[n-2] != "@supports (zoom: 1)" {
+			findings = append(findings, fmt.Sprintf("`%s` at %s is outside @supports (zoom: 1): without zoom the heights must not be divided", r.selector, media))
+		}
+		if r.body != w {
+			findings = append(findings, fmt.Sprintf("`%s` at %s declares %q, want %q", r.selector, media, r.body, w))
 		}
 	}
 	for media, z := range panelZoomSteps {
-		if steps[media] != 1 {
-			findings = append(findings, fmt.Sprintf("%d zoomed frame rule(s) at %s, want 1", steps[media], media))
-		}
-		var side []panelCSSRule
-		for _, r := range rules {
-			if r.selector == ".panel-frame .panel-side" && len(r.at) > 0 && r.at[len(r.at)-1] == "@media "+media {
-				side = append(side, r)
+		for sel := range want(z) {
+			if seen[media+" "+sel] != 1 {
+				findings = append(findings, fmt.Sprintf("%d `%s` rule(s) at %s, want 1", seen[media+" "+sel], sel, media))
 			}
-		}
-		if want := fmt.Sprintf("height: calc(100vh / %s);", z); len(side) != 1 || side[0].body != want {
-			findings = append(findings, fmt.Sprintf("the sidebar at %s is %v, want one `.panel-frame .panel-side { %s }`: its full height is a screen, not %s", media, side, want, z))
 		}
 		if w, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(media, "(min-width: "), "px)")); err != nil || w <= 1920 {
 			findings = append(findings, "a zoom step starts at "+media+": at 1920 and below nothing is zoomed")
 		}
 	}
-	// The override is needed only because the sidebar is a full-height sticky column.
+	// The division is needed only because the sidebar is a full-height sticky column.
 	for _, r := range panelRulesNaming(rules, ".panel-side") {
 		if r.selector == ".panel-side" {
 			us := panelApplied(r.body)
 			if !slices.Contains(us, "md:sticky") || !slices.Contains(us, "md:h-screen") {
 				findings = append(findings, "`.panel-side` is no longer a full-height sticky column: revisit the zoom steps' height")
 			}
+		}
+	}
+	// The switch page, opened from the sidebar, is the one page outside the frame that zooms: its
+	// own wrapper, written once, around the whole page (the header too), never in a layout.
+	frame := regexp.MustCompile(`class="switch-frame"`)
+	for name, src := range files {
+		n := len(frame.FindAllString(src, -1))
+		switch {
+		case name == "pages/adminswitch.templ" && n != 1:
+			findings = append(findings, fmt.Sprintf("adminswitch.templ writes its frame %d time(s), want 1", n))
+		case name == "pages/adminswitch.templ" && !strings.Contains(src, "<div class=\"switch-frame\">\n\t\t\t@AuthHeader(\"\")"):
+			findings = append(findings, "adminswitch.templ's frame does not open before the header: the header would stay at 1x")
+		case name != "pages/adminswitch.templ" && n != 0:
+			findings = append(findings, name+" writes the switch page's frame")
 		}
 	}
 	return findings
@@ -442,23 +468,41 @@ func TestPanelWide_AVeryWideScreenZoomsTheFrameInTwoSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	css := string(raw)
-	for _, f := range readPanelZoom(css) {
+	files := readPanelTemplates(t)
+	for _, f := range readPanelZoom(css, files) {
 		t.Error(f)
 	}
-	for _, c := range []struct{ what, from, to string }{
-		{"a step at 1920", "@media (min-width: 2400px) {\n    .panel-frame { zoom: 1.25;", "@media (min-width: 1920px) {\n    .panel-frame { zoom: 1.25;"},
-		{"the frame's minimum left a zoomed screen", ".panel-frame { zoom: 1.5; min-height: calc(100vh / 1.5); }", ".panel-frame { zoom: 1.5; }"},
-		{"the sidebar 1.25 screens tall", ".panel-frame .panel-side { height: calc(100vh / 1.25); }", ".panel-frame .panel-side { height: 100vh; }"},
-		{"a height divided by the other step", ".panel-frame .panel-side { height: calc(100vh / 1.5); }", ".panel-frame .panel-side { height: calc(100vh / 1.25); }"},
-		{"a third step", "  .panel-side {\n    @apply", "  @media (min-width: 5000px) { .panel-frame { zoom: 2; } }\n  .panel-side {\n    @apply"},
-		{"a zoom on the well", ".panel-well:has(.panel-measure, .policy-section) {\n    max-width: 70rem;", ".panel-well:has(.panel-measure, .policy-section) {\n    zoom: 1.1; max-width: 70rem;"},
-		{"the sidebar no longer sticky", "md:sticky md:top-0 md:h-screen", "md:top-0 md:h-screen"},
+	for _, c := range []struct{ what, file, from, to string }{
+		{"a step at 1920", "", "@media (min-width: 2400px) {\n      .panel-frame, .switch-frame { zoom: 1.25; }", "@media (min-width: 1920px) {\n      .panel-frame, .switch-frame { zoom: 1.25; }"},
+		{"the frame's minimum left a zoomed screen", "", ".panel-frame { min-height: calc(100vh / 1.5); }", ".panel-frame { min-height: 100vh; }"},
+		{"the sidebar 1.25 screens tall", "", ".panel-frame .panel-side { height: calc(100vh / 1.25); }", ".panel-frame .panel-side { height: 100vh; }"},
+		{"a height divided by the other step", "", ".panel-frame .panel-side { height: calc(100vh / 1.5); }", ".panel-frame .panel-side { height: calc(100vh / 1.25); }"},
+		{"the steps outside @supports", "", "  @supports (zoom: 1) {\n    @media (min-width: 2400px)", "  @supports (display: block) {\n    @media (min-width: 2400px)"},
+		{"the switch page's step gone", "", ".panel-frame, .switch-frame { zoom: 1.5; }", ".panel-frame { zoom: 1.5; }"},
+		{"the 1.5 step gone", "", "@media (min-width: 3200px) {\n      .panel-frame, .switch-frame { zoom: 1.5; }", "@media (min-width: 3200px) {\n      .panel-gone { zoom: 1.5; }"},
+		{"a third step", "", "  .panel-side {\n    @apply", "  @media (min-width: 5000px) { .panel-frame { zoom: 2; } }\n  .panel-side {\n    @apply"},
+		{"a zoom on the well", "", ".panel-well:has(.panel-measure, .policy-section) {\n    max-width: 70rem;", ".panel-well:has(.panel-measure, .policy-section) {\n    zoom: 1.1; max-width: 70rem;"},
+		{"the sidebar no longer sticky", "", "md:sticky md:top-0 md:h-screen", "md:top-0 md:h-screen"},
+		{"the switch page without its frame", "pages/adminswitch.templ", `<div class="switch-frame">`, `<div>`},
+		{"the frame inside the header", "pages/adminswitch.templ", "<div class=\"switch-frame\">\n\t\t\t@AuthHeader(\"\")", "@AuthHeader(\"\")\n\t\t\t<div class=\"switch-frame\">"},
+		{"the sign-in zoomed too", "pages/admin.templ", `@layout.Auth("Sign in — Taptime", adminPasswordScript) {`, "@layout.Auth(\"Sign in — Taptime\", adminPasswordScript) {\n<div class=\"switch-frame\"></div>"},
 	} {
-		mutated := strings.Replace(css, c.from, c.to, 1)
-		if mutated == css {
-			t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+		mcss, mfiles := css, map[string]string{}
+		for k, v := range files {
+			mfiles[k] = v
 		}
-		if len(readPanelZoom(mutated)) == 0 {
+		if c.file == "" {
+			mcss = strings.Replace(css, c.from, c.to, 1)
+			if mcss == css {
+				t.Fatalf("CONTROL %s: %q is not in input.css", c.what, c.from)
+			}
+		} else {
+			mfiles[c.file] = strings.Replace(files[c.file], c.from, c.to, 1)
+			if mfiles[c.file] == files[c.file] {
+				t.Fatalf("CONTROL %s: %q is not in %s", c.what, c.from, c.file)
+			}
+		}
+		if len(readPanelZoom(mcss, mfiles)) == 0 {
 			t.Errorf("CONTROL: %s is not a finding; the reading is blind", c.what)
 		}
 	}

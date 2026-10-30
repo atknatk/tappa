@@ -448,14 +448,28 @@
      sidebar's full height (100vh) and the frame's minimum would be 1.25 or 1.5 screens
      tall -- the sidebar's foot pushed below the fold and every short page scrolling
      (measured, see the wide-screen tour). The two heights are restated as the screen
-     divided by the zoom. Media queries read the real viewport, so md and desk still fire. */
-  @media (min-width: 2400px) {
-    .panel-frame { zoom: 1.25; min-height: calc(100vh / 1.25); }
-    .panel-frame .panel-side { height: calc(100vh / 1.25); }
-  }
-  @media (min-width: 3200px) {
-    .panel-frame { zoom: 1.5; min-height: calc(100vh / 1.5); }
-    .panel-frame .panel-side { height: calc(100vh / 1.5); }
+     divided by the zoom. Media queries read the real viewport, so md and desk still fire.
+     ALL OF IT ONLY WHERE ZOOM EXISTS (@supports): a browser without zoom would otherwise
+     keep the panel at 1x and still divide the heights, leaving the sidebar a fifth or a
+     third short of the screen.
+     THE SWITCH PAGE TAKES THE SAME STEPS (.switch-frame, pages.AdminSwitch). It is drawn
+     outside the panel's frame (the sign-in family's layout) but opened from the sidebar's
+     "Switch business" link, so at 1.5 the reader would drop to 1x on one click and back on
+     the next. Its frame is a wrapper of its own -- the layout, shared with the sign-in,
+     the reset and the invitation pages, is untouched, and those pre-session pages keep 1x
+     (docs/design/panel-redesign/README.md, "Wide screens"). The wrapper sets no viewport
+     height, so it needs no division. */
+  @supports (zoom: 1) {
+    @media (min-width: 2400px) {
+      .panel-frame, .switch-frame { zoom: 1.25; }
+      .panel-frame { min-height: calc(100vh / 1.25); }
+      .panel-frame .panel-side { height: calc(100vh / 1.25); }
+    }
+    @media (min-width: 3200px) {
+      .panel-frame, .switch-frame { zoom: 1.5; }
+      .panel-frame { min-height: calc(100vh / 1.5); }
+      .panel-frame .panel-side { height: calc(100vh / 1.5); }
+    }
   }
   .panel-side {
     @apply flex flex-col bg-porcelain text-ink
