@@ -434,6 +434,43 @@
   .panel-frame {
     @apply min-h-screen md:flex;
   }
+  /* A VERY WIDE SCREEN DRAWS THE WHOLE PANEL LARGER (2026-10-30, user decision). A 4K
+     monitor at 1x is about 3840 CSS px across, and the panel's type (11-14 px) and its
+     248 px sidebar are physically small on it; a wider well alone would spread the same
+     small type further. So past 2400 px the frame is zoomed 1.25 and past 3200 px 1.5:
+     sidebar, type, cards and gaps grow together, which no font-size base can do, because
+     the redesign's sizes are mostly fixed pixels, not rems. Two steps rather than a
+     continuous scale: zoom takes a number, not a length ratio, and a step keeps every
+     width testable. Each step starts where the zoomed layout is as wide as an unzoomed
+     1920 px one (2400 / 1.25; 3200 / 1.5 is 2133), so the desk recipes see at least the
+     width they see at 1920 and at most 2560; at 1920 and below nothing changes.
+     THE VIEWPORT UNITS ARE DIVIDED BACK. Inside a zoomed box a vh is multiplied too, so the
+     sidebar's full height (100vh) and the frame's minimum would be 1.25 or 1.5 screens
+     tall -- the sidebar's foot pushed below the fold and every short page scrolling
+     (measured, see the wide-screen tour). The two heights are restated as the screen
+     divided by the zoom. Media queries read the real viewport, so md and desk still fire.
+     ALL OF IT ONLY WHERE ZOOM EXISTS (@supports): a browser without zoom would otherwise
+     keep the panel at 1x and still divide the heights, leaving the sidebar a fifth or a
+     third short of the screen.
+     THE SWITCH PAGE TAKES THE SAME STEPS (.switch-frame, pages.AdminSwitch). It is drawn
+     outside the panel's frame (the sign-in family's layout) but opened from the sidebar's
+     "Switch business" link, so at 1.5 the reader would drop to 1x on one click and back on
+     the next. Its frame is a wrapper of its own -- the layout, shared with the sign-in,
+     the reset and the invitation pages, is untouched, and those pre-session pages keep 1x
+     (docs/design/panel-redesign/README.md, "Wide screens"). The wrapper sets no viewport
+     height, so it needs no division. */
+  @supports (zoom: 1) {
+    @media (min-width: 2400px) {
+      .panel-frame, .switch-frame { zoom: 1.25; }
+      .panel-frame { min-height: calc(100vh / 1.25); }
+      .panel-frame .panel-side { height: calc(100vh / 1.25); }
+    }
+    @media (min-width: 3200px) {
+      .panel-frame, .switch-frame { zoom: 1.5; }
+      .panel-frame { min-height: calc(100vh / 1.5); }
+      .panel-frame .panel-side { height: calc(100vh / 1.5); }
+    }
+  }
   .panel-side {
     @apply flex flex-col bg-porcelain text-ink
            md:sticky md:top-0 md:h-screen md:w-[88px] md:shrink-0 md:gap-4
@@ -556,18 +593,44 @@
   .panel-main {
     @apply min-w-0 flex-1 px-4 pt-4 pb-28 md:px-8 md:pt-7 md:pb-12 desk:px-11;
   }
-  /* The content well. ITS CAP IS 72rem (1152 px), RAISED FROM 64rem IN M12-01, and the cap is
-     the only thing that changed: the well is still full width up to it. Measured against the
-     shell: the content box is the viewport minus the side column (88 px rail from md, 248 px
-     sidebar from desk) minus .panel-main's padding (2 x 32 px, 2 x 44 px from desk) -- 864 px
-     at 1200, 1104 px at 1440 -- so the cap first binds at a 1488 px viewport, where 64rem bound
-     at 1360 and left 1440 with 80 px of empty gutter. 72rem is the widest the redesign's
-     boards lay their content out (about 1120 px) plus room; a cap only limits growth, so it
-     cannot make a page scroll sideways -- only content wider than the box can, which is why
-     every desk recipe is held to 864 px, the narrowest desk box. Prose keeps its own measure
-     where a section sets one; the well does not set a reading width. */
+  /* The content well. IT STANDS AGAINST THE SIDEBAR AND STOPS AT 100rem (1600 px) -- the
+     wide-screen pass of 2026-10-30, user decision. The boards draw it that way: the main
+     column is a flex item that grows from 640 px with nothing capping it and nothing
+     centring it. The 72rem centred well before it (M12-01) was a port decision, not the
+     boards', and on a wide screen it left the content an island: 260 px of porcelain on each
+     side at 1920, 1220 px at 3840, measured. Now the content box is the viewport minus the
+     side column (88 px rail from md, 248 px sidebar from desk) minus .panel-main's padding
+     (2 x 32 px, 2 x 44 px from desk) -- 864 px at 1200, 1104 at 1440, 1584 at 1920 -- and the
+     cap first binds at a 1936 px viewport; beyond it the spare width is at the right, where
+     a reader's eye does not start. A cap only limits growth, so it cannot make a page scroll
+     sideways -- only content wider than the box can, which is why every desk recipe is held
+     to 864 px, the narrowest desk box. Prose and forms keep their own measure inside their
+     cards (the measure rules below); the well does not set a reading width. */
   .panel-well {
-    @apply mx-auto flex w-full max-w-6xl flex-col gap-6;
+    @apply flex w-full max-w-[100rem] flex-col gap-6;
+  }
+  /* A FORM OR A TEXT KEEPS THE WIDTH THE BOARDS DRAW IT AT (the wide-screen pass). A page
+     whose body is filled in or read through -- a venue, department or staff form, a typed
+     record, the rules, a rule change, billing, the keys, the managers, linking businesses --
+     carries the marker .panel-measure on an element of its body, and the whole well stops at
+     70rem (1120 px): its title row too, so a heading's actions stay above the card's right
+     edge instead of drifting to the screen's. 1120 is the content row the FreezeMonth board
+     caps, and about the 1104 px box every board is drawn in at 1440, so on any wider screen
+     these pages are the boards' own width. The data pages -- The Pass and its ledger, The
+     Spike, People, venues, The Roll, Odd shapes, the Account cards -- carry no marker and
+     take the full well, where a wider screen shows more dockets, columns or cards. Below a
+     1456 px viewport the content box is narrower than 70rem, so the cap cannot bind on a
+     phone, a tablet or the 1440 desk. The marker draws nothing of its own. The Rules page
+     is named by its own section class, whose markup a test pins byte for byte. */
+  .panel-well:has(.panel-measure, .policy-section) {
+    max-width: 70rem;
+  }
+  /* The same measure for a paragraph on a data page: Odd shapes explains itself in
+     paragraphs inside full-width cards, and at 1920 those lines ran to about 210
+     characters (measured). A paragraph marked .panel-prose stops at 70rem, as long as it
+     was at 1440, while its card keeps the full well. Narrower than 1120 px it cannot bind. */
+  .panel-prose {
+    max-width: 70rem;
   }
   /* The section's heading block (M12-01, pages.panelHead), drawn only when a section set a
      kicker, a breadcrumb trail or actions; a bare title is the h1 alone. The title row wraps:
@@ -1688,6 +1751,27 @@
   .panel-card {
     @apply flex flex-col gap-4 rounded-[18px] border border-line bg-paper p-4
            md:px-[22px] md:py-5 desk:px-6 desk:py-[22px];
+  }
+  /* CARDS THAT FLOW DOWN COLUMNS (the wide-screen pass, 2026-10-30): the Account cards and
+     the middle of Odd shapes. From the desk width the container is a multi-column box, so
+     each card sits directly under the one before it in its column; a row grid, which both
+     were, makes every row as tall as its tallest card, and on Account that left 1930 px of
+     porcelain beside short cards at 1920 (KF and KM, measured on the 72rem well). The Account board draws two
+     independent columns; one markup cannot assign cards to the board's columns without
+     changing the order a phone reads them in, and a column box keeps the document order
+     (Identity first) and only balances the columns' heights.
+     HOW MANY COLUMNS IS A WIDTH, NOT A BREAKPOINT: at least 25rem (400 px) each, at most
+     three -- two in the 864 px desk box and at 1440, three from a 1240 px box (a 1576 px
+     window) and in every zoomed width. A card is never narrower than 400 px, wider than the
+     phone's card the boards draw (358). The template swaps the display (a utility, so it
+     wins over the tablet's grid); this rule adds the count, keeps a card whole and puts the
+     container's own gap under each card -- 1.25rem on Account, 1rem between Odd shapes'
+     cards, which reach the box through two display-contents column wrappers. Phone and
+     tablet are untouched: none of this exists below the desk width. */
+  @screen desk {
+    .card-flow { columns: 25rem 3; }
+    .card-flow > :not(.card-flow-col) { break-inside: avoid; margin-bottom: 1.25rem; }
+    .card-flow-col > * { break-inside: avoid; margin-bottom: 1rem; }
   }
   .stat-card {
     @apply flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper p-4

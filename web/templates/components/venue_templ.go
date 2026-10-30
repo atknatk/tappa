@@ -56,7 +56,7 @@ func VenueForm(v VenueFormView, side VenueFormSide) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start\"><div class=\"flex min-w-0 flex-col gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"panel-measure flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start\"><div class=\"flex min-w-0 flex-col gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1478,7 +1478,7 @@ func DepartmentForm(v DepartmentFormView) templ.Component {
 			templ_7745c5c3_Var77 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "<div class=\"flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start\"><div class=\"flex min-w-0 flex-col gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "<div class=\"panel-measure flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start\"><div class=\"flex min-w-0 flex-col gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

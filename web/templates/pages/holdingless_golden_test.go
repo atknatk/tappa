@@ -38,6 +38,12 @@ package pages
 // around exactly that sentence, every other byte the previous golden's. Its review round appended
 // one clause to the same sentence (the two figures' stated exceptions: the list's cap and a week
 // too busy for The Roll), measured the same way: the only difference is that insertion.
+// The wide-screen pass (2026-10-30) replaced the anomalies golden: Odd shapes' middle cards flow
+// down columns from the desk width and its paragraphs carry the 70rem measure. Measured: deleting
+// the added class tokens from the new golden (card-flow and desk:block on the two-column box,
+// card-flow-col and desk:contents on its two column wrappers, panel-prose on nine paragraphs)
+// gives back the previous golden byte for byte; no text, tag or order changed. The reports
+// golden is unchanged (byte for byte).
 
 import (
 	"bytes"

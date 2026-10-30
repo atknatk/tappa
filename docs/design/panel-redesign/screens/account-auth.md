@@ -84,7 +84,13 @@ upload `brandupload.go`). **Templ** `pages/account.templ` (`AdminAccount` :33, `
 
 ### 1.2 Breakpoints and recipes
 
-Card grid `grid grid-cols-1 items-start gap-5 desk:grid-cols-2` (two ~420 px columns at 864). Identity inner
+Cards `card-flow grid grid-cols-1 items-start gap-5 desk:block`: one column on the phone and the tablet; from
+`desk` a multi-column box (`.card-flow`, `input.css`: columns at least 25rem, at most three — two ~422 px
+columns at 864, two at 1440, three from a 1240 px box), each card unbroken and 1.25rem under the one before
+it. **As built (the wide-screen pass, 2026-10-30):** this replaced the row grid `desk:grid-cols-2`, which made
+each row as tall as its tallest card (1930 px of porcelain beside short cards at 1920, KF and KM). The board
+draws two independent columns with a fixed assignment (Identity, password, Developers left); the flow keeps
+the document order the phone reads and lets the heights choose the column. Identity inner
 `grid grid-cols-1 gap-4 md:grid-cols-2`, name and kind `md:col-span-2`. Brand card: Logo | Accent side by side
 on `md`. Card `rounded-[18px] border border-line bg-paper px-6 py-[22px] flex flex-col gap-4 min-w-0` (phone
 `rounded-2xl px-4 py-[18px]`). Field, buttons: README §5 (`.field-stack`, not `.filter-input`).

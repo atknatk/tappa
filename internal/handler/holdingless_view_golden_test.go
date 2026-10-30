@@ -32,6 +32,10 @@ package handler
 // around exactly that sentence, every other byte the previous golden's. Its review round appended
 // one clause to the same sentence (the two figures' stated exceptions: the list's cap and a week
 // too busy for The Roll), measured the same way: the only difference is that insertion.
+// The wide-screen pass (2026-10-30) replaced the anomalies-view golden for the same reason as the
+// template golden (web/templates/pages/holdingless_golden_test.go has the measurement): deleting
+// the added class tokens gives back the previous golden byte for byte. The reports-view golden is
+// unchanged.
 
 import (
 	"bytes"

@@ -122,7 +122,7 @@ type PolicyChangeField struct {
 // content box is wide enough for both and under it otherwise; the DOM does not move.
 templ AdminPolicyChange(v PolicyChangeView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-6">
+		<div class="panel-measure flex flex-col gap-6">
 			<p class="max-w-3xl text-sm leading-normal text-ink/70 md:text-[15px]">{ v.Shown.Summary }</p>
 			<div class="flex flex-wrap items-start gap-6">
 				<div class="flex min-w-0 flex-[999_1_600px] flex-col gap-[22px]">
@@ -419,7 +419,7 @@ type PolicyVersionPageView struct {
 // record written once and never edited (migration 00007), so its corners stay sharp.
 templ AdminPolicyVersion(v PolicyVersionPageView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex max-w-2xl flex-col gap-5">
+		<div class="panel-measure flex max-w-2xl flex-col gap-5">
 			<article class="docket flex flex-col gap-2.5 px-4 pb-5 pt-4 md:px-[18px]" aria-labelledby="version-name">
 				<div class="flex flex-wrap items-baseline justify-between gap-2">
 					<p id="version-name" class="font-display text-[15px] font-bold text-ink [overflow-wrap:anywhere]">{ v.PolicyName }</p>

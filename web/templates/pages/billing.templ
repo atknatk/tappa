@@ -31,7 +31,7 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminBilling(v BillingView) {
 	@PanelActions(billingOwnerPill()) {
 		@PanelShell(v.PanelChrome) {
-			<div class="flex flex-col gap-6 md:gap-7">
+			<div class="panel-measure flex flex-col gap-6 md:gap-7">
 				if v.Problem != "" {
 					@components.PanelNotice(components.ToneAlert, "That did not happen") {
 						<p>{ v.Problem }</p>
@@ -332,7 +332,7 @@ templ billingReceipt(h BillingHistoryRow) {
 // for this month, which the write redirects to.
 templ AdminBillingClose(v BillingCloseView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-6 md:gap-7">
+		<div class="panel-measure flex flex-col gap-6 md:gap-7">
 			<p class="max-w-3xl text-sm leading-normal text-ink md:text-[15px]">{ v.Summary }</p>
 			<div class="flex flex-col gap-7 md:flex-row md:flex-wrap md:items-start">
 				<section class="docket flex min-w-0 flex-col gap-3 px-4 pb-[22px] pt-[18px] md:flex-[1_1_380px] md:gap-3.5 md:px-[26px] md:pb-7 md:pt-6" aria-labelledby="freeze-what">

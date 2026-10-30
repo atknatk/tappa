@@ -187,7 +187,7 @@ func AdminManualEntry(v ManualEntryView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " <div class=\"flex flex-col gap-6 desk:flex-row desk:flex-wrap desk:items-start\"><section class=\"docket flex min-w-0 flex-col gap-4 px-4 pb-[22px] pt-[18px] md:gap-[18px] md:px-6 md:pb-[26px] md:pt-[22px] desk:flex-[999_1_520px] desk:gap-5 desk:px-7 desk:pb-[30px] desk:pt-[26px]\" aria-label=\"Enter a record by hand\"><div class=\"flex items-start justify-between gap-3\"><div class=\"flex min-w-0 flex-col gap-1\"><p class=\"lbl\">Attendance record</p><h2 class=\"break-words font-display text-[22px] font-bold leading-tight tracking-tight text-ink md:text-2xl desk:text-[26px]\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " <div class=\"panel-measure flex flex-col gap-6 desk:flex-row desk:flex-wrap desk:items-start\"><section class=\"docket flex min-w-0 flex-col gap-4 px-4 pb-[22px] pt-[18px] md:gap-[18px] md:px-6 md:pb-[26px] md:pt-[22px] desk:flex-[999_1_520px] desk:gap-5 desk:px-7 desk:pb-[30px] desk:pt-[26px]\" aria-label=\"Enter a record by hand\"><div class=\"flex items-start justify-between gap-3\"><div class=\"flex min-w-0 flex-col gap-1\"><p class=\"lbl\">Attendance record</p><h2 class=\"break-words font-display text-[22px] font-bold leading-tight tracking-tight text-ink md:text-2xl desk:text-[26px]\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

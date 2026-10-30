@@ -194,6 +194,12 @@ attribute · no bulk action (`review.go:49-57`).
 > 1200 px, where the content box is 864 px (README §3.6), and one markup cannot carry both column
 > assignments without a row-aligned grid, which leaves a gap as tall as the longer list beside it
 > (`anomalies.templ`, `AdminAnomalies` comment). Row-level recipes below keep their `desk:` steps.
+> **Wide-screen pass (2026-10-30):** from `desk` the middle cards no longer keep the tablet's fixed
+> pairing; the two-column box is a `.card-flow` (multi-column, at least 25rem a column, at most three)
+> and its two column wrappers dissolve (`card-flow-col … desk:contents`), so the cards, in the markup's
+> order, fill two columns in the desk box and three in a wide one, each right under the one before it.
+> The tablet keeps its two fixed columns; the phone its order. Odd's explanatory paragraphs carry
+> `.panel-prose` (70rem).
 
 - Grid `grid grid-cols-1 items-start gap-4 md:grid-cols-2`; mix and rules `md:col-span-2 desk:col-span-1`
   (**as built:** full width at the desk too — the recorded deviation above; the M12-49 tour's
