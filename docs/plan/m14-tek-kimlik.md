@@ -918,9 +918,10 @@ kolun seçicisinde (aynı parolayla birden çok bağsız satır) çizilir — ki
 
 ## M14-23 — Başka adresteki işletmeyi ekleme
 
-- **Bağımlılık:** M14-22 canlıda (goose 84, bayrak açık) · **kullanıcı onayı**: kapalı listeye iki fonksiyon,
-  §6.1'in bir cümle parçası (ADR 0031 §5.7'nin M14-23 notunun sonu)
-- **Kırmızı çizgi:** §4.5 (3) · §7 · §9 (bant, değiştirici, onay sayfası)
+- **Bağımlılık:** M14-22 canlıda (goose 84, bayrak açık) · **kullanıcı onayı**: kapalı listeye dört fonksiyon ve
+  `identity_revoke_sessions`'ın yeniden tanımı, altıncı tenant-kapsamsız tablo (`admin_identity_devices`), definer
+  matrisi, §6.1 / CLAUDE.md §4.5 (3) ve §6'ya üç parça (ADR 0031 §5.7'nin M14-23 notunun sonu)
+- **Kırmızı çizgi:** §4.5 (3) · §6 (yeni tenant-kapsamsız tablo) · §7 · §9 (bant, değiştirici, onay sayfası)
 - **Araç:** yapıcı (skill `tappa-brand`) + agent `tappa-db-migrator` (tek migration, `00085`) + güvenlik
 - **Boyut:** L–XL
 - **Commit:** `feat(db): sign another account in to this browser by an e-mailed link` + `feat(panel): switch between the accounts of one browser`
@@ -937,9 +938,14 @@ bant metni (*"Another business uses your email."*) "başkası e-postamı kullan�
 **Tasarımın özü.** Hesaplar ayrı kalır (kimlik tablolarında ve `admin_users`'ta hiçbir bağ değişmez). Tarayıcı
 bir etkin oturum çerezi (bugünkü) + öbür hesapların oturumlarını tutan bir liste çerezi taşır. "Add a business"
 → adres → canlı bir kimlik varsa o posta kutusuna **isteyen tarayıcıya bağlı** tek link → o tarayıcıda bir basış
-→ o kimliğin yeni bir oturumu listeye girer. Kapalı listeye `identity_open_signin_link` (isteyen oturumla,
-hedef `resolve_identity_by_email`'den; yalnız link satırı yazar) ve `identity_signin_by_link` (token ‖ tarayıcı
-sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
+→ o kimliğin yeni bir oturumu listeye girer. **Bu cihazda 30 gün hatırlanır:** tarayıcı bir cihaz sırrı tutar,
+sunucu her hatırlanan kimlik için bir cihaz satırı (parola damgalı); günün ilk parola girişi (herhangi bir üye
+hesaba) ötekilerin taze 12 saatlik oturumlarını link ve parola olmadan geri açar — oturum başına 12 saat aynen.
+Kapalı listeye `identity_open_signin_link` (isteyen oturumla, hedef `resolve_identity_by_email`'den; yalnız link
+satırı yazar), `identity_signin_by_link` (token ‖ tarayıcı sırrı; oturum açar, cihaz satırı yazar),
+`identity_resume_device` (cihaz sırrı + parolayla açılmış taze çapa oturumu) ve `identity_forget_device`;
+`identity_revoke_sessions` cihaz satırlarını da öldürür. Şema: amaç kümesine `'signin'`, tablo
+`admin_identity_devices`.
 
 **Kabul kriterleri.**
 
@@ -965,10 +971,18 @@ sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
    `identity_switch_session`); uçtan uca handler testi: KF → KM → KF.
 7. İptal edilmiş / devre dışı / reddedilmiş bir listedeki oturum sessizce düşer, öbürleri çalışır.
 8. "Sign out" yalnız bu hesap bu tarayıcıda (listede canlı biri varsa ona iner); "Sign out of all accounts on
-   this device" hepsini iptal eder ve iki çerezi siler; "Sign out everywhere" kimlik başına kalır ve o kimliğin
+   this device" hepsini iptal eder, cihaz satırlarını unutur ve üç çerezi siler; "Sign out everywhere" kimlik başına kalır ve o kimliğin
    bu tarayıcıdaki oturumunu da bitirir.
 9. Mektuplar: link mektubu ve basıştan sonra hedefe yeni cihaz bildirimi — ADR notunun cümleleri (iletme,
    geri alma: Sign out everywhere / sıfırlama); isteyenin adresi, işletme adı, sayı yok; `renderEach` altında.
+9b. **Bu cihazda hatırlama** (ADR notunun 1b'si), her biri testle: eklemeden sonraki gün (oturumlar iptal edilmiş /
+    liste çerezi yok) bir üye hesaba parolayla giriş → değiştirici öbür hesapları link ve parola olmadan geri
+    açar (1 ve 10 hesap); çapa yok / çapa link ya da cihazla açılmış (`authenticated_at NULL`) / çapa 12 saatten
+    eski / çapa bu cihaza üye değil → hiçbir şey; başka cihazın sırrı → hiçbir şey; parola değişimi, kimlik
+    sıfırlaması, bayrak kapalı eski satır linki → damga tutmaz, ölür; "Sign out everywhere", hesabın "Sign out"u,
+    "Sign out of all accounts on this device" → satır iptal; devre dışı / reddedilmiş üyelik açılmaz; 30. günden
+    sonra hiçbir şey (veritabanı tavanı: 30 günü aşan `expires_at` reddedilir); üye olmayan çapayla ekleme →
+    yalnız bugün için, cihaz satırı yok; D'yi kopyalayıp **kendi** parolasıyla giren üye olamaz.
 10. Bant metni: *"You have another business on this email."* / *"Add it to this sign-in."*; M14-22 sayfasının
     *"Another business uses your email address"* cümleleri aynı üsluba; pinleyen testler bilerek güncellenir.
 
@@ -983,19 +997,22 @@ sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
     B etkinken hiçbir yanıtta yok.
 13. Aynı linkle N eşzamanlı basış → **tam bir başarı**, 500 yok, kaybedenler `Set-Cookie` yazmaz (`-race`);
     kilit sırası kimlik → üyelikler → link.
-14. Bayrak kapalı: rotalar 404, iki çerez okunmaz; çıkış iki çerezi siler — bağlı ve bağlanmamış oturumun yanıtı
+14. Bayrak kapalı: rotalar 404, üç çerez okunmaz; çıkış üç çerezi siler — bağlı ve bağlanmamış oturumun yanıtı
     bayt-aynı kalır (M14-08 kabulü).
-15. `00085`: amaç CHECK'ine `'signin'` (`lock_timeout`), iki fonksiyon (T5 kuralı), son koşul; **yeni GRANT
-    yok** (katalog doğrular — bir hücre eksikse dur ve raporla); Down `'signin'` satırı varken reddeder; önceki
-    binary yeni şemada çalışır.
+15. `00085`: amaç CHECK'ine `'signin'` (`lock_timeout`); `admin_identity_devices` (R5 muafiyeti, `REVOKE ALL` tablo
+    ve sıra, `ENABLE` + `FORCE`, 30 günlük tavan CHECK'i, kısmi UNIQUE, indeks; `pg-restore-verify.sh` sayıları);
+    dört fonksiyon + `identity_revoke_sessions`'ın aynı imzalı yeniden tanımı (T5 kuralı, Down bayt bayt); matris
+    eki yalnız yeni tablonun hücreleri (katalog doğrular — başka bir hücre gerekirse dur ve raporla); son koşul;
+    Down `'signin'` ya da cihaz satırı varken reddeder; önceki binary yeni şemada çalışır.
 16. Kemer aileleri (`identityBeltFamilies`, aile başına ≤ 10): token anahtarı, kimlikle sınırlı üyelik kilidi,
     oturum araması; katalog (imza tablosu, matris, `privCatalogAllowed`, `m11Functions`, "her yetki
-    kullanılıyor"), rota ve çerez envanterleri (iki yeni çerez), ADR 0025'in askı listesi (istek, basış,
+    kullanılıyor"), rota ve çerez envanterleri (üç yeni çerez), ADR 0025'in askı listesi (istek, basış,
     hesaplar arası geçiş zaten `/admin/switch`, "Sign out of all accounts"), sabit-zamanlı karşılaştırma envanteri
     (tutamak, girdi MAC'i).
 17. CLAUDE.md §4.5 (3) ve ADR §6.1 **kullanıcı onayından sonra** bayt-aynı (ADR notunun önerdiği cümle parçası);
     §5.2'nin kapalı listesi iki satırı alır.
-18. Log, audit, hata: adres, token, tarayıcı sırrı, `identity_id` yok; redline temiz.
+18. Log, audit, hata: adres, token, tarayıcı sırrı, cihaz sırrı, damga, `identity_id` yok; redline temiz (R5 WARN'ında
+    yeni tablo adıyla).
 
 *Doğrulama*
 19. Her korumanın MUTASYON KANITI (DB testlerinde savepoint mutasyonu; handler/adminauth'ta kopya ağaç); gerçek
@@ -1004,10 +1021,12 @@ sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
 *Canlıya alma (Deploy 5)*
 20. `deploy/README.md` "M14-23" bölümü:
     - **(a) önce, salt okuma, yalnız sayı:** goose 84; `admin_identity_verifications` amaç dağılımı (`verify` /
-      `link` sayıları, `signin` yok); KF ve KM'nin (işletme adıyla) aktif satırlarının bağlı olduğu ayrı kimlik
+      `link` sayıları, `signin` yok); `admin_identity_devices` yok; KF ve KM'nin (işletme adıyla) aktif satırlarının bağlı olduğu ayrı kimlik
       sayısı = 2 ve ikisinin de aktif üyeliği var.
-    - **(b) sonra:** goose 85; CHECK `'signin'`'i alır; `tappa_app` iki fonksiyonda `EXECUTE` t, `tappa_operator`
-      ve `tappa_opdefiner` f; sahip / `prosecdef` / `search_path`; `tappa_app`'ın kimlik tablolarında yetkisi yok
+    - **(b) sonra:** goose 85; CHECK `'signin'`'i alır; `admin_identity_devices` var, `relrowsecurity` ve
+      `relforcerowsecurity` t, `tappa_app`/`tappa_operator`/`tappa_opdefiner` için `has_any_column_privilege` f,
+      satır sayısı 0; `tappa_app` dört fonksiyonda `EXECUTE` t, `tappa_operator` ve `tappa_opdefiner` f;
+      `identity_revoke_sessions`'ın sahibi / `prosecdef` / `search_path` / `EXECUTE`'u yeniden tanımdan sonra aynı; sahip / `prosecdef` / `search_path`; `tappa_app`'ın kimlik tablolarında yetkisi yok
       (değişmedi).
     - **(c) duman (kullanıcının kendi durumu):** KF'ye #3 ile gir → Switch business → **Add a business** → #2 →
       tek tip sayfa → #2'nin posta kutusundaki linki **aynı tarayıcıda** aç → onay sayfası (maskeli #2, "bu
@@ -1016,6 +1035,10 @@ sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
       geldi → KM etkinken **Sign out** → panel KF'ye iner, KM listeden çıkar → KM'yi yeniden ekle → **Sign out of
       all accounts on this device** → giriş sayfası, iki hesap da çıkmış (başka sekmede panel giriş ister) → başka
       bir tarayıcıda linki açma denemesi (yeni bir istekle) → "yalnız istediğin tarayıcıda" sayfası.
+      **Ertesi gün (hatırlama):** KM'yi yeniden ekle; ertesi sabah (ya da tarayıcıyı kapatıp açınca) KF'ye #3 ve
+      parolayla gir → Switch business KM'yi link ve parola olmadan listeler, tek tık geçiş → KM'ye **#2 ile
+      parolayla** gir → KF de geri gelir ("herhangi bir hesap") → KM'de **Sign out everywhere** → KF'de değiştirici
+      KM'yi artık listelemez (yeniden ekleme ister) → (b)'yi yeniden koş: cihaz satırlarının yalnız sayısı.
     - **(d) geri dönüş:** önceki binary (f4687903) şema 85'te çalışır; yeni çerezleri yok sayar; canlı giriş
       linkleri kullanılamaz (rota yok). Bedel: orada yapılan çıkış listeyi silmez (listedeki oturumlar her hesabın
       "Sign out everywhere"ıyla biter). Down yalnız `'signin'` satırı yokken.
@@ -1030,14 +1053,26 @@ sırrı; oturum açar). Şema: amaç kümesine `'signin'`.
 | Bildirim | hedefe "hesabın bir tarayıcıya eklendi" | Google "New sign-in" güvenlik uyarısı |
 | Geçiş | değiştiricide hesap başına liste, tek tık | Google hesap değiştirici; Slack çalışma alanı kenar çubuğu |
 | Çıkış | bu hesap / bu cihazdaki bütün hesaplar / her yerden | Google "Sign out of all accounts"; Slack çalışma alanı başına çıkış |
+| Ertesi gün | günün ilk parola girişi öbür hesapları geri getirir (30 gün) | Google tarayıcıda eklenen hesapları hatırlar ("Choose an account"); Slack çalışma alanlarını oturum açık tutar; yaygın "bu cihazı hatırla" süreleri |
 | Başka cihaz | hesap orada yeniden eklenir | Google/Slack/Microsoft — değiştirici tarayıcıya aittir |
 
-**Tıklama ve mektup sayısı** (ilk kurulum, bir tarayıcıda, KF'ye girilmiş): bir işletme eklemek = *Add a
-business* (1) → adres + *Send link* (1) → mektupta link (1) → *Add account* (1) = **4 tık, 2 mektup** (link +
-bildirim). Hedef kimliğin bütün işletmeleri o tek eklemeyle gelir (kimlik başına bir ekleme). **10 işletme**:
-hepsi ayrı kimlikteyse 9 ekleme = **36 tık, 18 mektup**; aynı adresteki işletmeler M14-22'nin bandıyla bir kez
-bağlanırsa ekleme sayısı ayrı **adres** sayısına iner (kullanıcının canlı durumu: üç adres → 2 ekleme, 8 tık, 4
-mektup). Sonrası her geçiş **2 tık** (Switch business → işletme). Başka bir cihazda aynı sayı yeniden.
+**Tıklama ve mektup sayısı** (bir tarayıcıda; günün parola girişi bugün de var olan adımdır, sayılmaz):
+
+| | 1 ek hesap | 9 ek hesap (10 işletme, hepsi ayrı kimlikte) | kullanıcının canlı durumu (3 adres → 2 ek hesap) |
+|---|---|---|---|
+| **1. gün** (ekleme: *Add a business* → adres + *Send link* → mektuptaki link → *Add account*) | 4 tık, 2 mektup | 36 tık, 18 mektup | 8 tık, 4 mektup |
+| **2.–30. gün** | 0 tık, 0 mektup | 0 tık, 0 mektup | 0 tık, 0 mektup |
+| **31. gün** (hatırlama biter) | yeniden 1. gün | yeniden 1. gün | yeniden 1. gün |
+| Her geçiş | 2 tık (Switch business → işletme) | 2 tık | 2 tık |
+
+Mektuplar: ekleme başına link + yeni cihaz bildirimi; yeniden açma mektup göndermez. Aynı adresteki işletmeler
+M14-22'nin bandıyla bir kez bağlanır, bu yüzden ekleme sayısı ayrı **adres** sayısıdır. Başka bir cihazda tablo
+yeniden başlar.
+
+**Adlandırılmış kalıntı (hatırlama):** bir cihazda **bir** üye hesabın parolasıyla oturum açabilen herkes o
+cihazın hatırladığı öbür hesaplara en çok 30 gün, her gün yeniden ulaşır; hesapların sahibi "Sign out
+everywhere" ya da sıfırlamayla keser. Bütün çerezleri parola girişinden sonraki 12 saat içinde kopyalanmış bir
+profil o süre içinde başka cihazda da işler (donanım bağı yok — ADR notu 1b).
 
 Karşılığı olmayan sürtünme yok: "aynı tarayıcıda" Slack'in sihirli linkinin ve iki sırrın (posta kutusu +
 tarayıcı) gereğidir — kaldırmak iletilmiş ya da çalınmış bir linki yeterli kılardı.
