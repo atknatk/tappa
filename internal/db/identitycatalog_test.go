@@ -561,9 +561,16 @@ var identityDefinerMatrixM1422 = map[string]string{
 	"admin_identity_verifications:INSERT": "purpose",
 }
 
+// identityDefinerMatrixT183 is what 00085 grants tappa_identitydefiner (T183, ADR 0035): the session
+// row's birth, which every lookup of a session by its hash compares with the lifetime. Inside the ADR's
+// admin_sessions SELECT cell (identityADRMatrix: "*"); no function returns it.
+var identityDefinerMatrixT183 = map[string]string{
+	"admin_sessions:SELECT": "created_at",
+}
+
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
 var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415, identityDefinerMatrixM1417,
-	identityDefinerMatrixM1406b, identityDefinerMatrixM1422}
+	identityDefinerMatrixM1406b, identityDefinerMatrixM1422, identityDefinerMatrixT183}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -917,6 +924,49 @@ const idOpenClaimSQL = `SELECT c FROM identity_open_signup_claim($1, $2::citext,
 // matrix revoked some call is refused (42501).
 func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup identitySignupWorld) error {
 	t.Helper()
+	for _, s := range identityExerciseSteps(t, ctx, sp, signup) {
+		if s.owner != "" {
+			aiExec(t, ctx, sp, s.owner)
+		}
+		n, err := identityStepRows(t, ctx, sp, s)
+		if err == nil && n == 0 {
+			err = fmt.Errorf("%s: 0 rows", s.name)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", s.name, err)
+		}
+	}
+	return nil
+}
+
+// identityStepRows makes one step's call (not its owner statement) as its role and counts the rows it
+// answers. T183 (adminsessionlifetime_test.go) calls it on its own, between the owner statement and
+// the call, to age the step's session.
+func identityStepRows(t *testing.T, ctx context.Context, sp pgx.Tx, s identityStep) (int, error) {
+	t.Helper()
+	as := s.as
+	if as == "" {
+		as = "tappa_app"
+	}
+	n := 0
+	err := opAs(t, ctx, sp, as, func(app pgx.Tx) error {
+		rows, err := app.Query(ctx, s.sql, s.args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			n++
+		}
+		rows.Close()
+		return rows.Err()
+	})
+	return n, err
+}
+
+// identityExerciseSteps builds identityExercise's world in sp (as the owner) and returns its calls, in
+// order: each answers at least one row when every call before it has run.
+func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup identitySignupWorld) []identityStep {
+	t.Helper()
 	a, b := idTenant(t, ctx, sp, "exercise A"), idTenant(t, ctx, sp, "exercise B")
 	email := aiEmail()
 	ident := aiIdentity(t, ctx, sp, email)
@@ -984,37 +1034,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 1"), recMail)
 	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 2"), strings.ToUpper(recMail))
 	steps = append(steps, identityStep{name: "M14-06b reconcile", sql: `SELECT n FROM public.identity_reconcile() AS n WHERE n > 0`, as: "tappa_owner"})
-	for _, s := range steps {
-		if s.owner != "" {
-			aiExec(t, ctx, sp, s.owner)
-		}
-		as := s.as
-		if as == "" {
-			as = "tappa_app"
-		}
-		err := opAs(t, ctx, sp, as, func(app pgx.Tx) error {
-			rows, err := app.Query(ctx, s.sql, s.args...)
-			if err != nil {
-				return err
-			}
-			n := 0
-			for rows.Next() {
-				n++
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				return err
-			}
-			if n == 0 {
-				return fmt.Errorf("%s: 0 rows", s.name)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", s.name, err)
-		}
-	}
-	return nil
+	return steps
 }
 
 // TestIdentityDefiner_EveryGrantIsUsed: the exercise succeeds on the full grants (positive control);

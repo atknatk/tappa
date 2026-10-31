@@ -575,6 +575,12 @@ Kararın kendisi değişmez; M14'ün etkisi:
   `app.tenant_id`'nin **içinde** koşar ve yalnız o tenant'ı yanıtlar (`p_tenant_id` bağlama eşit değilse 0
   satır); bir işletmenin oturum alabilen owner'larının id'lerini verir (birden çok satır — ≤ 1 kısıtı onun
   değildir). Gerekçe ve sınırlar: [ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.2'nin M14-16b notu.
+- **`resolve_admin_session_by_token_hash` — oturumun sonu (T183, `00085`, 2026-10-31 kullanıcı kararı,
+  [ADR 0035](0035-panel-oturumu-sunucuda-biter.md)):** dönen `revoked_at` artık oturumun **sonu**dur — iptal
+  anı, yoksa satırın doğumundan 12 saat geçtiğinde `created_at + 12 saat`. *"Taşı, süzme"* ilkesi korunur
+  (satır döner; karar uygulamada, iptalle aynı dalda). Beş kısıt aynen: girdi yalnız hash, ≤ 1 satır, aynı
+  dört sütun, `tappa_app`'in tabloda çapraz-tenant `SELECT`'i yok, naif dal yok. `tappa_resolver`'ın yetkisi
+  bir sütun genişler: `admin_sessions SELECT (created_at)` — okunur, döndürülmez.
 - **Yazan `identity_*` fonksiyonları md.7 değildir**, CLAUDE.md §4.5'in **(3)** numaralı bilinçli
   istisnasıdır (ADR 0031 §6, §6.1; sahibi `tappa_identitydefiner`). md.7'de yalnız salt okuma
   çözümleyiciler kalır (ADR 0031 §13, K-13).

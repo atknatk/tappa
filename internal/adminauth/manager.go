@@ -1004,9 +1004,10 @@ func suspensionOf(at *time.Time, reason *string) *Suspension {
 // not sit in front of the rate limiter. The panel takes the opposite trade because
 // the alternative is worse: the ONLY in-SQL check that an admin is still active
 // lives in this statement, and a panel that skipped it would keep serving a
-// disabled admin until their cookie expired — and the cookie has no server-side
-// expiry (cookie.go). The write only happens for a cookie that ALREADY resolved to
-// a real session row, so an unauthenticated flood costs reads, not writes.
+// disabled admin until their session ended (db.AdminSessionLifetime from its
+// birth since 00085 — before it, never). The write only happens for a cookie that
+// ALREADY resolved to a live session row, so an unauthenticated flood costs reads,
+// not writes.
 //
 // THE BUSINESS'S SUSPENSION COMES BACK FROM THE SAME STATEMENT (ADR 0025 §3): the
 // panel's write gate reads Resolved.Suspended and never queries for it. A tenant row
@@ -1041,7 +1042,10 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 	if rs.RevokedAt != nil {
 		// Short-circuit: TouchAdminSession would refuse it anyway (revoked_at IS
 		// NULL is one of its predicates), and not issuing a doomed UPDATE keeps a
-		// stolen-but-revoked cookie from costing a write per request.
+		// stolen-but-revoked cookie from costing a write per request. Since 00085
+		// this is also where a session past db.AdminSessionLifetime stops: the
+		// resolver reports its end as RevokedAt (and Touch's own lifetime
+		// predicate would refuse it too).
 		return Resolved{}, ErrNoSession
 	}
 

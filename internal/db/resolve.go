@@ -274,8 +274,10 @@ type ResolvedAPIKey struct {
 //
 // RevokedAt is carried but NOT filtered, exactly like ResolvedSession.RevokedAt:
 // the caller must be able to tell a revoked session (an event worth auditing) from
-// an unknown token (noise). Nil means live. The authoritative liveness test is
-// store.TouchAdminSession, which additionally refuses a disabled admin.
+// an unknown token (noise). Nil means live. Since 00085 it is the session's END,
+// revoked or past AdminSessionLifetime (GetAdminSessionByTokenHash). The
+// authoritative liveness test is store.TouchAdminSession, which additionally
+// refuses a disabled admin.
 type ResolvedAdminSession struct {
 	ID          uuid.UUID
 	TenantID    uuid.UUID
@@ -309,6 +311,18 @@ FROM resolve_admin_by_email($1::citext)`
 
 const getAdminSessionByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, revoked_at
 FROM resolve_admin_session_by_token_hash($1)`
+
+// AdminSessionLifetime is how long a PANEL session lives, counted from the birth of its
+// admin_sessions row (created_at) -- ABSOLUTE, not idle: use does not extend it (T183, ADR 0035,
+// the user's decision of 2026-10-31; OWASP's absolute session timeout). A switch of business births
+// a new row, so it starts a new lifetime, exactly as it sets a new cookie.
+//
+// It is the Go side's one copy of the number. The database's copy is the literal
+// `interval '12 hours'` in migration 00085's sixteen bodies and in db/queries/admins.sql's
+// TouchAdminSession and ListAdminSessionsForAdmin; adminsessionlifetime_test.go pins every one of
+// those paths to this constant at the one-second boundary, and internal/adminauth pins the cookie's
+// Max-Age to it. Changing it is therefore a migration as well as this line.
+const AdminSessionLifetime = 12 * time.Hour
 
 const getPasswordResetByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
 FROM resolve_password_reset_by_token_hash($1)`
@@ -509,6 +523,11 @@ func (d *DB) GetAdminByEmail(ctx context.Context, email string) ([]ResolvedAdmin
 // calls store.TouchAdminSession, which is the authority: it refuses a revoked
 // session AND a session whose admin is no longer active, in one statement, under
 // RLS.
+//
+// REVOKEDAT IS THE SESSION'S END (migration 00085, ADR 0035): its revocation, or --
+// when nobody revoked it -- the moment AdminSessionLifetime from its birth ran out,
+// once that is past. Returned, not filtered, so the caller's one test (non-nil:
+// refuse) covers both, and so did the binary before 00085's.
 //
 // An EMPLOYEE session token cannot resolve here: it is a row in a different table
 // reached by a different function (M1-11). That separation is why an employee

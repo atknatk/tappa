@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/session"
 )
 
@@ -337,8 +339,13 @@ func TestAdminAuthConstants_ShippedValuesArePinned(t *testing.T) {
 			"cookieMaxAgeSeconds", cookieMaxAgeSeconds, 12 * 60 * 60,
 			"a working day, not the employee cookie's year: an admin session reads every " +
 				"employee's movements and can rewrite the tenant's policies, and it lives on a " +
-				"laptop rather than a personal phone. ⚠️ It is a browser HINT — admin_sessions " +
-				"has no expires_at, so nothing expires server-side (cookie.go states the limit).",
+				"laptop rather than a personal phone. Since 00085 (T183, ADR 0035) the server " +
+				"ends the session at the same moment: db.AdminSessionLifetime, pinned below.",
+		},
+		{
+			"cookieMaxAgeSeconds == db.AdminSessionLifetime", cookieMaxAgeSeconds, int(db.AdminSessionLifetime / time.Second),
+			"the browser drops the cookie when the server stops honouring the session (T183): a " +
+				"shorter cookie would sign people out early, a longer one would send a dead cookie.",
 		},
 		{
 			"tokenBytes", tokenBytes, 32,

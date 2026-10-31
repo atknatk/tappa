@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -517,6 +518,51 @@ func TestVerify_RefusesADisabledAdminWithoutRevocation(t *testing.T) {
 	// The session row itself was NOT revoked — the refusal comes from the join.
 	if revoked := sessionRevokedAt(t, d, tenantID, issued.Session.ID); revoked != nil {
 		t.Fatalf("the session was revoked (%v); the point is that it was not", revoked)
+	}
+}
+
+// TestVerify_EndsTheSessionAtItsLifetime (T183, migration 00085, ADR 0035): the panel's own path --
+// Issue, then Verify on every request -- keeps a session a minute short of db.AdminSessionLifetime and
+// refuses it at the lifetime, with nobody having revoked anything: the row's revoked_at stays NULL (the
+// end is computed, never stamped). The age is written by the owner relative to the database's clock;
+// the minute absorbs the wall time between that write and Verify's own statements.
+func TestVerify_EndsTheSessionAtItsLifetime(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	owner := ownerConn(t)
+	ctx := context.Background()
+
+	tenantID := newTenantRow(t, d, "Twelve Hours Ltd")
+	email := randEmail(t)
+	const pw = "the-right-password"
+	newAdminRow(t, d, tenantID, email, pw, "active", "manager", "Clock Watcher")
+	auth, err := m.Authenticate(ctx, email, pw)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	issued, err := m.Issue(ctx, auth.Verified()[0])
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	age := func(by time.Duration) {
+		t.Helper()
+		tag, err := owner.Exec(ctx, `UPDATE admin_sessions SET created_at = now() - make_interval(secs => $3)
+		                              WHERE id = $1 AND tenant_id = $2`, issued.Session.ID, tenantID, by.Seconds())
+		if err != nil || tag.RowsAffected() != 1 {
+			t.Fatalf("age the session: %v (%d rows)", err, tag.RowsAffected())
+		}
+	}
+
+	age(db.AdminSessionLifetime - time.Minute)
+	if _, err := m.Verify(ctx, issued.Token); err != nil {
+		t.Fatalf("a session a minute short of its lifetime was refused: %v", err)
+	}
+	age(db.AdminSessionLifetime)
+	if _, err := m.Verify(ctx, issued.Token); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("a session at its lifetime passes Verify: err = %v, want ErrNoSession", err)
+	}
+	if revoked := sessionRevokedAt(t, d, tenantID, issued.Session.ID); revoked != nil {
+		t.Fatalf("the session row was stamped revoked (%v); the end is computed, not written", *revoked)
 	}
 }
 

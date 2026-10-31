@@ -54,24 +54,29 @@ const (
 	// tenant's policies, and it is held on a laptop in an office rather than on a
 	// personal phone. A working day is the natural bound.
 	//
-	// 🔴 LIMIT, AND IT IS A REAL ONE: THIS IS A HINT, NOT AN EXPIRY. Max-Age is a
-	// browser instruction. The SERVER has no way to expire an admin session,
-	// because admin_sessions (migration 00006) carries created_at, last_used_at and
-	// revoked_at but NO expires_at, and neither resolve_admin_session_by_token_hash
-	// nor TouchAdminSession returns a timestamp that could be compared before the
-	// update. So a client that simply keeps the cookie — curl, a scraped value, a
-	// browser profile copied off a disk — stays authenticated indefinitely.
+	// THE SERVER ENDS THE SESSION AT THE SAME MOMENT (T183, ADR 0035, migration
+	// 00085 — the user's decision of 2026-10-31, "Sunucuda 12 saat mutlak"). A
+	// session lives db.AdminSessionLifetime from its admin_sessions row's birth,
+	// ABSOLUTE (use does not extend it), and this Max-Age is pinned equal to it
+	// (TestAdminAuthConstants_ShippedValuesArePinned). The cookie is set only when a
+	// row is born — sign-in and switch (a switch births a new row) — so the browser
+	// drops the cookie when the server stops honouring it, and a normal user sees
+	// no difference. What 00085 ends is the KEPT or COPIED cookie: past its lifetime
+	// the resolver reports the session revoked, TouchAdminSession answers 0 rows,
+	// and every identity_* function keyed by a session hash refuses it.
 	//
-	// WHAT ACTUALLY ENDS AN ADMIN SESSION TODAY: an explicit sign-out
-	// (RevokeAdminSession), a "sign out everywhere" (RevokeAdminSessionsForAdmin),
-	// or admin_users.status='disabled', which TouchAdminSession refuses on the very
-	// next request. All three are deliberate acts by somebody.
+	// HISTORY, KEPT BECAUSE THE GAP WAS REAL FOR A YEAR OF RELEASES: until 00085
+	// this Max-Age was a HINT, NOT AN EXPIRY. admin_sessions (migration 00006)
+	// carried created_at, last_used_at and revoked_at but nothing on the server
+	// compared any of them, so a client that kept the cookie — curl, a scraped
+	// value, a browser profile copied off a disk — stayed authenticated until
+	// somebody revoked it (production held 48 un-revoked sessions in one business on
+	// 2026-10-31). The deliberate ends remain: a sign-out (RevokeAdminSession), a
+	// "sign out everywhere", and admin_users.status='disabled', which
+	// TouchAdminSession refuses on the very next request.
 	//
-	// WHY IT IS NOT FIXED HERE: an absolute or idle expiry needs a column or a
-	// returned timestamp, i.e. a migration, and this task was scoped explicitly as
-	// "the schema is ready; no new migration is expected". It is written down as a
-	// hand-off rather than left for the next reader to discover from a Max-Age that
-	// looks like it means something. M6-05 / M7-04 own it.
+	// The literal stays a product of integers because internal/handler's cookie
+	// notice reads it from this file (TestCookieNotice_LifetimesMatchTheCodeThatWritesThem).
 	cookieMaxAgeSeconds = 12 * 60 * 60
 )
 

@@ -2648,6 +2648,69 @@ bağsız satır, kendi posta kutusu):
 Herhangi bir adım 5xx verirse → geri dönüş önceki binary'dir (şema 84'te kalır; eski binary onu kullanır,
 `'email'` bağları sıradan bağlı satırlardır).
 
+### T183 — panel oturumu sunucuda 12 saatte biter: `00085`
+
+Kullanıcı kararı 2026-10-31 (*"Sunucuda 12 saat mutlak"*, ADR 0035): bir panel oturumu, `admin_sessions`
+satırının doğumundan (`created_at`) **12 saat** sonra sunucuda biter — kullanımla uzamaz (OWASP mutlak
+zaman aşımı). Çerezin `Max-Age`'i zaten 12 saatti ama yalnız tarayıcıya bir ipucuydu: sunucu hiçbir şeyi
+karşılaştırmıyordu, saklanan ya da kopyalanan bir çerez iptal edilene dek geçerliydi (2026-10-31'de bir
+işletmede 48 iptal edilmemiş oturum).
+
+**`00085` ne yapar** (tek dosya, tek transaction; şema değişikliği ve veri yazımı **yok**): `tappa_resolver`
+ve `tappa_identitydefiner`'a `admin_sessions` `SELECT (created_at)` (tablo kilidi almaz — ölçüldü);
+`resolve_admin_session_by_token_hash` aynı imzayla yeniden — `revoked_at` sütunu oturumun **sonu**dur
+(iptal ya da 12 saat dolduysa `created_at + 12 saat`); oturumu hash'iyle bulan on beş `identity_*` definer'ı
+aynı imzayla yeniden — her hash aramasına (on altı) `AND s.created_at > v_born_after`. Yeni binary'de
+`TouchAdminSession` aynı yüklemi taşır. Satır silinmez, `revoked_at` toplu damgalanmaz: son hesaplanır.
+
+**Rollout:** eski pod yeni şemada korunur — onun `Verify`'ı çözümleyicinin `revoked_at`'ine bakar, 12 saati
+geçmiş oturumu iptal edilmiş gibi reddeder. Geri dönüş = önceki binary (şema 85'te kalır, aynı korumayla).
+Down veri tutmaz; gerekirse koşulabilir (yetkileri ve önceki gövdeleri bayt bayt geri verir).
+
+**Kullanıcıya görünen etki:** deploy anında 12 saatten eski her oturum biter, sahibi yeniden giriş yapar.
+Normal bir tarayıcı bu çerezleri zaten düşürmüştü; biten, saklanan ya da kopyalanan çerezdir. 12 saat içinde
+açılmış oturumlar ve iş günü boyunca panel **değişmez**.
+
+**Deploy'dan sonra** (salt okuma; Job log'unda `OK   00085_end_panel_sessions_after_twelve_hours.sql`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+-- the two new cells | the application still cannot write the row's birth
+SELECT has_column_privilege('tappa_resolver', 'public.admin_sessions', 'created_at', 'SELECT')        AS resolver_reads_birth,
+       has_column_privilege('tappa_identitydefiner', 'public.admin_sessions', 'created_at', 'SELECT') AS definer_reads_birth,
+       has_column_privilege('tappa_app', 'public.admin_sessions', 'created_at', 'UPDATE')             AS app_writes_birth;
+-- the fifteen definers: count | hardened (SECURITY DEFINER, pinned search_path, tappa_app EXECUTE, no operator EXECUTE) | lifetime predicates
+SELECT count(*) AS definers,
+       count(*) FILTER (WHERE p.prosecdef AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+                          AND has_function_privilege('tappa_app', p.oid, 'EXECUTE')
+                          AND NOT has_function_privilege('tappa_operator', p.oid, 'EXECUTE')) AS hardened,
+       sum((length(p.prosrc) - length(replace(p.prosrc, 'AND s.created_at > v_born_after', '')))
+           / length('AND s.created_at > v_born_after')) AS lookup_predicates
+  FROM pg_proc p
+ WHERE p.pronamespace = 'public'::regnamespace AND p.proowner = 'tappa_identitydefiner'::regrole
+   AND p.prosrc LIKE '%v_born_after timestamptz := pg_catalog.now() - interval ''12 hours''%';
+-- the panel resolver: owner | definer | tappa_app EXECUTE | reports the end
+SELECT p.proowner::regrole, p.prosecdef, has_function_privilege('tappa_app', p.oid, 'EXECUTE'),
+       p.prosrc LIKE '%WHEN s.created_at <= pg_catalog.now() - interval ''12 hours'' THEN s.created_at + interval ''12 hours''%'
+  FROM pg_proc p WHERE p.oid = 'public.resolve_admin_session_by_token_hash(text)'::regprocedure;
+-- what the deploy ended (information only): un-revoked sessions past 12 h | un-revoked inside them
+SELECT count(*) FILTER (WHERE created_at <= now() - interval '12 hours') AS ended_by_lifetime,
+       count(*) FILTER (WHERE created_at >  now() - interval '12 hours') AS still_live
+  FROM admin_sessions WHERE revoked_at IS NULL;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `85` · `t|t|f` · `15|15|16` · `tappa_resolver|t|t|t` · `N|M` (bilgi: deploy'un
+bitirdiği iptal edilmemiş oturum sayısı | hâlâ canlı olanlar; `N` 2026-10-31 ölçümünde ~48) · `ROLLBACK`.
+Başka bir sonuç → migration'ın koştuğu sürüm yanlış; incele.
+
+**Duman** (`https://taptime.mt/admin`): giriş yap, birkaç sayfa gez, işletme değiştir (bayrak açıksa) —
+hiçbir şey değişmemeli. 12 saatten eski bir çerezle istek `303 → /admin/login` alır.
+
 ### Panel formlarının tenant bağı (M14-10a)
 
 Her panel POST formunun `action`'ı `?tb=<bağ>` taşır (ADR 0031 §5.5): oturumun işletmesinin, oturumun

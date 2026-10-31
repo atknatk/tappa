@@ -3786,6 +3786,10 @@ type Querier interface {
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
+	//
+	// revoked_at is the session's END (T183, ADR 0035, migration 00085 -- the resolver's rule): the
+	// revocation, or created_at + 12 hours once that has passed. So a row past its lifetime never reads as
+	// live in a list -- the same answer resolve_admin_session_by_token_hash gives for its cookie.
 	ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error)
 	// One row per employee who carries at least one signal in the window.
 	//
@@ -6581,6 +6585,12 @@ type Querier interface {
 	// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
 	// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
 	// never rendered, logged or written to an audit row.
+	//
+	// THE SESSION'S LIFETIME RIDES ON IT TOO (T183, ADR 0035, migration 00085): a session lives 12 hours from
+	// its row's birth -- internal/db.AdminSessionLifetime, the cookie's Max-Age derived from it -- and past
+	// that this statement answers 0 rows like a revoked one. The resolver already reports such a session
+	// as revoked (00085), so adminauth.Verify never reaches here with one; the predicate is for a caller
+	// that forgot to look (adminsessionlifetime_test.go pins the literal to the constant at the second).
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked
