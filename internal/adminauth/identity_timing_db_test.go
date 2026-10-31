@@ -17,10 +17,11 @@ import (
 //
 // THE TECHNIQUE IS TestPanelE2E_TimingIsFlatOverHTTP's and this package's: interleaved rounds so load
 // moves every arm together, a ratio gate pinned between measured noise and a measured mutation, and a
-// skip under -short (a wall-clock sample, never the only proof). The estimators are the decoy test's
-// medians and the five-case test's same-round ratios (pairedSpread; T176 retired its minima). The fixtures are cheap (bcrypt.MinCost, testManager's
-// cheap dummy), so the database's share of a sign-in is LARGE here -- the opposite of production,
-// where nine cost-12 comparisons dwarf it -- which is what makes a database-side difference visible.
+// skip under -short (a wall-clock sample, never the only proof). Both tests' estimator is the median of
+// same-round ratios (pairedSpread): T176 retired the five cases' minima, T186 the decoy's two medians.
+// The fixtures are cheap (bcrypt.MinCost, testManager's cheap dummy), so the database's share of a
+// sign-in is LARGE here -- the opposite of production, where nine cost-12 comparisons dwarf it --
+// which is what makes a database-side difference visible.
 
 // minOf is the smallest observation.
 func minOf(d []time.Duration) time.Duration {
@@ -35,34 +36,50 @@ func medianOf(d []time.Duration) time.Duration {
 	return s[len(s)/2]
 }
 
-// decoyGate bounds the ratio of the decoy's and the open's medians in
-// TestIdentityDecoy_TakesWhatTheOpenTakes, both ways. Measured on the reference stack (17.10 in
-// Docker, fsync on, 40 interleaved pairs after eight warm-up pairs), with the decoy's deadline wait
-// (identity.go, waitUntil):
+// decoyGate bounds the decoy's spread from the open in TestIdentityDecoy_TakesWhatTheOpenTakes, both
+// ways, as pairedSpread measures it: the median of the decoyRounds same-round ratios open/decoy.
 //
-//	noise    plain 1.00-1.34x (6 runs) · -race 1.02-1.10x (6) · -race beside three other -race
-//	         packages 1.02-1.50x (6; the 1.50x run: the open's median rose from ~5 to ~48 ms within
-//	         the run and the meter's 32-sample median followed late)
-//	signal   the wait removed, the round trip alone: -race 2.59-2.72x (3), loaded 2.46-7.83x (4)
+// IT WAS THE RATIO OF THE TWO MEDIANS OVER 40 PAIRS, AND T186 REPLACED IT (the gate itself unchanged).
+// The decoy waits for the median of the last openCostSamples (32) opens, so when the database's load
+// steps -- up or down -- the decoy follows ~16 opens late: CI run 41183750271 failed at 2.36x (open
+// median 3.69 ms, decoy 1.56 ms) and its rerun was green. Measured here with a square wave of
+// Postgres CPU load (8 heavy queries on/off, 200-800 ms phases): the medians' ratio over 40 pairs
+// failed 2 runs in 160 (2.00x, 2.29x; 1.94x, 1.93x, 1.88x beside them). Pairing alone did not settle
+// it -- 40 pairs, paired: up to 1.84x, because one lag window covers up to half the pairs; 80 pairs
+// put it under a quarter. The measurements below are pairedSpread over 80 pairs, after eight warm-up
+// pairs, with the decoy's deadline wait (identity.go, waitUntil), on a 16-core workstation (load
+// average ~25 from other work) against 17.10 in Docker:
+//
+//	noise    idle plain 1.00-1.08x (10) · -race 1.01-1.04x (10) · the load wave plain 1.00-1.15x (60) ·
+//	         -race 1.00-1.23x (60) · 16 CPU burners plain 1.00-1.04x (10) · -race 1.00-1.04x (10) ·
+//	         200 ms SIGSTOP pauses, -race 1.00-1.28x (20) · beside `go test -race ./internal/handler/`
+//	         on the same database 1.01-1.05x (20)
+//	signal   the wait removed, the round trip alone: idle 2.63-2.75x (10) · the load wave 2.55-5.07x
+//	         (30) · burners 2.43-2.58x (10) · pauses 2.60-2.71x (5) · beside the handler package 2.49-2.64x (5)
 //
 // History, so the gate is not widened by the next reader: a plain sleep (no deadline) measured 1.57x
 // and 1.60x on CI's loaded runner -- the timer woke ~0.9 ms late and the decoy was the SLOWER arm;
 // subtracting a learned overshoot (c40a8fbc) did not absorb it either. The deadline wait is the fix.
-// 2.0x sits above the worst measured noise (1.50x) and below the weakest signal (2.46x).
+// The medians' ratio measured noise up to 1.50x beside three other -race packages and the weakest
+// signal 2.46x. 2.0x sits above the worst measured noise (1.28x) and below the weakest signal (2.43x).
 const decoyGate = 2.0
+
+// decoyRounds is how many interleaved open/decoy pairs TestIdentityDecoy_TakesWhatTheOpenTakes times:
+// enough that one lag window of the open-cost meter (~16 opens) is under a quarter of them (decoyGate).
+const decoyRounds = 80
 
 // The anchors decoyGate and fiveCaseGate are pinned between (the gate test below).
 const (
-	decoyWorstNoise     = 1.50
-	decoyWeakestSignal  = 2.46
+	decoyWorstNoise     = 1.28
+	decoyWeakestSignal  = 2.43
 	fiveCaseWorstNoise  = 1.30
 	fiveCaseCaughtShape = 1.98
 )
 
 // TestIdentityDecoy_TakesWhatTheOpenTakes (S15): the decoy a failed sign-in sends instead of
 // identity_open_session takes, measured, what the open takes. Interleaved: an open of a real identity
-// (a real session, the business's audit row) and a decoy, forty times, after eight opens that fill the
-// meter. MUTATION: remove the decoy's wait -> it takes the bare round trip and this is red.
+// (a real session, the business's audit row) and a decoy, decoyRounds times, after eight opens that
+// fill the meter; their same-round ratios' median against decoyGate (pairedSpread). MUTATION: remove the decoy's wait -> it takes the bare round trip and this is red.
 func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the decoy-vs-open wall-clock sample; the decoy's PLACE in every exit " +
@@ -87,7 +104,7 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 		}
 	}
 	var opens, decoys []time.Duration
-	for i := 0; i < 40; i++ {
+	for i := 0; i < decoyRounds; i++ {
 		start := time.Now()
 		if _, _, err := m.openIdentitySession(ctx, v, uuid.Nil); err != nil {
 			t.Fatalf("open: %v", err)
@@ -100,15 +117,13 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 		decoys = append(decoys, time.Since(start))
 	}
 	o, dc := medianOf(opens), medianOf(decoys)
-	ratio := float64(o) / float64(dc)
-	if ratio < 1 {
-		ratio = 1 / ratio
-	}
-	t.Logf("identity_open_session median %v (min %v) · decoy median %v (min %v) · spread %.2fx (gate %.2fx)",
-		o, minOf(opens), dc, minOf(decoys), ratio, decoyGate)
+	ratio, _, _ := pairedSpread([][]time.Duration{opens, decoys})
+	t.Logf("identity_open_session median %v (min %v) · decoy median %v (min %v) · spread %.2fx, the median of %d "+
+		"same-round ratios (gate %.2fx)", o, minOf(opens), dc, minOf(decoys), ratio, len(opens), decoyGate)
 	if ratio >= decoyGate {
-		t.Fatalf("the decoy (%v) and identity_open_session (%v) differ by %.2fx; a failed sign-in must "+
-			"take what an opening one takes in its open step (ADR 0031 §5.6, S15)", dc, o, ratio)
+		t.Fatalf("the decoy (median %v) and identity_open_session (median %v) differ by %.2fx, the median of their "+
+			"same-round ratios; a failed sign-in must take what an opening one takes in its open step "+
+			"(ADR 0031 §5.6, S15)", dc, o, ratio)
 	}
 }
 
