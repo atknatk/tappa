@@ -675,10 +675,25 @@ func TestAdminUsers00069_TheBinaryBeforeItRunsOnIt(t *testing.T) {
 
 	identity := aiIdentity(t, ctx, tx, email)
 	aiLink(t, ctx, tx, created.ID, identity)
+	// The OLD binary's statement (before T179 it carried no `identity_id IS NULL`), verbatim: the
+	// trigger refuses it on a linked row -- the rollout window's named cost.
 	opWant(t, aiApp(t, ctx, tx, tenant, func(sp pgx.Tx) error {
+		var id uuid.UUID
+		return sp.QueryRow(ctx, `UPDATE admin_users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3 AND status = 'active' RETURNING id`,
+			opFakeDigest("c"), created.ID, tenant).Scan(&id)
+	}), sqlstateRestrictViolation, "the old binary's SetOwnAdminPassword on a linked row (the rollout window's named cost)")
+	// Today's statement writes unlinked rows only (T179): on the linked row it is 0 rows, never the
+	// trigger, and the row keeps its digest.
+	if err := aiApp(t, ctx, tx, tenant, func(sp pgx.Tx) error {
 		_, err := store.New(sp).SetOwnAdminPassword(ctx, store.SetOwnAdminPasswordParams{PasswordHash: opFakeDigest("c"), ID: created.ID, TenantID: tenant})
 		return err
-	}), sqlstateRestrictViolation, "the old binary's SetOwnAdminPassword on a linked row (the rollout window's named cost)")
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("today's SetOwnAdminPassword on a linked row: %v, want pgx.ErrNoRows (T179)", err)
+	}
+	var kept bool
+	if err := tx.QueryRow(ctx, `SELECT password_hash = $2 FROM admin_users WHERE id = $1`, created.ID, opFakeDigest("b")).Scan(&kept); err != nil || !kept {
+		t.Errorf("the linked row's digest moved (%v)", err)
+	}
 }
 
 // aiStoreStatements returns every generated statement (internal/store, sqlc's `-- name:` constants)

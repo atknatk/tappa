@@ -1125,14 +1125,43 @@ var (
 	identityStar     = regexp.MustCompile(`(?i)\b(SELECT|RETURNING)\s+(DISTINCT\s+)?(\w+\.)?\*|,\s*(\w+\.)?\*`)
 	identityIDColumn = regexp.MustCompile(`(?i)\bidentity_id\b`)
 	identityHidden   = regexp.MustCompile(`(?i)\b(linked_via|linked_at|unlinked_at)\b`)
+	// identityUnlinkedOnly is the one other shape identity_id may take: `AND [alias.]identity_id IS
+	// NULL` in a WHERE -- a predicate that keeps a write to UNLINKED rows and brings no identity_id
+	// into application memory (ADR 0031 §5.1: no query but TouchAdminSession SELECTS it).
+	identityUnlinkedOnly = regexp.MustCompile(`(?i)\bAND\s+(\w+\.)?identity_id\s+IS\s+NULL\b`)
+	identityReturning    = regexp.MustCompile(`(?i)\bRETURNING\b`)
 )
 
-// identityQueryFindings: no statement but TouchAdminSession names identity_id; none names
-// linked_via, linked_at or unlinked_at; none that names admin_users projects `*` or `<alias>.*`.
+// identityUnlinkedWriters are the statements that may carry identityUnlinkedOnly and nothing else of
+// identity_id (T179): the two direct password writes of an unlinked row, which a row linked
+// meanwhile would otherwise send into 00069's trigger (restrict_violation -> 500).
+var identityUnlinkedWriters = map[string]bool{
+	"SetOwnAdminPassword":                true,
+	"ConsumePasswordResetAndSetPassword": true,
+}
+
+// identityQueryFindings: no statement but TouchAdminSession names identity_id -- an
+// identityUnlinkedWriters statement only as identityUnlinkedOnly; none names linked_via, linked_at
+// or unlinked_at; none that names admin_users projects `*` or `<alias>.*`.
 func identityQueryFindings(statements map[string]string) []string {
 	var out []string
 	for name, s := range statements {
-		if identityIDColumn.MatchString(s) && name != "TouchAdminSession" {
+		named := s
+		if identityUnlinkedWriters[name] {
+			// The allowance is the WHERE's alone: it applies before the statement's last RETURNING,
+			// exactly once, and nothing after RETURNING may name identity_id (a projection such as
+			// `RETURNING id, true AND identity_id IS NULL AS unlinked` would carry it out).
+			head, tail := s, ""
+			if loc := identityReturning.FindAllStringIndex(s, -1); len(loc) > 0 {
+				last := loc[len(loc)-1][0]
+				head, tail = s[:last], s[last:]
+			}
+			if n := len(identityUnlinkedOnly.FindAllStringIndex(head, -1)); n != 1 {
+				out = append(out, fmt.Sprintf("%s: carries the unlinked-row predicate %d times before RETURNING, want exactly once (T179)", name, n))
+			}
+			named = identityUnlinkedOnly.ReplaceAllString(head, "") + tail
+		}
+		if identityIDColumn.MatchString(named) && name != "TouchAdminSession" {
 			out = append(out, name+": names identity_id (only TouchAdminSession may -- ADR 0031 §5.1, R16)")
 		}
 		if identityHidden.MatchString(s) {
@@ -1148,8 +1177,12 @@ func identityQueryFindings(statements map[string]string) []string {
 
 // TestStoreQueries_IdentityColumnsStayOutOfTheApplication is R16's query-text scan over every
 // generated statement, with TouchAdminSession's identity_id as the one allowed hit (positive: it is
-// there). CONTROLS on synthetic statements: identity_id elsewhere, linked_via, `SELECT *` and
-// `a.*` over admin_users are flagged; `count(*)` is not.
+// there), and the two unlinked-row writers' `AND identity_id IS NULL` as the one allowed predicate
+// (T179; positive too). CONTROLS on synthetic statements: identity_id elsewhere, linked_via, `SELECT
+// *` and `a.*` over admin_users, the predicate in another statement and a writer naming identity_id
+// any other way are flagged; `count(*)` and the writer's predicate are not. MUTATION (measured): the
+// allowance applied to the whole statement instead of the text before RETURNING -> the "projected
+// after RETURNING" control is not flagged, red.
 func TestStoreQueries_IdentityColumnsStayOutOfTheApplication(t *testing.T) {
 	statements := identityStatements(t)
 	if len(statements) < 100 {
@@ -1174,6 +1207,28 @@ func TestStoreQueries_IdentityColumnsStayOutOfTheApplication(t *testing.T) {
 	}
 	if got := identityQueryFindings(map[string]string{"Probe": `SELECT count(*) FROM admin_users WHERE tenant_id = $1`}); len(got) != 0 {
 		t.Errorf("CONTROL count(*): flagged %v", got)
+	}
+	// T179: the two unlinked-row writers carry the predicate (positive), and its allowance is theirs
+	// alone and the predicate's alone.
+	for name := range identityUnlinkedWriters {
+		if !identityUnlinkedOnly.MatchString(statements[name]) {
+			t.Errorf("%s does not keep its write to unlinked rows (`AND identity_id IS NULL`, T179)", name)
+		}
+	}
+	for _, c := range []struct{ name, stmt, sql string }{
+		{"the predicate in another statement", "Probe", `UPDATE admin_users SET role = 'owner' WHERE id = $1 AND identity_id IS NULL`},
+		{"a writer returning identity_id", "SetOwnAdminPassword", `UPDATE admin_users SET password_hash = $1 WHERE id = $2 AND identity_id IS NULL RETURNING id, identity_id`},
+		{"a writer testing identity_id otherwise", "SetOwnAdminPassword", `UPDATE admin_users SET password_hash = $1 WHERE id = $2 AND identity_id IS NOT NULL`},
+		{"the predicate projected after RETURNING", "SetOwnAdminPassword", `UPDATE admin_users SET password_hash = $1 WHERE id = $2 AND identity_id IS NULL RETURNING id, true AND identity_id IS NULL AS unlinked`},
+		{"the predicate only after RETURNING", "SetOwnAdminPassword", `UPDATE admin_users SET password_hash = $1 WHERE id = $2 RETURNING id, true AND identity_id IS NULL AS unlinked`},
+		{"the predicate twice in the WHERE", "SetOwnAdminPassword", `UPDATE admin_users SET password_hash = $1 WHERE id = $2 AND identity_id IS NULL AND identity_id IS NULL RETURNING id`},
+	} {
+		if got := identityQueryFindings(map[string]string{c.stmt: c.sql}); len(got) == 0 {
+			t.Errorf("CONTROL %s: not flagged", c.name)
+		}
+	}
+	if got := identityQueryFindings(map[string]string{"SetOwnAdminPassword": `UPDATE admin_users a SET password_hash = $1 WHERE a.id = $2 AND a.identity_id IS NULL RETURNING a.id`}); len(got) != 0 {
+		t.Errorf("CONTROL the unlinked-row predicate in its writer: flagged %v", got)
 	}
 }
 

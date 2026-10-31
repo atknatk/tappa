@@ -6467,6 +6467,14 @@ type Querier interface {
 	// process, so a caller that passed anything else gets 23514 and the whole WithTenant
 	// transaction rolls back (fail-closed). @password_hash is a parameter, not returned:
 	// the RETURNING list names id alone, so no *Row struct carries the digest.
+	//
+	// `identity_id IS NULL` (T179): this statement is the change of an UNLINKED row. A row linked
+	// between adminauth's identity check and this write (a sign-in's automatic link, the link by
+	// e-mail, the reconciliation) would otherwise reach 00069's trigger, whose restrict_violation aborts
+	// the transaction and answers 500. Under READ COMMITTED a link committed while this UPDATE waits on
+	// the row lock is re-read here too, so the race collapses into 0 rows -- and adminauth, finding
+	// the row still active, sends the change through the identity. The column is a predicate only,
+	// never projected (R16's scan allows exactly that, for exactly this statement).
 	SetOwnAdminPassword(ctx context.Context, arg SetOwnAdminPasswordParams) (uuid.UUID, error)
 	// The tenant's off switch (00007: disabling is NEVER a delete).
 	//
