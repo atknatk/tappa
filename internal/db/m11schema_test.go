@@ -432,8 +432,9 @@ var m11Columns = []m11Column{
 	// application can no longer CHOOSE a session's proof -- today's CreateAdminSession names three
 	// columns and takes the DEFAULT now(). tappa_identitydefiner reads it (the switch copies it
 	// from the old session's row; 00072's freshness checks) and writes it at birth (the login's
-	// now(), the switch's copy).
-	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "S", "tappa_identitydefiner": "SI"}},
+	// now(), the switch's copy). 00085 (T183, ADR 0035): tappa_resolver reads it -- the panel resolver
+	// reports a session ended 12 hours after its proof; it never returns the column.
+	{"admin_sessions", "authenticated_at", map[string]string{"tappa_app": "S", "tappa_identitydefiner": "SI", "tappa_resolver": "S"}},
 }
 
 // m11FunctionACL is one function's owner, SECURITY DEFINER flag and EXACT EXECUTE grantees

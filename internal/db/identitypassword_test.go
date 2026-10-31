@@ -397,7 +397,8 @@ func TestIdentitySetPassword_WritesTheIdentityAndEveryLinkedRowOnly(t *testing.T
 	rowA, rowB, rowC := ipMember(t, ctx, tx, a, p.email, p.digest), ipMember(t, ctx, tx, b, p.email, p.digest), ipMember(t, ctx, tx, c, p.email, p.digest)
 	ipLink(t, ctx, tx, rowA, p.id, "backfill", "1 day")
 	ipLink(t, ctx, tx, rowC, p.id, "password", "1 day")
-	sA, sA2, sC, sB := ipSession(t, ctx, tx, a, rowA, ipNull), ipSession(t, ctx, tx, a, rowA, ipFresh), ipSession(t, ctx, tx, c, rowC, ipStale), ipSession(t, ctx, tx, b, rowB, ipFresh)
+	// T183 (00085): sA was a NULL-proof session; no proof is an ended session now, so it is a stale one.
+	sA, sA2, sC, sB := ipSession(t, ctx, tx, a, rowA, ipStale), ipSession(t, ctx, tx, a, rowA, ipFresh), ipSession(t, ctx, tx, c, rowC, ipStale), ipSession(t, ctx, tx, b, rowB, ipFresh)
 	bDigest := p.digest
 	newDigest := ipDigest(t, ctx, tx, "new-"+p.pw)
 
@@ -1170,7 +1171,7 @@ func TestIdentityVerifyEmail_TheSameIdentitysSessionInTheClickingBrowser(t *test
 	legacy := ipMember(t, ctx, tx, aiTenant(t, ctx, tx), p.email, p.digest)
 	otherRow := ipMember(t, ctx, tx, a, other.email, other.digest)
 	ipLink(t, ctx, tx, otherRow, other.id, "backfill", "1 day")
-	sA := ipSession(t, ctx, tx, a, rowA, ipNull)
+	sA := ipSession(t, ctx, tx, a, rowA, ipStale) // T183 (00085): NULL-proof sessions have ended
 
 	token := opRandHex(t)
 	if n := ipRows(t, ctx, tx, `SELECT * FROM identity_request_verification($1, $2)`, opRandHex(t), opRandHex(t)); n != 0 {
@@ -1188,7 +1189,7 @@ func TestIdentityVerifyEmail_TheSameIdentitysSessionInTheClickingBrowser(t *test
 	}
 	// The business switch: A's session revoked, a new one in B.
 	aiExec(t, ctx, tx, `UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1`, sA)
-	sB := ipSession(t, ctx, tx, b, rowB, ipNull)
+	sB := ipSession(t, ctx, tx, b, rowB, ipStale) // the switch carries A's proof (T183: never NULL now)
 
 	for _, c := range []struct{ what, session string }{
 		{"another identity's session", ipSession(t, ctx, tx, a, otherRow, ipFresh)},

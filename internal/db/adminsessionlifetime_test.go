@@ -1,8 +1,9 @@
 package db
 
 // adminsessionlifetime_test.go -- T183 (migration 00085, ADR 0035; the user's decision of 2026-10-31,
-// "Sunucuda 12 saat mutlak"): a panel session ends AdminSessionLifetime after its admin_sessions row
-// was born, on every path a session hash reaches the database.
+// "Sunucuda 12 saat mutlak"; the orchestrator's closing of the switch chain, same day): a panel session
+// ends AdminSessionLifetime after its PASSWORD PROOF (admin_sessions.authenticated_at, which a switch
+// copies), on every path a session hash reaches the database; a session with no proof has ended.
 //
 // Each path is measured at the one-second boundary against the Go constant -- one second inside the
 // lifetime it passes, at the lifetime it is refused -- which is what pins the SQL literal
@@ -45,17 +46,19 @@ func aslBelow00085(t *testing.T, ctx context.Context, tx pgx.Tx) {
 	opRunSection(t, ctx, tx, down, "00085 Down")
 }
 
-// aslAge sets the session's row birth to `age` before the transaction's now().
+// aslAge makes the session `age` old as a sign-in makes it: its row's birth and its password proof at
+// the same moment, `age` before the transaction's now().
 func aslAge(t *testing.T, ctx context.Context, sp pgx.Tx, hash string, age time.Duration) {
 	t.Helper()
-	n, err := aiRows(ctx, sp, `UPDATE admin_sessions SET created_at = now() - make_interval(secs => $2) WHERE token_hash = $1`,
+	n, err := aiRows(ctx, sp, `UPDATE admin_sessions SET created_at = now() - make_interval(secs => $2),
+	                                                      authenticated_at = now() - make_interval(secs => $2) WHERE token_hash = $1`,
 		hash, age.Seconds())
 	if err != nil || n != 1 {
 		t.Fatalf("PREMISE: ageing the session touched %d rows (%v)", n, err)
 	}
 }
 
-// aslAges are the boundary's two sides and the control's age.
+// aslAges are the boundary's two sides and a day past it.
 var aslAges = []struct {
 	name  string
 	age   time.Duration
@@ -76,6 +79,46 @@ func aslResolve(t *testing.T, ctx context.Context, sp pgx.Tx, hash string) Resol
 		t.Fatalf("resolve: %v", err)
 	}
 	return s
+}
+
+// aslTouch is store.TouchAdminSession as tappa_app in the session's tenant: nil, or pgx.ErrNoRows.
+func aslTouch(t *testing.T, ctx context.Context, sp pgx.Tx, hash string) error {
+	t.Helper()
+	var id, tenant uuid.UUID
+	if err := sp.QueryRow(ctx, `SELECT id, tenant_id FROM admin_sessions WHERE token_hash = $1`, hash).Scan(&id, &tenant); err != nil {
+		t.Fatal(err)
+	}
+	return opAs(t, ctx, sp, "tappa_app", func(app pgx.Tx) error {
+		if _, err := app.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
+			return err
+		}
+		_, err := store.New(app).TouchAdminSession(ctx, store.TouchAdminSessionParams{ID: id, TenantID: tenant})
+		return err
+	})
+}
+
+// aslSecondsLeft is store.GetAdminSessionSecondsLeft as tappa_app in the session's tenant (-1: 0 rows).
+func aslSecondsLeft(t *testing.T, ctx context.Context, sp pgx.Tx, hash string) int32 {
+	t.Helper()
+	var id, tenant uuid.UUID
+	if err := sp.QueryRow(ctx, `SELECT id, tenant_id FROM admin_sessions WHERE token_hash = $1`, hash).Scan(&id, &tenant); err != nil {
+		t.Fatal(err)
+	}
+	left := int32(-1)
+	if err := opAs(t, ctx, sp, "tappa_app", func(app pgx.Tx) error {
+		if _, err := app.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
+			return err
+		}
+		n, err := store.New(app).GetAdminSessionSecondsLeft(ctx, store.GetAdminSessionSecondsLeftParams{ID: id, TenantID: tenant})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		left = n
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return left
 }
 
 // aslRecreate replaces one function's live body, in the caller's savepoint, after checking that `cut`
@@ -108,10 +151,11 @@ func aslRecreate(t *testing.T, ctx context.Context, sp pgx.Tx, fn string, cut *r
 }
 
 // TestAdminSessionLifetime_TheResolverReportsTheEnd: resolve_admin_session_by_token_hash (00011, md.7)
-// returns a session past its lifetime as REVOKED -- revoked_at = its birth + the lifetime -- and a
-// session inside it as live; a session revoked earlier keeps its own revocation. Returned, not filtered:
-// the row comes back either way (the caller -- the binary before 00085 included -- refuses it on
-// RevokedAt). CONTROL: with the CASE cut back to the bare column, the expired session resolves live.
+// returns a session past its lifetime as REVOKED -- revoked_at = its proof + the lifetime -- a session
+// with no proof as revoked now, and a session inside its lifetime as live; a session revoked earlier
+// keeps its own revocation. Returned, not filtered: the row comes back either way (the caller -- the
+// binary before 00085 included -- refuses it on RevokedAt). CONTROL: with the CASE cut back to the bare
+// column, the ended session resolves live.
 func TestAdminSessionLifetime_TheResolverReportsTheEnd(t *testing.T) {
 	ctx, tx := opTx(t)
 	tenant := idTenant(t, ctx, tx, "T183 resolver")
@@ -142,6 +186,24 @@ func TestAdminSessionLifetime_TheResolverReportsTheEnd(t *testing.T) {
 			})
 		})
 	}
+	t.Run("the clock is the proof, not the row's birth", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			h := idSession(t, ctx, sp, tenant, admin, nil)
+			aiExec(t, ctx, sp, `UPDATE admin_sessions SET authenticated_at = now() - interval '12 hours' WHERE token_hash = $1`, h)
+			if got := aslResolve(t, ctx, sp, h); got.RevokedAt == nil {
+				t.Fatal("a row born now on a proof 12 hours old resolves live: the clock restarted at the row's birth")
+			}
+		})
+	})
+	t.Run("no proof on record is ended", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			h := idSession(t, ctx, sp, tenant, admin, nil)
+			aiExec(t, ctx, sp, `UPDATE admin_sessions SET authenticated_at = NULL WHERE token_hash = $1`, h)
+			if got := aslResolve(t, ctx, sp, h); got.RevokedAt == nil || !got.RevokedAt.Equal(now) {
+				t.Fatalf("a session with no proof resolves with revoked_at %v, want now() (%v): ADR 0031 §5.1 reads NULL fail-closed", got.RevokedAt, now)
+			}
+		})
+	})
 	t.Run("an earlier revocation is kept", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			h := idSession(t, ctx, sp, tenant, admin, nil)
@@ -153,7 +215,7 @@ func TestAdminSessionLifetime_TheResolverReportsTheEnd(t *testing.T) {
 			}
 		})
 	})
-	t.Run("CONTROL: without the CASE the expired session resolves live", func(t *testing.T) {
+	t.Run("CONTROL: without the CASE the ended session resolves live", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			aslRecreate(t, ctx, sp, "resolve_admin_session_by_token_hash",
 				regexp.MustCompile(`(?s)CASE WHEN s\.revoked_at IS NOT NULL THEN s\.revoked_at.*?END\n`), "s.revoked_at\n")
@@ -167,9 +229,10 @@ func TestAdminSessionLifetime_TheResolverReportsTheEnd(t *testing.T) {
 }
 
 // TestAdminSessionLifetime_TouchRefusesAnEndedSession: store.TouchAdminSession -- the per-request
-// authority, as tappa_app in the session's tenant -- answers 0 rows for a session past its lifetime even
-// when the caller never looked at the resolver's answer, and refreshes one inside it. (Its mutation
-// proof is by hand -- the statement is sqlc's constant: see the T183 report.)
+// authority, as tappa_app in the session's tenant -- answers 0 rows for a session past its lifetime or
+// with no proof even when the caller never looked at the resolver's answer, and refreshes one inside it.
+// GetAdminSessionSecondsLeft (the switched cookie's Max-Age) answers the second it has left, and 0 rows
+// past it. (The mutation proofs of both statements are by hand -- sqlc's constants: see the T183 report.)
 func TestAdminSessionLifetime_TouchRefusesAnEndedSession(t *testing.T) {
 	ctx, tx := opTx(t)
 	tenant := idTenant(t, ctx, tx, "T183 touch")
@@ -179,26 +242,26 @@ func TestAdminSessionLifetime_TouchRefusesAnEndedSession(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				h := idSession(t, ctx, sp, tenant, admin, nil)
 				aslAge(t, ctx, sp, h, c.age)
-				var id uuid.UUID
-				if err := sp.QueryRow(ctx, `SELECT id FROM admin_sessions WHERE token_hash = $1`, h).Scan(&id); err != nil {
-					t.Fatal(err)
-				}
-				err := opAs(t, ctx, sp, "tappa_app", func(app pgx.Tx) error {
-					if _, err := app.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
-						return err
-					}
-					_, err := store.New(app).TouchAdminSession(ctx, store.TouchAdminSessionParams{ID: id, TenantID: tenant})
-					return err
-				})
+				err := aslTouch(t, ctx, sp, h)
+				left := aslSecondsLeft(t, ctx, sp, h)
 				switch {
-				case c.alive && err != nil:
-					t.Fatalf("a session %v old was refused: %v", c.age, err)
-				case !c.alive && !errors.Is(err, pgx.ErrNoRows):
-					t.Fatalf("a session %v old answered %v, want pgx.ErrNoRows (not signed in)", c.age, err)
+				case c.alive && (err != nil || left != 1):
+					t.Fatalf("a session %v old: Touch %v, seconds left %d; want live with 1 second", c.age, err, left)
+				case !c.alive && (!errors.Is(err, pgx.ErrNoRows) || left != -1):
+					t.Fatalf("a session %v old: Touch %v, seconds left %d; want pgx.ErrNoRows and no row", c.age, err, left)
 				}
 			})
 		})
 	}
+	t.Run("no proof on record", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			h := idSession(t, ctx, sp, tenant, admin, nil)
+			aiExec(t, ctx, sp, `UPDATE admin_sessions SET authenticated_at = NULL WHERE token_hash = $1`, h)
+			if err := aslTouch(t, ctx, sp, h); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("a session with no proof was touched: %v", err)
+			}
+		})
+	})
 }
 
 // TestAdminSessionLifetime_TheListShowsAnEndedSessionEnded: ListAdminSessionsForAdmin (the read side of
@@ -253,58 +316,117 @@ func TestAdminSessionLifetime_TheListShowsAnEndedSessionEnded(t *testing.T) {
 	}
 }
 
-// TestAdminSessionLifetime_ASwitchStartsAFreshLifetime: the switch births a new row (and the handler
-// sets a new 12-hour cookie with it), so a session one second from its end switches into a session
-// whose lifetime starts now; one at its end cannot switch at all.
-func TestAdminSessionLifetime_ASwitchStartsAFreshLifetime(t *testing.T) {
+// TestAdminSessionLifetime_ASwitchChainEndsAtTheSignIn: signed in 12 hours less a second ago, the
+// person switches business -- the new session's row is born now, but it carries the proof, so it has
+// one second left (the switched cookie's Max-Age) and, a second later, is ended for the resolver, for
+// TouchAdminSession and for a definer (identity_memberships) although its row is one second old.
+// CONTROL (the mutation "the switch path on created_at again"): identity_memberships with its predicate
+// on created_at answers that session -- the chain the rule closes. A session at its end cannot switch,
+// nor can one with no proof (a NULL is not carried into a fresh row any more).
+func TestAdminSessionLifetime_ASwitchChainEndsAtTheSignIn(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := idNewWorld(t, ctx, tx)
-	t.Run("one second before the end", func(t *testing.T) {
+	// later moves one session a second into the future: both its timestamps a second further back.
+	later := func(sp pgx.Tx, hash string) {
+		t.Helper()
+		aiExec(t, ctx, sp, `UPDATE admin_sessions SET created_at = created_at - interval '1 second',
+		                                              authenticated_at = authenticated_at - interval '1 second' WHERE token_hash = $1`, hash)
+	}
+	switched := func(sp pgx.Tx) string {
+		t.Helper()
+		old := idSession(t, ctx, sp, w.a, w.ma, nil)
+		aslAge(t, ctx, sp, old, AdminSessionLifetime-time.Second)
+		fresh := opRandHex(t)
+		if rows := idSwitch(t, ctx, sp, old, w.b, fresh); len(rows) != 1 {
+			t.Fatalf("the switch one second before the end returned %d rows", len(rows))
+		}
+		var born, carried bool
+		if err := sp.QueryRow(ctx, `SELECT n.created_at = now(), n.authenticated_at = o.authenticated_at
+		                              FROM admin_sessions n, admin_sessions o WHERE n.token_hash = $1 AND o.token_hash = $2`, fresh, old).Scan(&born, &carried); err != nil || !born || !carried {
+			t.Fatalf("PREMISE: the new row born now %v, the proof carried %v (%v)", born, carried, err)
+		}
+		return fresh
+	}
+	t.Run("one second left, then none", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-			old := idSession(t, ctx, sp, w.a, w.ma, nil)
-			aslAge(t, ctx, sp, old, AdminSessionLifetime-time.Second)
-			fresh := opRandHex(t)
-			if rows := idSwitch(t, ctx, sp, old, w.b, fresh); len(rows) != 1 {
-				t.Fatalf("the switch returned %d rows", len(rows))
-			}
-			var born bool
-			if err := sp.QueryRow(ctx, `SELECT created_at = now() FROM admin_sessions WHERE token_hash = $1`, fresh).Scan(&born); err != nil || !born {
-				t.Fatalf("the new session's row was not born now (%v): its lifetime would not be fresh", err)
-			}
+			fresh := switched(sp)
 			if got := aslResolve(t, ctx, sp, fresh); got.RevokedAt != nil || got.TenantID != w.b {
 				t.Fatalf("the new session resolves %v in %v, want live in B", got.RevokedAt, got.TenantID)
 			}
-			// Its own lifetime, measured: an hour from now it would still be one second younger than its
-			// predecessor was when it switched.
-			aslAge(t, ctx, sp, fresh, AdminSessionLifetime-time.Second)
-			if got := aslResolve(t, ctx, sp, fresh); got.RevokedAt != nil {
-				t.Fatalf("the new session ends with its predecessor: %v", got.RevokedAt)
+			if left := aslSecondsLeft(t, ctx, sp, fresh); left != 1 {
+				t.Fatalf("the switched session has %d seconds left, want 1 (its cookie's Max-Age)", left)
+			}
+			later(sp, fresh)
+			if got := aslResolve(t, ctx, sp, fresh); got.RevokedAt == nil {
+				t.Fatal("at the sign-in + 12 h the switched session resolves live: the switch restarted the clock")
+			}
+			if err := aslTouch(t, ctx, sp, fresh); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("at the sign-in + 12 h Touch answered %v, want pgx.ErrNoRows", err)
+			}
+			if n, err := idAs(t, ctx, sp, identityMembershipsSQL, fresh); err != nil || len(n) != 0 {
+				t.Fatalf("at the sign-in + 12 h identity_memberships answered %d rows (%v), want 0", len(n), err)
+			}
+			if left := aslSecondsLeft(t, ctx, sp, fresh); left != -1 {
+				t.Fatalf("an ended session has %d seconds left, want no row", left)
 			}
 		})
 	})
-	t.Run("at the end", func(t *testing.T) {
+	t.Run("CONTROL: on created_at the chain is open", func(t *testing.T) {
+		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			fresh := switched(sp)
+			later(sp, fresh)
+			// The mutation needs the cell 00085 did not grant (the definer reads authenticated_at, not
+			// created_at): given here, in the savepoint, for the control alone.
+			aiExec(t, ctx, sp, `GRANT SELECT (created_at) ON admin_sessions TO tappa_identitydefiner`)
+			aslRecreate(t, ctx, sp, "identity_memberships",
+				regexp.MustCompile(`AND s\.authenticated_at > v_proven_after\n`), "AND s.created_at > v_proven_after\n")
+			if n, err := idAs(t, ctx, sp, identityMembershipsSQL, fresh); err != nil || len(n) == 0 {
+				t.Fatalf("with the predicate on created_at the switched session answered %d rows (%v): the control proves nothing", len(n), err)
+			}
+		})
+	})
+	t.Run("at the end, or with no proof, no switch", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			old := idSession(t, ctx, sp, w.a, w.ma, nil)
 			aslAge(t, ctx, sp, old, AdminSessionLifetime)
 			if rows := idSwitch(t, ctx, sp, old, w.b, opRandHex(t)); len(rows) != 0 {
-				t.Fatalf("an ended session switched (%d rows): a switch would make any kept cookie immortal", len(rows))
+				t.Fatalf("an ended session switched (%d rows)", len(rows))
+			}
+			none := opRandHex(t)
+			aiExec(t, ctx, sp, `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash, authenticated_at) VALUES ($1, $2, $3, NULL)`, w.a, w.ma, none)
+			if rows := idSwitch(t, ctx, sp, none, w.b, opRandHex(t)); len(rows) != 0 {
+				t.Fatalf("a session with no proof switched (%d rows): a NULL would be carried into a fresh row", len(rows))
 			}
 		})
 	})
 }
 
 // aslLookup is a session lookup by hash in a BYPASSRLS body, as 00085 writes it.
-var aslLookup = regexp.MustCompile(`WHERE s\.token_hash = (p_\w*session_hash)\n(\s+)AND s\.created_at > v_born_after\n`)
+var aslLookup = regexp.MustCompile(`WHERE s\.token_hash = (p_\w*session_hash)\n(\s+)AND s\.authenticated_at > v_proven_after\n`)
+
+// aslFreshLookup is a lookup that already holds the tighter bound, R3's five-minute freshness on the same
+// column (00072/00079: `AND s.authenticated_at > v_fresh` within its WHERE).
+var aslFreshLookup = regexp.MustCompile(`(?s)WHERE s\.token_hash = (p_\w*session_hash)\n[^;]*?AND s\.authenticated_at > v_fresh\n`)
 
 // aslBareLookup is any session lookup by hash, guarded or not.
 var aslBareLookup = regexp.MustCompile(`WHERE s\.token_hash = (p_\w*session_hash)\n`)
 
+// aslFreshOnly are the three definers 00085 leaves alone because every session they take is bounded by
+// five minutes of freshness on authenticated_at -- inside the lifetime, NULL refused. identity_link_legacy's
+// legacy session is judged after its lock (`v_legacy_live`, the same five minutes), not in its lookup.
+var aslFreshOnly = map[string]string{
+	"identity_unlink_backfilled": "S4: a fresh session (five minutes) in its lookup",
+	"identity_relink_refused":    "S4: a fresh session (five minutes) in its lookup",
+	"identity_link_legacy":       "R3: both sessions fresh (five minutes) -- the identity's in its lookup, the legacy one after its lock",
+}
+
 // TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded is the fail-closed half of the
 // definer test below: in every function tappa_identitydefiner owns, every `WHERE s.token_hash =
-// p_*session_hash` is followed by the lifetime predicate, and the bound it reads is the lifetime.
-// A new function that finds a session by its hash without it is red here before anyone writes a case
-// for it -- the security review's finding (a resolver-only check let the definers treat an expired
-// session as alive) cannot come back by omission.
+// p_*session_hash` is followed by the lifetime predicate -- or the function is one of aslFreshOnly, whose
+// lookups hold the five-minute freshness instead -- and the bound it reads is the lifetime. A new
+// function that finds a session by its hash without either is red here before anyone writes a case for
+// it: the security review's finding (a resolver-only check let the definers treat an ended session as
+// alive) cannot come back by omission.
 func TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded(t *testing.T) {
 	ctx, tx := opTx(t)
 	rows, err := tx.Query(ctx, `SELECT p.proname, p.prosrc FROM pg_proc p
@@ -325,35 +447,44 @@ func TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded(t *testing.T
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	bound := fmt.Sprintf("v_born_after timestamptz := pg_catalog.now() - interval '%d hours';", int(AdminSessionLifetime/time.Hour))
 	if AdminSessionLifetime%time.Hour != 0 {
 		t.Fatalf("PREMISE: the lifetime %v is not a whole number of hours, the literal this scan reads", AdminSessionLifetime)
 	}
-	lookups := 0
+	bound := fmt.Sprintf("v_proven_after timestamptz := pg_catalog.now() - interval '%d hours';", int(AdminSessionLifetime/time.Hour))
+	guardedAll, freshAll := 0, 0
 	for _, b := range bodies {
 		src := identityLineComment.ReplaceAllString(b.src, "")
 		all, guarded := len(aslBareLookup.FindAllString(src, -1)), len(aslLookup.FindAllString(src, -1))
+		if _, ok := aslFreshOnly[b.name]; ok {
+			if fresh := len(aslFreshLookup.FindAllString(src, -1)); guarded != 0 || all == 0 || !strings.Contains(src, "interval '5 minutes'") {
+				t.Errorf("%s: %d lookups, %d with the lifetime predicate, %d with freshness in the lookup -- aslFreshOnly's premise moved", b.name, all, guarded, fresh)
+			}
+			freshAll += all
+			continue
+		}
 		if all != guarded {
 			t.Errorf("%s: %d of its %d session lookups by hash carry no lifetime predicate", b.name, all-guarded, all)
 		}
 		if all > 0 && !strings.Contains(src, bound) {
 			t.Errorf("%s finds a session by its hash but does not declare %q", b.name, bound)
 		}
-		lookups += all
+		guardedAll += guarded
 	}
-	// identitySessionKeyLookups' session rows (identitybelt_test.go): fifteen functions, sixteen lookups.
-	if lookups != 16 {
-		t.Errorf("anti-vacuity: %d session lookups by hash across the definer's bodies, want 16 (00085's count)", lookups)
+	// identitySessionKeyLookups' session rows (identitybelt_test.go): twelve guarded, four fresh-bounded.
+	if guardedAll != 12 || freshAll != 4 {
+		t.Errorf("anti-vacuity: %d guarded and %d fresh-bounded session lookups, want 12 and 4 (00085's count)", guardedAll, freshAll)
 	}
 }
 
 // TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession: every identity_* function keyed by a
 // session hash, driven through identityExercise's world (identitycatalog_test.go -- each call answers a
 // row when the calls before it have run): for each call and each argument that is a live session's
-// hash, the call is replayed with that session one second inside its lifetime (it answers, as in the
-// exercise), at its lifetime and a day past it (0 rows), and -- the CONTROL -- at its lifetime with the
-// one predicate on THAT argument's lookup cut out of the live body (it answers again). The (function,
-// argument) pairs reached must be exactly the sixteen lookups the scan above counts.
+// hash, the call is replayed with that session (signed in) one second inside its lifetime (it answers),
+// at its lifetime and a day past it (0 rows), and -- the CONTROL -- at its lifetime with the one
+// predicate on THAT argument's lookup cut out of the live body (it answers again). For aslFreshOnly's
+// functions the ended cases are refused by their freshness, which also refuses the inside case (twelve
+// hours are never five minutes), so only the ended cases are asserted. The (function, argument) pairs
+// reached must be every session lookup the scan above counts.
 func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 	ctx, tx := bfTx(t)
 	signup := newIdentitySignupWorld(t, ctx, tx)
@@ -368,6 +499,7 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 			continue
 		}
 		fn := m[1]
+		_, freshOnly := aslFreshOnly[fn]
 		for j := range step.args {
 			if _, ok := step.args[j].(string); !ok {
 				continue
@@ -399,10 +531,12 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 				if opInt(t, ctx, sp, `SELECT count(*) FROM admin_sessions WHERE token_hash = $1 AND revoked_at IS NULL`, hash) != 1 {
 					t.Fatalf("PREMISE: %s's %s is no live session's hash", s.name, param)
 				}
-				pair := fn + "." + param
-				covered[pair] = true
+				covered[fn+"."+param] = true
 				t.Run(s.name+" / "+param, func(t *testing.T) {
 					for _, c := range aslAges {
+						if freshOnly && c.alive {
+							continue
+						}
 						aiSavepoint(t, ctx, sp, func(v pgx.Tx) {
 							aslAge(t, ctx, v, hash, c.age)
 							n, err := identityStepRows(t, ctx, v, s)
@@ -417,9 +551,12 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 							}
 						})
 					}
+					if freshOnly {
+						return
+					}
 					aiSavepoint(t, ctx, sp, func(v pgx.Tx) {
 						aslRecreate(t, ctx, v, fn,
-							regexp.MustCompile(`(WHERE s\.token_hash = `+param+`\n)\s+AND s\.created_at > v_born_after\n`), "$1")
+							regexp.MustCompile(`(WHERE s\.token_hash = `+param+`\n)\s+AND s\.authenticated_at > v_proven_after\n`), "$1")
 						aslAge(t, ctx, v, hash, AdminSessionLifetime)
 						n, err := identityStepRows(t, ctx, v, s)
 						if err != nil || n == 0 {
@@ -445,7 +582,7 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		t.Errorf("the session lookups reached:\n  %v\nwant every one of 00085's sixteen:\n  %v", got, want)
+		t.Errorf("the session lookups reached:\n  %v\nwant all sixteen:\n  %v", got, want)
 	}
 }
 
@@ -470,8 +607,9 @@ func aslCatalogue(t *testing.T, ctx context.Context, q pgx.Tx) string {
 // TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD: the Down leaves every definer body
 // exactly HEAD's minus what 00085 adds (the bound's DECLARE line and the predicate after each lookup by
 // hash), the resolver exactly 00011's body, every owner / SECURITY DEFINER / search_path / ACL as at
-// HEAD, and takes the two created_at cells back; the Up again gives HEAD back byte for byte. No table is
-// locked by either half (a column GRANT and CREATE OR REPLACE take none on admin_sessions -- measured).
+// HEAD, and takes the resolver's authenticated_at cell back; the Up again gives HEAD back byte for byte.
+// No table is locked by either half (a column GRANT and CREATE OR REPLACE take none on admin_sessions --
+// measured).
 func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, aslFile)
@@ -504,7 +642,7 @@ func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.
 	i := strings.Index(up11, "CREATE FUNCTION resolve_admin_session_by_token_hash(")
 	rest := up11[i:]
 	want11 := rest[strings.Index(rest, "AS $$")+len("AS $$") : strings.Index(rest, "\n    $$;")+len("\n    ")]
-	declLine := regexp.MustCompile(`(?m)^    v_born_after timestamptz := [^\n]*\n`)
+	declLine := regexp.MustCompile(`(?m)^    v_proven_after timestamptz := [^\n]*\n`)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		opRunSection(t, ctx, sp, down, "00085 Down")
 		at84 := bodies(sp)
@@ -523,15 +661,11 @@ func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.
 				changed++
 			}
 		}
-		if changed != 16 {
-			t.Errorf("anti-vacuity: the Down changed %d bodies, want 00085's sixteen", changed)
+		if changed != 13 {
+			t.Errorf("anti-vacuity: the Down changed %d bodies, want 00085's thirteen (the resolver and twelve definers)", changed)
 		}
-		var cells string
-		if err := sp.QueryRow(ctx, `SELECT coalesce(attacl::text, '-') FROM pg_attribute WHERE attrelid = 'public.admin_sessions'::regclass AND attname = 'created_at'`).Scan(&cells); err != nil {
-			t.Fatal(err)
-		}
-		if cells != "-" {
-			t.Errorf("after the Down admin_sessions.created_at carries %s, want no grant", cells)
+		if has := opInt(t, ctx, sp, `SELECT count(*) WHERE has_column_privilege('tappa_resolver', 'public.admin_sessions', 'authenticated_at', 'SELECT')`); has != 0 {
+			t.Error("after the Down tappa_resolver still reads admin_sessions.authenticated_at")
 		}
 		for _, role := range []string{"tappa_resolver", "tappa_identitydefiner"} {
 			if opInt(t, ctx, sp, `SELECT count(*) FROM pg_proc p WHERE p.prosrc LIKE '%admin_sessions%' AND p.pronamespace = 'public'::regnamespace

@@ -1,5 +1,5 @@
--- 00085 -- T183: a panel session ENDS ON THE SERVER 12 hours after its row was born (ADR 0035; the user's
--- decision of 2026-10-31, "Sunucuda 12 saat mutlak" -- OWASP's absolute session timeout).
+-- 00085 -- T183: a panel session ENDS ON THE SERVER 12 hours after its password proof (ADR 0035; the
+-- user's decision of 2026-10-31, "Sunucuda 12 saat mutlak" -- OWASP's absolute session timeout).
 --
 -- THE PROBLEM, MEASURED. The panel cookie's Max-Age of 12 hours (internal/adminauth/cookie.go) was a
 -- browser hint: admin_sessions carries created_at, last_used_at, revoked_at and authenticated_at but no
@@ -7,61 +7,82 @@
 -- value, a browser profile copied off a disk) stayed valid until somebody revoked it. Production held
 -- 48 un-revoked sessions in one business on 2026-10-31.
 --
--- THE RULE. A session is live only while `created_at > now() - interval '12 hours'`. created_at is the
--- row's birth (DEFAULT now(); tappa_app can write neither it nor authenticated_at -- 00011, 00069), and
--- the panel cookie is set only when a NEW row is born: the sign-in (Issue / identity_open_session) and
--- the switch (identity_switch_session inserts a new row and revokes the old). So the server's end and the
--- browser's end are the same moment, and a normal browser sees no difference: it dropped every cookie
--- this file ends before the file ran. The 12 hours are internal/db.AdminSessionLifetime, from which the
--- cookie's Max-Age is derived; the literal below is pinned to it by adminsessionlifetime_test.go at the
--- one-second boundary on every path.
+-- THE RULE. A session is live only while `authenticated_at > now() - interval '12 hours'`. The clock is
+-- the PASSWORD PROOF, not the row's birth: a switch of business births a new row but copies the old
+-- row's authenticated_at (00081's identity_switch_session, under the session's lock), so switching does
+-- NOT restart the clock -- with created_at it did, and a person with two businesses (or whoever held the
+-- cookie) could switch once every eleven hours and never end (the orchestrator's decision, 2026-10-31,
+-- closing ADR 0035's first draft's open question). Where the orchestrator wrote COALESCE(authenticated_at,
+-- created_at), this file reads NULL as ended instead, for the measured reason below. The switched
+-- cookie's Max-Age is the remaining time (internal/adminauth: Issued.Left), so the browser and the
+-- server still end at the same moment.
+--
+-- NULL IS ENDED (ADR 0031 §5.1: "NULL = eski / süresi geçmiş ... ileride gelecek mutlak ömür bunu
+-- fail-closed okur"). Measured, every session INSERT after this file writes a non-NULL authenticated_at:
+--   - CreateAdminSession (db/queries/admins.sql; tappa_app's INSERT is (id, tenant_id, admin_user_id,
+--     token_hash) -- it cannot name the column) takes 00069's DEFAULT now();
+--   - identity_open_session writes now();
+--   - identity_switch_session copies the origin's, and the origin passed `authenticated_at > bound`
+--     on its lookup below, so it is not NULL (and no role but the definer's revocation writes the row).
+-- NULL rows are therefore exactly the rows born before 00069 (Deploy 1, 2026-10-28 -- every one more
+-- than 12 hours old at this file's deploy) and the rows switched from one of them since (a switch copies
+-- NULL; TestIdentitySwitch_ANewSessionTheOldRevokedTheProofCarried measured it, and since this file
+-- measures the refusal). Read as "created_at instead" the second kind would restart its clock at every
+-- switch -- the chain this file closes -- so NULL is read as ended. The deploy's read-only check counts them first (deploy/README.md, T183).
 --
 -- WHERE THE CHECK LIVES -- IN THE DATABASE, ON EVERY PATH A SESSION HASH REACHES (the security review's
 -- point: a resolver-only check let the definers below treat an expired session as alive):
 --   1. resolve_admin_session_by_token_hash (00011, md.7, tappa_resolver): RETURNED, NOT FILTERED -- the
 --      resolver's principle since 00011. Its revoked_at column becomes the session's END: the revocation
---      if there is one, else created_at + 12 h once that has passed. Same signature, same four columns,
---      created_at read and never returned. So every caller that refuses a revoked session refuses an
---      expired one -- the binary BEFORE this file included (adminauth.Verify's `rs.RevokedAt != nil`),
---      which is what makes this an expand-only change: the migrate Job runs before the rollout and the
---      old pod is already covered.
+--      if there is one, now() for a session with no proof, authenticated_at + 12 h once that has passed.
+--      Same signature, same four columns, authenticated_at read and never returned. So every caller that
+--      refuses a revoked session refuses an ended one -- the binary BEFORE this file included
+--      (adminauth.Verify's `rs.RevokedAt != nil`): the migrate Job runs before the rollout and the old
+--      pod is already covered. Expand-only.
 --   2. TouchAdminSession (db/queries/admins.sql, the new binary's query text): the same predicate, so a
 --      Go caller that forgot the resolver's answer still gets 0 rows (tappa_app reads the table).
---   3. The fifteen identity_* definers that find a session by its hash (ADR 0031 §5.2's "canlı oturum"
---      key; identitybelt_test.go's identitySessionKeyLookups counts them -- sixteen lookups, two in
---      identity_link_legacy): the predicate on each lookup by token_hash. Same signatures (CREATE OR
---      REPLACE; SECURITY DEFINER, search_path, owner, REVOKE PUBLIC and the GRANT restated, ADR 0031 §5.2
---      T5). The bound is a DECLARE variable, not an expression in the WHERE: the belt (identitybelt_test.go)
---      admits no function call or keyword in a conjunct, and 00072's `v_fresh` is the precedent. The
---      re-reads under a lock (by id) are left alone: they guard against a revocation committed while the
---      call waited, and the clock read at the call's start is the one a request is judged by.
+--   3. The twelve identity_* definers that find a session by its hash and take it at its word (ADR 0031
+--      §5.2's "canlı oturum" key; identitybelt_test.go's identitySessionKeyLookups counts them): the
+--      predicate on each lookup by token_hash -- identity_memberships, _switch_session,
+--      _revoke_sessions, _password_for_session, _set_password, _request_verification, _verify_email,
+--      _accept_invite, _claim_signup, _confirm_window, _keep_all, _link_by_email. Same signatures
+--      (CREATE OR REPLACE; SECURITY DEFINER, search_path, owner, REVOKE PUBLIC and the GRANT restated,
+--      ADR 0031 §5.2 T5). The bound is a DECLARE variable, not an expression in the WHERE: the belt
+--      (identitybelt_test.go) admits no function call or keyword in a conjunct, and 00072's `v_fresh` is
+--      the precedent. The re-reads under a lock (by id) are left alone: they guard against a revocation
+--      committed while the call waited, and the clock read at the call's start is the one a request is
+--      judged by.
+--      The other three session-keyed definers are NOT redefined because they already hold a TIGHTER
+--      bound on the same column: identity_unlink_backfilled, identity_relink_refused and
+--      identity_link_legacy (both its sessions) accept a session only while `authenticated_at >
+--      now() - 5 minutes` (R3, 00072/00079) -- five minutes inside twelve hours, NULL refused. A
+--      second, looser predicate there could not be proven by any test (it never decides), so it is
+--      not written; adminsessionlifetime_test.go holds both kinds.
 --   Not changed, on purpose: identity_open_session and identity_accept_invite_new BIRTH a session (no
 --   session key); identity_consume_reset / identity_consume_row_reset only revoke; the revocation writers
---   (RevokeAdminSession*, identity_revoke_sessions' loop) still stamp an expired row -- harmless (the
+--   (RevokeAdminSession*, identity_revoke_sessions' loop) still stamp an ended row -- harmless (the
 --   trigger keeps the stamp monotonic), and exactly what they did before this file.
 --
--- THE TWO GRANTS -- the only privilege change: SELECT (created_at) on admin_sessions to tappa_resolver
--- and to tappa_identitydefiner. An existing column of a table both already read; ADR 0031 §5.2's matrix
--- names admin_sessions SELECT without a column list, so the definer stays inside it
--- (identitycatalog_test.go's identityADRMatrix). Neither function returns the column.
+-- THE GRANT -- the only privilege change: SELECT (authenticated_at) on admin_sessions to tappa_resolver
+-- (accepted by the orchestrator, 2026-10-31; ADR 0035, ADR 0002's md.7 note). tappa_identitydefiner has
+-- read the column since 00071. The resolver never returns it.
 --
--- NO SCHEMA CHANGE ON THE HOT TABLE: no column, no index, no data written (the expiry is computed; no
+-- NO SCHEMA CHANGE ON THE HOT TABLE: no column, no index, no data written (the end is computed; no
 -- revoked_at is stamped in bulk, no row is deleted). A column GRANT takes no lock on admin_sessions
 -- (measured: pg_locks shows none); CREATE OR REPLACE FUNCTION none either. The lock_timeout is the
 -- precedent's, kept so a stuck catalogue row fails this file fast.
 --
--- USER-VISIBLE EFFECT AT DEPLOY: every session older than 12 hours stops resolving -- the person signs in
--- again. Normal browsers already dropped those cookies; what ends is a kept or copied one.
+-- USER-VISIBLE EFFECT AT DEPLOY: every session whose password proof is older than 12 hours (or absent)
+-- stops resolving -- the person signs in again. Normal browsers already dropped those cookies; what ends
+-- is a kept or copied one, and a session switched into more than 12 hours after its sign-in.
 --
 -- THE DOWN gives back the bodies this file found, byte for byte (pg_get_functiondef at 00084), and takes
--- the two cells back.
+-- the resolver's cell back.
 
 -- +goose Up
 SET LOCAL lock_timeout = '1s';
--- The one new cell each (ADR 0031 §5.2's admin_sessions SELECT, ADR 0035): the row's birth. No other
--- column, verb or table; neither function returns it.
-GRANT SELECT (created_at) ON admin_sessions TO tappa_resolver;
-GRANT SELECT (created_at) ON admin_sessions TO tappa_identitydefiner;
+-- The one privilege change (ADR 0035): the resolver reads the proof's moment. It never returns it.
+GRANT SELECT (authenticated_at) ON admin_sessions TO tappa_resolver;
 
 -- md.7's panel resolver (owner tappa_resolver).
 -- +goose StatementBegin
@@ -72,16 +93,19 @@ CREATE OR REPLACE FUNCTION public.resolve_admin_session_by_token_hash(p_token_ha
  SET search_path TO 'pg_catalog', 'pg_temp'
 AS $function$
         -- <=1 row: token_hash is globally UNIQUE. Fixed column list, no SELECT *.
-        -- token_hash is the INPUT and is never returned (section 4.7); last_used_at
-        -- is not needed to resolve.
-        -- 00085 (T183, ADR 0035): revoked_at is the session's END -- its revocation, or the moment its
-        -- 12 hours from the row's birth ran out. RETURNED, NOT FILTERED (this file's principle since
-        -- 00011): a session past its lifetime resolves like a revoked one, so every caller that refuses
-        -- a revoked session -- the binary before 00085 included -- refuses it. created_at is read, never
-        -- returned.
+        -- token_hash is the INPUT and is never returned (section 4.7); created_at
+        -- and last_used_at are not needed to resolve.
+        -- 00085 (T183, ADR 0035): revoked_at is the session's END -- its revocation, or, once
+        -- 12 hours from its password proof (authenticated_at) have passed, that moment. A session
+        -- with no proof on record (NULL: a row from before 00069, or switched from one) has ended
+        -- already: ADR 0031 §5.1 reads NULL fail-closed, and now() stands in for the moment.
+        -- RETURNED, NOT FILTERED (this file's principle since 00011): a session past its lifetime
+        -- resolves like a revoked one, so every caller that refuses a revoked session -- the binary
+        -- before 00085 included -- refuses it. authenticated_at is read, never returned.
         SELECT s.id, s.tenant_id, s.admin_user_id,
                CASE WHEN s.revoked_at IS NOT NULL THEN s.revoked_at
-                    WHEN s.created_at <= pg_catalog.now() - interval '12 hours' THEN s.created_at + interval '12 hours'
+                    WHEN s.authenticated_at IS NULL THEN pg_catalog.now()
+                    WHEN s.authenticated_at <= pg_catalog.now() - interval '12 hours' THEN s.authenticated_at + interval '12 hours'
                END
         FROM public.admin_sessions AS s
         WHERE s.token_hash = p_token_hash;
@@ -101,7 +125,7 @@ CREATE OR REPLACE FUNCTION public.identity_memberships(p_session_hash text)
 AS $function$
 #variable_conflict error
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_tenant   uuid;
     v_admin    uuid;
     v_identity uuid;
@@ -110,7 +134,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL;
@@ -155,7 +179,7 @@ CREATE OR REPLACE FUNCTION public.identity_switch_session(p_session_hash text, p
 AS $function$
 #variable_conflict error
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_session  uuid;
     v_tenant   uuid;
     v_admin    uuid;
@@ -172,7 +196,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -267,7 +291,7 @@ CREATE OR REPLACE FUNCTION public.identity_revoke_sessions(p_session_hash text, 
 AS $function$
 #variable_conflict error
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_session  uuid;
     v_tenant   uuid;
     v_identity uuid;
@@ -283,7 +307,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -357,14 +381,14 @@ CREATE OR REPLACE FUNCTION public.identity_password_for_session(p_session_hash t
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_identity uuid;
 BEGIN
     SELECT a.identity_id INTO v_identity
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -390,7 +414,7 @@ CREATE OR REPLACE FUNCTION public.identity_set_password(p_session_hash text, p_n
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_session  uuid;
     v_tenant   uuid;
     v_identity uuid;
@@ -402,7 +426,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -460,374 +484,6 @@ ALTER FUNCTION public.identity_set_password(text, text) OWNER TO tappa_identityd
 REVOKE ALL ON FUNCTION public.identity_set_password(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.identity_set_password(text, text) TO tappa_app;
 
--- identity_link_legacy: 2 session lookups.
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_link_legacy(p_identity_session_hash text, p_legacy_session_hash text)
- RETURNS TABLE(admin_user_id uuid, tenant_id uuid)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
-    v_identity       uuid;
-    v_identity_email public.citext;
-    v_digest         text;
-    v_legacy_session uuid;
-    v_legacy_tenant  uuid;
-    v_legacy_admin   uuid;
-    v_legacy_email   public.citext;
-    v_id_session     uuid;
-    v_id_tenant      uuid;
-    v_now            timestamptz;
-    v_fresh          timestamptz;
-    v_legacy_found   boolean;
-    v_legacy_live    boolean := false;
-    v_member         boolean := false;
-    v_auth           timestamptz;
-    v_auth_found     boolean;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_id_session, v_id_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_identity_session_hash
-       AND s.created_at > v_born_after
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    -- Lock order: the identity, every membership of it, the legacy membership, then the sessions.
-    SELECT i.email, i.password_hash INTO v_identity_email, v_digest
-      FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-
-    SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_legacy_session_hash
-       AND s.created_at > v_born_after
-       AND s.token_hash <> p_identity_session_hash
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NULL
-       FOR UPDATE OF a;
-    v_legacy_found := FOUND;
-
-    -- The sessions, after every row lock: the identity's re-checked under the identity lock, the
-    -- legacy one locked and re-checked; each one's freshness compared after its own lock.
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_id_session
-       AND s.tenant_id = v_id_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    IF v_legacy_found IS TRUE THEN
-        SELECT s.authenticated_at INTO v_auth
-          FROM public.admin_sessions AS s
-         WHERE s.id = v_legacy_session
-           AND s.tenant_id = v_legacy_tenant
-           AND s.revoked_at IS NULL
-           FOR UPDATE;
-        v_auth_found := FOUND;
-        v_now := pg_catalog.clock_timestamp();
-        v_legacy_live := (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS TRUE;
-        PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = v_legacy_tenant AND o.identity_id = v_identity;
-        v_member := FOUND;
-    END IF;
-    -- Every guard moved out of SQL fails closed on NULL: `(<allowed>) IS NOT TRUE` refuses a NULL.
-    IF (v_legacy_live AND v_legacy_email OPERATOR(public.=) v_identity_email AND NOT v_member) IS NOT TRUE THEN
-        INSERT INTO public.admin_identity_events (identity_id, event) VALUES (v_identity, 'link_refused');
-        RETURN;
-    END IF;
-
-    UPDATE public.admin_users AS a
-       SET identity_id = v_identity, linked_via = 'password', linked_at = now(), password_hash = v_digest
-     WHERE a.id = v_legacy_admin AND a.tenant_id = v_legacy_tenant AND a.identity_id IS NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-    UPDATE public.admin_sessions AS s SET revoked_at = now()
-     WHERE s.id = v_legacy_session AND s.tenant_id = v_legacy_tenant AND s.revoked_at IS NULL;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (v_legacy_tenant, v_legacy_admin, 'admin.membership.linked', v_legacy_admin::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok'));
-
-    RETURN QUERY SELECT v_legacy_admin, v_legacy_tenant;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_link_legacy(text, text) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_link_legacy(text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_link_legacy(text, text) TO tappa_app;
-
--- identity_unlink_backfilled: 1 session lookup.
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_unlink_backfilled(p_session_hash text, p_tenant uuid)
- RETURNS TABLE(admin_user_id uuid, revoked_sessions integer)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
-    v_identity   uuid;
-    v_scope      text;
-    v_opened     timestamptz;
-    v_target     uuid;
-    v_via        text;
-    v_linked_at  timestamptz;
-    v_sentinel   text;
-    v_constraint text;
-    v_n          integer;
-    v_session    uuid;
-    v_tenant     uuid;
-    v_now        timestamptz;
-    v_fresh      timestamptz;
-    v_auth       timestamptz;
-    v_auth_found boolean;
-    v_until      timestamptz;
-    v_verified   timestamptz;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    SELECT i.confirm_scope, i.confirm_opened_at, i.confirm_open_until, i.email_verified_at
-      INTO v_scope, v_opened, v_until, v_verified
-      FROM public.admin_identities AS i
-     WHERE i.id = v_identity
-       FOR UPDATE;
-    -- Lock order: the identity (above), every membership of it, then the session and token rows.
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_session
-       AND s.tenant_id = v_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    -- The window too, after the locks (NULL fails closed).
-    IF (v_verified IS NOT NULL AND v_until > v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-
-    -- The membership in p_tenant (UNIQUE (tenant_id, identity_id): at most one); the window's scope
-    -- decides, in plpgsql, whether it is on the list.
-    SELECT a.id, a.linked_via, a.linked_at INTO v_target, v_via, v_linked_at
-      FROM public.admin_users AS a
-     WHERE a.tenant_id = p_tenant
-       AND a.identity_id = v_identity
-       AND a.unlinked_at IS NULL
-       FOR UPDATE;
-    -- Fails closed on NULL (a NULL linked_via or linked_at is on no list): `IS NOT TRUE`, never `NOT`.
-    IF NOT FOUND
-       OR ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup', 'account'))
-           OR (v_scope = 'reset' AND v_linked_at < v_opened)) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-
-    -- ORDER (M14-01's audit): the row's UPDATE (sentinel + unlinked_at) runs BEFORE the statement that
-    -- revokes the tenant's sessions. A legacy login that holds the row FOR SHARE while it inserts a
-    -- session makes the unlink wait; the revocation, a LATER statement, then sees that session and
-    -- revokes it (READ COMMITTED takes a new snapshot per statement). Here the wait already comes at
-    -- the FOR UPDATE above, so both statements follow it; the order keeps that true if the lock moves.
-    BEGIN
-        -- The 32 random bytes exist only inside this expression (S20).
-        v_sentinel := public.crypt(pg_catalog.encode(public.gen_random_bytes(32), 'hex'), public.gen_salt('bf', 12));
-        UPDATE public.admin_users AS a
-           SET identity_id = NULL, unlinked_at = now(), password_hash = v_sentinel
-         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
-    EXCEPTION WHEN check_violation THEN
-        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-        -- Only a CHECK this file does not know (contract B's) takes the disable branch; no name (GET
-        -- STACKED DIAGNOSTICS gives '' for a bare RAISE, NULL never) re-raises.
-        IF coalesce(v_constraint, '') = '' OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
-                            'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
-                            'admin_users_status_check') THEN
-            RAISE;
-        END IF;
-        UPDATE public.admin_users AS a
-           SET unlinked_at = now(), status = 'disabled'
-         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
-    END;
-
-    UPDATE public.password_resets AS r SET cancelled_at = now()
-     WHERE r.tenant_id = p_tenant AND r.admin_user_id = v_target
-       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
-    UPDATE public.admin_sessions AS s SET revoked_at = now()
-     WHERE s.tenant_id = p_tenant AND s.admin_user_id = v_target AND s.revoked_at IS NULL;
-    GET DIAGNOSTICS v_n = ROW_COUNT;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (p_tenant, v_target, 'admin.membership.unlinked', v_target::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
-    INSERT INTO public.admin_identity_events (identity_id, event, detail)
-    VALUES (v_identity, 'membership_unlinked',
-            pg_catalog.jsonb_build_object('tenant', p_tenant::text, 'scope', v_scope));
-
-    RETURN QUERY SELECT v_target, v_n;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_unlink_backfilled(text, uuid) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_unlink_backfilled(text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_unlink_backfilled(text, uuid) TO tappa_app;
-
--- identity_relink_refused: 1 session lookup.
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_relink_refused(p_session_hash text, p_tenant uuid)
- RETURNS TABLE(admin_user_id uuid)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
-    v_identity uuid;
-    v_email    public.citext;
-    v_digest   text;
-    v_opened   timestamptz;
-    v_target   uuid;
-    v_session  uuid;
-    v_tenant   uuid;
-    v_found    boolean;
-    v_member   boolean;
-    v_now      timestamptz;
-    v_fresh    timestamptz;
-    v_auth       timestamptz;
-    v_auth_found boolean;
-    v_until      timestamptz;
-    v_verified   timestamptz;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    SELECT i.email, i.password_hash, i.confirm_opened_at, i.confirm_open_until INTO v_email, v_digest, v_opened, v_until
-      FROM public.admin_identities AS i
-     WHERE i.id = v_identity
-       FOR UPDATE;
-    -- Lock order: the identity (above), every membership of it, the refused row, then the session.
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    SELECT a.id INTO v_target
-      FROM public.admin_users AS a
-     WHERE a.tenant_id = p_tenant
-       AND a.email OPERATOR(public.=) v_email
-       AND a.identity_id IS NULL
-       AND a.unlinked_at >= v_opened
-       FOR UPDATE;
-    v_found := FOUND;
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_session
-       AND s.tenant_id = v_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    -- The window too, after the locks (NULL fails closed).
-    IF (v_found AND v_until > v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = p_tenant AND o.identity_id = v_identity;
-    v_member := FOUND;
-    IF v_member IS NOT FALSE THEN
-        RETURN;
-    END IF;
-
-    UPDATE public.admin_users AS a
-       SET identity_id = v_identity, linked_via = 'account', unlinked_at = NULL, password_hash = v_digest
-     WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id IS NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (p_tenant, v_target, 'admin.membership.relinked', v_target::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok'));
-    INSERT INTO public.admin_identity_events (identity_id, event, detail)
-    VALUES (v_identity, 'membership_relinked', pg_catalog.jsonb_build_object('tenant', p_tenant::text));
-
-    RETURN QUERY SELECT v_target;
-EXCEPTION WHEN unique_violation THEN
-    -- A membership of the identity in p_tenant committed between the check and the UPDATE.
-    RETURN;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_relink_refused(text, uuid) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_relink_refused(text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_relink_refused(text, uuid) TO tappa_app;
-
 -- identity_request_verification: 1 session lookup.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.identity_request_verification(p_session_hash text, p_token_hash text, p_purpose text DEFAULT 'verify'::text)
@@ -838,7 +494,7 @@ CREATE OR REPLACE FUNCTION public.identity_request_verification(p_session_hash t
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_identity uuid;
     v_id       uuid;
     v_expires  timestamptz;
@@ -850,7 +506,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -892,7 +548,7 @@ CREATE OR REPLACE FUNCTION public.identity_verify_email(p_verification_hash text
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_verification uuid;
     v_identity     uuid;
     v_first        boolean;
@@ -917,7 +573,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -983,7 +639,7 @@ CREATE OR REPLACE FUNCTION public.identity_accept_invite(p_invite_hash text, p_s
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_invite         uuid;
     v_tenant         uuid;
     v_email          public.citext;
@@ -1024,7 +680,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -1165,7 +821,7 @@ CREATE OR REPLACE FUNCTION public.identity_claim_signup(p_claim_hash text, p_ten
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_claim       uuid;
     v_email       public.citext;
     v_draft       jsonb;
@@ -1245,7 +901,7 @@ BEGIN
           FROM public.admin_sessions AS s
           JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
          WHERE s.token_hash = p_session_hash
-           AND s.created_at > v_born_after
+           AND s.authenticated_at > v_proven_after
            AND s.revoked_at IS NULL
            AND a.status = 'active'
            AND a.unlinked_at IS NULL
@@ -1370,7 +1026,7 @@ CREATE OR REPLACE FUNCTION public.identity_confirm_window(p_session_hash text)
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_identity uuid;
     v_email    public.citext;
     v_verified timestamptz;
@@ -1390,7 +1046,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -1481,7 +1137,7 @@ CREATE OR REPLACE FUNCTION public.identity_keep_all(p_session_hash text)
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_identity uuid;
     v_session  uuid;
     v_tenant   uuid;
@@ -1493,7 +1149,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -1552,7 +1208,7 @@ CREATE OR REPLACE FUNCTION public.identity_link_by_email(p_session_hash text, p_
 AS $function$
 #variable_conflict use_column
 DECLARE
-    v_born_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its row's birth
+    v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'; -- 00085: a session lives 12 h from its password proof
     v_verification   uuid;
     v_identity       uuid;
     v_session        uuid;
@@ -1587,7 +1243,7 @@ BEGIN
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.token_hash = p_session_hash
-       AND s.created_at > v_born_after
+       AND s.authenticated_at > v_proven_after
        AND s.revoked_at IS NULL
        AND a.status = 'active'
        AND a.unlinked_at IS NULL
@@ -1729,7 +1385,7 @@ GRANT EXECUTE ON FUNCTION public.identity_link_by_email(text, text) TO tappa_app
 -- +goose Down
 SET LOCAL lock_timeout = '1s';
 -- The bodies 00085 found (00011's resolver; 00071/00072/00077/00079/00080/00081/00084's definers), byte for
--- byte, their properties restated; then the two cells back.
+-- byte, their properties restated; then the resolver's cell back.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.resolve_admin_session_by_token_hash(p_token_hash text)
  RETURNS TABLE(id uuid, tenant_id uuid, admin_user_id uuid, revoked_at timestamp with time zone)
@@ -2104,364 +1760,6 @@ REVOKE ALL ON FUNCTION public.identity_set_password(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.identity_set_password(text, text) TO tappa_app;
 
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_link_legacy(p_identity_session_hash text, p_legacy_session_hash text)
- RETURNS TABLE(admin_user_id uuid, tenant_id uuid)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_identity       uuid;
-    v_identity_email public.citext;
-    v_digest         text;
-    v_legacy_session uuid;
-    v_legacy_tenant  uuid;
-    v_legacy_admin   uuid;
-    v_legacy_email   public.citext;
-    v_id_session     uuid;
-    v_id_tenant      uuid;
-    v_now            timestamptz;
-    v_fresh          timestamptz;
-    v_legacy_found   boolean;
-    v_legacy_live    boolean := false;
-    v_member         boolean := false;
-    v_auth           timestamptz;
-    v_auth_found     boolean;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_id_session, v_id_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_identity_session_hash
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    -- Lock order: the identity, every membership of it, the legacy membership, then the sessions.
-    SELECT i.email, i.password_hash INTO v_identity_email, v_digest
-      FROM public.admin_identities AS i WHERE i.id = v_identity FOR UPDATE;
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-
-    SELECT s.id, s.tenant_id, a.id, a.email INTO v_legacy_session, v_legacy_tenant, v_legacy_admin, v_legacy_email
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_legacy_session_hash
-       AND s.token_hash <> p_identity_session_hash
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NULL
-       FOR UPDATE OF a;
-    v_legacy_found := FOUND;
-
-    -- The sessions, after every row lock: the identity's re-checked under the identity lock, the
-    -- legacy one locked and re-checked; each one's freshness compared after its own lock.
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_id_session
-       AND s.tenant_id = v_id_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    IF v_legacy_found IS TRUE THEN
-        SELECT s.authenticated_at INTO v_auth
-          FROM public.admin_sessions AS s
-         WHERE s.id = v_legacy_session
-           AND s.tenant_id = v_legacy_tenant
-           AND s.revoked_at IS NULL
-           FOR UPDATE;
-        v_auth_found := FOUND;
-        v_now := pg_catalog.clock_timestamp();
-        v_legacy_live := (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS TRUE;
-        PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = v_legacy_tenant AND o.identity_id = v_identity;
-        v_member := FOUND;
-    END IF;
-    -- Every guard moved out of SQL fails closed on NULL: `(<allowed>) IS NOT TRUE` refuses a NULL.
-    IF (v_legacy_live AND v_legacy_email OPERATOR(public.=) v_identity_email AND NOT v_member) IS NOT TRUE THEN
-        INSERT INTO public.admin_identity_events (identity_id, event) VALUES (v_identity, 'link_refused');
-        RETURN;
-    END IF;
-
-    UPDATE public.admin_users AS a
-       SET identity_id = v_identity, linked_via = 'password', linked_at = now(), password_hash = v_digest
-     WHERE a.id = v_legacy_admin AND a.tenant_id = v_legacy_tenant AND a.identity_id IS NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-    UPDATE public.admin_sessions AS s SET revoked_at = now()
-     WHERE s.id = v_legacy_session AND s.tenant_id = v_legacy_tenant AND s.revoked_at IS NULL;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (v_legacy_tenant, v_legacy_admin, 'admin.membership.linked', v_legacy_admin::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok'));
-
-    RETURN QUERY SELECT v_legacy_admin, v_legacy_tenant;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_link_legacy(text, text) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_link_legacy(text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_link_legacy(text, text) TO tappa_app;
-
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_unlink_backfilled(p_session_hash text, p_tenant uuid)
- RETURNS TABLE(admin_user_id uuid, revoked_sessions integer)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_identity   uuid;
-    v_scope      text;
-    v_opened     timestamptz;
-    v_target     uuid;
-    v_via        text;
-    v_linked_at  timestamptz;
-    v_sentinel   text;
-    v_constraint text;
-    v_n          integer;
-    v_session    uuid;
-    v_tenant     uuid;
-    v_now        timestamptz;
-    v_fresh      timestamptz;
-    v_auth       timestamptz;
-    v_auth_found boolean;
-    v_until      timestamptz;
-    v_verified   timestamptz;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_session_hash
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    SELECT i.confirm_scope, i.confirm_opened_at, i.confirm_open_until, i.email_verified_at
-      INTO v_scope, v_opened, v_until, v_verified
-      FROM public.admin_identities AS i
-     WHERE i.id = v_identity
-       FOR UPDATE;
-    -- Lock order: the identity (above), every membership of it, then the session and token rows.
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_session
-       AND s.tenant_id = v_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    -- The window too, after the locks (NULL fails closed).
-    IF (v_verified IS NOT NULL AND v_until > v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-
-    -- The membership in p_tenant (UNIQUE (tenant_id, identity_id): at most one); the window's scope
-    -- decides, in plpgsql, whether it is on the list.
-    SELECT a.id, a.linked_via, a.linked_at INTO v_target, v_via, v_linked_at
-      FROM public.admin_users AS a
-     WHERE a.tenant_id = p_tenant
-       AND a.identity_id = v_identity
-       AND a.unlinked_at IS NULL
-       FOR UPDATE;
-    -- Fails closed on NULL (a NULL linked_via or linked_at is on no list): `IS NOT TRUE`, never `NOT`.
-    IF NOT FOUND
-       OR ((v_scope = 'first_verify' AND v_via IN ('backfill', 'reconcile', 'signup', 'account'))
-           OR (v_scope = 'reset' AND v_linked_at < v_opened)) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-
-    -- ORDER (M14-01's audit): the row's UPDATE (sentinel + unlinked_at) runs BEFORE the statement that
-    -- revokes the tenant's sessions. A legacy login that holds the row FOR SHARE while it inserts a
-    -- session makes the unlink wait; the revocation, a LATER statement, then sees that session and
-    -- revokes it (READ COMMITTED takes a new snapshot per statement). Here the wait already comes at
-    -- the FOR UPDATE above, so both statements follow it; the order keeps that true if the lock moves.
-    BEGIN
-        -- The 32 random bytes exist only inside this expression (S20).
-        v_sentinel := public.crypt(pg_catalog.encode(public.gen_random_bytes(32), 'hex'), public.gen_salt('bf', 12));
-        UPDATE public.admin_users AS a
-           SET identity_id = NULL, unlinked_at = now(), password_hash = v_sentinel
-         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
-    EXCEPTION WHEN check_violation THEN
-        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-        -- Only a CHECK this file does not know (contract B's) takes the disable branch; no name (GET
-        -- STACKED DIAGNOSTICS gives '' for a bare RAISE, NULL never) re-raises.
-        IF coalesce(v_constraint, '') = '' OR v_constraint IN ('admin_users_link_has_a_time', 'admin_users_linked_via_known',
-                            'admin_users_password_hash_is_bcrypt', 'admin_users_role_check',
-                            'admin_users_status_check') THEN
-            RAISE;
-        END IF;
-        UPDATE public.admin_users AS a
-           SET unlinked_at = now(), status = 'disabled'
-         WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id = v_identity;
-    END;
-
-    UPDATE public.password_resets AS r SET cancelled_at = now()
-     WHERE r.tenant_id = p_tenant AND r.admin_user_id = v_target
-       AND r.used_at IS NULL AND r.cancelled_at IS NULL AND r.expires_at > v_now;
-    UPDATE public.admin_sessions AS s SET revoked_at = now()
-     WHERE s.tenant_id = p_tenant AND s.admin_user_id = v_target AND s.revoked_at IS NULL;
-    GET DIAGNOSTICS v_n = ROW_COUNT;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (p_tenant, v_target, 'admin.membership.unlinked', v_target::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok', 'revoked_sessions', v_n));
-    INSERT INTO public.admin_identity_events (identity_id, event, detail)
-    VALUES (v_identity, 'membership_unlinked',
-            pg_catalog.jsonb_build_object('tenant', p_tenant::text, 'scope', v_scope));
-
-    RETURN QUERY SELECT v_target, v_n;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_unlink_backfilled(text, uuid) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_unlink_backfilled(text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_unlink_backfilled(text, uuid) TO tappa_app;
-
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION public.identity_relink_refused(p_session_hash text, p_tenant uuid)
- RETURNS TABLE(admin_user_id uuid)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
-AS $function$
-#variable_conflict use_column
-DECLARE
-    v_identity uuid;
-    v_email    public.citext;
-    v_digest   text;
-    v_opened   timestamptz;
-    v_target   uuid;
-    v_session  uuid;
-    v_tenant   uuid;
-    v_found    boolean;
-    v_member   boolean;
-    v_now      timestamptz;
-    v_fresh    timestamptz;
-    v_auth       timestamptz;
-    v_auth_found boolean;
-    v_until      timestamptz;
-    v_verified   timestamptz;
-BEGIN
-    v_now := pg_catalog.clock_timestamp();
-    v_fresh := v_now - interval '5 minutes';
-    SELECT s.id, s.tenant_id, a.identity_id INTO v_session, v_tenant, v_identity
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.token_hash = p_session_hash
-       AND s.revoked_at IS NULL
-       AND s.authenticated_at > v_fresh
-       AND s.authenticated_at <= v_now
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id IS NOT NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-
-    SELECT i.email, i.password_hash, i.confirm_opened_at, i.confirm_open_until INTO v_email, v_digest, v_opened, v_until
-      FROM public.admin_identities AS i
-     WHERE i.id = v_identity
-       FOR UPDATE;
-    -- Lock order: the identity (above), every membership of it, the refused row, then the session.
-    PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    SELECT a.id INTO v_target
-      FROM public.admin_users AS a
-     WHERE a.tenant_id = p_tenant
-       AND a.email OPERATOR(public.=) v_email
-       AND a.identity_id IS NULL
-       AND a.unlinked_at >= v_opened
-       FOR UPDATE;
-    v_found := FOUND;
-    -- Re-checked under the identity lock (READ COMMITTED: the lock-free read above may predate a
-    -- reset or a revocation that committed while this call waited); its freshness is judged AFTER the
-    -- row lock, with the clock read again -- a lock wait must not leave a stale v_now.
-    SELECT s.authenticated_at INTO v_auth
-      FROM public.admin_sessions AS s
-      JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
-     WHERE s.id = v_session
-       AND s.tenant_id = v_tenant
-       AND s.revoked_at IS NULL
-       AND a.status = 'active'
-       AND a.unlinked_at IS NULL
-       AND a.identity_id = v_identity
-       FOR UPDATE OF s;
-    v_auth_found := FOUND;
-    v_now := pg_catalog.clock_timestamp();
-    IF (v_auth_found AND v_auth > v_now - interval '5 minutes' AND v_auth <= v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    -- The window too, after the locks (NULL fails closed).
-    IF (v_found AND v_until > v_now) IS NOT TRUE THEN
-        RETURN;
-    END IF;
-    PERFORM 1 FROM public.admin_users AS o WHERE o.tenant_id = p_tenant AND o.identity_id = v_identity;
-    v_member := FOUND;
-    IF v_member IS NOT FALSE THEN
-        RETURN;
-    END IF;
-
-    UPDATE public.admin_users AS a
-       SET identity_id = v_identity, linked_via = 'account', unlinked_at = NULL, password_hash = v_digest
-     WHERE a.id = v_target AND a.tenant_id = p_tenant AND a.identity_id IS NULL;
-    IF NOT FOUND THEN
-        RETURN;
-    END IF;
-    INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)
-    VALUES (p_tenant, v_target, 'admin.membership.relinked', v_target::text,
-            pg_catalog.jsonb_build_object('outcome', 'ok'));
-    INSERT INTO public.admin_identity_events (identity_id, event, detail)
-    VALUES (v_identity, 'membership_relinked', pg_catalog.jsonb_build_object('tenant', p_tenant::text));
-
-    RETURN QUERY SELECT v_target;
-EXCEPTION WHEN unique_violation THEN
-    -- A membership of the identity in p_tenant committed between the check and the UPDATE.
-    RETURN;
-END;
-$function$;
--- +goose StatementEnd
-ALTER FUNCTION public.identity_relink_refused(text, uuid) OWNER TO tappa_identitydefiner;
-REVOKE ALL ON FUNCTION public.identity_relink_refused(text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.identity_relink_refused(text, uuid) TO tappa_app;
-
--- +goose StatementBegin
 CREATE OR REPLACE FUNCTION public.identity_request_verification(p_session_hash text, p_token_hash text, p_purpose text DEFAULT 'verify'::text)
  RETURNS TABLE(verification_id uuid, expires_at timestamp with time zone)
  LANGUAGE plpgsql
@@ -3338,5 +2636,4 @@ ALTER FUNCTION public.identity_link_by_email(text, text) OWNER TO tappa_identity
 REVOKE ALL ON FUNCTION public.identity_link_by_email(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.identity_link_by_email(text, text) TO tappa_app;
 
-REVOKE SELECT (created_at) ON admin_sessions FROM tappa_identitydefiner;
-REVOKE SELECT (created_at) ON admin_sessions FROM tappa_resolver;
+REVOKE SELECT (authenticated_at) ON admin_sessions FROM tappa_resolver;

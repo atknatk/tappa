@@ -304,6 +304,7 @@ var storeSurface = map[string]string{
 	// test was already RED on the branch before ADR 0018's app_key_ref work. They are
 	// recorded here verbatim from the generated artifact -- none returns a []byte over
 	// `tags`, so none is a §4.7 finding -- purely to make the suite green again.
+	"GetAdminSessionSecondsLeft":    "(context.Context, GetAdminSessionSecondsLeftParams{ID uuid.UUID; TenantID uuid.UUID}) (int32, error)", // T183: one integer, the switched cookie's Max-Age
 	"GetAdminPasswordHashByID":      "(context.Context, GetAdminPasswordHashByIDParams{ID uuid.UUID; TenantID uuid.UUID}) (GetAdminPasswordHashByIDRow{ID uuid.UUID; PasswordHash string; Status string}, error)",
 	"GetBillingPeriod":              "(context.Context, GetBillingPeriodParams{TenantID uuid.UUID; PeriodMonth pgtype.Date}) (GetBillingPeriodRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
 	"GetDepartmentShift":            "(context.Context, GetDepartmentShiftParams{TenantID uuid.UUID; ID uuid.UUID}) (GetDepartmentShiftRow{ID uuid.UUID; TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
@@ -1200,14 +1201,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 250 -> 255 on 2026-10-27 (M14-16, 239 -> 244 on its branch): adminmembers.sql's five
 	// (LockActiveAdminOwners, LockAdminMember, ListAdminMembers, SetAdminMemberStatus,
 	// SetAdminMemberRole), each over the caller's own business's admin_users; none calls a definer.
-	if named != 255 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FIFTY-FIVE were "+
-			"there when this was pinned (2026-10-27: 111 on 2026-08-24, + T73's three "+
+	// 255 -> 256 on 2026-10-31 (T183): admins.sql's GetAdminSessionSecondsLeft, over the caller's own
+	// business's admin_sessions (the switched cookie's Max-Age); it calls no definer.
+	if named != 256 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FIFTY-SIX were "+
+			"there when this was pinned (2026-10-31: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

@@ -561,16 +561,9 @@ var identityDefinerMatrixM1422 = map[string]string{
 	"admin_identity_verifications:INSERT": "purpose",
 }
 
-// identityDefinerMatrixT183 is what 00085 grants tappa_identitydefiner (T183, ADR 0035): the session
-// row's birth, which every lookup of a session by its hash compares with the lifetime. Inside the ADR's
-// admin_sessions SELECT cell (identityADRMatrix: "*"); no function returns it.
-var identityDefinerMatrixT183 = map[string]string{
-	"admin_sessions:SELECT": "created_at",
-}
-
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
 var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415, identityDefinerMatrixM1417,
-	identityDefinerMatrixM1406b, identityDefinerMatrixM1422, identityDefinerMatrixT183}
+	identityDefinerMatrixM1406b, identityDefinerMatrixM1422}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {

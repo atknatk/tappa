@@ -792,6 +792,12 @@ type Session struct {
 type Issued struct {
 	Session Session
 	Token   Token
+	// Left is how long the session has left when its proof is OLDER than the session (T183, ADR
+	// 0035): a switch births a new row but carries its predecessor's password proof, and the session
+	// ends 12 hours after the proof, so the new cookie must end then too (Cookies.SetIssued). ZERO
+	// MEANS A FULL LIFETIME -- a session born with its proof (a sign-in) -- which is the harmless
+	// direction: at worst a cookie the server already refuses.
+	Left time.Duration
 }
 
 // Issue mints a panel session for a VERIFIED identity and stamps last_login_at.
@@ -1005,7 +1011,7 @@ func suspensionOf(at *time.Time, reason *string) *Suspension {
 // the alternative is worse: the ONLY in-SQL check that an admin is still active
 // lives in this statement, and a panel that skipped it would keep serving a
 // disabled admin until their session ended (db.AdminSessionLifetime from its
-// birth since 00085 — before it, never). The write only happens for a cookie that
+// password proof since 00085 — before it, never). The write only happens for a cookie that
 // ALREADY resolved to a live session row, so an unauthenticated flood costs reads,
 // not writes.
 //

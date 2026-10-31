@@ -449,10 +449,39 @@ func (q *Queries) GetAdminPasswordHashByID(ctx context.Context, arg GetAdminPass
 	return i, err
 }
 
+const getAdminSessionSecondsLeft = `-- name: GetAdminSessionSecondsLeft :one
+SELECT CEIL(EXTRACT(EPOCH FROM (authenticated_at + interval '12 hours' - now())))::integer AS seconds_left
+FROM admin_sessions
+WHERE id = $1
+  AND tenant_id = $2
+  AND revoked_at IS NULL
+  AND authenticated_at > now() - interval '12 hours'
+`
+
+type GetAdminSessionSecondsLeftParams struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+}
+
+// How many whole seconds one live panel session has left (T183, ADR 0035): its end is its password
+// proof (authenticated_at) + 12 hours, and a switch copies the proof, so the session a switch births
+// ends when its predecessor would have. adminauth.Manager.Switch reads this right after the switch so
+// the new cookie's Max-Age is the REMAINING time and the browser drops it when the server stops
+// honouring it. Rounded UP (a session with 0.4 s left must not get Max-Age=0, which net/http would
+// send as no Max-Age at all -- a cookie with no end). 0 rows: revoked, ended, or not in this tenant.
+// The database's clock, never the process's, so the two ends cannot drift apart by clock skew.
+func (q *Queries) GetAdminSessionSecondsLeft(ctx context.Context, arg GetAdminSessionSecondsLeftParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getAdminSessionSecondsLeft, arg.ID, arg.TenantID)
+	var seconds_left int32
+	err := row.Scan(&seconds_left)
+	return seconds_left, err
+}
+
 const listAdminSessionsForAdmin = `-- name: ListAdminSessionsForAdmin :many
 SELECT id, tenant_id, admin_user_id, created_at, last_used_at,
-       COALESCE(revoked_at, CASE WHEN created_at <= now() - interval '12 hours'
-                                 THEN created_at + interval '12 hours' END) AS revoked_at
+       COALESCE(revoked_at, CASE WHEN authenticated_at IS NULL THEN created_at
+                                 WHEN authenticated_at <= now() - interval '12 hours'
+                                 THEN authenticated_at + interval '12 hours' END) AS revoked_at
 FROM admin_sessions
 WHERE tenant_id = $1
   AND admin_user_id = $2
@@ -479,7 +508,8 @@ type ListAdminSessionsForAdminRow struct {
 // token_hash is NOT selected: nothing outside the resolution path needs it.
 //
 // revoked_at is the session's END (T183, ADR 0035, migration 00085 -- the resolver's rule): the
-// revocation, or created_at + 12 hours once that has passed. So a row past its lifetime never reads as
+// revocation; else, for a session with no password proof on record (NULL authenticated_at), its birth;
+// else authenticated_at + 12 hours once that has passed. So a row past its lifetime never reads as
 // live in a list -- the same answer resolve_admin_session_by_token_hash gives for its cookie.
 func (q *Queries) ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error) {
 	rows, err := q.db.Query(ctx, listAdminSessionsForAdmin, arg.TenantID, arg.AdminUserID)
@@ -729,7 +759,7 @@ FROM admin_users a, tenants t
 WHERE s.id = $1
   AND s.tenant_id = $2
   AND s.revoked_at IS NULL
-  AND s.created_at > now() - interval '12 hours'
+  AND s.authenticated_at > now() - interval '12 hours'
   AND a.id = s.admin_user_id
   AND a.tenant_id = s.tenant_id
   AND a.status = 'active'
@@ -795,10 +825,11 @@ type TouchAdminSessionRow struct {
 // never rendered, logged or written to an audit row.
 //
 // THE SESSION'S LIFETIME RIDES ON IT TOO (T183, ADR 0035, migration 00085): a session lives 12 hours from
-// its row's birth -- internal/db.AdminSessionLifetime, the cookie's Max-Age derived from it -- and past
-// that this statement answers 0 rows like a revoked one. The resolver already reports such a session
-// as revoked (00085), so adminauth.Verify never reaches here with one; the predicate is for a caller
-// that forgot to look (adminsessionlifetime_test.go pins the literal to the constant at the second).
+// its password proof (authenticated_at, which a switch copies -- so switching does not restart it;
+// NULL is ended, ADR 0031 §5.1) -- internal/db.AdminSessionLifetime -- and past that this statement
+// answers 0 rows like a revoked one. The resolver already reports such a session as revoked (00085),
+// so adminauth.Verify never reaches here with one; the predicate is for a caller that forgot to look
+// (adminsessionlifetime_test.go pins the literal to the constant at the second).
 func (q *Queries) TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error) {
 	row := q.db.QueryRow(ctx, touchAdminSession, arg.ID, arg.TenantID)
 	var i TouchAdminSessionRow

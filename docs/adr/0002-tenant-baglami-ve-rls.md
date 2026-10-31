@@ -577,10 +577,11 @@ Kararın kendisi değişmez; M14'ün etkisi:
   değildir). Gerekçe ve sınırlar: [ADR 0031](0031-tek-kimlik-cok-isletme.md) §5.2'nin M14-16b notu.
 - **`resolve_admin_session_by_token_hash` — oturumun sonu (T183, `00085`, 2026-10-31 kullanıcı kararı,
   [ADR 0035](0035-panel-oturumu-sunucuda-biter.md)):** dönen `revoked_at` artık oturumun **sonu**dur — iptal
-  anı, yoksa satırın doğumundan 12 saat geçtiğinde `created_at + 12 saat`. *"Taşı, süzme"* ilkesi korunur
-  (satır döner; karar uygulamada, iptalle aynı dalda). Beş kısıt aynen: girdi yalnız hash, ≤ 1 satır, aynı
-  dört sütun, `tappa_app`'in tabloda çapraz-tenant `SELECT`'i yok, naif dal yok. `tappa_resolver`'ın yetkisi
-  bir sütun genişler: `admin_sessions SELECT (created_at)` — okunur, döndürülmez.
+  anı; parola kanıtı (`authenticated_at`) yoksa `now()`; kanıttan 12 saat geçtiyse `authenticated_at + 12 saat`.
+  *"Taşı, süzme"* ilkesi korunur (satır döner; karar uygulamada, iptalle aynı dalda). Beş kısıt aynen: girdi
+  yalnız hash, ≤ 1 satır, aynı dört sütun, `tappa_app`'in tabloda çapraz-tenant `SELECT`'i yok, naif dal yok.
+  `tappa_resolver`'ın yetkisi bir sütun genişler (orkestratörün kabulü): `admin_sessions SELECT
+  (authenticated_at)` — okunur, döndürülmez.
 - **Yazan `identity_*` fonksiyonları md.7 değildir**, CLAUDE.md §4.5'in **(3)** numaralı bilinçli
   istisnasıdır (ADR 0031 §6, §6.1; sahibi `tappa_identitydefiner`). md.7'de yalnız salt okuma
   çözümleyiciler kalır (ADR 0031 §13, K-13).

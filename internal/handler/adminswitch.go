@@ -215,7 +215,9 @@ func (a *AdminAuth) adminSwitch(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemSwitchUnavailable)
 		return
 	}
-	if err := a.cookies.Set(w, issued.Token); err != nil {
+	// SetIssued, not Set: the switched session ends 12 hours after the SIGN-IN it carries (T183), so its
+	// cookie's Max-Age is the time left, not a fresh twelve hours.
+	if err := a.cookies.SetIssued(w, issued); err != nil {
 		// Unreachable in practice (Set fails only on an empty token, and Switch never returns
 		// one): the switch committed and the old session is revoked, so the browser is signed out
 		// and the sign-in page is the honest way on.

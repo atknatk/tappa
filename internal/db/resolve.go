@@ -312,16 +312,18 @@ FROM resolve_admin_by_email($1::citext)`
 const getAdminSessionByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, revoked_at
 FROM resolve_admin_session_by_token_hash($1)`
 
-// AdminSessionLifetime is how long a PANEL session lives, counted from the birth of its
-// admin_sessions row (created_at) -- ABSOLUTE, not idle: use does not extend it (T183, ADR 0035,
-// the user's decision of 2026-10-31; OWASP's absolute session timeout). A switch of business births
-// a new row, so it starts a new lifetime, exactly as it sets a new cookie.
+// AdminSessionLifetime is how long a PANEL session lives, counted from its PASSWORD PROOF
+// (admin_sessions.authenticated_at) -- ABSOLUTE, not idle: use does not extend it (T183, ADR 0035,
+// the user's decision of 2026-10-31; OWASP's absolute session timeout). A switch of business births a
+// new row but copies the proof, so it does NOT start a new lifetime; its cookie gets the time left.
+// A session with no proof on record (NULL) has ended (ADR 0031 §5.1, fail-closed).
 //
 // It is the Go side's one copy of the number. The database's copy is the literal
 // `interval '12 hours'` in migration 00085's sixteen bodies and in db/queries/admins.sql's
-// TouchAdminSession and ListAdminSessionsForAdmin; adminsessionlifetime_test.go pins every one of
-// those paths to this constant at the one-second boundary, and internal/adminauth pins the cookie's
-// Max-Age to it. Changing it is therefore a migration as well as this line.
+// TouchAdminSession, ListAdminSessionsForAdmin and GetAdminSessionSecondsLeft;
+// adminsessionlifetime_test.go pins every one of those paths to this constant at the one-second
+// boundary, and internal/adminauth pins the cookie's Max-Age to it. Changing it is therefore a
+// migration as well as this line.
 const AdminSessionLifetime = 12 * time.Hour
 
 const getPasswordResetByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
@@ -525,8 +527,9 @@ func (d *DB) GetAdminByEmail(ctx context.Context, email string) ([]ResolvedAdmin
 // RLS.
 //
 // REVOKEDAT IS THE SESSION'S END (migration 00085, ADR 0035): its revocation, or --
-// when nobody revoked it -- the moment AdminSessionLifetime from its birth ran out,
-// once that is past. Returned, not filtered, so the caller's one test (non-nil:
+// when nobody revoked it -- the moment AdminSessionLifetime from its password proof
+// ran out, once that is past (now() for a session with no proof on record).
+// Returned, not filtered, so the caller's one test (non-nil:
 // refuse) covers both, and so did the binary before 00085's.
 //
 // An EMPLOYEE session token cannot resolve here: it is a row in a different table

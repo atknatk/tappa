@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/atknatk/tappa/internal/config"
 )
@@ -56,14 +57,17 @@ const (
 	//
 	// THE SERVER ENDS THE SESSION AT THE SAME MOMENT (T183, ADR 0035, migration
 	// 00085 — the user's decision of 2026-10-31, "Sunucuda 12 saat mutlak"). A
-	// session lives db.AdminSessionLifetime from its admin_sessions row's birth,
-	// ABSOLUTE (use does not extend it), and this Max-Age is pinned equal to it
-	// (TestAdminAuthConstants_ShippedValuesArePinned). The cookie is set only when a
-	// row is born — sign-in and switch (a switch births a new row) — so the browser
-	// drops the cookie when the server stops honouring it, and a normal user sees
-	// no difference. What 00085 ends is the KEPT or COPIED cookie: past its lifetime
-	// the resolver reports the session revoked, TouchAdminSession answers 0 rows,
-	// and every identity_* function keyed by a session hash refuses it.
+	// session lives db.AdminSessionLifetime from its PASSWORD PROOF
+	// (admin_sessions.authenticated_at), ABSOLUTE (use does not extend it), and
+	// this Max-Age is pinned equal to it (TestAdminAuthConstants_ShippedValuesArePinned).
+	// A sign-in births the proof with the row, so its cookie gets the full
+	// lifetime; a switch births a row but CARRIES the proof, so its cookie gets
+	// the time left (SetIssued, Issued.Left) — switching does not restart the
+	// clock. Either way the browser drops the cookie when the server stops
+	// honouring it, and a normal user sees no difference. What 00085 ends is the
+	// KEPT or COPIED cookie: past its lifetime the resolver reports the session
+	// revoked, TouchAdminSession answers 0 rows, and every identity_* function
+	// keyed by a session hash refuses it.
 	//
 	// HISTORY, KEPT BECAUSE THE GAP WAS REAL FOR A YEAR OF RELEASES: until 00085
 	// this Max-Age was a HINT, NOT AN EXPIRY. admin_sessions (migration 00006)
@@ -152,6 +156,10 @@ func (c Cookies) Secure() bool { return !c.insecure }
 // that does not hold the cookie cannot produce it. The encode relay's three routes are
 // the named exception (internal/handler/formbinding.go).
 func (c Cookies) Set(w http.ResponseWriter, t Token) error {
+	return c.set(w, t, cookieMaxAgeSeconds)
+}
+
+func (c Cookies) set(w http.ResponseWriter, t Token, maxAge int) error {
 	// reveal() is "" for the zero Token as well as an empty one, so one check
 	// covers both and nothing is dereferenced blindly.
 	v := t.reveal()
@@ -162,12 +170,26 @@ func (c Cookies) Set(w http.ResponseWriter, t Token) error {
 		Name:     CookieName,
 		Value:    v,
 		Path:     CookiePath,
-		MaxAge:   cookieMaxAgeSeconds,
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   c.Secure(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	return nil
+}
+
+// SetIssued writes the cookie of an issued session: Set's cookie, with Max-Age the session's
+// remaining time when it has less than a full lifetime (Issued.Left -- a switch, T183) so the browser
+// drops the cookie when the server stops honouring the session. Rounded up to whole seconds and never
+// below one: Max-Age=0 is no Max-Age at all in net/http (a cookie with no end). A Left beyond the full
+// lifetime is held to it.
+func (c Cookies) SetIssued(w http.ResponseWriter, is Issued) error {
+	maxAge := cookieMaxAgeSeconds
+	if is.Left > 0 {
+		left := int((is.Left + time.Second - 1) / time.Second)
+		maxAge = max(1, min(left, cookieMaxAgeSeconds))
+	}
+	return c.set(w, is.Token, maxAge)
 }
 
 // Clear expires the panel cookie in the browser. It is the client-side twin of

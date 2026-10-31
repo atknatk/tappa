@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/atknatk/tappa/internal/db"
 )
 
 // identityops_db_test.go -- M14-08 against real Postgres: Switch, RevokeAll and the dual-write of a
@@ -68,6 +70,52 @@ func (w *idWorld) digestInvariant() {
 	if n := w.int(`SELECT count(*) FROM admin_users a JOIN admin_identities i ON i.id = a.identity_id
 	                WHERE i.id = $1 AND a.unlinked_at IS NULL AND a.password_hash <> i.password_hash`, w.ident); n != 0 {
 		w.t.Fatalf("%d linked row(s) whose digest is not the identity's (ADR 0031 §5.1)", n)
+	}
+}
+
+// TestSwitch_TheNewSessionEndsAtTheSignInsEnd (T183, ADR 0035): signed in db.AdminSessionLifetime
+// less ninety seconds ago, the person switches; the new session carries the sign-in's proof, so Switch
+// hands back Left = the time remaining (its cookie's Max-Age, Cookies.SetIssued), not a fresh lifetime,
+// and once the remainder has passed the new token no longer verifies although its row is a minute old.
+// A sign-in's Issued carries no Left (a full lifetime).
+func TestSwitch_TheNewSessionEndsAtTheSignInsEnd(t *testing.T) {
+	d := testDB(t)
+	m := testManager(t, d)
+	w := newIDWorld(t, ownerConn(t), true)
+	ta, tb := w.tenant("T183 Switch A"), w.tenant("T183 Switch B")
+	w.linked(ta, "active", "backfill", 72*time.Hour)
+	w.linked(tb, "active", "backfill", 48*time.Hour)
+	ctx := context.Background()
+
+	in, err := w.signInOn(m, w.pw, ta)
+	if err != nil || in.Session.TenantID != ta {
+		t.Fatalf("sign-in: %+v, %v", in.Session, err)
+	}
+	if in.Left != 0 {
+		t.Fatalf("a sign-in's Issued carries Left %v, want 0 (a full lifetime)", in.Left)
+	}
+	age := func(id uuid.UUID, by time.Duration) {
+		t.Helper()
+		if _, err := w.owner.Exec(ctx, `UPDATE admin_sessions SET created_at = created_at - make_interval(secs => $2),
+		                                                       authenticated_at = authenticated_at - make_interval(secs => $2) WHERE id = $1`, id, by.Seconds()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	age(in.Session.ID, db.AdminSessionLifetime-90*time.Second)
+	sw, err := m.Switch(ctx, in.Token, tb)
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	// Ninety seconds left, less the wall time the switch itself took (rounded up to the second).
+	if sw.Left <= 60*time.Second || sw.Left > 90*time.Second {
+		t.Fatalf("the switched session has Left %v, want the ~90 s its sign-in had left", sw.Left)
+	}
+	if _, err := m.Verify(ctx, sw.Token); err != nil {
+		t.Fatalf("the switched session inside its remainder: %v", err)
+	}
+	age(sw.Session.ID, 90*time.Second)
+	if _, err := m.Verify(ctx, sw.Token); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("the switched session past its sign-in's end: %v, want ErrNoSession (the switch restarted the clock)", err)
 	}
 }
 

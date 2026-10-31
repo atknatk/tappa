@@ -392,8 +392,6 @@ func TestIdentityUnlink00079_AnUndoneRowStaysOnTheFirstVerifyListAndUnlinksAgain
 // properties and grants restated; the Up's body differs from it only by the 'account' literal.
 func TestIdentity00079_DownGivesTheUnlinkBodyBackByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
-	// T183: 00085 redefines this file's bodies again (the session lifetime); "HEAD" below is 00084.
-	aslBelow00085(t, ctx, tx)
 	up, down := opMigrationSections(t, ia00079File)
 	src72, _ := opMigrationSections(t, ip00072File)
 	body := func(src string) string {

@@ -217,9 +217,9 @@ SELECT line FROM (
 // ADR 0031 §8 step 5 (S18) -- took tappa_app's EXECUTE on identity_create_for_signup (no binary calls
 // it since M14-17; contract B drops it), so its line shows the owner alone, and granted nothing (its
 // other job, the confirmation windows' end, is data); 00085 -- T183, ADR 0035 (a panel session ends 12
-// hours after its row's birth) -- granted SELECT (created_at) on admin_sessions to tappa_resolver and to
-// tappa_identitydefiner, the two lines above that read the row's birth for the lifetime, and changed
-// nothing else (its sixteen redefinitions keep owner, definer and EXECUTE) -- and READ
+// hours after its password proof) -- granted tappa_resolver SELECT (authenticated_at) on admin_sessions,
+// the resolver's line above, and changed nothing else (tappa_identitydefiner has read the column since
+// 00071; its thirteen redefinitions keep owner, definer and EXECUTE) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -271,9 +271,9 @@ column admin_signup_claims tappa_resolver SELECT id,token_hash,email,draft,passw
 column admin_sessions tappa_app INSERT id,tenant_id,admin_user_id,token_hash
 column admin_sessions tappa_app UPDATE last_used_at,revoked_at
 column admin_sessions tappa_identitydefiner INSERT tenant_id,admin_user_id,token_hash,authenticated_at
-column admin_sessions tappa_identitydefiner SELECT id,tenant_id,admin_user_id,token_hash,created_at,revoked_at,authenticated_at
+column admin_sessions tappa_identitydefiner SELECT id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at
 column admin_sessions tappa_identitydefiner UPDATE revoked_at
-column admin_sessions tappa_resolver SELECT id,tenant_id,admin_user_id,token_hash,created_at,revoked_at
+column admin_sessions tappa_resolver SELECT id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at
 column admin_users tappa_app INSERT id,tenant_id,full_name,email,password_hash,role,status
 column admin_users tappa_app SELECT id,tenant_id,full_name,email,password_hash,role,status,created_at,last_login_at,identity_id
 column admin_users tappa_app UPDATE full_name,password_hash,role,status,last_login_at
