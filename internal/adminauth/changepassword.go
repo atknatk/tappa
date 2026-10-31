@@ -41,6 +41,18 @@ var (
 	// unknown/wrong-tenant id (the read finds nothing) and a disabled account (the write
 	// updates nothing) are the same outcome to the caller -- there is no active admin to
 	// rotate a credential for.
+
+	// ErrPasswordChangeSessionGone means the row was LINKED to an identity while the change ran and
+	// the link ended the request's session (T179): the link by e-mail revokes the sessions of every
+	// row it links, each opened with the row's old password, and the row's password became the
+	// identity's. Nothing was changed. The request is answered as the next one would be -- this
+	// browser is signed out.
+	ErrPasswordChangeSessionGone = errors.New("adminauth: change password: the session ended while the row was linked")
+
+	// errRowLinkedMeanwhile is changeRowPassword's answer when SetOwnAdminPassword wrote nothing to
+	// a row that is still active: the statement's other predicate, `identity_id IS NULL`, is the one
+	// that failed -- a linker committed between the identity check and the write (T179).
+	errRowLinkedMeanwhile = errors.New("adminauth: change password: the row was linked meanwhile")
 )
 
 // PasswordChange is what ChangeOwnPassword did.
@@ -77,9 +89,15 @@ type PasswordChange struct {
 // tenant comes from the SESSION (§4.5), never the request, and SetOwnAdminPassword has no
 // admin_user_id parameter that could name someone else.
 //
-// ⚠️ NAMED COST: a row linked BETWEEN the two paths' first reads (a sign-in elsewhere linking it,
-// the reconciliation) reaches today's UPDATE and the trigger refuses it -- one 500, nothing written,
-// the next try goes through the identity. The same class as ADR 0031 §5.1's rollout cost.
+// A ROW LINKED WHILE THE CHANGE RUNS (T179) -- between the identity check and today's UPDATE: a
+// sign-in elsewhere linking it, the link by e-mail, the reconciliation. SetOwnAdminPassword writes
+// unlinked rows only (`identity_id IS NULL`), so the race is 0 rows rather than 00069's trigger
+// (restrict_violation, a 500); changeRowPassword rolls back and says so (errRowLinkedMeanwhile), and
+// the change is asked of the identity ONCE more, exactly as if the request had come a moment later:
+// the identity's digest (the same password after a reconciliation or a sign-in's link; the
+// identity's own after the link by e-mail -- then the current password the person typed is
+// rightly "not right"), then identity_set_password. A link that ended this session (the link by
+// e-mail does) leaves no key: ErrPasswordChangeSessionGone, nothing changed.
 func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session Token, current, next string) (PasswordChange, error) {
 	if tenantID == uuid.Nil || adminID == uuid.Nil {
 		return PasswordChange{}, errors.New("adminauth: change password: tenant and admin are required")
@@ -97,7 +115,18 @@ func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exce
 		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
 	}
 	n, err := m.changeRowPassword(ctx, tenantID, adminID, exceptSessionID, current, next)
-	return PasswordChange{RevokedOtherSessions: n}, err
+	if !errors.Is(err, errRowLinkedMeanwhile) {
+		return PasswordChange{RevokedOtherSessions: n}, err
+	}
+	digest, err = m.data.IdentityPasswordForSession(ctx, h)
+	switch {
+	case err == nil:
+		return m.changeIdentityPassword(ctx, h, digest.RevealForPasswordComparison(), current, next)
+	case errors.Is(err, pgx.ErrNoRows):
+		return PasswordChange{}, ErrPasswordChangeSessionGone
+	default:
+		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
+	}
 }
 
 // changeIdentityPassword is the linked row's change: the same two comparisons and the same Hash as
@@ -170,10 +199,27 @@ func (m *Manager) changeRowPassword(ctx context.Context, tenantID, adminID, exce
 		}
 
 		// 5. Write it. 0 rows (pgx.ErrNoRows) means the account is not active -- the
-		//    change is refused rather than silently no-op'd.
-		if _, e = q.SetOwnAdminPassword(ctx, store.SetOwnAdminPasswordParams{
+		//    change is refused rather than silently no-op'd -- or the row was linked since the
+		//    identity check (T179: the statement writes unlinked rows only). The row is read
+		//    again to tell the two apart without naming identity_id (R16): under READ COMMITTED
+		//    this read sees what the UPDATE saw, and an active row it could not write is linked.
+		//    A pgx.ErrNoRows leaves the transaction usable; the rollback follows either way.
+		_, e = q.SetOwnAdminPassword(ctx, store.SetOwnAdminPasswordParams{
 			PasswordHash: digest, ID: adminID, TenantID: tenantID,
-		}); e != nil {
+		})
+		if errors.Is(e, pgx.ErrNoRows) {
+			again, re := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{
+				ID: adminID, TenantID: tenantID,
+			})
+			if re == nil && again.Status == "active" {
+				return errRowLinkedMeanwhile
+			}
+			if re != nil && !errors.Is(re, pgx.ErrNoRows) {
+				return re
+			}
+			return ErrNoSuchAdmin
+		}
+		if e != nil {
 			return e
 		}
 
@@ -193,15 +239,11 @@ func (m *Manager) changeRowPassword(ctx context.Context, tenantID, adminID, exce
 		return revoked, nil
 	case errors.Is(err, ErrNoSuchAdmin),
 		errors.Is(err, ErrWrongCurrentPassword),
-		errors.Is(err, ErrSameAsCurrentPassword):
+		errors.Is(err, ErrSameAsCurrentPassword),
+		errors.Is(err, errRowLinkedMeanwhile):
 		// The sentinels pass through unwrapped: they carry no value and the caller
 		// branches on them by identity.
 		return 0, err
-	case errors.Is(err, pgx.ErrNoRows):
-		// Only SetOwnAdminPassword can reach here (step 1's ErrNoRows was already mapped):
-		// the row exists but status != 'active'. Collapse it to the same "no active admin"
-		// outcome as an unknown id -- a disabled admin has no business rotating a credential.
-		return 0, ErrNoSuchAdmin
 	default:
 		return 0, fmt.Errorf("adminauth: change own credential: %w", err)
 	}

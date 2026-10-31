@@ -317,3 +317,26 @@ func TestAccountPasswordSave_NeverLeaksTheCredential(t *testing.T) {
 		}
 	}
 }
+
+// TestAccountPasswordSave_ASessionTheLinkEndedIsSentToSignIn (T179): ChangeOwnPassword answers
+// ErrPasswordChangeSessionGone when the row was linked while the change ran and the link ended this
+// session. Nothing was changed, so no row is written; the dead cookie is cleared and the browser is
+// sent to the sign-in page -- the door's answer to a dead session -- never the 500 problem page.
+func TestAccountPasswordSave_ASessionTheLinkEndedIsSentToSignIn(t *testing.T) {
+	admins := &fakeAdmins{changePassword: func(_, _, _ uuid.UUID, _, _ string) (int, error) {
+		return 0, adminauth.ErrPasswordChangeSessionGone
+	}}
+	trail := &fakeTrail{}
+	b := passwordBrowser(t, admins, trail, accountTestOwnerRole, nil)
+
+	rec := b.do(http.MethodPost, accountPasswordHref, validChange("some-current", "a-valid-new-password"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != adminLoginPath {
+		t.Fatalf("%d %q, want 303 to %s", rec.Code, rec.Header().Get("Location"), adminLoginPath)
+	}
+	if _, kept := b.cookies[adminauth.CookieName]; kept {
+		t.Error("the dead session's cookie was not cleared")
+	}
+	if n := len(trail.eventsSnapshot()); n != 0 {
+		t.Errorf("the trail holds %d row(s) for a change that did not happen; want 0", n)
+	}
+}

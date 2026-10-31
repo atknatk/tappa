@@ -50,6 +50,11 @@ WHERE a.id = c.admin_user_id
   AND a.tenant_id = c.tenant_id
   AND a.tenant_id = $2
   AND a.status = 'active'
+  -- T179: an UNLINKED row only. A row linked after adminauth's identity_consume_row_reset found
+  -- nothing (that function spends a linked row's link) would reach 00069's trigger and answer 500;
+  -- here it is 0 rows, the transaction rolls back with the stamp above (the link stays unspent)
+  -- and adminauth spends it through the identity. A predicate only, never projected (R16).
+  AND a.identity_id IS NULL
 RETURNING a.id AS admin_user_id, a.tenant_id, c.id AS reset_id,
           (SELECT count(*) FROM retired) AS retired_count
 `

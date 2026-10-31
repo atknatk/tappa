@@ -158,6 +158,15 @@ func (a *AdminAuth) accountPasswordSave(w http.ResponseWriter, r *http.Request) 
 	case errors.Is(err, adminauth.ErrSameAsCurrentPassword):
 		a.recordPasswordRefusal(r, id, "same_as_current")
 		a.renderAccountPasswordAgain(w, r, id, "New password must be different from your current one.")
+	case errors.Is(err, adminauth.ErrPasswordChangeSessionGone):
+		// T179: the row was linked to the person's identity while this ran and the link ended this
+		// session (nothing was changed). The cookie is worth nothing now, so the answer is the one
+		// the door gives a dead session -- the sign-in page (adminswitch.go's precedent) -- not a
+		// 500 for a link the person asked for.
+		a.log.Warn("panel credential change refused: the session ended while the row was linked",
+			"actor_id", id.Admin.AdminUserID)
+		a.cookies.Clear(w)
+		a.redirect(w, adminLoginPath)
 	default:
 		// Includes adminauth.ErrNoSuchAdmin (disabled/unknown, unreachable with a live
 		// session) and any database error. It is ours; the response never says which, and
