@@ -42,16 +42,20 @@ var (
 	// updates nothing) are the same outcome to the caller -- there is no active admin to
 	// rotate a credential for.
 
-	// ErrPasswordChangeSessionGone means the row was LINKED to an identity while the change ran and
-	// the link ended the request's session (T179): the link by e-mail revokes the sessions of every
-	// row it links, each opened with the row's old password, and the row's password became the
-	// identity's. Nothing was changed. The request is answered as the next one would be -- this
-	// browser is signed out.
-	ErrPasswordChangeSessionGone = errors.New("adminauth: change password: the session ended while the row was linked")
+	// ErrPasswordChangeSessionGone means the row could not be written while the change ran and the
+	// request's session is no longer live (T179). Its usual cause is a link that ended it -- the link
+	// by e-mail revokes the sessions of every row it links, each opened with the row's old password,
+	// and the row's password became the identity's -- but it is decided by the session alone, so it
+	// is also the answer when the row was disabled (its sessions revoked) and enabled again between
+	// the write and the re-read. Nothing was changed. The request is answered as the next one would
+	// be -- this browser is signed out.
+	ErrPasswordChangeSessionGone = errors.New("adminauth: change password: the session ended while the change ran")
 
 	// errRowLinkedMeanwhile is changeRowPassword's answer when SetOwnAdminPassword wrote nothing to
-	// a row that is still active: the statement's other predicate, `identity_id IS NULL`, is the one
-	// that failed -- a linker committed between the identity check and the write (T179).
+	// a row that is active when it is read again. Almost always the statement's other predicate,
+	// `identity_id IS NULL`, is the one that failed -- a linker committed between the identity check
+	// and the write (T179); a row inactive at the write and active again at the re-read looks the
+	// same, and ChangeOwnPassword's identity re-ask and session check sort the two out.
 	errRowLinkedMeanwhile = errors.New("adminauth: change password: the row was linked meanwhile")
 )
 
@@ -96,8 +100,9 @@ type PasswordChange struct {
 // the change is asked of the identity ONCE more, exactly as if the request had come a moment later:
 // the identity's digest (the same password after a reconciliation or a sign-in's link; the
 // identity's own after the link by e-mail -- then the current password the person typed is
-// rightly "not right"), then identity_set_password. A link that ended this session (the link by
-// e-mail does) leaves no key: ErrPasswordChangeSessionGone, nothing changed.
+// rightly "not right"), then identity_set_password. No identity behind the session: a session
+// no longer live (the link by e-mail ends it) is ErrPasswordChangeSessionGone, a live one
+// ErrNoSuchAdmin; nothing changed either way.
 func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, session Token, current, next string) (PasswordChange, error) {
 	if tenantID == uuid.Nil || adminID == uuid.Nil {
 		return PasswordChange{}, errors.New("adminauth: change password: tenant and admin are required")
@@ -123,7 +128,17 @@ func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exce
 	case err == nil:
 		return m.changeIdentityPassword(ctx, h, digest.RevealForPasswordComparison(), current, next)
 	case errors.Is(err, pgx.ErrNoRows):
-		return PasswordChange{}, ErrPasswordChangeSessionGone
+		// No identity behind this session: either the session is no longer live (a link that
+		// ended it, a disable in between) -- sign in again -- or the row was not linked after all
+		// and its session lives (disabled at the write, enabled since): today's "no active admin".
+		rs, serr := m.data.GetAdminSessionByTokenHash(ctx, h)
+		switch {
+		case errors.Is(serr, pgx.ErrNoRows) || (serr == nil && rs.RevokedAt != nil):
+			return PasswordChange{}, ErrPasswordChangeSessionGone
+		case serr != nil:
+			return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", serr)
+		}
+		return PasswordChange{}, ErrNoSuchAdmin
 	default:
 		return PasswordChange{}, fmt.Errorf("adminauth: change own credential: %w", err)
 	}

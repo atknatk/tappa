@@ -33,7 +33,9 @@ import (
 // OLD.identity_id alone, so who links does not change what the write meets): `reconcile` -- the
 // identity_reconcile / identity_link_legacy shape, the row's digest kept and its sessions alive;
 // `email` -- identity_link_by_email's (00084), the identity's digest written over the row's and the
-// row's sessions revoked.
+// row's sessions revoked; `other` -- a row linked to an identity whose password is NOT the row's,
+// the identity's digest written over the row's (the dual-write) and the row's sessions kept alive:
+// the shape that pins that the retry re-proves the current password against the IDENTITY.
 //
 // MUTATIONS (measured, T179): drop `AND identity_id IS NULL` from SetOwnAdminPassword
 // (db/queries/admins.sql) or from ConsumePasswordResetAndSetPassword (db/queries/passwordresets.sql),
@@ -76,7 +78,7 @@ type raceLinker struct {
 	w       *idWorld
 	row     uuid.UUID
 	tenant  uuid.UUID
-	shape   string // "reconcile" or "email"
+	shape   string // "reconcile", "email" or "other"
 	waiting bool
 	done    chan error
 }
@@ -97,6 +99,9 @@ func (l *raceLinker) act() {
 			        password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1 AND tenant_id = $3`,
 			`UPDATE admin_sessions SET revoked_at = now() WHERE admin_user_id = $1 AND tenant_id = $3 AND revoked_at IS NULL AND $2::uuid IS NOT NULL`,
 		}
+	case "other":
+		stmts = []string{`UPDATE admin_users SET identity_id = $2, linked_via = 'reconcile', linked_at = now(),
+		        password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1 AND tenant_id = $3`}
 	default:
 		l.done <- errors.New("unknown linker shape " + l.shape)
 		return
@@ -179,9 +184,16 @@ func newRaceLinker(t *testing.T, w *idWorld, tenant, row uuid.UUID, shape string
 //	reconcile  the change is made through the identity: Recorded (the definer wrote the business
 //	           its row), the identity and the row take the new digest, this session survives;
 //	email      the link ended this session and gave the row the identity's password:
-//	           ErrPasswordChangeSessionGone, nothing changed.
+//	           ErrPasswordChangeSessionGone, nothing changed;
+//	other      the row is linked to an identity with ANOTHER password, its session kept alive: the
+//	           retry re-proves the typed (the row's old) password against the identity's digest --
+//	           ErrWrongCurrentPassword, the identity's digest unchanged -- and a change typed with
+//	           the identity's password then goes through.
 //
 // Each in both timings. Never the trigger's restrict_violation.
+//
+// MUTATION (measured): changeIdentityPassword's compare of the current password skipped -> the
+// two `other` cases red (the row's old password rewrote the identity's).
 func TestChangeOwnPassword_ARowLinkedMeanwhileGoesThroughTheIdentity(t *testing.T) {
 	d := testDB(t)
 	owner := ownerConn(t)
@@ -189,7 +201,7 @@ func TestChangeOwnPassword_ARowLinkedMeanwhileGoesThroughTheIdentity(t *testing.
 		shape   string
 		waiting bool
 	}{
-		{"reconcile", false}, {"reconcile", true}, {"email", false}, {"email", true},
+		{"reconcile", false}, {"reconcile", true}, {"email", false}, {"email", true}, {"other", false}, {"other", true},
 	} {
 		name := c.shape + "/committed"
 		if c.waiting {
@@ -200,7 +212,7 @@ func TestChangeOwnPassword_ARowLinkedMeanwhileGoesThroughTheIdentity(t *testing.
 			w := newIDWorld(t, owner, true)
 			tenant := w.tenant("T179 change " + name)
 			rowPW, rowDigest := w.pw, w.digest
-			if c.shape == "email" {
+			if c.shape == "email" || c.shape == "other" {
 				// The identity has a password of its own; the row has another.
 				rowPW = "row-" + uuid.NewString()
 				rowDigest = fixtureDigest(t, rowPW)
@@ -261,6 +273,32 @@ func TestChangeOwnPassword_ARowLinkedMeanwhileGoesThroughTheIdentity(t *testing.
 				}
 				if n := w.int(`SELECT count(*) FROM admin_identities WHERE id = $1 AND password_hash = $2`, w.ident, w.digest); n != 1 {
 					t.Error("the identity's digest changed; nothing may have been written")
+				}
+				w.digestInvariant()
+			case "other":
+				if !errors.Is(err, ErrWrongCurrentPassword) {
+					t.Fatalf("ChangeOwnPassword with the row's old password on a row linked meanwhile = %+v, %v; want ErrWrongCurrentPassword", ch, err)
+				}
+				if n := w.int(`SELECT count(*) FROM admin_identities WHERE id = $1 AND password_hash = $2`, w.ident, w.digest); n != 1 {
+					t.Fatal("the row's old password rewrote the identity's digest")
+				}
+				if got := w.audit(tenant, "admin.password_changed") - changed; got != 0 {
+					t.Errorf("%d admin.password_changed rows for a refused change", got)
+				}
+				w.digestInvariant()
+				if _, err := m.Verify(ctx, s.Token); err != nil {
+					t.Fatalf("PREMISE: the session is not alive after the link: %v", err)
+				}
+				ch, err = m.ChangeOwnPassword(ctx, tenant, row, s.Session.ID, s.Token, w.pw, next)
+				if err != nil || !ch.Recorded {
+					t.Fatalf("ChangeOwnPassword with the identity's password = %+v, %v; want the change through the identity", ch, err)
+				}
+				var identDigest string
+				if err := owner.QueryRow(ctx, `SELECT password_hash FROM admin_identities WHERE id = $1`, w.ident).Scan(&identDigest); err != nil {
+					t.Fatal(err)
+				}
+				if !Compare(identDigest, next) {
+					t.Error("the identity's digest does not verify the new password")
 				}
 				w.digestInvariant()
 			}
@@ -328,6 +366,106 @@ func TestConsume_ARowLinkedMeanwhileSpendsTheLinkThroughTheIdentity(t *testing.T
 			}
 			if _, _, err := plain.Consume(ctx, issued.Token, "again-"+uuid.NewString()); !errors.Is(err, ErrResetUnusable) {
 				t.Errorf("the link spent again: %v, want ErrResetUnusable", err)
+			}
+		})
+	}
+}
+
+// statementScript is beforeStatement for a sequence: each step's act runs immediately before the
+// next statement of its name is sent, in order, each once.
+type statementScript struct {
+	*db.DB
+	mu    sync.Mutex
+	steps []scriptStep
+}
+
+type scriptStep struct {
+	name string
+	act  func()
+}
+
+func (s *statementScript) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	return s.DB.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return fn(ctx, scriptTx{Tx: tx, s: s})
+	})
+}
+
+type scriptTx struct {
+	pgx.Tx
+	s *statementScript
+}
+
+func (h scriptTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	h.s.mu.Lock()
+	var act func()
+	if len(h.s.steps) > 0 && strings.HasPrefix(sql, "-- name: "+h.s.steps[0].name+" ") {
+		act = h.s.steps[0].act
+		h.s.steps = h.s.steps[1:]
+	}
+	h.s.mu.Unlock()
+	if act != nil {
+		act()
+	}
+	return h.Tx.QueryRow(ctx, sql, args...)
+}
+
+// TestChangeOwnPassword_ARowDisabledAndEnabledAgainIsNotCalledLinked (T179, the security review): an
+// UNLINKED row is disabled just before SetOwnAdminPassword (0 rows) and enabled again just before
+// the re-read (active) -- the shape errRowLinkedMeanwhile cannot tell from a link. No identity is
+// behind the session, so the session decides:
+//
+//	alive    ErrNoSuchAdmin (today's "no active admin"), never ErrPasswordChangeSessionGone;
+//	revoked  ErrPasswordChangeSessionGone (the disable ended it).
+//
+// Either way the digest is unchanged and the row is still unlinked.
+//
+// MUTATION (measured): ChangeOwnPassword's session check replaced by an unconditional
+// ErrPasswordChangeSessionGone -> `alive` red.
+func TestChangeOwnPassword_ARowDisabledAndEnabledAgainIsNotCalledLinked(t *testing.T) {
+	d := testDB(t)
+	owner := ownerConn(t)
+	for _, revoke := range []bool{false, true} {
+		name := "alive"
+		if revoke {
+			name = "revoked"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			w := newIDWorld(t, owner, false)
+			tenant := w.tenant("T179 flip " + name)
+			row := w.row(tenant, w.digest, "active", time.Hour)
+			base := cheapManager(t, testManager(t, d))
+			s, _, err := w.signInOff(base, w.pw, tenant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := &statementScript{DB: d, steps: []scriptStep{
+				{"GetAdminPasswordHashByID", nil},
+				{"SetOwnAdminPassword", func() {
+					w.exec(`UPDATE admin_users SET status = 'disabled' WHERE id = $1 AND tenant_id = $2`, row, tenant)
+					if revoke {
+						w.exec(`UPDATE admin_sessions SET revoked_at = now() WHERE admin_user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL`, row, tenant)
+					}
+				}},
+				{"GetAdminPasswordHashByID", func() {
+					w.exec(`UPDATE admin_users SET status = 'active' WHERE id = $1 AND tenant_id = $2`, row, tenant)
+				}},
+			}}
+			m := cheapManager(t, testManager(t, d))
+			m.data = script
+			_, err = m.ChangeOwnPassword(ctx, tenant, row, s.Session.ID, s.Token, w.pw, "next-"+uuid.NewString())
+			if len(script.steps) != 0 {
+				t.Fatalf("PREMISE: %d scripted step(s) never ran", len(script.steps))
+			}
+			want := ErrNoSuchAdmin
+			if revoke {
+				want = ErrPasswordChangeSessionGone
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("ChangeOwnPassword = %v, want %v", err, want)
+			}
+			if n := w.int(`SELECT count(*) FROM admin_users WHERE id = $1 AND password_hash = $2 AND identity_id IS NULL`, row, w.digest); n != 1 {
+				t.Error("the row's digest moved, or the row is linked")
 			}
 		})
 	}
