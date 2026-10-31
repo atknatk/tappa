@@ -171,7 +171,10 @@ func (refusingChannel) RefusingResets() bool { return true }
 // reads its arms (T182): EVERY answer at or over the floor, the FASTEST at or under the
 // ceiling. With three samples each held to both bounds a single pause failed it (PR #18's
 // CI, run 40956572102: 435 ms, then 253 ms and 253 ms, the code unchanged); withdrawals
-// that overrun the floor are in every sample, so they still fail it.
+// that overrun the floor in every sample still fail it. ⚠️ The same blind spot as there:
+// a one-off or intermittent overrun that leaves the fastest sample clean -- this handler's
+// first-request cost included -- is not seen; accepted, as it is not repeatable on demand
+// and so no probing oracle.
 func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {

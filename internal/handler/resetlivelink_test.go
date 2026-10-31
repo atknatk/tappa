@@ -50,8 +50,14 @@ func keptReset() adminauth.Reset {
 // code unchanged). The two bounds are read differently because a pause can only ADD:
 // the floor holds for EVERY sample (an answer under it is the branch showing, however
 // loaded the machine), and the ceiling for each arm's FASTEST sample (the arm's own cost
-// beyond the floor; a pause on one sample is not it, work that overruns is in all of
-// them). Interleaved, so a machine that gets busier moves every arm.
+// beyond the floor; a pause on one sample is not it). Interleaved, so a machine that gets
+// busier moves every arm.
+//
+// ⚠️ THE BLIND SPOT THIS BUYS, NAMED: the ceiling sees only an overrun that is in EVERY
+// sample of an arm. A one-off or intermittent overrun that leaves the fastest sample clean
+// is not seen -- measured in the T181 audit: the kept arm +100 ms on its first request only
+// passes, samples [355, 256, 253, 254, 253] ms, which the single-sample version caught.
+// Accepted: such an overrun is not repeatable on demand, so it is no probing oracle.
 func TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress(t *testing.T) {
 	t.Parallel()
 	const (
