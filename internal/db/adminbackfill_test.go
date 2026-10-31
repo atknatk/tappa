@@ -98,7 +98,7 @@ func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (conte
 			t.Logf("rollback: %v", err)
 		}
 	})
-	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s'`); err != nil {
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+bfLockTimeout+`'`); err != nil {
 		t.Fatalf("set lock_timeout: %v", err)
 	}
 	// No other session may commit an admin_users row while the test runs (the third test-infra card's
@@ -116,6 +116,38 @@ func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (conte
 	// (TestAdminBackfill00073_NoTestUpgradesItsTableLock).
 	lock(ctx, tx)
 	return ctx, tx
+}
+
+// bfLockTimeout is the lock_timeout of bfTx's transaction. 00073's sections set their own 1 s with
+// SET LOCAL, which outlives the section for the rest of the savepoint; bfRunSection puts this back.
+const bfLockTimeout = "10s"
+
+// bfRunSection runs one of 00073's sections like opRunSection and then restores the test's
+// lock_timeout: the section's `SET LOCAL lock_timeout = '1s'` is the migration's rule for its OWN
+// statements, and left in place it bounded every later statement of the test at 1 s too (T177).
+func bfRunSection(t *testing.T, ctx context.Context, sp pgx.Tx, sql, what string) {
+	t.Helper()
+	opRunSection(t, ctx, sp, sql, what)
+	if _, err := sp.Exec(ctx, `SET LOCAL lock_timeout = '`+bfLockTimeout+`'`); err != nil {
+		t.Fatalf("%s: restore lock_timeout: %v", what, err)
+	}
+}
+
+// bfLockAdminTenants takes FOR KEY SHARE, under the test's own lock_timeout, on every tenants row an
+// admin_users row points at -- the lock the Down's (and the Up-again's) foreign-key checks ask for
+// under the sections' 1 s (T177, measured). An UPDATE of a row whose version this transaction wrote
+// re-checks admin_users_tenant_id_fkey even with tenant_id unchanged (PostgreSQL's RI trigger skips
+// the check only for a row version another transaction wrote), and the Up writes every candidate row
+// of the shared database, other packages' committed rows included -- so the Down's UPDATE asks for
+// KEY SHARE on THEIR tenants rows, and internal/domain/checkin's holdSiteTenant holds one FOR UPDATE
+// for ~2 s: 55P03. Taken here first it waits that out under bfLockTimeout; the sections' own checks
+// then find the lock already held. bfTx's EXCLUSIVE on admin_users keeps the set from growing. The
+// locks go with the savepoint.
+func bfLockAdminTenants(t *testing.T, ctx context.Context, sp pgx.Tx) {
+	t.Helper()
+	if _, err := sp.Exec(ctx, `SELECT 1 FROM tenants WHERE id IN (SELECT tenant_id FROM admin_users) ORDER BY id FOR KEY SHARE`); err != nil {
+		t.Fatalf("lock the admins' tenants rows FOR KEY SHARE: %v", err)
+	}
 }
 
 // bfSections returns 00073's Up, its closing assertion (the Up's last DO block, as goose runs it)
@@ -571,13 +603,14 @@ func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 
 	t.Run("the Down undoes the backfill alone and the Up does it again", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-			opRunSection(t, ctx, sp, up, "00073 Up")
+			bfLockAdminTenants(t, ctx, sp)
+			bfRunSection(t, ctx, sp, up, "00073 Up")
 			after := backfilled(sp)
 			born := []uuid.UUID{identityOf(sp, first), identityOf(sp, single)}
 			if !bfLinked(t, ctx, sp, first) || !bfUnlinked(t, ctx, sp, second) || !bfLinked(t, ctx, sp, single) {
 				t.Fatalf("PREMISE: the Up's links:\n%s", after)
 			}
-			opRunSection(t, ctx, sp, down, "00073 Down")
+			bfRunSection(t, ctx, sp, down, "00073 Down")
 			for _, id := range []uuid.UUID{first, second, single} {
 				if !bfUnlinked(t, ctx, sp, id) {
 					t.Errorf("after the Down a backfilled row is still linked: %s", bfRow(t, ctx, sp, id))
@@ -589,7 +622,7 @@ func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 			if got := bfRow(t, ctx, sp, signupRow); got != signupBefore {
 				t.Errorf("the Down touched a row linked by signup: %s, was %s", got, signupBefore)
 			}
-			opRunSection(t, ctx, sp, up, "00073 Up again")
+			bfRunSection(t, ctx, sp, up, "00073 Up again")
 			if again := backfilled(sp); again != after {
 				t.Errorf("the Up again:\n%s\nwant\n%s", again, after)
 			}
@@ -634,7 +667,8 @@ func TestAdminBackfill00073_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 	for _, r := range refusals {
 		t.Run("refused: "+r.what, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-				opRunSection(t, ctx, sp, up, "00073 Up")
+				bfLockAdminTenants(t, ctx, sp)
+				bfRunSection(t, ctx, sp, up, "00073 Up")
 				r.do(sp)
 				before := backfilled(sp)
 				bfWantRefusal(t, holdingNestedRun(t, ctx, sp, down), r.want, "the Down over "+r.what, shared)

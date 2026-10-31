@@ -163,9 +163,15 @@ func (refusingChannel) RefusingResets() bool { return true }
 // one withdrawal transaction and one audit INSERT before the floor ends. A FULL window
 // (adminauth.ResetWindow grants, the most one request mints) against real Postgres —
 // the real adminauth.Resets.Withdraw and the real audit recorder — must still answer
-// inside [resetRequestFloor, resetRequestFloor+50ms], three times. The grants are the
-// fake's, so each withdrawal's UPDATE matches no row: the round trip and the
-// transaction are paid, the one-row write is not.
+// inside [resetRequestFloor, resetRequestFloor+50ms]. The grants are the fake's, so each
+// withdrawal's UPDATE matches no row: the round trip and the transaction are paid, the
+// one-row write is not.
+//
+// liveLinkRounds requests, read as TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress
+// reads its arms (T182): EVERY answer at or over the floor, the FASTEST at or under the
+// ceiling. With three samples each held to both bounds a single pause failed it (PR #18's
+// CI, run 40956572102: 435 ms, then 253 ms and 253 ms, the code unchanged); withdrawals
+// that overrun the floor are in every sample, so they still fail it.
 func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -206,21 +212,25 @@ func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 	stopWorkerAtCleanup(t, h)
 	router := mountReset(h)
 
-	const runs = 3
+	const runs = liveLinkRounds
+	var took []time.Duration
 	for i := 0; i < runs; i++ {
 		b := newBrowser(t, router)
 		csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, adminResetPath, nil)))
 		start := time.Now()
 		rec := b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {known}})
-		took := time.Since(start)
+		took = append(took, time.Since(start))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("run %d answered %d", i+1, rec.Code)
 		}
-		if took < resetRequestFloor || took > resetRequestFloor+50*time.Millisecond {
-			t.Errorf("run %d answered in %v, outside [floor, floor+50ms] (floor %v): the fallback's %d withdrawals "+
-				"and rows are visible in the clock", i+1, took, resetRequestFloor, len(grants))
+		if took[i] < resetRequestFloor {
+			t.Errorf("run %d answered in %v, under the floor %v", i+1, took[i], resetRequestFloor)
 		}
-		t.Logf("run %d: %d grants refused by the breaker, each withdrawn and recorded, answered in %v", i+1, len(grants), took)
+		t.Logf("run %d: %d grants refused by the breaker, each withdrawn and recorded, answered in %v", i+1, len(grants), took[i])
+	}
+	if fastest, ceiling := minDuration(took), resetRequestFloor+50*time.Millisecond; fastest > ceiling {
+		t.Errorf("the fastest of %d runs answered in %v, over floor+50ms (%v): the fallback's %d withdrawals "+
+			"and rows are visible in the clock", runs, fastest, ceiling, len(grants))
 	}
 	if w := resets.withdrawals(); len(w) != runs*len(grants) {
 		t.Errorf("%d withdrawal(s) reached Postgres, want %d", len(w), runs*len(grants))
