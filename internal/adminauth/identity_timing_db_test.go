@@ -16,9 +16,9 @@ import (
 // two exits with the same round trips can still differ in what the database does inside them.
 //
 // THE TECHNIQUE IS TestPanelE2E_TimingIsFlatOverHTTP's and this package's: interleaved rounds so load
-// moves every arm together, the MINIMUM per arm as the estimator (scheduler noise only adds), a
-// ratio gate pinned between measured noise and a measured mutation, and a skip under -short (a
-// wall-clock sample, never the only proof). The fixtures are cheap (bcrypt.MinCost, testManager's
+// moves every arm together, a ratio gate pinned between measured noise and a measured mutation, and a
+// skip under -short (a wall-clock sample, never the only proof). The estimators are the decoy test's
+// medians and the five-case test's same-round ratios (pairedSpread; T176 retired its minima). The fixtures are cheap (bcrypt.MinCost, testManager's
 // cheap dummy), so the database's share of a sign-in is LARGE here -- the opposite of production,
 // where nine cost-12 comparisons dwarf it -- which is what makes a database-side difference visible.
 
@@ -55,8 +55,8 @@ const decoyGate = 2.0
 const (
 	decoyWorstNoise     = 1.50
 	decoyWeakestSignal  = 2.46
-	fiveCaseWorstNoise  = 1.09
-	fiveCaseCaughtShape = 2.58
+	fiveCaseWorstNoise  = 1.30
+	fiveCaseCaughtShape = 1.98
 )
 
 // TestIdentityDecoy_TakesWhatTheOpenTakes (S15): the decoy a failed sign-in sends instead of
@@ -112,14 +112,31 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 	}
 }
 
-// fiveCaseGate bounds the spread of the five failure cases' minima.
-// Measured on the reference stack (cheap fixtures, 15 interleaved rounds, five runs plain and under
-// -race): noise 1.02-1.09x, the event row of the three known-address cases INCLUDED (it is inside the
-// measurement, S15). Signals, each a mutation of identity.go:
+// fiveCaseGate bounds the five failure cases' spread as pairedSpread measures it: for every pair of
+// cases, the median over the rounds of their SAME-ROUND ratio; the spread is the largest of those.
 //
-//	has_active_membership read BEFORE the comparisons (the fifth case refused early)   2.58x  caught
-//	the legacy window left unpadded (1-2 comparisons instead of 9)                     1.29x  NOT caught
-//	the decoy removed from every failure (uniform, so the five stay together)          1.03x  NOT caught
+// IT WAS THE RATIO OF THE CASES' MINIMA, AND THAT IS WHAT T176 REPLACED (the gate itself unchanged).
+// Each minimum is one sample taken at its own instant, so a calm moment that happened to fall on one
+// case's sign-in -- shorter than a round under a loaded -race runner -- set that case's minimum alone:
+// CI run 40533075489 failed at 1.66x while the pairs' medians were ~1.19x. A same-round ratio
+// compares two sign-ins taken one after the other, and its median ignores the rounds a pause or a
+// calm moment hit. The measurements below are pairedSpread's (the minima's, on the reference stack
+// unloaded: noise 1.02-1.09x, the first signal 2.58x).
+//
+// Measured with pairedSpread (cheap fixtures, 15 interleaved rounds) on a 16-core workstation already
+// at load average ~25, beside 16 CPU burners -- the event row of the three known-address cases
+// INCLUDED (it is inside the measurement, S15):
+//
+//	noise    plain 1.06-1.30x (10 runs) · -race 1.06-1.25x (10)
+//	         (the minima under the same load: -race 1.05-1.68x, 1 run in 10 over the gate -- 1.68x
+//	         with the five medians within 1.15x of each other, CI's 1.66x reproduced)
+//
+// Signals, each a mutation of identity.go:
+//
+//	has_active_membership read BEFORE the comparisons (the fifth case refused      plain 1.98-2.06x (5)
+//	early, its decoy and event step kept), pairedSpread, loaded as above            -race 18.8-22.5x (5)  caught
+//	the legacy window left unpadded (1-2 comparisons instead of 9), minima          1.29x  NOT caught
+//	the decoy removed from every failure (uniform, so the five stay together)       1.03x  NOT caught
 //
 // The two it cannot see are exact elsewhere: TestAuthenticatePerson_EveryFailureIsOneShape counts
 // the comparisons and the calls of every exit, and TestIdentityDecoy_TakesWhatTheOpenTakes times the
@@ -127,6 +144,29 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 // work; at the shipped cost the padding's signal is ~9x, which this gate would see -- but a
 // cost-12 sample here would cost minutes under -race for a property already held exactly.
 const fiveCaseGate = 1.5
+
+// pairedSpread is fiveCaseGate's estimator: d[i][r] is case i's sample in round r. For every pair of
+// cases it takes the median of their same-round ratios d[i][r]/d[j][r], and it answers the largest,
+// as a factor of at least 1, with the slower case first.
+func pairedSpread(d [][]time.Duration) (spread float64, slower, faster int) {
+	for i := range d {
+		for j := i + 1; j < len(d); j++ {
+			r := make([]float64, 0, len(d[i]))
+			for k := range d[i] {
+				r = append(r, float64(d[i][k])/float64(d[j][k]))
+			}
+			sort.Float64s(r)
+			m, a, b := r[len(r)/2], i, j
+			if m < 1 {
+				m, a, b = 1/m, j, i
+			}
+			if m > spread {
+				spread, slower, faster = m, a, b
+			}
+		}
+	}
+	return spread, slower, faster
+}
 
 // TestIdentityTimingGates_AreBetweenTheNoiseAndTheSignal pins both gates as RELATIONS
 // (TestHTTPTimingGate_IsBetweenTheNoiseAndTheSignal's reason: the tempting repair for a flaky timing
@@ -149,8 +189,8 @@ func TestIdentityTimingGates_AreBetweenTheNoiseAndTheSignal(t *testing.T) {
 // TestAuthenticatePerson_FiveFailuresTakeOneTime is ADR 0031 §5.6's five cases on the clock, the
 // event-row write inside the measurement (S15; failLogin's pattern): an identity or none x an
 // unlinked row or none (an unknown address included), and the right password on an identity whose
-// every membership is disabled. Each returns ErrBadCredentials; their minima must agree within
-// fiveCaseGate.
+// every membership is disabled. Each returns ErrBadCredentials; their same-round ratios must agree
+// within fiveCaseGate (pairedSpread).
 func TestAuthenticatePerson_FiveFailuresTakeOneTime(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skipping the five-case wall-clock sample; each case's comparisons and calls are " +
@@ -199,21 +239,16 @@ func TestAuthenticatePerson_FiveFailuresTakeOneTime(t *testing.T) {
 			}
 		}
 	}
-	var slowest, fastest time.Duration
+	ds := make([][]time.Duration, len(cases))
 	for i, c := range cases {
-		lo := minOf(c.d)
-		t.Logf("%-46s min %v  median %v", c.name, lo, medianOf(c.d))
-		if i == 0 || lo > slowest {
-			slowest = lo
-		}
-		if i == 0 || lo < fastest {
-			fastest = lo
-		}
+		ds[i] = c.d
+		t.Logf("%-46s min %v  median %v", c.name, minOf(c.d), medianOf(c.d))
 	}
-	ratio := float64(slowest) / float64(fastest)
-	t.Logf("five-case spread %.2fx (gate %.2fx)", ratio, fiveCaseGate)
+	ratio, a, b := pairedSpread(ds)
+	t.Logf("five-case spread %.2fx between %q and %q (gate %.2fx)", ratio, cases[a].name, cases[b].name, fiveCaseGate)
 	if ratio >= fiveCaseGate {
-		t.Fatalf("the five failure cases are distinguishable by time: spread %.2fx, gate %.2fx", ratio, fiveCaseGate)
+		t.Fatalf("the five failure cases are distinguishable by time: %q takes %.2fx what %q takes (the median of %d "+
+			"same-round ratios), gate %.2fx", cases[a].name, ratio, cases[b].name, len(ds[a]), fiveCaseGate)
 	}
 	if n := withRow.events("login_failed"); n != 15 {
 		t.Errorf("the identity case wrote %d login_failed rows over 15 failures, want 15 -- the write is part of what was measured", n)
