@@ -57,6 +57,19 @@ type operatorFixture struct {
 // asOperator runs fn as tappa_operator in ONE committed transaction on the owner connection, the
 // operator-tables lock held shared. lockTimeout, when not empty, bounds every lock wait in it.
 func (r *dbRig) asOperator(lockTimeout string, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return r.asOperatorLocked(lockTimeout, nil, fn)
+}
+
+// asOperatorLocked is asOperator that runs locked (when not nil) on the test's goroutine once the
+// operator-tables lock is held, right before fn -- where a test puts writes in flight beside the
+// operator's call (heldWrites). The lock's wait is the TEST'S, not the product's: internal/db's opTx
+// holds it EXCLUSIVE for a whole test, and a shared request also queues behind an exclusive one still
+// waiting. A write held across that wait outlives its request's 30 s (RequestTimeout's context, and
+// the pool's idle_in_transaction_session_timeout is the same 30 s) and answers 503 unavailable -- the
+// request's own bound, not the suspension's (T155, measured under four DB packages at once: the wait
+// 9-12 s, once 30.6 s, and that one's three writes failed "context deadline exceeded"). So the lock
+// is taken first and the writes are held only while it is.
+func (r *dbRig) asOperatorLocked(lockTimeout string, locked func(), fn func(ctx context.Context, tx pgx.Tx) error) error {
 	ctx := context.Background()
 	tx, err := r.owner.Begin(ctx)
 	if err != nil {
@@ -73,6 +86,9 @@ func (r *dbRig) asOperator(lockTimeout string, fn func(ctx context.Context, tx p
 	}
 	if _, err := tx.Exec(ctx, `SET LOCAL SESSION AUTHORIZATION tappa_operator`); err != nil {
 		return err
+	}
+	if locked != nil {
+		locked()
 	}
 	if err := fn(ctx, tx); err != nil {
 		return err
@@ -128,21 +144,23 @@ func (r *dbRig) suspend(biz uuid.UUID) {
 
 // trySuspend is suspend with the database's answer returned (and a lock timeout, when given).
 func (r *dbRig) trySuspend(biz uuid.UUID, lockTimeout string) error {
-	_, err := r.trySuspendTimed(biz, lockTimeout)
+	_, err := r.trySuspendBeside(biz, lockTimeout, nil)
 	return err
 }
 
-// trySuspendTimed is trySuspend that also says how long op_suspend_tenant ITSELF took -- timed
-// inside asOperator, after the cross-package operator-tables lock is held. Timing the whole of
-// asOperator would time that lock too: internal/db's opTx takes it EXCLUSIVE while it walks
-// migrations, and a run of the whole module waited 40 s on it beside this package (2026-10-20,
-// op-15's full -race run) -- a wait on the TEST'S lock, not on the tenant's row.
-func (r *dbRig) trySuspendTimed(biz uuid.UUID, lockTimeout string) (time.Duration, error) {
+// trySuspendBeside is trySuspend that also says how long op_suspend_tenant ITSELF took -- timed
+// inside asOperator, after the cross-package operator-tables lock is held -- and that runs hold (when
+// not nil) once that lock is held, right before the call (asOperatorLocked): the writes hold puts in
+// flight then wait on nothing but the operator's call. Timing the whole of asOperator would time that
+// lock too: internal/db's opTx takes it EXCLUSIVE while it walks migrations, and a run of the whole
+// module waited 40 s on it beside this package (2026-10-20, op-15's full -race run) -- a wait on the
+// TEST'S lock, not on the tenant's row.
+func (r *dbRig) trySuspendBeside(biz uuid.UUID, lockTimeout string, hold func()) (time.Duration, error) {
 	r.t.Helper()
 	hash := r.operatorSession()
 	r.liftAtEnd(biz)
 	var took time.Duration
-	err := r.asOperator(lockTimeout, func(ctx context.Context, tx pgx.Tx) error {
+	err := r.asOperatorLocked(lockTimeout, hold, func(ctx context.Context, tx pgx.Tx) error {
 		start := time.Now()
 		defer func() { took = time.Since(start) }()
 		return db.SuspendTenant(ctx, tx, hash, biz, db.SuspensionSecurityHold)
@@ -677,8 +695,9 @@ func TestSuspension_TheReadHoldsNoLockOnTheTenant(t *testing.T) {
 	biz, owner := r.business(true)
 	raw, _ := r.key(biz, owner)
 	r.liftAtEnd(biz) // before the hold: the held write is released first at the end (LIFO)
-	release, done := heldWrites(t, r, raw, "held-"+uuid.NewString(), 1)
-	took, err := r.trySuspendTimed(biz, "300ms")
+	var release func()
+	var done <-chan *httptest.ResponseRecorder
+	took, err := r.trySuspendBeside(biz, "300ms", func() { release, done = heldWrites(t, r, raw, "held-"+uuid.NewString(), 1) })
 	if err != nil {
 		t.Fatalf("op_suspend_tenant beside a write in flight: %v after %v; want it through at once", err, took)
 	}
@@ -703,10 +722,13 @@ func TestSuspension_AWriteInFlightAtTheSuspensionIsLetThrough(t *testing.T) {
 	ref := "inflight-" + uuid.NewString()
 	const inFlight = 3
 	r.liftAtEnd(biz) // before the hold: the held writes are released first at the end (LIFO)
-	release, done := heldWrites(t, r, raw, ref, inFlight)
-	// Bounded: under a locking read the suspension would wait on the held writes (the FOR SHARE
-	// mutant measured 30 s, until their transactions were killed); here it fails in 2 s instead.
-	if err := r.trySuspend(biz, "2s"); err != nil {
+	// The writes are held once the operator's test lock is (trySuspendBeside): held across ITS wait,
+	// they outlived their requests' 30 s and answered 503 (T155, CI run 41218404244). Bounded: under a locking read the suspension would wait on the held
+	// writes (the FOR SHARE mutant measured 30 s, until their transactions were killed); here it fails
+	// in 2 s instead.
+	var release func()
+	var done <-chan *httptest.ResponseRecorder
+	if _, err := r.trySuspendBeside(biz, "2s", func() { release, done = heldWrites(t, r, raw, ref, inFlight) }); err != nil {
 		t.Fatalf("op_suspend_tenant beside %d writes in flight: %v", inFlight, err)
 	}
 	if !r.isSuspended(biz) {
