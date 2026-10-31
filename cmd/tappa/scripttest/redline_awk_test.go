@@ -1,4 +1,4 @@
-package main
+package scripttest
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 // gawk, mawk and original-awk (.github/workflows/ci.yml) so all three families are compared there;
 // with fewer than two the test skips -- it is not a pass -- and in CI (CI set) fewer than three is red.
 func TestRedline_TheLexersReadTheSameUnderEveryAwk(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	type impl struct {
 		name, path string
 		args       []string

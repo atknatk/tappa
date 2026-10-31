@@ -1,4 +1,4 @@
-package main
+package scripttest
 
 import (
 	"os"
@@ -17,6 +17,7 @@ import (
 // TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain reads the effective privilege after
 // the Down, PUBLIC and membership counted.
 func TestRedline_R5bWaiverIsThe00058DownAlone(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	const name = "00058_keep_the_deliveries_ninety_days.sql"
 	b, err := os.ReadFile(filepath.Join(repoRoot, "db", "migrations", name))
 	if err != nil {
@@ -107,6 +108,7 @@ func TestRedline_R5bWaiverIsThe00058DownAlone(t *testing.T) {
 // (measured exit 0 in any migration). Now each variant is §4.3's append-only R5b FAIL, like its
 // spaced control.
 func TestRedline_ABlockCommentSeparatesTokens(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	const file = "db/migrations/00099_zz_probe.sql"
 	for _, c := range []struct{ what, grant string }{
 		{"control: spaced", "GRANT DELETE ON public.transactions TO tappa_app;"},
@@ -114,9 +116,12 @@ func TestRedline_ABlockCommentSeparatesTokens(t *testing.T) {
 		{"a block comment with text", "GRANT/* x */UPDATE ON public.transactions TO tappa_app;"},
 		{"a block comment across lines", "GRANT/*\n x\n*/DELETE ON public.transactions TO tappa_app;"},
 	} {
-		out, code := redlineRun(t, map[string]string{file: "-- +goose Up\n" + c.grant + "\n-- +goose Down\nSELECT 1;\n"})
-		if fail := failSection(out, "R5b"); code == 0 || !strings.Contains(fail, file+": append-only tabloya UPDATE/DELETE yetkisi") {
-			t.Errorf("%s: exit %d, R5b FAIL %q -- want a non-zero exit and the append-only grant named:\n%s", c.what, code, fail, out)
-		}
+		t.Run(c.what, func(t *testing.T) {
+			t.Parallel()
+			out, code := redlineRun(t, map[string]string{file: "-- +goose Up\n" + c.grant + "\n-- +goose Down\nSELECT 1;\n"})
+			if fail := failSection(out, "R5b"); code == 0 || !strings.Contains(fail, file+": append-only tabloya UPDATE/DELETE yetkisi") {
+				t.Errorf("%s: exit %d, R5b FAIL %q -- want a non-zero exit and the append-only grant named:\n%s", c.what, code, fail, out)
+			}
+		})
 	}
 }
