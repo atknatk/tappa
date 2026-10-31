@@ -21,56 +21,62 @@ import (
 // ONE BUSINESS IS A STATE OF ITS OWN: the shell's link may be on for everybody (M14-12), and a
 // person with one business on this sign-in is told so, and how others would appear, instead of
 // meeting an empty rail.
+//
+// THE PAGE'S OWN FRAME (switch-frame) IS THE WIDE-SCREEN ZOOM'S HOOK (2026-10-30): the panel's
+// sidebar opens this page, so on a very wide screen it takes the panel's two zoom steps; the
+// wrapper is here and not in the layout, which the pre-session pages share and keep at 1x.
 templ AdminSwitch(v AdminSwitchView) {
 	@layout.Auth("Switch business — Taptime", "") {
-		@AuthHeader("")
-		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-[30px] md:px-10 md:pb-14 md:pt-6 desk:gap-9 desk:px-14 desk:pb-[72px] desk:pt-8">
-			<div class="flex flex-col gap-2 md:gap-2.5 desk:max-w-[620px]">
-				if v.Current != "" {
-					<p class="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<span class="lbl">You are in { v.Current }</span>
-						if v.CurrentSuspended {
-							<span class="tally tally--changes-paused">Changes paused</span>
-						}
-					</p>
-				}
-				<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[40px] desk:text-5xl">Switch business</h1>
+		<div class="switch-frame">
+			@AuthHeader("")
+			<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-[30px] md:px-10 md:pb-14 md:pt-6 desk:gap-9 desk:px-14 desk:pb-[72px] desk:pt-8">
+				<div class="flex flex-col gap-2 md:gap-2.5 desk:max-w-[620px]">
+					if v.Current != "" {
+						<p class="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<span class="lbl">You are in { v.Current }</span>
+							if v.CurrentSuspended {
+								<span class="tally tally--changes-paused">Changes paused</span>
+							}
+						</p>
+					}
+					<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-[40px] desk:text-5xl">Switch business</h1>
+					if len(v.Others) > 0 {
+						<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+							Pick the business you want to work in. You stay signed in — there is no need to sign out first.
+						</p>
+					} else {
+						<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+							if v.Current != "" {
+								{ v.Current } is the only business on this sign-in, so there is nothing to switch to.
+							} else {
+								There is no other business on this sign-in to switch to.
+							}
+						</p>
+						<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
+							Businesses you manage under the same sign-in appear here, and you can move between them without signing out.
+						</p>
+					}
+				</div>
 				if len(v.Others) > 0 {
-					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
-						Pick the business you want to work in. You stay signed in — there is no need to sign out first.
-					</p>
-				} else {
-					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
-						if v.Current != "" {
-							{ v.Current } is the only business on this sign-in, so there is nothing to switch to.
-						} else {
-							There is no other business on this sign-in to switch to.
-						}
-					</p>
-					<p class="max-w-[560px] text-[15px] leading-normal text-ink/70 md:text-base">
-						Businesses you manage under the same sign-in appear here, and you can move between them without signing out.
-					</p>
-				}
-			</div>
-			if len(v.Others) > 0 {
-				@businessRail() {
-					for _, b := range v.Others {
-						@businessRailItem() {
-							<form method="post" action={ templ.URL(components.Bound(ctx, v.SwitchHref)) } class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
-								<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-								<input type="hidden" name="tenant_id" value={ b.TenantID }/>
-								@businessDocketBody(b.TenantName, b.Role, b.Suspended)
-							</form>
+					@businessRail() {
+						for _, b := range v.Others {
+							@businessRailItem() {
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.SwitchHref)) } class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
+									<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+									<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+									@businessDocketBody(b.TenantName, b.Role, b.Suspended)
+								</form>
+							}
 						}
 					}
 				}
-			}
-			<p>
-				<a href={ templ.SafeURL(v.BackHref) } class="inline-flex min-h-11 items-center gap-1 font-display text-sm font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">
-					<span aria-hidden="true">←</span>
-					Back to the panel
-				</a>
-			</p>
-		</main>
+				<p>
+					<a href={ templ.SafeURL(v.BackHref) } class="inline-flex min-h-11 items-center gap-1 font-display text-sm font-bold text-tappa-green underline-offset-4 hover:text-ink hover:underline">
+						<span aria-hidden="true">←</span>
+						Back to the panel
+					</a>
+				</p>
+			</main>
+		</div>
 	}
 }

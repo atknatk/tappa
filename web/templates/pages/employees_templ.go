@@ -828,7 +828,7 @@ func AdminInviteIssued(v InviteIssuedView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div class=\"flex flex-col gap-7 desk:flex-row desk:items-start\"><div class=\"flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div class=\"panel-measure flex flex-col gap-7 desk:flex-row desk:items-start\"><div class=\"flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1193,7 +1193,7 @@ func AdminInviteEmailed(v InviteEmailedView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<div class=\"flex flex-col gap-7 desk:flex-row desk:items-start\"><div class=\"flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<div class=\"panel-measure flex flex-col gap-7 desk:flex-row desk:items-start\"><div class=\"flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -51,7 +51,7 @@ func AdminBusinessDayReview(v BusinessDayReviewView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex max-w-3xl flex-col gap-5\"><p class=\"text-sm leading-normal text-ink md:text-[15px]\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"panel-measure flex max-w-3xl flex-col gap-5\"><p class=\"text-sm leading-normal text-ink md:text-[15px]\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

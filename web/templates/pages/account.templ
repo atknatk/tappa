@@ -38,9 +38,12 @@ import (
 //
 // THE LAYOUT IS ONE MARKUP AT EVERY WIDTH: the cards stack on a phone and a tablet in the
 // tablet board's order (Identity, Your brand, Your password, What your staff read,
-// Developers) and from the desk width the same order fills two columns, so Identity,
-// the password and Developers sit on the left and the brand and the staff sentences on
-// the right, as the desk board draws them.
+// Developers), and from the desk width the same order flows down columns -- two in the
+// desk box, three from a wide one (input.css, the card flow, says how many and why). Each
+// card sits right under the one before it; the row grid this replaced (2026-10-30) made
+// every row as tall as its tallest card. Which column a card lands in follows the heights,
+// not the desk board's fixed left and right: the board's assignment would need a second
+// order, and the phone reads this one.
 //
 // THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill
 // tappa-brand, "templ + Tailwind").
@@ -60,7 +63,7 @@ templ AdminAccount(v AccountView) {
 			// M14-18: the confirmation window comes first while it is open -- it asks for a decision.
 			@accountWindowCard(*v.Identity)
 		}
-		<div class="grid grid-cols-1 items-start gap-5 desk:grid-cols-2">
+		<div class="card-flow grid grid-cols-1 items-start gap-5 desk:block">
 			@accountIdentity(v)
 			if v.BusinessDay != nil {
 				// M15-07: the business level of the business day, its own card and its own

@@ -415,6 +415,40 @@ M12-47. Where the two differ, the code is right (D1) and the reason is here.
   them) could not be read, so it does not depend on them; and the sign-in family, where the
   unauthenticated problems send the reader, stays Taptime's (ADR 0023 §2). The card itself (code chip, owner pill, title, message, hint, one link)
   is the board's.
+- **Wide screens** (the wide-screen pass, 2026-10-30, user decision; the boards are drawn at
+  1440 and say nothing wider). The content well is **no longer centred and stops at 100rem**
+  (`.panel-well`, `input.css`): it stands against the sidebar as the boards' `flex: 999 1 640px`
+  main column does, and the 72rem centred well of M12-01 (§3.6 above) is gone — at 3840 px it
+  left 1220 px of porcelain on each side. A page that is filled in or read through (the venue,
+  department and staff forms, a typed record, Rules, a rule change, Billing, Developers,
+  Managers, linking businesses, a business day review) carries the `.panel-measure` marker and
+  its whole well stops at **70rem** — the FreezeMonth board's 1120 px content row, about the
+  1104 px box every board is drawn in at 1440; the data pages take the full well. The Account
+  cards and Odd shapes' middle cards **flow down columns** from `desk` (`.card-flow`: at least
+  25rem a column, at most three) instead of a row grid ([account-auth §1.2](screens/account-auth.md),
+  [spike-odd O.3](screens/spike-odd.md#o3-breakpoints)), and a paragraph on a data page may carry
+  `.panel-prose` (70rem). **Past a 2400 px window the whole frame is zoomed 1.25, past 3200 px
+  1.5** (sidebar, type, cards and the tenant's stripe and logo alike; nothing changes at 1920 or
+  below): a 1x 4K screen is about 3840 CSS px and the redesign's 11–14 px type is physically small
+  there. Inside the zoom a `vh` is zoomed too, so each step restates the sidebar's height and the
+  frame's minimum as `100vh` divided by its factor — without that the sidebar was 1.25 or 1.5
+  screens tall and every short page scrolled (measured). The steps and the divided heights sit
+  inside `@supports (zoom: 1)`: a browser without `zoom` keeps 1x and undivided heights, not a
+  short sidebar. **The switch page** (`/admin/switch`, `pages.AdminSwitch`) is drawn outside the
+  frame, in the sign-in family's `layout.Auth`, but the sidebar's "Switch business" opens it,
+  so it takes the same two steps on a wrapper of its own (`.switch-frame`, header included);
+  measured at 3840: panel → switch → panel stays at 1.5 on real clicks, and at 1920 the page is
+  pixel for pixel what it was. **Out of scope, kept at 1x on purpose:** the pages before a
+  session or reached by mail — sign-in, "Which business?", password recovery and reset, an
+  invitation and its acceptance (`layout.Auth`) — and the panel's problem pages
+  (`pages.PanelProblem` in `layout.Page`, shared with the employee's tap and activation screens;
+  in a session they answer a refused or missing address, no panel link leads to one). The API
+  guide the Developers page links to is the public site (`layout.MarketingTranslated`), not
+  the panel; its width is the marketing site's decision. **Risks, not measured:** whether
+  Safari (26) multiplies a `vh` inside `zoom` as Chrome does — a 2560 px 5K or Studio Display
+  window already reaches the 1.25 step there; and a reader who already zooms the browser gets
+  both zooms on top of each other (a 3840 window at 150 % browser zoom is 2560 CSS px, so 1.25
+  on top). Pinned by `internal/handler/panelwide_test.go`.
 
 **Lessons the port paid for** (each one red at least once):
 

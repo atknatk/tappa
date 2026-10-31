@@ -509,7 +509,7 @@ func problemRosterHeading(problem string) string {
 // so the name is beside it, at the top, before the credential.
 templ AdminInviteIssued(v InviteIssuedView) {
 	@PanelShell(issuedChrome(v)) {
-		<div class="flex flex-col gap-7 desk:flex-row desk:items-start">
+		<div class="panel-measure flex flex-col gap-7 desk:flex-row desk:items-start">
 			<div class="flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]">
 				@components.PanelNotice(components.ToneOK, "Invitation created for "+v.Name) {
 					<p>
@@ -629,7 +629,7 @@ templ inviteNextSteps(name string, byEmail bool) {
 // says that instead, without blaming the address or the manager.
 templ AdminInviteEmailed(v InviteEmailedView) {
 	@PanelShell(emailedChrome(v)) {
-		<div class="flex flex-col gap-7 desk:flex-row desk:items-start">
+		<div class="panel-measure flex flex-col gap-7 desk:flex-row desk:items-start">
 			<div class="flex min-w-0 flex-col gap-5 desk:flex-[999_1_560px]">
 				if v.Outcome == "sent" {
 					@components.PanelNotice(components.ToneOK, "Invitation sent to "+v.Name) {

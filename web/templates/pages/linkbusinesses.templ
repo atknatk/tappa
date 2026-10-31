@@ -34,7 +34,7 @@ templ panelAddBusiness(b PanelAddBusiness) {
 // that opened the link, and the outcome.
 templ AdminLinkBusinesses(v LinkBusinessesView) {
 	@PanelShell(v.PanelChrome) {
-		<div class="flex flex-col gap-5 md:gap-6">
+		<div class="panel-measure flex flex-col gap-5 md:gap-6">
 			if v.Problem != "" {
 				@components.PanelNotice(components.ToneAlert, "Nothing was added") {
 					<p>{ v.Problem }</p>

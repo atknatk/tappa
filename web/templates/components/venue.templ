@@ -28,7 +28,7 @@ import "strconv"
 // 44px of height — a manager checks this at the pass, on a phone, with one thumb. The
 // section numbers are drawing and are not read.
 templ VenueForm(v VenueFormView, side VenueFormSide) {
-	<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start">
+	<div class="panel-measure flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start">
 		<div class="flex min-w-0 flex-col gap-4">
 			if v.ErrorMessage != "" && v.ErrorField == "" {
 				@PanelNotice(ToneAlert, "Nothing was saved") {
@@ -406,7 +406,7 @@ templ venueRefForm(v VenueRefFormView) {
 // DepartmentForm is the add/edit page for one department: its venue, its name and its
 // shift, in the venue form's numbered sections.
 templ DepartmentForm(v DepartmentFormView) {
-	<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start">
+	<div class="panel-measure flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,1fr)_340px] desk:items-start">
 		<div class="flex min-w-0 flex-col gap-4">
 			if v.ErrorMessage != "" && v.ErrorField == "" {
 				@PanelNotice(ToneAlert, "Nothing was saved") {

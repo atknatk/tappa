@@ -79,7 +79,7 @@ templ RosterAdd(v RosterAddView) {
 // OVERSIGHT: every addFormAgain call site names a field, so the message always has a
 // control to sit beside; the venueless case is answered by RosterAddView.Refusal.
 templ StaffForm(v StaffFormView) {
-	<div class="flex flex-col gap-7 desk:flex-row desk:items-start">
+	<div class="panel-measure flex flex-col gap-7 desk:flex-row desk:items-start">
 		<section class="panel-card min-w-0 desk:flex-[999_1_520px]" aria-label="Add somebody to this business">
 			<form method="post" action={ templ.URL(Bound(ctx, v.Action)) } class="flex flex-col gap-[18px]">
 				@hiddenFields(v.Hidden)
