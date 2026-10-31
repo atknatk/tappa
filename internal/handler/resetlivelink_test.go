@@ -43,6 +43,21 @@ func keptReset() adminauth.Reset {
 //
 // The kept arm sends nothing, writes ONE "kept" row naming the live link, and withdraws
 // nothing; the minted arm sends one link and writes one "requested" row.
+//
+// THE CLOCK IS READ OVER liveLinkRounds ROUNDS, each a fresh world asked in the same
+// order (T181): one sample per arm let a single scheduler pause fail the test (CI run
+// 40713606398: the unregistered arm 443 ms against 256/260 ms for the other two, the
+// code unchanged). The two bounds are read differently because a pause can only ADD:
+// the floor holds for EVERY sample (an answer under it is the branch showing, however
+// loaded the machine), and the ceiling for each arm's FASTEST sample (the arm's own cost
+// beyond the floor; a pause on one sample is not it). Interleaved, so a machine that gets
+// busier moves every arm.
+//
+// ⚠️ THE BLIND SPOT THIS BUYS, NAMED: the ceiling sees only an overrun that is in EVERY
+// sample of an arm. A one-off or intermittent overrun that leaves the fastest sample clean
+// is not seen -- measured in the T181 audit: the kept arm +100 ms on its first request only
+// passes, samples [355, 256, 253, 254, 253] ms, which the single-sample version caught.
+// Accepted: such an overrun is not repeatable on demand, so it is no probing oracle.
 func TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress(t *testing.T) {
 	t.Parallel()
 	const (
@@ -50,14 +65,6 @@ func TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress(t *testing.T) {
 		holding      = "holding@livelink.example.test"
 		fresh        = "fresh@livelink.example.test"
 	)
-	live := keptReset()
-	resets := &fakeResets{
-		grantsFor: map[string][]adminauth.ResetGrant{fresh: {grantFor(fresh)}},
-		keptFor:   map[string][]adminauth.Reset{holding: {live}},
-	}
-	mail := &recordingChannel{}
-	trail := &fakeTrail{}
-	router, h := newResetRouter(t, resets, mail, trail)
 
 	type answer struct {
 		code    int
@@ -65,69 +72,96 @@ func TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress(t *testing.T) {
 		body    string
 		elapsed time.Duration
 	}
-	post := func(email string) answer {
+	// round builds a fresh world (its own fakes, budgets and outbox), asks the three
+	// addresses once each and checks everything but the clock.
+	round := func() (kept, nobody, minted answer) {
 		t.Helper()
-		br := newBrowser(t, router)
-		page := br.do(http.MethodGet, adminResetPath, nil)
-		csrf := csrfFrom(t, htmlOf(t, page))
-		start := time.Now()
-		rec := br.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {email}})
-		elapsed := time.Since(start)
-		return answer{code: rec.Code, header: rec.Header().Clone(), body: htmlOf(t, rec), elapsed: elapsed}
+		live := keptReset()
+		resets := &fakeResets{
+			grantsFor: map[string][]adminauth.ResetGrant{fresh: {grantFor(fresh)}},
+			keptFor:   map[string][]adminauth.Reset{holding: {live}},
+		}
+		mail := &recordingChannel{}
+		trail := &fakeTrail{}
+		router, h := newResetRouter(t, resets, mail, trail)
+
+		post := func(email string) answer {
+			t.Helper()
+			br := newBrowser(t, router)
+			page := br.do(http.MethodGet, adminResetPath, nil)
+			csrf := csrfFrom(t, htmlOf(t, page))
+			start := time.Now()
+			rec := br.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {email}})
+			elapsed := time.Since(start)
+			return answer{code: rec.Code, header: rec.Header().Clone(), body: htmlOf(t, rec), elapsed: elapsed}
+		}
+
+		// The kept arm FIRST and on its own, so the trail it leaves is read before any
+		// other arm writes.
+		kept = post(holding)
+		rows := trail.eventsSnapshot()
+		if len(rows) != 1 || rows[0].Action != ActionAdminResetKept {
+			t.Fatalf("the kept arm left %d row(s) %v when it answered, want one %s row", len(rows), rows, ActionAdminResetKept)
+		}
+		d, _ := rows[0].Detail.(adminResetDetail)
+		if d.Outcome != "kept" || d.Reason != resetReasonLiveLink || d.ResetID != live.ID.String() ||
+			d.ExpiresAt != live.ExpiresAt.UTC().Format(time.RFC3339) || rows[0].TenantID != live.TenantID ||
+			rows[0].Target != live.AdminUserID.String() {
+			t.Errorf("the kept row is %+v / %+v, want outcome kept, the live link's id and expiry, in its account's tenant", rows[0], d)
+		}
+		nobody = post(unregistered)
+		minted = post(fresh)
+		drain(t, h)
+
+		if n := len(mail.all()); n != 1 || mail.all()[0].Recipient != fresh {
+			t.Fatalf("CONTROL FAILED: the channel received %d link(s), want exactly the fresh account's one", n)
+		}
+		if n := trail.count(ActionAdminResetRequested); n != 1 {
+			t.Errorf("%d requested row(s), want the fresh account's one", n)
+		}
+		if n := trail.count(ActionAdminResetKept); n != 1 {
+			t.Errorf("%d kept row(s), want the holding account's one", n)
+		}
+		if w := resets.withdrawals(); len(w) != 0 {
+			t.Errorf("%d link(s) withdrawn, want none: nothing failed", len(w))
+		}
+
+		for name, a := range map[string]answer{"live link held": kept, "unregistered": nobody} {
+			if a.code != minted.code {
+				t.Errorf("%s: status %d, want %d", name, a.code, minted.code)
+			}
+			if !reflect.DeepEqual(a.header, minted.header) {
+				t.Errorf("%s: headers %v, want %v", name, a.header, minted.header)
+			}
+			if a.body != minted.body {
+				t.Errorf("%s: the body differs from the minted arm's:\n%s\n---\n%s", name, a.body, minted.body)
+			}
+		}
+		return kept, nobody, minted
 	}
 
-	// The kept arm FIRST and on its own, so the trail it leaves is read before any
-	// other arm writes.
-	kept := post(holding)
-	rows := trail.eventsSnapshot()
-	if len(rows) != 1 || rows[0].Action != ActionAdminResetKept {
-		t.Fatalf("the kept arm left %d row(s) %v when it answered, want one %s row", len(rows), rows, ActionAdminResetKept)
-	}
-	d, _ := rows[0].Detail.(adminResetDetail)
-	if d.Outcome != "kept" || d.Reason != resetReasonLiveLink || d.ResetID != live.ID.String() ||
-		d.ExpiresAt != live.ExpiresAt.UTC().Format(time.RFC3339) || rows[0].TenantID != live.TenantID ||
-		rows[0].Target != live.AdminUserID.String() {
-		t.Errorf("the kept row is %+v / %+v, want outcome kept, the live link's id and expiry, in its account's tenant", rows[0], d)
-	}
-	nobody := post(unregistered)
-	minted := post(fresh)
-	drain(t, h)
-
-	if n := len(mail.all()); n != 1 || mail.all()[0].Recipient != fresh {
-		t.Fatalf("CONTROL FAILED: the channel received %d link(s), want exactly the fresh account's one", n)
-	}
-	if n := trail.count(ActionAdminResetRequested); n != 1 {
-		t.Errorf("%d requested row(s), want the fresh account's one", n)
-	}
-	if n := trail.count(ActionAdminResetKept); n != 1 {
-		t.Errorf("%d kept row(s), want the holding account's one", n)
-	}
-	if w := resets.withdrawals(); len(w) != 0 {
-		t.Errorf("%d link(s) withdrawn, want none: nothing failed", len(w))
-	}
-
-	for name, a := range map[string]answer{"live link held": kept, "unregistered": nobody} {
-		if a.code != minted.code {
-			t.Errorf("%s: status %d, want %d", name, a.code, minted.code)
-		}
-		if !reflect.DeepEqual(a.header, minted.header) {
-			t.Errorf("%s: headers %v, want %v", name, a.header, minted.header)
-		}
-		if a.body != minted.body {
-			t.Errorf("%s: the body differs from the minted arm's:\n%s\n---\n%s", name, a.body, minted.body)
+	elapsed := map[string][]time.Duration{}
+	var minted answer
+	for r := 0; r < liveLinkRounds; r++ {
+		var kept, nobody answer
+		kept, nobody, minted = round()
+		for name, a := range map[string]answer{"live link held": kept, "unregistered": nobody, "no live link": minted} {
+			elapsed[name] = append(elapsed[name], a.elapsed)
 		}
 	}
-	for name, a := range map[string]answer{"live link held": kept, "unregistered": nobody, "no live link": minted} {
-		if a.elapsed < resetRequestFloor {
-			t.Errorf("%s answered in %v, under the floor %v: the branch it took is visible in the clock",
-				name, a.elapsed, resetRequestFloor)
+	ceiling := resetRequestFloor + 50*time.Millisecond
+	for _, name := range []string{"live link held", "unregistered", "no live link"} {
+		for i, e := range elapsed[name] {
+			if e < resetRequestFloor {
+				t.Errorf("%s answered in %v in round %d, under the floor %v: the branch it took is visible in the clock",
+					name, e, i+1, resetRequestFloor)
+			}
 		}
-		if a.elapsed > resetRequestFloor+50*time.Millisecond {
-			t.Errorf("%s answered in %v, over floor+50ms (%v)", name, a.elapsed, resetRequestFloor+50*time.Millisecond)
+		if fastest := minDuration(elapsed[name]); fastest > ceiling {
+			t.Errorf("%s answered in %v at its fastest of %d rounds, over floor+50ms (%v)", name, fastest, liveLinkRounds, ceiling)
 		}
+		t.Logf("%s answered in %v (floor %v)", name, elapsed[name], resetRequestFloor)
 	}
-	t.Logf("answered in: live link held %v, unregistered %v, no live link %v (floor %v)",
-		kept.elapsed, nobody.elapsed, minted.elapsed, resetRequestFloor)
 
 	// THE INDEPENDENT CONTROL: the comparison above can fail.
 	dark, _ := newResetRouter(t, &fakeResets{}, nil, &fakeTrail{})
@@ -137,6 +171,12 @@ func TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress(t *testing.T) {
 		t.Fatal("CONTROL FAILED: an undeliverable deployment's page equals the deliverable one, so the comparison proves nothing")
 	}
 }
+
+// liveLinkRounds is how many times TestAdminReset_ALiveLinkAnswersLikeEveryOtherAddress
+// and TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor read the clock per arm
+// (T181, T182): enough that one pause is never an arm's fastest sample, few enough that
+// the floor (250 ms a request) keeps each test to seconds.
+const liveLinkRounds = 5
 
 // TestAdminReset_AnUndeliveredLinkIsWithdrawn: a link recorded undelivered is
 // withdrawn — before its row, and whatever the row's fate — so the account's one live

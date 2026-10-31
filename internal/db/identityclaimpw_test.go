@@ -310,6 +310,8 @@ func TestIdentityClaimSignup00080_TheOldBinarysCallStillClaims(t *testing.T) {
 // else changed (the session path, the new address's path, 6b, S2/T7 byte for byte).
 func TestIdentity00080_TheBodyIs00078sPlusThePasswordBranch(t *testing.T) {
 	ctx, tx := opTx(t)
+	// T183: 00085 redefines this file's bodies again (the session lifetime); "HEAD" below is 00084.
+	aslBelow00085(t, ctx, tx)
 	up80, _ := opMigrationSections(t, ic00080File)
 	up78, _ := opMigrationSections(t, "00078_verify_signups_by_e_mail.sql")
 	body := func(src string) string {
@@ -354,6 +356,8 @@ func TestIdentity00080_TheBodyIs00078sPlusThePasswordBranch(t *testing.T) {
 // Neither locks a table (DROP / CREATE / GRANT on a function).
 func TestIdentity00080_DownGivesBack00078sDefinitionByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
+	// T183: 00085 redefines this file's bodies again (the session lifetime); "HEAD" below is 00084.
+	aslBelow00085(t, ctx, tx)
 	up, down := opMigrationSections(t, ic00080File)
 	if tables := downTables(down); len(tables) > 0 {
 		t.Fatalf("PREMISE: 00080's Down locks %v", tables)

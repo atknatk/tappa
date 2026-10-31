@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -313,5 +314,33 @@ func TestAdminSwitch_ThePageListsTheOtherBusinessesWithBoundForms(t *testing.T) 
 	want := bindingFor(b.h, b.cookies[adminauth.CookieName])
 	if want == "" || !strings.Contains(page, `action="`+adminSwitchHref+`?tb=`+want+`"`) {
 		t.Errorf("the switch form does not post with this session's binding")
+	}
+}
+
+// TestAdminSwitch_TheCookieLivesWhatTheSessionHasLeft (T183, ADR 0035): a switched session ends when the
+// sign-in it carries ends, so the new cookie's Max-Age is the Left the switch reports -- not a fresh
+// twelve hours -- and the browser drops it when the server stops honouring it. MUTATION (measured):
+// the handler back on cookies.Set -> red (Max-Age 43200).
+func TestAdminSwitch_TheCookieLivesWhatTheSessionHasLeft(t *testing.T) {
+	admins := &fakeAdmins{switchTo: func(uuid.UUID) (adminauth.Issued, error) {
+		return adminauth.Issued{
+			Session: adminauth.Session{ID: uuid.New(), TenantID: switchOther, AdminUserID: uuid.New()},
+			Token:   fakeIssuedToken(),
+			Left:    17*time.Minute + 300*time.Millisecond,
+		}, nil
+	}}
+	b := switchBrowser(t, true, admins)
+	rec := b.do(http.MethodPost, adminSwitchHref, url.Values{"csrf": {switchCSRF(t, b)}, "tenant_id": {switchOther.String()}})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", rec.Code)
+	}
+	var got []*http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == adminauth.CookieName {
+			got = append(got, c)
+		}
+	}
+	if want := 17*60 + 1; len(got) != 1 || got[0].MaxAge != want {
+		t.Fatalf("the switched cookie: %+v, want one with Max-Age %d (the time left, rounded up)", got, want)
 	}
 }

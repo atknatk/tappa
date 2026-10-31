@@ -132,6 +132,8 @@ func TestAdminOwners00081_AnswersOnlyForTheCallersOwnTenant(t *testing.T) {
 // carry the lock (four FOR NO KEY UPDATE in all) and 00071's none. The Down locks no table.
 func TestIdentity00081_DownGivesBack00071ByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
+	// T183: 00085 redefines this file's bodies again (the session lifetime); "HEAD" below is 00084.
+	aslBelow00085(t, ctx, tx)
 	up, down := opMigrationSections(t, ao00081File)
 	if tables := downTables(down); len(tables) > 0 {
 		t.Fatalf("PREMISE: 00081's Down locks %v", tables)

@@ -732,6 +732,27 @@ func (r *Resets) Consume(ctx context.Context, t ResetToken, newPassword string) 
 		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		// 🔴 A ROW LINKED SINCE identity_consume_row_reset FOUND NOTHING (T179): today's statement
+		// writes unlinked rows only, so the race is these 0 rows -- not 00069's trigger and a 500 --
+		// and the rollback took the stamp back: the link is unspent. It is offered to the identity's
+		// consumption ONCE more, exactly as if the request had come a moment later; that function is
+		// the authority (single use, cancelled, expired, disabled -- re-checked under the person's
+		// lock), so a link that is spent or dead for any other reason answers 0 rows there too and
+		// the answer stays the one error. Every 0-row consumption of a resolved link pays this round
+		// trip, linked or not, so it tells nobody which it was.
+		c, ierr := r.data.ConsumeIdentityRowReset(ctx, h, digest)
+		switch {
+		case ierr == nil:
+			return ConsumedReset{
+				ResetID:         c.ResetID,
+				TenantID:        c.TenantID,
+				AdminUserID:     c.AdminUserID,
+				RevokedSessions: c.RevokedSessions,
+				Recorded:        true,
+			}, db.ResolvedPasswordReset{}, nil
+		case !errors.Is(ierr, pgx.ErrNoRows):
+			return ConsumedReset{}, resolved, fmt.Errorf("adminauth: consume reset: %w", ierr)
+		}
 		return ConsumedReset{}, resolved, ErrResetUnusable
 	}
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -182,7 +183,7 @@ func (w *punchWorld) insertPunch(ctx context.Context, tx pgx.Tx, row punchRow) (
 	var lat, lng *float64
 	if evidence {
 		n, i, s, c, l := w.canary+"-note", "198.51.100.213", "sys:"+strings.ToLower(w.canary), `{"canary":"`+w.canary+`-context"}`, "guardrail"
-		la, lo := 35.987654, 14.123456
+		la, lo := punchGPSLat, punchGPSLng
 		note, ip, sid, pctx, layer, lat, lng = &n, &i, &s, &c, &l, &la, &lo
 	}
 	var id uuid.UUID
@@ -695,6 +696,50 @@ func TestPunches_CursorGames(t *testing.T) {
 	}
 }
 
+// punchGPSLat and punchGPSLng are the coordinate every evidence row of a punch world carries, and
+// punchGPSNeedles the pieces of it the leak check below searches every answer for: a prefix of each,
+// so a rounded or re-formatted copy is found too (a JSON number, a string, fewer digits).
+//
+// THE INTEGER PARTS ARE ABOVE 60 ON PURPOSE (T188). The answer's only decimals are its RFC 3339
+// timestamps, and there the one '.' follows the seconds, 00-60: the coordinate 35.987654, 14.123456 it
+// replaced was found in "...:12:35.981Z" (CI run 41191774626, a punch recorded at 10:52:35.98x) -- a
+// false red that said nothing about a leak. TestPunchGPSNeedles_NoTimestampCarriesThem holds it.
+const punchGPSLat, punchGPSLng = 87.654321, 165.432198
+
+var punchGPSNeedles = []string{"87.65", "165.43"}
+
+// TestPunchGPSNeedles_NoTimestampCarriesThem: no RFC 3339 timestamp, at any second and any leading
+// millisecond digits, contains a needle -- and the CONTROL: the needles T188 retired are found by the
+// same scan, so the scan can fail.
+func TestPunchGPSNeedles_NoTimestampCarriesThem(t *testing.T) {
+	carrier := func(needle string) string {
+		for sec := 0; sec < 60; sec++ {
+			for ms := 0; ms < 1000; ms++ {
+				for _, d := range []time.Duration{time.Duration(ms) * time.Millisecond, time.Duration(ms)*time.Millisecond + 987*time.Microsecond} {
+					ts := time.Date(2026, 10, 31, 10, 52, sec, int(d), time.UTC).Format(time.RFC3339Nano)
+					if strings.Contains(ts, needle) {
+						return ts
+					}
+				}
+			}
+		}
+		return ""
+	}
+	for _, old := range []string{"35.98", "14.12"} {
+		if carrier(old) == "" {
+			t.Fatalf("CONTROL: no timestamp carries the retired needle %q; the scan cannot fail", old)
+		}
+	}
+	for _, n := range punchGPSNeedles {
+		if ts := carrier(n); ts != "" {
+			t.Errorf("the timestamp %s carries the GPS needle %q: the leak check would go red on the clock", ts, n)
+		}
+		if !strings.HasPrefix(strconv.FormatFloat(punchGPSLat, 'f', -1, 64), n) && !strings.HasPrefix(strconv.FormatFloat(punchGPSLng, 'f', -1, 64), n) {
+			t.Errorf("the needle %q is no prefix of the coordinate %v, %v: the leak check would look for nothing", n, punchGPSLat, punchGPSLng)
+		}
+	}
+}
+
 // TestPunches_NothingButTheFeedsColumnsAnswers (K-1f, K-39; ADR 0028 §6 "Yük"): every row behind the
 // answers carries the world's canary in its note, source address, coordinate, rule, policy context
 // and trust, and every employee an e-mail address -- the bytes of every page, in both scopes of every
@@ -718,7 +763,7 @@ func TestPunches_NothingButTheFeedsColumnsAnswers(t *testing.T) {
 					t.Fatalf("%s %s: %d %s", b.code, query, rec.Code, rec.Body.String())
 				}
 				body := strings.ToLower(rec.Body.String())
-				for _, never := range []string{strings.ToLower(w.canary), "198.51.100.213", "35.98", "14.12", "@punches.example.test", "punch staff",
+				for _, never := range []string{strings.ToLower(w.canary), "198.51.100.213", punchGPSNeedles[0], punchGPSNeedles[1], "@punches.example.test", "punch staff",
 					"verdict", "trust", "note", "email", "gps", "\"ip", "policy", "sid", "matched", "practice", "roles"} {
 					if strings.Contains(body, never) {
 						t.Errorf("%s scope=%s: the answer carries %q", b.code, scope, never)

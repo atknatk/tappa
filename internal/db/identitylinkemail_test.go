@@ -402,6 +402,8 @@ func TestIdentityRequestVerification00084_ThePurposeAndTheOldBinarysCall(t *test
 // linked by e-mail.
 func TestIdentity00084_DownGivesBack00072sRequestByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
+	// T183: 00085 redefines this file's bodies again (the session lifetime); "HEAD" below is 00084.
+	aslBelow00085(t, ctx, tx)
 	up, down := opMigrationSections(t, ileFile)
 	type def struct{ sig, src, result, owner, config, acl string }
 	read := func(q pgx.Tx) def {

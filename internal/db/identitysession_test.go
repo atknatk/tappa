@@ -439,7 +439,9 @@ func TestIdentitySwitch_RefusesEachCaseSeparately(t *testing.T) {
 
 // TestIdentitySwitch_ANewSessionTheOldRevokedTheProofCarried: a switch from A to B opens a session in
 // B for the person's B membership under the new hash, revokes A's session, copies authenticated_at
-// from the old session's ROW (a past instant stays that instant; NULL stays NULL -- R15), sets
+// from the old session's ROW (a past instant stays that instant -- R15; T183, 00085: a session with NO
+// proof has ended -- ADR 0031 §5.1's fail-closed NULL -- so it cannot switch and a NULL is never carried
+// into a fresh row; the proof below is an hour old, inside the 12-hour lifetime), sets
 // last_used_tenant and B's last_login_at, and writes exactly two audit rows: A's ordinary sign-out
 // and B's ordinary login, whose text names neither the other business (id or name), nor the
 // identity, nor a count, nor a `via` -- the detail is exactly {outcome, session_id}.
@@ -450,7 +452,10 @@ func TestIdentitySwitch_ANewSessionTheOldRevokedTheProofCarried(t *testing.T) {
 	if err := tx.QueryRow(ctx, `SELECT (SELECT name FROM tenants WHERE id = $1), (SELECT name FROM tenants WHERE id = $2)`, w.a, w.b).Scan(&names[0], &names[1]); err != nil {
 		t.Fatal(err)
 	}
-	proof := time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC)
+	var proof time.Time
+	if err := tx.QueryRow(ctx, `SELECT now() - interval '1 hour'`).Scan(&proof); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		name   string
 		authAt any
@@ -470,6 +475,14 @@ func TestIdentitySwitch_ANewSessionTheOldRevokedTheProofCarried(t *testing.T) {
 				}
 				newHash := opRandHex(t)
 				rows := idSwitch(t, ctx, sp, old, w.b, newHash)
+				if c.authAt == "null" {
+					// T183 (00085): no proof is an ended session -- refused, nothing written.
+					if len(rows) != 0 || opInt(t, ctx, sp, `SELECT count(*) FROM admin_sessions WHERE token_hash = $1`, newHash) != 0 ||
+						opInt(t, ctx, sp, `SELECT count(*) FROM admin_sessions WHERE id = $1 AND revoked_at IS NULL`, oldID) != 1 {
+						t.Fatalf("a session with no proof switched (%d rows): a NULL would be carried into a fresh row", len(rows))
+					}
+					return
+				}
 				if len(rows) != 1 {
 					t.Fatalf("the switch returned %d rows", len(rows))
 				}

@@ -21,8 +21,10 @@ import (
 // This file is the proof that the list may skip what it names: every test it matches is shown,
 // from the source, to reach no declaration the tag can change.
 
-// tagReach reports, for each top-level Test function in cmd/tappa, the first thing it reaches that a
-// build with -tags sandbox could change, or "" if it reaches none. What counts as reaching:
+// tagReach reports, for each top-level Test function of the package in dir (cmd/tappa, or since
+// T185 its script half cmd/tappa/scripttest -- both under SANDBOX_TEST_PKGS' ./cmd/tappa/...), the
+// first thing it reaches that a build with -tags sandbox could change, or "" if it reaches none.
+// What counts as reaching:
 //
 //   - a package-level declaration of a non-test file (main's code: nosandbox.go and sandbox.go are
 //     the two halves the tag picks between, and any other file of main can call into them);
@@ -37,9 +39,9 @@ import (
 // spelling among the package-level declarations of every file -- a composite literal's field key
 // spelled like one counts as a reference to it, which errs toward "reaches" (a test wrongly kept in
 // the sandbox run), never the other way.
-func tagReach(t *testing.T) map[string]string {
+func tagReach(t *testing.T, pkg string) map[string]string {
 	t.Helper()
-	dir := filepath.Join(repoRoot, "cmd", "tappa")
+	dir := filepath.Join(repoRoot, filepath.FromSlash(pkg))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +251,15 @@ func TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange(t *testing.T) {
 		t.Errorf("check-sandbox's test line does not pass -skip '$(SANDBOX_SKIP)': %q", recipe)
 	}
 
-	reach := tagReach(t)
+	// Both halves of cmd/tappa's tests run under the same -skip (./cmd/tappa/... in
+	// SANDBOX_TEST_PKGS); a test name is unique across the two (TestEveryNamedTestExists reads names).
+	reach := tagReach(t, "cmd/tappa")
+	for name, why := range tagReach(t, "cmd/tappa/scripttest") {
+		if _, dup := reach[name]; dup {
+			t.Errorf("%s is declared in both cmd/tappa and cmd/tappa/scripttest", name)
+		}
+		reach[name] = why
+	}
 	var skipped []string
 	for name, why := range reach {
 		if !skip.MatchString(name) {
@@ -261,7 +271,7 @@ func TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange(t *testing.T) {
 		}
 	}
 	sort.Strings(skipped)
-	t.Logf("SANDBOX_SKIP leaves %d of %d cmd/tappa tests to `make check`", len(skipped), len(reach))
+	t.Logf("SANDBOX_SKIP leaves %d of %d cmd/tappa and cmd/tappa/scripttest tests to `make check`", len(skipped), len(reach))
 
 	// Not vacuous: the families the expression exists for are in it...
 	for _, want := range []string{
@@ -270,7 +280,7 @@ func TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange(t *testing.T) {
 		"TestPrePush_ScansWhatAPushPublishes",
 	} {
 		if _, ok := reach[want]; !ok {
-			t.Errorf("PREMISE: %s is not a test of cmd/tappa", want)
+			t.Errorf("PREMISE: %s is not a test of cmd/tappa or cmd/tappa/scripttest", want)
 		} else if !skip.MatchString(want) {
 			t.Errorf("SANDBOX_SKIP does not match %s", want)
 		}

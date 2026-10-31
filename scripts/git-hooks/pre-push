@@ -92,7 +92,7 @@ trap cleanup EXIT
 # kirmizi, TERM tuzagi yokken alt kabugun kendi dizinini temizlemesini beklemeyen
 # buydu. Olculdu (F0-5 CI, 2026-09-25): ubuntu:24.04 bash 5.2 INT/HUP/TERM/PIPE her biri
 # 400 kosu (yarisi CPU yukunde), macOS bash 3.2 her biri 50 — ana surec cikisinda ve
-# surec grubu bittikten sonra kalinti 0. Pin: cmd/tappa
+# surec grubu bittikten sonra kalinti 0. Pin: cmd/tappa/scripttest
 # TestPrePush_AnInterruptedScanLeavesNothing (secretscan.sh #31).
 # QUIT (Ctrl-\; denetim B3, 2026-09-26): tuzaksiz QUIT'te iki bash farkli (olculdu).
 # macOS bash 3.2 sinyalle OLUR ve EXIT tuzagini KOSTURMAZ — kanca satir metni tasiyan
@@ -225,7 +225,7 @@ raw_msg_lines() {
 # tag_lines <nesne>: annotated tag MESAJLARI (2. tur, N3 — tag push'unda mesajdaki
 # A-0 bicimi exit 0 veriyordu). Ic ice en fazla max_tag_depth (8) tag okunur; 9. kat
 # taranamaz ve exit 2 olur (sessiz degil). 2. tur yorumu "8 kattan derin" diyordu ama
-# dongu 8. katta dusuyordu — 3. tur olctu; sinir cmd/tappa testinde 8 ve 9 katla pinli.
+# dongu 8. katta dusuyordu — 3. tur olctu; sinir cmd/tappa/scripttest testinde 8 ve 9 katla pinli.
 # Tag olmayan nesnede (commit, hafif tag) yapacak bir sey yok.
 max_tag_depth=8
 tag_lines() {

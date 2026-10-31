@@ -125,7 +125,7 @@ jobs:
         # T137 fix1: redline'in iki SQL ayiricisi awk programidir ve awk makineye
         # gore degisir (macOS BSD, Ubuntu tabani mawk). Ilk satir runner'in KENDI
         # awk'ini kurulumdan ONCE yazar (olcum); gawk + mawk + original-awk
-        # cmd/tappa TestRedline_TheLexersReadTheSameUnderEveryAwk'in uc aileyi bayt
+        # cmd/tappa/scripttest TestRedline_TheLexersReadTheSameUnderEveryAwk'in uc aileyi bayt
         # bayt karsilastirmasi icindir (gawk kurulunca `awk` gawk olur).
         run: |
           echo "runner awk before install: $(readlink -f "$(command -v awk)")"; awk -W version 2>/dev/null | head -1 || true

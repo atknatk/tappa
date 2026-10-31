@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -78,9 +79,27 @@ func (m *Manager) Switch(ctx context.Context, current Token, target uuid.UUID) (
 	if err != nil {
 		return Issued{}, fmt.Errorf("adminauth: switch: %w", err)
 	}
+	// THE NEW SESSION ENDS WHEN THE OLD ONE WOULD HAVE (T183, ADR 0035): the switch copied the
+	// password proof, and a session lives db.AdminSessionLifetime from its proof, so the cookie gets
+	// the remaining time -- read in the new business's context, by the database's clock. 0 rows means
+	// it ended between the switch and this read (its last second): the switch is refused like any
+	// other, the response writes no cookie, and the browser's revoked one sends it to the sign-in page.
+	var left int32
+	err = m.data.WithTenant(ctx, s.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		left, e = store.New(tx).GetAdminSessionSecondsLeft(ctx, store.GetAdminSessionSecondsLeftParams{ID: s.SessionID, TenantID: s.TenantID})
+		return e
+	})
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && left <= 0) {
+		return Issued{}, ErrSwitchRefused
+	}
+	if err != nil {
+		return Issued{}, fmt.Errorf("adminauth: switch: %w", err)
+	}
 	return Issued{
 		Session: Session{ID: s.SessionID, TenantID: s.TenantID, AdminUserID: s.AdminUserID},
 		Token:   t,
+		Left:    time.Duration(left) * time.Second,
 	}, nil
 }
 

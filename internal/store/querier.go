@@ -2220,6 +2220,14 @@ type Querier interface {
 	// from a bad id. Tenant-scoped explicitly (section 4.5, belt on top of RLS): a hash
 	// is the one value cross-tenant reads must never reach, so the predicate is doubled.
 	GetAdminPasswordHashByID(ctx context.Context, arg GetAdminPasswordHashByIDParams) (GetAdminPasswordHashByIDRow, error)
+	// How many whole seconds one live panel session has left (T183, ADR 0035): its end is its password
+	// proof (authenticated_at) + 12 hours, and a switch copies the proof, so the session a switch births
+	// ends when its predecessor would have. adminauth.Manager.Switch reads this right after the switch so
+	// the new cookie's Max-Age is the REMAINING time and the browser drops it when the server stops
+	// honouring it. Rounded UP (a session with 0.4 s left must not get Max-Age=0, which net/http would
+	// send as no Max-Age at all -- a cookie with no end). 0 rows: revoked, ended, or not in this tenant.
+	// The database's clock, never the process's, so the two ends cannot drift apart by clock skew.
+	GetAdminSessionSecondsLeft(ctx context.Context, arg GetAdminSessionSecondsLeftParams) (int32, error)
 	// The FROZEN row for one month, or pgx.ErrNoRows when the month has not been closed.
 	//
 	// 🔴 NO FIGURE IS RECOMPUTED HERE, which is the M6-12 card's fourth criterion in one
@@ -3786,6 +3794,11 @@ type Querier interface {
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
+	//
+	// revoked_at is the session's END (T183, ADR 0035, migration 00085 -- the resolver's rule): the
+	// revocation; else, for a session with no password proof on record (NULL authenticated_at), its birth;
+	// else authenticated_at + 12 hours once that has passed. So a row past its lifetime never reads as
+	// live in a list -- the same answer resolve_admin_session_by_token_hash gives for its cookie.
 	ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error)
 	// One row per employee who carries at least one signal in the window.
 	//
@@ -6467,6 +6480,14 @@ type Querier interface {
 	// process, so a caller that passed anything else gets 23514 and the whole WithTenant
 	// transaction rolls back (fail-closed). @password_hash is a parameter, not returned:
 	// the RETURNING list names id alone, so no *Row struct carries the digest.
+	//
+	// `identity_id IS NULL` (T179): this statement is the change of an UNLINKED row. A row linked
+	// between adminauth's identity check and this write (a sign-in's automatic link, the link by
+	// e-mail, the reconciliation) would otherwise reach 00069's trigger, whose restrict_violation aborts
+	// the transaction and answers 500. Under READ COMMITTED a link committed while this UPDATE waits on
+	// the row lock is re-read here too, so the race collapses into 0 rows -- and adminauth, finding
+	// the row still active, sends the change through the identity. The column is a predicate only,
+	// never projected (R16's scan allows exactly that, for exactly this statement).
 	SetOwnAdminPassword(ctx context.Context, arg SetOwnAdminPasswordParams) (uuid.UUID, error)
 	// The tenant's off switch (00007: disabling is NEVER a delete).
 	//
@@ -6581,6 +6602,13 @@ type Querier interface {
 	// application's memory. THIS IS THE ONE sqlc STATEMENT ALLOWED TO SELECT IT (internal/db's
 	// query-text scan pins that, and that no statement selects linked_via or `*` on admin_users); it is
 	// never rendered, logged or written to an audit row.
+	//
+	// THE SESSION'S LIFETIME RIDES ON IT TOO (T183, ADR 0035, migration 00085): a session lives 12 hours from
+	// its password proof (authenticated_at, which a switch copies -- so switching does not restart it;
+	// NULL is ended, ADR 0031 §5.1) -- internal/db.AdminSessionLifetime -- and past that this statement
+	// answers 0 rows like a revoked one. The resolver already reports such a session as revoked (00085),
+	// so adminauth.Verify never reaches here with one; the predicate is for a caller that forgot to look
+	// (adminsessionlifetime_test.go pins the literal to the constant at the second).
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked
