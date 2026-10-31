@@ -919,6 +919,41 @@ kolun seçicisinde (aynı parolayla birden çok bağsız satır) çizilir — ki
 
 ## M14-23a — Başka adresteki işletmeyi ekleme: hesap değiştirici
 
+> ⏸️ **PARK (kullanıcı kararı, 2026-10-31): "Park et, ihtiyaçta aç".** Tasarım 4 (`5e4c2f5f`) iki bağımsız
+> incelemeden **RET** aldı (üçüncü göz: 4 ORTA, 8 DÜŞÜK; güvenlik: 1 YÜKSEK, 5 ORTA, 10 DÜŞÜK). Bekleyen gerçek
+> hesap yok: KM 2026-10-30'da KF'nin adresine alınıp kimlik #1'e bağlandı; canlıda bağsız tek satır
+> Creekville'inki ve aynı adreste (M14-22 bandı). Yeniden açılırsa önce ihtiyaç canlıda yeniden ölçülür ve
+> tasarım 5 şu bulguları kapatır:
+> - **Y-1 (güvenlik):** yalnız posta kutusu kanıtıyla açılan 12 saatlik owner oturumu kalıcı yetki üretebilir
+>   (`admininvites.go` yönetici daveti, `adminmembers.go` make-owner yeniden kanıt istemez;
+>   `identity_revoke_sessions(keep_current)` tazelik istemez). Çare: `link_opened_at IS NOT NULL` oturumda yetki
+>   veren eylemler yeniden kanıt + taze oturum ister (Unlink/Relink deseni), rota envanteri testiyle pinli.
+> - **O (12 saat sınırı yalnız çözümleyicide):** oturum hash'ini çözümleyicisiz alan definer'lar
+>   (`identity_accept_invite` …) süresi geçmiş link oturumunu canlı sayar; süresi geçen oturum hiç iptal
+>   edilemez ve cihaz listesinde canlı görünür. Çare: çözümleyici `revoked_at`'i süreden türetip döndürür +
+>   definer çağrıları envanterle çözümleyiciye bağlanır (T183'ün sunucu tarafı oturum sonuyla birlikte düşün).
+> - **O (R2 sapması):** link girişi başka kimliğin tarayıcısından adresi doğruluyor ve `first_verify` penceresini
+>   kullanılamaz bir oturumda açıyor. Çare: doğrulama yazmaz, pencere sonraki parolalı girişte açılır.
+> - **O (posta tavanı):** `RecipientCap` (`scope="signin"`) herkese ortak → yabancılar meşru eklemeyi ~24 saat
+>   engeller; tasarımın "en çok bir saat" iddiası yanlış. Çare: isteyen başına kapsam + ortak günlük üst sınır.
+> - **O (kod aktarma):** mektup ve bekleme sayfası "bu kodu kimseyle paylaşma, Taptime asla sormaz" demeli;
+>   isteyenin maskeli adresi kullanıcı kararı.
+> - **O (log bağlama):** ekleme ve hesaplar arası geçiş satırı iki tarafı (isteyen `actor_id` + hedef
+>   `tenant_id`/`admin_user_id`/`session_id`) birlikte taşımaz; leak testiyle pinli.
+> - **O (etkin oturumsuz liste):** 12 saat dolunca, Max-Age bitince ya da "Sign out everywhere"dan sonra liste
+>   canlı hesap taşırken giriş formu çiziliyor → Google "Choose an account" ara sayfası, kabul kriteri + duman.
+> - **O (yanlış iddia):** `tappa_app` tablo düzeyi SELECT'le (`00006:166`) `link_opened_at`'i OKUR; metin
+>   "yazma yetkisi yok" olmalı, tablo SELECT'i REVOKE edilmez.
+> - **O (bayat veri):** runbook (a) "ayrı kimlik = 2" ön kontrolü, (c) KF→KM dumanı ve "3 adres" sayıları
+>   KM taşınmadan önceki dünyaya ait.
+> - **DÜŞÜK (özet):** kemer olarak 12 saat yüklemi `identity_switch_session` ve `identity_open_signin_link`
+>   gövdelerine de; A→B/B→A çapraz kilitlenme testi; kod yolunda ikinci basış gereksiz (Slack/Notion kodla
+>   tamamlar); envanterde üç çerez; Down ilk kullanımdan sonra fiilen kalıcı kapanıyor; `requested_by` sütunu
+>   (döndürülmez, loglanmaz); hedef başına canlı `'signin'` satırı tavanı; 5 deneme sınırı bellekte (metin
+>   dürüst olsun); `ADD COLUMN` migration'ın sonuna; `tappa_admin_accounts` çerezine MAC; bant metni kendi
+>   kartına; M14-23b notunda D-1'in metni; `identity_revoke_sessions` ile `RevokeAdminSessionsForAdmin`
+>   arasında ölçülmemiş olası 40P01.
+
 - **Bağımlılık:** M14-22 canlıda (goose 84, bayrak açık) · **kullanıcı onayı**: kapalı listeye iki fonksiyon, üç
   aynı imzalı yeniden tanım, matris eki, §6.1 / CLAUDE.md §4.5 (3)'e iki parça, ADR 0015 notu (ADR 0031 §5.7'nin
   M14-23a notunun 13. maddesi)
