@@ -557,6 +557,11 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 					aiSavepoint(t, ctx, sp, func(v pgx.Tx) {
 						aslRecreate(t, ctx, v, fn,
 							regexp.MustCompile(`(WHERE s\.token_hash = `+param+`\n)\s+AND s\.authenticated_at > v_proven_after\n`), "$1")
+						if fn == "identity_switch_session" {
+							// The switch's second guard, the re-check after the person's lock, refuses the
+							// session too (it is its own case: ...ASwitchThatWaitsPastTheEndWritesNothing).
+							aslRecreate(t, ctx, v, fn, regexp.MustCompile(regexp.QuoteMeta(aslSwitchRecheck)), "    IF NOT FOUND THEN\n")
+						}
 						aslAge(t, ctx, v, hash, AdminSessionLifetime)
 						n, err := identityStepRows(t, ctx, v, s)
 						if err != nil || n == 0 {
@@ -651,6 +656,15 @@ func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.
 			want := src
 			if name != "resolve_admin_session_by_token_hash" {
 				want = aslLookup.ReplaceAllString(declLine.ReplaceAllString(src, ""), "WHERE s.token_hash = $1\n")
+				if name == "identity_switch_session" {
+					// The switch's second 00085 change: the lifetime judged again after the person's lock.
+					for _, cut := range [][2]string{{"    v_now      timestamptz;\n", ""}, {aslSwitchRecheck, "    IF NOT FOUND THEN\n"}} {
+						if strings.Count(want, cut[0]) != 1 {
+							t.Fatalf("PREMISE: identity_switch_session's 00085 text %q occurs %d times", cut[0], strings.Count(want, cut[0]))
+						}
+						want = strings.Replace(want, cut[0], cut[1], 1)
+					}
+				}
 			} else {
 				want = want11
 			}
@@ -679,4 +693,153 @@ func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.
 			t.Error("the Up again does not give HEAD's catalogue back byte for byte")
 		}
 	})
+}
+
+// aslSwitchRecheck is identity_switch_session's re-read verdict after the person's lock as 00085 writes it
+// (the security audit's DÜŞÜK, 2026-10-31): the lifetime judged again with the clock read again.
+const aslSwitchRecheck = `    -- 00085 (T183): the lifetime judged again AFTER the person's lock, with the clock read again (00072's
+    -- link_legacy pattern): a switch that began in the session's last second and waited here must not
+    -- revoke the old session, birth a session already dead and write the target business a sign-in.
+    v_now := pg_catalog.clock_timestamp();
+    IF NOT FOUND OR (v_auth > v_now - interval '12 hours') IS NOT TRUE THEN
+`
+
+// TestAdminSessionLifetime_ASwitchThatWaitsPastTheEndWritesNothing (the security audit's DÜŞÜK,
+// 2026-10-31): a session with two seconds left starts a switch while another transaction holds the
+// person's lock (admin_identities FOR UPDATE); the switch passes its first lookup and waits; the lock is
+// let go after the session's end. The switch is refused -- pgx.ErrNoRows -- and writes nothing: no new
+// session row, the old session not revoked, no audit row in either business. The rows are COMMITTED
+// (two connections must see them) and the identities taken back at the end, as
+// TestIdentitySwitch_ConcurrentSwitchesOpenExactlyOneSession does. Its mutation proof is by hand (the
+// re-check cut back to 00084's `IF NOT FOUND` in the migration: a dead-born session is committed, red) --
+// a committed CREATE OR REPLACE in a shared database would reach other packages' tests.
+func TestAdminSessionLifetime_ASwitchThatWaitsPastTheEndWritesNothing(t *testing.T) {
+	app := appDB(t)
+	owner := ownerDB(t)
+	ctx := context.Background()
+	var w idWorld
+	var old string
+	if err := pgx.BeginFunc(ctx, owner.pool, func(tx pgx.Tx) error {
+		w = idNewWorld(t, ctx, tx)
+		old = idSession(t, ctx, tx, w.a, w.ma, nil)
+		aslAge(t, ctx, tx, old, AdminSessionLifetime-2*time.Second)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now()
+	t.Cleanup(func() {
+		if err := pgx.BeginFunc(context.Background(), owner.pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(context.Background(), `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL
+			                                             WHERE identity_id IN ($1, $2)`, w.ident, w.other); err != nil {
+				return err
+			}
+			_, err := tx.Exec(context.Background(), `DELETE FROM admin_identities WHERE id IN ($1, $2)`, w.ident, w.other)
+			return err
+		}); err != nil {
+			t.Errorf("take the committed identities back: %v", err)
+		}
+	})
+	holder, err := owner.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := holder.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("let the lock go: %v", err)
+		}
+	}()
+	if _, err := holder.Exec(ctx, `SELECT 1 FROM admin_identities WHERE id = $1 FOR UPDATE`, w.ident); err != nil {
+		t.Fatal(err)
+	}
+	fresh := opRandHex(t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.SwitchIdentitySession(ctx, old, w.b, fresh)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("PREMISE: the switch returned (%v) before the lock was let go -- it never reached the wait", err)
+	case <-time.After(time.Until(aged.Add(3 * time.Second))):
+	}
+	if err := holder.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	err = <-done
+	var born, revoked, audit int64
+	if qerr := owner.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM admin_sessions WHERE token_hash = $1),
+	                                            (SELECT count(*) FROM admin_sessions WHERE token_hash = $2 AND revoked_at IS NOT NULL),
+	                                            (SELECT count(*) FROM audit_log WHERE tenant_id IN ($3, $4) AND action IN ('admin.login.succeeded', 'admin.logout'))`,
+		fresh, old, w.a, w.b).Scan(&born, &revoked, &audit); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) || born != 0 || revoked != 0 || audit != 0 {
+		t.Fatalf("a switch that waited past the end answered %v and wrote: new session %d, old revoked %d, audit rows %d; "+
+			"want pgx.ErrNoRows and nothing", err, born, revoked, audit)
+	}
+}
+
+// aslSessionFunctions is every function in the database whose body names admin_sessions, by how it
+// meets a session's lifetime (the third eye's DÜŞÜK, 2026-10-31: the lookup scan above reads one
+// spelling in one owner's functions; this list is its anti-vacuity -- a function that reaches the table
+// any other way, under any owner, is red here until it is classified).
+var aslSessionFunctions = map[string]string{
+	"resolve_admin_session_by_token_hash": "reports the end in revoked_at (00085)",
+	// The twelve that carry the lifetime predicate (00085).
+	"identity_memberships": "guarded", "identity_switch_session": "guarded (and re-checked after the person's lock)",
+	"identity_revoke_sessions": "guarded", "identity_password_for_session": "guarded", "identity_set_password": "guarded",
+	"identity_request_verification": "guarded", "identity_verify_email": "guarded", "identity_accept_invite": "guarded",
+	"identity_claim_signup": "guarded", "identity_confirm_window": "guarded", "identity_keep_all": "guarded",
+	"identity_link_by_email": "guarded",
+	// Bounded tighter: five minutes of freshness on authenticated_at (aslFreshOnly).
+	"identity_unlink_backfilled": "fresh", "identity_relink_refused": "fresh", "identity_link_legacy": "fresh",
+	// No session key: births a session with its proof now(), or only revokes.
+	"identity_open_session": "births", "identity_consume_reset": "revokes", "identity_consume_row_reset": "revokes",
+}
+
+// TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified: the functions whose body
+// mentions admin_sessions -- any schema, any owner, any spelling -- are exactly aslSessionFunctions'
+// nineteen (measured 2026-10-31), and the twelve "guarded" ones are the ones the lookup scan finds the
+// predicate in.
+func TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified(t *testing.T) {
+	ctx, tx := opTx(t)
+	rows, err := tx.Query(ctx, `SELECT p.proname, p.prosrc FROM pg_proc p WHERE p.prosrc ILIKE '%admin\_sessions%' ORDER BY p.proname`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for rows.Next() {
+		var n, src string
+		if err := rows.Scan(&n, &src); err != nil {
+			t.Fatal(err)
+		}
+		if _, dup := got[n]; dup {
+			t.Errorf("two functions named %s read admin_sessions: classify each", n)
+		}
+		got[n] = src
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for n := range got {
+		if _, ok := aslSessionFunctions[n]; !ok {
+			t.Errorf("%s reads admin_sessions and is not in aslSessionFunctions: say how it meets the session lifetime", n)
+		}
+	}
+	for n, class := range aslSessionFunctions {
+		src, ok := got[n]
+		if !ok {
+			t.Errorf("aslSessionFunctions names %s, which no longer reads admin_sessions", n)
+			continue
+		}
+		guarded := len(aslLookup.FindAllString(identityLineComment.ReplaceAllString(src, ""), -1)) > 0
+		if strings.HasPrefix(class, "guarded") != guarded {
+			t.Errorf("%s is classified %q but the lifetime predicate is %v in its body", n, class, guarded)
+		}
+	}
+	if len(got) != 19 || len(aslSessionFunctions) != 19 {
+		t.Errorf("anti-vacuity: %d functions read admin_sessions and %d are classified, want 19 and 19", len(got), len(aslSessionFunctions))
+	}
 }

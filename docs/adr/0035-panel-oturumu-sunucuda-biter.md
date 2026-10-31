@@ -77,7 +77,12 @@ kilit altında **kopyalar** — 00081).
      `identity_link_by_email`: her `WHERE s.token_hash = p_*session_hash`'in ardına
      `AND s.authenticated_at > v_proven_after`; sınır bir `DECLARE` değişkenidir
      (`v_proven_after timestamptz := pg_catalog.now() - interval '12 hours'`) — 00072'nin `v_fresh`'i
-     emsal. Kilit altındaki yeniden okumalara (id ile) dokunulmaz. İmzalar aynı (`CREATE OR REPLACE`;
+     emsal. Kilit altındaki yeniden okumalara (id ile) dokunulmaz — **bir istisnayla**:
+     `identity_switch_session` kişinin kilidini bekledikten sonra yeni bir oturum ve hedef işletmeye bir
+     giriş audit'i yazar, bu yüzden kilitten sonra ömrü saati yeniden okuyarak (`clock_timestamp()`,
+     00072'nin `link_legacy` deseni) bir kez daha yargılar (güvenlik denetimi, 2026-10-31): son saniyesinde
+     başlayıp sonu geçecek kadar bekleyen bir geçiş reddedilir, hiçbir şey yazılmaz
+     (`TestAdminSessionLifetime_ASwitchThatWaitsPastTheEndWritesNothing`). İmzalar aynı (`CREATE OR REPLACE`;
      `SECURITY DEFINER`, `search_path`, sahip, `REVOKE … FROM PUBLIC`, `GRANT EXECUTE … TO tappa_app`
      yeniden yazılır — ADR 0031 §5.2 T5). Kapalı listeye fonksiyon **eklenmez**, CLAUDE.md §4.5 metni
      **değişmez**.
@@ -130,6 +135,9 @@ kilit altında **kopyalar** — 00081).
   (girişten 12 saat − 1 sn sonra geçiş: yeni oturumun 1 saniyesi kalır, bir saniye sonra çözümleyici,
   Touch ve `identity_memberships` reddeder; kontrol: yüklem `created_at`'e dönünce zincir açılır),
   `TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded`, `TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession`,
+  `TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified` (gövdesi `admin_sessions`'ı anan her fonksiyon —
+  ölçülen 19 — sınıflandırılmış bir listede), `TestAdminSessionLifetime_ASwitchThatWaitsPastTheEndWritesNothing`,
+  `TestSwitch_ASessionThatEndedBeforeItsCookieIsRefused`,
   `TestVerify_EndsTheSessionAtItsLifetime` ve `TestSwitch_TheNewSessionEndsAtTheSignInsEnd` (`internal/adminauth`,
   uçtan uca), `TestCookies_SetIssuedGivesASwitchedSessionTheTimeLeft`,
   `TestAdminSwitch_TheCookieLivesWhatTheSessionHasLeft` (`internal/handler`).

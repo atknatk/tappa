@@ -49,9 +49,12 @@
 --      (CREATE OR REPLACE; SECURITY DEFINER, search_path, owner, REVOKE PUBLIC and the GRANT restated,
 --      ADR 0031 §5.2 T5). The bound is a DECLARE variable, not an expression in the WHERE: the belt
 --      (identitybelt_test.go) admits no function call or keyword in a conjunct, and 00072's `v_fresh` is
---      the precedent. The re-reads under a lock (by id) are left alone: they guard against a revocation
+--      the precedent. The re-reads under a lock (by id) are left alone -- they guard against a revocation
 --      committed while the call waited, and the clock read at the call's start is the one a request is
---      judged by.
+--      judged by -- with ONE exception, identity_switch_session (the security audit, 2026-10-31): it
+--      writes a NEW session and a sign-in audit row after waiting on the person's lock, so its re-read
+--      judges the lifetime again with clock_timestamp() (00072's link_legacy pattern); a switch that
+--      began in the session's last second and waited past it is refused, nothing written.
 --      The other three session-keyed definers are NOT redefined because they already hold a TIGHTER
 --      bound on the same column: identity_unlink_backfilled, identity_relink_refused and
 --      identity_link_legacy (both its sessions) accept a session only while `authenticated_at >
@@ -187,6 +190,7 @@ DECLARE
     v_auth     timestamptz;
     v_target   uuid;
     v_new      uuid;
+    v_now      timestamptz;
 BEGIN
     IF p_target_tenant IS NULL OR p_new_hash IS NULL THEN
         RETURN;
@@ -221,7 +225,11 @@ BEGIN
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND THEN
+    -- 00085 (T183): the lifetime judged again AFTER the person's lock, with the clock read again (00072's
+    -- link_legacy pattern): a switch that began in the session's last second and waited here must not
+    -- revoke the old session, birth a session already dead and write the target business a sign-in.
+    v_now := pg_catalog.clock_timestamp();
+    IF NOT FOUND OR (v_auth > v_now - interval '12 hours') IS NOT TRUE THEN
         RETURN;
     END IF;
 
