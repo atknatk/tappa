@@ -419,7 +419,7 @@ func (w *world) tapChosen(employer wbiz, site *wbiz, verdict string, source *str
 			                          site_tenant_id, site_location_id, site_tag_uid, ctr, sun_valid,
 			                          note, source_ip, gps_lat, gps_lng, trust, policy_layer, matched_sid, policy_context, direction_source)
 			VALUES ($1, $2, $3, $4, date_trunc('milliseconds', clock_timestamp()) - interval '1 minute', $5, 'nfc', 'in', false,
-			        $6, $7, $8, $9, $10, $11, '198.51.100.213'::inet, 35.987654, 14.123456, 77, 'guardrail', $12, $13::jsonb, $14)
+			        $6, $7, $8, $9, $10, $11, '198.51.100.213'::inet, 87.654321, 165.432198, 77, 'guardrail', $12, $13::jsonb, $14)
 			RETURNING id`,
 			employer.id, employer.emp, location, tag, verdict, siteTenant, siteLocation, siteTag, ctr, sun,
 			w.canary+"-note", "sys:"+strings.ToLower(w.canary), `{"canary":"`+w.canary+`-context"}`, source).Scan(&id)
@@ -1183,7 +1183,9 @@ func TestWebhookPayload_CarriesNothingButTheFeedItem(t *testing.T) {
 	top := []string{"channel", "deliveryId", "direction", "directionSource", "employee", "event", "id", "location", "punchTime", "recordedAt", "status", "tagId", "version"}
 	for _, h := range got {
 		body := string(h.body)
-		for _, leak := range []string{w.canary, strings.ToLower(w.canary), "198.51.100.213", "35.98", "14.12", "verdict", "policy",
+		// The coordinate's needles have integer parts above 60, so no RFC 3339 timestamp in the body
+		// can carry them (T188; internal/handler/api's TestPunchGPSNeedles_NoTimestampCarriesThem).
+		for _, leak := range []string{w.canary, strings.ToLower(w.canary), "198.51.100.213", "87.65", "165.43", "verdict", "policy",
 			"gps", "note", "matched", "@api10.example.test", "trust"} {
 			if strings.Contains(body, leak) {
 				t.Errorf("a body holds %q: %s", leak, body)
