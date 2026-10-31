@@ -206,7 +206,10 @@ sütun yok, `tappa_app`'ta silme yok — tek istisna aşağıdaki iki adlandır�
   adlandırılmış kalıntısı** (§6.1). Sınır: bir sorgu-metni taraması `identity_id`'yi
   `TouchAdminSession` dışındaki **hiçbir** sqlc sorgusunun seçmediğini ve `admin_users` üzerinde `*`
   / `a.*` seçimi olmadığını, bir görünüm-tipi taraması onun hiçbir şablon/CSV/API tipine girmediğini
-  sabitler (bulgu 21'in "düşün" maddesi bu yönde karara bağlandı; R16).
+  sabitler (bulgu 21'in "düşün" maddesi bu yönde karara bağlandı; R16). **T179 notu (2026-10-31):** bir
+  WHERE yüklemi olarak `AND identity_id IS NULL` onu *seçmek* değildir (değer uygulamaya girmez); tarama
+  bunu yalnız iki satır-başı parola yazımına (`SetOwnAdminPassword`, `ConsumePasswordResetAndSetPassword`),
+  son RETURNING'den önce ve tam bir kez izinli sayar.
 - **Bağlı satırı koruyan tetikleyici** (bulgu 6a, R6): `BEFORE UPDATE ON admin_users`, `OLD.identity_id
   IS NOT NULL` ve (`password_hash` ya da `email` değişiyor) ve `current_user <>
   'tappa_identitydefiner'` → `RAISE` (fail-closed). Tetikleyici fonksiyonu **SECURITY INVOKER'dır,

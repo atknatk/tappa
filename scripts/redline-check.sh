@@ -136,7 +136,7 @@ R7D_LIST=$(mktemp "${TMPDIR:-/tmp}/tappa-redline-r7d-files.XXXXXX") || { rm -f "
 # degeri siler (denetim B2). Tuzaklar sinyali, bash'in on plandaki `$(...)` bittikten
 # sonra kosturdugu bir `exit`e cevirir; QUIT dahil (Ctrl-\; denetim B3: tuzaksiz macOS
 # bash 3.2 QUIT'le olup EXIT tuzagini kosturmuyor, ubuntu bash 5.2 QUIT'i yok sayiyor —
-# olculdu). Pin: cmd/tappa
+# olculdu). Pin: cmd/tappa/scripttest
 # TestRedline_AnInterruptedScanLeavesNothing.
 R7D_WORKDIR=""
 trap 'rm -f "$SCAN_ERR" "$R7D_LIST"; [[ -z ${R7D_WORKDIR:-} ]] || rm -rf "$R7D_WORKDIR"' EXIT
@@ -395,7 +395,7 @@ report FAIL R3 "transactions / punch_events tablosuna UPDATE/DELETE — kayitlar
 # PL/pgSQL'de govdenin baska bir parcasindaki `ctr <` korumayi saglamis sayilabilir; (4)
 # dinamik SQL (format/EXECUTE) gorunmez. §4.4'un GERCEK garantisi yine yukaridaki uclu:
 # kati yuklem, 00013'un tags_counter_monotonic tetikleyicisi ve yaris testleri. Pin:
-# cmd/tappa TestRedline_R4R7R7bR7dCatchDeliberateViolations.
+# cmd/tappa/scripttest TestRedline_R4R7R7bR7dCatchDeliberateViolations.
 R4_HEAD='UPDATE\s+(ONLY\s+)?("?public"?\s*\.\s*)?"?tags"?'
 bad_ctr=$(scan -i -e "${R4_HEAD}"'\s+SET\s+"?last_ctr' | grep -viE 'last_ctr"? *<' || true)
 r4_stmt_raw=$(scan -U -i --glob '!*_test.go' -e "${R4_HEAD}"'(\s+(AS\s+)?[A-Za-z_][A-Za-z0-9_]*)?\s+SET\s+"?last_ctr[^;`]*' || true)
@@ -542,7 +542,7 @@ goose_down() {
 #     `GRANT/**/DELETE ON public.transactions TO tappa_app` gecerli bir GRANT'tir;
 #     bosluksuz silmek onu `grantdelete …` yapiyordu ve `^grant ` bekleyen her
 #     kuraldan (append-only, sema capinda, GRANT ALL, R5b muafiyeti) geciyordu
-#     (olculdu, exit 0). Kirmizi vaka: cmd/tappa TestRedline_ABlockCommentSeparatesTokens;
+#     (olculdu, exit 0). Kirmizi vaka: cmd/tappa/scripttest TestRedline_ABlockCommentSeparatesTokens;
 #   · string literallerini ve dolar tirnakli govdeleri KORUR, icindeki `;` yerine
 #     \001 koyar — `DEFAULT ';'` gibi bir sutun ifadeyi bolmesin (yanlis pozitif),
 #     plpgsql govdesi de parcalanmasin;
@@ -571,7 +571,7 @@ goose_down() {
 #     karakter sayilir).
 # Sevk edilen 59 migration'da ciktinin BAYT BAYT ayni kaldigi olculdu: her yeni kural
 # yalniz bugunku agacta gecmeyen bir yazimda fark eder.
-# Kirmizi vakalar: cmd/tappa TestRedline_T137_TheLexerReadsWhatPostgresReads.
+# Kirmizi vakalar: cmd/tappa/scripttest TestRedline_T137_TheLexerReadsWhatPostgresReads.
 #   · fix1 (2026-10-19) -- DIZE DEVAMI. Bir dize kapandiktan sonra YALNIZ bosluk (\t \f \v
 #     dahil) ve `--` yorumu gelir, aralarinda en az bir satir sonu (\n ya da \r) olur ve yeni
 #     bir `'` acilirsa PostgreSQL AYNI dizeyi AYNI kipte surdurur (olculdu, 17: `SELECT E'a'` +
@@ -1631,7 +1631,7 @@ for f in db/migrations/*.sql; do
   # Bu bir SOZCUK kapisidir; ARKADAKI KAPI veritabanidir:
   # internal/db TestWebhookRetention00058And00059_DownGiveBackAndUpTakesItAgain Down'dan sonra
   # gecerli yetkiyi has_table_privilege ile -- PUBLIC ve rol uyeligi dahil -- okur.
-  # Kirmizi vakalar: cmd/tappa TestRedline_R5bWaiverIsThe00058DownAlone.
+  # Kirmizi vakalar: cmd/tappa/scripttest TestRedline_R5bWaiverIsThe00058DownAlone.
   down_stmts=$(sql_statements_down "$f")
   while IFS= read -r s; do
     [[ -n $s ]] || continue
@@ -1836,7 +1836,7 @@ for f in db/migrations/*.sql; do
   # bir DO govdesinin EXECUTE'u, PUBLIC'e verilen yetki, ayiricinin yanlis okudugu `E'…'` (sql_lex'te
   # duzeltildi) ve -- bu turda olculdu -- `CREATE SCHEMA zz GRANT DELETE ON public.employees TO
   # tappa_app` (PostgreSQL bir sema ogesi olarak BASKA bir semanin tablosuna GRANT kabul eder;
-  # has_table_privilege -> t). Kirmizi ve yesil vakalar: cmd/tappa redline_t137_test.go.
+  # has_table_privilege -> t). Kirmizi ve yesil vakalar: cmd/tappa/scripttest/redline_t137_test.go.
   #
   # (1) PUBLIC'e her GRANT. PUBLIC her roldur: tappa_app, tappa_operator, ileride yaratilacak her
   # rol. Append-only kurali bunu tablo bazinda zaten FAIL ediyordu (`GRANT DELETE ON
@@ -1996,7 +1996,7 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
 # BASKA tenant ciftlerinin holding dokunuslaridir (40P01; checkin 40P01'i yeniden denemez,
 # NFC kaydi yazilmaz -- iki mercek pgbench ile olctu: 29'da 18, 155'te 88). Bu yuzden adi
 # migration disinda HICBIR YERDE gecmez: urun kodu, betik, dagitim, test. (docs/ taranmaz;
-# ADR onu anlatir.) Pin: cmd/tappa TestRedline_TheCounterSetMarkIsTheTriggersAlone.
+# ADR onu anlatir.) Pin: cmd/tappa/scripttest TestRedline_TheCounterSetMarkIsTheTriggersAlone.
 # DESEN BICIME DEGIL ADA BAKAR (API-2 4. tur, ucuncu goz olctu): PostgreSQL ayar adini harf
 # ayirmadan okur ve tirnakli/boslukli yazilisi da kabul eder -- `TAPPA.FEED_COUNTERS`,
 # `Tappa.Feed_Counters`, `"tappa"."feed_counters"`, `tappa . feed_counters` ilk desenden

@@ -129,8 +129,11 @@ var tablesLockRowOutside = map[string]rowOutsideKind{
 	"../../internal/sandbox":           rowOutsidePlain,
 	"../../internal/webhook/endpoints": rowOutsidePlain,
 	"../../cmd/tappa":                  rowOutsidePlain,
-	"../../cmd/opadmin":                rowOutsidePlain,
-	"../../web/templates/email":        rowOutsidePlain,
+	// T185: cmd/tappa's script tests, split off into their own package; they write no row at all --
+	// their write-shaped texts are scanner inputs (tablesLockRowTexts).
+	"../../cmd/tappa/scripttest": rowOutsidePlain,
+	"../../cmd/opadmin":          rowOutsidePlain,
+	"../../web/templates/email":  rowOutsidePlain,
 }
 
 // tablesLockRowTexts are, per directory of tablesLockRowOutside, the functions whose write-shaped
@@ -142,7 +145,9 @@ var tablesLockRowTexts = map[string]map[string]string{
 		"TestTablesLock_AdminRowsAreWrittenUnderTheHolder": "this scan's own positive controls: Go sources it parses",
 	},
 	"../../cmd/tappa": {
-		"insertScopeFindings":                             "a finding's label (name + \": INSERT INTO \" + table) of a scanner over db/queries",
+		"insertScopeFindings": "a finding's label (name + \": INSERT INTO \" + table) of a scanner over db/queries",
+	},
+	"../../cmd/tappa/scripttest": {
 		"TestRedline_R4R7R7bR7dCatchDeliberateViolations": "\"UPD\" + \"ATE\": the redline script's planted violation, spelled at run time",
 	},
 	"../../internal/domain/tenant": {

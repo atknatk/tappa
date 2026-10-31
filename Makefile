@@ -290,8 +290,8 @@ test: require-db-env
 # bir dosyanin kirdigi her import burada gorunur. cmd/tappa TestCI_RunsVetAndTestWithTheSandboxTag
 # listeyi agactan yeniden hesaplar: etiketli dosyasi olup burada olmayan bir paket kirmizidir.
 SANDBOX_TEST_PKGS := ./internal/config/... ./internal/sandbox/... ./cmd/tappa/...
-# SANDBOX_SKIP (T139): cmd/tappa'nin script testleri (redline, secret-scan, pre-push, heartbeat,
-# backup) dosya okur ve bash kosar; etiket yalniz Go derlemesini degistirir, okuduklari bayt ayni.
+# SANDBOX_SKIP (T139): cmd/tappa'nin script testleri (redline, secret-scan, pre-push -- T185'ten beri
+# ayri paket cmd/tappa/scripttest, ./cmd/tappa/... kapsar --; heartbeat, backup) dosya okur ve bash kosar; etiket yalniz Go derlemesini degistirir, okuduklari bayt ayni.
 # Ikinci kosu bilgi degil sure: CI 39204779143'te bu adim 11:37 (T137'den once 3:05). `make check`
 # onlari etiketsiz koser. cmd/tappa TestSandboxSkip_SkipsOnlyTestsTheTagCannotChange her eslesen
 # testin etiketin degistirdigi hicbir seye (main'in kodu, etiketli test dosyasi, modulun paketleri)

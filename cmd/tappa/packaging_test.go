@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"debug/buildinfo"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -68,27 +69,7 @@ var (
 // a unit test would make this file depend on the network.
 func theArtifact(t *testing.T) string {
 	t.Helper()
-	buildOnce.Do(func() {
-		recipe, err := makefileBuildRecipe()
-		if err != nil {
-			buildErr = err
-			return
-		}
-		out := filepath.Join(os.TempDir(), fmt.Sprintf("tappa-packaging-%d", os.Getpid()))
-		cmdline := strings.ReplaceAll(recipe, "$(BIN)", out)
-		if strings.Contains(cmdline, "$(") {
-			buildErr = fmt.Errorf("the Makefile's build recipe uses a variable this test cannot expand: %q", cmdline)
-			return
-		}
-		buildCmd = cmdline
-		cmd := exec.Command("/bin/sh", "-c", cmdline)
-		cmd.Dir = repoRoot
-		if combined, err := cmd.CombinedOutput(); err != nil {
-			buildErr = fmt.Errorf("running the Makefile's build recipe (%s): %w\n%s", cmdline, err, combined)
-			return
-		}
-		builtPath = out
-	})
+	buildOnce.Do(buildTheArtifact)
 	if buildErr != nil {
 		t.Fatalf("building the shipped artifact: %v", buildErr)
 	}
@@ -96,8 +77,35 @@ func theArtifact(t *testing.T) string {
 	return builtPath
 }
 
+// buildTheArtifact is theArtifact's build, run once (buildOnce) -- by the first test that needs
+// the artifact or, earlier, by TestMain's prefetch (prefetch_test.go).
+func buildTheArtifact() {
+	recipe, err := makefileBuildRecipe()
+	if err != nil {
+		buildErr = err
+		return
+	}
+	out := filepath.Join(os.TempDir(), fmt.Sprintf("tappa-packaging-%d", os.Getpid()))
+	cmdline := strings.ReplaceAll(recipe, "$(BIN)", out)
+	if strings.Contains(cmdline, "$(") {
+		buildErr = fmt.Errorf("the Makefile's build recipe uses a variable this test cannot expand: %q", cmdline)
+		return
+	}
+	buildCmd = cmdline
+	cmd := exec.Command("/bin/sh", "-c", cmdline)
+	cmd.Dir = repoRoot
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		buildErr = fmt.Errorf("running the Makefile's build recipe (%s): %w\n%s", cmdline, err, combined)
+		return
+	}
+	builtPath = out
+}
+
 func TestMain(m *testing.M) {
+	flag.Parse()
+	startPrefetch()
 	code := m.Run()
+	stopPrefetch()
 	if builtPath != "" {
 		_ = os.Remove(builtPath)
 	}

@@ -158,6 +158,10 @@ type panelHarnessOptions struct {
 	// wrapClaims, when set, wraps the claim service the PANEL is given (the harness keeps the real
 	// one) -- so a test can act between the handler's checks and Decide (M15-18 review round).
 	wrapClaims func(panelClaims) panelClaims
+	// wrapAdminData, when set, wraps the database the panel's adminauth.Manager is built on (the
+	// harness keeps the real one) -- so a test can act inside the Manager's own transaction, right
+	// before one statement (T179).
+	wrapAdminData func(*db.DB) adminauth.Database
 }
 
 func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
@@ -202,7 +206,11 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		AdminIdentity: o.adminIdentity,
 	}
 
-	admins, err := adminauth.New(data, cfg)
+	var adminData adminauth.Database = data
+	if o.wrapAdminData != nil {
+		adminData = o.wrapAdminData(data)
+	}
+	admins, err := adminauth.New(adminData, cfg)
 	if err != nil {
 		t.Fatalf("adminauth.New: %v", err)
 	}
