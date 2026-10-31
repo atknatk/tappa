@@ -3,12 +3,15 @@ package adminauth
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/session"
 )
 
@@ -337,8 +340,13 @@ func TestAdminAuthConstants_ShippedValuesArePinned(t *testing.T) {
 			"cookieMaxAgeSeconds", cookieMaxAgeSeconds, 12 * 60 * 60,
 			"a working day, not the employee cookie's year: an admin session reads every " +
 				"employee's movements and can rewrite the tenant's policies, and it lives on a " +
-				"laptop rather than a personal phone. ⚠️ It is a browser HINT — admin_sessions " +
-				"has no expires_at, so nothing expires server-side (cookie.go states the limit).",
+				"laptop rather than a personal phone. Since 00085 (T183, ADR 0035) the server " +
+				"ends the session at the same moment: db.AdminSessionLifetime, pinned below.",
+		},
+		{
+			"cookieMaxAgeSeconds == db.AdminSessionLifetime", cookieMaxAgeSeconds, int(db.AdminSessionLifetime / time.Second),
+			"the browser drops the cookie when the server stops honouring the session (T183): a " +
+				"shorter cookie would sign people out early, a longer one would send a dead cookie.",
 		},
 		{
 			"tokenBytes", tokenBytes, 32,
@@ -382,4 +390,40 @@ func TestAdminAuthConstants_ShippedValuesArePinned(t *testing.T) {
 			t.Fatalf("tokenLen = %d but %d bytes encode to %d base64url chars", tokenLen, tokenBytes, want)
 		}
 	})
+}
+
+// TestCookies_SetIssuedGivesASwitchedSessionTheTimeLeft (T183, ADR 0035): a sign-in's Issued (Left 0)
+// gets the full lifetime; a switched session's gets what it has left, rounded UP to whole seconds and
+// never below one (net/http writes Max-Age=0 as no Max-Age at all -- a cookie with no end), and never
+// beyond the full lifetime.
+func TestCookies_SetIssuedGivesASwitchedSessionTheTimeLeft(t *testing.T) {
+	tok, err := newToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		left time.Duration
+		want int
+	}{
+		{"a sign-in", 0, cookieMaxAgeSeconds},
+		{"a switch with an hour left", time.Hour, 3600},
+		{"a switch with a part second left", 400 * time.Millisecond, 1},
+		{"a switch with 89.2 s left", 89*time.Second + 200*time.Millisecond, 90},
+		{"more than a lifetime", db.AdminSessionLifetime + time.Hour, cookieMaxAgeSeconds},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			if err := (Cookies{}).SetIssued(rec, Issued{Token: tok, Left: c.left}); err != nil {
+				t.Fatal(err)
+			}
+			cookies := rec.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].MaxAge != c.want || cookies[0].Name != CookieName || !cookies[0].HttpOnly || !cookies[0].Secure {
+				t.Fatalf("SetIssued wrote %+v, want one hardened %s cookie with Max-Age %d", cookies, CookieName, c.want)
+			}
+		})
+	}
+	if err := (Cookies{}).SetIssued(httptest.NewRecorder(), Issued{Left: time.Hour}); !errors.Is(err, errEmptyCookie) {
+		t.Fatalf("an Issued with no token: %v, want errEmptyCookie", err)
+	}
 }

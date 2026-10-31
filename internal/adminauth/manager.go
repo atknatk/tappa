@@ -792,6 +792,12 @@ type Session struct {
 type Issued struct {
 	Session Session
 	Token   Token
+	// Left is how long the session has left when its proof is OLDER than the session (T183, ADR
+	// 0035): a switch births a new row but carries its predecessor's password proof, and the session
+	// ends 12 hours after the proof, so the new cookie must end then too (Cookies.SetIssued). ZERO
+	// MEANS A FULL LIFETIME -- a session born with its proof (a sign-in) -- which is the harmless
+	// direction: at worst a cookie the server already refuses.
+	Left time.Duration
 }
 
 // Issue mints a panel session for a VERIFIED identity and stamps last_login_at.
@@ -1004,9 +1010,10 @@ func suspensionOf(at *time.Time, reason *string) *Suspension {
 // not sit in front of the rate limiter. The panel takes the opposite trade because
 // the alternative is worse: the ONLY in-SQL check that an admin is still active
 // lives in this statement, and a panel that skipped it would keep serving a
-// disabled admin until their cookie expired — and the cookie has no server-side
-// expiry (cookie.go). The write only happens for a cookie that ALREADY resolved to
-// a real session row, so an unauthenticated flood costs reads, not writes.
+// disabled admin until their session ended (db.AdminSessionLifetime from its
+// password proof since 00085 — before it, never). The write only happens for a cookie that
+// ALREADY resolved to a live session row, so an unauthenticated flood costs reads,
+// not writes.
 //
 // THE BUSINESS'S SUSPENSION COMES BACK FROM THE SAME STATEMENT (ADR 0025 §3): the
 // panel's write gate reads Resolved.Suspended and never queries for it. A tenant row
@@ -1041,7 +1048,10 @@ func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
 	if rs.RevokedAt != nil {
 		// Short-circuit: TouchAdminSession would refuse it anyway (revoked_at IS
 		// NULL is one of its predicates), and not issuing a doomed UPDATE keeps a
-		// stolen-but-revoked cookie from costing a write per request.
+		// stolen-but-revoked cookie from costing a write per request. Since 00085
+		// this is also where a session past db.AdminSessionLifetime stops: the
+		// resolver reports its end as RevokedAt (and Touch's own lifetime
+		// predicate would refuse it too).
 		return Resolved{}, ErrNoSession
 	}
 

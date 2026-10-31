@@ -85,7 +85,7 @@ Kullanıcı kararı bunu tersine çevirir: kimlik kişiye aittir, işletme bir *
 | Bir giriş en çok `MaxCandidates = 8` aday bcrypt'ler, her giriş 8'e **dolgulanır**; seçici `PickerCap = 7` | `internal/adminauth/manager.go:118`, `:156`, `:400-480` |
 | Saldırı (00011 YÜKÜMLÜLÜK 5): saldırgan herkese açık kayıtla kendi tenant'ına **kurbanın e-postasını** yazar; seçici kurbanın işletmesini sunsaydı kurbanın tenant'ında `role=owner` oturum açılırdı. Kapanış: seçici yalnız parolası doğrulananlardan (`Verified`) | `manager.go:285-292`; `00011:131-160` |
 | Seçici seti imzalı kısa ömürlü çerezde (`tappa_admin_choice`, 5 dk); POST'ta `selectVerified` | `internal/handler/logincontext.go:134`, `:205`, `:623` |
-| Panel çerezi `tappa_admin_session`, `Path=/admin`, 12 saat ipucu; **sunucu tarafı son kullanma yok** | `internal/adminauth/cookie.go:27`, `:48`, `:57-75` |
+| Panel çerezi `tappa_admin_session`, `Path=/admin`, 12 saat ipucu; **sunucu tarafı son kullanma yok** (00085'e dek — T183, [ADR 0035](0035-panel-oturumu-sunucuda-biter.md): artık sunucu da parola kanıtından 12 saat sonra bitirir) | `internal/adminauth/cookie.go:27`, `:48`, `:57-75` |
 | Her istek: `resolve_admin_session_by_token_hash` → `WithTenant(rs.TenantID)` içinde `TouchAdminSession` (yönetici `active`, iptal, askı) | `manager.go:851-905`; `db/queries/admins.sql:125-166`; `internal/httpx/adminidentity.go:128-174` |
 | Tenant istemci girdisi değildir, oturumun **çıktısıdır** | `adminidentity.go:68-81`; `00011:24-31` |
 | Panel yazmalarında **tenant'a bağlı bir senkronizör token yok** — `ProtectWriting` yalnız `sameOriginGate` taşır; bütün panel tek çerez, tek yol | `internal/handler/adminlogin.go:742-800`; `cookie.go:27`, `:48` |
@@ -236,6 +236,12 @@ konur (`ADD COLUMN … DEFAULT now()` eski satırlara ALTER anını yazardı); `
 `lock_timeout`'uyla; `tappa_app` UPDATE edemez. **`NULL` = eski / süresi geçmiş** sayılır: tazelik
 isteyen her denetim (R3) ve ileride gelecek mutlak ömür bunu fail-closed okur. Oturum hâlâ tek
 üyeliğe, tek tenant'a damgalıdır.
+
+**T183 notu (2026-10-31, kullanıcı kararı *"Sunucuda 12 saat mutlak"*, [ADR 0035](0035-panel-oturumu-sunucuda-biter.md),
+`00085`):** mutlak ömür geldi ve bu cümlenin öngördüğü gibi `authenticated_at`'ten sayılır, `NULL`'ı
+fail-closed okur: oturum kanıtından 12 saat sonra biter; geçiş kanıtı kopyaladığı için saati yeniden
+başlatmaz (geçişin çerezi kalan süreyi alır); kanıtsız oturum bitmiştir, dolayısıyla geçemez ve `NULL` artık
+taze bir satıra taşınmaz (R15'in *"NULL stays NULL"* yolu kapandı). Tazelik (R3) anlamı değişmedi.
 
 **M14-08a notu — adres kuralı (2026-10-26; kullanıcı kararı):** bir kimliği **doğurabilen ya da ona
 anahtar olabilen** her saklı adres `mail.ValidRecipient`'ten geçer — `internal/mail`'in `Send`'inin
@@ -728,7 +734,8 @@ T1) — **`UPDATE (email)` yok**: e-posta değiştirme K-15 ile kapsam dışı,
 gelirse kendi genişlemesini getirir (S11) · `password_resets`: SELECT (`id`, `tenant_id`,
 `admin_user_id`, `token_hash`, `expires_at`, `used_at`, `cancelled_at`), UPDATE (`used_at`,
 `cancelled_at`) — eski link tüketimi (S10) ve çözmede iptal (T5) ·
-`admin_sessions`: SELECT, INSERT (`tenant_id`, `admin_user_id`, `token_hash`, `authenticated_at`),
+`admin_sessions`: SELECT (T183, `00085`: değişmedi — on iki definer'ın 12 saatlik ömür yüklemi zaten okunan
+`authenticated_at`'i kullanır, [ADR 0035](0035-panel-oturumu-sunucuda-biter.md)), INSERT (`tenant_id`, `admin_user_id`, `token_hash`, `authenticated_at`),
 UPDATE (`revoked_at`) · `tenants`: SELECT (`id`, `name`, `vat_number`, `suspended_at`, `created_at`)
 ve sistem sütunu `xmin` (S2, T7) — **INSERT yok**, tenant'ı uygulama yaratır · `audit_log`: INSERT · `admin_invites`: SELECT, UPDATE (`used_at`). Contract B
 `tappa_app`'tan `admin_users` `INSERT (email, password_hash)`'i aldıktan sonra **owner ve davetli
@@ -755,6 +762,10 @@ kullanır.
 ### 5.3 İstek başına yol
 
 Çerez → `resolve_admin_session_by_token_hash` → `WithTenant(rs.TenantID)` → `TouchAdminSession`.
+**T183 notu (`00085`, [ADR 0035](0035-panel-oturumu-sunucuda-biter.md)):** çözümleyicinin `revoked_at`'i oturumun
+**sonu**dur (iptal, kanıtsızlık ya da parola kanıtından 12 saat); `TouchAdminSession` ve oturumu hash'iyle
+bulan on iki `identity_*` definer'ı aynı ömrü kendi yüklemiyle uygular (öbür üçü beş dakikalık tazeliği
+zaten taşır) — imza, kapalı liste ve §6.1 metni değişmez.
 `admin_identities`'e istek başına okuma **yok**. `TouchAdminSession`'ın `RETURNING`'ine iki sütun
 eklenir — `tenants.name` (kabukta işletme adı, ek okuma yok) ve `admin_users.identity_id` (geçiş oran
 kovası). Askı kapısı, `ProtectWriting`, `RequireAdmin`, ~50 `AdminOf` çağrı yeri ve rol kapıları

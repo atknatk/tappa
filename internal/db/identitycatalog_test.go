@@ -917,6 +917,49 @@ const idOpenClaimSQL = `SELECT c FROM identity_open_signup_claim($1, $2::citext,
 // matrix revoked some call is refused (42501).
 func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup identitySignupWorld) error {
 	t.Helper()
+	for _, s := range identityExerciseSteps(t, ctx, sp, signup) {
+		if s.owner != "" {
+			aiExec(t, ctx, sp, s.owner)
+		}
+		n, err := identityStepRows(t, ctx, sp, s)
+		if err == nil && n == 0 {
+			err = fmt.Errorf("%s: 0 rows", s.name)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", s.name, err)
+		}
+	}
+	return nil
+}
+
+// identityStepRows makes one step's call (not its owner statement) as its role and counts the rows it
+// answers. T183 (adminsessionlifetime_test.go) calls it on its own, between the owner statement and
+// the call, to age the step's session.
+func identityStepRows(t *testing.T, ctx context.Context, sp pgx.Tx, s identityStep) (int, error) {
+	t.Helper()
+	as := s.as
+	if as == "" {
+		as = "tappa_app"
+	}
+	n := 0
+	err := opAs(t, ctx, sp, as, func(app pgx.Tx) error {
+		rows, err := app.Query(ctx, s.sql, s.args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			n++
+		}
+		rows.Close()
+		return rows.Err()
+	})
+	return n, err
+}
+
+// identityExerciseSteps builds identityExercise's world in sp (as the owner) and returns its calls, in
+// order: each answers at least one row when every call before it has run.
+func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup identitySignupWorld) []identityStep {
+	t.Helper()
 	a, b := idTenant(t, ctx, sp, "exercise A"), idTenant(t, ctx, sp, "exercise B")
 	email := aiEmail()
 	ident := aiIdentity(t, ctx, sp, email)
@@ -984,37 +1027,7 @@ func identityExercise(t *testing.T, ctx context.Context, sp pgx.Tx, signup ident
 	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 1"), recMail)
 	aiAdmin(t, ctx, sp, idTenant(t, ctx, sp, "exercise reconcile 2"), strings.ToUpper(recMail))
 	steps = append(steps, identityStep{name: "M14-06b reconcile", sql: `SELECT n FROM public.identity_reconcile() AS n WHERE n > 0`, as: "tappa_owner"})
-	for _, s := range steps {
-		if s.owner != "" {
-			aiExec(t, ctx, sp, s.owner)
-		}
-		as := s.as
-		if as == "" {
-			as = "tappa_app"
-		}
-		err := opAs(t, ctx, sp, as, func(app pgx.Tx) error {
-			rows, err := app.Query(ctx, s.sql, s.args...)
-			if err != nil {
-				return err
-			}
-			n := 0
-			for rows.Next() {
-				n++
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				return err
-			}
-			if n == 0 {
-				return fmt.Errorf("%s: 0 rows", s.name)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", s.name, err)
-		}
-	}
-	return nil
+	return steps
 }
 
 // TestIdentityDefiner_EveryGrantIsUsed: the exercise succeeds on the full grants (positive control);
