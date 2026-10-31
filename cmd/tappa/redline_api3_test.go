@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // redlineRun runs scripts/redline-check.sh (and the secretscan.sh it sources) over a fresh tree
@@ -18,32 +21,71 @@ func redlineRun(t *testing.T, files map[string]string) (string, int) {
 	if _, err := exec.LookPath("rg"); err != nil {
 		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
 	}
-	r := &hookRepo{t: t, dir: t.TempDir()}
-	r.git("init", "-q")
+	out, code, err := redlineExec(context.Background(), t.TempDir(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out, code
+}
+
+// redlineExec is redlineRun without a *testing.T, so the shipped tree's scan can start before any
+// test does (prefetch_test.go): it builds the tree in dir (empty, owned by the caller) and runs the
+// script there. A cancelled ctx ends the script.
+func redlineExec(ctx context.Context, dir string, files map[string]string) (string, int, error) {
+	write := func(rel, body string) error {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(p, []byte(body), 0o644)
+	}
+	// hookRepo.git's flags: no user git setting reaches the scan's `git ls-files`.
+	git := exec.CommandContext(ctx, "git", "-c", "user.name=t", "-c", "user.email=t@example.test",
+		"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "init.defaultBranch=main",
+		"-c", "core.hooksPath=/dev/null", "-c", "advice.nestedTag=false", "init", "-q")
+	git.Dir = dir
+	if out, err := git.CombinedOutput(); err != nil {
+		return "", 0, fmt.Errorf("git init: %v\n%s", err, out)
+	}
 	for _, s := range []string{"scripts/redline-check.sh", "scripts/secretscan.sh"} {
 		b, err := os.ReadFile(filepath.Join(repoRoot, s))
 		if err != nil {
-			t.Fatal(err)
+			return "", 0, err
 		}
-		r.write(s, string(b))
+		if err := write(s, string(b)); err != nil {
+			return "", 0, err
+		}
 	}
 	for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github", "docs/api", "android/app/src/main"} {
-		r.write(d+"/keep.txt", "\n")
+		if err := write(d+"/keep.txt", "\n"); err != nil {
+			return "", 0, err
+		}
 	}
-	r.write("Makefile", "all:\n")
+	if err := write("Makefile", "all:\n"); err != nil {
+		return "", 0, err
+	}
 	for rel, body := range files {
-		r.write(rel, body)
+		if err := write(rel, body); err != nil {
+			return "", 0, err
+		}
 	}
-	cmd := exec.Command("bash", "scripts/redline-check.sh")
-	cmd.Dir = r.dir
+	cmd := exec.CommandContext(ctx, "bash", "scripts/redline-check.sh")
+	cmd.Dir = dir
+	// Cancelling kills bash; the one short child it may be running (grep, awk) ends by itself, and
+	// WaitDelay bounds the wait for the pipe that child holds. No process group of its own, so a
+	// terminal's Ctrl-C still reaches the scan.
+	cmd.WaitDelay = 10 * time.Second
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return "", 0, fmt.Errorf("redline-check: %w", ctx.Err())
+	}
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
 	} else if err != nil {
-		t.Fatal(err)
+		return "", 0, err
 	}
-	return string(out), code
+	return string(out), code, nil
 }
 
 // failSection is every block the script printed under "[<code> · FAIL]", joined.
@@ -104,6 +146,7 @@ func randomKeyBody(t *testing.T) string {
 // three R7 roots and the header alternative removed, R7b's two new alternatives removed, R7d's
 // c_tappa call removed -- turns this test red on exactly that rule's files.
 func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	body := randomKeyBody(t)
 	// THE SPELLINGS ARE ASSEMBLED AT RUN TIME: this file is itself in the tree the real script
 	// scans, so a violation written out here would turn the repository red. "S@." is slog's

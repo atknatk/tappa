@@ -1,8 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -197,25 +198,25 @@ func TestRedline_T137_StringAndEnvironmentSwitches(t *testing.T) {
 // `REVOKE … FROM PUBLIC` and every shipped body stay green). A pinned file whose body code -- or,
 // since fix1, a string constant inside the body -- changes, and a copy of one under a new name, are
 // FAILs; a comment inside a pinned body is not code.
+//
+// T185: the shipped tree's scan is ONE run of the real script per test process (shippedScan,
+// prefetch_test.go), started by TestMain beside the sequential phase; this test reads its result.
+// It was ~1 s of bash per shipped migration inside the sequential phase (88 s of a 377 s package
+// locally). The anti-vacuity check below keeps the shared tree honest: it is every shipped *.sql.
 func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
-	dir := filepath.Join(repoRoot, "db", "migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
+	t.Parallel()
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
 	}
-	tree := map[string]string{}
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		tree["db/migrations/"+e.Name()] = string(b)
+	shippedScan.once.Do(func() { shippedScan.scanTree(context.Background()) })
+	if shippedScan.err != nil {
+		t.Fatalf("the shipped migrations' scan: %v", shippedScan.err)
+	}
+	tree, out, code := shippedScan.tree, shippedScan.out, shippedScan.code
+	if onDisk, err := filepath.Glob(filepath.Join(repoRoot, "db", "migrations", "*.sql")); err != nil || len(onDisk) != len(tree) || len(tree) < 50 {
+		t.Fatalf("anti-vacuity: the scanned tree holds %d migrations, db/migrations %d (%v)", len(tree), len(onDisk), err)
 	}
 	const warned = "govdede statik DDL"
-	out, code := redlineRun(t, tree)
 	if code != 0 || failSection(out, "R5b") != "" {
 		t.Fatalf("the shipped migrations: want exit 0 and no R5b FAIL, got exit %d:\n%s", code, out)
 	}

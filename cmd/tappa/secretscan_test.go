@@ -505,6 +505,7 @@ func TestSecretScan_EveryWaivedLineIsWaivedAsIs(t *testing.T) {
 // inserted ANYWHERE in a waived line makes it an ordinary line — classified exactly as
 // the same line on an unnamed path, and not waived.
 func TestSecretScan_AWaiverIsBoundToTheWholeLine(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	var paths, lines []string
 	for _, w := range waivedLines(t) {
 		for _, pos := range insertPositions(w.text) {
@@ -520,6 +521,7 @@ func TestSecretScan_AWaiverIsBoundToTheWholeLine(t *testing.T) {
 // trailing blank, a "\r", a leading blank, one byte fewer at either end, or one byte
 // changed in the middle, and the line is no longer the waived one.
 func TestSecretScan_OneByteBreaksTheWaiver(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	var paths, lines []string
 	rowHashes := map[string]map[string]bool{}
 	for _, r := range waiverTable(t) {
@@ -990,6 +992,7 @@ var zeroSHA = strings.Repeat("0", 40)
 // sha all zeros), a path with a colon, files a `-diff` attribute calls binary —
 // and that every way the scan itself can break ends in exit 2, never exit 0.
 func TestPrePush_ScansWhatAPushPublishes(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	realAwk, err := exec.LookPath("awk")
 	if err != nil {
 		t.Fatal(err)
@@ -1245,6 +1248,7 @@ func TestPrePush_AWaivedLineIsBoundToItsBytes(t *testing.T) {
 // fell back to shell, the value was silent, rc=0) and a UTF-16 log output encoding
 // hid an A-0 commit message (rc=0). Every setting below must leave the result alone.
 func TestPrePush_UserGitSettingsDoNotChangeWhatIsRead(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	for _, cfg := range [][2]string{
 		{"diff.dstPrefix", "X/"}, {"diff.srcPrefix", "Y/"}, {"diff.noprefix", "true"},
 		{"diff.mnemonicPrefix", "true"}, {"diff.relative", "true"}, {"diff.submodule", "log"},
@@ -1253,6 +1257,7 @@ func TestPrePush_UserGitSettingsDoNotChangeWhatIsRead(t *testing.T) {
 		{"color.ui", "always"}, {"color.diff", "always"}, {"core.quotePath", "true"},
 	} {
 		t.Run(cfg[0]+"="+cfg[1], func(t *testing.T) {
+			t.Parallel()
 			r := newHookRepo(t)
 			r.git("config", cfg[0], cfg[1])
 			base := r.commit("base")

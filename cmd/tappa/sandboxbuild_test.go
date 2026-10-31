@@ -104,30 +104,34 @@ var (
 // removes it.
 func sandboxArtifact(t *testing.T) string {
 	t.Helper()
-	sandboxBuildOnce.Do(func() {
-		recipe, err := makefileRecipe("build-sandbox")
-		if err != nil {
-			sandboxBuildErr = err
-			return
-		}
-		out := filepath.Join(os.TempDir(), fmt.Sprintf("tappa-sandbox-%d", os.Getpid()))
-		cmdline := strings.ReplaceAll(recipe, "$(BIN_SANDBOX)", out)
-		if strings.Contains(cmdline, "$(") {
-			sandboxBuildErr = fmt.Errorf("the build-sandbox recipe uses a variable this test cannot expand: %q", cmdline)
-			return
-		}
-		cmd := exec.Command("/bin/sh", "-c", cmdline)
-		cmd.Dir = repoRoot
-		if combined, err := cmd.CombinedOutput(); err != nil {
-			sandboxBuildErr = fmt.Errorf("running the build-sandbox recipe (%s): %w\n%s", cmdline, err, combined)
-			return
-		}
-		sandboxBuilt = out
-	})
+	sandboxBuildOnce.Do(buildTheSandboxArtifact)
 	if sandboxBuildErr != nil {
 		t.Fatalf("building the sandbox artifact: %v", sandboxBuildErr)
 	}
 	return sandboxBuilt
+}
+
+// buildTheSandboxArtifact is sandboxArtifact's build, run once (sandboxBuildOnce) -- by the first
+// test that needs it or, earlier, by TestMain's prefetch (prefetch_test.go).
+func buildTheSandboxArtifact() {
+	recipe, err := makefileRecipe("build-sandbox")
+	if err != nil {
+		sandboxBuildErr = err
+		return
+	}
+	out := filepath.Join(os.TempDir(), fmt.Sprintf("tappa-sandbox-%d", os.Getpid()))
+	cmdline := strings.ReplaceAll(recipe, "$(BIN_SANDBOX)", out)
+	if strings.Contains(cmdline, "$(") {
+		sandboxBuildErr = fmt.Errorf("the build-sandbox recipe uses a variable this test cannot expand: %q", cmdline)
+		return
+	}
+	cmd := exec.Command("/bin/sh", "-c", cmdline)
+	cmd.Dir = repoRoot
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		sandboxBuildErr = fmt.Errorf("running the build-sandbox recipe (%s): %w\n%s", cmdline, err, combined)
+		return
+	}
+	sandboxBuilt = out
 }
 
 // makefileRecipe returns the single command line under the Makefile's target.

@@ -895,6 +895,7 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 // under R5c FAIL, and a non-zero exit. (A name built from pieces is beyond any line grep -- the
 // rule's header says so; this test builds its own that way, the rule scanning this very file.)
 func TestRedline_TheCounterSetMarkIsTheTriggersAlone(t *testing.T) {
+	t.Parallel() // T185: own temp trees and processes, no t.Setenv/t.Chdir
 	if _, err := exec.LookPath("rg"); err != nil {
 		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
 	}
