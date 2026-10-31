@@ -68,7 +68,7 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 > `scripts/git-hooks/pre-push` (push edilecek aralığın **eklenen** satırları + commit mesajları;
 > kurulum `make hooks`). Kartın "uzun hex parola biçimleri" maddesi a0-token'ın ≥32 haneli hex
 > alt-şekli olarak var. Bulgu metni hiçbir çıktıya basılmaz (`yol:satır: [sınıf]`). Regresyon
-> ağı `cmd/tappa/secretscan_test.go`. agent-brief maddesi `573d4e1`'de zaten yazılmıştı.
+> ağı `cmd/tappa/scripttest/secretscan_test.go`. agent-brief maddesi `573d4e1`'de zaten yazılmıştı.
 > 2. tur (üçüncü göz RED): muafiyet belirteçleri artık sınırlı eşleşiyor, commit-mesajı
 > muafiyeti tek commit'e bağlı, kanca boru hattının her aşamasını
 > ayrı okuyor, kayıt ayıracı `:` değil 0x1F, kanca `--text` + annotated tag mesajı okuyor,
