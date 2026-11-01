@@ -61,6 +61,30 @@ func bfTxForDDL(t *testing.T) (context.Context, pgx.Tx) {
 	})
 }
 
+// bfTxAccessExclusive is bfTxForDDL for a test whose assertions need every statement at the
+// transaction's TOP level: ACCESS EXCLUSIVE as admin_users' first lock again (never an upgrade),
+// but one blocking LOCK instead of lockForDowns' NOWAIT tries. Each failed try ends in pgx's nested
+// Rollback, which sends ROLLBACK TO SAVEPOINT and never RELEASE, so after one the rest of the test
+// runs inside that savepoint's subtransaction: rows it inserts carry the subtransaction's xid, and
+// identity_create_for_signup's "born in this transaction" check (xmin = pg_current_xact_id())
+// answers false. Measured (T185): beside a loop that only reads admin_users, bfTxForDDL failed both
+// identity exercise tests at "M14-08 create for signup: 0 rows", 4 of 4. The wait gets
+// lockForDowns' budget (90 s: a reader may be a whole test's open transaction), then bfLockTimeout.
+func bfTxAccessExclusive(t *testing.T) (context.Context, pgx.Tx) {
+	t.Helper()
+	return bfTxLocking(t, func(ctx context.Context, tx pgx.Tx) {
+		for _, q := range []string{
+			`SET LOCAL lock_timeout = '90s'`,
+			`LOCK TABLE admin_users IN ACCESS EXCLUSIVE MODE`,
+			`SET LOCAL lock_timeout = '` + bfLockTimeout + `'`,
+		} {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+	})
+}
+
 // bfTxLocking opens bfTx's transaction and takes admin_users' table lock with lock.
 func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (context.Context, pgx.Tx) {
 	t.Helper()

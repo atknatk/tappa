@@ -486,7 +486,12 @@ func TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded(t *testing.T
 // hours are never five minutes), so only the ended cases are asserted. The (function, argument) pairs
 // reached must be every session lookup the scan above counts.
 func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
-	ctx, tx := bfTx(t)
+	// bfTxAccessExclusive, not bfTx (T185, measured): identityExerciseSteps' last step ALTERs
+	// admin_users (contract B's CHECK), and asking for ACCESS EXCLUSIVE on top of bfTx's EXCLUSIVE is
+	// the upgrade bfTxForDDL's comment describes -- 40P01 beside a session that read admin_users and
+	// then asked for a row lock, 3 of 3 locally and on CI runs 41313723393 and 41318525388. Not
+	// bfTxForDDL either: see bfTxAccessExclusive.
+	ctx, tx := bfTxAccessExclusive(t)
 	signup := newIdentitySignupWorld(t, ctx, tx)
 	var steps []identityStep
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) { steps = identityExerciseSteps(t, ctx, sp, signup) })
