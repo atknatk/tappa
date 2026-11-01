@@ -279,7 +279,7 @@ require-db-env:
 # running. 1800 s is ~1.6x the slowest green run; the next bump should split the package.
 # check-sandbox keeps 20m: its cmd/tappa run is ~1 min (the script tests are skipped).
 test: require-db-env
-	go test -race -count=1 -timeout=30m ./...
+	go test -race -count=1 -timeout=30m -json ./... > "$${T185_JSON:-/dev/stdout}"
 
 ## check-sandbox: sandbox derlemesi (-tags sandbox; ADR 0028 §11) — vet + staticcheck tum agac, test etikete bagli paketler
 # NEDEN TUM SUIT DEGIL: etiket yalniz SANDBOX_TEST_PKGS'teki paketlerin derlemesini degistirir —
