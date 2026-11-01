@@ -254,8 +254,6 @@ jobs:
         # fmt + vet + staticcheck + `go test -race` + `git diff --exit-code`.
         # Son adim, `make gen`/`make fmt` ciktisinin (uretilen dosyalar) commit
         # edildigini de dogrular — commit edilmemisse CI kirmizi (istenen).
-        env:
-          T185_JSON: ${{ runner.temp }}/t185.json
         run: make check
 
       - name: The sandbox build (make check-sandbox)
@@ -267,47 +265,6 @@ jobs:
         # TestCI_RunsVetAndTestWithTheSandboxTag recomputes it from the tree and reads this step).
         # After `make check`, on the same database: the suites share no state the order breaks.
         run: make check-sandbox
-
-      - name: T185 measure (TEMPORARY, reverted before the final commit)
-        if: ${{ !cancelled() }}
-        run: |
-          set +e
-          J="$RUNNER_TEMP/t185.json"
-          echo "nproc=$(nproc)"; awk -W version 2>/dev/null | head -1; readlink -f "$(command -v awk)"
-          echo "== packages by elapsed (in-suite) =="
-          jq -r 'select(.Test==null and (.Action=="pass" or .Action=="fail")) | "\(.Elapsed)\t\(.Action)\t\(.Package)"' "$J" | sort -rn | head -30
-          echo "== package start/end times =="
-          jq -r 'select(.Test==null and (.Action=="start" or .Action=="pass" or .Action=="fail")) | "\(.Time)\t\(.Action)\t\(.Package)"' "$J" | grep -E 'cmd/tappa|internal/handler(/operator)?$|internal/db$' 
-          echo "== scripttest top-level tests (in-suite) =="
-          jq -r 'select((.Package|endswith("cmd/tappa/scripttest")) and .Test!=null and (.Test|contains("/")|not) and (.Action=="pass" or .Action=="fail" or .Action=="skip")) | "\(.Elapsed)\t\(.Action)\t\(.Test)"' "$J" | sort -rn
-          echo "== scripttest run/pause/cont/pass timeline (in-suite) =="
-          jq -r 'select((.Package|endswith("cmd/tappa/scripttest")) and .Test!=null and (.Test|contains("/")|not) and (.Action=="run" or .Action=="pause" or .Action=="cont" or .Action=="pass" or .Action=="fail")) | "\(.Time)\t\(.Action)\t\(.Test)"' "$J"
-          echo "== scripttest ALONE (no other package running) =="
-          /usr/bin/time -v go test -race -count=1 -json ./cmd/tappa/scripttest/ > "$RUNNER_TEMP/iso.json" 2> "$RUNNER_TEMP/iso.time"
-          grep -E 'Elapsed|User time|System time|Percent of CPU|Voluntary|Involuntary' "$RUNNER_TEMP/iso.time"
-          jq -r 'select(.Test==null and (.Action=="pass" or .Action=="fail")) | "\(.Elapsed)\t\(.Action)\t\(.Package)"' "$RUNNER_TEMP/iso.json"
-          jq -r 'select(.Test!=null and (.Test|contains("/")|not) and (.Action=="pass" or .Action=="fail" or .Action=="skip")) | "\(.Elapsed)\t\(.Action)\t\(.Test)"' "$RUNNER_TEMP/iso.json" | sort -rn
-          echo "== one full-repo redline-check.sh run =="
-          /usr/bin/time -v bash scripts/redline-check.sh > "$RUNNER_TEMP/rl.out" 2> "$RUNNER_TEMP/rl.time"; echo "exit=$?"
-          grep -E 'Elapsed|User time|System time|Percent of CPU' "$RUNNER_TEMP/rl.time"
-          command -v strace >/dev/null || sudo apt-get install -y strace >/dev/null
-          strace -f -qq -e trace=execve -o "$RUNNER_TEMP/ex.txt" bash scripts/redline-check.sh > /dev/null 2>&1
-          echo "execve total: $(grep -c 'execve(' "$RUNNER_TEMP/ex.txt")"
-          grep -o 'execve("[^"]*"' "$RUNNER_TEMP/ex.txt" | sed 's/.*\///; s/"$//' | sort | uniq -c | sort -rn | head -25
-          strace -f -qq -c -e trace=process -o "$RUNNER_TEMP/proc.txt" bash scripts/redline-check.sh > /dev/null 2>&1; cat "$RUNNER_TEMP/proc.txt"
-          echo "migrations: $(ls db/migrations/*.sql | wc -l)"
-          exit 0
-
-      - name: T185 upload (TEMPORARY)
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: t185-measure
-          path: |
-            ${{ runner.temp }}/t185.json
-            ${{ runner.temp }}/iso.json
-            ${{ runner.temp }}/ex.txt
-            ${{ runner.temp }}/proc.txt
 
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
