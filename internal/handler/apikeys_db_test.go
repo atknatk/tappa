@@ -532,7 +532,7 @@ func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
 // creator's address is printed. The owner revokes it as before and it is refused from then on.
 //
 // MUTANTS (measured): the marker not drawn -> red; a "creator must be active" check in
-// apikey.Authenticator.Resolve -> red.
+// apikey.Authenticator.Resolve -> red; ListAPIKeys printing another admin's name -> red.
 func TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T) {
 	f := newAPIKeysDBFixture(t)
 	ctx := context.Background()
@@ -545,6 +545,17 @@ func TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T)
 		t.Fatal(err)
 	}
 	creator := f.manager
+	// A name of its own: both fixture admins are "Keys Admin", which would let a list printing the
+	// OTHER admin's name pass. Written under the operator-tables lock like the fixture's rows.
+	release := holdPanelTablesLock(t)
+	err = f.data.WithTenant(ctx, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE admin_users SET full_name = 'Payroll Owner' WHERE tenant_id = $1 AND id = $2`, f.tenantID, creator)
+		return err
+	})
+	release()
+	if err != nil {
+		t.Fatalf("name the creator: %v", err)
+	}
 	if _, err := members.Change(ctx, f.tenantID, f.owner, creator, adminauth.MemberMakeOwner); err != nil {
 		t.Fatalf("make the creator an owner: %v", err)
 	}
@@ -579,8 +590,18 @@ func TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T)
 	if n := strings.Count(page, `<span class="mono-pill border-line">Creator disabled</span>`); n != 2 {
 		t.Errorf("%d \"Creator disabled\" markers, want 2 (the disabled creator's one key, table and list)", n)
 	}
-	if n := strings.Count(page, "by Keys Admin"); n != 4 {
-		t.Errorf("%d creator lines, want 4 (two keys, table and list)", n)
+	for line, want := range map[string]int{"by Payroll Owner": 2, "by Keys Admin": 2} {
+		if n := strings.Count(page, line); n != want {
+			t.Errorf("%q is drawn %d times, want %d (its one key, table and list)", line, n, want)
+		}
+	}
+	// The marker sits beside the DISABLED creator's name -- counts alone hold when two rows swap
+	// their creators' names.
+	beside := func(name string) int {
+		return len(regexp.MustCompile(`by `+name+`</span>\s*<span class="mono-pill border-line">Creator disabled</span>`).FindAllString(page, -1))
+	}
+	if n, m := beside("Payroll Owner"), beside("Keys Admin"); n != 2 || m != 0 {
+		t.Errorf("the marker is beside the disabled creator's name %d times (want 2) and beside the active owner's %d times (want 0)", n, m)
 	}
 	if !strings.Contains(page, "it keeps working") {
 		t.Error("the sentence that a disabled creator's key keeps working is missing")

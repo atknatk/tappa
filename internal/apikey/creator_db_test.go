@@ -18,8 +18,8 @@ import (
 // owner revokes it as before, and from then on it is refused. CONTROL: the active owner's key reads
 // CreatorActive.
 //
-// MUTANT (measured): a "creator must be active" check in Authenticator.Resolve -> the disabled
-// creator's key is refused and this test is red.
+// MUTANTS (measured): a "creator must be active" check in Authenticator.Resolve -> the disabled
+// creator's key is refused, red; ListAPIKeys printing another admin's name as the creator's -> red.
 func TestApiKeyAuth_ADisabledCreatorsKeyKeepsWorking(t *testing.T) {
 	d := appDB(t)
 	ctx := context.Background()
@@ -35,7 +35,8 @@ func TestApiKeyAuth_ADisabledCreatorsKeyKeepsWorking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fixture's disabled owner is enabled, creates a key, and is disabled again.
+	// The fixture's disabled owner ("API-3 Second Owner" -- every fixture admin has a name of its own)
+	// is enabled, creates a key, and is disabled again.
 	creator := b.disabledOwner
 	if _, err := members.Change(ctx, b.tenant, b.owner, creator, adminauth.MemberEnable); err != nil {
 		t.Fatalf("enable the creator: %v", err)
@@ -69,11 +70,11 @@ func TestApiKeyAuth_ADisabledCreatorsKeyKeepsWorking(t *testing.T) {
 	for _, k := range l.Keys {
 		seen[k.ID.String()] = k
 	}
-	if k := seen[theirs.ID.String()]; k.CreatedBy != creator || k.CreatorActive || k.CreatorName != "API-3 Admin" {
+	if k := seen[theirs.ID.String()]; k.CreatedBy != creator || k.CreatorActive || k.CreatorName != "API-3 Second Owner" {
 		t.Errorf("the disabled creator's key lists creator %v active %v name %q; want the creator, inactive, by name", k.CreatedBy, k.CreatorActive, k.CreatorName)
 	}
-	if k := seen[mine.ID.String()]; k.CreatedBy != b.owner || !k.CreatorActive {
-		t.Errorf("CONTROL: the active owner's key lists creator %v active %v", k.CreatedBy, k.CreatorActive)
+	if k := seen[mine.ID.String()]; k.CreatedBy != b.owner || !k.CreatorActive || k.CreatorName != "API-3 Owner" {
+		t.Errorf("CONTROL: the active owner's key lists creator %v active %v name %q", k.CreatedBy, k.CreatorActive, k.CreatorName)
 	}
 
 	if _, err := s.keys.Revoke(ctx, apikey.RevokeCommand{TenantID: b.tenant, ActorID: b.owner, KeyID: theirs.ID}); err != nil {
