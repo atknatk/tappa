@@ -3784,6 +3784,12 @@ type Querier interface {
 	ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesParams) ([]ListAPIEmployeesRow, error)
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
+	//
+	// The creator's name and membership status ride along (T174, ADR 0028's 2026-11-01 note): a key
+	// is the BUSINESS's, so a key whose creator's membership was disabled keeps working, and the list
+	// says so next to the creator rather than the resolver refusing it. created_by is a composite FK
+	// onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
+	// key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
 	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
 	// what was sent and what became of it).

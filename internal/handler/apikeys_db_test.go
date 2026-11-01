@@ -7,6 +7,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -520,5 +521,81 @@ func TestApiKeyPanel_AMalformedBudgetIsReadAsNone(t *testing.T) {
 	}
 	if home := b.do(http.MethodGet, "/admin", nil); home.Code != 200 || !strings.Contains(home.Body.String(), "reached its limit for deactivating employees") {
 		t.Fatalf("the home page with malformed budgets: %d, want 200 with the banner", home.Code)
+	}
+}
+
+// TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking (T174; user decision 2026-11-01,
+// ADR 0028's note of that day): the manager is made an owner, creates a key, and is disabled through
+// the panel's own membership path. The key still authenticates; the owner's list names the creator
+// and marks it "Creator disabled" on both renderings (the desk table and the list below it) with the
+// sentence that says the key keeps working; the owner's own key carries no marker (CONTROL) and no
+// creator's address is printed. The owner revokes it as before and it is refused from then on.
+//
+// MUTANTS (measured): the marker not drawn -> red; a "creator must be active" check in
+// apikey.Authenticator.Resolve -> red.
+func TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T) {
+	f := newAPIKeysDBFixture(t)
+	ctx := context.Background()
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := adminauth.NewMemberships(f.data, trail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator := f.manager
+	if _, err := members.Change(ctx, f.tenantID, f.owner, creator, adminauth.MemberMakeOwner); err != nil {
+		t.Fatalf("make the creator an owner: %v", err)
+	}
+	theirs, err := f.keys.Create(ctx, apikey.CreateCommand{TenantID: f.tenantID, ActorID: creator, Name: "Payroll"})
+	if err != nil {
+		t.Fatalf("create by the second owner: %v", err)
+	}
+	if _, err := f.keys.Create(ctx, apikey.CreateCommand{TenantID: f.tenantID, ActorID: f.owner, Name: "ERP"}); err != nil {
+		t.Fatalf("create by the owner: %v", err)
+	}
+	if _, err := members.Change(ctx, f.tenantID, f.owner, creator, adminauth.MemberDisable); err != nil {
+		t.Fatalf("disable the creator: %v", err)
+	}
+	authenticate := func() error {
+		tok, err := apikey.ParseBearer("Bearer " + theirs.Key.RevealToTheOwnerOnce())
+		if err != nil {
+			return err
+		}
+		c, err := f.auth.Check(tok)
+		if err != nil {
+			return err
+		}
+		_, err = f.auth.Resolve(ctx, c)
+		return err
+	}
+	if err := authenticate(); err != nil {
+		t.Fatalf("the key of a disabled creator: %v, want it to keep working (T174)", err)
+	}
+
+	b := f.browserAs(t, f.owner, "owner")
+	page := b.do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if n := strings.Count(page, `<span class="mono-pill border-line">Creator disabled</span>`); n != 2 {
+		t.Errorf("%d \"Creator disabled\" markers, want 2 (the disabled creator's one key, table and list)", n)
+	}
+	if n := strings.Count(page, "by Keys Admin"); n != 4 {
+		t.Errorf("%d creator lines, want 4 (two keys, table and list)", n)
+	}
+	if !strings.Contains(page, "it keeps working") {
+		t.Error("the sentence that a disabled creator's key keeps working is missing")
+	}
+	if strings.Contains(page, "@m11.example") {
+		t.Error("the page prints a creator's address")
+	}
+
+	if rec := b.do(http.MethodPost, apiKeyRevokeHref, url.Values{"key_id": {theirs.ID.String()}}); !strings.Contains(rec.Header().Get("Location"), "done=revoked") {
+		t.Fatalf("the owner revokes the disabled creator's key: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if err := authenticate(); !errors.Is(err, apikey.ErrRevoked) {
+		t.Fatalf("after the revocation: %v, want ErrRevoked", err)
+	}
+	if page := b.do(http.MethodGet, apiKeysHref, nil).Body.String(); strings.Contains(page, "it keeps working") {
+		t.Error("the sentence stays when no live key has a disabled creator")
 	}
 }

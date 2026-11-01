@@ -189,6 +189,12 @@ templ apiKeysList(v APIKeysView) {
 	if len(v.Keys) == 0 {
 		<p class="text-sm text-ink/70">No key has been created for this business.</p>
 	} else {
+		if v.AnyLiveFromADisabledCreator() {
+			<p class="max-w-2xl text-sm leading-normal text-ink/70">
+				A key belongs to the business, not to the person who created it: it keeps working
+				after their access is disabled. Revoke it here if it should stop.
+			</p>
+		}
 		<table class="hidden w-full border-collapse desk:table">
 			<caption class="sr-only">This business&#39;s integration keys</caption>
 			<thead>
@@ -212,7 +218,10 @@ templ apiKeysList(v APIKeysView) {
 								<span class="mt-1 block font-mono text-xs text-ink/70">{ k.RevokedOn }</span>
 							}
 						</td>
-						<td class="px-2 py-3 font-mono text-[13px] text-ink">{ k.CreatedOn }</td>
+						<td class="px-2 py-3 font-mono text-[13px] text-ink">
+							{ k.CreatedOn }
+							@apiKeyCreator(k)
+						</td>
 						<td class="px-2 py-3 font-mono text-[13px] text-ink">{ k.LastUsed }</td>
 						<td class="whitespace-nowrap px-2 py-2 text-right">
 							if k.Live() {
@@ -232,6 +241,7 @@ templ apiKeysList(v APIKeysView) {
 							@apiKeyStatusPill(k)
 						</p>
 						<p class="break-all font-mono text-xs text-ink/70">Starts with { k.PrefixHint }… · created { k.CreatedOn }</p>
+						@apiKeyCreator(k)
 						if k.Live() {
 							<p class="font-mono text-xs text-ink/70">Last used { k.LastUsed }</p>
 						} else {
@@ -259,6 +269,20 @@ templ apiKeysList(v APIKeysView) {
 				</div>
 			</form>
 		}
+	}
+}
+
+// apiKeyCreator is who created the key, by name, and -- when that person's access to this business
+// is disabled -- a pill saying so in the members list's plain frame. The pill names the CREATOR,
+// not the key: the key's own state is its Live or Revoked pill (T174).
+templ apiKeyCreator(k APIKeyRow) {
+	if k.CreatedBy != "" {
+		<span class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-ink/70">
+			<span class="break-words">by { k.CreatedBy }</span>
+			if k.CreatorDisabled {
+				<span class="mono-pill border-line">Creator disabled</span>
+			}
+		</span>
 	}
 }
 

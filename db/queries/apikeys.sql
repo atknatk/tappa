@@ -22,10 +22,19 @@ RETURNING id, created_at;
 -- name: ListAPIKeys :many
 -- The panel's list: newest first, revoked ones included (the owner sees what was issued and
 -- when it stopped working). token_hash is not readable by tappa_app and is not named.
-SELECT id, name, prefix_hint, created_by, created_at, last_used_at, revoked_at
-FROM api_keys
-WHERE tenant_id = @tenant_id
-ORDER BY created_at DESC, id;
+--
+-- The creator's name and membership status ride along (T174, ADR 0028's 2026-11-01 note): a key
+-- is the BUSINESS's, so a key whose creator's membership was disabled keeps working, and the list
+-- says so next to the creator rather than the resolver refusing it. created_by is a composite FK
+-- onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
+-- key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
+SELECT k.id, k.name, k.prefix_hint, k.created_by, k.created_at, k.last_used_at, k.revoked_at,
+       u.full_name AS creator_name, u.status AS creator_status
+FROM api_keys AS k
+JOIN admin_users AS u ON u.id = k.created_by AND u.tenant_id = k.tenant_id
+WHERE k.tenant_id = @tenant_id
+  AND u.tenant_id = @tenant_id
+ORDER BY k.created_at DESC, k.id;
 
 -- 🔴 THE STAMP IS clock_timestamp(), NOT now() (API-3 second round, D2 -- measured with two psql
 -- sessions). now() is the TRANSACTION's start: "revoke all" begun at T0, a key created and

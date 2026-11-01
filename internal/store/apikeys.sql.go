@@ -97,24 +97,35 @@ func (q *Queries) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (Ins
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT id, name, prefix_hint, created_by, created_at, last_used_at, revoked_at
-FROM api_keys
-WHERE tenant_id = $1
-ORDER BY created_at DESC, id
+SELECT k.id, k.name, k.prefix_hint, k.created_by, k.created_at, k.last_used_at, k.revoked_at,
+       u.full_name AS creator_name, u.status AS creator_status
+FROM api_keys AS k
+JOIN admin_users AS u ON u.id = k.created_by AND u.tenant_id = k.tenant_id
+WHERE k.tenant_id = $1
+  AND u.tenant_id = $1
+ORDER BY k.created_at DESC, k.id
 `
 
 type ListAPIKeysRow struct {
-	ID         uuid.UUID
-	Name       string
-	PrefixHint string
-	CreatedBy  uuid.UUID
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
-	RevokedAt  *time.Time
+	ID            uuid.UUID
+	Name          string
+	PrefixHint    string
+	CreatedBy     uuid.UUID
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
+	CreatorName   string
+	CreatorStatus string
 }
 
 // The panel's list: newest first, revoked ones included (the owner sees what was issued and
 // when it stopped working). token_hash is not readable by tappa_app and is not named.
+//
+// The creator's name and membership status ride along (T174, ADR 0028's 2026-11-01 note): a key
+// is the BUSINESS's, so a key whose creator's membership was disabled keeps working, and the list
+// says so next to the creator rather than the resolver refusing it. created_by is a composite FK
+// onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
+// key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
 func (q *Queries) ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error) {
 	rows, err := q.db.Query(ctx, listAPIKeys, tenantID)
 	if err != nil {
@@ -132,6 +143,8 @@ func (q *Queries) ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAP
 			&i.CreatedAt,
 			&i.LastUsedAt,
 			&i.RevokedAt,
+			&i.CreatorName,
+			&i.CreatorStatus,
 		); err != nil {
 			return nil, err
 		}
