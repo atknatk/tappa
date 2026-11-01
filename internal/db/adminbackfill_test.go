@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,7 +42,7 @@ const bfFile = "00073_backfill_admin_identities.sql"
 
 func bfTx(t *testing.T) (context.Context, pgx.Tx) {
 	t.Helper()
-	return bfTxLocking(t, func(ctx context.Context, tx pgx.Tx) {
+	return bfTxOpen(t, true, func(ctx context.Context, tx pgx.Tx) {
 		if _, err := tx.Exec(ctx, `LOCK TABLE admin_users IN EXCLUSIVE MODE`); err != nil {
 			t.Fatalf("lock admin_users: %v", err)
 		}
@@ -88,14 +90,29 @@ func bfTxAccessExclusive(t *testing.T) (context.Context, pgx.Tx) {
 // bfTxLocking opens bfTx's transaction and takes admin_users' table lock with lock.
 func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (context.Context, pgx.Tx) {
 	t.Helper()
+	return bfTxOpen(t, false, lock)
+}
+
+// bfTxOpen is bfTxLocking; guarded (bfTx's EXCLUSIVE) puts bfUpgradeGuard on the connection.
+func bfTxOpen(t *testing.T, guarded bool, lock func(ctx context.Context, tx pgx.Tx)) (context.Context, pgx.Tx) {
+	t.Helper()
 	dsn := opOwnerDSN(t)
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse the owner DSN: %v", err)
+	}
+	var guard *bfUpgradeGuard
+	if guarded {
+		guard = newBfUpgradeGuard(t, dsn) // its connection closes after this one's cleanups (LIFO)
+		cfg.Tracer = guard
+	}
 	// THE TEST'S THREE MINUTES START ONCE THE LOCK IS HELD (M14-09's third-eye audit): the wait for
 	// the operator-tables lock runs on its own, longer context, because the packages that hold it
 	// SHARED keep it for a whole test -- ~120 s for a cost-12 HTTP timing sample under -race -- and a
 	// wait counted against the test's own budget left the Downs' table locks too little of it.
 	lockCtx, lockCancel := context.WithTimeout(context.Background(), opLockWait)
 	t.Cleanup(lockCancel)
-	conn, err := pgx.Connect(lockCtx, dsn)
+	conn, err := pgx.ConnectConfig(lockCtx, cfg)
 	if err != nil {
 		t.Fatalf("connect as the owner: %v", err)
 	}
@@ -137,9 +154,104 @@ func bfTxLocking(t *testing.T, lock func(ctx context.Context, tx pgx.Tx)) (conte
 	// SHARE, so such a sign-in waits before it holds anything; plain reads still pass. A writer waits
 	// for the test's transaction; this lock waits at most lock_timeout for a writer already open. A test
 	// that needs a stronger lock on admin_users takes it here, first (bfTxForDDL): never as an upgrade
-	// (TestAdminBackfill00073_NoTestUpgradesItsTableLock).
+	// (TestAdminBackfill00073_NoTestUpgradesItsTableLock reads this file; bfUpgradeGuard, at run time,
+	// every bfTx test).
 	lock(ctx, tx)
+	if guard != nil {
+		guard.arm(t, ctx, tx)
+	}
 	return ctx, tx
+}
+
+// bfUpgradeGuard is the run-time half of "a bfTx test never upgrades its table lock" (T185 audit):
+// after every statement of a bfTx transaction it asks, from a connection of its own, whether that
+// transaction's backend holds ACCESS EXCLUSIVE on admin_users -- the upgrade bfTxForDDL's comment
+// describes, which deadlocks (40P01) beside a session that read the table and then asks for a row
+// lock -- and the test's cleanup fails it if one ever did. Wherever the stronger lock came from: a
+// helper in another file (TestAdminBackfill00073_NoTestUpgradesItsTableLock reads only this one; two
+// identity exercise tests upgraded through identityExerciseSteps, CI runs 41313723393 and
+// 41318525388), a statement built at run time, a migration section.
+//
+// WHY AFTER EVERY STATEMENT, not once in the cleanup: a lock taken inside a savepoint is released
+// when the savepoint rolls back, and the tests roll theirs back (aiSavepoint) -- by the end the
+// upgrade has left no trace in pg_locks. Measured: the mutant below, read in its cleanup, saw none.
+// Traced: Exec, Query, QueryRow (pgx's QueryTracer); a Batch or CopyFrom is not.
+//
+// MUTANT (measured): TestIdentityDefiner_EveryGrantIsUsed back on bfTx -- red with no other
+// session running, naming the ALTER.
+type bfUpgradeGuard struct {
+	t     *testing.T
+	side  *pgx.Conn
+	mu    sync.Mutex // side is one connection
+	pid   atomic.Uint32
+	found atomic.Pointer[string]
+}
+
+type bfGuardSQLKey struct{}
+
+func newBfUpgradeGuard(t *testing.T, dsn string) *bfUpgradeGuard {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	side, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("bfTx's upgrade guard: connect: %v", err)
+	}
+	g := &bfUpgradeGuard{t: t, side: side}
+	t.Cleanup(func() {
+		if err := side.Close(context.Background()); err != nil {
+			t.Logf("close the upgrade guard's connection: %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if f := g.found.Load(); f != nil {
+			t.Errorf("bfTx's transaction holds admin_users IN EXCLUSIVE MODE and later held ACCESS EXCLUSIVE "+
+				"(an upgrade: the 40P01 bfTxForDDL describes) -- open this test with bfTxForDDL or "+
+				"bfTxAccessExclusive instead. First seen after: %s", *f)
+		}
+	})
+	return g
+}
+
+// arm starts the checks once bfTx's own EXCLUSIVE lock is held (nothing before it can upgrade it).
+func (g *bfUpgradeGuard) arm(t *testing.T, ctx context.Context, tx pgx.Tx) {
+	t.Helper()
+	var pid uint32
+	if err := tx.QueryRow(ctx, `SELECT pg_catalog.pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatalf("bfTx's upgrade guard: backend pid: %v", err)
+	}
+	g.pid.Store(pid)
+}
+
+func (g *bfUpgradeGuard) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, bfGuardSQLKey{}, data.SQL)
+}
+
+func (g *bfUpgradeGuard) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+	pid := g.pid.Load()
+	if pid == 0 || g.found.Load() != nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	qctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var held bool
+	err := g.side.QueryRow(qctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks
+	  WHERE pid = $1 AND locktype = 'relation' AND relation = 'public.admin_users'::regclass
+	    AND mode = 'AccessExclusiveLock' AND granted)`, int64(pid)).Scan(&held)
+	what, _ := ctx.Value(bfGuardSQLKey{}).(string)
+	if len(what) > 300 {
+		what = what[:300] + "..."
+	}
+	if err != nil {
+		msg := fmt.Sprintf("(the guard could not read pg_locks: %v) %s", err, what)
+		g.found.Store(&msg)
+		return
+	}
+	if held {
+		g.found.Store(&what)
+	}
 }
 
 // bfLockTimeout is the lock_timeout of bfTx's transaction. 00073's sections set their own 1 s with
