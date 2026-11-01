@@ -228,7 +228,7 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    yoktur. Kimlik yazmayan ama sırra da
    anahtarlı olmayan yazarlar adıyla şunlardır:
    `identity_open_signup_claim` (yalnız taslak satırı, oranla sınırlı), `identity_open_reset` (yalnız bir
-   sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
+   sıfırlama linki + bir `reset_requested` olayı; kimlik başına tek canlı link, EM-7C), `identity_open_row_session` (yalnız tek satırlık panel oturumu; satırın kilidi altında güncel digest + aktif + reddedilmemiş üyelik, Go tipiyle bağlı — ADR 0036) ve iki sabit periyotlu süpürme. BYPASSRLS gövdelerinde tenant tablosuna dokunan **her** ifade açık bir `tenant_id` yüklemi
    taşır. Bir tenant'a yazan her fonksiyon o tenant'ın `audit_log`'una yazar; satır karşı tenant'ı,
    kişinin üyelik sayısını ve `identity_id`'yi anmaz; bir istek her an tek tenant bağlamında koşar.
    `tappa_app`'ın `admin_users.identity_id`'yi okuması (geçiş oran kovası) adlandırılmış bir kalıntıdır ve

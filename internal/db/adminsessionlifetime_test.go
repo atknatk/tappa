@@ -796,11 +796,13 @@ var aslSessionFunctions = map[string]string{
 	"identity_unlink_backfilled": "fresh", "identity_relink_refused": "fresh", "identity_link_legacy": "fresh",
 	// No session key: births a session with its proof now(), or only revokes.
 	"identity_open_session": "births", "identity_consume_reset": "revokes", "identity_consume_row_reset": "revokes",
+	// T187 (00086, ADR 0036): the single-row sign-in's birth, its proof now().
+	"identity_open_row_session": "births",
 }
 
 // TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified: the functions whose body
 // mentions admin_sessions -- any schema, any owner, any spelling -- are exactly aslSessionFunctions'
-// nineteen (measured 2026-10-31), and the twelve "guarded" ones are the ones the lookup scan finds the
+// twenty (nineteen measured 2026-10-31; T187's 00086 added identity_open_row_session), and the twelve "guarded" ones are the ones the lookup scan finds the
 // predicate in.
 func TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified(t *testing.T) {
 	ctx, tx := opTx(t)
@@ -839,7 +841,7 @@ func TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified(t *t
 			t.Errorf("%s is classified %q but the lifetime predicate is %v in its body", n, class, guarded)
 		}
 	}
-	if len(got) != 19 || len(aslSessionFunctions) != 19 {
-		t.Errorf("anti-vacuity: %d functions read admin_sessions and %d are classified, want 19 and 19", len(got), len(aslSessionFunctions))
+	if len(got) != 20 || len(aslSessionFunctions) != 20 {
+		t.Errorf("anti-vacuity: %d functions read admin_sessions and %d are classified, want 20 and 20", len(got), len(aslSessionFunctions))
 	}
 }
