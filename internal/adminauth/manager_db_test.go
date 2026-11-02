@@ -439,8 +439,16 @@ func TestIssueAndVerify_RoundTrip(t *testing.T) {
 	if issued.Session.TenantID != tenantID || issued.Session.AdminUserID != adminID {
 		t.Fatalf("session is %+v, want tenant %v admin %v", issued.Session, tenantID, adminID)
 	}
-	if issued.Session.RevokedAt != nil {
-		t.Fatalf("a fresh session is already revoked")
+	// Read from the row, not from Issued: since T187 (00086) Issue returns the birth's ids alone.
+	var revoked, proven bool
+	if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT revoked_at IS NOT NULL, authenticated_at IS NOT NULL FROM admin_sessions WHERE id = $1 AND tenant_id = $2`,
+			issued.Session.ID, tenantID).Scan(&revoked, &proven)
+	}); err != nil {
+		t.Fatalf("the issued session's row: %v", err)
+	}
+	if revoked || !proven {
+		t.Fatalf("a fresh session: revoked %v, carries its proof %v; want false, true", revoked, proven)
 	}
 	if got := lastLoginAt(t, d, tenantID, adminID); got == nil {
 		t.Fatalf("last_login_at was not stamped by Issue")

@@ -518,10 +518,10 @@ var m11Functions = map[string]m11FunctionACL{
 	"resolve_identity_by_email(citext)":          {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"identity_open_session(uuid,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00086 (T187, ADR 0036): the single-row panel session's birth.
-	"identity_open_row_session(uuid,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_memberships(text)":                     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_switch_session(text,uuid,text)":        {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_revoke_sessions(text,boolean)":         {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_open_row_session(uuid,uuid,text,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_memberships(text)":                          {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_switch_session(text,uuid,text)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_revoke_sessions(text,boolean)":              {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00072 (M14-05, ADR 0031 §5.2): eleven identity_* writers owned by tappa_identitydefiner and two
 	// md.7 token resolvers owned by tappa_resolver -- SECURITY DEFINER, EXECUTE tappa_app alone (and
 	// the owner). identitypassword_test.go pins their signatures, search_path and bodies further.

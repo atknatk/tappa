@@ -21,16 +21,20 @@ import (
 // function called OpenRowSession in internal/... and cmd/...: the sign-in (after its Proof held) and the
 // legacy side of a link's proof (after the password matched the resolver's digest). A new entry is a
 // new way to birth a session.
-var openRowSessionCallers = map[string]bool{
-	"internal/adminauth.Issue":                  true,
-	"internal/adminauth.openLegacyProofSession": true,
+// The value is the purpose each passes (db.RowSessionPurpose): the sign-in's row or the link proof's --
+// a sign-in written as a proof would leave its business no sign-in row, a proof written as a sign-in a
+// sign-in row ADR 0031 §5.6 says it must not have.
+var openRowSessionCallers = map[string]string{
+	"internal/adminauth.Issue":                  "RowSessionSignIn",
+	"internal/adminauth.openLegacyProofSession": "RowSessionLinkProof",
 }
 
 // sessionInsert is an INSERT into admin_sessions in a string literal, any spelling the server accepts.
 var sessionInsert = regexp.MustCompile(`(?is)\binsert\s+into\s+(?:(?:"public"|public)\s*\.\s*)?(?:"admin_sessions"|admin_sessions\b)`)
 
 // TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone reads every non-test Go file of internal/ and
-// cmd/: db.OpenRowSession is called from exactly openRowSessionCallers; the generated CreateAdminSession
+// cmd/: db.OpenRowSession is called from exactly openRowSessionCallers, each once with its purpose; the
+// generated CreateAdminSession
 // (the previous binary's statement, kept for the expand deploy) is called from nowhere; and no string
 // literal outside internal/store (sqlc's output, where the generated text lives until the contract
 // deletes the query) inserts into admin_sessions.
@@ -39,7 +43,7 @@ func TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := map[string]bool{}
+	found := map[string]string{}
 	var oldCalls, literals []string
 	files := 0
 	for _, root := range []string{filepath.Join(repo, "internal"), filepath.Join(repo, "cmd")} {
@@ -77,13 +81,26 @@ func TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone(t *testing.T) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if c, ok := n.(*ast.CallExpr); ok {
+						if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "OpenRowSession" {
+							purpose := "(not a named purpose)"
+							if len(c.Args) > 0 {
+								if p, ok := c.Args[len(c.Args)-1].(*ast.SelectorExpr); ok {
+									purpose = p.Sel.Name
+								}
+							}
+							found[dir+"."+fn.Name.Name] += purpose
+						}
+					}
 					sel, ok := n.(*ast.SelectorExpr)
 					if !ok {
 						return true
 					}
 					switch sel.Sel.Name {
 					case "OpenRowSession":
-						found[dir+"."+fn.Name.Name] = true
+						if _, seen := found[dir+"."+fn.Name.Name]; !seen {
+							found[dir+"."+fn.Name.Name] = "(taken as a value)"
+						}
 					case "CreateAdminSession":
 						oldCalls = append(oldCalls, dir+"."+fn.Name.Name)
 					}
@@ -99,13 +116,17 @@ func TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone(t *testing.T) {
 	if files < 100 {
 		t.Fatalf("the scan read %d files; it is not reading the tree", files)
 	}
-	for caller := range found {
-		if !openRowSessionCallers[caller] {
+	for caller, purpose := range found {
+		want, listed := openRowSessionCallers[caller]
+		switch {
+		case !listed:
 			t.Errorf("%s calls OpenRowSession; a panel session is born only by the sign-in and the link's proof (ADR 0036)", caller)
+		case purpose != want:
+			t.Errorf("%s passes %s to OpenRowSession, want exactly one call with db.%s", caller, purpose, want)
 		}
 	}
 	for caller := range openRowSessionCallers {
-		if !found[caller] {
+		if _, ok := found[caller]; !ok {
 			t.Errorf("%s is listed but the scan did not find it", caller)
 		}
 	}

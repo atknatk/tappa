@@ -175,6 +175,7 @@ var tablesLockRowExempt = map[string]map[string]string{
 	"../../internal/handler": {
 		"TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes":           "one owner transaction under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
 		"TestIdentityResetAudit_ALinkedRowsRecoveryRowIsTheHandlersRow": "one owner transaction per subtest under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
+		"TestIdentityAudit_TheRowSessionsRowIsTheOrdinaryOne":           "one owner transaction under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
 	},
 }
 

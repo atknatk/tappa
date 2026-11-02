@@ -417,7 +417,7 @@ function identity_link_by_email(text,text) owner=tappa_identitydefiner definer=t
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
-function identity_open_row_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_open_row_session(uuid,uuid,text,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_password_for_session(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

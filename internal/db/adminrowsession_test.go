@@ -17,11 +17,13 @@ import (
 // panel session on a single admin_users row is born (tappa_app's own INSERT is the contract step's to
 // revoke). Against real Postgres:
 //
-//	(1) the birth: the locked row's tenant and admin, authenticated_at = now(), the token hash written;
-//	(2) every row the function must not open, each 0 rows and no session row: disabled, refused
+//	(1) the birth: the locked row's tenant and admin, authenticated_at = now(), the token hash written
+//	    (its admin.login.succeeded row: internal/handler's identityaudit_db_test.go, byte for byte);
+//	(2) every row the function must not open, each 0 rows, no session row and no sign-in row: disabled, refused
 //	    (unlinked_at with its CURRENT digest -- the legacy statement relied on the sentinel), a stale or
 //	    empty digest, another business's row named under this business's tenant (the tenant predicate),
-//	    a tenant that is not the transaction's context, no context, NULL arguments;
+//	    a tenant that is not the transaction's context, no context, an unknown, empty or NULL purpose (no
+//	    silent arm), NULL arguments;
 //	(3) the refusal that is OPEN when the birth starts is waited for and then refuses (the row lock);
 //	(4) expand: tappa_app still holds its INSERT and the previous binary's statement still opens on this
 //	    schema; the Down drops the function and nothing else.
@@ -38,38 +40,80 @@ func rsSessionsByHash(t *testing.T, ctx context.Context, q opQuerier, hash strin
 }
 
 // TestIdentityOpenRowSession_BirthsTheSessionWithItsProofNow is (1), through the Go accessor the binary
-// calls (OpenRowSession, the const it sends) as tappa_app in the row's own tenant context.
+// calls (OpenRowSession, the const it sends) as tappa_app in the row's own tenant context, once per
+// purpose: the session, and exactly ONE audit row in its business -- the sign-in's admin.login.succeeded
+// {outcome, session_id} (byte for byte the handler's: internal/handler's identityaudit_db_test.go) or the
+// link proof's admin.session.link_proof {session_id} and NO sign-in row (ADR 0031 §5.6).
 func TestIdentityOpenRowSession_BirthsTheSessionWithItsProofNow(t *testing.T) {
 	ctx, tx := opTx(t)
-	a := aiTenant(t, ctx, tx)
-	row := aiAdmin(t, ctx, tx, a, aiEmail())
-	h := opRandHex(t)
-	var got IdentitySession
-	if err := aiApp(t, ctx, tx, a, func(sp pgx.Tx) error {
-		var e error
-		got, e = OpenRowSession(ctx, sp, row, a, h, NewPasswordHash(opFakeDigest("a")))
-		return e
-	}); err != nil {
-		t.Fatalf("OpenRowSession on an active row with its current digest: %v", err)
-	}
-	if got.TenantID != a || got.AdminUserID != row || got.SessionID == uuid.Nil {
-		t.Fatalf("OpenRowSession = %+v; want a session of %s in %s", got, row, a)
-	}
-	var (
-		tenant, admin            uuid.UUID
-		hash                     string
-		proofIsNow, bornNow      bool
-		lastUsed, revoked, proof *time.Time
-	)
-	if err := tx.QueryRow(ctx, `SELECT tenant_id, admin_user_id, token_hash, authenticated_at = now(), created_at = now(),
-	                                   last_used_at, revoked_at, authenticated_at
-	                              FROM admin_sessions WHERE id = $1`, got.SessionID).
-		Scan(&tenant, &admin, &hash, &proofIsNow, &bornNow, &lastUsed, &revoked, &proof); err != nil {
-		t.Fatalf("the session the function returned: %v", err)
-	}
-	if tenant != a || admin != row || hash != h || !proofIsNow || !bornNow || lastUsed != nil || revoked != nil || proof == nil {
-		t.Fatalf("the session = tenant %s admin %s hash-match %v proof-now %v born-now %v last_used %v revoked %v; want %s, %s, true, true, true, nil, nil",
-			tenant, admin, hash == h, proofIsNow, bornNow, lastUsed, revoked, a, row)
+	for _, c := range []struct {
+		purpose RowSessionPurpose
+		action  string
+		keys    string
+	}{
+		{RowSessionSignIn, "admin.login.succeeded", "outcome,session_id"},
+		{RowSessionLinkProof, "admin.session.link_proof", "session_id"},
+	} {
+		t.Run(string(c.purpose), func(t *testing.T) {
+			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+				a := aiTenant(t, ctx, sp)
+				row := aiAdmin(t, ctx, sp, a, aiEmail())
+				h := opRandHex(t)
+				var got IdentitySession
+				if err := aiApp(t, ctx, sp, a, func(app pgx.Tx) error {
+					var e error
+					got, e = OpenRowSession(ctx, app, row, a, h, NewPasswordHash(opFakeDigest("a")), c.purpose)
+					return e
+				}); err != nil {
+					t.Fatalf("OpenRowSession on an active row with its current digest: %v", err)
+				}
+				if got.TenantID != a || got.AdminUserID != row || got.SessionID == uuid.Nil {
+					t.Fatalf("OpenRowSession = %+v; want a session of %s in %s", got, row, a)
+				}
+				var (
+					tenant, admin            uuid.UUID
+					hash                     string
+					proofIsNow, bornNow      bool
+					lastUsed, revoked, proof *time.Time
+				)
+				if err := sp.QueryRow(ctx, `SELECT tenant_id, admin_user_id, token_hash, authenticated_at = now(), created_at = now(),
+				                                   last_used_at, revoked_at, authenticated_at
+				                              FROM admin_sessions WHERE id = $1`, got.SessionID).
+					Scan(&tenant, &admin, &hash, &proofIsNow, &bornNow, &lastUsed, &revoked, &proof); err != nil {
+					t.Fatalf("the session the function returned: %v", err)
+				}
+				if tenant != a || admin != row || hash != h || !proofIsNow || !bornNow || lastUsed != nil || revoked != nil || proof == nil {
+					t.Fatalf("the session = tenant %s admin %s hash-match %v proof-now %v born-now %v last_used %v revoked %v; want %s, %s, true, true, true, nil, nil",
+						tenant, admin, hash == h, proofIsNow, bornNow, lastUsed, revoked, a, row)
+				}
+				rows, err := sp.Query(ctx, `SELECT action, actor_id, target, (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(detail) AS k),
+				                                   detail->>'session_id'
+				                              FROM audit_log WHERE tenant_id = $1`, a)
+				if err != nil {
+					t.Fatal(err)
+				}
+				type auditRow struct {
+					Action  string
+					Actor   *uuid.UUID
+					Target  *string
+					Keys    *string
+					Session *string
+				}
+				trail, err := pgx.CollectRows(rows, pgx.RowToStructByPos[auditRow])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(trail) != 1 {
+					t.Fatalf("the business's trail = %+v; want exactly one row", trail)
+				}
+				r := trail[0]
+				if r.Action != c.action || r.Actor == nil || *r.Actor != row || r.Target == nil || *r.Target != row.String() ||
+					r.Keys == nil || *r.Keys != c.keys || r.Session == nil || *r.Session != got.SessionID.String() {
+					t.Fatalf("the business's row = %s actor %v target %v keys %v session %v; want %s by and on %s, keys %s, the session",
+						r.Action, r.Actor, r.Target, r.Keys, r.Session, c.action, row, c.keys)
+				}
+			})
+		})
 	}
 }
 
@@ -89,6 +133,7 @@ func TestIdentityOpenRowSession_RefusesEveryRowItMustNot(t *testing.T) {
 		ctxTenant     uuid.UUID
 		admin, tenant uuid.UUID
 		digest        string
+		purpose       RowSessionPurpose // "" = sign_in, "-" = ""
 	}{
 		{name: "control: the active row with its current digest"},
 		{name: "a disabled membership", setup: `UPDATE admin_users SET status = 'disabled' WHERE id = $1`},
@@ -99,6 +144,8 @@ func TestIdentityOpenRowSession_RefusesEveryRowItMustNot(t *testing.T) {
 		{name: "another business's row in its own tenant from this business's context", admin: rowB, tenant: b},
 		{name: "this business's row from another business's context", ctxTenant: b},
 		{name: "no tenant context", ctxTenant: uuid.Max},
+		{name: "an unknown purpose", purpose: "sign_out"},
+		{name: "an empty purpose", purpose: "-"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -127,26 +174,36 @@ func TestIdentityOpenRowSession_RefusesEveryRowItMustNot(t *testing.T) {
 				default:
 					digest = c.digest
 				}
+				purpose := RowSessionSignIn
+				switch c.purpose {
+				case "":
+				case "-":
+					purpose = ""
+				default:
+					purpose = c.purpose
+				}
 				h := opRandHex(t)
 				err := aiApp(t, ctx, sp, ctxTenant, func(app pgx.Tx) error {
-					_, e := OpenRowSession(ctx, app, admin, tenant, h, NewPasswordHash(digest))
+					_, e := OpenRowSession(ctx, app, admin, tenant, h, NewPasswordHash(digest), purpose)
 					return e
 				})
 				n := rsSessionsByHash(t, ctx, sp, h)
+				rows := opInt(t, ctx, sp, `SELECT count(*) FROM audit_log WHERE tenant_id IN ($1, $2) AND action IN ('admin.login.succeeded', 'admin.session.link_proof')`, a, b)
 				if c.name == "control: the active row with its current digest" {
-					if err != nil || n != 1 {
-						t.Fatalf("control: %v, %d sessions; want one", err, n)
+					if err != nil || n != 1 || rows != 1 {
+						t.Fatalf("control: %v, %d sessions, %d sign-in rows; want one and one", err, n, rows)
 					}
 					return
 				}
-				if !errors.Is(err, pgx.ErrNoRows) || n != 0 {
-					t.Fatalf("OpenRowSession = %v and %d sessions with the hash; want pgx.ErrNoRows and none", err, n)
+				if !errors.Is(err, pgx.ErrNoRows) || n != 0 || rows != 0 {
+					t.Fatalf("OpenRowSession = %v, %d sessions with the hash, %d sign-in rows; want pgx.ErrNoRows, none, none", err, n, rows)
 				}
 			})
 		})
 	}
 	t.Run("NULL arguments", func(t *testing.T) {
-		for i, args := range [][]any{{nil, a, opRandHex(t), good}, {rowA, nil, opRandHex(t), good}, {rowA, a, nil, good}, {rowA, a, opRandHex(t), nil}} {
+		for i, args := range [][]any{{nil, a, opRandHex(t), good, "sign_in"}, {rowA, nil, opRandHex(t), good, "sign_in"}, {rowA, a, nil, good, "sign_in"},
+			{rowA, a, opRandHex(t), nil, "sign_in"}, {rowA, a, opRandHex(t), good, nil}} {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 				var n int
 				if err := aiApp(t, ctx, sp, a, func(app pgx.Tx) error {
@@ -162,6 +219,9 @@ func TestIdentityOpenRowSession_RefusesEveryRowItMustNot(t *testing.T) {
 				}
 				if total := opInt(t, ctx, sp, `SELECT count(*) FROM admin_sessions WHERE admin_user_id = $1`, rowA); total != 0 {
 					t.Fatalf("NULL argument %d left %d sessions on the row", i, total)
+				}
+				if trail := opInt(t, ctx, sp, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, a); trail != 0 {
+					t.Fatalf("NULL argument %d left %d audit rows", i, trail)
 				}
 			})
 		}
@@ -216,7 +276,7 @@ func TestIdentityOpenRowSession_WaitsForAnOpenUnlinkAndThenRefuses(t *testing.T)
 			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", w.x.String()); err != nil {
 				return err
 			}
-			_, err := OpenRowSession(ctx, tx, w.rowX, w.x, "t187-"+uuid.NewString(), verified)
+			_, err := OpenRowSession(ctx, tx, w.rowX, w.x, "t187-"+uuid.NewString(), verified, RowSessionSignIn)
 			return err
 		})
 	}()
@@ -245,7 +305,11 @@ func TestIdentityOpenRowSession_WaitsForAnOpenUnlinkAndThenRefuses(t *testing.T)
 	}
 }
 
-// TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction is (4). On HEAD tappa_app still
+// TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction is (4) -- and T187's contract
+// reminder (ADR 0036): it pins the INSERT grant the contract must revoke, and its message names the rest
+// of the contract. Chosen over "red once a migration above 00086 exists while the grant stands": that
+// would turn the next unrelated migration red (00087 is another lane's), coupling work that has nothing
+// to do with sessions; the contract's place on the plan is state.md's. On HEAD tappa_app still
 // holds INSERT (id, tenant_id, admin_user_id, token_hash) on admin_sessions and the previous binary's
 // statement (CreateAdminSession, the generated text) opens a session -- 00086 is expand-only; the
 // REVOKE is ADR 0036's contract step and this test changes with it. The Down drops the function, leaves
@@ -260,7 +324,10 @@ func TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction(t *te
 		t.Fatal(err)
 	}
 	if want := "INSERT admin_user_id,INSERT id,INSERT tenant_id,INSERT token_hash"; len(before) < len(want) || before[:len(want)] != want {
-		t.Fatalf("tappa_app on admin_sessions = %s; the expand keeps INSERT %s", before, want)
+		t.Fatalf("tappa_app on admin_sessions = %s; 00086 (expand) keeps INSERT %s. If T187's CONTRACT step (ADR 0036, "+
+			"Karar 3) revoked it, finish the contract in the same change: delete CreateAdminSession from db/queries, "+
+			"move the fixtures that insert sessions as tappa_app to the owner role, drop internal/store's exemption in "+
+			"internal/adminauth/rowsession_test.go, and turn this test into \"no INSERT, the old statement is 42501\"", before, want)
 	}
 	a := aiTenant(t, ctx, tx)
 	row := aiAdmin(t, ctx, tx, a, aiEmail())
@@ -271,6 +338,11 @@ func TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction(t *te
 		return e
 	}); err != nil {
 		t.Fatalf("the previous binary's statement on 00086: %v", err)
+	}
+	// Its sign-in row is its handler's, written after this statement: the database writes none on that
+	// path, so an old pod during the rollout leaves one row, not two.
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, a); n != 0 {
+		t.Fatalf("the previous binary's statement wrote %d audit rows in the database; its handler writes the one", n)
 	}
 
 	up, down := opMigrationSections(t, rowSessionFile)

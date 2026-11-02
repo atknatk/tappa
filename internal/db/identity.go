@@ -613,14 +613,29 @@ func SignInOwners(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) ([]uuid.UU
 // identity_open_row_session, tappa_identitydefiner's, in place of tappa_app's own INSERT into
 // admin_sessions (CreateAdminSession). The function, not the query text, now holds the password proof.
 const openRowSessionSQL = `SELECT session_id, tenant_id, admin_user_id
-FROM identity_open_row_session($1, $2, $3, $4)`
+FROM identity_open_row_session($1, $2, $3, $4, $5)`
+
+// RowSessionPurpose is why a row session is born; it chooses the audit row the function writes in the
+// session's business (00086): a sign-in's admin.login.succeeded, or a link proof's
+// admin.session.link_proof. There is no third value -- the function refuses any other, so every birth
+// leaves a row.
+type RowSessionPurpose string
+
+const (
+	// RowSessionSignIn is Manager.Issue's: the sign-in, admin.login.succeeded.
+	RowSessionSignIn RowSessionPurpose = "sign_in"
+	// RowSessionLinkProof is openLegacyProofSession's: the legacy side of a link's proof, which ADR 0031
+	// §5.6 says is no sign-in -- admin.session.link_proof.
+	RowSessionLinkProof RowSessionPurpose = "link_proof"
+)
 
 // OpenRowSession births a panel session on the row (adminUserID, tenantID) whose password the caller
 // verified: verified is the digest the typed password was compared with, and the function births
 // nothing unless it is still the row's credential under the row's lock -- and the row is active, not
 // refused (unlinked_at), and tenantID is the transaction's tenant context. sessionHash is the HMAC of
 // the token the caller keeps; it is written, never returned, and never reaches an error.
-// pgx.ErrNoRows is the one refusal (adminauth.SignInLapsed reads it as "sign in again").
+// purpose picks the audit row the function writes in the session's business (RowSessionPurpose); the
+// caller writes none. pgx.ErrNoRows is the one refusal (adminauth.SignInLapsed reads it as "sign in again").
 //
 // 🔴 tx IS THE CALLER'S TENANT TRANSACTION (db.WithTenant(tenantID)): any other context is no rows.
 //
@@ -628,9 +643,9 @@ FROM identity_open_row_session($1, $2, $3, $4)`
 // sign-in, after its Proof held against the row's current digest) and openLegacyProofSession (the legacy
 // side of a link's proof, with the resolver's digest the password was just compared with) --
 // TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone pins both, and that nothing calls the old INSERT.
-func OpenRowSession(ctx context.Context, tx pgx.Tx, adminUserID, tenantID uuid.UUID, sessionHash string, verified PasswordHash) (IdentitySession, error) {
+func OpenRowSession(ctx context.Context, tx pgx.Tx, adminUserID, tenantID uuid.UUID, sessionHash string, verified PasswordHash, purpose RowSessionPurpose) (IdentitySession, error) {
 	var s IdentitySession
-	if err := tx.QueryRow(ctx, openRowSessionSQL, adminUserID, tenantID, sessionHash, verified.RevealForPasswordComparison()).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
+	if err := tx.QueryRow(ctx, openRowSessionSQL, adminUserID, tenantID, sessionHash, verified.RevealForPasswordComparison(), string(purpose)).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
 		return IdentitySession{}, fmt.Errorf("db: open row session: %w", err)
 	}
 	return s, nil

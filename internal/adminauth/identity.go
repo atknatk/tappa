@@ -340,7 +340,8 @@ func (m *Manager) openIdentitySession(ctx context.Context, v verifiedIdentity, w
 // password just verified, under identity_open_row_session's digest predicate and row lock (T187, ADR
 // 0036 -- CreateAdminSession's before 00086; the digest is the one the password was compared with,
 // from the resolver -- no Proof round trip is needed inside one sign-in). authenticated_at is the
-// function's now(): the session is fresh. It writes no audit
+// function's now(): the session is fresh. Its audit row is the function's admin.session.link_proof (ADR
+// 0036) -- never a sign-in row. It writes no audit
 // row and stamps no last_login_at: it is a proof that identity_link_legacy revokes, not a sign-in.
 func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid.UUID, digest db.PasswordHash) (proofSession, error) {
 	t, err := newToken()
@@ -354,7 +355,7 @@ func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid
 	var row db.IdentitySession
 	err = m.data.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
-		row, e = db.OpenRowSession(ctx, tx, admin, tenant, h, digest)
+		row, e = db.OpenRowSession(ctx, tx, admin, tenant, h, digest, db.RowSessionLinkProof)
 		return e
 	})
 	if err != nil {

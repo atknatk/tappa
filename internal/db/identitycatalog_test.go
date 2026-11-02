@@ -157,7 +157,7 @@ var identitySignaturesM1422 = []identitySignature{
 // the single-row panel session's birth, moved out of tappa_app's own INSERT. It answers the session and
 // the locked row's tenant and admin, or nothing.
 var identitySignaturesT187 = []identitySignature{
-	{"identity_open_row_session", "p_admin_user_id uuid, p_tenant_id uuid, p_token_hash text, p_verified_digest text",
+	{"identity_open_row_session", "p_admin_user_id uuid, p_tenant_id uuid, p_token_hash text, p_verified_digest text, p_purpose text",
 		"TABLE(session_id uuid, tenant_id uuid, admin_user_id uuid)", "tappa_identitydefiner"},
 }
 
@@ -1033,7 +1033,7 @@ func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup 
 	// T187 (00086): a session on business A's unlinked owner row, in A's own context, with its digest.
 	steps = append(steps, identityStep{name: "T187 open row session",
 		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,
-		sql:   openRowSessionSQL, args: []any{plain, a, opRandHex(t), opFakeDigest("a")}})
+		sql:   openRowSessionSQL, args: []any{plain, a, opRandHex(t), opFakeDigest("a"), "sign_in"}})
 	// M14-06b: the reconciliation, last (it links every candidate group the savepoint sees), as its one
 	// caller; a fresh group of two rows is its candidate, so every statement of the body runs.
 	recMail := aiEmail()

@@ -861,7 +861,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 		if !m.proofHolds(v.Proof, v.AdminUserID, v.TenantID, cur.PasswordHash) {
 			return ErrProofStale
 		}
-		row, e = db.OpenRowSession(ctx, tx, v.AdminUserID, v.TenantID, h, db.NewPasswordHash(cur.PasswordHash))
+		row, e = db.OpenRowSession(ctx, tx, v.AdminUserID, v.TenantID, h, db.NewPasswordHash(cur.PasswordHash), db.RowSessionSignIn)
 		if e != nil {
 			return e
 		}

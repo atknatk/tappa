@@ -165,3 +165,82 @@ func idDerefStr(p *string) any {
 	}
 	return *p
 }
+
+// TestIdentityAudit_TheRowSessionsRowIsTheOrdinaryOne (T187, ADR 0036, 00086): identity_open_row_session
+// -- the single-row sign-in's birth, called as tappa_app in the row's own tenant context -- writes
+// exactly one audit row, and it is byte-identical (tenant_id, actor_id, action, target, detail as text)
+// to the adminLoginSucceededEvent the handler wrote for the same business, admin and session before
+// 00086. completeLogin no longer writes it (TestPanelE2E_SignInAndOut counts one in the database).
+func TestIdentityAudit_TheRowSessionsRowIsTheOrdinaryOne(t *testing.T) {
+	pool := ownerPoolForTest(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Errorf("rollback: %v", err)
+		}
+	}()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	exec(`SELECT pg_advisory_xact_lock_shared(hashtext($1))`, identityAuditTablesLock)
+	c, admin := uuid.New(), uuid.New()
+	exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, $2, $3, 'restaurant', 'single')`,
+		c, "T187 audit "+c.String()[:8], "VAT-T187A-"+c.String())
+	exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Row Owner', $3, $4, 'owner')`,
+		admin, c, "t187-audit-"+uuid.NewString()+"@row.example", ownerDigest)
+
+	exec(`SELECT set_config('app.tenant_id', $1, true)`, c.String())
+	exec(`SET LOCAL SESSION AUTHORIZATION tappa_app`)
+	var session uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT session_id FROM identity_open_row_session($1, $2, $3, $4, 'sign_in')`,
+		admin, c, uuid.NewString()+uuid.NewString(), ownerDigest).Scan(&session); err != nil {
+		t.Fatalf("identity_open_row_session: %v", err)
+	}
+	exec(`SET LOCAL SESSION AUTHORIZATION DEFAULT`)
+
+	type row struct {
+		Actor  *uuid.UUID
+		Action string
+		Target *string
+		Detail string
+	}
+	read := func() []row {
+		t.Helper()
+		rows, err := tx.Query(ctx, `SELECT actor_id, action, target, detail::text FROM audit_log WHERE tenant_id = $1 ORDER BY at, id`, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	definer := read()
+	if len(definer) != 1 {
+		t.Fatalf("the birth wrote %d audit rows in its business, want exactly 1: %+v", len(definer), definer)
+	}
+	rec, err := audit.New(noTenantDB{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rec.RecordTx(ctx, tx, adminLoginSucceededEvent(c, admin, session)); err != nil {
+		t.Fatalf("record the ordinary sign-in: %v", err)
+	}
+	all := read()
+	if len(all) != 2 {
+		t.Fatalf("%d rows after the ordinary one, want 2", len(all))
+	}
+	d, o := all[0], all[1]
+	if d.Action != o.Action || d.Detail != o.Detail || d.Actor == nil || o.Actor == nil || *d.Actor != *o.Actor ||
+		d.Target == nil || o.Target == nil || *d.Target != *o.Target {
+		t.Errorf("not byte-identical:\n definer  %+v (%v, %v)\n ordinary %+v (%v, %v)", d, idDerefUUID(d.Actor), idDerefStr(d.Target), o, idDerefUUID(o.Actor), idDerefStr(o.Target))
+	}
+}
