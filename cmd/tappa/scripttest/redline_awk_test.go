@@ -98,8 +98,14 @@ script=$1; shift
 eval "$(awk '/^sql_lex\(\) \{/{f=1} f{print} f&&/^\}/{f=0}' "$script")"
 eval "$(awk '/^sql_scan\(\) \{/{f=1} f{print} f&&/^\}/{f=0}' "$script")"
 for f in "$@"; do printf '== %s\n' "${f##*/}"; sql_lex <"$f"; echo '-- scan'; sql_scan "$f"; done`
-	// Every awk reads the inputs at the same time (T139): the slowest (the one-true-awk family, ~8 s
-	// here against ~1-2 s for mawk and gawk) sets the wall time instead of the sum.
+	// Every awk reads the inputs at the same time (T139): the slowest (the one-true-awk family) sets
+	// the wall time instead of the sum. T185: it was this test alone that held cmd/tappa/scripttest
+	// at CI's limit -- 1481 s of the package's 1612 s on run 41305315089 -- because Ubuntu's
+	// original-awk (20231127) pays for substr(s, i, 1) in proportion to i and sql_scan read each
+	// whole file that way (measured in ubuntu:24.04 over the shipped migrations: 1115 s, against 3 s
+	// for mawk and 4 s for gawk). sql_scan now reads a split() array: the same three awks in 2.2,
+	// 4.0 and 10.7 s, with the same output as before, byte for byte. Locally this test skips unless
+	// a second awk is installed, which is why the cost never showed outside CI.
 	type result struct {
 		out    []byte
 		err    error

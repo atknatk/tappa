@@ -103,9 +103,31 @@ type shippedScanResult struct {
 	out  string
 	code int
 	err  error
+
+	mu    sync.Mutex
+	taken bool
 }
 
-// scanTree is called only inside s.once.Do. A cancelled ctx (TestMain after m.Run) ends the scan.
+// take is a reader's scan: the shared (prefetched) one for the first read, a fresh run of its own
+// for every later one. Later reads happen only under -count > 1, and -count N means N runs of the
+// test, each over a scan of its own -- reading the first run's result N times would repeat no
+// scan at all (T185 audit). fresh reports which one the caller got.
+func (s *shippedScanResult) take() (r *shippedScanResult, fresh bool) {
+	s.once.Do(func() { s.scanTree(context.Background()) })
+	s.mu.Lock()
+	first := !s.taken
+	s.taken = true
+	s.mu.Unlock()
+	if first {
+		return s, false
+	}
+	r = &shippedScanResult{}
+	r.scanTree(context.Background())
+	return r, true
+}
+
+// scanTree is called once per result: inside s.once.Do for the shared one, by take for a fresh
+// one. A cancelled ctx (TestMain after m.Run) ends the scan.
 func (s *shippedScanResult) scanTree(ctx context.Context) {
 	dir := filepath.Join(repoRoot, "db", "migrations")
 	entries, err := os.ReadDir(dir)

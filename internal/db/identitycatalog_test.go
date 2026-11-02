@@ -1040,7 +1040,12 @@ func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup 
 // and under REPEATABLE READ a row another package updated after this transaction's snapshot answers
 // 40001 (adminbackfill_test.go's reason, the same statement shape).
 func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
-	ctx, tx := bfTx(t)
+	// bfTxAccessExclusive, not bfTx (T185, measured): identityExerciseSteps' last step ALTERs
+	// admin_users (contract B's CHECK), and asking for ACCESS EXCLUSIVE on top of bfTx's EXCLUSIVE is
+	// the upgrade bfTxForDDL's comment describes -- 40P01 beside a session that read admin_users and
+	// then asked for a row lock, 3 of 3 locally and on CI runs 41313723393 and 41318525388. Not
+	// bfTxForDDL either: see bfTxAccessExclusive.
+	ctx, tx := bfTxAccessExclusive(t)
 	signup := newIdentitySignupWorld(t, ctx, tx)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		if err := identityExercise(t, ctx, sp, signup); err != nil {

@@ -50,8 +50,25 @@ func aslBelow00085(t *testing.T, ctx context.Context, tx pgx.Tx) {
 // the same moment, `age` before the transaction's now().
 func aslAge(t *testing.T, ctx context.Context, sp pgx.Tx, hash string, age time.Duration) {
 	t.Helper()
-	n, err := aiRows(ctx, sp, `UPDATE admin_sessions SET created_at = now() - make_interval(secs => $2),
-	                                                      authenticated_at = now() - make_interval(secs => $2) WHERE token_hash = $1`,
+	aslAgeFrom(t, ctx, sp, hash, age, "now()")
+}
+
+// aslAgeLive is aslAge for a session that must still be ALIVE when the next statement reads it: `age`
+// before this moment (clock_timestamp()), not before the transaction's start. now() is when the
+// transaction began, and identity_switch_session re-measures after the person's lock with
+// clock_timestamp() (00085): a session aged from now() is already that much older by the time the
+// call runs -- every second the test's transaction spent waiting for its table lock (T185 audit: a
+// 1 s wait after the LOCK turned "one second inside the lifetime" into 0 rows). For an ENDED case
+// now() stays right: measured from an earlier moment the session is only older, never younger.
+func aslAgeLive(t *testing.T, ctx context.Context, sp pgx.Tx, hash string, age time.Duration) {
+	t.Helper()
+	aslAgeFrom(t, ctx, sp, hash, age, "clock_timestamp()")
+}
+
+func aslAgeFrom(t *testing.T, ctx context.Context, sp pgx.Tx, hash string, age time.Duration, from string) {
+	t.Helper()
+	n, err := aiRows(ctx, sp, `UPDATE admin_sessions SET created_at = `+from+` - make_interval(secs => $2),
+	                                                      authenticated_at = `+from+` - make_interval(secs => $2) WHERE token_hash = $1`,
 		hash, age.Seconds())
 	if err != nil || n != 1 {
 		t.Fatalf("PREMISE: ageing the session touched %d rows (%v)", n, err)
@@ -486,7 +503,12 @@ func TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded(t *testing.T
 // hours are never five minutes), so only the ended cases are asserted. The (function, argument) pairs
 // reached must be every session lookup the scan above counts.
 func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
-	ctx, tx := bfTx(t)
+	// bfTxAccessExclusive, not bfTx (T185, measured): identityExerciseSteps' last step ALTERs
+	// admin_users (contract B's CHECK), and asking for ACCESS EXCLUSIVE on top of bfTx's EXCLUSIVE is
+	// the upgrade bfTxForDDL's comment describes -- 40P01 beside a session that read admin_users and
+	// then asked for a row lock, 3 of 3 locally and on CI runs 41313723393 and 41318525388. Not
+	// bfTxForDDL either: see bfTxAccessExclusive.
+	ctx, tx := bfTxAccessExclusive(t)
 	signup := newIdentitySignupWorld(t, ctx, tx)
 	var steps []identityStep
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) { steps = identityExerciseSteps(t, ctx, sp, signup) })
@@ -538,7 +560,11 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 							continue
 						}
 						aiSavepoint(t, ctx, sp, func(v pgx.Tx) {
-							aslAge(t, ctx, v, hash, c.age)
+							if c.alive {
+								aslAgeLive(t, ctx, v, hash, c.age)
+							} else {
+								aslAge(t, ctx, v, hash, c.age)
+							}
 							n, err := identityStepRows(t, ctx, v, s)
 							if err != nil {
 								t.Fatalf("%s: %v", c.name, err)
