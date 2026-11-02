@@ -361,7 +361,10 @@ func TestIdentityReconcile_OnlyTappaOwnerMayCallIt(t *testing.T) {
 // is skipped before its digest is looked at (the address check comes first): such a row does not
 // stop the pass. (The CHECK is dropped inside the savepoint; the rollback restores it.)
 func TestIdentityReconcile_ADigestTheIdentityRefusesStopsIt(t *testing.T) {
-	ctx, tx := bfTx(t)
+	// bfTxAccessExclusive, not bfTx (T185 audit): both cases ALTER admin_users after lockForDowns, an
+	// upgrade of bfTx's EXCLUSIVE -- bfUpgradeGuard named it ("LOCK TABLE public.admin_users IN ACCESS
+	// EXCLUSIVE MODE NOWAIT"); the file-reading check never saw it, it reads only adminbackfill_test.go.
+	ctx, tx := bfTxAccessExclusive(t)
 	legacyMail, fine, skippedMail := bfEmail("rc-legacy"), bfEmail("rc-a-fine"), bfEmail("rc-skipped-legacy")
 	t.Run("a chosen legacy digest stops the call", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {

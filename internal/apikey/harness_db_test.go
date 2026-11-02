@@ -53,7 +53,8 @@ func ownerExec(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// business is one tenant with an active owner, a manager and a disabled owner.
+// business is one tenant with an active owner, a manager and a disabled owner -- each with a name of
+// its own, so a list that prints the wrong admin's name is seen (T174).
 type business struct {
 	tenant, owner, manager, disabledOwner uuid.UUID
 }
@@ -67,12 +68,12 @@ func newBusiness(t *testing.T, d *db.DB) business {
 			return e
 		}
 		for _, a := range []struct {
-			id           uuid.UUID
-			role, status string
-		}{{b.owner, "owner", "active"}, {b.manager, "manager", "active"}, {b.disabledOwner, "owner", "disabled"}} {
+			id                 uuid.UUID
+			name, role, status string
+		}{{b.owner, "API-3 Owner", "owner", "active"}, {b.manager, "API-3 Manager", "manager", "active"}, {b.disabledOwner, "API-3 Second Owner", "owner", "disabled"}} {
 			if _, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-			                          VALUES ($1, $2, 'API-3 Admin', $3, $4, $5, $6)`,
-				a.id, b.tenant, "api3-"+a.id.String()+"@m11.example", fixtures.UnusablePasswordHash, a.role, a.status); e != nil {
+			                          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				a.id, b.tenant, a.name, "api3-"+a.id.String()+"@m11.example", fixtures.UnusablePasswordHash, a.role, a.status); e != nil {
 				return e
 			}
 		}
