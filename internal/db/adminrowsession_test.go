@@ -9,8 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	"github.com/atknatk/tappa/internal/store"
 )
 
 // adminrowsession_test.go -- T187, ADR 0036, migration 00086: identity_open_row_session, the one place a
@@ -25,13 +23,41 @@ import (
 //	    a tenant that is not the transaction's context, no context, an unknown, empty or NULL purpose (no
 //	    silent arm), NULL arguments;
 //	(3) the refusal that is OPEN when the birth starts is waited for and then refuses (the row lock);
-//	(4) expand: tappa_app still holds its INSERT and the previous binary's statement still opens on this
-//	    schema; the Down drops the function and nothing else.
+//	(4) expand: the Down drops the function and nothing else;
+//	(5) T187's contract (00087): tappa_app holds no INSERT on admin_sessions, the statement the binary
+//	    before 00086 sent is 42501, the birth through the function still works, and the Down gives back
+//	    00071's column grant exactly.
 //
 // The catalogue half (signature, owner, search path, EXECUTE, belt, every grant used) is
 // identitycatalog_test.go's and identitybelt_test.go's, which carry the function's row.
 
-const rowSessionFile = "00086_open_row_sessions_in_the_definer.sql"
+const (
+	rowSessionFile       = "00086_open_row_sessions_in_the_definer.sql"
+	rowSessionRevokeFile = "00087_revoke_direct_admin_session_inserts.sql"
+)
+
+// rsLegacyInsert is CreateAdminSession's statement verbatim (db/queries/admins.sql before 00087 -- the
+// generated text the binary before 00086 sent), kept here because the contract deleted the query.
+const rsLegacyInsert = `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash)
+SELECT a.tenant_id, a.id, $1::text
+FROM admin_users a
+WHERE a.id = $2
+  AND a.tenant_id = $3
+  AND a.status = 'active'
+  AND a.password_hash = $4::text
+FOR NO KEY UPDATE OF a
+RETURNING id, tenant_id, admin_user_id, created_at, last_used_at, revoked_at`
+
+// rsAppGrants is tappa_app's column privileges on admin_sessions, every kind (SELECT and UPDATE too).
+const rsAppGrants = `SELECT coalesce(string_agg(privilege_type || ' ' || column_name, ',' ORDER BY privilege_type, column_name), '')
+                       FROM information_schema.column_privileges
+                      WHERE table_schema = 'public' AND table_name = 'admin_sessions' AND grantee = 'tappa_app'`
+
+// rsAppInserts is the INSERT half of rsAppGrants, by has_column_privilege over every column.
+const rsAppInserts = `SELECT coalesce(string_agg(a.attname, ',' ORDER BY a.attname), '')
+                        FROM pg_attribute a
+                       WHERE a.attrelid = 'public.admin_sessions'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+                         AND has_column_privilege('tappa_app', a.attrelid, a.attname, 'INSERT')`
 
 // rsSessionsByHash counts admin_sessions rows carrying hash, as whoever q is (the owner sees all).
 func rsSessionsByHash(t *testing.T, ctx context.Context, q opQuerier, hash string) int64 {
@@ -305,44 +331,15 @@ func TestIdentityOpenRowSession_WaitsForAnOpenUnlinkAndThenRefuses(t *testing.T)
 	}
 }
 
-// TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction is (4) -- and T187's contract
-// reminder (ADR 0036): it pins the INSERT grant the contract must revoke, and its message names the rest
-// of the contract. Chosen over "red once a migration above 00086 exists while the grant stands": that
-// would turn the next unrelated migration red (00087 is another lane's), coupling work that has nothing
-// to do with sessions; the contract's place on the plan is state.md's. On HEAD tappa_app still
-// holds INSERT (id, tenant_id, admin_user_id, token_hash) on admin_sessions and the previous binary's
-// statement (CreateAdminSession, the generated text) opens a session -- 00086 is expand-only; the
-// REVOKE is ADR 0036's contract step and this test changes with it. The Down drops the function, leaves
-// tappa_app's grants on admin_sessions as they were, and the Up gives the catalogue back.
+// TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction is (4): the Down drops the
+// function, leaves tappa_app's grants on admin_sessions as they were, and the Up gives the catalogue
+// back. Until T187's contract this test also pinned tappa_app's INSERT and sent the previous binary's
+// statement; that half is TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s now.
 func TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction(t *testing.T) {
 	ctx, tx := opTx(t)
-	const appGrants = `SELECT string_agg(privilege_type || ' ' || column_name, ',' ORDER BY privilege_type, column_name)
-	                     FROM information_schema.column_privileges
-	                    WHERE table_schema = 'public' AND table_name = 'admin_sessions' AND grantee = 'tappa_app'`
 	var before string
-	if err := tx.QueryRow(ctx, appGrants).Scan(&before); err != nil {
+	if err := tx.QueryRow(ctx, rsAppGrants).Scan(&before); err != nil {
 		t.Fatal(err)
-	}
-	if want := "INSERT admin_user_id,INSERT id,INSERT tenant_id,INSERT token_hash"; len(before) < len(want) || before[:len(want)] != want {
-		t.Fatalf("tappa_app on admin_sessions = %s; 00086 (expand) keeps INSERT %s. If T187's CONTRACT step (ADR 0036, "+
-			"Karar 3) revoked it, finish the contract in the same change: delete CreateAdminSession from db/queries, "+
-			"move the fixtures that insert sessions as tappa_app to the owner role, drop internal/store's exemption in "+
-			"internal/adminauth/rowsession_test.go, and turn this test into \"no INSERT, the old statement is 42501\"", before, want)
-	}
-	a := aiTenant(t, ctx, tx)
-	row := aiAdmin(t, ctx, tx, a, aiEmail())
-	if err := aiApp(t, ctx, tx, a, func(sp pgx.Tx) error {
-		_, e := store.New(sp).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TokenHash: opRandHex(t), AdminUserID: row, TenantID: a, VerifiedDigest: opFakeDigest("a"),
-		})
-		return e
-	}); err != nil {
-		t.Fatalf("the previous binary's statement on 00086: %v", err)
-	}
-	// Its sign-in row is its handler's, written after this statement: the database writes none on that
-	// path, so an old pod during the rollout leaves one row, not two.
-	if n := opInt(t, ctx, tx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1`, a); n != 0 {
-		t.Fatalf("the previous binary's statement wrote %d audit rows in the database; its handler writes the one", n)
 	}
 
 	up, down := opMigrationSections(t, rowSessionFile)
@@ -355,7 +352,7 @@ func TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction(t *te
 			t.Fatalf("after the Down %d functions named identity_open_row_session", n)
 		}
 		var after string
-		if err := sp.QueryRow(ctx, appGrants).Scan(&after); err != nil {
+		if err := sp.QueryRow(ctx, rsAppGrants).Scan(&after); err != nil {
 			t.Fatal(err)
 		}
 		if after != before {
@@ -369,5 +366,74 @@ func TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction(t *te
 		if len(findings) > 0 {
 			t.Fatalf("Down then Up: %v", findings)
 		}
+	})
+}
+
+// TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s is (5), T187's contract (ADR
+// 0036, Karar 3): on HEAD tappa_app holds INSERT on no column of admin_sessions (has_column_privilege
+// over every column) and keeps exactly its SELECT and its UPDATE (last_used_at, revoked_at); the
+// statement the binary before 00086 sent (rsLegacyInsert) is 42501 as tappa_app, before any row is
+// read; the birth through identity_open_row_session still works -- the running binary's path (the
+// positive control: the refusal is the privilege, not a broken table). The Down gives back 00071's
+// grant byte for byte -- INSERT (id, tenant_id, admin_user_id, token_hash), nothing else changed --
+// and the old statement opens again; the Up takes it back. No table lock is named.
+func TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s(t *testing.T) {
+	ctx, tx := opTx(t)
+	const kept = "SELECT admin_user_id,SELECT authenticated_at,SELECT created_at,SELECT id,SELECT last_used_at," +
+		"SELECT revoked_at,SELECT tenant_id,SELECT token_hash,UPDATE last_used_at,UPDATE revoked_at"
+	grants := func(q opQuerier) (all, inserts string) {
+		t.Helper()
+		if err := q.QueryRow(ctx, rsAppGrants).Scan(&all); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.QueryRow(ctx, rsAppInserts).Scan(&inserts); err != nil {
+			t.Fatal(err)
+		}
+		return all, inserts
+	}
+	if all, inserts := grants(tx); inserts != "" || all != kept {
+		t.Fatalf("tappa_app on admin_sessions = %s (INSERT on %q); want %s and no INSERT (00087, ADR 0036 Karar 3)", all, inserts, kept)
+	}
+	if opInt(t, ctx, tx, `SELECT count(*) FROM pg_class WHERE oid = 'public.admin_sessions'::regclass AND has_table_privilege('tappa_app', oid, 'INSERT')`) != 0 {
+		t.Fatal("tappa_app holds a table-level INSERT on admin_sessions")
+	}
+
+	a := aiTenant(t, ctx, tx)
+	row := aiAdmin(t, ctx, tx, a, aiEmail())
+	legacy := func(q pgx.Tx) error {
+		return aiApp(t, ctx, q, a, func(sp pgx.Tx) error {
+			_, e := sp.Exec(ctx, rsLegacyInsert, opRandHex(t), row, a, opFakeDigest("a"))
+			return e
+		})
+	}
+	opWant(t, legacy(tx), sqlstateInsufficientPrivi, "the binary before 00086's CreateAdminSession on 00087")
+	if err := aiApp(t, ctx, tx, a, func(sp pgx.Tx) error {
+		_, e := OpenRowSession(ctx, sp, row, a, opRandHex(t), NewPasswordHash(opFakeDigest("a")), RowSessionSignIn)
+		return e
+	}); err != nil {
+		t.Fatalf("the birth through identity_open_row_session on 00087: %v", err)
+	}
+
+	up, down := opMigrationSections(t, rowSessionRevokeFile)
+	if tables := downTables(up + down); len(tables) > 0 {
+		t.Fatalf("00087 names a table lock: %v", tables)
+	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down, "00087 Down")
+		all, inserts := grants(sp)
+		if inserts != "admin_user_id,id,tenant_id,token_hash" {
+			t.Fatalf("after the Down tappa_app INSERTs (%s) on admin_sessions; want 00071's (id, tenant_id, admin_user_id, token_hash)", inserts)
+		}
+		if want := "INSERT admin_user_id,INSERT id,INSERT tenant_id,INSERT token_hash," + kept; all != want {
+			t.Fatalf("after the Down tappa_app on admin_sessions = %s; want %s", all, want)
+		}
+		if err := legacy(sp); err != nil {
+			t.Fatalf("after the Down the old statement: %v", err)
+		}
+		opRunSection(t, ctx, sp, up, "00087 Up")
+		if all, inserts := grants(sp); inserts != "" || all != kept {
+			t.Fatalf("Down then Up: tappa_app on admin_sessions = %s (INSERT on %q)", all, inserts)
+		}
+		opWant(t, legacy(sp), sqlstateInsufficientPrivi, "the old statement after Down then Up")
 	})
 }

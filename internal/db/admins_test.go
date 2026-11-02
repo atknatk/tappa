@@ -35,7 +35,8 @@ import (
 //     both were privilege-legal before 00011 (measured) and are permission denied
 //     after.
 //   - A disabled admin gets no session and passes no request, enforced in SQL by
-//     CreateAdminSession / TouchAdminSession rather than by a handler remembering.
+//     identity_open_row_session (CreateAdminSession before 00087) / TouchAdminSession
+//     rather than by a handler remembering.
 //
 // Cross-tenant invisibility for admin_users/admin_sessions is proven in
 // rls_test.go's read/write isolation tables (both are listed there); this file adds
@@ -77,32 +78,33 @@ func randAdminEmail(t *testing.T) string {
 	return "admin-" + uuid.NewString() + "@m6.example"
 }
 
-// newAdminSession issues a session through the real query and returns its id plus
-// the token hash it was stored under (a random string: no token exists anywhere).
-// The verified digest is the row's CURRENT one (read in the same transaction), as a
-// password that verified a moment ago would have it.
+// newAdminSession issues a session through the real birth -- identity_open_row_session
+// (OpenRowSession, the sign-in's purpose; tappa_app holds no INSERT on admin_sessions
+// since 00087) -- and returns its id plus the token hash it was stored under (a random
+// string: no token exists anywhere). The verified digest is the row's CURRENT one (read
+// in the same transaction), as a password that verified a moment ago would have it.
 func newAdminSession(t *testing.T, d *DB, tenantID, adminID uuid.UUID) (uuid.UUID, string) {
 	t.Helper()
 	tokenHash := "admin-" + uuid.NewString()
-	var row store.CreateAdminSessionRow
+	var row IdentitySession
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
+		cur, e := store.New(tx).GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
 		if e != nil {
 			return e
 		}
-		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenantID, AdminUserID: adminID, TokenHash: tokenHash,
-			VerifiedDigest: cur.PasswordHash,
-		})
+		row, e = OpenRowSession(ctx, tx, adminID, tenantID, tokenHash, NewPasswordHash(cur.PasswordHash), RowSessionSignIn)
 		return e
 	}); err != nil {
-		t.Fatalf("CreateAdminSession: %v", err)
+		t.Fatalf("OpenRowSession: %v", err)
 	}
-	if row.RevokedAt != nil {
-		t.Fatalf("a fresh admin session has revoked_at = %v, want NULL", row.RevokedAt)
+	got, err := d.GetAdminSessionByTokenHash(context.Background(), tokenHash)
+	if err != nil {
+		t.Fatalf("the fresh session does not resolve: %v", err)
 	}
-	return row.ID, tokenHash
+	if got.ID != row.SessionID || got.RevokedAt != nil {
+		t.Fatalf("the hash resolves to session %s (revoked_at %v), the birth returned %s; want it, live", got.ID, got.RevokedAt, row.SessionID)
+	}
+	return row.SessionID, tokenHash
 }
 
 // ------------------------------------------------------- the N-row bound ----
@@ -251,7 +253,7 @@ func TestGetAdminByEmail_CaseInsensitivityNegativeControl(t *testing.T) {
 // carrying status='disabled'. Hiding it would make a disabled account look exactly
 // like an unknown address, so the attempt could not be attributed to anyone
 // (section 4.6) -- and the refusal is the caller's job, backed by
-// CreateAdminSession refusing in SQL (tested separately).
+// identity_open_row_session refusing in SQL (tested separately).
 func TestGetAdminByEmail_CarriesDisabledWithoutFiltering(t *testing.T) {
 	d := appDB(t)
 	tenantID, _ := newTenant(t, d)
@@ -760,7 +762,9 @@ func TestAdminSessions_RevocationTriggerBindsTheOwnerToo(t *testing.T) {
 // ------------------------------------------------------ the query surface ---
 
 // TestCreateAdminSession_RefusesDisabledAdmin: "a disabled admin never gets a
-// session" is a property of the STATEMENT, not of a handler remembering to check.
+// session" is a property of the DATABASE, not of a handler remembering to check --
+// since T187 of the birth's function (identity_open_row_session; the query this test
+// is named after was deleted with tappa_app's INSERT in 00087).
 // The careless-caller shape is used deliberately -- the error is swallowed and the
 // transaction COMMITS -- so the assertion is about the database, exactly like the
 // M5-02 invite proof.
@@ -773,17 +777,14 @@ func TestCreateAdminSession_RefusesDisabledAdmin(t *testing.T) {
 	tokenHash := "admin-" + uuid.NewString()
 	var queryErr error
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, queryErr = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenantID, AdminUserID: disabled, TokenHash: tokenHash,
-			// The row's own digest, so the refusal below is the status test alone.
-			VerifiedDigest: fixtures.UnusablePasswordHash,
-		})
+		// The row's own digest, so the refusal below is the status test alone.
+		_, queryErr = OpenRowSession(ctx, tx, disabled, tenantID, tokenHash, NewPasswordHash(fixtures.UnusablePasswordHash), RowSessionSignIn)
 		return nil // deliberately NOT propagated: the transaction commits
 	}); err != nil {
 		t.Fatalf("the transaction itself must commit for this test to mean anything: %v", err)
 	}
 	if !errors.Is(queryErr, pgx.ErrNoRows) {
-		t.Fatalf("CreateAdminSession for a disabled admin: error = %v, want pgx.ErrNoRows", queryErr)
+		t.Fatalf("OpenRowSession for a disabled admin: error = %v, want pgx.ErrNoRows", queryErr)
 	}
 	// And nothing was written: the hash resolves to nothing at all.
 	if _, err := d.GetAdminSessionByTokenHash(context.Background(), tokenHash); !errors.Is(err, pgx.ErrNoRows) {
@@ -797,9 +798,9 @@ func TestCreateAdminSession_RefusesDisabledAdmin(t *testing.T) {
 }
 
 // TestCreateAdminSession_RefusesForeignAdmin: an admin of ANOTHER tenant cannot be
-// given a session in this context. Two independent things stand in the way (RLS
-// hides the admin row from the INSERT's SELECT, and the composite FK would refuse
-// the link), which is the belt + braces section 4.5 asks for.
+// given a session in this context. The birth's function reads the row with an explicit
+// tenant predicate under BYPASSRLS (a.tenant_id = p_tenant_id) and the composite FK
+// would refuse the link -- the belt + braces section 4.5 asks for.
 func TestCreateAdminSession_RefusesForeignAdmin(t *testing.T) {
 	d := appDB(t)
 	tenantA, _ := newTenant(t, d)
@@ -807,10 +808,7 @@ func TestCreateAdminSession_RefusesForeignAdmin(t *testing.T) {
 	adminA := newAdmin(t, d, tenantA, randAdminEmail(t), "active", "owner")
 
 	err := d.WithTenant(context.Background(), tenantB, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenantB, AdminUserID: adminA, TokenHash: "admin-" + uuid.NewString(),
-			VerifiedDigest: fixtures.UnusablePasswordHash,
-		})
+		_, e := OpenRowSession(ctx, tx, adminA, tenantB, "admin-"+uuid.NewString(), NewPasswordHash(fixtures.UnusablePasswordHash), RowSessionSignIn)
 		return e
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -828,8 +826,8 @@ func TestCreateAdminSession_RefusesForeignAdmin(t *testing.T) {
 // The rendering half (the zero digest reveals "" and every print path tolerates the
 // nil pointer) is measured in resolve_leak_external_test.go; what only a real
 // Postgres can show is that the zero IDENTITY buys nothing: uuid.Nil matches no
-// admin row, so the INSERT ... SELECT produces zero rows and sqlc returns
-// pgx.ErrNoRows -- the same outcome as a disabled or foreign admin.
+// admin row, so the birth's function (identity_open_row_session) returns zero rows
+// and OpenRowSession pgx.ErrNoRows -- the same outcome as a disabled or foreign admin.
 //
 // An empty digest failing every KDF comparison is NOT measured here and is not
 // claimed as measured: go.mod carries no KDF (bcrypt is phase B's dependency, Q03).
@@ -850,10 +848,7 @@ func TestResolvedAdmin_ZeroValueFailsClosed(t *testing.T) {
 	// The zero identity, offered inside a REAL tenant context (the most generous
 	// case for an attacker: the context is valid, only the candidate is empty).
 	err := d.WithTenant(context.Background(), tenantA, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenantA, AdminUserID: zero.ID, TokenHash: "admin-" + uuid.NewString(),
-			VerifiedDigest: zero.PasswordHash.RevealForPasswordComparison(),
-		})
+		_, e := OpenRowSession(ctx, tx, zero.ID, tenantA, "admin-"+uuid.NewString(), zero.PasswordHash, RowSessionSignIn)
 		return e
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -861,14 +856,11 @@ func TestResolvedAdmin_ZeroValueFailsClosed(t *testing.T) {
 	}
 
 	// And with the zero TENANT too, which is the shape a handler that forgot the
-	// struct entirely would produce. RLS refuses the write before the SELECT even
-	// matters, so the error is not ErrNoRows -- what matters is that it is an error
-	// and no session exists.
+	// struct entirely would produce. The function refuses a tenant that is not the
+	// transaction's context before it reads a row -- what matters is that it is an
+	// error and no session exists.
 	err = d.WithTenant(context.Background(), tenantA, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: zero.TenantID, AdminUserID: zero.ID, TokenHash: "admin-" + uuid.NewString(),
-			VerifiedDigest: zero.PasswordHash.RevealForPasswordComparison(),
-		})
+		_, e := OpenRowSession(ctx, tx, zero.ID, zero.TenantID, "admin-"+uuid.NewString(), zero.PasswordHash, RowSessionSignIn)
 		return e
 	})
 	if err == nil {
@@ -1061,7 +1053,7 @@ func TestAdminReads_TenantScopedSurface(t *testing.T) {
 
 	// GetAdminForTenantChoice: the picker row. It carries the BUSINESS NAME, which
 	// the resolver deliberately cannot supply, and it refuses a disabled admin so the
-	// picker never offers a door CreateAdminSession would then refuse to open.
+	// picker never offers a door identity_open_row_session would then refuse to open.
 	var choice store.GetAdminForTenantChoiceRow
 	if err := q(func(s *store.Queries, ctx context.Context) error {
 		var e error
@@ -1176,15 +1168,18 @@ func TestRLS_AdminAuthSurface_Isolation(t *testing.T) {
 	}
 
 	// The write side for the surface 00011 adds: B cannot stamp a session with A's
-	// tenant_id even while naming A's admin (FK checks bypass RLS, so only WITH
-	// CHECK stands in the way).
+	// tenant_id even while naming A's admin. Until 00087 only RLS WITH CHECK stood in
+	// the way (FK checks bypass RLS); since T187's contract tappa_app holds no INSERT
+	// on admin_sessions at all -- a session is born only in a definer, whose own tenant
+	// predicate is the guard (adminrowsession_test.go) -- so the statement is refused
+	// before any row is considered.
 	errForge := app.WithTenant(context.Background(), tenantB, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
 			uuid.New(), tenantA, adminA, "forge-"+uuid.NewString())
 		return e
 	})
-	assertWriteBlocked(t, "admin_sessions", blockRLS, errForge)
+	assertPermissionDenied(t, "tappa_app's INSERT into admin_sessions (00087)", errForge)
 }
 
 // ------------------------------------------------- incumbent-first ordering --

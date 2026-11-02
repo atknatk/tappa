@@ -14,8 +14,9 @@ import (
 
 // rowsession_test.go -- T187, ADR 0036 (migration 00086): a panel session on a single admin_users row is
 // born in identity_open_row_session, which holds the password proof in the database, and nowhere else.
-// Until the contract revokes tappa_app's INSERT on admin_sessions, the only thing that keeps the binary
-// from sending the old INSERT is this test.
+// Since T187's contract (00087) the database refuses tappa_app's INSERT on admin_sessions itself
+// (internal/db's TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s); this test
+// keeps the binary from carrying one at all -- a statement that would only ever be a 42501 in production.
 
 // openRowSessionCallers names, by package directory and enclosing function, every non-test call of a
 // function called OpenRowSession in internal/... and cmd/...: the sign-in (after its Proof held) and the
@@ -33,11 +34,10 @@ var openRowSessionCallers = map[string]string{
 var sessionInsert = regexp.MustCompile(`(?is)\binsert\s+into\s+(?:(?:"public"|public)\s*\.\s*)?(?:"admin_sessions"|admin_sessions\b)`)
 
 // TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone reads every non-test Go file of internal/ and
-// cmd/: db.OpenRowSession is called from exactly openRowSessionCallers, each once with its purpose; the
-// generated CreateAdminSession
-// (the previous binary's statement, kept for the expand deploy) is called from nowhere; and no string
-// literal outside internal/store (sqlc's output, where the generated text lives until the contract
-// deletes the query) inserts into admin_sessions.
+// cmd/: db.OpenRowSession is called from exactly openRowSessionCallers, each once with its purpose;
+// nothing reaches a CreateAdminSession (the previous binary's statement, deleted with the grant in
+// 00087); and no string literal -- internal/store's generated code included, since the contract
+// deleted the query -- inserts into admin_sessions.
 func TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -64,10 +64,9 @@ func TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone(t *testing.T) {
 				return err
 			}
 			dir = filepath.ToSlash(dir)
-			generated := dir == "internal/store"
 			ast.Inspect(f, func(n ast.Node) bool {
 				lit, ok := n.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING || generated {
+				if !ok || lit.Kind != token.STRING {
 					return true
 				}
 				if v, err := strconv.Unquote(lit.Value); err == nil && sessionInsert.MatchString(v) {

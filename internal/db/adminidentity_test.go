@@ -622,15 +622,18 @@ func TestRLS_AdminUsers_AnIdentitysMembershipInAnotherTenantIsInvisible(t *testi
 
 // TestAdminUsers00069_TheBinaryBeforeItRunsOnIt is ADR 0031 §8's expand rule, through the real
 // generated statements as tappa_app: CreateAdminUser (no link column named -- the row is born
-// unlinked), CreateAdminSession (authenticated_at takes the DEFAULT), TouchAdminSession,
-// MarkAdminLoggedIn and SetOwnAdminPassword on the unlinked row all work; SetOwnAdminPassword on a
-// LINKED row is the named cost of the rollout window (23001, ADR 0031 §5.1).
+// unlinked), TouchAdminSession, MarkAdminLoggedIn and SetOwnAdminPassword on the unlinked row all
+// work; SetOwnAdminPassword on a LINKED row is the named cost of the rollout window (23001, ADR 0031
+// §5.1). The session is born as today's binary births it, through identity_open_row_session
+// (OpenRowSession): that binary's CreateAdminSession INSERT is refused since T187's contract (00087,
+// ADR 0036 -- the binary before 00086 runs nowhere), so the old binary's own birth is not replayable;
+// what this test keeps is that its row and the statements that read and write it still work.
 func TestAdminUsers00069_TheBinaryBeforeItRunsOnIt(t *testing.T) {
 	ctx, tx := opTx(t)
 	tenant := aiTenant(t, ctx, tx)
 	email := aiEmail()
 	var created store.CreateAdminUserRow
-	var session store.CreateAdminSessionRow
+	var session IdentitySession
 	if err := aiApp(t, ctx, tx, tenant, func(sp pgx.Tx) error {
 		q := store.New(sp)
 		var err error
@@ -639,12 +642,10 @@ func TestAdminUsers00069_TheBinaryBeforeItRunsOnIt(t *testing.T) {
 		}); err != nil {
 			return err
 		}
-		if session, err = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenant, AdminUserID: created.ID, TokenHash: opRandHex(t), VerifiedDigest: opFakeDigest("a"),
-		}); err != nil {
+		if session, err = OpenRowSession(ctx, sp, created.ID, tenant, opRandHex(t), NewPasswordHash(opFakeDigest("a")), RowSessionSignIn); err != nil {
 			return err
 		}
-		touched, err := q.TouchAdminSession(ctx, store.TouchAdminSessionParams{ID: session.ID, TenantID: tenant})
+		touched, err := q.TouchAdminSession(ctx, store.TouchAdminSessionParams{ID: session.SessionID, TenantID: tenant})
 		if err != nil {
 			return err
 		}
@@ -666,7 +667,7 @@ func TestAdminUsers00069_TheBinaryBeforeItRunsOnIt(t *testing.T) {
 	if err := tx.QueryRow(ctx, `SELECT a.identity_id IS NULL AND a.linked_via IS NULL AND a.linked_at IS NULL AND a.unlinked_at IS NULL,
 	                                   s.authenticated_at = now()
 	                              FROM admin_users a JOIN admin_sessions s ON s.admin_user_id = a.id
-	                             WHERE a.id = $1 AND s.id = $2`, created.ID, session.ID).Scan(&linkedNull, &freshAuth); err != nil {
+	                             WHERE a.id = $1 AND s.id = $2`, created.ID, session.SessionID).Scan(&linkedNull, &freshAuth); err != nil {
 		t.Fatal(err)
 	}
 	if !linkedNull || !freshAuth {
@@ -767,7 +768,7 @@ func aiConstString(e ast.Expr) (string, bool) {
 func TestAdminUsers00069_EveryGeneratedStatementOnTheAdminTablesStillPlansAsTheApp(t *testing.T) {
 	ctx, tx := opTx(t)
 	statements := aiStoreStatements(t)
-	for _, must := range []string{"CreateAdminUser", "SetOwnAdminPassword", "TouchAdminSession", "CreateAdminSession", "MarkAdminLoggedIn"} {
+	for _, must := range []string{"CreateAdminUser", "SetOwnAdminPassword", "TouchAdminSession", "MarkAdminLoggedIn"} {
 		if _, ok := statements[must]; !ok {
 			t.Errorf("anti-vacuity: the sweep did not find %s", must)
 		}

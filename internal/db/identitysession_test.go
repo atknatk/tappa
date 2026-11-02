@@ -18,8 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/atknatk/tappa/internal/store"
 )
 
 // idWorld is one person with two memberships (A owner, B manager) linked to one identity, another
@@ -847,16 +845,17 @@ func TestIdentityRevokeSessions_ADisabledOrRefusedMembershipIsRevokedSilently(t 
 // ------------------------------------------ tappa_app's INSERT on admin_sessions --
 
 // TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt (ADR 0031 §5.1, R15; orchestrator
-// decision on M14-03's audit): tappa_app's INSERT on admin_sessions is the column list (id,
-// tenant_id, admin_user_id, token_hash) -- a session born with authenticated_at = 'infinity' would
-// pass every freshness predicate forever -- so naming authenticated_at (or created_at, revoked_at) is
-// 42501, while CreateAdminSession -- the binary before 00071 -- still opens a session that takes
-// now(), and the fixtures' explicit-id INSERT still works.
+// decision on M14-03's audit): a session born with authenticated_at = 'infinity' would pass every
+// freshness predicate forever. 00071 narrowed tappa_app's INSERT on admin_sessions to the column list
+// (id, tenant_id, admin_user_id, token_hash); T187's contract (00087, ADR 0036) took the rest -- tappa_app
+// holds NO INSERT on admin_sessions, so naming authenticated_at (or created_at, revoked_at, last_used_at)
+// is 42501 and so is the four-column statement the binary before 00086 sent (CreateAdminSession's
+// INSERT, verbatim). authenticated_at is written only by the definers that birth a session.
 func TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt(t *testing.T) {
 	ctx, tx := opTx(t)
 	w := idNewWorld(t, ctx, tx)
-	if got := opColumns(t, ctx, tx, "tappa_app", "admin_sessions", "INSERT"); got != "id,tenant_id,admin_user_id,token_hash" {
-		t.Fatalf("tappa_app INSERT on admin_sessions = (%s)", got)
+	if got := opColumns(t, ctx, tx, "tappa_app", "admin_sessions", "INSERT"); got != "" {
+		t.Fatalf("tappa_app INSERT on admin_sessions = (%s); want none since 00087", got)
 	}
 	for _, col := range []string{"authenticated_at", "created_at", "revoked_at", "last_used_at"} {
 		opWant(t, aiApp(t, ctx, tx, w.a, func(sp pgx.Tx) error {
@@ -864,23 +863,18 @@ func TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt(t *testing
 			return err
 		}), sqlstateInsufficientPrivi, "tappa_app naming "+col)
 	}
-	if err := aiApp(t, ctx, tx, w.a, func(sp pgx.Tx) error {
-		row, err := store.New(sp).CreateAdminSession(ctx, store.CreateAdminSessionParams{TokenHash: opRandHex(t), AdminUserID: w.unlinked, TenantID: w.a, VerifiedDigest: opFakeDigest("a")})
-		if err != nil {
-			return err
-		}
-		var fresh bool
-		if err := sp.QueryRow(ctx, `SELECT authenticated_at = now() FROM admin_sessions WHERE id = $1`, row.ID).Scan(&fresh); err != nil {
-			return err
-		}
-		if !fresh {
-			return errors.New("CreateAdminSession's session did not take now()")
-		}
-		_, err = sp.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), w.a, w.unlinked, opRandHex(t))
+	opWant(t, aiApp(t, ctx, tx, w.a, func(sp pgx.Tx) error {
+		_, err := sp.Exec(ctx, `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash)
+SELECT a.tenant_id, a.id, $3::text
+FROM admin_users a
+WHERE a.id = $1
+  AND a.tenant_id = $2
+  AND a.status = 'active'
+  AND a.password_hash = $4::text
+FOR NO KEY UPDATE OF a
+RETURNING id, tenant_id, admin_user_id, created_at, last_used_at, revoked_at`, w.unlinked, w.a, opRandHex(t), opFakeDigest("a"))
 		return err
-	}); err != nil {
-		t.Fatalf("the binary before 00071 (CreateAdminSession) and the explicit-id fixture: %v", err)
-	}
+	}), sqlstateInsufficientPrivi, "the binary before 00086's CreateAdminSession")
 }
 
 // ------------------------------------------- the person's lock against a late call --

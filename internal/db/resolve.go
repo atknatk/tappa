@@ -176,7 +176,7 @@ type ResolvedInvite struct {
 // Status is CARRIED, not applied: 'disabled' rows resolve like any other, and the
 // caller decides. Refusing them here would make a disabled account indistinguishable
 // from an unknown email at the point where the attempt should be attributable
-// (section 4.6). The caller must still refuse them -- and CreateAdminSession refuses
+// (section 4.6). The caller must still refuse them -- and identity_open_row_session refuses
 // independently, in SQL, so forgetting fails closed.
 //
 // Deliberately absent: role (authorization, read in-context once the tenant is
@@ -458,7 +458,7 @@ func (d *DB) GetInviteByCodeHash(ctx context.Context, codeHash string) (Resolved
 //     CANDIDATES. This is the heaviest obligation on the list and the only one that
 //     is a cross-tenant AUTHENTICATION BYPASS (section 4.5) rather than an
 //     enumeration or a DoS bound, and NOTHING in the data layer can enforce it:
-//     this function returns a SET, and CreateAdminSession never sees a password --
+//     this function returns a SET, and identity_open_row_session never sees a password --
 //     all it requires is that (admin_user_id, tenant_id) be internally consistent,
 //     and the pair a picker hands back IS a consistent pair of real database values,
 //     so every other guard is satisfied.

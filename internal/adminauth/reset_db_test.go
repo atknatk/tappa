@@ -61,28 +61,25 @@ func cheapResets(t *testing.T, data ResetDatabase) *Resets {
 	return r
 }
 
-// newSessionRow issues a panel session through the real query and returns its id. The verified
-// digest is the row's current one, read in the same transaction -- what a password that verified a
-// moment ago would hand CreateAdminSession (M14-07).
+// newSessionRow issues a panel session through the real birth -- identity_open_row_session
+// (db.OpenRowSession, the sign-in's purpose; tappa_app holds no INSERT on admin_sessions since 00087)
+// -- and returns its id. The verified digest is the row's current one, read in the same transaction --
+// what a password that verified a moment ago would hand the function (M14-07).
 func newSessionRow(t *testing.T, d *db.DB, tenantID, adminID uuid.UUID) uuid.UUID {
 	t.Helper()
-	var row store.CreateAdminSessionRow
+	var row db.IdentitySession
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
+		cur, e := store.New(tx).GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{ID: adminID, TenantID: tenantID})
 		if e != nil {
 			return e
 		}
-		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TenantID: tenantID, AdminUserID: adminID, TokenHash: "reset-fixture-" + uuid.NewString(),
-			VerifiedDigest: cur.PasswordHash,
-		})
+		row, e = db.OpenRowSession(ctx, tx, adminID, tenantID, "reset-fixture-"+uuid.NewString(), db.NewPasswordHash(cur.PasswordHash), db.RowSessionSignIn)
 		return e
 	})
 	if err != nil {
-		t.Fatalf("CreateAdminSession: %v", err)
+		t.Fatalf("OpenRowSession: %v", err)
 	}
-	return row.ID
+	return row.SessionID
 }
 
 // liveSessions counts the administrator's UNREVOKED panel sessions.

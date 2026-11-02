@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,7 +30,9 @@ func membersHarness(t *testing.T, label string) *panelHarness {
 	return p
 }
 
-// addMember inserts a membership of tenant with role, as the application does, and one live session.
+// addMember inserts a membership of tenant with role, as the application does, and one live session --
+// the session as the OWNER: since 00087 (T187's contract, ADR 0036) tappa_app holds no INSERT on
+// admin_sessions, and a birth through the definer would add a sign-in row to the trail these tests count.
 func (p *panelHarness) addMember(t *testing.T, tenant uuid.UUID, role, name string) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -38,14 +41,27 @@ func (p *panelHarness) addMember(t *testing.T, tenant uuid.UUID, role, name stri
 		t.Fatal(err)
 	}
 	if err := p.data.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6)`,
-			id, tenant, name, "m14-16-"+uuid.NewString()+"@identity.example", ownerDigest, role); e != nil {
-			return e
-		}
-		_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3)`, tenant, id, hex.EncodeToString(raw))
+		_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6)`,
+			id, tenant, name, "m14-16-"+uuid.NewString()+"@identity.example", ownerDigest, role)
 		return e
 	}); err != nil {
 		t.Fatalf("insert a member: %v", err)
+	}
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; a member's session is written by the owner (00087)")
+	}
+	owner, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect as the owner: %v", err)
+	}
+	defer func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("close the owner connection: %v", err)
+		}
+	}()
+	if _, err := owner.Exec(context.Background(), `INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3)`, tenant, id, hex.EncodeToString(raw)); err != nil {
+		t.Fatalf("insert a member's session as the owner: %v", err)
 	}
 	return id
 }
