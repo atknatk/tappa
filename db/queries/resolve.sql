@@ -124,7 +124,7 @@
 --   * status is returned but NOT filtered (the sessions.revoked_at principle): a
 --     disabled admin resolves and the caller refuses -- otherwise a disabled
 --     account is indistinguishable from a typo and the attempt is unattributable
---     (section 4.6). CreateAdminSession refuses independently, in SQL.
+--     (section 4.6). identity_open_row_session refuses independently, in SQL.
 --   * role, full_name, created_at and last_login_at are NOT returned: nothing reads
 --     them before the tenant context exists. The tenant PICKER needs the BUSINESS
 --     NAME, which this function deliberately does not touch (`tenants` would be a
@@ -175,10 +175,10 @@
 -- enumeration signal or a DoS bound: THE SESSION IS ISSUED ONLY TO THE CANDIDATE
 -- WHOSE HASH MATCHED, AND THE PICKER SHOWS ONLY MATCHED CANDIDATES.
 -- Nothing in this file or in admins.sql can enforce it. This lookup returns a SET;
--- CreateAdminSession never sees a password and asks only that (admin_user_id,
--- tenant_id) be internally consistent and the admin active -- which is exactly what
--- a picker returns, built from REAL rows, so the INSERT ... SELECT guard, the
--- explicit tenant predicate and the RLS WITH CHECK are all satisfied.
+-- identity_open_row_session (CreateAdminSession before 00087) never sees a password and
+-- asks only that (admin_user_id, tenant_id) be internally consistent, the admin active and
+-- the digest the one compared -- which is exactly what a picker returns, built from REAL
+-- rows, so the function's row predicates and its tenant check are all satisfied.
 -- THE ATTACK (from M7-02, measured live on this schema): the attacker signs up a
 -- tenant with the PUBLIC wizard and writes the VICTIM'S EMAIL, under a password
 -- they know, into their OWN admin_users -- RLS permits it, it is their tenant. The

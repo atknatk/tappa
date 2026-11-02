@@ -26,7 +26,7 @@ import (
 // (identity_link_legacy). Nothing in the product calls it yet: the flag TAPPA_ADMIN_IDENTITY and its
 // gate are M14-08's, the login handler's identity path M14-09's. Until then the login is today's
 // Authenticate + Issue for everyone -- the flag-off behaviour of ADR 0031 §8 -- and the two changes
-// this card makes to that path (Issue's Proof and CreateAdminSession's digest predicate) hold whatever
+// this card makes to that path (Issue's Proof and the birth's digest predicate -- identity_open_row_session's since 00086) hold whatever
 // the flag says, because a membership can be refused from a pod where the flag is on while a pod
 // where it is off signs the same person in (the rollout runs two pods for a while).
 //

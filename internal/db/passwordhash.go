@@ -59,8 +59,8 @@ import (
 // a nil pointer, every method tolerates it, and RevealForPasswordComparison returns
 // "" -- and "" is not a valid digest under any KDF, so a comparison against it
 // FAILS and the login is refused. A zero ResolvedAdmin is likewise inert end to
-// end: its ID and TenantID are uuid.Nil, so CreateAdminSession matches no row and
-// returns pgx.ErrNoRows (measured, TestResolvedAdmin_ZeroValueFailsClosed). There
+// end: its ID and TenantID are uuid.Nil, so identity_open_row_session matches no row and
+// OpenRowSession returns pgx.ErrNoRows (measured, TestResolvedAdmin_ZeroValueFailsClosed). There
 // is no path on which forgetting to populate this struct authenticates anyone.
 type PasswordHash struct{ v *string }
 
