@@ -82,14 +82,23 @@ func NewKeys(prefix string, hmacKey []byte, data Database, trail Trail) (*Keys, 
 }
 
 // Key is one row of the owner's list. No hash, no secret: the hint is all that names it.
+//
+// A KEY IS THE BUSINESS'S, NOT ITS CREATOR'S (T174, user decision 2026-11-01, ADR 0028's note):
+// disabling the creator's membership does not stop the key -- the resolver never reads created_by
+// -- so the list carries the creator and whether that membership is still active, for the owner to
+// see and, if they want, revoke.
 type Key struct {
 	ID         uuid.UUID
 	Name       string
 	PrefixHint string
 	CreatedBy  uuid.UUID
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
-	RevokedAt  *time.Time
+	// CreatorName is the creating membership's full name; CreatorActive is false once that
+	// membership is disabled.
+	CreatorName   string
+	CreatorActive bool
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
 }
 
 // Listing is the section's read: the business's keys, newest first, and whether the operator has
@@ -214,6 +223,7 @@ func (k *Keys) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listing, 
 		out.Keys = make([]Key, 0, len(rows))
 		for _, r := range rows {
 			out.Keys = append(out.Keys, Key{ID: r.ID, Name: r.Name, PrefixHint: r.PrefixHint, CreatedBy: r.CreatedBy,
+				CreatorName: r.CreatorName, CreatorActive: r.CreatorStatus == liveAdmin,
 				CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt})
 		}
 		out.BudgetAlerts, err = budgetAlerts(ctx, q, tenantID)

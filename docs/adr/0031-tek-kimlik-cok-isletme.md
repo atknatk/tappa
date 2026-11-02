@@ -1258,12 +1258,16 @@ status)`'u (`00017:380-381`) ve `RevokeAdminSessionsForAdmin` ile; yeni sorgular
   `confirm=yes` ister; handler denetler.
 - **API anahtarları (§5.13, backlog T174):** bir owner'ı devre dışı bırakan ya da manager yapan her
   basışın yanında, o kişinin oluşturduğu API anahtarlarının çalışmaya devam ettiğini söyleyen cümle ve
-  API Keys bölümüne bağlantı durur — T174 karara bağlanana dek.
+  API Keys bölümüne bağlantı durur. T174 2026-11-01'de karara bağlandı (anahtar işletmenindir — ADR 0028
+  *T174 eki*); cümle kalıcıdır.
 
 ### 5.13 API anahtarları, webhook'lar, aktörler
 
 Değişmez: `api_keys.created_by` üyeliğin bileşik FK'si (`00051:88-89`); devre dışı bir üyeliğin
-anahtarları bugünkü gibi çalışır (ADR 0028 ele almıyor — backlog notu). Webhook'ların aktörü yok
+anahtarları bugünkü gibi çalışır. **Karar (T174, kullanıcı, 2026-11-01):** anahtar işletmenindir, oluşturanın
+değil — otomatik iptal yok, sahiplik devri yok; panelin listesi oluşturanı gösterir ve üyeliği devre dışı
+olanı işaretler, owner bugünkü gibi iptal eder. Gerekçe ve uygulama:
+[ADR 0028 → T174 eki](0028-dis-api-anahtar-akis-webhook.md#t174-eki-2026-11-01--anahtar-işletmenindir-oluşturanın-değil). Webhook'ların aktörü yok
 (`00048:186-199`). Aktör id'leri üyelik id'si kalır → bir tenant'ın günlüğü başka tenant'taki üyelik
 id'sini görmez.
 
