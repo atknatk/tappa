@@ -222,7 +222,10 @@ SELECT line FROM (
 // 00071; its thirteen redefinitions keep owner, definer and EXECUTE); 00086 -- T187, ADR 0036 (the
 // single-row panel session is born in a definer) -- added identity_open_row_session (EXECUTE tappa_app
 // and the owner) and NO grant (its body runs on the definer's 00071/00074 cells) and revoked nothing
-// (tappa_app's admin_sessions INSERT is ADR 0036's contract step) -- and READ
+// (tappa_app's admin_sessions INSERT is ADR 0036's contract step); 00087 -- T187's contract, ADR 0036
+// Karar 3 -- took tappa_app's INSERT (id, tenant_id, admin_user_id, token_hash) on admin_sessions (a
+// panel session is born only in a definer), so tappa_app's admin_sessions lines are its UPDATE and its
+// table-level SELECT, and granted nothing -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -271,7 +274,6 @@ column admin_signup_claims tappa_identitydefiner INSERT token_hash,email,draft,p
 column admin_signup_claims tappa_identitydefiner SELECT id,token_hash,email,draft,password_hash,expires_at,used_at
 column admin_signup_claims tappa_identitydefiner UPDATE used_at
 column admin_signup_claims tappa_resolver SELECT id,token_hash,email,draft,password_hash,expires_at,used_at
-column admin_sessions tappa_app INSERT id,tenant_id,admin_user_id,token_hash
 column admin_sessions tappa_app UPDATE last_used_at,revoked_at
 column admin_sessions tappa_identitydefiner INSERT tenant_id,admin_user_id,token_hash,authenticated_at
 column admin_sessions tappa_identitydefiner SELECT id,tenant_id,admin_user_id,token_hash,revoked_at,authenticated_at
