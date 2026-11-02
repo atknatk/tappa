@@ -1,6 +1,6 @@
 # ADR 0036 — Tek satırlık panel oturumu definer'da doğar: parola kanıtı sorgu metninden veritabanına
 
-- **Durum:** Kabul edildi (2026-11-01; kalan risk ve audit satırı 2026-11-02) — expand (00086); contract sonraki deploy'da (Karar 3)
+- **Durum:** Kabul edildi (2026-11-01; kalan risk ve audit satırı 2026-11-02) — expand (00086, canlı: Deploy 6, 2026-11-02); contract (00087, Karar 3) yazıldı 2026-11-02, canlıya çıktığı deploy'la tamamlanır
 - **Karar veren:** kullanıcı (2026-11-01, AskUserQuestion: *"Evet, taşı"* — `tappa_app`'tan
   `admin_sessions` INSERT'i alınır, oturum doğumu kapalı listeye eklenen tek bir SECURITY DEFINER
   fonksiyona taşınır; aynı gün *"§4.5'e ekle, devam"* — fonksiyon CLAUDE.md §4.5 (3)'ün sayımına girer,
@@ -8,7 +8,7 @@
   denetiminden geçer
 - **İlgili:** ADR 0031 §5.1 (`authenticated_at`, R15), §5.2 (kapalı `identity_*` listesi, matris, T5),
   §5.6 (giriş, düz zamanlama), §8 (expand → contract); ADR 0035 (12 saatlik ömür); 00011 YÜKÜMLÜLÜK 5;
-  CLAUDE.md §4.5 (3); migration `00086`; backlog T187
+  CLAUDE.md §4.5 (3); migration `00086`, `00087`; backlog T187
 
 ## Bağlam — ölçülen
 
@@ -75,14 +75,31 @@
      testler onun üretilmiş metnini gönderir); üretim kodundan çağrılmaz.
    - **Contract — adlandırılmış takip (T187'nin ikinci yarısı), SONRAKİ deploy'da**, ön koşulu canlıda
      00086'lı binary'nin rollout'unun tamamlanmış olmasıdır (rollout penceresindeki eski pod artık 00086'lı
-     binary'dir ve INSERT göndermez):
+     binary'dir ve INSERT göndermez). **✅ Yazıldı 2026-11-02 — `00087_revoke_direct_admin_session_inserts.sql`**
+     (ön koşul ölçüldü: Deploy 6 = main 232f06f8, goose 86 canlıda; o binary'nin iki doğumu `db.OpenRowSession`'ı
+     çağırır, `CreateAdminSession`'ın üretim çağıranı yoktur — `TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone`
+     o ağaçta yeşil; migrate Job rollout'tan önce koşarken hizmet veren eski pod definer'dan doğurur). Dört adım:
      1. migration: `SET LOCAL lock_timeout`; `REVOKE INSERT ON admin_sessions FROM tappa_app` (tablo düzeyi
-        REVOKE sütun yetkilerini de alır); Down `GRANT INSERT (id, tenant_id, admin_user_id, token_hash)`;
+        REVOKE sütun yetkilerini de alır — ölçüldü: sonra `has_column_privilege` sekiz sütunun sekizinde `f`; REVOKE
+        tabloda kilit almaz, açık bir ROW EXCLUSIVE tutucusunun yanında anında döner — 00085'in GRANT ölçümü); Up'ın
+        son ifadesi bir son koşul (`has_any_column_privilege` `t` ise hata); Down `GRANT INSERT (id, tenant_id,
+        admin_user_id, token_hash)` — 00071'inki bayt bayt;
      2. `CreateAdminSession` `db/queries`'ten silinir, `make gen`;
      3. `tappa_app` olarak `admin_sessions`'a INSERT eden test fikstürleri sahip rolüne taşınır; RLS
         testlerinin `tappa_app` INSERT vakaları 42501 beklentisine döner; 00086'nın expand testi (aşağıda)
         "INSERT yok, eski ifade 42501" olur;
      4. `rowsession_test.go`'nun `internal/store` muafiyeti kalkar.
+
+     Yapılan (00087 ile aynı commit): `CreateAdminSession` silindi, `make gen`; `tappa_app` olarak oturum ekleyen
+     fikstürler sahip rolüne (`internal/db`'nin RLS fikstürü, bileşik FK testi) ya da doğumun kendisi test
+     ediliyorsa definer'a (`OpenRowSession`: `newAdminSession`, `newSessionRow`, devre dışı / yabancı / sıfır
+     yönetici retleri) taşındı; RLS yazma testinin `admin_sessions` vakası ve 00011'in sahtecilik vakası 42501
+     "permission denied" bekler; 00071'in testi "INSERT yok, eski ifade 42501" olur; 00086'nın testi INSERT'i
+     pinlemez, contract'ın kendi testi `TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s`
+     (aşağıda). `CreateAdminSession`'ın kendi M14-07 testlerinden ikisi (digest değişimi, açık ret) silindi —
+     aynı iki koşulu 00086'nın testleri fonksiyon üzerinde ölçer; üçüncüsü (`tappa_app`'ın satır kilidi FORCE
+     RLS altında onundur) `TestAdminUsersRowLock_IsTappaAppsUnderForceRLS` adıyla kalır, çünkü üyelik
+     değişikliklerinin sahip kilidi (`db/queries/adminmembers.sql`) hâlâ `tappa_app`'ındır.
    - Down (00086): fonksiyonu düşürür, başka hiçbir şeye dokunmaz.
 
 4. **Audit satırı definer'da** (güvenlik denetimi ORTA, 2026-11-02; kullanıcı kararı *"Denetim kaydı ekle,
@@ -125,14 +142,17 @@ gibi **abartıydı**. Doğrusu iki ayrı tehdit için ayrı ayrı:
   (password_hash)` taşır (00017), `app.tenant_id`'yi kendisi yazar (`set_config(…, true)`) ve digest'i
   okur (`resolve_admin_by_email`, `GetAdminPasswordHashByID`). Yani satırı yeniden `active` yapar,
   istediği tenant bağlamını kurar, digest'i okur ve fonksiyon ona **taze, 12 saatlik bir oturum doğurur.**
-  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır. **İlk üç madde contract'tan
-  sonra geçerlidir; expand penceresinde `tappa_app`'ın doğrudan INSERT'i üçünü de atlar** (ölçüldü: o yolda
-  audit satırı yok):
+  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır. **Dört madde de contract'tan
+  sonra geçerlidir (00087, 2026-11-02; canlıda 00087'nin deploy'uyla):** expand penceresinde (00086 ile 00087
+  arası) `tappa_app`'ın doğrudan INSERT'i hepsini atlıyordu (ölçüldü: o yolda audit satırı yok). 00087'den beri
+  `tappa_app` `admin_sessions`'a hiçbir sütunla INSERT edemez (42501;
+  `TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s`), dolayısıyla dört madde her oturum
+  doğumu için geçerlidir:
   - reddedilmiş üyelik (`unlinked_at`) oturum almaz — `tappa_app` sütunu ne okuyabilir ne yazabilir (R16);
   - oturumun id'si ve kanıt anı (`authenticated_at = now()`) seçilemez;
   - her doğum işletmenin `audit_log`'una `tappa_app`'ın silemeyeceği bir satır bırakır (00006 DELETE'i
     alır; Karar 4);
-  - contract'tan sonra oturum doğuran ikinci bir ifade kalmaz.
+  - oturum doğuran ikinci bir ifade kalmaz (`CreateAdminSession` 00087'de silindi).
 - **Tehdit 2 — binary'nin kendi hatası** (yanlış bir `(admin, tenant)` çifti, atlanmış bir koşul, bayat bir
   kanıt, unutulmuş bir sorgu yüklemi). `status`, tenant bağlamı, `tenant_id` yüklemi ve güncel digest
   koşulları **buna karşı** korur: bunlar önceden yalnız sorgu metnine emanetti, artık veritabanındadır.
@@ -162,8 +182,14 @@ listesine ve §5.2'nin imza tablosuna bir satır olarak. §4.5'in başka hiçbir
   `TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone` (`internal/adminauth/rowsession_test.go`);
   `TestIdentityAudit_TheRowSessionsRowIsTheOrdinaryOne` ve `TestPanelE2E_SignInAndOut` (`internal/handler`,
   audit satırının biçimi ve sign-in başına tam bir satır).
-- **Contract hatırlatıcısı** (güvenlik denetimi DÜŞÜK, 2026-11-02): `TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction`
-  `tappa_app`'ın INSERT'ini pinler ve mesajı contract'ın kalan adımlarını adıyla sayar. "00086'dan büyük bir
+- `TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s` (`internal/db/adminrowsession_test.go`,
+  contract, 00087): `tappa_app`'ın `admin_sessions`'ta INSERT'i yok (sekiz sütunun sekizi, tablo düzeyi de),
+  SELECT'i ve `UPDATE (last_used_at, revoked_at)`'i aynen; 00086'dan önceki binary'nin ifadesi 42501; definer'dan
+  doğum çalışır (pozitif kontrol); Down 00071'in sütun yetkisini bayt bayt geri verir ve eski ifade yeniden açar,
+  Up yine alır. `TestAdminSessions00071_TheApplicationCannotChooseAuthenticatedAt` "INSERT yok" bekler.
+- **Contract hatırlatıcısı** (güvenlik denetimi DÜŞÜK, 2026-11-02; 00087 ile kapandı — test artık INSERT'i
+  pinlemez, yalnız 00086'nın Down/Up'ını ölçer): `TestIdentityOpenRowSession00086_ExpandsAndItsDownDropsOnlyTheFunction`
+  `tappa_app`'ın INSERT'ini pinlerdi ve mesajı contract'ın kalan adımlarını adıyla sayardı. "00086'dan büyük bir
   migration varken INSERT duruyorsa kırmızı" biçimi seçilmedi: bir sonraki ilgisiz migration'ı (00087 başka
   bir şeridin) kırmızıya çevirir, oturumlarla ilgisi olmayan işi buna bağlardı; contract'ın plandaki yeri
   `docs/plan/state.md`'dir.

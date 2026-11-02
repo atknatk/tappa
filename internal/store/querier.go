@@ -1163,157 +1163,6 @@ type Querier interface {
 	// number a sentence calls "ready" is this one. Same predicate as the bind, so the
 	// count and the refusal cannot disagree.
 	CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error)
-	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
-	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
-	// reads the login flow needs once the tenant is known.
-	//
-	// Every query below carries an EXPLICIT tenant_id predicate (CLAUDE.md section
-	// 4.5, belt + braces on top of RLS) and is meant to run inside
-	// db.(*DB).WithTenant, i.e. with app.tenant_id established. The TWO admin lookups
-	// that carry no tenant scope live elsewhere on purpose -- db/queries/resolve.sql,
-	// ADR 0002 madde 7 -- because there the tenant is the RESULT of the lookup, not an
-	// input. They are deliberately NOT duplicated here.
-	//
-	// SEPARATE FROM THE EMPLOYEE SESSION, STRUCTURALLY (M1-11). Nothing in this file
-	// touches `sessions`, `employees` or `employee_invites`, and nothing in
-	// db/queries/sessions.sql touches `admin_*`. An admin cookie resolves through
-	// resolve_admin_session_by_token_hash over admin_sessions; an employee cookie
-	// through resolve_session_by_token_hash over sessions. Two tables, two functions,
-	// two column sets -- a token from one is not a row in the other, so the isolation
-	// is a property of the schema and not of a flag anyone can mis-set.
-	//
-	// KIRMIZI CIZGI (section 4.7): the raw session token appears nowhere in this file
-	// and is not stored. Only token_hash is written or matched, and NO query below
-	// RETURNS it. The precise, grep-checkable form of that claim -- because a looser
-	// one was written here first and a grep refuted it: `token_hash` appears in NO
-	// RETURNING list in this file, and in exactly ONE select-list, the
-	// `SELECT a.tenant_id, a.id, @token_hash::text` of CreateAdminSession, where it is
-	// the VALUE BEING INSERTED by an INSERT ... SELECT and not a value handed back.
-	// The property that actually matters is measured on the generated code: no *Row
-	// struct in internal/store/admins.sql.go carries a TokenHash field -- the only
-	// TokenHash there is CreateAdminSessionParams', i.e. an INPUT. So a row read
-	// cannot leak the hash into a log, and the guarantee survives a regeneration
-	// rather than depending on how this comment is worded. password_hash USED to be
-	// selected by no query in this file; T73 (change-my-own-password) changed that, and
-	// the claim is rewritten to stay honest and grep-checkable rather than quietly
-	// false. The digest is now read in EXACTLY TWO places: the context-less login
-	// resolver (db/queries/resolve.sql, where the tenant is the RESULT of the lookup)
-	// and GetAdminPasswordHashByID BELOW, the id+tenant-scoped read an ALREADY
-	// authenticated admin uses to re-verify their CURRENT password before setting a new
-	// one. Both return the digest to ONE caller (internal/adminauth), which hands it
-	// straight to bcrypt.Compare and never logs, emits or re-returns it. The measured,
-	// regeneration-proof form of the guarantee: in internal/store/admins.sql.go the ONLY
-	// *Row struct carrying a PasswordHash field is GetAdminPasswordHashByIDRow -- the two
-	// WRITERS (CreateAdminUser, SetOwnAdminPassword) name the column solely as the
-	// @password_hash parameter of an INSERT/UPDATE and their RETURNING lists omit it,
-	// exactly as @token_hash is written-not-returned in CreateAdminSession, so a row read
-	// on either write path cannot leak the digest into a log.
-	//
-	// NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on both admin tables, so no
-	// application code path can destroy an admin or a session row (section 4.6).
-	// Revocation is a revoked_at stamp; disabling an admin is status='disabled'.
-	//
-	// WHAT THE DATABASE NOW ENFORCES THAT sessions.sql ONLY ASKED FOR. The employee
-	// file has to say "the protection against un-revoking is that NO QUERY IN THIS
-	// FILE DOES IT". For admin_sessions that is no longer discipline: 00011 revokes
-	// table-wide UPDATE (leaving column-level UPDATE on last_used_at and revoked_at
-	// only -- so token_hash and admin_user_id cannot be rewritten at all) and adds a
-	// BEFORE UPDATE trigger that refuses any change to a revoked_at that is already
-	// set. Measured: un-revoke, session-hijack-by-UPDATE and
-	// repoint-my-session-at-the-owner all succeeded before 00011 and all fail after.
-	// The remaining discipline is smaller but real: a NULL -> now() stamp is still
-	// free-form, so a query could stamp a future or past instant. No query here does.
-	//
-	// ⚠️ WHAT CLOSED IS THE PATH, NOT THE CAPABILITY -- the sentence above used to be
-	// read the other way and the correction is worth spelling out, because it changes
-	// who has to be careful.
-	//
-	// ✅ AND admin_users NO LONGER KEEPS A TABLE-WIDE UPDATE GRANT. This paragraph said it
-	// did, "deliberately (00011 argues it, correctly: nearly every column there is
-	// legitimately writable, so a column grant would merely enumerate the table)" --
-	// migration 00017 took that back and refuted the reason. The list 00011 called an
-	// enumeration IS the grant now (full_name, email, password_hash, role, status,
-	// last_login_at), and the three columns it OMITS are the point: `id` and `tenant_id`
-	// (identity) and `created_at` (the ordering 00017's whole security argument rests on
-	// -- a row whose created_at can be rewritten can be moved in front of an existing
-	// customer, which is the account lockout that file exists to close). Measured after
-	// 00017: relacl `tappa_app=ar`, and has_column_privilege for UPDATE on those three is
-	// false.
-	//
-	// THE EFFECTS BELOW WERE MEASURED BEFORE THAT NARROWING AND TWO OF THEM SURVIVE IT,
-	// which is why they are still here: `status` and `password_hash` and `role` are all in
-	// the new grant, because a panel that manages admins has to write them. So the
-	// reachability claim is unchanged -- only the columns it can reach through are.
-	// Measured live as tappa_app, inside its OWN tenant context:
-	//   UPDATE admin_users SET status = 'active'        WHERE ... -> UPDATE 1
-	//       the disable kill switch, undone.
-	//   UPDATE admin_users SET role = 'owner'           WHERE ... -> UPDATE 1
-	//       the SAME privilege escalation the column grant closed on admin_sessions.
-	//   UPDATE admin_users SET password_hash = '<mine>' WHERE ... -> UPDATE 1
-	//       STRONGER than what was closed: it survives revocation entirely.
-	// So the guarantee this file may claim is narrow and exact: no application code
-	// path can rewrite a SESSION's identity or resurrect its revocation. It may NOT
-	// claim that the underlying abilities are gone -- they are reachable through
-	// admin_users by any SQL that runs as tappa_app.
-	// WHOSE DEBT: M6-05 (panel-side admin management writes the legitimate UPDATEs and
-	// must scope them per column and per role) and M7-04 (password reset). Whoever
-	// writes those decides whether admin_users deserves its own column grants, a role
-	// guard, or an audit trigger; today the answer is "no query in this repo does it",
-	// which is exactly the discipline-not-structure position sessions.sql is in.
-	// ⚠️ THE PREVIOUS BINARY'S STATEMENT, NO LONGER SENT BY THIS ONE (T187, ADR 0036, migration 00086).
-	// A panel session is born in identity_open_row_session (internal/db.OpenRowSession), which holds the
-	// conditions below IN THE DATABASE -- plus unlinked_at IS NULL and the transaction's tenant context --
-	// because tappa_app's own INSERT on admin_sessions let any other statement skip them. This query stays
-	// for the expand deploy only: the binary before 00086 sends it during the rollout, and the tests that
-	// prove it still works on the new schema send this generated text. ADR 0036's contract step deletes it
-	// together with tappa_app's INSERT grant; no non-test Go code may call it
-	// (TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone).
-	//
-	// Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
-	// tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
-	// yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never
-	// gets a session" a property of the DATABASE rather than of the handler
-	// remembering to check status -- the trap state.md records for employees (the
-	// session resolver does not return employees.status, so every surface must check
-	// it itself). The login resolver DOES return admin status, so phase B can refuse
-	// earlier and with a uniform message; this is the belt underneath that.
-	//
-	// tenant_id is taken from the ADMIN ROW, not from the caller's parameter, so the
-	// session cannot be stamped with a tenant the admin does not belong to. The
-	// @tenant_id parameter is still spelled out as a predicate (section 4.5 belt) and
-	// the RLS WITH CHECK independently refuses a value that disagrees with the
-	// transaction context.
-	//
-	// token_hash is the HMAC of a token this query never sees; it is written, never
-	// returned.
-	//
-	// THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD WAS
-	// VERIFIED AGAINST, UNDER A LOCK ON THE ROW (ADR 0031 §5.2, identity_unlink_backfilled's
-	// row; M14-07). tappa_app cannot read admin_users.unlinked_at (R16), so this statement cannot
-	// see that a membership was refused between the password comparison and this write -- but
-	// the refusal writes a SENTINEL digest in the same transaction, and a password change or a
-	// reset writes a new one, so `a.password_hash = @verified_digest` says "nothing rewrote this
-	// row's credential since it verified". @verified_digest is the digest internal/adminauth
-	// compared the typed password with (never a value from a request). FOR NO KEY UPDATE OF a is what
-	// makes the predicate hold against a CONCURRENT refusal: without it a write that started
-	// while the refusal's transaction was open read the old row version and left a live session
-	// on the refused row (measured on 17.10, M14-05's audit); with it the write waits for the
-	// refusal, READ COMMITTED re-evaluates the predicate on the committed version, and the answer
-	// is 0 rows. The lock needs an UPDATE privilege on admin_users -- tappa_app's UPDATE (status)
-	// (00017) -- and FORCE RLS applies the UPDATE policy's USING to the locked row as well
-	// (internal/db's adminsessiondigest_test.go measures both).
-	//
-	// NO KEY UPDATE, NOT SHARE (2026-10-23, M14-07's audit, measured 86/120 deadlocks): Issue runs
-	// MarkAdminLoggedIn -- an UPDATE of this same row -- in the same transaction, so a SHARE lock
-	// had to be upgraded, and two concurrent sign-ins of one admin (a double click) each held SHARE
-	// and waited for the other's: 40P01, a 500. FOR NO KEY UPDATE is the lock that UPDATE takes
-	// anyway, so there is no upgrade (0/120); it still conflicts with the refusal's FOR UPDATE, and
-	// it does not block the foreign-key checks (KEY SHARE) of other sessions being written.
-	//
-	// The old binary's statement
-	// (without the two) keeps working on the same schema: this is a change of the new binary's
-	// query text alone.
-	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error)
 	// Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
 	// IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
 	// task as one of the three that open the write path, and states the rule it must
@@ -1340,7 +1189,7 @@ type Querier interface {
 	// claims "selected by no query here" -- T73's GetAdminPasswordHashByID selects it --
 	// but the WRITE-half invariant CreateAdminUser stands on is unchanged: the value
 	// appears once, as the @password_hash parameter of the INSERT's select-list, exactly
-	// as @token_hash does in CreateAdminSession, and the RETURNING list below does not
+	// as @token_hash did in CreateAdminSession (gone, 00087), and the RETURNING list below does not
 	// name it. The generated CreateAdminUserRow therefore has no PasswordHash field, so a
 	// row read on this write path cannot leak the digest into a log.
 	//
@@ -1666,7 +1515,7 @@ type Querier interface {
 	// halves are conditional on the same fact.
 	//
 	// WHY status = 'active'. A disabled administrator has no panel to reach, and
-	// CreateAdminSession already refuses them in SQL; handing them a token that rewrites
+	// identity_open_row_session already refuses them in SQL; handing them a token that rewrites
 	// their password_hash would be a write to an account somebody deliberately switched
 	// off. 0 rows -> pgx.ErrNoRows -> the caller says nothing different to the user
 	// (OBLIGATION 1) and writes an audit row (section 4.6).
@@ -2187,7 +2036,7 @@ type Querier interface {
 	//
 	// The status = 'active' filter is what makes this query safe to drive a picker: a
 	// disabled admin's tenant is simply not offered, so the picker cannot present a
-	// door that CreateAdminSession would then refuse to open.
+	// door that identity_open_row_session (CreateAdminSession before 00087) would then refuse to open.
 	//
 	// ⚠️ THE PICKER'S OTHER O(N), named here because it is the one that SURVIVES the
 	// bcrypt bound. "Run once per candidate tenant" means one TENANT-SCOPED TRANSACTION
@@ -2219,7 +2068,7 @@ type Querier interface {
 	// it returns the digest as a PLAIN string to EXACTLY ONE package, internal/adminauth,
 	// which never logs, emits or re-returns it. Two uses there: ChangeOwnPassword feeds it
 	// to bcrypt.Compare, and Issue (M14-07) checks the sign-in's Proof against it and hands
-	// it to CreateAdminSession as @verified_digest, inside the same transaction. No
+	// it to identity_open_row_session as p_verified_digest, inside the same transaction. No
 	// secret-wrapper type is used or needed: the login resolver wraps its hash because it
 	// runs WITHOUT a tenant context and hands a value across a wider boundary; this read
 	// runs inside WithTenant and its result never leaves adminauth.
@@ -5568,7 +5417,7 @@ type Querier interface {
 	//
 	// THE LAST-OWNER INVARIANT IS THE CALLER'S (internal/adminauth.Memberships), under the lock the first
 	// statement below takes: every active owner row of the business, in id order, FOR NO KEY UPDATE --
-	// the strength a login's CreateAdminSession takes on a row, so two membership changes of one
+	// the strength a login's identity_open_row_session takes on a row, so two membership changes of one
 	// business serialise on the owners and a later one re-reads what an earlier one committed (READ
 	// COMMITTED re-checks a locked row's WHERE against its newest version).
 	// The business's active owners, locked in id order (one order for every caller: no lock cycle).
@@ -6580,6 +6429,104 @@ type Querier interface {
 	// last_used_at at most once a minute per key (ADR 0028 §3): a busy integration writes this row
 	// once a minute rather than once a request. A revoked key is not touched.
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) (int64, error)
+	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
+	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
+	// reads the login flow needs once the tenant is known.
+	//
+	// Every query below carries an EXPLICIT tenant_id predicate (CLAUDE.md section
+	// 4.5, belt + braces on top of RLS) and is meant to run inside
+	// db.(*DB).WithTenant, i.e. with app.tenant_id established. The TWO admin lookups
+	// that carry no tenant scope live elsewhere on purpose -- db/queries/resolve.sql,
+	// ADR 0002 madde 7 -- because there the tenant is the RESULT of the lookup, not an
+	// input. They are deliberately NOT duplicated here.
+	//
+	// SEPARATE FROM THE EMPLOYEE SESSION, STRUCTURALLY (M1-11). Nothing in this file
+	// touches `sessions`, `employees` or `employee_invites`, and nothing in
+	// db/queries/sessions.sql touches `admin_*`. An admin cookie resolves through
+	// resolve_admin_session_by_token_hash over admin_sessions; an employee cookie
+	// through resolve_session_by_token_hash over sessions. Two tables, two functions,
+	// two column sets -- a token from one is not a row in the other, so the isolation
+	// is a property of the schema and not of a flag anyone can mis-set.
+	//
+	// KIRMIZI CIZGI (section 4.7): the raw session token appears nowhere in this file
+	// and is not stored. Only token_hash is written or matched, and NO query below
+	// RETURNS it. The precise, grep-checkable form of that claim -- because a looser
+	// one was written here first and a grep refuted it: `token_hash` appears in NO
+	// RETURNING list and in NO select-list in this file. Until T187's contract (00087,
+	// ADR 0036) it appeared in one, the `SELECT a.tenant_id, a.id, @token_hash::text` of
+	// CreateAdminSession, as the value being inserted; that query is gone -- a panel
+	// session is born in identity_open_row_session (internal/db.OpenRowSession) and
+	// tappa_app holds no INSERT on admin_sessions. The property that actually matters is
+	// measured on the generated code: no *Row struct in internal/store/admins.sql.go
+	// carries a TokenHash field. So a row read
+	// cannot leak the hash into a log, and the guarantee survives a regeneration
+	// rather than depending on how this comment is worded. password_hash USED to be
+	// selected by no query in this file; T73 (change-my-own-password) changed that, and
+	// the claim is rewritten to stay honest and grep-checkable rather than quietly
+	// false. The digest is now read in EXACTLY TWO places: the context-less login
+	// resolver (db/queries/resolve.sql, where the tenant is the RESULT of the lookup)
+	// and GetAdminPasswordHashByID BELOW, the id+tenant-scoped read an ALREADY
+	// authenticated admin uses to re-verify their CURRENT password before setting a new
+	// one. Both return the digest to ONE caller (internal/adminauth), which hands it
+	// straight to bcrypt.Compare and never logs, emits or re-returns it. The measured,
+	// regeneration-proof form of the guarantee: in internal/store/admins.sql.go the ONLY
+	// *Row struct carrying a PasswordHash field is GetAdminPasswordHashByIDRow -- the two
+	// WRITERS (CreateAdminUser, SetOwnAdminPassword) name the column solely as the
+	// @password_hash parameter of an INSERT/UPDATE and their RETURNING lists omit it,
+	// exactly as @token_hash was written-not-returned in CreateAdminSession (gone, 00087), so a row read
+	// on either write path cannot leak the digest into a log.
+	//
+	// NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on both admin tables, so no
+	// application code path can destroy an admin or a session row (section 4.6).
+	// Revocation is a revoked_at stamp; disabling an admin is status='disabled'.
+	//
+	// WHAT THE DATABASE NOW ENFORCES THAT sessions.sql ONLY ASKED FOR. The employee
+	// file has to say "the protection against un-revoking is that NO QUERY IN THIS
+	// FILE DOES IT". For admin_sessions that is no longer discipline: 00011 revokes
+	// table-wide UPDATE (leaving column-level UPDATE on last_used_at and revoked_at
+	// only -- so token_hash and admin_user_id cannot be rewritten at all) and adds a
+	// BEFORE UPDATE trigger that refuses any change to a revoked_at that is already
+	// set. Measured: un-revoke, session-hijack-by-UPDATE and
+	// repoint-my-session-at-the-owner all succeeded before 00011 and all fail after.
+	// The remaining discipline is smaller but real: a NULL -> now() stamp is still
+	// free-form, so a query could stamp a future or past instant. No query here does.
+	//
+	// ⚠️ WHAT CLOSED IS THE PATH, NOT THE CAPABILITY -- the sentence above used to be
+	// read the other way and the correction is worth spelling out, because it changes
+	// who has to be careful.
+	//
+	// ✅ AND admin_users NO LONGER KEEPS A TABLE-WIDE UPDATE GRANT. This paragraph said it
+	// did, "deliberately (00011 argues it, correctly: nearly every column there is
+	// legitimately writable, so a column grant would merely enumerate the table)" --
+	// migration 00017 took that back and refuted the reason. The list 00011 called an
+	// enumeration IS the grant now (full_name, email, password_hash, role, status,
+	// last_login_at), and the three columns it OMITS are the point: `id` and `tenant_id`
+	// (identity) and `created_at` (the ordering 00017's whole security argument rests on
+	// -- a row whose created_at can be rewritten can be moved in front of an existing
+	// customer, which is the account lockout that file exists to close). Measured after
+	// 00017: relacl `tappa_app=ar`, and has_column_privilege for UPDATE on those three is
+	// false.
+	//
+	// THE EFFECTS BELOW WERE MEASURED BEFORE THAT NARROWING AND TWO OF THEM SURVIVE IT,
+	// which is why they are still here: `status` and `password_hash` and `role` are all in
+	// the new grant, because a panel that manages admins has to write them. So the
+	// reachability claim is unchanged -- only the columns it can reach through are.
+	// Measured live as tappa_app, inside its OWN tenant context:
+	//   UPDATE admin_users SET status = 'active'        WHERE ... -> UPDATE 1
+	//       the disable kill switch, undone.
+	//   UPDATE admin_users SET role = 'owner'           WHERE ... -> UPDATE 1
+	//       the SAME privilege escalation the column grant closed on admin_sessions.
+	//   UPDATE admin_users SET password_hash = '<mine>' WHERE ... -> UPDATE 1
+	//       STRONGER than what was closed: it survives revocation entirely.
+	// So the guarantee this file may claim is narrow and exact: no application code
+	// path can rewrite a SESSION's identity or resurrect its revocation. It may NOT
+	// claim that the underlying abilities are gone -- they are reachable through
+	// admin_users by any SQL that runs as tappa_app.
+	// WHOSE DEBT: M6-05 (panel-side admin management writes the legitimate UPDATEs and
+	// must scope them per column and per role) and M7-04 (password reset). Whoever
+	// writes those decides whether admin_users deserves its own column grants, a role
+	// guard, or an audit trigger; today the answer is "no query in this repo does it",
+	// which is exactly the discipline-not-structure position sessions.sql is in.
 	// THE per-request authority for the panel, and the reason the session resolver
 	// does not need to carry the admin's status. It does three things in one
 	// statement, so no code path can perform two of them and skip the third:

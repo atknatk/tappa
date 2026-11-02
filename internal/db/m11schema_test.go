@@ -429,8 +429,9 @@ var m11Columns = []m11Column{
 	// tappa_app SELECT table-wide (00006) and UPDATE only on last_used_at and revoked_at (00011):
 	// never on this one. 00071 (M14-04, the orchestrator's decision on M14-03's audit) narrows
 	// tappa_app's INSERT from the table to (id, tenant_id, admin_user_id, token_hash): the
-	// application can no longer CHOOSE a session's proof -- today's CreateAdminSession names three
-	// columns and takes the DEFAULT now(). tappa_identitydefiner reads it (the switch copies it
+	// application can no longer CHOOSE a session's proof -- CreateAdminSession named three columns
+	// and took the DEFAULT now(); 00087 (T187's contract, ADR 0036) took tappa_app's INSERT on
+	// admin_sessions altogether, which changes no cell here. tappa_identitydefiner reads it (the switch copies it
 	// from the old session's row; 00072's freshness checks) and writes it at birth (the login's
 	// now(), the switch's copy). 00085 (T183, ADR 0035): tappa_resolver reads it -- the panel resolver
 	// reports a session ended 12 hours after its proof; it never returns the column.

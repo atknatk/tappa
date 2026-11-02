@@ -9,7 +9,7 @@
 --
 -- THE LAST-OWNER INVARIANT IS THE CALLER'S (internal/adminauth.Memberships), under the lock the first
 -- statement below takes: every active owner row of the business, in id order, FOR NO KEY UPDATE --
--- the strength a login's CreateAdminSession takes on a row, so two membership changes of one
+-- the strength a login's identity_open_row_session takes on a row, so two membership changes of one
 -- business serialise on the owners and a later one re-reads what an earlier one committed (READ
 -- COMMITTED re-checks a locked row's WHERE against its newest version).
 
