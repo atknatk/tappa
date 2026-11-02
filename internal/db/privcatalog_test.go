@@ -219,7 +219,10 @@ SELECT line FROM (
 // other job, the confirmation windows' end, is data); 00085 -- T183, ADR 0035 (a panel session ends 12
 // hours after its password proof) -- granted tappa_resolver SELECT (authenticated_at) on admin_sessions,
 // the resolver's line above, and changed nothing else (tappa_identitydefiner has read the column since
-// 00071; its thirteen redefinitions keep owner, definer and EXECUTE) -- and READ
+// 00071; its thirteen redefinitions keep owner, definer and EXECUTE); 00086 -- T187, ADR 0036 (the
+// single-row panel session is born in a definer) -- added identity_open_row_session (EXECUTE tappa_app
+// and the owner) and NO grant (its body runs on the definer's 00071/00074 cells) and revoked nothing
+// (tappa_app's admin_sessions INSERT is ADR 0036's contract step) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -414,6 +417,7 @@ function identity_link_by_email(text,text) owner=tappa_identitydefiner definer=t
 function identity_link_legacy(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_memberships(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_reset(uuid,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function identity_open_row_session(uuid,uuid,text,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_session(uuid,uuid,text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_open_signup_claim(text,citext,jsonb,text,timestamp with time zone) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_password_for_session(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner

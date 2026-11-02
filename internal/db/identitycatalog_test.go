@@ -153,10 +153,19 @@ var identitySignaturesM1422 = []identitySignature{
 		"TABLE(linked integer, first_verification boolean, email text)", "tappa_identitydefiner"},
 }
 
+// identitySignaturesT187 is T187's part (migration 00086; ADR 0036, the user's decision of 2026-11-01):
+// the single-row panel session's birth, moved out of tappa_app's own INSERT. It answers the session and
+// the locked row's tenant and admin, or nothing.
+var identitySignaturesT187 = []identitySignature{
+	{"identity_open_row_session", "p_admin_user_id uuid, p_tenant_id uuid, p_token_hash text, p_verified_digest text, p_purpose text",
+		"TABLE(session_id uuid, tenant_id uuid, admin_user_id uuid)", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
 var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415,
-	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b, identitySignaturesM1406b, identitySignaturesM1422)
+	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b, identitySignaturesM1406b, identitySignaturesM1422,
+	identitySignaturesT187)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -1021,6 +1030,10 @@ func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup 
 	steps = append(steps, identityStep{name: "M14-16b owners who can sign in",
 		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,
 		sql:   adminOwnersByTenantSQL, args: []any{a}})
+	// T187 (00086): a session on business A's unlinked owner row, in A's own context, with its digest.
+	steps = append(steps, identityStep{name: "T187 open row session",
+		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,
+		sql:   openRowSessionSQL, args: []any{plain, a, opRandHex(t), opFakeDigest("a"), "sign_in"}})
 	// M14-06b: the reconciliation, last (it links every candidate group the savepoint sees), as its one
 	// caller; a fresh group of two rows is its candidate, so every statement of the body runs.
 	recMail := aiEmail()
@@ -1040,7 +1053,12 @@ func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup 
 // and under REPEATABLE READ a row another package updated after this transaction's snapshot answers
 // 40001 (adminbackfill_test.go's reason, the same statement shape).
 func TestIdentityDefiner_EveryGrantIsUsed(t *testing.T) {
-	ctx, tx := bfTx(t)
+	// bfTxAccessExclusive, not bfTx (T185, measured): identityExerciseSteps' last step ALTERs
+	// admin_users (contract B's CHECK), and asking for ACCESS EXCLUSIVE on top of bfTx's EXCLUSIVE is
+	// the upgrade bfTxForDDL's comment describes -- 40P01 beside a session that read admin_users and
+	// then asked for a row lock, 3 of 3 locally and on CI runs 41313723393 and 41318525388. Not
+	// bfTxForDDL either: see bfTxAccessExclusive.
+	ctx, tx := bfTxAccessExclusive(t)
 	signup := newIdentitySignupWorld(t, ctx, tx)
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 		if err := identityExercise(t, ctx, sp, signup); err != nil {

@@ -29,7 +29,7 @@ var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
 	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTxLocking", "opLiveFixture", "opTx"},
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTxOpen", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too
@@ -175,6 +175,7 @@ var tablesLockRowExempt = map[string]map[string]string{
 	"../../internal/handler": {
 		"TestIdentityAudit_TheDefinersRowsAreTheOrdinaryOnes":           "one owner transaction under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
 		"TestIdentityResetAudit_ALinkedRowsRecoveryRowIsTheHandlersRow": "one owner transaction per subtest under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
+		"TestIdentityAudit_TheRowSessionsRowIsTheOrdinaryOne":           "one owner transaction under pg_advisory_xact_lock_shared, rolled back: nothing is committed",
 	},
 }
 
@@ -1160,7 +1161,7 @@ func tablesLockOutsideFlaws(fset *token.FileSet, files []*ast.File, kind rowOuts
 	var bad []string
 	switch kind {
 	case rowOutsideExclusive:
-		// bfTx, bfTxForDDL and the bfTxLocking both open with: every way into the EXCLUSIVE transaction.
+		// bfTx, bfTxForDDL, bfTxAccessExclusive and the bfTxOpen they all open with: every way into the EXCLUSIVE transaction.
 		bf := reachers(files, func(c *ast.CallExpr) bool { return strings.HasPrefix(calleeKey(c), "bfTx") })
 		for _, f := range files {
 			for _, d := range f.Decls {

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -30,8 +31,9 @@ func redlineRun(t *testing.T, files map[string]string) (string, int) {
 
 // redlineExec is redlineRun without a *testing.T, so the shipped tree's scan can start before any
 // test does (prefetch_test.go): it builds the tree in dir (empty, owned by the caller) and runs the
-// script there. A cancelled ctx ends the script.
-func redlineExec(ctx context.Context, dir string, files map[string]string) (string, int, error) {
+// script there, with env (NAME=value) added to this process's environment. A cancelled ctx ends
+// the script through its own TERM trap (TestRedline_ACancelledScanRunsItsExitTrap).
+func redlineExec(ctx context.Context, dir string, files map[string]string, env ...string) (string, int, error) {
 	write := func(rel, body string) error {
 		p := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -71,9 +73,18 @@ func redlineExec(ctx context.Context, dir string, files map[string]string) (stri
 	}
 	cmd := exec.CommandContext(ctx, "bash", "scripts/redline-check.sh")
 	cmd.Dir = dir
-	// Cancelling kills bash; the one short child it may be running (grep, awk) ends by itself, and
-	// WaitDelay bounds the wait for the pipe that child holds. No process group of its own, so a
-	// terminal's Ctrl-C still reaches the scan.
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	// Cancelling sends bash SIGTERM, not exec's default SIGKILL (T185 audit): the script turns TERM
+	// into `exit 143`, which runs its EXIT trap -- the trap that removes its temp files from TMPDIR,
+	// the kind that holds line text. A SIGKILLed bash runs no trap and leaves them. bash runs the
+	// trap once the one short child it may be running (grep, awk, rg) has ended; measured on the
+	// whole shipped tree, signalled at seven moments from 0.5 s to 50 s in: exit 143 within 0.03 s,
+	// nothing left. WaitDelay stays the fallback: a bash still there 10 s after the signal is
+	// killed, and the wait for the pipe a child holds is bounded the same way. No process group of
+	// its own, so a terminal's Ctrl-C still reaches the scan.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 10 * time.Second
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {

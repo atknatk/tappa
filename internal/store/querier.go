@@ -1260,6 +1260,15 @@ type Querier interface {
 	// writes those decides whether admin_users deserves its own column grants, a role
 	// guard, or an audit trigger; today the answer is "no query in this repo does it",
 	// which is exactly the discipline-not-structure position sessions.sql is in.
+	// ⚠️ THE PREVIOUS BINARY'S STATEMENT, NO LONGER SENT BY THIS ONE (T187, ADR 0036, migration 00086).
+	// A panel session is born in identity_open_row_session (internal/db.OpenRowSession), which holds the
+	// conditions below IN THE DATABASE -- plus unlinked_at IS NULL and the transaction's tenant context --
+	// because tappa_app's own INSERT on admin_sessions let any other statement skip them. This query stays
+	// for the expand deploy only: the binary before 00086 sends it during the rollout, and the tests that
+	// prove it still works on the new schema send this generated text. ADR 0036's contract step deletes it
+	// together with tappa_app's INSERT grant; no non-test Go code may call it
+	// (TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone).
+	//
 	// Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
 	// tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
 	// yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never
@@ -3784,6 +3793,12 @@ type Querier interface {
 	ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesParams) ([]ListAPIEmployeesRow, error)
 	// The panel's list: newest first, revoked ones included (the owner sees what was issued and
 	// when it stopped working). token_hash is not readable by tappa_app and is not named.
+	//
+	// The creator's name and membership status ride along (T174, ADR 0028's 2026-11-01 note): a key
+	// is the BUSINESS's, so a key whose creator's membership was disabled keeps working, and the list
+	// says so next to the creator rather than the resolver refusing it. created_by is a composite FK
+	// onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
+	// key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
 	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
 	// what was sent and what became of it).

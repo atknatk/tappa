@@ -128,3 +128,41 @@ func TestDevelopers_OneTableAndOneListFromTheSameRows(t *testing.T) {
 		t.Error("the test-message bucket does not read Limit less Spent")
 	}
 }
+
+// TestDevelopers_ADisabledCreatorIsMarkedBesideTheCreator (T174): each key names its creator on both
+// renderings; a creator whose membership is disabled carries a "Creator disabled" pill -- beside the
+// creator, never in place of the key's Live/Revoked pill -- and while such a key is LIVE the list
+// says in a sentence that it keeps working. A revoked key of a disabled creator gets the pill and no
+// sentence (nothing to act on).
+func TestDevelopers_ADisabledCreatorIsMarkedBesideTheCreator(t *testing.T) {
+	const pill = `<span class="mono-pill border-line">Creator disabled</span>`
+	const sentence = "it keeps working"
+	v := developersFixture()
+	v.Keys[0].CreatedBy, v.Keys[0].CreatorDisabled = "Lena Spiteri", true
+	v.Keys[1].CreatedBy = "Maria Borg"
+	page := renderAPIKeys(t, v)
+	if n := strings.Count(page, pill); n != 2 {
+		t.Errorf("%d markers, want 2 (the live key of a disabled creator, table and list)", n)
+	}
+	for _, line := range []string{"by Lena Spiteri", "by Maria Borg"} {
+		if n := strings.Count(page, line); n != 2 {
+			t.Errorf("%q is drawn %d times, want 2", line, n)
+		}
+	}
+	if n := strings.Count(page, `<span class="mono-pill border-tappa-green bg-tappa-green/10">Live</span>`); n != 2 {
+		t.Errorf("the key's own Live pill is drawn %d times, want 2: the marker must not replace it", n)
+	}
+	if !strings.Contains(page, sentence) {
+		t.Error("a live key of a disabled creator: the sentence is missing")
+	}
+
+	v = developersFixture()
+	v.Keys[1].CreatedBy, v.Keys[1].CreatorDisabled = "Lena Spiteri", true
+	page = renderAPIKeys(t, v)
+	if strings.Count(page, pill) != 2 || strings.Contains(page, sentence) {
+		t.Error("a revoked key of a disabled creator: want the marker and no sentence")
+	}
+	if strings.Contains(renderAPIKeys(t, developersFixture()), pill) {
+		t.Error("CONTROL: no disabled creator, yet a marker")
+	}
+}

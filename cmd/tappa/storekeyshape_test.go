@@ -485,8 +485,9 @@ var storeSurface = map[string]string{
 	"SetLocationExternalRef":           "(context.Context, SetLocationExternalRefParams{ExternalRef *string; TenantID uuid.UUID; ID uuid.UUID}) (SetLocationExternalRefRow{ID uuid.UUID; ExternalRef *string}, error)",
 	// M11 API-3 (migration 00051): the integration keys. The hash goes IN (InsertAPIKey) and
 	// never comes back -- no row type carries token_hash, and tappa_app cannot read the column.
-	"InsertAPIKey":          "(context.Context, InsertAPIKeyParams{TenantID uuid.UUID; Name string; TokenHash string; PrefixHint string; CreatedBy uuid.UUID}) (InsertAPIKeyRow{ID uuid.UUID; CreatedAt time.Time}, error)",
-	"ListAPIKeys":           "(context.Context, uuid.UUID) ([]ListAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; CreatedBy uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"InsertAPIKey": "(context.Context, InsertAPIKeyParams{TenantID uuid.UUID; Name string; TokenHash string; PrefixHint string; CreatedBy uuid.UUID}) (InsertAPIKeyRow{ID uuid.UUID; CreatedAt time.Time}, error)",
+	// T174: the list also reads the creating membership's name and status (never its address).
+	"ListAPIKeys":           "(context.Context, uuid.UUID) ([]ListAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; CreatedBy uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time; CreatorName string; CreatorStatus string}, error)",
 	"RevokeAPIKey":          "(context.Context, RevokeAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (RevokeAPIKeyRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
 	"RevokeAllAPIKeys":      "(context.Context, uuid.UUID) ([]RevokeAllAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
 	"TouchAPIKey":           "(context.Context, TouchAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",

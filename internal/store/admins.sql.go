@@ -140,6 +140,15 @@ type CreateAdminSessionRow struct {
 // writes those decides whether admin_users deserves its own column grants, a role
 // guard, or an audit trigger; today the answer is "no query in this repo does it",
 // which is exactly the discipline-not-structure position sessions.sql is in.
+// ⚠️ THE PREVIOUS BINARY'S STATEMENT, NO LONGER SENT BY THIS ONE (T187, ADR 0036, migration 00086).
+// A panel session is born in identity_open_row_session (internal/db.OpenRowSession), which holds the
+// conditions below IN THE DATABASE -- plus unlinked_at IS NULL and the transaction's tenant context --
+// because tappa_app's own INSERT on admin_sessions let any other statement skip them. This query stays
+// for the expand deploy only: the binary before 00086 sends it during the rollout, and the tests that
+// prove it still works on the new schema send this generated text. ADR 0036's contract step deletes it
+// together with tappa_app's INSERT grant; no non-test Go code may call it
+// (TestOpenRowSession_HasItsTwoCallersAndTheOldInsertNone).
+//
 // Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
 // tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
 // yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never

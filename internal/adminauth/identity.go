@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/db"
-	"github.com/atknatk/tappa/internal/store"
 )
 
 // identity.go -- signing a PERSON in through their identity (ADR 0031 §5.6, §5.7; M14-07).
@@ -338,9 +337,11 @@ func (m *Manager) openIdentitySession(ctx context.Context, v verifiedIdentity, w
 }
 
 // openLegacyProofSession writes the legacy side of a link's proof: a session on the row whose
-// password just verified, under CreateAdminSession's digest predicate and share lock (the digest is
-// the one the password was compared with, from the resolver -- no Proof round trip is needed inside
-// one sign-in). authenticated_at takes its DEFAULT, now(): the session is fresh. It writes no audit
+// password just verified, under identity_open_row_session's digest predicate and row lock (T187, ADR
+// 0036 -- CreateAdminSession's before 00086; the digest is the one the password was compared with,
+// from the resolver -- no Proof round trip is needed inside one sign-in). authenticated_at is the
+// function's now(): the session is fresh. Its audit row is the function's admin.session.link_proof (ADR
+// 0036) -- never a sign-in row. It writes no audit
 // row and stamps no last_login_at: it is a proof that identity_link_legacy revokes, not a sign-in.
 func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid.UUID, digest db.PasswordHash) (proofSession, error) {
 	t, err := newToken()
@@ -351,21 +352,16 @@ func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid
 	if err != nil {
 		return proofSession{}, err
 	}
-	var row store.CreateAdminSessionRow
+	var row db.IdentitySession
 	err = m.data.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
-		row, e = store.New(tx).CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TokenHash:      h,
-			AdminUserID:    admin,
-			TenantID:       tenant,
-			VerifiedDigest: digest.RevealForPasswordComparison(),
-		})
+		row, e = db.OpenRowSession(ctx, tx, admin, tenant, h, digest, db.RowSessionLinkProof)
 		return e
 	})
 	if err != nil {
 		return proofSession{}, err
 	}
-	return proofSession{tenant: tenant, id: row.ID, hash: h}, nil
+	return proofSession{tenant: tenant, id: row.SessionID, hash: h}, nil
 }
 
 // revokeProofs revokes proof sessions that no link consumed. Every one is attempted; the failures

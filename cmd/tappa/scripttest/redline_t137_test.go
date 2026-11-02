@@ -1,7 +1,6 @@
 package scripttest
 
 import (
-	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -200,7 +199,8 @@ func TestRedline_T137_StringAndEnvironmentSwitches(t *testing.T) {
 // FAILs; a comment inside a pinned body is not code.
 //
 // T185: the shipped tree's scan is ONE run of the real script per test process (shippedScan,
-// prefetch_test.go), started by TestMain beside the sequential phase; this test reads its result.
+// prefetch_test.go), started by TestMain beside the sequential phase; this test reads its result
+// (a repeated run under -count > 1 scans afresh, shippedScanResult.take).
 // It was ~1 s of bash per shipped migration inside the sequential phase (88 s of a 377 s package
 // locally). The anti-vacuity check below keeps the shared tree honest: it is every shipped *.sql.
 func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
@@ -208,13 +208,24 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 	if _, err := exec.LookPath("rg"); err != nil {
 		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
 	}
-	shippedScan.once.Do(func() { shippedScan.scanTree(context.Background()) })
-	if shippedScan.err != nil {
-		t.Fatalf("the shipped migrations' scan: %v", shippedScan.err)
+	scan, fresh := shippedScan.take()
+	if fresh {
+		t.Log("a repeated run (-count > 1): this run scanned the shipped tree afresh")
 	}
-	tree, out, code := shippedScan.tree, shippedScan.out, shippedScan.code
-	if onDisk, err := filepath.Glob(filepath.Join(repoRoot, "db", "migrations", "*.sql")); err != nil || len(onDisk) != len(tree) || len(tree) < 50 {
+	if scan.err != nil {
+		t.Fatalf("the shipped migrations' scan: %v", scan.err)
+	}
+	tree, out, code := scan.tree, scan.out, scan.code
+	// Anti-vacuity: the scanned tree is every shipped *.sql, by count AND by name (T185 audit: a
+	// count alone holds for a tree with one migration swapped for another).
+	onDisk, err := filepath.Glob(filepath.Join(repoRoot, "db", "migrations", "*.sql"))
+	if err != nil || len(onDisk) != len(tree) || len(tree) < 50 {
 		t.Fatalf("anti-vacuity: the scanned tree holds %d migrations, db/migrations %d (%v)", len(tree), len(onDisk), err)
+	}
+	for _, p := range onDisk {
+		if _, ok := tree["db/migrations/"+filepath.Base(p)]; !ok {
+			t.Fatalf("anti-vacuity: db/migrations/%s is on disk but not in the scanned tree", filepath.Base(p))
+		}
 	}
 	const warned = "govdede statik DDL"
 	if code != 0 || failSection(out, "R5b") != "" {
