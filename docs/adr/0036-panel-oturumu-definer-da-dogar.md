@@ -125,7 +125,9 @@ gibi **abartıydı**. Doğrusu iki ayrı tehdit için ayrı ayrı:
   (password_hash)` taşır (00017), `app.tenant_id`'yi kendisi yazar (`set_config(…, true)`) ve digest'i
   okur (`resolve_admin_by_email`, `GetAdminPasswordHashByID`). Yani satırı yeniden `active` yapar,
   istediği tenant bağlamını kurar, digest'i okur ve fonksiyon ona **taze, 12 saatlik bir oturum doğurur.**
-  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır:
+  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır. **İlk üç madde contract'tan
+  sonra geçerlidir; expand penceresinde `tappa_app`'ın doğrudan INSERT'i üçünü de atlar** (ölçüldü: o yolda
+  audit satırı yok):
   - reddedilmiş üyelik (`unlinked_at`) oturum almaz — `tappa_app` sütunu ne okuyabilir ne yazabilir (R16);
   - oturumun id'si ve kanıt anı (`authenticated_at = now()`) seçilemez;
   - her doğum işletmenin `audit_log`'una `tappa_app`'ın silemeyeceği bir satır bırakır (00006 DELETE'i

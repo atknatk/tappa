@@ -221,9 +221,10 @@ const (
 	// Sustainable, from anywhere, at eleven requests per window against a ceiling of
 	// twenty — i.e. a stranger could make somebody else's password change invisible.
 	// That is §4.6's core ("kayıt asla kaybolmaz"), and the precedent refuting it was
-	// already in this package and pointing the other way: adminlogin.go writes
-	// ActionAdminLoginSucceeded with a direct a.record and applies its account budget
-	// only inside failLogin's FAILURE loop. "A successful state transition can never
+	// already in this package and pointing the other way: the sign-in's
+	// ActionAdminLoginSucceeded row is written unconditionally by the definer
+	// (identity_open_row_session / identity_open_session), and adminlogin.go applies its
+	// account budget only inside failLogin's FAILURE loop. "A successful state transition can never
 	// be silenced" is this repository's existing rule; the recovery flow broke it.
 	//
 	// THE DIVIDING TEST, AND IT IS THE ONE THAT SURVIVED THE MEASUREMENT: can an

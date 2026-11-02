@@ -47,7 +47,9 @@
 -- barrier: tappa_app holds UPDATE (status) and UPDATE (password_hash) on admin_users (00017), sets
 -- app.tenant_id itself (set_config) and reads digests (resolve_admin_by_email,
 -- GetAdminPasswordHashByID), so it can reactivate a row, choose any tenant context, read the digest and
--- have this function birth a session. What the database enforces against THAT attacker: a refused
+-- have this function birth a session. What the database enforces against THAT attacker -- and the first
+-- three hold only AFTER the contract: during the expand window tappa_app's raw INSERT on admin_sessions
+-- bypasses all three (measured: no audit row on that path) -- a refused
 -- membership (unlinked_at, which tappa_app can neither read nor write) gets no session; the session's id
 -- and its proof instant are not chosen; every birth leaves an audit_log row tappa_app cannot delete
 -- (00006 revokes DELETE) -- and, after the contract, there is no second statement that births one.
