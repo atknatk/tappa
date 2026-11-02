@@ -207,7 +207,7 @@ func TestAdminLoginIdentity_EveryFailureIsTheSameBody(t *testing.T) {
 }
 
 // TestAdminLoginIdentity_LegacyRowsSignInAsToday: no identity session, legacy rows verified (§5.6's
-// transition arm): one row -> Issue and the handler's own success row; two -> the picker, and the
+// transition arm): one row -> Issue (its success row is the definer's, ADR 0036); two -> the picker, and the
 // choice issues the chosen row. K-4's "no picker" is the identity path's alone (bulgu 10).
 func TestAdminLoginIdentity_LegacyRowsSignInAsToday(t *testing.T) {
 	a := adminauth.Attempt{AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: true, Active: true}
@@ -226,8 +226,9 @@ func TestAdminLoginIdentity_LegacyRowsSignInAsToday(t *testing.T) {
 		if len(admins.issuedFor) != 1 || admins.issuedFor[0].AdminUserID != a.AdminUserID {
 			t.Fatalf("Issue was asked for %+v, want the one legacy row", admins.issuedFor)
 		}
-		if n := trail.count(ActionAdminLoginSucceeded); n != 1 {
-			t.Errorf("%d admin.login.succeeded rows for a legacy sign-in, want the handler's one", n)
+		// The row is identity_open_row_session's since T187 (ADR 0036): the handler writes none.
+		if n := trail.count(ActionAdminLoginSucceeded); n != 0 {
+			t.Errorf("%d admin.login.succeeded rows from the handler for a legacy sign-in, want 0 -- the definer writes it", n)
 		}
 	})
 

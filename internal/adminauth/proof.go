@@ -16,8 +16,9 @@ import (
 // Proof binds a Verified to the digest its password verified against (ADR 0031 §5.2,
 // identity_unlink_backfilled's row; M14-07).
 //
-// WHY IT EXISTS. A session is written by CreateAdminSession, whose INSERT ... SELECT now takes the
-// row only while `a.password_hash = <the verified digest>` holds under the row's share lock: a
+// WHY IT EXISTS. A session is written by identity_open_row_session (00086, ADR 0036; CreateAdminSession's
+// INSERT ... SELECT before it), which takes the row only while `a.password_hash = <the verified digest>`
+// holds under the row's lock: a
 // membership refused from an identity gets a SENTINEL digest in the refusing transaction, a password
 // change or a reset gets a new one, and tappa_app cannot read unlinked_at (R16) -- so "the digest is
 // still the one the password verified" is the one test the session write can make. Issue therefore
@@ -28,8 +29,8 @@ import (
 // and it says nothing about the digest to anyone without that key.
 //
 // WHAT Issue DOES WITH IT: it reads the row's CURRENT digest inside the session's transaction,
-// checks the proof against it in constant time, and hands that digest to CreateAdminSession. The
-// proof covers the time from the comparison to that read; the statement's predicate and FOR NO KEY UPDATE
+// checks the proof against it in constant time, and hands that digest to identity_open_row_session. The
+// proof covers the time from the comparison to that read; the function's predicate and FOR NO KEY UPDATE
 // cover the time from that read to the write.
 //
 // IT IS A VALUE TYPE (an array, no pointer), so two Verified values compare equal exactly when
