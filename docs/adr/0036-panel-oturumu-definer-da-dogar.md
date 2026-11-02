@@ -142,16 +142,17 @@ gibi **abartıydı**. Doğrusu iki ayrı tehdit için ayrı ayrı:
   (password_hash)` taşır (00017), `app.tenant_id`'yi kendisi yazar (`set_config(…, true)`) ve digest'i
   okur (`resolve_admin_by_email`, `GetAdminPasswordHashByID`). Yani satırı yeniden `active` yapar,
   istediği tenant bağlamını kurar, digest'i okur ve fonksiyon ona **taze, 12 saatlik bir oturum doğurur.**
-  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır. **İlk üç madde contract'tan
-  sonra geçerlidir; expand penceresinde `tappa_app`'ın doğrudan INSERT'i üçünü de atlar** (ölçüldü: o yolda
-  audit satırı yok). **Contract notu (2026-11-02, 00087):** bu çekince 00087 canlıya çıktığında kalkar —
-  `tappa_app` `admin_sessions`'a hiçbir sütunla INSERT edemez (42501; `TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s`),
-  dolayısıyla aşağıdaki dört madde o andan itibaren her oturum doğumu için geçerlidir:
+  Veritabanının bu saldırgana karşı gerçekten zorunlu kıldığı yalnız şunlardır. **Dört madde de contract'tan
+  sonra geçerlidir (00087, 2026-11-02; canlıda 00087'nin deploy'uyla):** expand penceresinde (00086 ile 00087
+  arası) `tappa_app`'ın doğrudan INSERT'i hepsini atlıyordu (ölçüldü: o yolda audit satırı yok). 00087'den beri
+  `tappa_app` `admin_sessions`'a hiçbir sütunla INSERT edemez (42501;
+  `TestRevokeAdminSessionInsert00087_NoAppInsertAndTheDownGivesBack00071s`), dolayısıyla dört madde her oturum
+  doğumu için geçerlidir:
   - reddedilmiş üyelik (`unlinked_at`) oturum almaz — `tappa_app` sütunu ne okuyabilir ne yazabilir (R16);
   - oturumun id'si ve kanıt anı (`authenticated_at = now()`) seçilemez;
   - her doğum işletmenin `audit_log`'una `tappa_app`'ın silemeyeceği bir satır bırakır (00006 DELETE'i
     alır; Karar 4);
-  - contract'tan sonra oturum doğuran ikinci bir ifade kalmaz.
+  - oturum doğuran ikinci bir ifade kalmaz (`CreateAdminSession` 00087'de silindi).
 - **Tehdit 2 — binary'nin kendi hatası** (yanlış bir `(admin, tenant)` çifti, atlanmış bir koşul, bayat bir
   kanıt, unutulmuş bir sorgu yüklemi). `status`, tenant bağlamı, `tenant_id` yüklemi ve güncel digest
   koşulları **buna karşı** korur: bunlar önceden yalnız sorgu metnine emanetti, artık veritabanındadır.
