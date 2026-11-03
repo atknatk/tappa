@@ -96,11 +96,11 @@ type ProductFigures struct {
 // internal/handler/product_facts_test.go; the closure test reads this block like the
 // one in landingview.go.
 const (
-	// A tap the engine decides is written and ends on the result screen's docket,
-	// stamped with its verdict's word: APPROVED, FLAGGED, REJECTED or IGNORED. Derived
-	// from pages/result.templ (the docket and its stamp's four words) and the tap
-	// handler rendering pages.Result for a recorded outcome.
-	FactRecordedTapEndsOnAStampedDocket Fact = "templ:Result docket+stamp's four words"
+	// A tap the engine decides is written and ends on the result screen's docket with the
+	// venue and the time. Derived from pages/result.templ (the docket; no stamp and no word of
+	// approval since the user's §9 decisions of 2026-11-02) and the tap handler rendering
+	// pages.Result for a recorded outcome.
+	FactRecordedTapEndsOnADocket Fact = "templ:Result docket with venue+time, no stamp, no approval sentence"
 	// A counted tap's screen ends on "All done — you can close this page." and nothing on
 	// the result screen records a tap: it carries no link, and its one possible form is the
 	// claim card's (M15-17, ADR 0032 §C.1), which sends a claim to the manager and writes no
@@ -278,12 +278,12 @@ func ProductCopy(f ProductFigures) ProductText {
 					FactPositionReadOnlyOnPress),
 				l("If the same person taps again within "+debounce+" (the default window), that tap is ignored.",
 					FactDebounceIsPerPersonOnTheServerClock),
-				l("A recorded tap ends on a stamped docket: APPROVED, FLAGGED, REJECTED or IGNORED.",
-					FactRecordedTapEndsOnAStampedDocket),
+				l("A recorded tap ends on a docket with the venue and the time.",
+					FactRecordedTapEndsOnADocket),
 			},
 		},
 		TapCapTap:   l("What opens when the phone touches the plaque.", FactTapPageNeedsNoApp, FactPlaqueIdentifiesThePlace),
-		TapCapFlag:  l("When the evidence is short, the screen says so.", FactRecordedTapEndsOnAStampedDocket, FactFlaggedQueueDecidedByAManager),
+		TapCapFlag:  l("When the evidence is short, the tap ends on the same docket and the record waits in a manager's queue.", FactRecordedTapEndsOnADocket, FactFlaggedQueueDecidedByAManager),
 		TeamHeading: l("One screen, one large button.", FactTapScreenIsOneButtonAndACorrection),
 		TeamLede: l("No menu, no settings, no history to scroll: a greeting, the venue that was tapped and one large button "+
 			"that says Clock in or Clock out. If Taptime's guess is wrong, a small “Not right?” under it records the "+
@@ -304,8 +304,8 @@ func ProductCopy(f ProductFigures) ProductText {
 			},
 			{
 				Title: l("Done means done", FactResultScreenRecordsNoOtherTap),
-				Body: l("A counted tap ends on its stamp and “All done — you can close this page.” Nothing on it records another tap.",
-					FactResultScreenRecordsNoOtherTap, FactRecordedTapEndsOnAStampedDocket),
+				Body: l("A counted tap ends on its time and “All done — you can close this page.” Nothing on it records another tap.",
+					FactResultScreenRecordsNoOtherTap, FactRecordedTapEndsOnADocket),
 			},
 		},
 
@@ -491,14 +491,9 @@ func DrawnTapButtons(d TapDirection) string {
 // record in focus names it (LandingPanelSpikeFocus).
 const ProductTapPlaque = "KF MSIDA · PLAQUE 7E10"
 
-// ProductTapNote is the sentence the result screen prints under a tap the evidence could
-// not place: the deciding rule's own (base:no-evidence-review).
-const ProductTapNote = "neither IP nor GPS could place this tap"
-
 // ProductTapClosing is what the result screen says under a flagged tap
 // (pages/result.templ closing).
 var ProductTapClosing = []string{
-	"Recorded — it needs your manager's approval before it counts toward your hours. Tell them if that looks wrong.",
 	"You can close this page.",
 }
 

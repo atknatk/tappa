@@ -540,9 +540,9 @@ func consentOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 	if res.StatusCode != http.StatusOK {
 		return false
 	}
-	privacy, err := c.Get(p.server.URL + "/activate?step=2")
+	privacy, err := c.Get(p.server.URL + "/activate?step=1")
 	if err != nil {
-		t.Fatalf("GET step 2: %v", err)
+		t.Fatalf("GET step 1: %v", err)
 	}
 	page := readAll(t, privacy)
 	done, err := c.PostForm(p.server.URL+"/api/activate", url.Values{
@@ -552,7 +552,7 @@ func consentOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
 	readAll(t, done)
-	return done.StatusCode == http.StatusOK && done.Request.URL.Query().Get("step") == "3"
+	return done.StatusCode == http.StatusOK && done.Request.URL.Query().Get("step") == "2"
 }
 
 // TestPanelEmployeesDB_ADeactivatedPersonGetsNoInvitation. The consuming statement

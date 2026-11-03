@@ -72,18 +72,19 @@ gereği biyometri/WebAuthn/attestation değil.** Karar o zaman verilir.
 
 ### B3 — Saklama süresinin hukuki onayı (Q13)
 
-**Durum:** açık · **Bloklar:** hiçbir şeyi (kod hazır) · **İlgili:** Q13, M5-02, M8-06
+**Durum:** açık · **Bloklar:** M8-06 pilot kapısı · **İlgili:** Q13, M5-02, M8-06
 
-**Ne yapılacak.** `TAPPA_RETENTION_YEARS`'in **gerçek** değerini bir hukukçuya doğrulat
-(Malta/AB istihdam + bordro/vergi saklama yükümlülüğü) ve `.env`'e yaz.
+**Ne yapılacak.** Saklama süresinin **gerçek** değerini bir hukukçuya doğrulat
+(Malta/AB istihdam + bordro/vergi saklama yükümlülüğü) ve yayınlanacak gizlilik politikasına yaz.
 
-**Neden önemli.** Bu sayı **GDPR Art. 13 aydınlatma metninde çalışana gösteriliyor** —
-yani hukuki bir beyan. Yanlışsa metin çalışana yanlış bilgi vermiş olur.
+**Neden önemli.** Kullanıcının 2026-11-03 kararından beri aktivasyon ekranı süre vermiyor;
+çalışan süreyi yalnız gizlilik politikasından öğrenir (GDPR Art. 13(2)(a); ADR 0026'nın o tarihli
+notu). Yanlışsa politika çalışana yanlış bilgi vermiş olur.
 
-**Kod tarafı hazır ve bu yüzden bloklamıyor** (kullanıcı kararı 2026-07-31): sayı
-**koda gömülmedi**, config'den geliyor; aydınlatma metni onu render ediyor. Dev/demo
-değeri bir **varsayılan**dır, hukuki iddia değildir — kod bunu böyle söylüyor.
-Doğru değer öğrenilince tek yapılacak `.env`'i güncellemek; sürüm çıkmaya gerek yok.
+**Kod tarafı (2026-11-03).** `TAPPA_RETENTION_YEARS` açılışta zorunlu ve aralık denetimli, varsayılanı
+yok (kullanıcı kararı 2026-07-31), ama **hiçbir ekran ya da akış onu okumuyor** ve hiçbir kod kayıtları ona
+göre silmiyor. `.env`'i güncellemek bu yüzden hiçbir şeyi değiştirmez. Değişken kalsın mı, kalkacak mı
+**açık karardır**: kullanıcı karar verene dek kalır.
 
 **Sonuç çıkınca:** [open-questions.md](plan/open-questions.md) → Q13'e yaz ve buradaki
 maddeyi "Kapananlar"a taşı. Q13 ayrıca "GDPR silme talebi × immutable `transactions`"

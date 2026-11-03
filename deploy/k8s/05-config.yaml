@@ -113,21 +113,22 @@ data:
   # load balancer is added here in the same edit that adds it to the cluster.
   TAPPA_WEBHOOK_BLOCKED_ADDRESSES: "144.76.158.60,2a01:4f8:200:3164::/64"
 
-  # 🟡 TAPPA_RETENTION_YEARS — TEMPORARY, AND IT IS A LEGAL STATEMENT RATHER THAN A
-  # SETTING (backlog B3 / open question Q13).
+  # 🟡 TAPPA_RETENTION_YEARS — REQUIRED AT BOOT, READ BY NOTHING, AND UNRESOLVED
+  # (backlog B3 / open question Q13).
   #
-  # This number is printed verbatim to an employee in the GDPR Art. 13 notice on the
-  # activation screen. internal/config gives it no default on purpose: a figure that
-  # appeared out of a Go constant would be this repository inventing a legal claim on
-  # a customer's behalf (user decision, 2026-07-31). The value below is the same
-  # DEVELOPMENT PLACEHOLDER .env.example carries and it has NOT been through a
-  # lawyer. It is written here because the process will not boot without one, not
-  # because two years is the answer.
+  # internal/config requires it and checks its range when the process starts, with no
+  # default on purpose: a figure out of a Go constant would be this repository inventing
+  # a legal claim on a customer's behalf (user decision, 2026-07-31). But no screen or
+  # flow has read it since the user's decision of 2026-11-03 took the period off the
+  # activation screen, and no code deletes records by it. The value below is the same
+  # DEVELOPMENT PLACEHOLDER .env.example carries and it has NOT been through a lawyer.
+  # It is written here because the process will not boot without one, not because two
+  # years is the answer. The variable stays until the user decides.
   #
-  # 🔴 THE PILOT GATE ALREADY DEPENDS ON THIS. M8-06's gate lists "saklama süresi ve
-  # silme/anonimleştirme akışı karara bağlı (Q13)" as one of six boxes that must be
-  # ticked BEFORE real employees tap. Deploying with this placeholder is fine;
-  # PILOTING with it is not, and this comment is where that distinction is recorded.
+  # 🔴 THE PILOT GATE STILL HOLDS. M8-06's gate lists "saklama süresi ve silme/
+  # anonimleştirme akışı karara bağlı (Q13)" among the boxes that must be ticked BEFORE
+  # real employees tap, and the privacy policy must now carry the period (ADR 0026's
+  # note of 2026-11-03). Changing this number changes nothing an employee sees.
   TAPPA_RETENTION_YEARS: "2"
 
   # 🔴 TRANSACTIONAL E-MAIL (ADR 0022; M10 EM-3) — BOTH FLOWS ON SINCE 2026-10-09, BY

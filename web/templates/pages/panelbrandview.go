@@ -31,7 +31,7 @@ type PanelBrand struct {
 	// Theme is the accent's stylesheet. Linked, the shell writes it after app.css and
 	// the chrome draws the stripe, which reads the accent; the zero value does neither.
 	Theme layout.Theme
-	// Preview is the same logo as the TAP SCREEN's header draws it -- the stored box,
+	// Preview is the same logo as the TAP SCREEN's header draws it -- the same box,
 	// the business's name as its alt -- but served by the panel's route
 	// (layout.PreviewLogo): the Account editor's preview (M10 WL-7) draws it. The chrome
 	// does not. The handler builds it from the same read, in the same branch, as Logo,

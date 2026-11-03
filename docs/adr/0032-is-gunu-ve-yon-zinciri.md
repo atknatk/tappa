@@ -566,6 +566,8 @@ motor karar verir. GPS çağrısı tek kalır (§4.2).
 *"M15 öncesi, motorun seçimi"*), manuel satırlarda NULL. İstek politika bağlamına girmez. Reject /
 ignored / redirect'te istek düşer ve iki sütun NULL.
 
+*(2026-11-02, kullanıcının §9 kararı: çalışanın sonuç ekranı artık not basmaz; `EmployeeNote` ve `EmployeeNoteAsked` motorda hesaplanır, handler okumaz. Bu paragraftaki ekran cümleleri o güne dek geçerlidir; kayıt notu değişmedi. ADR 0023 *"Çalışan ekranları notu"*.)*
+
 **İki dil:** kaydın notu (müdür, rapor) *"direction chosen by employee"*; çalışanın sonuç ekranındaki
 not (`EmployeeNote`, ADR 0029'un ayrımı) insan dilinde *"You chose Clock out."*. Aynı ayrım açık
 bırakılan giriş notunda: kayıt *"previous check-in left open (no checkout recorded)"*, ekran
@@ -619,8 +621,8 @@ sonra, isteğe bağlı **tek** kart (kullanıcının §9 onayı):
   iki **çıkış** çapası yarışırsa (dünden açık A ve bugün çalışanın *"Not right? Clock in"* seçimiyle açık
   bıraktığı B) en taze çapa (B) gösterilir; A anomali listesinde.
 - Kart yalnız sonucu **`ok` ya da `flag`** olan (yönlü) bir dokunuşta çıkar; `ignored` ve `reject`
-  sonucunda kart yoktur ve bu dokunuşlar gösterim fırsatı sayılmaz (yönsüzdürler). `flag`'te kapanış
-  cümlesi kartın altında kalır.
+  sonucunda kart yoktur ve bu dokunuşlar gösterim fırsatı sayılmaz (yönsüzdürler). Kapanış cümlesi kartın
+  altında kalır (`flag`'te 2026-11-02'den beri yalnız *"You can close this page."*, kullanıcının §9 kararı — ADR 0023).
 - **Yalnız M15 sonrası çapalar:** çapanın `business_day_start`'ı **dolu** olmalı (ürün merceği Ü-Y2). Yayın
   günü ters zincirden kalan eski girişler için *"What time did you leave?"* yanlış sorudur — onlar yalnız
   anomali listesinde.
@@ -791,7 +793,7 @@ hâlde *"default not changed"* sunucunun seçtiği değerde yanlış çıkardı)
 günlerinde pencere içindeki adaylardan **erken** olanıdır; ilkbaharda yaşanmamış saatin adayı yoktur → form yeniden.
 `Submit` pencereyi ve ön dolguyu kilit altında yine kendisi hesaplar. (3) **Okumanın yeri (G-O5):** kayıt commit
 edildikten sonra, isteğin değerleriyle ve iptali olmadan, `resultClaimWait` (2 sn) sınırıyla; hata ya da zaman aşımı
-kartı düşürür, sonuç ekranı kartsız hâliyle bayt bayt aynıdır. (4) **Not bastırma yapısal:** motor ekran notunu iki
+kartı düşürür, sonuç ekranı kartsız hâliyle bayt bayt aynıdır. (4) *(2026-11-02: ekran artık not basmaz, bu madde tarihseldir; ADR 0023.)* **Not bastırma yapısal:** motor ekran notunu iki
 biçimde kurar (`EmployeeNote`, `EmployeeNoteAsked` — aynı parçalar, açık bırakma parçası hariç); kart **bu dokunuşun
 açık bıraktığı** girişi soruyorsa ekran ikincisini gösterir; kaydın notu değişmez. (5) **Kamu metni:** `/product`'ın
 *"There is no button on it."* cümlesi kart yüzünden yanlış oldu; *"Nothing on it records another tap."* ile
@@ -800,7 +802,7 @@ değiştirildi ve olgu yeniden türetildi (kullanıcının *"Metni M15'e göre y
 `TestClaim_ACrossLabelOrForeignContextIsRefusedAndNothingIsSent`,
 `TestResolveClaimedAt_TheEarlierOfARepeatedAutumnHourAndTheDefaultAsItCame`,
 `TestResultScreen_AFailedOrLateCardReadDrawsTheScreenWithoutIt`,
-`TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally`, `TestClaimDB_TheCardIsShownOnTwoTapsOnly`.
+`TestResultScreen_PrintsNoEmployeeNoteWithOrWithoutACard`, `TestClaimDB_TheCardIsShownOnTwoTapsOnly`.
 *Düzeltme turu (2026-10-26, M15-17 mercekleri).* (6) **"Zaten gönderildi" pencereden önce:** formun alamadığı saat
 (boş, saat değil, pencere dışı) `Submit`'e **ansız** (sıfır an) gider; `Submit` önce gönderilmiş talebe bakar
 (*"Sent"*), sonra ansızlığı pencere dışı sayar — not (5) artık handler'da da doğru. (7) **Panik:** sonuç ekranının

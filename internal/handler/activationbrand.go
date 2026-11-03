@@ -3,18 +3,19 @@ package handler
 // activationbrand.go -- a business's brand on the activation family (M10 WL-13; ADR
 // 0023's WL-13 note, ADR 0024 §5's WL-13 note) and the wizard's own logo route.
 //
-// THE USER'S DECISIONS (2026-10-09, §9). (1) The wizard's four steps, "Activation
-// complete" and "already set up" take the tap screen's shape: the header (a logo in the
-// 24 px slot over "taptime · punchless") and the accent. (2) The logo only for a
+// THE USER'S DECISIONS (2026-10-09, §9; the header's shape 2026-11-02, §9). (1) The
+// wizard's three steps, "Activation complete" and "already set up" take the business's
+// header (a logo centred in a 56 px slot, no co-brand line; layout.BrandHeader) and
+// the accent. (2) The logo only for a
 // business VIES verified; the accent and the Taptime wordmark either way. (3) The accent
 // fills the wizard's primary buttons; beside it the wizard's other green marks turn ink.
 // The failure screens and the "phone already in use" confirmation stay Taptime's: they
 // take no brand (pages.Problem, pages.Confirm), because a business's look is known only
 // from a usable invitation and would tell a live link from a dead one.
 //
-// TWO LOGO ROUTES ACROSS THE SIX SCREENS, AND WHY:
+// TWO LOGO ROUTES ACROSS THE FIVE SCREENS, AND WHY:
 //
-//	wizard, steps 1-4         GET /activate/logo/{sha} (this file). The browser holds an
+//	wizard, steps 1-3         GET /activate/logo/{sha} (this file). The browser holds an
 //	                          invitation in the activation cookie and NO session, so the
 //	                          tap route -- which answers only a live employee session --
 //	                          would 404 it. This route resolves the business from that
@@ -26,7 +27,7 @@ package handler
 //	                          name. A cookie-keyed route would have nothing to resolve.
 //
 // THE VIES GATE IS IN THE READS, NOT IN EITHER ROUTE'S HANDLER: tenant.BrandReader's
-// ActivationBrand gives no logo for a business not verified, so none of the six screens
+// ActivationBrand gives no logo for a business not verified, so none of the five screens
 // draws an <img> for one (and none names img-src); ActivationLogo's statement carries
 // vat_verified IS TRUE in its WHERE, so this route has no bytes for one. The tap route is
 // NOT gated, deliberately: it serves only a live session, and that session sees the

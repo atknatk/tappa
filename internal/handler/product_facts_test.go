@@ -118,7 +118,7 @@ func renderTapAndResults(t *testing.T) (map[pages.TapDirection]string, map[strin
 	results := map[string]string{}
 	for _, v := range []string{"ok", "flag", "reject", "ignored"} {
 		b.Reset()
-		view := pages.ResultView{Verdict: v, Venue: "Sample Venue", At: "09:41:00", Trust: tap.TrustBase}
+		view := pages.ResultView{Verdict: v, Venue: "Sample Venue", At: "09:41:00"}
 		if v == "ok" || v == "flag" {
 			view.Direction = "in"
 		}
@@ -130,7 +130,7 @@ func renderTapAndResults(t *testing.T) (map[pages.TapDirection]string, map[strin
 	asking := map[string]string{}
 	for _, v := range []string{"ok", "flag"} {
 		b.Reset()
-		view := pages.ResultView{Verdict: v, Direction: "in", Venue: "Sample Venue", At: "09:41:00", Trust: tap.TrustBase}
+		view := pages.ResultView{Verdict: v, Direction: "in", Venue: "Sample Venue", At: "09:41:00"}
 		card := pages.ClaimCardView{Lead: "Yesterday you clocked in at 09:12 but there's no clock-out.",
 			Question: "What time did you leave?", Context: "ctx", Value: "17:00"}
 		if err := pages.ResultAsking(view, layout.Logo{}, card).Render(context.Background(), &b); err != nil {
@@ -256,23 +256,29 @@ func noControl(src string) string {
 
 // --- the derivations -----------------------------------------------------------------
 
-// recordedDocketViolation is FactRecordedTapEndsOnAStampedDocket: the result screen is a
-// docket with the verdict's stamp, the stamp prints the four words, and the tap handler
-// renders it for a recorded tap.
+// recordedDocketViolation is FactRecordedTapEndsOnADocket: the result screen is a docket with
+// the venue and the time, it carries no stamp, its closing says nothing of approval, and the tap
+// handler renders it for a recorded tap.
 func recordedDocketViolation(s productFactSources) string {
 	// Result and ResultAsking (M15-17) are one body, result's; Result must still be it.
 	if !strings.Contains(templBody(s.Result, "Result"), "@result(v, logo, nil)") {
 		return "pages/result.templ's Result is no longer the docket body"
 	}
 	body := templBody(s.Result, "result")
-	if !strings.Contains(body, `<section class="docket">`) || !strings.Contains(body, "@stamp(v)") {
-		return "pages/result.templ's Result is no longer a docket carrying the verdict's stamp"
-	}
-	stamp := templBody(s.Result, "stamp")
-	for _, w := range [][2]string{{"approved", "APPROVED"}, {"flagged", "FLAGGED"}, {"rejected", "REJECTED"}, {"ignored", "IGNORED"}} {
-		if !strings.Contains(stamp, `stamp--`+w[0]+`">`+w[1]+`<`) {
-			return "the result screen's stamp no longer prints " + w[1]
+	for _, w := range []string{`<section class="docket">`, "{ v.Venue }", "{ v.At }"} {
+		if !strings.Contains(body, w) {
+			return "pages/result.templ's Result is no longer a docket with " + w
 		}
+	}
+	if strings.Contains(s.Result, `class="stamp`) {
+		return "pages/result.templ draws a stamp again"
+	}
+	flag := s.Result[strings.Index(s.Result, `case "flag":`):]
+	if end := strings.Index(flag, `case "ignored":`); end > 0 {
+		flag = flag[:end]
+	}
+	if strings.Contains(flag, "approval") || strings.Contains(flag, "manager") {
+		return "the result screen's flag branch speaks of approval again"
 	}
 	if !strings.Contains(s.TapHandler, "view := resultView(res)") || !strings.Contains(s.TapHandler, "pages.Result(view, logo)") {
 		return "the tap handler no longer renders pages.Result for a recorded tap"
@@ -809,7 +815,7 @@ func webhookEndpointViolation(s productFactSources) string {
 
 // productDerivationFuncs is each fact's derivation over the sources.
 var productDerivationFuncs = map[pages.Fact]func(productFactSources) string{
-	pages.FactRecordedTapEndsOnAStampedDocket:       recordedDocketViolation,
+	pages.FactRecordedTapEndsOnADocket:              recordedDocketViolation,
 	pages.FactResultScreenRecordsNoOtherTap:         resultRecordsNoOtherTapViolation,
 	pages.FactTapScreenIsOneButtonAndACorrection:    tapScreenViolation,
 	pages.FactRecordsReadForAnyEarlierDay:           earlierDayViolation,
@@ -885,10 +891,10 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		name string
 		edit func(*productFactSources)
 	}{
-		{pages.FactRecordedTapEndsOnAStampedDocket, "the result screen is no docket", replace(result, `<section class="docket">`, `<section class="slip">`)},
-		{pages.FactRecordedTapEndsOnAStampedDocket, "the stamp loses IGNORED", replace(result, `stamp--ignored">IGNORED<`, `stamp--ignored">DONE<`)},
-		{pages.FactRecordedTapEndsOnAStampedDocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(view, logo)", "pages.Other(view, logo)")},
-		{pages.FactRecordedTapEndsOnAStampedDocket, "Result stops being the docket body", replace(result, "@result(v, logo, nil)", "@other(v, logo)")},
+		{pages.FactRecordedTapEndsOnADocket, "the result screen is no docket", replace(result, `<section class="docket">`, `<section class="slip">`)},
+		{pages.FactRecordedTapEndsOnADocket, "the flag branch speaks of approval", replace(result, `case "flag":`, `case "flag": needs your manager's approval`)},
+		{pages.FactRecordedTapEndsOnADocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(view, logo)", "pages.Other(view, logo)")},
+		{pages.FactRecordedTapEndsOnADocket, "Result stops being the docket body", replace(result, "@result(v, logo, nil)", "@other(v, logo)")},
 		{pages.FactResultScreenRecordsNoOtherTap, "the card posts somewhere else", replace(func(s *productFactSources) *string { return &s.ClaimCard }, `action="/api/claim"`, `action="/api/checkin"`)},
 		{pages.FactResultScreenRecordsNoOtherTap, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "t.claims.Submit(", "t.checkins.Record(")},
 		{pages.FactResultScreenRecordsNoOtherTap, "the screen with a card gains a link", func(s *productFactSources) {
@@ -1118,23 +1124,17 @@ func TestProductPage_EveryIndexEntryLandsOnItsSection(t *testing.T) {
 // --- the drawings --------------------------------------------------------------------------
 
 // productTapProblems is every way the two phones depart from what the product draws for
-// their record: the engine's verdict, score and sentence, the tap screen's greeting, and
-// the result screen's words.
-func productTapProblems(t *testing.T, d pages.PanelDocket, note string, closing []string, plaque string) []string {
+// their record: the engine's verdict, the tap screen's greeting, and the result screen's
+// words, which name no stamp, score or rule's sentence.
+func productTapProblems(t *testing.T, d pages.PanelDocket, closing []string, plaque string) []string {
 	t.Helper()
 	var out []string
 	dec := tap.Decide(panelEngineInput(d, false))
 	if string(dec.Verdict) != "flag" || d.Verdict != "flag" {
 		out = append(out, fmt.Sprintf("the phones draw a flagged result and the engine decides %q", dec.Verdict))
 	}
-	if strconv.Itoa(dec.Trust) != d.Trust {
-		out = append(out, fmt.Sprintf("the result prints trust %s and the engine scores %d", d.Trust, dec.Trust))
-	}
-	if dec.EmployeeNote != note {
-		out = append(out, fmt.Sprintf("the result prints %q and the engine's sentence for the employee is %q", note, dec.EmployeeNote))
-	}
 	var b bytes.Buffer
-	view := pages.ResultView{Verdict: string(dec.Verdict), Venue: d.Venue, At: d.At, Trust: dec.Trust, Note: dec.EmployeeNote}
+	view := pages.ResultView{Verdict: string(dec.Verdict), Venue: d.Venue, At: d.At}
 	if dec.Type != nil {
 		view.Direction = string(*dec.Type)
 	}
@@ -1142,7 +1142,7 @@ func productTapProblems(t *testing.T, d pages.PanelDocket, note string, closing 
 		t.Fatal(err)
 	}
 	result := screenText(t, b.String())
-	for _, want := range append([]string{"Clocked in", d.Venue, "FLAGGED", "Trust " + d.Trust, note}, closing...) {
+	for _, want := range append([]string{"Clocked in", d.Venue}, closing...) {
 		if !strings.Contains(result, asRendered(want)) {
 			out = append(out, fmt.Sprintf("the result screen does not say %q for this tap", want))
 		}
@@ -1359,7 +1359,7 @@ func TestProductPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 	docs := policy.Baseline()
 	seed, venues, rows := seedPeople(t), seedVenues(t), seedVenueRows(t)
 
-	for _, p := range productTapProblems(t, pages.ProductTapSample, pages.ProductTapNote, pages.ProductTapClosing, pages.ProductTapPlaque) {
+	for _, p := range productTapProblems(t, pages.ProductTapSample, pages.ProductTapClosing, pages.ProductTapPlaque) {
 		t.Error(p)
 	}
 	for _, p := range productPeopleProblems(pages.ProductPeople, seed, venues, roster) {
@@ -1425,8 +1425,8 @@ func TestProductPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 		pages.ProductTapPlaque,
 		"Sample screen: the tap screen — Hello " + d.Who + ", " + d.Venue + ", a " + tw[0] + " button and a small “" + tw[1] + "” under it",
 		"Tapping Hello " + d.Who + " " + d.Venue + " " + tw[0] + " " + tw[1],
-		"Sample screen: the result of a flagged tap — Clocked in " + d.At + ", FLAGGED",
-		d.Venue + " Clocked in " + d.At + " FLAGGED Trust " + d.Trust + " " + pages.ProductTapNote + " " + strings.Join(pages.ProductTapClosing, " "),
+		"Sample screen: the result of a tap with short evidence — Clocked in " + d.At,
+		d.Venue + " Clocked in " + d.At + " " + strings.Join(pages.ProductTapClosing, " "),
 	}
 	want = append(want, panelDrawingWant()...)
 	people := []string{"Sample screen: People", "Kebab Factory People " + pages.ProductPeopleAdd + " " + strings.Join(pages.ProductPeopleChips, " ")}
@@ -1455,11 +1455,11 @@ func TestProductPage_TheDrawingsAreWhatTheProductWouldDraw(t *testing.T) {
 
 	// CONTROLS, one per drawing.
 	far := pages.ProductTapSample
-	far.Trust = "50"
-	if len(productTapProblems(t, far, pages.ProductTapNote, pages.ProductTapClosing, pages.ProductTapPlaque)) == 0 {
-		t.Error("CONTROL: a flagged tap drawn with a score of 50 passed")
+	far.Verdict = "ok"
+	if len(productTapProblems(t, far, pages.ProductTapClosing, pages.ProductTapPlaque)) == 0 {
+		t.Error("CONTROL: a tap drawn as anything but flagged passed")
 	}
-	if len(productTapProblems(t, pages.ProductTapSample, pages.ProductTapNote, []string{"All done — you can close this page."}, pages.ProductTapPlaque)) == 0 {
+	if len(productTapProblems(t, pages.ProductTapSample, []string{"All done — you can close this page."}, pages.ProductTapPlaque)) == 0 {
 		t.Error("CONTROL: a flagged result drawn with the counted tap's closing passed")
 	}
 	people0 := slices.Clone(pages.ProductPeople)

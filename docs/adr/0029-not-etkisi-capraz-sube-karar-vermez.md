@@ -155,7 +155,7 @@ yalnız **sıkılaştırır** ve yalnız başka şubede.
    Mekâna bağlı eski `allow` kopyası bütün kanıt kuralları **açıkken** de o mekânda
    kanıtsız dokunuşu `ok` (trust 20) yapar — T125 karar 4'te kabul edildi; kapatma yolu
    tenant'ın kopyayı kapatmasıdır.
-2. **Çalışanın sonuç ekranı değişmez.** `tap.Decision.EmployeeNote` = kuralın cümlesi +
+2. *(2026-11-02, kullanıcının §9 kararı: sonuç ekranı artık hiçbir not basmaz, `EmployeeNote`'u handler okumaz; kayıt notu aynen kalır — ADR 0023.)* **Çalışanın sonuç ekranı değişmez.** `tap.Decision.EmployeeNote` = kuralın cümlesi +
    yön notu, `note` etkilerinin cümleleri **hariç**; sonuç ekranı onu basar, kayıt notu
    (`Decision.Note`) aynen kalır. Ev şubesinde iki not aynı dizgidir (36 render'lık golden
    bayt-aynı). *"Başka şube cümlesi görünmez"* yalnız `note` etkisi için birebirdir: kararı

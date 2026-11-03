@@ -11,7 +11,7 @@ import (
 )
 
 // Binding is the consent binding (ADR 0026): a random token minted when the
-// employee agrees to the GDPR notice, kept ONLY in that browser's HttpOnly
+// employee agrees to the activation notice, kept ONLY in that browser's HttpOnly
 // activation cookie, and stored server-side as an HMAC on the invitation
 // (employee_invites.consent_binding_hash, migration 00035).
 //

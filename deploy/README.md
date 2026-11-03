@@ -8141,9 +8141,11 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
    başka bir ürünün altyapısı ve `tappa` namespace'i ona **rıza vermeden** dahil
    edilmiş durumda).
 3. **🔴 M8-06 PİLOT KAPISI.** Yukarıdaki 2. madde kapanmadan gerçek çalışan tap
-   atmamalı: Tappa'nın kendi kayıtları için `TAPPA_RETENTION_YEARS` bir beyan taşıyor
-   (Q13), ama **log'lar o beyanın kapsamında değil** ve bugün süreleri bilinmiyor.
-   Bilinmeyen bir saklama süresi, GDPR Art. 13 metninde verilen sayıyı yalanlayabilir.
+   atmamalı: Tappa'nın kendi kayıtları için saklama süresi çözülmedi (Q13) ve 2026-11-03
+   kullanıcı kararından beri aktivasyon ekranı süre vermiyor; `TAPPA_RETENTION_YEARS`'i hiçbir
+   ekran ya da akış okumuyor. Süreyi yayınlanacak gizlilik politikası taşımak zorunda
+   (ADR 0026'nın o tarihli notu) ve **log'lar** bugün süresi bilinmeyen bir veridir: bilinmeyen
+   bir saklama süresi, politikanın yazacağı sayıyı yalanlayabilir.
 
 ### 🔴 M8-03 — UYARI KURALLARI
 
@@ -8567,9 +8569,10 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
    karşılanmıyor (kullanıcı kararı, uyarıldıktan sonra). Bir gecelik yedek, node
    ölürse **son 24 saate kadar** kayıp demektir; senkron replika demek değildir.
    Ayrıntı `k8s/10-postgres.yaml` başında.
-2. **`TAPPA_RETENTION_YEARS=2` GEÇİCİ.** Bu sayı çalışana GDPR Art. 13 metninde
-   gösteriliyor, yani hukuki bir beyan; hukukçu onayı bekliyor (Q13 / backlog B3).
-   Deploy için kabul, **pilot için değil** — M8-06 kapısının maddelerinden biri.
+2. **`TAPPA_RETENTION_YEARS=2` GEÇİCİ.** Açılışta zorunlu ve aralık denetimli, ama 2026-11-03
+   kullanıcı kararından beri hiçbir ekran ya da akış okumuyor ve hiçbir kod buna göre silmiyor.
+   Saklama süresi çözülmedi (Q13 / backlog B3); değişken kullanıcı karar verene dek kalır.
+   Deploy için kabul, **pilot için değil** — Q13 M8-06 kapısının maddelerinden biri.
 3. **~~`TAPPA_RESET_DELIVERY=none` (ve `TAPPA_INVITE_DELIVERY=panel`)~~ — KAPANDI,
    2026-10-09:** iki akış da `email` (kullanıcı kararı, EM-5B; ADR 0022 *"EM-5B notu"*).
    Q02'nin cevabı ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); sıfırlama kanalı

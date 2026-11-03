@@ -9,7 +9,7 @@ package handler
 //
 // A THIRD LOGO ROUTE LIVES IN activationbrand.go (M10 WL-13): GET /activate/logo/{sha},
 // keyed by the invitation in the activation cookie and gated on VIES, for the wizard's
-// four steps, which a browser sees before it holds a session. It answers through
+// steps, which a browser sees before it holds a session. It answers through
 // serveLogo below, so its 200, its 304 rule and its refusal are these routes' own; its
 // claim is written there.
 //

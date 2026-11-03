@@ -95,11 +95,26 @@ const (
 	inkMarkHTML     = `<header class="flex items-baseline justify-between"><span class="font-display text-lg font-bold tracking-tight text-ink">taptime</span> <span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">punchless</span></header>`
 )
 
-// logoHeaderHTML is K-2b's header: the logo in the 24 px slot, its stored box as width
-// and height, the business's name as alt, and the co-brand line under it.
+// logoBoxOf is the box the header computes for a stored w x h: at most 56 px tall, never
+// larger than stored, and at least 1 px wide.
+func logoBoxOf(w, h int) (int, int) {
+	if h <= 56 {
+		return w, h
+	}
+	bw := (2*w*56 + h) / (2 * h)
+	if bw < 1 {
+		bw = 1
+	}
+	return bw, 56
+}
+
+// logoHeaderHTML is the header for a logo stored at w x h (user §9 decisions of 2026-11-02):
+// centred in the 56 px slot, its computed box as width and height, the business's name as
+// alt, and no co-brand line.
 func logoHeaderHTML(sha string, w, h int, alt string) string {
-	return `<header class="flex flex-col items-start gap-1"><img src="/t/logo/` + sha + `" width="` + strconv.Itoa(w) + `" height="` + strconv.Itoa(h) +
-		`" alt="` + alt + `" class="h-6 w-auto max-w-[50%] object-contain object-left"> <span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">taptime · punchless</span></header>`
+	bw, bh := logoBoxOf(w, h)
+	return `<header class="flex h-14 items-center justify-center"><img src="/t/logo/` + sha + `" width="` + strconv.Itoa(bw) + `" height="` + strconv.Itoa(bh) +
+		`" alt="` + alt + `" class="max-h-14 max-w-[70%] object-contain"></header>`
 }
 
 var headerRE = regexp.MustCompile(`<header[^>]*>.*?</header>`)
@@ -116,8 +131,8 @@ func withoutBrandSlots(body []byte) string {
 // shapes (M15-12: no prediction, "Clock in", "Clock out"). For each: the header is exactly
 // the decided markup; the theme stylesheet is linked (right after app.css) exactly when there
 // is an accent; the page outside those two slots is byte for byte the unbranded page's of the
-// same shape; the one new text is the logo's alt (the co-brand line carries the two words the
-// wordmark already had); the screen still has one primary button -- one tap-button class, its
+// same shape; the one new text is the logo's alt, and the wordmark's two words go with the wordmark
+// (user §9 decisions of 2026-11-02); the screen still has one primary button -- one tap-button class, its
 // words "Tap", "Clock in" or "Clock out", submitting the form -- and the "Not right? …" button
 // under a direction takes NO accent: no tap-button class and no brand-reading class, so the
 // theme's one slot (ADR 0023 §2) cannot reach it; and the policy names img-src exactly when
@@ -149,7 +164,7 @@ func TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse(t *testing.T) {
 			t.Fatalf("%s: unbranded GET /t = %d", shape.name, plain.status)
 		}
 		unbrandedText := "Tap — Taptime taptime punchless " + greeting + shape.words
-		logoText := "Tap — Taptime " + brandTestName + " taptime · punchless " + greeting + shape.words
+		logoText := "Tap — Taptime " + brandTestName + " " + greeting + shape.words
 		cases := []struct {
 			name         string
 			logo, accent bool

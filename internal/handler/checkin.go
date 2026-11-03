@@ -279,19 +279,12 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// post and its own bound (claim.go, G-O5); none, failed or late -> no card, and the
 		// screen below is the one it would have been.
 		cardCtx, cancelCard := context.WithTimeout(post, t.claimWait)
-		card := afterCommit(cardCtx, t, "the claim card", func() *resultCard { return t.resultClaim(cardCtx, id, res) })
+		card := afterCommit(cardCtx, t, "the claim card", func() *pages.ClaimCardView { return t.resultClaim(cardCtx, id, res) })
 		cancelCard()
 		view := resultView(res)
 		screen := pages.Result(view, logo)
 		if card != nil {
-			if card.asksLeftOpen {
-				// The card asks what the left-open sentence says (product lens N6): the
-				// screen's note is the same parts without that one -- the engine built it
-				// beside the whole note, so nothing is cut out of a string here. The
-				// record's note is untouched.
-				view.Note = res.Decision.EmployeeNoteAsked
-			}
-			screen = pages.ResultAsking(view, logo, card.view)
+			screen = pages.ResultAsking(view, logo, *card)
 		}
 		t.render(w, r.WithContext(post), http.StatusOK, withDevStrip(screen, t.devTools, false), logo.Drawn())
 	}
@@ -422,7 +415,7 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 // resultView maps a domain Result onto the screen's view model.
 //
 // IT IS THE WHOLE OF THE RESPONSE CONTRACT, and it is why no internal/store type
-// can reach the wire: the view model has fields for a stamp, a sentence and a
+// can reach the wire: the view model has fields for a verdict, a venue and a
 // clock time, and nothing that could hold a database row, a policy version id or
 // a tenant id. The mapping is explicit rather than a struct copy for exactly that
 // reason.
@@ -432,9 +425,9 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 // missing zone falls back to UTC and says so, rather than silently showing a time
 // that is an hour out.
 //
-// THE NOTE IS THE EMPLOYEE'S, NOT THE RECORD'S (ADR 0029 follow-up, user decision
-// 2026-10-19): tap.Decision.EmployeeNote leaves out the sentences note effects add --
-// the cross-location one above all -- which stay on the record and in the report.
+// NO NOTE AND NO TRUST SCORE (user §9 decision of 2026-11-02): the engine still computes
+// and stores both, and they stay on the record, the manager's docket and the report. The
+// view has no field for them.
 //
 // BusinessType is copied for ONE purpose and is never printed: result.templ
 // switches on it to pick which fixed brand sentence a good tap ends with (M5-06).
@@ -444,10 +437,8 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 func resultView(res checkin.Result) pages.ResultView {
 	v := pages.ResultView{
 		Verdict:      string(res.Decision.Verdict),
-		Note:         res.Decision.EmployeeNote,
 		Venue:        res.LocationName,
 		At:           localClock(res.OccurredAt, res.Timezone),
-		Trust:        res.Decision.Trust,
 		BusinessType: res.BusinessType,
 	}
 	if res.Decision.Type != nil {
@@ -457,14 +448,16 @@ func resultView(res checkin.Result) pages.ResultView {
 	return v
 }
 
-// localClock renders an instant in the tenant's zone as HH:MM:SS.
+// localClock renders an instant in the tenant's zone as HH:MM, for the employee's result screen
+// (user decision of 2026-11-02). The record keeps its seconds, and the panel's docket, the
+// reports, the CSV and the API print theirs.
 func localClock(t time.Time, timezone string) string {
 	if timezone != "" {
 		if loc, err := time.LoadLocation(timezone); err == nil {
-			return t.In(loc).Format("15:04:05")
+			return t.In(loc).Format("15:04")
 		}
 	}
-	return t.UTC().Format("15:04:05") + " UTC"
+	return t.UTC().Format("15:04") + " UTC"
 }
 
 // parseFix turns the two coordinate fields into a point, or nil.

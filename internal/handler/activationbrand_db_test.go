@@ -173,7 +173,7 @@ func TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed(t *testing.T) {
 	vc := open(verified)
 	page := get(t, r, "/activate", vc)
 	body := page.Body.String()
-	wantHeader := activationLogoHeaderHTML("/activate/logo/", verified.logo.SHA256, verified.logo.Width, verified.logo.Height, "wl13-activation-fixture")
+	wantHeader := activationHeaderOf("/activate/logo/", verified.logo.SHA256, verified.logo.Width, verified.logo.Height, "wl13-activation-fixture")
 	if headerRE.FindString(body) != wantHeader || !strings.Contains(body, appCSSLink+themeLink) ||
 		page.Header().Get("Content-Security-Policy") != activationPolicyLogo {
 		t.Fatalf("verified, step 1: header %q, policy %q", headerRE.FindString(body), page.Header().Get("Content-Security-Policy"))

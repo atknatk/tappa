@@ -167,6 +167,77 @@ sayfasında yok. Testler: `TestDevToolsEnabled_IsDevOnALoopbackAddressOnly`,
 `TestDevTap_DoesNotExistOutsideDevelopment`, `TestDevStrip_OnlyOnADevelopmentDeployment`,
 `TestDevTapDB_ASimulatedTapActivatesThroughTheRealPath`.
 
+## Kısaltma notu (2026-11-02, kullanıcının §9 kararı)
+
+Karar 1'in dört adımı **üçe** indi (`GET /activate?step=1..3`): (1) hoş geldin + gizlilik bildirimi +
+tek düğme *"Agree and continue"* (tek form) · (2) hazırlan · (3) bekleme ekranı. **Onay kutusu
+kalktı:** `consent=yes` değeri düğmenin üzerindedir (gizli alan değil), yani sunucunun değişmeyen
+denetimi yine birinin düğmeye bastığını ölçer; değersiz POST yine reddedilir, iz bırakır (`failAttempt`)
+ve hiçbir şey kaydetmez. Başka çalışanın oturumunu devralma kutusu **kalır** (`required`): okuma
+metni değil, güvenlik denetimidir; uyarılar düğmenin üstünde, bir kez görünür. Bildirim üç kısa
+maddedir ve şunları korur: ne kaydedilir, ne amaçla (*"{işveren} uses Taptime to record your
+shifts"*), ne kadar saklanır, sorumlu (işveren), işleyen (Taptime), erişim/düzeltme yolu (müdür). **Bu,
+Art. 13'ün tamamını karşıladığı iddiası değildir:** hukuki dayanak ne eski ne yeni bildirimde yazılıdır
+ve metin hukuk incelemesini bekler. Metinde *"controller"* yerine *"responsible"* yazar; bu, hukuk
+incelemesine bırakılmış bir sade dil tercihidir. Onaysız ziyaret her adımda 1'e kısılır; aralık
+dışı numara (eski `?step=4` bağlantısı) `/activate` gibi davranır. Şema, `invite.RecordConsent`,
+denetim eylemi ve bağlama **değişmedi** — yalnız arayüz hareketi değişti. Tek aktivasyonun bütçe
+maliyeti 8 → 7 istek; hiçbir sınır değişmedi (`ratelimit.go`). Başlık için ADR 0023'ün 2026-11-02 notu.
+Testler: `TestWizardStep_ClampsAndStaleLinksAreSafe`, `TestWizard_TheAgreeButtonIsTheOnlyForm`,
+`TestWizard_TheNoticeKeepsItsFacts`, `TestWizard_TheWarningsSitAboveTheAgreeButtonOnce`,
+`TestSubmit_ConsentIsRequired`. Yukarıdaki Karar 1 metni tarihsel olarak yerinde bırakıldı.
+
+## Kısa bildirim ve şartlar penceresi notu (2026-11-03, kullanıcının §9 kararı)
+
+Kullanıcı: *"activasyon icin step 1 sayfasini daha anlasilir ve basit yaparmiyiz daha kisa bir aciklama ve
+sartlari kabul ettigi asamada yazinin ustune bir link ile acilir bir pop up orada ise gpdr detayi gibi
+detaylari kullanim sozlesmesi vs."* 1. adım artık tek
+kısa paneldir (liste ve alt başlık yok); düğmenin hemen üstünde *"By continuing, you agree to the **terms and
+privacy details.**"* bağlantısı vardır. 2026-11-02 notunun *"üç kısa madde"*si buraya taşındı ve genişledi:
+pencere (*"Terms and privacy"*) sorumlu, kaydedilenler, çerez, amaç, süre, haklar ve `/legal/privacy` +
+`/legal/terms` bağlantılarını (yeni sekme) taşır. **Hâlâ Art. 13'ün tamamını karşıladığı iddiası değildir;**
+hukuki dayanak yazılı değildir, metin hukuk incelemesini bekler.
+
+**Mekanizma betik değildir:** 1. adım betik yüklemez, sihirbaz betiksiz çalışır. Pencere CSS `:target`'tır
+(`#terms`, `.terms-sheet`, sunucuda çizilir, formun dışında). Aç/kapa bir parça gezinmesidir: sayfa yeniden
+yüklenmez, devralma kutusu işaretini korur, adrese kod değil yalnız parça eklenir. *Close* `#terms-open`'a
+(açan bağlantıya) gider, çıplak `#`'e değil: odak bağlantıya döner ve kısa telefonda düğme ekrandan kaçmaz.
+Pencere açıkken sihirbazın öteki çocukları `visibility:hidden` olur (sekme sırası ve erişilebilirlik ağacı;
+`:has` desteklemeyen tarayıcıda arkada erişilebilir kalırlar); accent almaz. Odak tuzağı yoktur.
+
+**Metin düzeltmesi (ölçüldü):** *"as set by your employer"* düştü, cümle *"Kept for {N} years."*tir. Süre
+`TAPPA_RETENTION_YEARS` dağıtım ayarıdır; hiçbir işletme onu değiştiremez, yani cümle yanlıştı ve aynı ekrandaki
+yapılandırma bildirimiyle de çelişiyordu. Bu sayı için **saklama süresini uygulayan bir silme akışı da yoktur**
+(Q13 açık); ekran süreyi söyler, kod onu henüz uygulamaz.
+
+**Metin düzeltmesi (denetim, aynı gün):** *"Nothing is recorded between taps."* düştü, yerine *"Your location is
+never tracked between taps."* geldi: dokunuşlar arasında kayıt doğabilir (manuel kayıt, `punch_claims`). Konum artık
+*"if your phone shares it"* diye koşulludur: reddedilir, alınamaz ya da betik kapalıysa kayıtta konum yoktur
+(`web/static/js/tap.js`). Panel ve pencere aynı cümleleri taşır.
+
+**Bu sürüm üretime çıkmamalı, karar alınmış değildir:** as of 2026-11-03 https://taptime.mt/legal/privacy ve /legal/terms üretimde hâlâ *"not published yet / nothing on this page is in force"* bloğunu gösteriyor (curl ile okundu) ve /legal/terms Taptime ile abone olan kuruluş arasındaki sözleşmeyi anlatıyor; çalışan onun tarafı değil. Dolayısıyla 1. adımın şartlar bağlantısı, metinler
+yayınlanana ve *"you agree to the terms"* ifadesini bir hukukçu netleştirene dek üretime ulaşmamalı. *"Kept for N
+years"* ve silme hakkının arkasında henüz kod yoktur (Q13); ikisi de M8-06 pilot kapısının mevcut Q13 maddesine bağlıdır.
+Dal `main`'e birleşirse deploy olur (CLAUDE.md §10), kapı birleştirmeden önce okunur.
+
+**Süre ve haklar pencereden kalktı (aynı gün, kullanıcının ikinci §9 kararı):** *"term and privacy popup i icin
+verilerin ne kadar tutuldugu bilgisini vermeyelim ve your right kismina gerek yok full documents icin de daha fazla
+bilgi icin buralari ziyaret edebilirsiniz gibi bir ibare kullanabiliriz"*. Pencerede artık sorumlu, kaydedilenler,
+amaç ve *"For more information, visit:"* + iki bağlantı vardır; *"How long"*, yapılandırma bildirimi, *"Your rights"*
+ve *"Full documents"* başlığı yoktur. Bu notun ve 2026-11-02 notunun süre ve haklardan söz eden cümleleri o günün
+ekranını anlatır, tarihsel olarak yerinde kalır; bu notun yukarıdaki *"Kept for N years"* cümlesi artık ekrandaki bir
+cümleyi anlatmaz, Q13'ün gerçek boşluğu (silme kodu ve silme aracı yok) açık kalır. 2026-11-02 notu bildirimin
+*"ne kadar saklanır"*ı koruduğunu, M5-02 kartı içeriğin *"mesai kaydının ne kadar saklandığı (Q13)"*nı taşıdığını
+yazıyordu: **bu karar o ikisinden sapar.** Sihirbaz artık saklama süresi ve hak beyanı **vermiyor**; bunları bağlantının arkasındaki yayınlanmış gizlilik politikası taşımak zorunda (GDPR Art. 13(2)(a), (b)) ve pilot kapısı bunu yayından **önce** doğrulamalı. Karar alınmış değildir: bugün o politika üretimde yayında değil. `ActivateView.RetentionYears` ve `ShowConfigNotice` son okuyucularını
+yitirdiği için silindi; bildirimi pinleyen test konusuz kaldığı için silindi; `TAPPA_RETENTION_YEARS`
+yapılandırmada zorunlu ve aynı aralıkta kalır, ürün kodunda okuyanı yoktur.
+
+Şema, `invite.RecordConsent`, denetim eylemi, bağlama ve sunucunun `consent=yes` denetimi **değişmedi**; 2. ve 3.
+adım, logo ve devralma mantığı değişmedi. Testler: `TestWizard_TheNoticeKeepsItsFacts`,
+`TestWizard_TheTermsLinkSitsDirectlyAboveTheButton`, `TestWizard_TheTermsSheetIsOutsideTheFormAndNeedsNoScript`,
+`TestCompiledCSS_TheTermsSheetOpensOnTargetAndReserves44px`, `TestCompiledCSS_TheTermsSheetStaysModalDimmedAndOnPalette`,
+`TestWizard_EveryStepPointsOnlyAtItsOwnFlow`.
+
 ## M11 notu (2026-10-11) — değişmez; K-1b, K-35
 
 Bu ADR **değişmez.** Kullanıcı kararı **K-2** (2026-10-09): aktivasyon dokunuşu punch değildir —

@@ -392,7 +392,7 @@ func cookieNamed(w *httptest.ResponseRecorder, name string) *http.Cookie {
 	return nil
 }
 
-// consent is a well-formed submission: the consent box AND the form token.
+// consent is a well-formed submission: the agree button's value AND the form token.
 func consent() url.Values { return url.Values{"consent": {"yes"}, "csrf": {fakeCSRF}} }
 
 // consentNoToken is a submission that skipped the synchronizer token — the shape
@@ -485,25 +485,23 @@ func TestActivationCookie_LivesUntilTheInvitationExpires(t *testing.T) {
 // requires this screen to show.
 func TestPage_RendersTheNoticeAndTheWiFiStep(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	privacy := get(t, h, "/activate?step=2", codeCookie()).Body.String()
+	privacy := get(t, h, "/activate?step=1", codeCookie()).Body.String()
 	for _, want := range []string{
 		"Maria Borg",             // identity
 		"Kebab Factory Ltd",      // GDPR Art. 13(1)(a) controller
-		"internet (IP) address",  // what a tap records
+		"IP address",             // what a tap records
 		"location",               // ditto
 		"No fingerprints",        // §4.1, stated to the employee
-		"2",                      // retention, from configuration
-		"years",                  //
 		"Agree and continue",     // the consent button
 		`action="/api/activate"`, // the endpoint the card names
-		`name="consent"`,         // the box
+		`name="consent"`,         // the button's value
 	} {
 		if !strings.Contains(privacy, want) {
 			t.Errorf("the privacy step does not mention %q", want)
 		}
 	}
-	// The Wi-Fi step is step 3, which exists only after consent.
-	ready := get(t, h, "/activate?step=3", pendingCookie()).Body.String()
+	// The Wi-Fi step is step 2, which exists only after consent.
+	ready := get(t, h, "/activate?step=2", pendingCookie()).Body.String()
 	for _, want := range []string{"KF-StJulians-Staff", "You can skip this", "Stay in this browser"} {
 		if !strings.Contains(ready, want) {
 			t.Errorf("the get-ready step does not mention %q", want)
@@ -518,7 +516,7 @@ func TestPage_RendersTheNoticeAndTheWiFiStep(t *testing.T) {
 }
 
 // TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes: the wizard works
-// without JavaScript (every step is a GET), and steps 3 and 4 do not exist for a
+// without JavaScript (every step is a GET), and steps 2 and 3 do not exist for a
 // browser that has not consented — they would describe a tap that cannot finish.
 func TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
@@ -529,13 +527,15 @@ func TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes(t *testing.T) {
 	}{
 		{"/activate", codeCookie(), "set up your phone"},
 		{"/activate?step=1", codeCookie(), "set up your phone"},
-		{"/activate?step=2", codeCookie(), "Agree and continue"},
-		{"/activate?step=3", codeCookie(), "Agree and continue"}, // clamped: no consent yet
-		{"/activate?step=4", codeCookie(), "Agree and continue"}, // clamped
+		{"/activate?step=1", codeCookie(), "Agree and continue"}, // one step: greeting, notice and button
+		{"/activate?step=2", codeCookie(), "Agree and continue"}, // clamped: no consent yet
+		{"/activate?step=3", codeCookie(), "Agree and continue"}, // clamped
+		{"/activate?step=4", codeCookie(), "Agree and continue"}, // a stale link, clamped
 		{"/activate?step=nonsense", codeCookie(), "set up your phone"},
-		{"/activate?step=3", pendingCookie(), "Two quick things before you tap"},
-		{"/activate?step=4", pendingCookie(), "Now tap the plaque"},
-		{"/activate", pendingCookie(), "Now tap the plaque"}, // a consented return lands on the wait
+		{"/activate?step=2", pendingCookie(), "Two quick things before you tap"},
+		{"/activate?step=3", pendingCookie(), "Now tap the plaque"},
+		{"/activate?step=4", pendingCookie(), "Now tap the plaque"}, // a stale link lands on the wait
+		{"/activate", pendingCookie(), "Now tap the plaque"},        // a consented return lands on the wait
 	} {
 		w := get(t, h, tc.target, tc.cookie)
 		if w.Code != http.StatusOK {
@@ -546,9 +546,9 @@ func TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes(t *testing.T) {
 			t.Errorf("%s (pending=%v): want the step that says %q", tc.target, strings.Count(tc.cookie.Value, ".") == 2, tc.want)
 		}
 	}
-	welcome := get(t, h, "/activate", codeCookie()).Body.String()
-	if !strings.Contains(welcome, `href="/activate?step=2"`) {
-		t.Error("step 1's Next must be a plain link (works without JavaScript)")
+	ready := get(t, h, "/activate?step=2", pendingCookie()).Body.String()
+	if !strings.Contains(ready, `href="/activate?step=3"`) {
+		t.Error("step 2's I'm ready must be a plain link (works without JavaScript)")
 	}
 }
 
@@ -557,7 +557,7 @@ func TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes(t *testing.T) {
 // poll. Every activation screen carries the CSP.
 func TestWizard_WaitingScreenLoadsOnlyItsOwnScript(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	w := get(t, h, "/activate?step=4", pendingCookie())
+	w := get(t, h, "/activate?step=3", pendingCookie())
 	body := w.Body.String()
 	if !strings.Contains(body, `<script src="/static/js/activate.js" defer>`) {
 		t.Error("the waiting screen must load web/static/js/activate.js")
@@ -577,23 +577,12 @@ func TestWizard_WaitingScreenLoadsOnlyItsOwnScript(t *testing.T) {
 	if !strings.Contains(activationCSP, "connect-src 'self'") || !strings.Contains(activationCSP, "frame-ancestors 'none'") {
 		t.Errorf("activationCSP lost a directive: %q", activationCSP)
 	}
-	other := get(t, h, "/activate?step=2", codeCookie())
+	other := get(t, h, "/activate?step=1", codeCookie())
 	if strings.Contains(other.Body.String(), "<script") {
 		t.Error("the other steps carry no script")
 	}
 	if other.Header().Get("Content-Security-Policy") == "" {
 		t.Error("every activation screen carries the CSP")
-	}
-}
-
-// TestPage_NonProdShowsTheConfigNotice: the retention figure is a development
-// placeholder outside production and the page has to say so, rather than letting
-// a dev deployment make a legal-looking claim.
-func TestPage_NonProdShowsTheConfigNotice(t *testing.T) {
-	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	body := get(t, h, "/activate?step=2", codeCookie()).Body.String()
-	if !strings.Contains(body, "placeholder value, not legal advice") {
-		t.Fatal("a non-production deployment must mark the retention figure as configuration")
 	}
 }
 
@@ -943,7 +932,7 @@ func TestFailures_AreAudited(t *testing.T) {
 }
 
 // TestSubmit_ConsentIsRequired: the GDPR gate. Nothing is consumed, the refusal
-// is recorded, and the visitor gets the form back with the error on the box.
+// is recorded, and the visitor gets the form back with the error on the button.
 func TestSubmit_ConsentIsRequired(t *testing.T) {
 	inv := &fakeInvites{}
 	rec := &fakeAudit{}
@@ -955,9 +944,9 @@ func TestSubmit_ConsentIsRequired(t *testing.T) {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
 	if inv.activateCalls != 0 || inv.consentCalls != 0 {
-		t.Fatal("consent was recorded (or the code consumed) without the box being ticked")
+		t.Fatal("consent was recorded (or the code consumed) without the agree button's value")
 	}
-	if !strings.Contains(w.Body.String(), "Please tick the box") {
+	if !strings.Contains(w.Body.String(), "Please press Agree and continue") {
 		t.Error("the form must come back with the error attached")
 	}
 	if !rec.has(ActionActivationFailed) {
@@ -979,8 +968,8 @@ func TestSubmit_RecordsConsentAndIssuesNoSession(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303 (POST/redirect/GET keeps a refresh from re-posting)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate?step=3" {
-		t.Fatalf("Location = %q, want /activate?step=3", loc)
+	if loc := w.Header().Get("Location"); loc != "/activate?step=2" {
+		t.Fatalf("Location = %q, want /activate?step=2", loc)
 	}
 	if inv.consentCalls != 1 {
 		t.Fatalf("RecordConsent calls = %d, want 1", inv.consentCalls)
@@ -1469,7 +1458,7 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 	if w := get(t, h3, ActivationStatusPath, pendingCookie()); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("past statusLimit: status %d, want 429", w.Code)
 	}
-	if w := get(t, h3, "/activate?step=4", pendingCookie()); w.Code != http.StatusOK {
+	if w := get(t, h3, "/activate?step=3", pendingCookie()); w.Code != http.StatusOK {
 		t.Fatalf("polling spent the flood ceiling: the wizard answered %d", w.Code)
 	}
 }
@@ -1542,9 +1531,8 @@ func TestWizard_NoStrayPunctuationAfterNames(t *testing.T) {
 		cookie []*http.Cookie
 	}{
 		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=1", []*http.Cookie{codeCookie()}},
-		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=2", []*http.Cookie{codeCookie()}},
-		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=4", []*http.Cookie{pendingCookie()}},
-		{&fakeInvites{lookup: ltd("active")}, &fakeSessions{employeeID: uuid.New()}, "/activate?step=2", []*http.Cookie{codeCookie(), victim}},
+		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=3", []*http.Cookie{pendingCookie()}},
+		{&fakeInvites{lookup: ltd("active")}, &fakeSessions{employeeID: uuid.New()}, "/activate?step=1", []*http.Cookie{codeCookie(), victim}},
 	} {
 		h := newHandler(t, tc.inv, tc.sess, &fakeAudit{})
 		text := strings.Join(strings.Fields(screenText(t, get(t, h, tc.target, tc.cookie...).Body.String())), " ")
@@ -1565,11 +1553,10 @@ func TestNoResponseBodyEverCarriesTheCode(t *testing.T) {
 	responses := []*httptest.ResponseRecorder{
 		get(t, h, "/activate?code="+fakeCode),
 		get(t, h, "/activate", codeCookie()),
-		get(t, h, "/activate?step=2", codeCookie()),
 		post(t, h, url.Values{"csrf": {fakeCSRF}}, codeCookie()), // consent missing: re-renders the form
 		post(t, h, consent(), codeCookie()),
+		get(t, h, "/activate?step=2", pendingCookie()),
 		get(t, h, "/activate?step=3", pendingCookie()),
-		get(t, h, "/activate?step=4", pendingCookie()),
 		get(t, h, ActivationStatusPath, pendingCookie()),
 		doTap(t, h, activationTapURL, pendingCookie()),
 	}
@@ -1608,7 +1595,7 @@ func TestNoCacheHeaders(t *testing.T) {
 		get(t, h, "/activate", codeCookie()),
 		get(t, h, "/activate?code="+fakeCode),
 		post(t, h, consent(), codeCookie()),
-		get(t, h, "/activate?step=4", pendingCookie()),
+		get(t, h, "/activate?step=3", pendingCookie()),
 		get(t, h, ActivationStatusPath, pendingCookie()),
 		doTap(t, h, activationTapURL, pendingCookie()),
 	} {

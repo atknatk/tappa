@@ -691,7 +691,7 @@ func TestBrandPreview_TheLogoIsThePanelRoute(t *testing.T) {
 	if len(imgs) != 1 {
 		t.Fatalf("the preview drew %d <img>", len(imgs))
 	}
-	for name, want := range map[string]string{"src": adminLogoHref(digestOf(logoPNGA)), "width": "512", "height": "128",
+	for name, want := range map[string]string{"src": adminLogoHref(digestOf(logoPNGA)), "width": "224", "height": "56",
 		"alt": htmlEscaper.Replace(wl8Name)} {
 		if got, ok := attr(imgs[0], name); !ok || got != want {
 			t.Errorf("the preview logo's %s is %q (%v), want %q", name, got, ok, want)

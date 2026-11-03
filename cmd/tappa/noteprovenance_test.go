@@ -514,7 +514,7 @@ func TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed(t *t
 		}
 		t.Errorf("🔴 db/ declares a THIRD query that writes policy_versions: %s (%s).\n"+
 			"   The provenance comments on ledger.Record.Note, components.DocketView.Note, "+
-			"pages.ResultView.Note, db/queries/transactions.sql and db/queries/reviews.sql all "+
+			"db/queries/transactions.sql and db/queries/reviews.sql all "+
 			"rest on there being TWO writers of a policy document, both of them fed by prose "+
 			"this binary ships. A third one -- M9-07's raw-JSON editor is the shape Q22 "+
 			"anticipates -- makes a customer the author of the sentence a tap shows, and every "+
@@ -731,7 +731,7 @@ func TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument(t *testin
 			t.Errorf("🔴 %s names %s -- as a call, a method value or a method expression -- "+
 				"and the only production file that may is %s.\n"+
 				"   The provenance comments on ledger.Record.Note, "+
-				"components.DocketView.Note, pages.ResultView.Note, "+
+				"components.DocketView.Note, "+
 				"db/queries/transactions.sql and db/queries/reviews.sql all rest on there "+
 				"being TWO writers of a policy document, both of them fed by prose this "+
 				"binary ships. A third one -- M9-07's raw-JSON editor is the shape Q22 "+

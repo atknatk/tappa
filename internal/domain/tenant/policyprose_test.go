@@ -102,7 +102,7 @@ func TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs(t *testing.T) {
 					t.Errorf("statement %d's reason changed in the copy:\n got %q\nwant %q\n"+
 						"A tenant document is a SCOPED COPY of prose we shipped. If prose can "+
 						"now differ, tap.Decision.Note is no longer ours and the provenance "+
-						"comments on ledger.Record.Note, DocketView.Note, ResultView.Note, "+
+						"comments on ledger.Record.Note, DocketView.Note, "+
 						"db/queries/transactions.sql and db/queries/reviews.sql are all wrong.",
 						i, have.Reason, want.Reason)
 				}

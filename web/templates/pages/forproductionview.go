@@ -323,8 +323,8 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 			" seconds (the default window) is ignored.",
 			FactDebounceIsPerPersonOnTheServerClock, FactEveryDecidedTapIsWritten),
 		QueueBullets: []Line{
-			l("The ignored tap is still written down, stamped IGNORED.",
-				FactEveryDecidedTapIsWritten, FactRecordedTapEndsOnAStampedDocket),
+			l("The ignored tap is still written down, and the manager's record stamps it IGNORED.",
+				FactEveryDecidedTapIsWritten, FactPassShowsTheDaysDocketsNewestFirst),
 		},
 
 		FloorHeading: l("Wet hands, flour, and no app to install.", FactTapButtonSizedForAWetHand, FactTapPageNeedsNoApp),

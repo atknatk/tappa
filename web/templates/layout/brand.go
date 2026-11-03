@@ -36,7 +36,7 @@ const tapLogoRoute = "/t/logo/"
 const previewLogoRoute = "/admin/brand/logo/"
 
 // activationLogoRoute is the activation wizard's logo route (GET /activate/logo/{sha}, M10
-// WL-13; internal/handler, activate.go). Steps 1-4 of the wizard are drawn for a browser
+// WL-13; internal/handler, activate.go). The wizard's steps are drawn for a browser
 // that holds an invitation and NO session, so the tap route -- which answers only a live
 // employee session -- would 404 them; this route resolves the business from the
 // invitation in the activation cookie instead, and serves the logo only to a business
@@ -109,7 +109,7 @@ func PreviewLogo(sha256 string, width, height int, alt string) Logo {
 }
 
 // ActivationLogo describes the same logo as TapLogo, served by the activation wizard's
-// route (M10 WL-13): the wizard's four steps, which a browser sees before it holds a
+// route (M10 WL-13): the wizard's steps, which a browser sees before it holds a
 // session. The rule for the digest and the box is TapLogo's.
 func ActivationLogo(sha256 string, width, height int, alt string) Logo {
 	l := TapLogo(sha256, width, height, alt)
@@ -124,8 +124,35 @@ func ActivationLogo(sha256 string, width, height int, alt string) Logo {
 // img-src in the response's policy exactly when this is true (ADR 0024 §5).
 func (l Logo) Drawn() bool { return l.src != "" }
 
-func (l Logo) widthAttr() string  { return strconv.Itoa(l.width) }
-func (l Logo) heightAttr() string { return strconv.Itoa(l.height) }
+func (l Logo) widthAttr() string  { return strconv.Itoa(l.boxWidth()) }
+func (l Logo) heightAttr() string { return strconv.Itoa(l.boxHeight()) }
+
+// logoSlot is the height of the logo's slot in BrandHeader, in px (user §9 decisions of
+// 2026-11-02).
+const logoSlot = 56
+
+// boxWidth and boxHeight are the box the header draws the logo in: the stored proportions,
+// at most the slot's height, and never larger than the stored image -- the panel header's
+// rule (pages.PanelLogoOf), so a small logo is not blown up into a blurred one. A logo's
+// width is at most 512 and the slot only shrinks it, so the ratio is integers, rounded to
+// the nearest pixel, at least 1.
+func (l Logo) boxWidth() int {
+	if l.height <= logoSlot {
+		return l.width
+	}
+	w := (2*l.width*logoSlot + l.height) / (2 * l.height)
+	if w < 1 {
+		return 1
+	}
+	return w
+}
+
+func (l Logo) boxHeight() int {
+	if l.height <= logoSlot {
+		return l.height
+	}
+	return logoSlot
+}
 
 // Brand is what the tap screen takes from a business's brand: the header's logo and
 // the tap button's accent, as its theme stylesheet (ADR 0023 §2, user decision D-C).
@@ -142,7 +169,7 @@ type Brand struct {
 func TapBrand(logo Logo, theme Theme) Brand { return Brand{logo: logo, theme: theme} }
 
 // ActivationBrand builds the activation family's brand (M10 WL-13, user decisions of
-// 2026-10-09): the tap screen's header and its accent, on the wizard's four steps, on
+// 2026-10-09): the logo and the accent, on the wizard's three steps, on
 // "Activation complete" and on "already set up". The logo is ActivationLogo on the
 // wizard and TapLogo on the two screens that hold a session; the caller has already
 // dropped it for a business VIES did not verify (internal/domain/tenant,

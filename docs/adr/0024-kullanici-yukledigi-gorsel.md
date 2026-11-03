@@ -1678,7 +1678,7 @@ Yeşil kalan P03 eşdeğerdir: `PanelLogoOf` ve `PreviewLogo` aynı kutuları re
 ## WL-13 notu (2026-10-09 — üçüncü logo rotası: `GET /activate/logo/{sha}`; §5'in kuralları değişmedi)
 
 **Neden üçüncü bir rota.** Kullanıcı kararıyla (ADR 0023'ün WL-13 notu) aktivasyon sihirbazı
-işletmenin logosunu — yalnız VIES-doğrulanmış işletmede — çizer. Sihirbazın dört adımında tarayıcının
+işletmenin logosunu — yalnız VIES-doğrulanmış işletmede — çizer. Sihirbazın dört adımında *(2026-11-02: üç — ADR 0026)* tarayıcının
 **oturumu yoktur**: `/t/logo/` canlı çalışan oturumu ister ve 404 verirdi; `/admin/brand/logo/`
 panel çerezi ister. İşletme tek yerden bilinir: davet çerezindeki kod, sayfanın kendi çözücüsüyle
 (`invite.Lookup`). *"Activation complete"* ve *"already set up"* oturumludur ve `/t/logo/` çizer

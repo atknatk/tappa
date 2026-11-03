@@ -4123,7 +4123,7 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > kartı okuyor; `d.Note` ve `v.Note` için düşman girdi taşıyan test **yoktu**. Özellik
 > tutuyordu (`templ.EscapeString` üç interpolasyonda da var) ama atıf yanlıştı — bir
 > özelliğin *kimse fark etmeden* denetlenmez hâle gelme şekli budur. Yazıldı:
-> `TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt` — aynı `hostileNote` fikstürünü
+> `TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot` — aynı `hostileNote` fikstürünü
 > **fişten** (`d.Note`, `panelBrowserWith`) **ve tap sonuç ekranından**
 > (`v.Note`, `mustBody`) geçiriyor, ham `<script>`'in **yokluğunu** ve
 > `&lt;script&gt;`'in **varlığını** ikisinde de ölçüyor (ikinci yarı olmadan test
@@ -8039,7 +8039,12 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 > - [ ] GDPR Art. 13 çalışan aydınlatma metni yayında ve aktivasyonda gösteriliyor ([M5-02](m5-tap-akisi.md))
 > - [ ] Gizlilik politikası, hizmet şartları, imprint yayında ([M7-01](m7-portal.md))
 > - [ ] Tappa↔KF veri işleme sözleşmesi (DPA) imzalı ([M8-02](m8-deploy-pilot.md))
-> - [ ] Saklama süresi ve silme/anonimleştirme akışı karara bağlı (Q13)
+> - [ ] Saklama süresi ve silme/anonimleştirme akışı karara bağlı (Q13). *2026-11-03 notu:* ilan edilecek saklama
+>       süresini uygulayan silme kodu ve çalışanın silme hakkı için araç henüz yok; bu madde onları da kapsar.
+>       (Bu cümle ekrandaki *"Kept for N years"*i anıyordu; aynı gün ekrandan kalktı, aşağıya bakın.)
+> - [ ] 2026-11-03 kullanıcı kararı: Sihirbaz artık saklama süresi ve hak beyanı **vermiyor**; bunları bağlantının arkasındaki yayınlanmış gizlilik politikası taşımak zorunda (GDPR Art. 13(2)(a), (b)) ve pilot kapısı bunu yayından **önce** doğrulamalı. Karar alınmış değildir: bugün o politika üretimde yayında değil. Yayınlanmış metinde süre ve haklar okundu mu?
+> - [ ] Aktivasyonun 1. adımındaki şartlar bağlantısı (ADR 0026'nın 2026-11-03 notu) üretime **ulaşmadı** ya da şu ikisi
+>       tamam: metinler yayında ve *"you agree to the terms"* ifadesini bir hukukçu netleştirdi. Ölçüm: as of 2026-11-03 https://taptime.mt/legal/privacy ve /legal/terms üretimde hâlâ *"not published yet / nothing on this page is in force"* bloğunu gösteriyor (curl ile okundu) ve /legal/terms Taptime ile abone olan kuruluş arasındaki sözleşmeyi anlatıyor; çalışan onun tarafı değil. Karar alınmış değildir.
 > - [ ] Telefon envanteri çıkarıldı ([M8-07](m8-deploy-pilot.md))
 > - [ ] Üretim tenant'ı kuruldu ve doğrulandı ([M8-07](m8-deploy-pilot.md))
 > - [ ] 🔴 **Duvara çıkan hiçbir plakette uygulama anahtarı 0 fabrika

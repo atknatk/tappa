@@ -30,11 +30,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -44,6 +46,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
@@ -739,7 +742,7 @@ func TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 — a cross-tenant tap must not be recorded", w.Code)
 	}
-	if body := w.Body.String(); strings.Contains(body, "APPROVED") || strings.Contains(body, "All done") {
+	if body := w.Body.String(); strings.Contains(body, "Clocked in") || strings.Contains(body, "All done") {
 		t.Fatal("a cross-tenant tap was rendered as a successful check-in")
 	}
 	if after := h.transactionCount(t); after != beforeOurs {
@@ -1050,7 +1053,7 @@ func TestCheckinDB_NothingSecretReachesTheResponse(t *testing.T) {
 		}
 	}
 	// Positive control: the page really did render the tap.
-	if !strings.Contains(body, "APPROVED") || !strings.Contains(body, "St Julians") {
+	if !strings.Contains(body, "Clocked in") || !strings.Contains(body, "St Julians") {
 		t.Fatalf("the confirmation page did not render the tap at all: %s", body)
 	}
 	// And no button: the next action is a new physical touch (§9).
@@ -1770,7 +1773,7 @@ func (h *tapHarness) setBusinessType(t *testing.T, businessType string) {
 //
 // The wall clock is the one thing normalised away — it is `now`.
 func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
-	clockRE := regexp.MustCompile(`\d{2}:\d{2}:\d{2}`)
+	clockRE := regexp.MustCompile(`\d{2}:\d{2}`)
 	// The SAME constant the unit table uses, not a second copy: two shell strings
 	// drift, and the point of this test is that both layers assert one screen.
 	shell := shellText
@@ -1779,7 +1782,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		h := newTapHarness(t)
 		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Clocked in <clock> APPROVED Trust 70 " + noteIPMatched +
+		want := shell + " St Julians Clocked in <clock>" +
 			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 		if got != want {
 			t.Fatalf("production ok screen:\n got: %s\nwant: %s", got, want)
@@ -1790,11 +1793,9 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		h := newTapHarness(t)
 		w := h.postFrom(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), "198.51.100.9:5000", nil)
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Clocked in <clock> FLAGGED Trust 20 " + noteNoPlace +
-			" Recorded — it needs your manager's approval before it counts toward your hours." +
-			" Tell them if that looks wrong. You can close this page."
+		want := shell + " St Julians Clocked in <clock> You can close this page."
 		if got != want {
-			t.Fatalf("production flag screen — this is the §4.6 branch:\n got: %s\nwant: %s", got, want)
+			t.Fatalf("production flag screen (nothing of approval, user §9 decision of 2026-11-02):\n got: %s\nwant: %s", got, want)
 		}
 	})
 
@@ -1803,7 +1804,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 		h.retireTag(t, h.tagUID, "retired")
 		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Not counted <clock> REJECTED Trust 70 " + noteDeadTag +
+		want := shell + " St Julians Not counted <clock>" +
 			" This tap was recorded but not counted. Tell your manager if that looks wrong." +
 			" You can close this page."
 		if got != want {
@@ -1840,8 +1841,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 			t.Fatalf("record note = %v, want %q", rec.Note, want)
 		}
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Clocked in <clock> APPROVED Trust 70 " +
-			noteIPMatched + "; " + noteLeftOpenScreen +
+		want := shell + " St Julians Clocked in <clock>" +
 			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 		if got != want {
 			t.Fatalf("production left-open screen:\n got: %s\nwant: %s", got, want)
@@ -1859,7 +1859,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 			t.Fatalf("verdict = %q, want ignored: this case is not testing the debounce screen", rec.Verdict)
 		}
 		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
-		want := shell + " St Julians Already tapped <clock> IGNORED Trust 70 " + noteDebounce +
+		want := shell + " St Julians Already tapped <clock>" +
 			" You tapped a moment ago, so this one was not counted. Tell your manager if that looks" +
 			" wrong. You can close this page."
 		if got != want {
@@ -2015,4 +2015,50 @@ func (h *tapHarness) verdictBreakdown(t *testing.T, employeeID uuid.UUID) map[st
 		t.Fatalf("verdict breakdown: %v", err)
 	}
 	return out
+}
+
+// TestCheckinDB_AFlaggedTapWithASilentScreenIsStillFlaggedQueuedAndNotCounted is the data half of
+// the user's §9 decision of 2026-11-02: the employee's screen says nothing of approval, and
+// nothing below the screen moved. A real flagged check-out off the network, closing a flagged
+// check-in, is `flag` on the record, sits in the manager's queue, and its hours are held out of
+// the payroll figure as "awaiting". What approval then does is TestEndpointState_NeverPaysAVerdictItDoesNotKNOW.
+func TestCheckinDB_AFlaggedTapWithASilentScreenIsStillFlaggedQueuedAndNotCounted(t *testing.T) {
+	h := newTapHarness(t)
+	in := "in"
+	h.seedAgedRecord(t, h.employeeID, 10*time.Minute, &in, "flag", false)
+
+	w := h.postFrom(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), "198.51.100.9:5000", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	text := screenText(t, w.Body.String())
+	for _, banned := range []string{"approval", "manager", "All done"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("the screen says %q: %s", banned, text)
+		}
+	}
+	rec := h.lastRecord(t, h.employeeID)
+	if rec.Verdict != "flag" || rec.Type == nil || *rec.Type != "out" {
+		t.Fatalf("record %s/%v, want flag/out", rec.Verdict, rec.Type)
+	}
+
+	reader, err := ledger.NewReader(h.data, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue, err := reader.Queue(context.Background(), h.tenantID, nil)
+	if err != nil {
+		t.Fatalf("the queue: %v", err)
+	}
+	if !slices.ContainsFunc(queue.Records, func(r ledger.Record) bool { return r.ID == rec.ID }) {
+		t.Errorf("the flagged tap %s is not in the manager's queue", rec.ID)
+	}
+	hours, err := reader.Hours(context.Background(), h.tenantID, ledger.ReportFilter{})
+	if err != nil {
+		t.Fatalf("the hours: %v", err)
+	}
+	if hours.Totals.Worked != 0 || hours.Totals.Awaiting <= 0 {
+		t.Errorf("worked %v, awaiting %v: a flagged interval must be held out of the total, as awaiting",
+			hours.Totals.Worked, hours.Totals.Awaiting)
+	}
 }

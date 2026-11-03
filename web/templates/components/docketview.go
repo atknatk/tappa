@@ -120,7 +120,7 @@ type DocketView struct {
 	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered — a note stored through the
 	// real POST, containing a script tag, a quote and an ampersand, read back off the
 	// real page. Note below has its own proof
-	// (TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt); the two are separate
+	// (TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot); the two are separate
 	// because they arrive by different routes and one test cannot stand for both.
 	//
 	// ⚠️ THE ESCAPING IS templ's AND IT DOES NOT TRAVEL. M6-07's CSV export will
@@ -138,7 +138,7 @@ type DocketView struct {
 	// prose this binary ships. Pinned by
 	// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs and
 	// TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument, and escaped
-	// on output by TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt.
+	// on output by TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot.
 	//
 	// ⚠️ A ROUND OF M8-04 SAID THE OPPOSITE HERE — "straight from internal/policy …
 	// fixed strings written by us" was struck out as false, and a claim about

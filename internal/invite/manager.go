@@ -586,7 +586,7 @@ func (m *Manager) ActivationContext(ctx context.Context, tenantID, employeeID uu
 	return out, nil
 }
 
-// RecordConsent stores the employee's agreement to the GDPR Art. 13 notice on the
+// RecordConsent stores the employee's agreement to the activation notice on the
 // invitation, bound to the browser that gave it (ADR 0026). It backs the wizard's
 // POST /api/activate.
 //

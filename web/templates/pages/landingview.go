@@ -1484,7 +1484,7 @@ var LegalPages = []LegalPage{
 		Needs: []string{
 			"The controller: the registered company acting as data controller, with its address.",
 			"A contact point for data protection requests, and a data protection officer if one is appointed.",
-			"The retention period for attendance records, audit entries and sessions — the deployment configures this, so the published number has to be the deployed one.",
+			"The retention period for attendance records, audit entries and sessions — it is not settled yet, and the published number has to be one the product actually applies.",
 			"Where the data is hosted and processed, and the processors involved.",
 			"The legal basis relied on for each category, and the transfer position if any processor sits outside the EU.",
 			"The supervisory authority a complaint goes to.",

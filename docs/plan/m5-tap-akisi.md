@@ -226,6 +226,8 @@ oturum çerezi.
   ilk gördüğü yer. İçerik: tap anında GPS ve kaynak IP okunduğu, mesai kaydının
   ne kadar saklandığı (Q13), veri sorumlusunun işveren olduğu, biyometrik veri
   **toplanmadığı**. Aktivasyon bu ekran onaylanmadan tamamlanmaz.
+  *(2026-11-03, kullanıcı kararı: ekran saklama süresini artık söylemez; yerini ve M8-06 kapısını
+  ADR 0026'nın o tarihli notu anlatır. Aşağıdaki kabul maddeleri tarihseldir.)*
 
 **Tuzaklar.**
 - Davet e-postası Q02'ye bağlı. Q02 cevapsızsa akışı kodla ama gönderimi arayüz
@@ -2176,7 +2178,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > **1,22:1** render ediliyor — **bu görevin başladığı 2,62'den bile kötü**. Bu madde
 > (ii)'ye de ait: **beyan edilen** renk ink, **render edilen** piksel değil.
 > **(1) KAPANDI** — ama bu testte değil, **öbür yarıda**:
-> `TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount` artık TRAINING'in tam
+> `TestResultScreen_PracticeSaysItDoesNotCount` artık TRAINING'in tam
 > `class` dizesini pinliyor (dört verdict damgası zaten öyleydi; TRAINING yalnız
 > `Contains("stamp--training")` ile tutuluyordu ve kaçış tam oradan girdi).
 > **(2), (3) ve (4) AÇIK**: kapatmak keyfî seçiciler üzerinde cascade çözmeyi **ve**
@@ -2186,7 +2188,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > Ölçüldü: `result.templ`'in markup'ından iki damga sınıfı silindiğinde beş
 > modifier'ın **beşi de** `app.css`'te kaldı (adlar yorumlarda geçtiği için) ve bu
 > test **yeşil**; onu yakalayan
-> `TestResultScreen_StampCarriesTheWordAndTheBrandClass` (aynı mutasyon → **4 FAIL
+> `TestResultScreen_CarriesNoStampScoreOrNote` (aynı mutasyon → **4 FAIL
 > satırı**). İki test bir çiftin iki yarısı.
 > `.stamp`'in `opacity`'si **bilinçli olarak pinlenmedi**: kaldırılması çerçeve
 > kararıydı ve bir marka tercihini teste çivilemek bu testin işi değil.

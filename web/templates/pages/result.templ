@@ -1,7 +1,6 @@
 package pages
 
 import "github.com/atknatk/tappa/web/templates/layout"
-import "strconv"
 
 // Result is what a tap lands on: one docket saying what was recorded.
 //
@@ -14,36 +13,35 @@ import "strconv"
 // exception: the claim card (ResultAsking below, pages/claim.templ), which sends a
 // claim to the manager and writes no record (ADR 0032 §C.1).
 //
-// THE COPY BRANCHES ON THE VERDICT, ONCE, AND THAT IS §4.6 (M5-06). Until this
-// task the closing line was chosen by a single bool — "did this put an hour on
-// the record" — which grouped `ok` with `flag` and told somebody whose tap had
-// just gone into a manager's approval queue "All done". That is the silent
-// approval §4.6 forbids, on the one surface where the person could have done
-// something about it. Four verdicts now get four sentences; none of them is
-// cheerful about a tap that was not counted, and none of them offers a button.
+// THE COPY BRANCHES ON THE VERDICT, ONCE. The send-off ("All done" and the brand line) is
+// only for a tap that counted, so a tap not on the sheet yet is never told it is finished
+// (M5-06). `reject` and `ignored` say they were not counted, in the headline and the closing.
 //
-// THE STAMP TEXT AND THE COLOUR SAY THE SAME THING. Status is never carried by
-// colour alone (accessibility, skill tappa-brand): APPROVED / FLAGGED / REJECTED
-// / IGNORED is readable with no colour at all, and the class only tints it.
+// `flag` SAYS NOTHING ABOUT APPROVAL (user §9 decision of 2026-11-02, the cost put to the
+// user): its screen is the docket and "You can close this page.", and only the missing
+// send-off tells it from an `ok`. §4.6 still holds where it lives: the system never approves
+// on its own, the record is written `flag` and waits in the manager's queue, and its hours stay
+// out of the total until then. The named cost: until the manager acts, the person may
+// believe the hours count (ADR 0023's note of that date).
 //
-// EVERY NUMBER IS MONO. The time and the trust score run in IBM Plex Mono
-// through .docket, which is where the docket feeling comes from. There is no
-// DURATION on this screen — a shift total is a report, not a confirmation — so
-// "clock and duration in mono" is satisfied by the only one of the two that
-// exists here.
+// NO STAMP, NO TRUST SCORE, NO RULE'S SENTENCE (user §9 decision of 2026-11-02: employees did
+// not understand them). They stay on the manager's docket.
+//
+// THE TIME IS MONO, through its own class. There is no duration on this screen: a shift
+// total is a report, not a confirmation.
 //
 // THE BUSINESS'S LOGO IS A SECOND, EXPLICIT PARAMETER (M10 WL-9), and it is a LOGO,
 // not a brand: user decision D-C (2026-09-24) puts the logo on this screen and the
-// accent nowhere on it, because the colours here tell the verdict. ResultView keeps
-// its eight fields; a zero Logo renders the wordmark, as before.
+// accent nowhere on it. ResultView has no field for it; a zero Logo renders the wordmark,
+// as before.
 templ Result(v ResultView, logo layout.Logo) {
 	@result(v, logo, nil)
 }
 
 // ResultAsking is the result screen with its one claim card (ADR 0032 §C.1, M15-17; the user's
-// §9 exception): the docket, then the card, then the closing sentence -- so on `flag` the "needs
-// your manager's approval" sentence stays BELOW the card (product lens N5), and on `ok` the brand
-// line and "All done" do. The card is a third parameter, never a ResultView field (ClaimCardView).
+// §9 exception): the docket, then the card, then the closing sentence -- so "You can close this
+// page." stays BELOW the card (product lens N5), and on `ok` the brand line and "All done" do. The
+// card is a third parameter, never a ResultView field (ClaimCardView).
 //
 // It is the only screen of this family with a form. The form posts natively to POST /api/claim:
 // no script, so the page still reads no position (§4.2) -- the tap page's script is not loaded
@@ -55,30 +53,15 @@ templ ResultAsking(v ResultView, logo layout.Logo, card ClaimCardView) {
 templ result(v ResultView, logo layout.Logo, card *ClaimCardView) {
 	@layout.BrandedPage("Tapped — Taptime", logo) {
 		<section class="docket">
-			<div class="flex items-start justify-between gap-4">
-				<div>
-					<p class="docket-label">{ v.Venue }</p>
-					<h1 class="font-display text-3xl font-bold tracking-tight text-ink">
-						{ v.Headline() }
-						if v.At != "" {
-							<span class="block font-mono text-xl font-normal text-ink/70">{ v.At }</span>
-						}
-					</h1>
-				</div>
-				@stamp(v)
-			</div>
+			<p class="docket-label">{ v.Venue }</p>
+			<h1 class="font-display text-3xl font-bold tracking-tight text-ink">
+				{ v.Headline() }
+				if v.At != "" {
+					<span class="block font-mono text-xl font-normal text-ink/70">{ v.At }</span>
+				}
+			</h1>
 			if v.Practice {
-				<p class="mt-3">
-					<span class="stamp stamp--training">TRAINING</span>
-					<span class="ml-2 text-ink/70">This practice tap does not count toward your hours.</span>
-				</p>
-			}
-			<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-				<dt class="docket-label">Trust</dt>
-				<dd class="font-mono">{ strconv.Itoa(v.Trust) }</dd>
-			</dl>
-			if v.Note != "" {
-				<p class="mt-2 text-ink/70">{ v.Note }</p>
+				<p class="mt-3 text-ink/70">This practice tap does not count toward your hours.</p>
 			}
 		</section>
 		@cardThenClosing(v, card)
@@ -100,142 +83,15 @@ templ cardThenClosing(v ResultView, card *ClaimCardView) {
 	}
 }
 
-// stamp renders the verdict's rubber stamp.
-//
-// 🔴 THE CLASS NAMES ARE WRITTEN OUT HERE, AS LITERALS, AND THAT IS THE WHOLE
-// REASON THIS COMPONENT EXISTS. They used to be built in Go
-// (ResultView.StampClass returning "stamp stamp--approved"), and an audit
-// measured what that cost: Tailwind's content globs are
-// ./web/templates/**/*.templ and ./web/static/js/**/*.js — GO FILES ARE NOT
-// SCANNED — so the four verdict classes were compiled out of app.css entirely
-// (0 occurrences in a fresh build) and every stamp rendered as a bare .stamp:
-// no colour, no border tone, no tilt. Accessibility survived, because the WORD
-// carries the status; the brand's fixed status-to-colour mapping did not
-// (skill tappa-brand: ok -> tappa-green, flag -> saffron, reject -> tomato,
-// ignored -> line).
-//
-// Two other fixes were available — add **/*.go to the globs, or a safelist —
-// and both were rejected for the same reason: they keep the class name in a
-// file the tool has to be TOLD about, which is how this broke. A literal in an
-// already-scanned template stops being compiled only if the globs themselves
-// change — a visible edit to tailwind.config.js, rather than a class name quietly
-// moving house.
-//
-// THE STATUS IS NEVER CARRIED BY COLOUR ALONE: each branch renders the word too,
-// so a screen reader gets the verdict.
-//
-// ⚠️ THE SIGHTED HALF WAS FALSE UNTIL 2026-08-01, and the measurement is kept
-// here rather than only the correction. An earlier version of this comment
-// claimed the screen "reads correctly in monochrome"; it did not. .stamp was 11px
-// bold at opacity .8 with the WORD in the status colour, so against the docket's
-// paper #FFFDF4 the two quiet verdicts sat far below AA's 4.5:1 — stamp--ignored
-// (line #C9D2C8) at 1.52:1 and stamp--flagged (saffron #D98E2B) at 2.62:1 before
-// the opacity, 1.39:1 and 2.14:1 after it. On those two, a sighted user got
-// neither the colour nor the word from the stamp. Counting what was actually
-// RENDERED, it was THREE of the five and not two: stamp--rejected passed at
-// 5.30:1 on paper and failed at 3.77:1 once the opacity was applied.
-//
-// THE FIX IS A BRAND DECISION (user, 2026-08-01) AND IT LIVES IN input.css, NOT
-// HERE: the word is `ink` and the status colour moved into the 2px frame, the 1px
-// inner hairline and a 10% ground, so the brand's fixed status-to-colour mapping
-// survives intact and no token was added to the palette. Measured on the tinted
-// ground each stamp actually renders on — approved 13.85:1, flagged 14.81:1,
-// rejected 13.99:1, ignored 15.55:1, training 13.27:1. The 80% element opacity
-// went with it, because it was fading the frame, which now carries the colour.
-//
-// 🔴 AND MIND HOW THAT SENTENCE IS SPELLED — THIS HAS ALREADY HAPPENED, IT IS NOT
-// A WARNING. Tailwind scans THIS FILE as raw text, COMMENTS AND ATTRIBUTE VALUES
-// INCLUDED, so a utility name written in PROSE compiles a real rule into app.css
-// that nothing renders. Measured on HEAD's own sources: SEVEN bare class rules in
-// app.css appear in no class attribute anywhere — 334 bytes, 2.3% of the
-// file. Three of them are born in this very file: `.filter` from "NO verdict
-// filter" below, `.visible` from "a visible edit" above, `.static` from the
-// /static/ paths. The others come from "the fixed status vocabulary", an
-// <input type="hidden">, and two comments naming utilities directly.
-//
-// An earlier draft of the paragraph above added two more the same way (+330 bytes,
-// measured) and was reworded until a fresh build matched HEAD's byte for byte. The
-// seven are NOT cleaned up here: out of scope, and names like `hidden` and `static`
-// may be wanted for real later. Counted, written down, left alone.
-//
-// IT CUTS THE OTHER WAY TOO: a class can stay compiled purely because a COMMENT
-// still names it. Measured — deleting two stamp modifiers from the markup left all
-// five in app.css, so the stylesheet cannot tell you a template stopped using one.
-// TestResultScreen_StampCarriesTheWordAndTheBrandClass is the half that can.
-//
-// Describe a utility, do not spell it.
-// TestCompiledCSS_StampWordIsInk reads the built stylesheet and fails if the word
-// goes back to the status colour; before that test existed, exactly that
-// regression was measured to leave the whole suite GREEN.
-//
-// THE CLOSING SENTENCE IS STILL THE FULL SENTENCE, and its contrast is 5.70:1 —
-// NOT the ~16:1 an earlier version of this comment claimed. Two mistakes produced
-// that number and both are worth naming, because the second one is a DOM fact
-// nobody had checked:
-//
-//   - the closing paragraphs are text-ink/70, not solid ink
-//     (rgba(21,34,25,.7) in the compiled stylesheet), and
-//   - they render OUTSIDE the docket. `closing()` is invoked after </section>,
-//     so their ground is the body's bg-porcelain #EDF0EA, not the docket's
-//     bg-paper #FFFDF4.
-//
-// Composited the way a browser does it (sRGB), ink/70 over porcelain is
-// rgb(86,96,88) → 5.70:1. It CLEARS AA's 4.5:1, so nothing here needs changing;
-// what needed changing was the claim. ~16:1 is the HEADLINE's value — solid
-// text-ink on bg-paper inside the docket, 16.17:1 — which is a different element
-// on a different ground.
-//
-// For two of the four verdicts the headline helps as well: "Already tapped" over
-// "…this one was not counted", and "Not counted" over "…recorded but not counted".
-//
-// THE HEADLINE DOES NOT HELP ON `flag`: its headline is the SAME as an `ok`'s
-// ("Clocked in" since M15-12). Until 2026-08-01 that left the closing sentence as the only
-// carrier of §4.6 on that screen clearing AA, because the saffron stamp was
-// 2.62:1. The stamp now clears it too (14.81:1), so flag has two carriers rather
-// than one — but the closing sentence is still the only one that says what
-// happens NEXT, and TestResultScreen_SaysExactlyThisAndNothingElse pins its
-// words. 5.70:1, not "full contrast", which is what the retracted version called
-// it.
-//
-// The stamp's colours are a BRAND decision, they are set in input.css, and the
-// status-to-colour mapping skill tappa-brand fixes (ignored -> line) is unchanged
-// by this — what moved is which PART of the stamp wears it.
-templ stamp(v ResultView) {
-	switch v.Verdict {
-		case "ok":
-			<span class="stamp stamp--approved">APPROVED</span>
-		case "flag":
-			<span class="stamp stamp--flagged">FLAGGED</span>
-		case "reject":
-			<span class="stamp stamp--rejected">REJECTED</span>
-		case "ignored":
-			<span class="stamp stamp--ignored">IGNORED</span>
-		default:
-			<span class="stamp stamp--ignored">RECORDED</span>
-	}
-}
-
 // closing is the last thing on the screen: what just happened, in one or two
 // sentences, and no way to do anything else.
 //
 // ONE SENTENCE PER VERDICT, and each one has to be true of THAT verdict:
 //
 //	ok       counted. The brand line, then §9's exact words.
-//	flag     RECORDED AND WAITING. §4.6 forbids a silent approval, so this is
-//	         the one that may not say "all done": the hours are not on the sheet
-//	         until a manager approves them, and the person is told so plainly
-//	         and without blame. It still has NO BUTTON — there is nothing they
-//	         can press that would help, and offering one would suggest the
-//	         opposite.
-//
-//	         IT ALSO MAY NOT PROMISE THE APPROVAL. It used to say the manager
-//	         "will confirm this one" and that there is "nothing for you to do" —
-//	         two closed doors in one sentence. A manager can REFUSE a flagged
-//	         tap, so "will confirm" states an outcome nobody has decided; and
-//	         "nothing for you to do" removes the appeal that §4.6's whole point
-//	         is to preserve, on the one verdict where the person most needs it.
-//	         Every other branch already ends with an escape hatch; this one now
-//	         does too.
+//	flag     nothing about approval, by the user's §9 decision of 2026-11-02 (the comment
+//	         at the top of this file). No send-off either: "all done" over a tap that may
+//	         be refused would state an outcome nobody has decided.
 //	ignored  the debounce (§5 row 5). SAYS NOTHING ABOUT THE EARLIER TAP — see
 //	         the block on that branch below, it is the whole point of it.
 //	reject   recorded and refused. Not counted, and worth telling a manager.
@@ -272,8 +128,9 @@ templ stamp(v ResultView) {
 // mechanisms were tried and beaten. A blacklist of forbidden phrases was beaten
 // twice by rephrasing the same claim. A byte-golden for THIS branch was beaten
 // too — not because goldens do not work, but because it was hand-written with an
-// empty Decision.Note, a shape production never renders, so it did not cover the
-// note paragraph a sentence was then hidden inside.
+// empty Decision.Note, a shape production then never rendered, so it did not cover the
+// note paragraph a sentence was hidden inside (the screen has had no such paragraph
+// since 2026-11-02).
 //
 // WHAT HOLDS NOW, stated as what the code actually reads rather than as a
 // guarantee: the WHOLE DOCUMENT's text nodes — <title> and every element in
@@ -303,23 +160,7 @@ templ closing(v ResultView) {
 			@brandMessage(v)
 			<p class="mt-4 text-ink/70">All done — you can close this page.</p>
 		case "flag":
-			if v.Practice {
-				// A TRAINING tap that also lacked evidence. The docket above already
-				// says a practice tap never counts toward hours, so this line must not
-				// also say "before it counts" — approval changes nothing about a
-				// practice tap's hours, and two sentences pulling in opposite
-				// directions is worse than either alone. (tap.Decide can produce this
-				// combination: Practice is set on the same ok/flag gate as direction.)
-				<p class="mt-4 text-ink/70">
-					Recorded, and your manager will see it. Tell them if that looks wrong.
-				</p>
-			} else {
-				<p class="mt-4 text-ink/70">
-					Recorded — it needs your manager's approval before it counts toward your
-					hours. Tell them if that looks wrong.
-				</p>
-			}
-			<p class="mt-2 text-ink/70">You can close this page.</p>
+			<p class="mt-4 text-ink/70">You can close this page.</p>
 		case "ignored":
 			<p class="mt-4 text-ink/70">
 				You tapped a moment ago, so this one was not counted. Tell your manager if
@@ -355,9 +196,11 @@ templ closing(v ResultView) {
 // "have a great shift" directly beside "this does not count toward your hours"
 // contradicts itself. The training line is the message on that screen.
 //
-// NOT SHOWN ON flag / ignored / reject — those branches never call this. A
-// cheerful send-off over a tap that is waiting for a manager is exactly the
-// silent approval §4.6 forbids.
+// NOT SHOWN ON flag / ignored / reject — those branches never call this. A cheerful
+// send-off over a tap that is waiting for a manager would tell the person it counted. This
+// reasoning is for the brand line and "All done"; since the user's §9 decision of 2026-11-02
+// the flag screen says nothing about approval either, and §4.6 is kept by the record and the
+// queue rather than by this screen.
 //
 // BOTH AXES HAVE A DEFAULT, and the symmetry is the rule rather than a tidiness
 // preference: every switch on a value this template does not own must end

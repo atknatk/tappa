@@ -879,6 +879,13 @@ butonu tenant renginde; sonuç ekranında yalnız logo"*) ve **K-2b** (2026-10-0
 tersidir. Risk 9 bu yüzden D-C'nin **bedeli** olarak kabul edilir — risk 1'in §4.1'in bedeli
 olması gibi, ama bir kırmızı çizginin değil bir kullanıcı kararının.
 
+> ⚠️ **2026-11-02 (kullanıcının §9 kararı — ADR 0023 *"Çalışan ekranları notu"*): aşağıdaki iki hafifletici artık geçerli değildir
+> ve bu risk büyümüştür; kullanıcı kabul etti.** Logo büyüdü: tap ve sonuç ekranında yuva 56 px, en çok sütunun %70'i (512×128 → 224×56),
+> *"taptime · punchless"* satırı yok, yani logolu ekranda Taptime görünür hiçbir yerde adlı değildir. Sonuç ekranında **kaşe damgası
+> yok**, `flag` ekranında onay cümlesi de yok (aynı günkü ikinci karar): *"APPROVED"* çizen bir logonun karşısında aynı ekranda
+> onu yalanlayan hiçbir şey durmaz; `reject` ve `ignored` başlıklarıyla ayrılır. Tek birincil düğme ve dar kanal
+> hafifleticileri aynen geçerlidir.
+
 **Hafifletenler — kapsama, tespit değil; hiçbiri kapatmaz.**
 - **Yuva küçük:** tap ve sonuç ekranında logo 24 px yüksekliğinde bir yuvadadır, genişliği
   saklanan kutudan gelir ve en çok sütunun yarısıdır (ölçüldü: 512×128 → 96×24, 512×16 →

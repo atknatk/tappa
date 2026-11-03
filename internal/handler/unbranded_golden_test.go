@@ -196,9 +196,8 @@ func unbrandedScreenRenders(t *testing.T) []screenGolden {
 	add(readRecorded(t, "activate-continue", confirm))
 	// ADR (activation by NFC tap): the tour and /activate/done are gone; the wizard's
 	// later steps and the activating tap's screens take their places in the list.
-	add(readRecorded(t, "activate-wizard-2", get(t, hAct, "/activate?step=2", codeCookie())))
+	add(readRecorded(t, "activate-wizard-2", get(t, hAct, "/activate?step=2", pendingCookie())))
 	add(readRecorded(t, "activate-wizard-3", get(t, hAct, "/activate?step=3", pendingCookie())))
-	add(readRecorded(t, "activate-wizard-4", get(t, hAct, "/activate?step=4", pendingCookie())))
 	add(readRecorded(t, "activate-consent-missing", post(t, hAct, url.Values{"csrf": {fakeCSRF}}, codeCookie())))
 	hRefused := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{verifier: &fakeVerifier{
 		verify: func(sun.Params) (sun.Result, error) { return sun.Result{}, sun.ErrUnknownTag },
@@ -243,7 +242,18 @@ func goldenBytes(r screenGolden) []byte {
 // 36 -> 38 on 2026-10-22 (M15-12): tap-page-clock-in and tap-page-clock-out. The same card
 // rewrote the ten result goldens whose headline carries a direction ("Tapped in/out" ->
 // "Clocked in/out", Q33) -- one word each, nothing else.
-const unbrandedScreenCount = 38
+// 38 -> 37 on 2026-11-02 (user §9 decision: the wizard went from four steps to three):
+// activate-wizard-4 went, and activate-form, activate-phone-in-use-form,
+// activate-consent-missing and activate-wizard-2 and -3 were rewritten from this change's
+// render and read one by one. wizard-2 is the old wizard-3 and wizard-3 the old wizard-4
+// with only the progress bar and the links' numbers different. No tap or result golden
+// moved.
+// Still 37 on 2026-11-03 (user §9 decision: step 1 shortened, details in the terms sheet):
+// activate-form, activate-phone-in-use-form and activate-consent-missing were rewritten from
+// this change's render and read one by one; no other golden moved. The same three were rewritten
+// twice more that day, for the audit's copy correction and for the user's decision to drop the
+// retention period and the rights from the sheet.
+const unbrandedScreenCount = 37
 
 // TestUnbrandedScreens_AreByteIdenticalToTheGolden is ADR 0023 Iddia B's PART I for
 // WL-9: every listed render of a business with no brand is byte-identical -- status,

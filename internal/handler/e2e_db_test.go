@@ -133,20 +133,20 @@ func (h *harness) client(t *testing.T) *http.Client {
 }
 
 // consent walks the wizard to the consent POST in browser c and returns the page
-// it lands on (step 3).
+// it lands on (step 2).
 func (h *harness) consent(t *testing.T, c *http.Client, code string) string {
 	t.Helper()
 	if _, err := c.Get(h.server.URL + "/activate?code=" + url.QueryEscape(code)); err != nil {
 		t.Fatalf("open link: %v", err)
 	}
-	privacy := h.getBody(t, c, "/activate?step=2")
+	privacy := h.getBody(t, c, "/activate?step=1")
 	resp, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}})
 	if err != nil {
 		t.Fatalf("consent POST: %v", err)
 	}
 	page := body(t, resp)
-	if resp.StatusCode != http.StatusOK || resp.Request.URL.Query().Get("step") != "3" {
-		t.Fatalf("consent landed on %s with %d, want step 3", resp.Request.URL, resp.StatusCode)
+	if resp.StatusCode != http.StatusOK || resp.Request.URL.Query().Get("step") != "2" {
+		t.Fatalf("consent landed on %s with %d, want step 2", resp.Request.URL, resp.StatusCode)
 	}
 	return page
 }
@@ -236,23 +236,24 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || resp.Request.URL.RawQuery != "" {
 		t.Fatalf("status %d at %s, want 200 at a clean /activate", resp.StatusCode, resp.Request.URL)
 	}
-	for _, want := range []string{"Maria Borg", "Kebab Factory Ltd", "Tap the plaque"} {
+	for _, want := range []string{"Maria Borg", "Kebab Factory", "uses Taptime to record your shifts", "terms and privacy details", "Agree and continue"} {
 		if !strings.Contains(welcome, want) {
 			t.Errorf("step 1 is missing %q", want)
 		}
 	}
 
-	// 2. Step 2: the notice and the form. Submit WITHOUT consent: nothing recorded.
-	privacy := h.getBody(t, c, "/activate?step=2")
+	// 2. Step 1 also carries the notice and the form. Submit WITHOUT consent: nothing
+	// recorded.
+	privacy := h.getBody(t, c, "/activate?step=1")
 	if !strings.Contains(privacy, "No fingerprints") {
-		t.Error("step 2 must carry the GDPR notice")
+		t.Error("step 1 must carry the activation notice")
 	}
 	token := formToken(t, privacy)
 	noConsent, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"csrf": {token}})
 	if err != nil {
 		t.Fatalf("POST without consent: %v", err)
 	}
-	if got := body(t, noConsent); noConsent.StatusCode != http.StatusBadRequest || !strings.Contains(got, "Please tick the box") {
+	if got := body(t, noConsent); noConsent.StatusCode != http.StatusBadRequest || !strings.Contains(got, "Please press Agree and continue") {
 		t.Errorf("the consent gate answered %d without the error", noConsent.StatusCode)
 	}
 	h.assertConsented(t, false)
@@ -263,8 +264,8 @@ func TestE2E_ActivationFlow(t *testing.T) {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
 	ready := body(t, resp)
-	if resp.Request.URL.Query().Get("step") != "3" || !strings.Contains(ready, "KF-StJulians-Staff") {
-		t.Fatalf("consent landed on %s; want step 3 naming the venue network", resp.Request.URL)
+	if resp.Request.URL.Query().Get("step") != "2" || !strings.Contains(ready, "KF-StJulians-Staff") {
+		t.Fatalf("consent landed on %s; want step 2 naming the venue network", resp.Request.URL)
 	}
 	h.assertConsented(t, true)
 	h.assertEmployeeStatus(t, "invited")
@@ -279,8 +280,8 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	}
 
 	// 4. The waiting screen, and its poll.
-	if wait := h.getBody(t, c, "/activate?step=4"); !strings.Contains(wait, "Now tap the plaque") {
-		t.Error("step 4 is not the waiting screen")
+	if wait := h.getBody(t, c, "/activate?step=3"); !strings.Contains(wait, "Now tap the plaque") {
+		t.Error("step 3 is not the waiting screen")
 	}
 	if got := h.status(t, c); got != "waiting" {
 		t.Errorf("status before the tap = %q, want waiting", got)
@@ -352,8 +353,8 @@ func TestE2E_ActivationFlow(t *testing.T) {
 		t.Fatalf("POST /api/checkin: %v", err)
 	}
 	result := body(t, checkin)
-	if checkin.StatusCode != http.StatusOK || strings.Contains(result, "TRAINING") {
-		t.Fatalf("the first check-in answered %d (TRAINING shown: %v)", checkin.StatusCode, strings.Contains(result, "TRAINING"))
+	if checkin.StatusCode != http.StatusOK || strings.Contains(result, "practice tap") {
+		t.Fatalf("the first check-in answered %d (practice line shown: %v)", checkin.StatusCode, strings.Contains(result, "practice tap"))
 	}
 	rec := h.lastRecord(t, h.employeeID)
 	if rec.Practice {
