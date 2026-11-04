@@ -182,10 +182,11 @@ func bfTxOpen(t *testing.T, guard *bfUpgradeGuard, lock func(ctx context.Context
 // would block it.
 //
 // STILL BLIND, by name:
-//   - a request that never waits: LOCK ... NOWAIT whose 55P03 the test swallows, or a lock_timeout
-//     shorter than bfGuardPoll. Never granted, so it deadlocks nothing and changes nothing the test
-//     reads; a test that needs the lock goes red by itself (lockForDowns on bfTx: its 90 s, then
-//     "still busy").
+//   - a request that never waits, or not for long: LOCK ... NOWAIT whose 55P03 the test swallows, or a
+//     wait that ends between two reads of pg_locks. That gap is bfGuardPoll plus the read's round trip,
+//     so it has no fixed bound and grows under load. Never granted, so it deadlocks nothing and changes
+//     nothing the test reads; a test that needs the lock goes red by itself (lockForDowns on bfTx: its
+//     90 s, then "still busy").
 //   - an early deadlock: a session that read the table is already queued on bfTx's lock, so the request
 //     fails with 40P01 at once, before it joins the queue (PostgreSQL's ProcSleep, no deadlock_timeout).
 //     Measured (T191): an upgrade whose error the test swallows, beside a read-then-row-lock loop, stayed
@@ -195,17 +196,19 @@ func bfTxOpen(t *testing.T, guard *bfUpgradeGuard, lock func(ctx context.Context
 // MUTANT (measured): TestIdentityDefiner_EveryGrantIsUsed back on bfTx -- red with no other session
 // running, naming the ALTER.
 type bfUpgradeGuard struct {
-	table  string
-	side   *pgx.Conn
-	report func(format string, args ...any)
-	armed  bool
-	stop   chan struct{}
-	done   chan struct{}
-	found  atomic.Pointer[string]
+	table    string
+	side     *pgx.Conn
+	report   func(format string, args ...any)
+	armed    bool
+	finished bool
+	stop     chan struct{}
+	done     chan struct{}
+	found    atomic.Pointer[string]
 }
 
-// bfGuardPoll is how often the guard reads pg_locks: well under the shortest lock_timeout on the table
-// (lockInTurn's 200 ms; the migration sections' 1 s). bfGuardLockTimeout bounds its own LOCK.
+// bfGuardPoll is the guard's pause between two reads of pg_locks. A wait is seen only if it outlasts the
+// pause plus the read's round trip, which has no fixed bound under load; the shortest waits on the table
+// are lockInTurn's 200 ms and the migration sections' 1 s. bfGuardLockTimeout bounds its own LOCK.
 const (
 	bfGuardPoll        = 50 * time.Millisecond
 	bfGuardLockTimeout = "30s"
@@ -225,15 +228,23 @@ func newBfUpgradeGuard(t *testing.T, dsn, table string) *bfUpgradeGuard {
 			t.Logf("close the upgrade guard's connection: %v", err)
 		}
 	})
-	t.Cleanup(func() {
-		g.halt()
-		if f := g.seen(); f != nil {
-			g.report("bfTx's transaction holds %s IN EXCLUSIVE MODE and asked for ACCESS EXCLUSIVE "+
-				"(an upgrade: the 40P01 bfTxForDDL describes) -- open this test with bfTxForDDL or "+
-				"bfTxAccessExclusive instead. First seen during: %s", g.table, *f)
-		}
-	})
+	t.Cleanup(g.finish)
 	return g
+}
+
+// finish ends the guard, once, and reports what it saw. The test's cleanup calls it, which is what turns
+// a seen upgrade into a red test.
+func (g *bfUpgradeGuard) finish() {
+	if g.finished {
+		return
+	}
+	g.finished = true
+	g.halt()
+	if f := g.found.Load(); f != nil {
+		g.report("bfTx's transaction holds %s IN EXCLUSIVE MODE and asked for ACCESS EXCLUSIVE "+
+			"(an upgrade: the 40P01 bfTxForDDL describes) -- open this test with bfTxForDDL or "+
+			"bfTxAccessExclusive instead. First seen during: %s", g.table, *f)
+	}
 }
 
 // arm takes the guard's lock and starts the poller, once bfTx's own EXCLUSIVE lock is held.
@@ -271,9 +282,6 @@ func (g *bfUpgradeGuard) halt() {
 		g.report("bfTx's upgrade guard: give its lock back: %v", err)
 	}
 }
-
-// seen is the first request the poller saw, nil for none.
-func (g *bfUpgradeGuard) seen() *string { return g.found.Load() }
 
 func (g *bfUpgradeGuard) poll(pid uint32) {
 	defer close(g.done)
@@ -985,4 +993,66 @@ func e(t *testing.T) { bfTx(t); exec("SELECT * FROM admin_users FOR UPDATE") }
 	if got := upgrades(string(src)); len(got) > 0 {
 		t.Errorf("tests on bfTx that ask for a stronger lock on admin_users later (an upgrade -- open them with bfTxForDDL): %v", got)
 	}
+	// The run-time half is only there if bfTx installs it. CONTROL first: each way of not doing so.
+	for _, c := range []struct {
+		name, src string
+		want      bool
+	}{
+		{"wired", `package p; func bfTx(t *T) { g := newBfUpgradeGuard(t, d, "admin_users"); return bfTxOpen(t, g, l) }`, true},
+		{"no guard", `package p; func bfTx(t *T) { g := newBfUpgradeGuard(t, d, "admin_users"); _ = g; return bfTxOpen(t, nil, l) }`, false},
+		{"never built", `package p; func bfTx(t *T) { return bfTxOpen(t, nil, l) }`, false},
+		{"another table", `package p; func bfTx(t *T) { g := newBfUpgradeGuard(t, d, "tenants"); return bfTxOpen(t, g, l) }`, false},
+		{"another variable", `package p; func bfTx(t *T) { g := newBfUpgradeGuard(t, d, "admin_users"); h := other(); _ = g; return bfTxOpen(t, h, l) }`, false},
+	} {
+		if got := bfTxInstallsItsGuard(t, c.src); got != c.want {
+			t.Fatalf("CONTROL %s: the scan answers %v, want %v", c.name, got, c.want)
+		}
+	}
+	if !bfTxInstallsItsGuard(t, string(src)) {
+		t.Error("bfTx does not build its guard on admin_users and pass it to bfTxOpen: nothing watches its tests for an upgrade")
+	}
+}
+
+// bfTxInstallsItsGuard reads src's bfTx: a variable set from newBfUpgradeGuard(_, _, "admin_users") is
+// bfTxOpen's second argument.
+func bfTxInstallsItsGuard(t *testing.T, src string) bool {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "src.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "bfTx" || fd.Body == nil {
+			continue
+		}
+		guard, passed := "", ""
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.AssignStmt:
+				if len(x.Lhs) != 1 || len(x.Rhs) != 1 {
+					break
+				}
+				lhs, ok1 := x.Lhs[0].(*ast.Ident)
+				call, ok2 := x.Rhs[0].(*ast.CallExpr)
+				if !ok1 || !ok2 || len(call.Args) != 3 {
+					break
+				}
+				fun, ok3 := call.Fun.(*ast.Ident)
+				table, ok4 := call.Args[2].(*ast.BasicLit)
+				if ok3 && ok4 && fun.Name == "newBfUpgradeGuard" && table.Value == `"admin_users"` {
+					guard = lhs.Name
+				}
+			case *ast.CallExpr:
+				if fun, ok := x.Fun.(*ast.Ident); ok && fun.Name == "bfTxOpen" && len(x.Args) == 3 {
+					if arg, ok := x.Args[1].(*ast.Ident); ok {
+						passed = arg.Name
+					}
+				}
+			}
+			return true
+		})
+		return guard != "" && guard == passed
+	}
+	return false
 }

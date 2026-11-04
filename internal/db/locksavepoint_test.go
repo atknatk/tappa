@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,13 @@ func lockMissCase(t *testing.T, miss func(ctx context.Context, tx pgx.Tx)) {
 		release()
 		lockForDowns(t, ctx, tx, []string{"admin_users"})
 	})
+	lockWantTopLevel(t, ctx, tx)
+}
+
+// lockWantTopLevel reads both things that depend on tx being at its top level: a new row's xmin, and
+// identity_create_for_signup's answer on such a row.
+func lockWantTopLevel(t *testing.T, ctx context.Context, tx pgx.Tx) {
+	t.Helper()
 	w := isNewWorld(t, ctx, tx, "", "")
 	var topLevel bool
 	if err := tx.QueryRow(ctx, `SELECT xmin = pg_catalog.pg_current_xact_id()::xid FROM admin_users WHERE id = $1`, w.admin).Scan(&topLevel); err != nil {
@@ -100,17 +108,30 @@ func TestLockHelpers_AnInTurnMissLeavesTheTopLevel(t *testing.T) {
 	lockMissCase(t, func(ctx context.Context, tx pgx.Tx) { lockWantBusy(t, ctx, tx) })
 }
 
-// The first table is taken in the savepoint and goes back with it.
+// The first table is taken in the savepoint and goes back with it. goose_db_version: lockInTurn waits only
+// 200 ms for it, so it must be a table no other package keeps open (bfGuardCase's comment).
 func TestLockHelpers_AnInTurnMissOnTheSecondTableLeavesTheTopLevel(t *testing.T) {
-	lockMissCase(t, func(ctx context.Context, tx pgx.Tx) { lockWantBusy(t, ctx, tx, "public.tenant_branding") })
+	lockMissCase(t, func(ctx context.Context, tx pgx.Tx) { lockWantBusy(t, ctx, tx, "public."+bfGuardCaseTable) })
+}
+
+// lockInTurn's other way out: every table taken. lockMissCase cannot see it, because it ends through
+// lockForDowns' NOWAIT path; here lockInTurn runs first and nothing else leaves a savepoint behind.
+func TestLockHelpers_AnInTurnHitLeavesTheTopLevel(t *testing.T) {
+	ctx, tx := bfTxLocking(t, func(ctx context.Context, tx pgx.Tx) {
+		if busy, ok := lockInTurn(t, ctx, tx, []string{"public." + bfGuardCaseTable}); !ok {
+			t.Fatalf("PREMISE: lockInTurn did not take a quiet table: busy=%q", busy)
+		}
+		lockForDowns(t, ctx, tx, []string{"admin_users"})
+	})
+	lockWantTopLevel(t, ctx, tx)
 }
 
 // bfGuardCase drives the guard through one way a test has to ask for ACCESS EXCLUSIVE over bfTx's
 // EXCLUSIVE, or through what a bfTx test may do; the TestBfUpgradeGuard_ tests below are its cases. The
 // paths are the ones that escaped the guard's first form (T191): PgConn().Exec (opRunSection, afRun), a
 // section that goes on to fail, a savepoint rolled back, a Batch, and one more the statement's own error
-// cannot show -- a DO block that catches lock_not_available. lock_timeout is 1 s, twenty polls. One test
-// per case, like lockMissCase.
+// cannot show -- a DO block that catches lock_not_available. lock_timeout is 1 s, twenty of the poller's
+// pauses; the read's round trip comes on top of each (bfGuardPoll). One test per case, like lockMissCase.
 //
 // ON goose_db_version, NOT admin_users: the request waits, and a request for ACCESS EXCLUSIVE on
 // admin_users behind bfTx's EXCLUSIVE is the cycle this guard exists to prevent -- a session of another
@@ -118,27 +139,58 @@ func TestLockHelpers_AnInTurnMissOnTheSecondTableLeavesTheTopLevel(t *testing.T)
 // Nothing but plain reads ever touches goose_db_version while tests run.
 func bfGuardCase(t *testing.T, upgrades bool, run func(ctx context.Context, tx pgx.Tx)) {
 	t.Helper()
+	guard, reports := bfGuardCaseGuard(t)
+	ctx, tx := bfGuardCaseTx(t, guard)
+	time.Sleep(2 * bfGuardPoll) // the poller has looked once before the request: what it names is not its first read
+	run(ctx, tx)
+	time.Sleep(2 * bfGuardPoll) // the negative cases: the poller had its look after the statement
+	guard.finish()
+	switch got := *reports; {
+	case upgrades && len(got) != 1:
+		t.Errorf("the guard reported %d times, want once: %q", len(got), got)
+	case upgrades && !strings.Contains(got[0], bfGuardCaseAsk):
+		t.Errorf("the guard named another statement: %s", got[0])
+	case !upgrades && len(got) != 0:
+		t.Errorf("the guard reported a test that did not upgrade: %q", got)
+	}
+}
+
+// bfGuardCaseGuard builds the guard with its report captured: the finding is the case's assertion, not
+// its failure.
+func bfGuardCaseGuard(t *testing.T) (*bfUpgradeGuard, *[]string) {
+	t.Helper()
 	guard := newBfUpgradeGuard(t, opOwnerDSN(t), bfGuardCaseTable)
-	guard.report = t.Logf // the finding is this test's assertion, not its failure
-	ctx, tx := bfTxOpen(t, guard, func(ctx context.Context, tx pgx.Tx) {
+	reports := &[]string{}
+	guard.report = func(format string, args ...any) { *reports = append(*reports, fmt.Sprintf(format, args...)) }
+	return guard, reports
+}
+
+func bfGuardCaseTx(t *testing.T, guard *bfUpgradeGuard) (context.Context, pgx.Tx) {
+	t.Helper()
+	return bfTxOpen(t, guard, func(ctx context.Context, tx pgx.Tx) {
 		for _, q := range []string{`LOCK TABLE public.` + bfGuardCaseTable + ` IN EXCLUSIVE MODE`, `SET LOCAL lock_timeout = '1s'`} {
 			if _, err := tx.Exec(ctx, q); err != nil {
 				t.Fatalf("%s: %v", q, err)
 			}
 		}
 	})
-	time.Sleep(2 * bfGuardPoll) // the poller has looked once before the request: what it names is not its first read
-	run(ctx, tx)
-	time.Sleep(2 * bfGuardPoll) // the negative cases: the poller had its look after the statement
-	got := guard.seen()
-	switch {
-	case upgrades && got == nil:
-		t.Error("the guard did not see the request")
-	case upgrades && !strings.Contains(*got, "ACCESS EXCLUSIVE MODE"):
-		t.Errorf("the guard named another statement: %s", *got)
-	case !upgrades && got != nil:
-		t.Errorf("the guard reported a test that did not upgrade: %s", *got)
-	}
+}
+
+// The guard's own cleanup is what fails a test, so this case leaves finish to it: its assertion is a
+// cleanup registered first, which runs after the guard's (LIFO). With finish's report taken out, or its
+// t.Cleanup, this is red; bfGuardCase's direct call would not notice the second.
+func TestBfUpgradeGuard_ItsCleanupReports(t *testing.T) {
+	var reports *[]string
+	t.Cleanup(func() {
+		if reports == nil || len(*reports) != 1 || !strings.Contains((*reports)[0], bfGuardCaseAsk) {
+			t.Errorf("the cleanup did not report the request once, by name: %v", reports)
+		}
+	})
+	guard, r := bfGuardCaseGuard(t)
+	reports = r
+	ctx, tx := bfGuardCaseTx(t, guard)
+	_, err := tx.Exec(ctx, bfGuardCaseAsk)
+	bfWant55P03(t, err)
 }
 
 const (
