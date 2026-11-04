@@ -101,10 +101,11 @@ import (
 //     outbox holds nothing and nothing is sent, the handler writes no line for the
 //     refused grants (the breaker's one trip line is the only line), and the
 //     response's status, headers and body are byte-identical to the same request's
-//     with the breaker passing and to an unregistered address's, each inside
-//     [floor, floor+50ms] with a full adminauth.ResetWindow of grants (the most rows
-//     the tripped branch writes before the floor ends) —
-//     TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing; a grant
+//     with the breaker passing and to an unregistered address's —
+//     TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing; each of the
+//     three answers inside [floor, floor+50ms] with a full adminauth.ResetWindow of
+//     grants (the most rows the tripped branch writes before the floor ends) —
+//     TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand; a grant
 //     that passed the question and met a full window at the worker ends undelivered
 //     with the send-failed reason, its failure line naming class=breaker and
 //     smtp_code=0 — TestResetOutbox_AGrantTheBreakerRefusesAtTheWorkerIsUndelivered;
