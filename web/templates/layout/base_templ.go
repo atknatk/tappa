@@ -84,8 +84,8 @@ func Page(title string) templ.Component {
 
 // ActivationPage is Page with the business's brand -- the header and the accent's
 // theme stylesheet -- and no script (M10 WL-13, user decisions of 2026-10-09): the
-// activation wizard's first three steps, "Activation complete" and "already set up".
-// The wizard's fourth step needs its poll script and takes PageWithScript with the same
+// activation wizard's first two steps, "Activation complete" and "already set up".
+// The wizard's last step needs its poll script and takes PageWithScript with the same
 // Brand.
 //
 // A SHELL OF ITS OWN rather than PageWithScript with an empty path, so that a page that
@@ -205,7 +205,7 @@ func BrandedPage(title string, logo Logo) templ.Component {
 //     HTML that says "ask once, when this button is pressed". The tap form keeps
 //     working without script: it simply posts no coordinates, which §5 rows 6-7
 //     already treat as a legitimate state.
-//   - THE ACTIVATION WIZARD'S WAITING SCREEN (step 4, ADR 0026). Its script polls
+//   - THE ACTIVATION WIZARD'S WAITING SCREEN (step 3, ADR 0026). Its script polls
 //     GET /activate/status and flips the screen to "Activation complete" when the tap
 //     finished in another tab; without script the words on the screen stay true and
 //     the tap's own tab says "Activation complete".
@@ -355,18 +355,19 @@ func shell(title, script string, b Brand) templ.Component {
 
 // BrandHeader is the top of a branded page (ADR 0023 §2, §5-§7), in three shapes:
 //
-//   - A LOGO: the logo in a slot 24 px tall, and under it, 4 px down, the co-brand
-//     line "taptime · punchless" in the tagline's own tone (user decision K-2b,
-//     2026-10-02). The two Taptime words the wordmark carries stay on the screen;
-//     the logo's alt -- the business's name -- is the one new text. The 24 px slot
-//     and the 4 px gap are the orchestrator's WL-9 numbers: the header grows from
-//     28 px to 24 + 4 + 15 = 43, so the tap button moves down 15 px, inside the
-//     16 px budget (the button's place is thumb memory). The width follows the
-//     stored box and stops at half the column; the logo keeps its proportions
-//     inside that box rather than stretching. The width and height attributes are
-//     the STORED box, so the browser knows the logo's proportions before its bytes
-//     arrive and nothing below it moves when they do (CDP: layout shift 0, WL-9
-//     card).
+//   - A LOGO (user §9 decisions of 2026-11-02, replacing K-2b's 24 px slot and co-brand
+//     line): the logo centred in a slot 56 px tall, nothing under it. The slot belongs to
+//     the header, so its height does not depend on the logo and nothing below moves
+//     between a wide logo and a tall one, or when the bytes arrive. The attributes are the
+//     box Logo.boxWidth and boxHeight compute -- the stored proportions, at most the
+//     slot's height, never larger than stored -- and the column's cap keeps a very wide
+//     logo off the gutters. Once the bytes arrive, Preflight's automatic image height
+//     follows the image's own proportions rather than the rounded attributes, which for a
+//     very thin logo is far taller than the slot (stored 4x512: 1 px wide, 128 px tall),
+//     so the image also carries a height cap of the slot's 56 px. The logo's alt -- the
+//     business's name -- is the one new text. With a logo these screens no longer name
+//     Taptime anywhere visible (ADR 0023's note of that date); the activation wizard's
+//     notice still does.
 //   - AN ACCENT AND NO LOGO: the wordmark with "taptime" in ink rather than green
 //     (user decision K-2a, 2026-10-02), so the tenant's button is the one accent
 //     colour on the screen. Same box as the wordmark, so nothing moves.
@@ -402,14 +403,14 @@ func BrandHeader(b Brand) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if b.logo.Drawn() {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<header class=\"flex flex-col items-start gap-1\"><img src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<header class=\"flex h-14 items-center justify-center\"><img src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.src)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 172, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 173, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -422,7 +423,7 @@ func BrandHeader(b Brand) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.widthAttr())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 172, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 173, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -435,7 +436,7 @@ func BrandHeader(b Brand) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.heightAttr())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 172, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 173, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -448,13 +449,13 @@ func BrandHeader(b Brand) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(b.logo.alt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 172, Col: 103}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 173, Col: 103}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"h-6 w-auto max-w-[50%] object-contain object-left\"> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">taptime · punchless</span></header>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" class=\"max-h-14 max-w-[70%] object-contain\"></header>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

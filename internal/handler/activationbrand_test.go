@@ -3,10 +3,11 @@ package handler
 // activationbrand_test.go -- M10 WL-13: a business's brand on the activation family and
 // the wizard's logo route, against FAKES below the handler and through the mounted
 // router (every response read from rec.Result()). User decisions of 2026-10-09: (1) the
-// wizard's four steps, "Activation complete" and "already set up" take the tap screen's
-// header and accent; (2) the logo only for a business VIES verified -- the domain read
+// wizard's three steps, "Activation complete" and "already set up" take the business's
+// header (since the §9 decision of 2026-11-02 the logo centred at 56 px, no co-brand) and
+// accent; (2) the logo only for a business VIES verified -- the domain read
 // drops it, so here a business "not verified" is the brand that read returns: the
-// accent alone; (3) the accent fills steps 1-3's primary button and the wizard's other
+// accent alone; (3) the accent fills steps 1 and 2's primary button and the wizard's other
 // green marks turn ink. The real-Postgres half is activationbrand_db_test.go, and the
 // VIES gate itself is internal/domain/tenant's activationbrand tests.
 
@@ -14,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -111,7 +113,7 @@ func wl13LiveSession() *http.Cookie {
 	return &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
 }
 
-// activationScreen is one of the six screens WL-13 brands.
+// activationScreen is one of the five screens WL-13 brands.
 type activationScreen struct {
 	name    string
 	target  string
@@ -127,9 +129,8 @@ func activationScreens() []activationScreen {
 	marker := &http.Cookie{Name: activatedCookieName, Value: wl13DoneSession.String()}
 	return []activationScreen{
 		{"step 1, welcome", "/activate", []*http.Cookie{codeCookie()}, false, 1},
-		{"step 2, privacy", "/activate?step=2", []*http.Cookie{codeCookie()}, false, 1},
-		{"step 3, get ready", "/activate?step=3", []*http.Cookie{pendingCookie()}, false, 1},
-		{"step 4, tap", "/activate?step=4", []*http.Cookie{pendingCookie()}, false, 0},
+		{"step 2, get ready", "/activate?step=2", []*http.Cookie{pendingCookie()}, false, 1},
+		{"step 3, tap", "/activate?step=3", []*http.Cookie{pendingCookie()}, false, 0},
 		{"activation complete", ActivationCompletePath, []*http.Cookie{live, marker}, true, 0},
 		{"already set up", "/activate", []*http.Cookie{live}, true, 0},
 	}
@@ -152,8 +153,9 @@ func askScreen(t *testing.T, h http.Handler, s activationScreen) answer {
 	return a
 }
 
-// activationLogoHeaderHTML is K-2b's header with the logo served from prefix.
-func activationLogoHeaderHTML(prefix, sha string, w, h int, alt string) string {
+// activationHeaderOf is the header with the logo served from prefix: the one logo shape
+// (tapbrand_test.go, logoHeaderHTML), stored at w x h.
+func activationHeaderOf(prefix, sha string, w, h int, alt string) string {
 	return strings.Replace(logoHeaderHTML(sha, w, h, alt), `src="/t/logo/`, `src="`+prefix, 1)
 }
 
@@ -170,28 +172,24 @@ const (
 	activationPolicyLogo = activationPolicy + "; img-src 'self'"
 )
 
-// The four ink marks and their Taptime spellings: undoInk maps a page drawn beside an
+// The two ink marks and their Taptime spellings: undoInk maps a page drawn beside an
 // accent back onto the one drawn without, so the rest can be compared byte for byte.
 const (
-	inkSegment      = `class="wizard-segment wizard-segment--done bg-ink"`
-	greenSegment    = `class="wizard-segment wizard-segment--done"`
-	inkIndex        = `class="wizard-index text-ink"`
-	greenIndex      = `class="wizard-index"`
-	inkConsent      = `class="wizard-consent has-[:checked]:border-ink has-[:checked]:bg-ink/5"`
-	greenConsent    = `class="wizard-consent"`
-	inkConsentBox   = `class="mt-0.5 h-6 w-6 shrink-0 accent-ink"`
-	greenConsentBox = `class="mt-0.5 h-6 w-6 shrink-0 accent-tappa-green"`
+	inkSegment   = `class="wizard-segment wizard-segment--done bg-ink"`
+	greenSegment = `class="wizard-segment wizard-segment--done"`
+	inkIndex     = `class="wizard-index text-ink"`
+	greenIndex   = `class="wizard-index"`
 )
 
-var undoInk = strings.NewReplacer(inkSegment, greenSegment, inkIndex, greenIndex,
-	inkConsent, greenConsent, inkConsentBox, greenConsentBox)
+var undoInk = strings.NewReplacer(inkSegment, greenSegment, inkIndex, greenIndex)
 
 // TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme is decision 1 on
-// the six screens, for a business with a logo (VIES verified) and an accent: the header
-// is exactly the tap screen's K-2b header, its logo from the wizard's route on steps 1-4
-// and from the tap route on the two session screens; the theme stylesheet is linked once,
-// right after app.css; one <img>; the policy names img-src; the accent's slot -- the tap
-// button's class -- is on steps 1-3 only, so step 4 still has no primary button; and
+// the five screens, for a business with a logo (VIES verified) and an accent: the header
+// is the activation family's (the logo centred in 56 px, no co-brand line), its logo from
+// the wizard's route on steps 1-3 and from the tap route on the two session screens; the
+// theme stylesheet is linked once, right after app.css; one <img>; the policy names
+// img-src; the accent's slot -- the tap button's class -- is on steps 1 and 2 only, so
+// step 3 still has no primary button; and
 // outside the header, the theme link and the ink marks the page is the unbranded page
 // byte for byte.
 func TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme(t *testing.T) {
@@ -201,7 +199,7 @@ func TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme(t *te
 		t.Run(s.name, func(t *testing.T) {
 			a, p := askScreen(t, branded, s), askScreen(t, plain, s)
 			body := string(a.body)
-			want := activationLogoHeaderHTML(logoPrefixOf(s), brandLogoSHA, brandLogoW, brandLogoH, brandTestName)
+			want := activationHeaderOf(logoPrefixOf(s), brandLogoSHA, brandLogoW, brandLogoH, brandTestName)
 			if got := headerRE.FindAllString(body, -1); len(got) != 1 || got[0] != want {
 				t.Errorf("header:\n got %q\nwant %q", got, want)
 			}
@@ -221,6 +219,81 @@ func TestActivationScreens_ABrandedBusinessGetsTheTapScreensHeaderAndTheme(t *te
 				t.Errorf("outside the header, the theme link and the ink marks the page differs from the unbranded one:\n got %s\nwant %s", got, want)
 			}
 		})
+	}
+}
+
+// TestActivationScreens_TheLogoIsCentredAt56pxWithNoCoBrand is the user's §9 decision of
+// 2026-11-02 on all five screens: the slot is the header's, 56 px tall and centred; the
+// alt is the business's name; "taptime · punchless" is not on the page. The stored size
+// decides the box: it keeps the proportions, stops at 56 px and never blows a small logo
+// up (the panel header's rule, pages.PanelLogoOf).
+func TestActivationScreens_TheLogoIsCentredAt56pxWithNoCoBrand(t *testing.T) {
+	sha := digestOf(logoJPEGB)
+	for _, c := range []struct {
+		name        string
+		stored, box [2]int
+	}{
+		{"a wide logo fills the slot's height", [2]int{512, 128}, [2]int{224, 56}},
+		{"a tall thin one too", [2]int{128, 512}, [2]int{14, 56}},
+		{"a square one", [2]int{512, 512}, [2]int{56, 56}},
+		{"one too thin to round to a pixel keeps one", [2]int{4, 512}, [2]int{1, 56}},
+		{"a thin one that rounds to two", [2]int{14, 512}, [2]int{2, 56}},
+		{"exactly the slot", [2]int{100, 56}, [2]int{100, 56}},
+		{"a small one is not blown up", [2]int{48, 32}, [2]int{48, 32}},
+		{"a long low one is not blown up", [2]int{512, 16}, [2]int{512, 16}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := tenant.PageBrand{HasLogo: true, Name: brandTestName,
+				Logo: tenant.LogoRef{SHA256: sha, MIME: "image/jpeg", Width: c.stored[0], Height: c.stored[1]}}
+			h := activationHandler(t, brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: b}), nil)
+			for _, s := range activationScreens() {
+				body := string(askScreen(t, h, s).body)
+				want := fmt.Sprintf(`<header class="flex h-14 items-center justify-center"><img src="%s%s" width="%d" height="%d" alt="%s" class="max-h-14 max-w-[70%%] object-contain"></header>`,
+					logoPrefixOf(s), sha, c.box[0], c.box[1], brandTestName)
+				if got := headerRE.FindString(body); got != want {
+					t.Errorf("%s:\n got %q\nwant %q", s.name, got, want)
+				}
+				if strings.Contains(body, "taptime · punchless") {
+					t.Errorf("%s still carries the co-brand line", s.name)
+				}
+			}
+		})
+	}
+}
+
+// TestBrandHeader_OneLogoShapeOnEveryShellThatDrawsIt: one header (user §9 decisions of
+// 2026-11-02). The tap shell, the result shell, the activation shell and the Account preview's
+// component all draw the logo centred at 56 px with no co-brand line, and without a logo
+// the activation family keeps the wordmark with its tagline.
+func TestBrandHeader_OneLogoShapeOnEveryShellThatDrawsIt(t *testing.T) {
+	child := templ.Raw(`<p>child</p>`)
+	render := func(c templ.Component) string {
+		var b bytes.Buffer
+		if err := c.Render(templ.WithChildren(context.Background(), child), &b); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	logo := layout.TapLogo(brandLogoSHA, 512, 128, brandTestName)
+	want := logoHeaderHTML(brandLogoSHA, 512, 128, brandTestName)
+	for name, page := range map[string]templ.Component{
+		"tap":        layout.PageWithScript("T", "/static/js/tap.js", layout.TapBrand(logo, layout.Theme{})),
+		"result":     layout.BrandedPage("T", logo),
+		"activation": layout.ActivationPage("T", layout.ActivationBrand(logo, layout.Theme{})),
+		"preview":    layout.BrandHeader(layout.TapBrand(logo, layout.Theme{})),
+	} {
+		if got := headerRE.FindString(render(page)); got != want {
+			t.Errorf("%s:\n got %q\nwant %q", name, got, want)
+		}
+	}
+	for name, page := range map[string]templ.Component{
+		"no script": layout.ActivationPage("T", layout.Brand{}),
+		"script":    layout.PageWithScript("T", "/static/js/activate.js", layout.Brand{}),
+	} {
+		got := headerRE.FindString(render(page))
+		if !strings.Contains(got, ">taptime</span>") || !strings.Contains(got, ">punchless</span>") {
+			t.Errorf("%s, no logo: the header is not the wordmark: %q", name, got)
+		}
 	}
 }
 
@@ -246,8 +319,8 @@ func TestActivationScreens_AnAccentWithoutALogoGetsTheInkWordmark(t *testing.T) 
 }
 
 // TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent is decision 3: with an
-// accent the progress bar's done segments, the 01/02/03 numbers and the ticked consent
-// box are ink; without one -- no brand, or a logo alone -- they are Taptime's green, and
+// accent the progress bar's done segments and the get-ready step's 01/02 numbers are
+// ink; without one -- no brand, or a logo alone -- they are Taptime's green, and
 // no ink mark is written.
 func TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent(t *testing.T) {
 	for _, c := range []struct {
@@ -255,7 +328,7 @@ func TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent(t *testing
 		logo, accent bool
 	}{{"no brand", false, false}, {"a logo alone", true, false}, {"an accent alone", false, true}, {"a logo and an accent", true, true}} {
 		h := activationHandler(t, brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: testPageBrand(t, c.logo, c.accent)}), nil)
-		for _, s := range activationScreens()[:4] {
+		for _, s := range activationScreens()[:3] {
 			body := string(askScreen(t, h, s).body)
 			step, _ := strconv.Atoi(strings.TrimPrefix(strings.SplitN(s.name, ",", 2)[0], "step "))
 			ink, green := map[bool]int{true: step}, map[bool]int{false: step}
@@ -265,19 +338,12 @@ func TestActivationWizard_TheOtherGreenMarksTurnInkOnlyBesideAnAccent(t *testing
 			if got := strings.Count(body, greenSegment); got != green[c.accent] {
 				t.Errorf("%s, %s: %d green done segment(s), want %d", c.name, s.name, got, green[c.accent])
 			}
-			indexes := map[int]int{1: 3, 3: 2}[step]
+			indexes := map[int]int{2: 2}[step]
 			if got, want := strings.Count(body, inkIndex), map[bool]int{true: indexes}[c.accent]; got != want {
 				t.Errorf("%s, %s: %d ink number(s), want %d", c.name, s.name, got, want)
 			}
 			if got, want := strings.Count(body, greenIndex), map[bool]int{false: indexes}[c.accent]; got != want {
 				t.Errorf("%s, %s: %d green number(s), want %d", c.name, s.name, got, want)
-			}
-			consent := map[int]int{2: 1}[step]
-			if got, want := strings.Count(body, inkConsent)+strings.Count(body, inkConsentBox), map[bool]int{true: 2 * consent}[c.accent]; got != want {
-				t.Errorf("%s, %s: %d ink consent mark(s), want %d", c.name, s.name, got, want)
-			}
-			if got, want := strings.Count(body, greenConsent)+strings.Count(body, greenConsentBox), map[bool]int{false: 2 * consent}[c.accent]; got != want {
-				t.Errorf("%s, %s: %d green consent mark(s), want %d", c.name, s.name, got, want)
 			}
 		}
 	}
@@ -303,9 +369,6 @@ func TestActivationWizard_TheInkMarksCompileToInkAfterTheGreen(t *testing.T) {
 	}{
 		{`.bg-ink{`, "background-color:rgb(21 34 25", `.wizard-segment--done{`},
 		{`.text-ink{`, "color:rgb(21 34 25", `.wizard-index{`},
-		{`.accent-ink{`, "accent-color:#152219", `.wizard-consent{`},
-		{`.has-\[\:checked\]\:border-ink:has(:checked){`, "border-color:rgb(21 34 25", `.wizard-consent:has(:checked){`},
-		{`.has-\[\:checked\]\:bg-ink\/5:has(:checked){`, "background-color:rgba(21,34,25,.05)", `.wizard-consent:has(:checked){`},
 	} {
 		i, g := strings.Index(css, c.ink), strings.Index(css, c.green)
 		if i < 0 || g < 0 {
@@ -324,13 +387,13 @@ func TestActivationWizard_TheInkMarksCompileToInkAfterTheGreen(t *testing.T) {
 
 // TestActivationPlaque_StaysTaptimesOnABrandedPage: the waiting screen's plaque -- rings
 // and "taptime" -- is the PHYSICAL plaque, which is Taptime's (ADR 0023 §9 item 4), so it
-// is byte-identical on a branded business's step 4 and on Taptime's own.
+// is byte-identical on a branded business's step 3 and on Taptime's own.
 func TestActivationPlaque_StaysTaptimesOnABrandedPage(t *testing.T) {
 	plaqueRE := regexp.MustCompile(`<div class="plaque-wait".*?<span class="plaque-wait-phone"></span></div>`)
-	step4 := activationScreens()[3]
-	plain := plaqueRE.FindString(string(askScreen(t, activationHandler(t, &fakeActivationBrands{}, nil), step4).body))
+	step3 := activationScreens()[2]
+	plain := plaqueRE.FindString(string(askScreen(t, activationHandler(t, &fakeActivationBrands{}, nil), step3).body))
 	branded := plaqueRE.FindString(string(askScreen(t, activationHandler(t,
-		brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: testPageBrand(t, true, true)}), nil), step4).body))
+		brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: testPageBrand(t, true, true)}), nil), step3).body))
 	if plain == "" || !strings.Contains(plain, `text-tappa-green">taptime</span>`) || !strings.Contains(plain, "plaque-wait-ring") {
 		t.Fatalf("PREMISE: the unbranded plaque is not the green Taptime drawing: %q", plain)
 	}
@@ -429,7 +492,7 @@ func TestActivationFailureScreens_StayTaptimesForABrandedInvitation(t *testing.T
 				got.header.Get("Content-Security-Policy") != want.header.Get("Content-Security-Policy") {
 				t.Errorf("differs from the unbranded answer:\n got %d %s\nwant %d %s", got.status, got.body, want.status, want.body)
 			}
-			for _, banned := range []string{"/activate/logo/", "/t/logo/", "/brand/theme/", "<img", "bg-ink", "text-ink\"", "accent-ink"} {
+			for _, banned := range []string{"/activate/logo/", "/t/logo/", "/brand/theme/", "<img", "bg-ink", "text-ink\"", "accent-tappa-green"} {
 				if bytes.Contains(got.body, []byte(banned)) {
 					t.Errorf("the body carries %q", banned)
 				}
@@ -444,7 +507,7 @@ func TestActivationFailureScreens_StayTaptimesForABrandedInvitation(t *testing.T
 	}
 }
 
-// TestActivationScreens_ABrandReadFailureDrawsTaptimesPage is §4.6 on the six screens:
+// TestActivationScreens_ABrandReadFailureDrawsTaptimesPage is §4.6 on the five screens:
 // the brand read fails, the screen is the unbranded screen byte for byte (status, policy,
 // body), and the log carries exactly ONE error line naming the business -- and no code,
 // no binding, no colour, no digest.
@@ -483,7 +546,7 @@ func TestActivationScreens_AnAccentTheGateRefusesTodayKeepsTheLogo(t *testing.T)
 	for _, s := range activationScreens() {
 		logs.Reset()
 		body := string(askScreen(t, h, s).body)
-		want := activationLogoHeaderHTML(logoPrefixOf(s), brandLogoSHA, brandLogoW, brandLogoH, brandTestName)
+		want := activationHeaderOf(logoPrefixOf(s), brandLogoSHA, brandLogoW, brandLogoH, brandTestName)
 		if headerRE.FindString(body) != want || strings.Contains(body, "/brand/theme/") || strings.Contains(body, "bg-ink") {
 			t.Errorf("%s: want the logo header, no theme and no ink mark", s.name)
 		}
@@ -507,11 +570,11 @@ func TestActivationScreens_TheBrandIsTheBusinessThePageNames(t *testing.T) {
 	}}
 	h := newHandlerWith(t, &fakeInvites{}, holder, &fakeAudit{}, handlerOpts{brands: brands})
 
-	wizard := string(ask(t, h, http.MethodGet, "/activate?step=2", codeCookie(), wl13LiveSession()).body)
+	wizard := string(ask(t, h, http.MethodGet, "/activate?step=1", codeCookie(), wl13LiveSession()).body)
 	if !strings.Contains(wizard, "This phone belongs to someone else") {
 		t.Fatal("PREMISE: the wizard does not see the other business's session")
 	}
-	if want := activationLogoHeaderHTML("/activate/logo/", brandLogoSHA, brandLogoW, brandLogoH, brandTestName); headerRE.FindString(wizard) != want {
+	if want := activationHeaderOf("/activate/logo/", brandLogoSHA, brandLogoW, brandLogoH, brandTestName); headerRE.FindString(wizard) != want {
 		t.Errorf("the wizard's header is not the invitation's business's:\n%s", headerRE.FindString(wizard))
 	}
 	if reads, _ := brands.calls(); len(reads) != 1 || reads[0] != testTenant {
@@ -520,7 +583,7 @@ func TestActivationScreens_TheBrandIsTheBusinessThePageNames(t *testing.T) {
 
 	brands.brandCalls = nil
 	already := string(ask(t, h, http.MethodGet, "/activate", wl13LiveSession()).body)
-	if want := activationLogoHeaderHTML("/t/logo/", digestOf(logoJPEGB), 100, 50, "Probe Beta Ltd"); headerRE.FindString(already) != want {
+	if want := activationHeaderOf("/t/logo/", digestOf(logoJPEGB), 100, 50, "Probe Beta Ltd"); headerRE.FindString(already) != want {
 		t.Errorf("\"already set up\" is not drawn in the session's business's brand:\n%s", headerRE.FindString(already))
 	}
 	if reads, _ := brands.calls(); len(reads) != 1 || reads[0] != other {
@@ -569,10 +632,10 @@ func TestActivationWizard_TheAccentButtonTextClearsAA(t *testing.T) {
 			t.Fatal(err)
 		}
 		h := activationHandler(t, brandsFor(map[uuid.UUID]tenant.PageBrand{testTenant: {Accent: c, HasAccent: true}}), nil)
-		body := string(askScreen(t, h, activationScreens()[1]).body)
+		body := string(askScreen(t, h, activationScreens()[0]).body)
 		m := hrefRE.FindStringSubmatch(body)
-		if m == nil || !strings.Contains(body, `<button type="submit" class="tap-button">Agree and continue</button>`) {
-			t.Fatalf("%s: step 2 links no theme or has no accent slot", hex)
+		if m == nil || !strings.Contains(body, agreeButton) {
+			t.Fatalf("%s: step 1 links no theme or has no accent slot", hex)
 		}
 		res := ask(t, theme, http.MethodGet, m[1])
 		if res.status != http.StatusOK {

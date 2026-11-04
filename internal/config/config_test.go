@@ -104,9 +104,10 @@ func TestLoad_InviteKeyMustDifferFromSessionKey(t *testing.T) {
 	}
 }
 
-// TestLoad_RetentionYearsIsRequiredAndBounded covers the value the GDPR notice
-// renders. It is REQUIRED (a missing legal figure must not become a silent
-// default) and bounded against typos.
+// TestLoad_RetentionYearsIsRequiredAndBounded covers the boot check. No screen or flow reads the
+// value since the user's decision of 2026-11-03 and retention is unresolved (Q13), but it stays
+// REQUIRED (a missing figure must not become a silent default) and bounded against typos until
+// the user decides.
 func TestLoad_RetentionYearsIsRequiredAndBounded(t *testing.T) {
 	cases := []struct {
 		name string

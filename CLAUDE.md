@@ -239,7 +239,10 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    ADR 0031 değişikliği ister** (testler: ADR 0031 §5.2'deki imza katalog testi ve sütun matrisi testi;
    yetkiler: ADR 0031 §5.1, §5.2).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
-   `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
+   `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok: *"sessiz onay"*, sistemin kendi
+   başına asla onaylamaması demektir; kayıt `flag` yazılır ve müdürün kuyruğunda bekler. Kullanıcının
+   2026-11-02 kararından beri çalışanın sonuç ekranı onay beklediğini **söylemez** (adlandırılmış, kabul
+   edilmiş bedel: müdür karar verene dek kişi saatin sayıldığını sanabilir — ADR 0023).
    Holding dokunuşunun site satırı ve olay yazan her satır checkin'de savepoint içinde yazılır ve
    **yalnız tap yolunda**, yalnız kapının (`holding_site_gate`), izdüşümün (`holding_feed`) ya da
    akışın (`punch_feed`) 55P03'ünde **bir kez** yeniden denenir; iki beklemeden (> ~4 sn) uzun bir
@@ -345,8 +348,8 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   — `GET /t`'nin tahmini aynı fonksiyondur) ve kayıt istenen yöndür.
   `direction_source='employee'` ⇔ kaydedilen yön ≠ D (D'ye eşit istek `auto`); verdict,
   güven puanı ve politika bağlamı değişmez, geç kalma kaydedilen yöne göre ölçülür,
-  `reject`/`ignored` isteği düşürür; kayıt notu *"direction chosen by employee"*,
-  çalışanın ekranı *"you chose to clock in / out"*. İstek yalnız iş günü varken
+  `reject`/`ignored` isteği düşürür; kayıt notu *"direction chosen by employee"*; çalışanın
+  sonuç ekranı not basmaz (kullanıcı §9 kararı, 2026-11-02). İstek yalnız iş günü varken
   uygulanır — yayın anahtarı etkin **ve** kesim çözülebilir; yoksa düşer, kayıt D'dir
   (§B.5). İstek form alanı `want`'tır: çözülebilen bir form gövdesinde `want`'ın hiçbir
   değeri 400 değildir; çelişen ya da tanınmayan değer *"istek yok"* sayılır ve değeri
@@ -358,7 +361,7 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   şube değişimi normaldir). Farklı şubede tap nota işlenir, raporda ayrı görünür.
   `base:cross-location-note` bir **not**tur (`note` etkisi, ADR 0029): karar vermez, başka şubedeki
   dokunuş aynı kanıtın ev şubesindeki sonucunu alır; cümle kayıt notuna gider, çalışanın sonuç
-  ekranına **gitmez** (kullanıcı kararı 2026-10-19). 2026-07-26 baseline'ını saklayan tenant'larda
+  ekranına **gitmez** (kullanıcı kararı 2026-10-19; 2026-11-02'den beri o ekran hiçbir not basmaz). 2026-07-26 baseline'ını saklayan tenant'larda
   eski `allow` durur; o etkinken panel bir kanıt kuralının kapatılmasını reddeder (T125).
 - **Unutulan çıkış:** sistem çıkış kaydı **üretmez**. Açık kayıt anomali olarak
   listelenir, müdür manuel girer. Açık kayıtlar saat toplamına **girmez** ve
@@ -523,10 +526,10 @@ onay ekranının başlığı *"Clocked in"* / *"Clocked out"*'tur. Onay ekranın
 istisnası **talep kartıdır** (ADR 0032 §C.1, M15-17): kayıt yarısı eksik bir çapa
 bıraktıysa docket ile kapanış cümlesi arasında soru, saat alanı ve *"Send to my manager"*
 (palet düğmesi, accent yok, betik yok); atlama düğmesi yok (*"You can skip this."*);
-`flag`'te kapanış cümlesi kartın altında; kartsız onay ekranı değişmedi. Başka her
+kapanış cümlesi kartın altında (`flag`'te yalnız *"You can close this page."*; 2026-11-02'den beri onay ekranı damga, puan, not ve onay cümlesi taşımaz). Başka her
 değişiklik yine önce sorulur.
 
-**Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px; aktivasyon ailesinde — sihirbazın dört adımı, "Activation complete", "already set up" — tap ekranının başlığı, ama **yalnız VIES-doğrulanmış** işletmede) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1–3. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, 01/02/03, işaretli onay kutusu) ink olur. Kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
+**Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ekranı, sonuç ekranı, Account önizlemesi ve aktivasyon ailesinde — sihirbazın üç adımı, "Activation complete", "already set up" — tek şekil: ortalanmış 56 px yuva, altında co-brand satırı yok (kullanıcı §9 kararları, 2026-11-02); aktivasyon ailesinde **yalnız VIES-doğrulanmış** işletmede; panelde 32 px + co-brand) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1. ve 2. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, hazırlık adımının 01/02'si) ink olur. **Çalışanın sonuç ekranı kaşe damgası, güven puanı ve kural notu taşımaz** (kullanıcı §9 kararı, 2026-11-02: docket'te mekân, başlık, saat; ardından kapanış cümlesi — `flag` onaydan söz etmez, §4.6 kayıttadır ve kuyruktadır); bunlar panelde aynen durur. Panelin kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b, K-2b'nin yerini alan 2026-11-02 kararı; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu ve 2026-11-02 notları) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 
 **Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026). **Saha ve işveren panelinde holding (API-1c — ADR 0027 §9):** sahanın raporu eş personelin dokunuşlarını **süresiz** listeler (süre işverende). İşverenin panelinde eş mekân satırı (K-39) için gösterilmeyenler: fişte ve onay kuyruğunda güven puanı, IP/GPS işaretleri ve **kanıt anlatan kuralın notu** (sid'e göre kapalı küme: `base:`/`own:` × `ip-or-gps-ok`, `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`) — yerine *"Decided by your rules at a partner venue — evidence is not shown."*; manuel kaydın notu ve kanıt dışı notlar (kayıp plaket, sayaç boşluğu, farklı şube, yön) korunur — kural önceliği üzerinden kalan artık ADR 0027 §13 madde 5 (e). Anomali ekranında eş satırları hiçbir kanıt sayısına girmez; kural dağılımında tek, adsız ve **hep sonda** duran bir kovadır (eş satırları kural sorgusuna girmez). Okuyucuların envanteri `TestEvidenceReaders_EveryOneIsClassified`'tadır; holding'siz işletmenin rapor ve anomali sayfası bayt bayt aynıdır (şablon: `TestHoldinglessPanels_AreByteIdenticalToTheGolden`, handler: `TestHoldinglessViews_AreByteIdenticalToTheGolden`). Verdict kaşesi, `NoteIsTenants` etiketi ve kural önceliği adlandırılmış artıktır (ADR 0027 §13 madde 5).
 

@@ -232,9 +232,8 @@ func TestDevStrip_OnlyOnADevelopmentDeployment(t *testing.T) {
 	}
 	pagesToCheck := []page{
 		{"/activate?step=1", []*http.Cookie{codeCookie()}},
-		{"/activate?step=2", []*http.Cookie{codeCookie()}},
+		{"/activate?step=2", []*http.Cookie{pendingCookie()}},
 		{"/activate?step=3", []*http.Cookie{pendingCookie()}},
-		{"/activate?step=4", []*http.Cookie{pendingCookie()}},
 		{ActivationCompletePath, []*http.Cookie{sc, marker}},
 		{"/activate", []*http.Cookie{sc}}, // already set up
 	}
@@ -248,14 +247,14 @@ func TestDevStrip_OnlyOnADevelopmentDeployment(t *testing.T) {
 	}
 
 	h := build(devCfg(config.EnvDev, "http://localhost:8080"))
-	wait := get(t, h, "/activate?step=4", pendingCookie()).Body.String()
+	wait := get(t, h, "/activate?step=3", pendingCookie()).Body.String()
 	if !strings.Contains(wait, `action="/dev/simulate-tap"`) || !strings.Contains(wait, `target="_blank"`) {
 		t.Error("in dev the waiting screen must offer the simulator, opening a new tab")
 	}
 	if done := get(t, h, ActivationCompletePath, sc, marker).Body.String(); !strings.Contains(done, `action="/dev/simulate-tap"`) {
 		t.Error("in dev /activate/complete must offer the simulator for the next check-in")
 	}
-	if step2 := get(t, h, "/activate?step=2", codeCookie()).Body.String(); strings.Contains(step2, "DEV ONLY") {
+	if step1 := get(t, h, "/activate?step=1", codeCookie()).Body.String(); strings.Contains(step1, "DEV ONLY") {
 		t.Error("the simulator belongs on the waiting screen, not on the consent step")
 	}
 
@@ -270,7 +269,7 @@ func TestDevStrip_OnlyOnADevelopmentDeployment(t *testing.T) {
 		}
 		return sb.String()
 	}
-	result := pages.Result(pages.ResultView{Verdict: "ok", Venue: "St Julians", At: "09:00:00", Trust: 100}, layout.Logo{})
+	result := pages.Result(pages.ResultView{Verdict: "ok", Venue: "St Julians", At: "09:00:00"}, layout.Logo{})
 	if strings.Contains(render(result, context.Background()), "DEV ONLY") {
 		t.Error("the result page carries the dev control without the dev marker")
 	}

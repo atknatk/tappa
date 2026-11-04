@@ -48,8 +48,7 @@ templ Notice(tone Tone, heading string) {
 	</section>
 }
 
-// Card is the plain paper block used for the notice, the Wi-Fi step and the
-// consent box: the same `bg-paper border border-line` frame, once.
+// Card is the plain paper block: the same `bg-paper border border-line` frame, once.
 templ Card(heading string) {
 	<section class="bg-paper border border-line px-4 py-4">
 		if heading != "" {

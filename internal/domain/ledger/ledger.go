@@ -224,7 +224,7 @@ type Record struct {
 	// NoteIsTenants for what a customer really controls. templ escapes both on
 	// output, proved rather than asserted:
 	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered for this field, which
-	// arrives through a POST, and TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt
+	// arrives through a POST, and TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot
 	// for Note, which arrives through the engine.
 	ReviewNote string
 	// Manual is derived from the channel rather than from entered_by. §5 pairs

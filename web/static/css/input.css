@@ -326,9 +326,40 @@
            underline-offset-4 hover:underline
            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
   }
-  .wizard-consent {
-    @apply flex items-start gap-3 border border-line bg-paper px-4 py-4 cursor-pointer
-           has-[:checked]:border-tappa-green has-[:checked]:bg-green-lite;
+  /* THE TERMS SHEET OF STEP 1 (user §9 decision 2026-11-03, ADR 0026's note of that date). A
+     :target overlay and no script, because step 1 loads none: the link goes to #terms, Close goes
+     back to the link. A fragment navigation reloads nothing, so the take-over box keeps its tick.
+     The header and the foot stay put and only the middle scrolls, so Close is on screen however
+     short the phone. While the sheet is open the wizard's other children are visibility:hidden:
+     that takes them out of the tab order and the accessibility tree without a script, which is
+     what makes aria-modal true; a browser with no :has only keeps them reachable behind the dim.
+     No accent: the sheet is reading text, and the tenant's slots are the button and the strip.
+     No text sits on the dim, every word is on the paper card: nonTextTints in dashboard_test.go
+     says so for TestBrand_EveryInkToneClearsAA, as it does for the .bar-more scrim. */
+  .terms-open {
+    @apply whitespace-nowrap font-bold text-ink underline underline-offset-4
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  .terms-sheet {
+    @apply fixed inset-0 z-50 hidden items-center justify-center bg-ink/60 p-3 focus:outline-none;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .terms-sheet:target { @apply flex; }
+  .wizard:has(.terms-sheet:target) > :not(.terms-sheet) { visibility: hidden; }
+  .terms-card {
+    @apply flex max-h-full w-full max-w-md flex-col rounded-[18px] border border-line bg-paper break-words;
+  }
+  .terms-scroll { @apply min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 pt-5; }
+  .terms-heading { @apply mt-4 font-display text-sm font-bold tracking-tight text-ink; }
+  .terms-body { @apply mt-1 font-display text-sm text-ink/85; }
+  .terms-doc {
+    @apply flex min-h-11 items-center font-display text-sm font-bold text-ink underline underline-offset-4
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+  .terms-foot { @apply border-t border-line p-3; }
+  .terms-close {
+    @apply flex min-h-11 items-center justify-center rounded-xl bg-ink font-display text-base font-bold text-paper
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
   }
   .wizard-waiting {
     @apply flex items-center justify-center gap-2 font-mono text-xs uppercase tracking-widest text-ink/70;
@@ -3743,13 +3774,9 @@ html:has(.lp.lp-instant) { scroll-behavior: auto; }
    (ADR 0032 §B.1): ink, underlined, 16px, a 44px box 24px below the button (the screen's
    16px gap and 8px of its own). No accent and no green: the real one takes none. */
 .lp .lp-prodTapFix { display: flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 8px; font-size: 16px; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
-.lp .lp-prodResultTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .lp .lp-prodTapped { display: flex; flex-direction: column; font-family: var(--disp); font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.025em; }
 .lp .lp-prodTappedWord { white-space: nowrap; }
 .lp .lp-prodTapped .mono { font-size: 15px; font-weight: 400; color: rgb(var(--ink-ch) / .7); }
-.lp .lp-prodResultTop .stamp { flex: none; }
-.lp .lp-prodTrust { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.lp .lp-prodResultNote { font-family: var(--disp); font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
 .lp .lp-prodClosing { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; line-height: 1.45; color: rgb(var(--ink-ch) / .7); }
 
 /* The tap screen's four points. */

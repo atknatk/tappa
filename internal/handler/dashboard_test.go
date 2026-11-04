@@ -1179,7 +1179,7 @@ func TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent(t *testing.T) {
 		}
 	}
 	// ANTI-VACUITY: a scan that recognised no control would report a clean product.
-	// The templates carry several -- the consent boxes, the shift flags and M6-08's
+	// The templates carry several -- the take-over box, the shift flags and M6-08's
 	// direction radios -- so a low count means this is reading the wrong thing.
 	if controls < 5 {
 		t.Fatalf("found %d native checkbox/radio input(s) across the templates; there are "+
@@ -2123,6 +2123,7 @@ func darkestLightGroundInUse(t *testing.T, palette map[string][3]float64) ([3]fl
 var nonTextTints = map[string]string{
 	"ink/40":         "the scrim behind the open More menu (.bar-more) and the plaque-wait phone's notch; neither holds text",
 	"ink/50":         "the plate's two rivets (.plate) and the sign-in drawing's phone notch (admin.templ); empty shapes",
+	"ink/60":         "the dim behind the wizard's open terms sheet (.terms-sheet); every word is on the paper card",
 	"ink/70":         "the phone notch in the transactions and sign-in drawings; empty, aria-hidden",
 	"tappa-green/50": "the network-only part of the evidence bar and its legend swatch (anomalies.templ mixTone); empty, the word is beside it",
 }

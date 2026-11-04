@@ -88,7 +88,7 @@ const (
 //	GET  /activate          the link the employee was sent. Validates the code,
 //	                        moves it into an HttpOnly cookie and redirects to
 //	                        itself with a clean URL; then renders wizard step
-//	                        ?step=1..4 (welcome, privacy + consent, get ready,
+//	                        ?step=1..3 (welcome + privacy + agree, get ready,
 //	                        "now tap the plaque").
 //	POST /activate          the same-site confirmation behind the cross-site guard.
 //	POST /api/activate      RECORDS CONSENT and binds it to this browser. It spends
@@ -125,11 +125,6 @@ type Activation struct {
 	cookies session.Cookies
 	// codes writes the short-lived ACTIVATION cookie carrying the invite code.
 	codes codeCookies
-	// retentionYears and showConfigNotice feed the GDPR Art. 13 notice. The
-	// number is configuration, never a constant in this repo — see
-	// config.Config.RetentionYears.
-	retentionYears   int
-	showConfigNotice bool
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
@@ -173,28 +168,26 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 		log = slog.Default()
 	}
 	return &Activation{
-		invites:          inv,
-		sessions:         sess,
-		sun:              verifier,
-		audit:            rec,
-		brands:           brands,
-		cookies:          session.NewCookies(cfg),
-		codes:            newCodeCookies(cfg),
-		retentionYears:   cfg.RetentionYears,
-		showConfigNotice: !cfg.IsHardened(),
-		baseURL:          originOf(cfg.BaseURL),
-		floodLimiter:     newLimiter(floodLimit, floodPeriod),
-		unknownLimiter:   newLimiter(unknownLimit, unknownPeriod),
-		inviteLimiter:    newLimiter(inviteFailureLimit, inviteFailurePeriod),
-		statusLimiter:    newLimiter(statusLimit, statusPeriod),
-		log:              log,
+		invites:        inv,
+		sessions:       sess,
+		sun:            verifier,
+		audit:          rec,
+		brands:         brands,
+		cookies:        session.NewCookies(cfg),
+		codes:          newCodeCookies(cfg),
+		baseURL:        originOf(cfg.BaseURL),
+		floodLimiter:   newLimiter(floodLimit, floodPeriod),
+		unknownLimiter: newLimiter(unknownLimit, unknownPeriod),
+		inviteLimiter:  newLimiter(inviteFailureLimit, inviteFailurePeriod),
+		statusLimiter:  newLimiter(statusLimit, statusPeriod),
+		log:            log,
 	}, nil
 }
 
 // Mount registers the routes on r.
 //
 // /activate/tour and /activate/done ARE GONE (ADR 0026). The tour's teaching moved
-// into the wizard's first step, and "done" is now the screen the activating TAP
+// into the wizard, and "done" is now the screen the activating TAP
 // renders — there is no moment after the form where a session exists to confirm.
 // The activating tap itself is not a route of this handler: it arrives on GET /t
 // and the Tap handler hands it here (Pending, CompleteByTap), so it sits behind
@@ -434,17 +427,18 @@ func (a *Activation) renderAlreadySetUp(w http.ResponseWriter, r *http.Request, 
 // wizardStep reads ?step= for the activation wizard (ADR 0026) and decides which
 // screen this visit gets.
 //
-//	1  welcome — how Taptime works
-//	2  privacy notice + consent (the only form)
-//	3  get ready — Wi-Fi and "stay in this browser"
-//	4  the waiting screen: "now tap the plaque"
+//	1  welcome, privacy notice and the agree button (the only form)
+//	2  get ready — Wi-Fi and "stay in this browser"
+//	3  the waiting screen: "now tap the plaque"
 //
-// Navigation is plain GET links, so the wizard works with JavaScript off. Steps 3
-// and 4 exist only AFTER consent — they describe what happens next, and showing
+// Navigation is plain GET links, so the wizard works with JavaScript off. Steps 2
+// and 3 exist only AFTER consent — they describe what happens next, and showing
 // them to somebody who has not agreed would skip the one step that matters — so
-// an unconsented visit is clamped to step 2 at most. A bare /activate lands on
-// step 1, or on the waiting screen once this browser has consented: that is the
-// state a person returning to the tab is in.
+// an unconsented visit is clamped to step 1. A bare /activate lands on step 1, or
+// on the waiting screen once this browser has consented: that is the state a
+// person returning to the tab is in. So does a number past the waiting screen,
+// which is how a link from the four-step wizard (?step=4, before 2026-11-02) stays
+// harmless.
 func wizardStep(r *http.Request, consented bool) int {
 	n, err := strconv.Atoi(r.URL.Query().Get("step"))
 	if err != nil || n < 1 || n > pages.ActivateStepTap {
@@ -453,8 +447,8 @@ func wizardStep(r *http.Request, consented bool) int {
 		}
 		return 1
 	}
-	if !consented && n > 2 {
-		return 2
+	if !consented {
+		return 1
 	}
 	return n
 }
@@ -516,7 +510,7 @@ func (a *Activation) Continue(w http.ResponseWriter, r *http.Request) {
 //
 // IT ALWAYS STARTS UNCONSENTED: a fresh arrival writes "<csrf>.<code>" with no
 // binding, even when this browser had consented to the same invitation before.
-// Opening the link again is a fresh start; the consent step is one tick away.
+// Opening the link again is a fresh start; the consent step is one press away.
 func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw string, expires time.Time) {
 	token, err := newCSRFToken()
 	if err != nil {
@@ -642,19 +636,20 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 		a.recordConflict(r.Context(), ip, ictx, "session_conflict_unconfirmed")
 		a.log.Warn("activation would replace another employee's session", "ip", ip,
 			"held_employee_id", held.EmployeeID, "offered_employee_id", ictx.EmployeeID)
-		a.renderForm(w, r, http.StatusConflict, ictx, st, formState{heldBy: held, switchMissing: true, step: 2})
+		a.renderForm(w, r, http.StatusConflict, ictx, st, formState{heldBy: held, switchMissing: true, step: 1})
 		return
 	}
 
 	if r.PostFormValue("consent") == "" {
-		// A USER SLIP, not an attack: forgetting the box must not spend the
-		// invitation's budget, or a confused employee locks themselves out of
+		// NOT AN ATTACK SIGNAL. The agree button carries this value, so only a
+		// hand-made POST lacks it today, and that must still not spend the
+		// invitation's budget: an old tab's stale form would lock an employee out of
 		// their own link with a 429. It still counts against the IP window (which
 		// is 600 and would take real determination to reach) and it is still
 		// recorded — §4.6 wants the refusal visible, it does not want it punished.
 		a.failAttempt(r.Context(), ip, ictx, "consent_missing", againstIPOnly)
 		a.renderForm(w, r, http.StatusBadRequest, ictx, st, formState{
-			heldBy: held, consentMissing: true, switchConfirmed: held != nil, step: 2,
+			heldBy: held, consentMissing: true, switchConfirmed: held != nil, step: 1,
 		})
 		return
 	}
@@ -692,7 +687,7 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 			SecondDevice: consented.SecondDevice(),
 		},
 	})
-	a.redirect(w, r, "/activate?step=3")
+	a.redirect(w, r, "/activate?step=2")
 }
 
 // Pending reports whether this request's browser holds a CONSENTED activation —
@@ -1292,8 +1287,8 @@ func inviteFailureReason(err error) (string, bool) {
 // budgetScope says which rate-limit windows a failure is charged to.
 //
 // THE DISTINCTION IS THE POINT (audit finding B4). Charging every failure to the
-// invitation's window meant a legitimate employee who forgot the consent box ten
-// times got a 429 on THEIR OWN link — the limiter punishing user error instead of
+// invitation's window meant a legitimate employee whose submit lacked consent ten
+// times (the form had a box to tick until 2026-11-02) got a 429 on THEIR OWN link — the limiter punishing user error instead of
 // abuse, and the "a legitimate flow structurally never touches the limit" claim
 // was only true for a flawless flow. A slip now costs the (generous, 60-wide) IP
 // window and nothing else; an attack signal — a bad form token, a replayed or
@@ -1458,19 +1453,16 @@ type formState struct {
 
 func (a *Activation) renderForm(w http.ResponseWriter, r *http.Request, status int, ictx invite.Context, st activationState, fs formState) {
 	v := pages.ActivateView{
-		EmployeeName:     ictx.FullName,
-		EmployerName:     ictx.TenantName,
-		LocationName:     ictx.LocationName,
-		WiFiSSID:         ictx.WiFiSSID,
-		RetentionYears:   a.retentionYears,
-		ShowConfigNotice: a.showConfigNotice,
-		SecondDevice:     ictx.SecondDevice(),
-		ConsentMissing:   fs.consentMissing,
-		SwitchMissing:    fs.switchMissing,
-		SwitchConfirmed:  fs.switchConfirmed,
-		Step:             fs.step,
-		Consented:        st.pending(),
-		StatusURL:        ActivationStatusPath,
+		EmployeeName:    ictx.FullName,
+		EmployerName:    ictx.TenantName,
+		LocationName:    ictx.LocationName,
+		WiFiSSID:        ictx.WiFiSSID,
+		SecondDevice:    ictx.SecondDevice(),
+		ConsentMissing:  fs.consentMissing,
+		SwitchMissing:   fs.switchMissing,
+		SwitchConfirmed: fs.switchConfirmed,
+		Step:            fs.step,
+		StatusURL:       ActivationStatusPath,
 		// CSRFToken is rendered ON PURPOSE — it is the synchronizer token, not a
 		// secret in the §4.7 sense. The invite code, which IS one, is not here.
 		CSRFToken: st.csrf,

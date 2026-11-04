@@ -80,6 +80,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
@@ -172,58 +173,38 @@ func decisionOf(verdict, direction string, practice bool) tap.Decision {
 }
 
 // ---------------------------------------------------------------------------
-// The stamp: text AND colour, never colour alone.
+// No stamp, no score, no rule's sentence on the employee's screen.
 // ---------------------------------------------------------------------------
 
-// TestResultScreen_StampCarriesTheWordAndTheBrandClass is the accessibility
-// criterion and the brand's fixed status-to-colour mapping in one table, because
-// they are two halves of one rule (skill tappa-brand): ok -> tappa-green, flag ->
-// saffron, reject -> tomato, ignored -> line, and the WORD says the same thing so
-// a SCREEN READER gets the verdict.
+// TestResultScreen_CarriesNoStampScoreOrNote is the user's §9 decision of 2026-11-02:
+// employees did not understand them. Until then this file pinned the opposite -- each
+// verdict's stamp and class; the stamp's own legibility is still TestCompiledCSS_StampWordIsInk, on the panel's dockets.
 //
-// ⚠️ THIS TEST IS NOT EVIDENCE THAT THE STAMP IS LEGIBLE, and it never was. It
-// reads the HTML, so the word and its class are all it can see; the colours are
-// in the stylesheet. That distinction was load-bearing: with the word in the
-// status colour, .stamp at 11px bold and opacity .8, stamp--ignored (line
-// #C9D2C8) was 1.52:1 and stamp--flagged (saffron #D98E2B) 2.62:1 against the
-// docket's bg-paper — far below AA's 4.5:1, and 1.39:1 / 2.14:1 once the opacity
-// was applied, which also took stamp--rejected under the line at 3.77:1. Three of
-// the five as rendered, and every case here stayed green through all of it.
-//
-// FIXED IN THE STYLESHEET ON 2026-08-01 (user decision): the word is `ink` and
-// the status colour is the frame, the inner ring and a 10% ground, which is why
-// the class assertions below are unchanged — the mapping moved, it did not go
-// away. Measured after the change: 13.85 / 14.81 / 13.99 / 15.55 / 13.27:1.
-// TestCompiledCSS_StampWordIsInk is what holds it, and it holds it only where a
-// stylesheet has been built (never on CI — see its comment).
-//
-// The other carriers, unchanged: the closing sentence is text-ink/70 on the
-// body's bg-porcelain, because closing() renders OUTSIDE the docket, which
-// composites to 5.70:1 — over AA's 4.5:1, but not the "~16:1" an earlier version
-// of this comment copied from the HEADLINE (solid ink on bg-paper inside the
-// docket, 16.17:1). The headline helps on two of the four verdicts, not on flag.
-// The words are pinned by TestResultScreen_SaysExactlyThisAndNothingElse.
-//
-// The class names are asserted as the strings that must appear in the HTML,
-// which is also what Tailwind scans for — a class that stops being a literal in a
-// .templ file stops being compiled (result.templ's comment has the measurement).
-func TestResultScreen_StampCarriesTheWordAndTheBrandClass(t *testing.T) {
+// The decision carries a score and the very sentence the user quoted, so what is held is
+// that the screen drops them, not that nothing was there. Each verdict's closing sentence
+// stays.
+func TestResultScreen_CarriesNoStampScoreOrNote(t *testing.T) {
+	const rule = "the tap signature could not be verified"
 	tests := []struct {
-		name    string
-		verdict string
-		word    string
-		class   string
+		name     string
+		decision tap.Decision
+		closing  string
 	}{
-		{"ok is APPROVED in tappa-green", "ok", "APPROVED", "stamp--approved"},
-		{"flag is FLAGGED in saffron", "flag", "FLAGGED", "stamp--flagged"},
-		{"reject is REJECTED in tomato", "reject", "REJECTED", "stamp--rejected"},
-		{"ignored is IGNORED in line grey", "ignored", "IGNORED", "stamp--ignored"},
+		{"ok", withNote(decisionOf("ok", "in", false), rule), "All done — you can close this page."},
+		{"flag", withNote(decisionOf("flag", "in", false), rule), "You can close this page."},
+		{"reject", withNote(decisionOf("reject", "", false), rule), "This tap was recorded but not counted."},
+		{"ignored", withNote(decisionOf("ignored", "", false), rule), "You tapped a moment ago"},
+		{"practice", withNote(decisionOf("ok", "in", true), rule), "This practice tap does not count toward your hours."},
+		{"an unknown verdict", withNote(decisionOf("something-new", "in", false), rule), "This tap was recorded but not counted."},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.decision.Trust == 0 || tc.decision.EmployeeNote == "" {
+				t.Fatal("PREMISE: the decision must carry a score and a sentence, or their absence proves nothing")
+			}
 			body, code := resultBody(t, checkin.Result{
 				Outcome:      checkin.OutcomeRecorded,
-				Decision:     decisionOf(tc.verdict, "in", false),
+				Decision:     tc.decision,
 				LocationName: "St Julians",
 				Timezone:     "Europe/Malta",
 				BusinessType: "restaurant",
@@ -231,64 +212,99 @@ func TestResultScreen_StampCarriesTheWordAndTheBrandClass(t *testing.T) {
 			if code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", code)
 			}
-			if !strings.Contains(body, tc.word) {
-				t.Fatalf("the stamp word %q is missing: status would be carried by colour alone", tc.word)
+			if strings.Contains(body, "stamp") {
+				t.Error("the employee's result screen carries a stamp class")
 			}
-			if !strings.Contains(body, tc.class) {
-				t.Fatalf("the stamp class %q is missing: the brand's fixed colour mapping is not applied", tc.class)
-			}
-			// The word and the class must be on the SAME element. Two correct halves
-			// on different elements is exactly the inversion this test exists to
-			// catch (an APPROVED word in a rejected tomato frame).
-			if !strings.Contains(body, `class="stamp `+tc.class+`">`+tc.word) {
-				t.Fatalf("the word %q and the class %q are not on one element: the stamp says two things", tc.word, tc.class)
-			}
-			for _, other := range tests {
-				if other.class == tc.class {
-					continue
+			text := strings.Join(strings.Fields(screenText(t, body)), " ")
+			for _, banned := range []string{"APPROVED", "FLAGGED", "REJECTED", "IGNORED", "RECORDED", "TRAINING", "Trust", rule} {
+				if strings.Contains(text, banned) {
+					t.Errorf("the screen says %q: %s", banned, text)
 				}
-				if strings.Contains(body, other.class) {
-					t.Fatalf("verdict %q also rendered %q: the status-to-colour mapping is not one-to-one",
-						tc.verdict, other.class)
+			}
+			if !strings.Contains(text, asRendered(tc.closing)) {
+				t.Errorf("the screen lost %q: %s", tc.closing, text)
+			}
+		})
+	}
+}
+
+// TestResultScreen_FlagSaysNothingOfApproval is the user's §9 decision of 2026-11-02, with
+// the cost put to them: the employee is not told the tap awaits a manager. No approval, no
+// manager, no send-off, with and without a direction or a practice mark. The data side is
+// TestCheckinDB_AFlaggedTapWithASilentScreenIsStillFlaggedQueuedAndNotCounted.
+func TestResultScreen_FlagSaysNothingOfApproval(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		decision tap.Decision
+		want     string
+	}{
+		{"in", decisionOf("flag", "in", false), " St Julians Clocked in 14:03 You can close this page."},
+		{"out", decisionOf("flag", "out", false), " St Julians Clocked out 14:03 You can close this page."},
+		{"practice", decisionOf("flag", "in", true), " St Julians Clocked in 14:03 This practice tap does not count toward your hours. You can close this page."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := mustBody(t, checkin.Result{
+				Outcome: checkin.OutcomeRecorded, Decision: c.decision, LocationName: "St Julians",
+				Timezone: "Europe/Malta", OccurredAt: mustTime(t, "2026-07-31T12:03:22Z"), BusinessType: "restaurant",
+			})
+			text := screenText(t, body)
+			if text != shellText+c.want {
+				t.Errorf("got %q, want %q", text, shellText+c.want)
+			}
+			for _, banned := range []string{"approval", "approve", "manager", "Manager", "All done", "kebabs", "Have a great", "Tell them", "Recorded"} {
+				if strings.Contains(text, banned) {
+					t.Errorf("the flag screen says %q: %s", banned, text)
 				}
 			}
 		})
 	}
 }
 
-// TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount is §5's practice tap:
-// TRAINING, and an explicit sentence that the hours do not count. The brand
-// message is deliberately absent — "have a great shift" beside "this does not
+// TestResultScreen_OnlyTheManagersDocketKeepsTheStampScoreAndNote: the other half of the
+// decision. The same record on the panel's docket still shows all three.
+func TestResultScreen_OnlyTheManagersDocketKeepsTheStampScoreAndNote(t *testing.T) {
+	const rule = "the tap signature could not be verified"
+	trust := int16(20)
+	f := newFakeLedger()
+	f.page = ledger.Page{Queried: true, Zone: time.UTC, Records: []ledger.Record{{
+		ID: uuid.New(), OccurredAt: time.Date(2026, 8, 20, 9, 30, 0, 0, time.UTC), Verdict: "flag", Channel: "nfc",
+		Direction: "in", EmployeeName: "Maria Borg", LocationName: "KF St Julians", Note: rule, Trust: &trust,
+	}}}
+	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, ledgerDayHref, nil))
+	for _, want := range []string{"stamp--flagged", "FLAGGED", "Trust", rule} {
+		if !strings.Contains(docket, want) {
+			t.Errorf("the manager's docket lost %q", want)
+		}
+	}
+	// The clock (user decision of 2026-11-02): seconds on the record's docket, none on the
+	// employee's screen for the same instant.
+	if !strings.Contains(docket, "09:30:00") {
+		t.Error("the manager's docket lost the seconds of its time")
+	}
+	for _, verdict := range []string{"ok", "flag", "reject", "ignored"} {
+		body := mustBody(t, checkin.Result{
+			Outcome: checkin.OutcomeRecorded, Decision: decisionOf(verdict, "in", false), LocationName: "St Julians",
+			Timezone: "UTC", OccurredAt: time.Date(2026, 8, 20, 9, 30, 0, 0, time.UTC), BusinessType: "restaurant",
+		})
+		if !strings.Contains(body, ">09:30<") || strings.Contains(body, "09:30:00") {
+			t.Errorf("%s: the employee's screen does not print the time as 09:30:\n%s", verdict, body)
+		}
+	}
+}
+
+// TestResultScreen_PracticeSaysItDoesNotCount is §5's practice tap: an explicit sentence
+// that the hours do not count, with no stamp since the user's §9 decision of 2026-11-02.
+// The brand message is deliberately absent — "have a great shift" beside "this does not
 // count toward your hours" contradicts itself.
-//
-// 🔴 THE CLASS STRING IS PINNED EXACTLY, and it was not until an audit walked
-// through the gap. The four verdict stamps above are held to
-// `class="stamp X">WORD` as one literal; TRAINING was held to
-// strings.Contains("stamp--training"), which a SIXTH class slides straight past.
-// Measured: `class="stamp stamp--training text-saffron"` — an ordinary Tailwind
-// utility in the markup, the normal way colour is added in this repo — left the
-// WHOLE SUITE GREEN while the word rendered at 2.15:1 against its own ground,
-// because .text-saffron lands in the utilities layer at equal specificity and
-// later in the file than .stamp. The stylesheet-side check cannot see that (its
-// LIMITS list says so); this is the side that can, so it is held as tightly as
-// its four neighbours.
-func TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount(t *testing.T) {
+func TestResultScreen_PracticeSaysItDoesNotCount(t *testing.T) {
 	body, _ := resultBody(t, checkin.Result{
 		Outcome:      checkin.OutcomeRecorded,
 		Decision:     decisionOf("ok", "in", true),
 		LocationName: "St Julians",
 		BusinessType: "restaurant",
 	}, nil)
-
-	// One literal: the word, the class, and NOTHING ELSE on the element.
-	if !strings.Contains(body, `<span class="stamp stamp--training">TRAINING</span>`) {
-		t.Fatalf("the TRAINING stamp is not exactly `<span class=\"stamp stamp--training\">TRAINING</span>`.\n"+
-			"An extra class here is a colour override at equal specificity — measured at 2.15:1 "+
-			"for text-saffron, where AA asks 4.5:1 (user decision, 2026-08-01: the word is ink and "+
-			"the status colour is the frame).\nbody: %s", body)
-	}
-	if !strings.Contains(body, "does not count toward your hours") {
-		t.Fatal("a practice tap did not say the hours do not count")
+	if !strings.Contains(body, `<p class="mt-3 text-ink/70">This practice tap does not count toward your hours.</p>`) {
+		t.Fatalf("a practice tap did not say the hours do not count, on one plain line:\n%s", body)
 	}
 	if strings.Contains(body, "kebabs rolling") {
 		t.Fatal("a practice tap was sent off as if a shift had started")
@@ -346,15 +362,12 @@ func TestResultScreen_OnlyASuccessSaysAllDone(t *testing.T) {
 			alsoWant: "Have a great shift",
 		},
 		{
-			name:    "flag says approval is still needed, and does not promise it",
+			name:    "flag says nothing of approval and sends nobody off (user §9 decision, 2026-11-02)",
 			verdict: "flag",
-			want:    "needs your manager's approval before it counts toward your hours",
+			want:    "You can close this page.",
 			wantNot: []string{"All done", "Have a great shift", "keep those kebabs rolling",
-				// A manager can REFUSE a flagged tap, so the screen may not state
-				// the outcome; and the appeal must stay open on the one verdict
-				// that most needs it (§4.6).
-				"will confirm", "nothing for you to do"},
-			alsoWant: "Tell them if that looks wrong",
+				"approval", "manager", "will confirm", "nothing for you to do"},
+			alsoWant: "Clocked in",
 		},
 		{
 			name:    "reject says recorded but not counted",
@@ -519,13 +532,10 @@ func TestResultScreen_ClockIsMono(t *testing.T) {
 		BusinessType: "restaurant",
 	}, nil)
 
-	// Europe/Malta is UTC+2 in July: 12:03:22Z is 14:03:22 local (§6 — the
+	// Europe/Malta is UTC+2 in July: 12:03:22Z is 14:03 local (§6 — the
 	// conversion happens at the render boundary and nowhere below it).
-	if !strings.Contains(body, `<span class="block font-mono text-xl font-normal text-ink/70">14:03:22</span>`) {
+	if !strings.Contains(body, `<span class="block font-mono text-xl font-normal text-ink/70">14:03</span>`) {
 		t.Fatal("the wall clock is not rendered in mono at the tenant's local time")
-	}
-	if !strings.Contains(body, `<dd class="font-mono">70</dd>`) {
-		t.Fatal("the trust score is not rendered in mono")
 	}
 	// .docket itself sets font-mono for the card (input.css), which is where the
 	// docket motif comes from; without it the two spans above are the only mono.
@@ -952,52 +962,48 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "ok in, restaurant",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "in", false), noteIPMatched),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked in 14:03:22 APPROVED Trust 100 " + noteIPMatched +
+			want: shellText + " St Julians Clocked in 14:03" +
 				" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page.",
 		},
 		{
 			name: "ok out, production",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "out", false), noteIPMatched),
 				BusinessType: "production"},
-			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " + noteIPMatched +
+			want: shellText + " St Julians Clocked out 14:03" +
 				" Shift complete. Thank you for your work today! 👋 All done — you can close this page.",
 		},
 		{
 			name: "ok, practice: the training line replaces the send-off",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "in", true), noteIPMatched),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked in 14:03:22 APPROVED TRAINING This practice tap does not" +
-				" count toward your hours. Trust 100 " + noteIPMatched + " All done — you can close this page.",
+			want: shellText + " St Julians Clocked in 14:03 This practice tap does not count toward your hours." + " All done — you can close this page.",
 		},
 		{
 			name: "ok with an empty note (a tenant rule with no reason)",
 			res:  checkin.Result{Decision: decisionOf("ok", "in", false), BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked in 14:03:22 APPROVED Trust 100" +
+			want: shellText + " St Julians Clocked in 14:03" +
 				" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page.",
 		},
 		{
-			// §4.6's own branch: recorded, NOT approved, approval not promised, and
-			// the appeal left open.
+			// Recorded, NOT approved, and no word of it on the screen (user §9 decision of
+			// 2026-11-02); the record and the queue keep §4.6.
 			name: "flag",
 			res: checkin.Result{Decision: withNote(decisionOf("flag", "in", false), noteNoPlace),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked in 14:03:22 FLAGGED Trust 100 " + noteNoPlace +
-				" Recorded — it needs your manager's approval before it counts toward your hours." +
-				" Tell them if that looks wrong. You can close this page.",
+			want: shellText + " St Julians Clocked in 14:03 You can close this page.",
 		},
 		{
-			name: "flag, practice: one voice, no 'before it counts'",
+			name: "flag, practice: the docket's line, and nothing of approval",
 			res: checkin.Result{Decision: withNote(decisionOf("flag", "in", true), noteNoPlace),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked in 14:03:22 FLAGGED TRAINING This practice tap does not" +
-				" count toward your hours. Trust 100 " + noteNoPlace +
-				" Recorded, and your manager will see it. Tell them if that looks wrong. You can close this page.",
+			want: shellText + " St Julians Clocked in 14:03 This practice tap does not count toward your hours." +
+				" You can close this page.",
 		},
 		{
 			name: "reject: the record exists, the hours did not count",
 			res: checkin.Result{Decision: withNote(decisionOf("reject", "", false), noteDeadTag),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Not counted 14:03:22 REJECTED Trust 100 " + noteDeadTag +
+			want: shellText + " St Julians Not counted 14:03" +
 				" This tap was recorded but not counted. Tell your manager if that looks wrong." +
 				" You can close this page.",
 		},
@@ -1007,7 +1013,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "ignored: says nothing about the earlier tap",
 			res: checkin.Result{Decision: withNote(decisionOf("ignored", "", false), noteDebounce),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Already tapped 14:03:22 IGNORED Trust 100 " + noteDebounce +
+			want: shellText + " St Julians Already tapped 14:03" +
 				" You tapped a moment ago, so this one was not counted. Tell your manager if that looks" +
 				" wrong. You can close this page.",
 		},
@@ -1017,8 +1023,7 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			res: checkin.Result{
 				Decision:     withNote(decisionOf("ok", "out", false), noteIPMatched+"; "+noteStaleOpenIn),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " +
-				noteIPMatched + "; " + noteStaleOpenIn +
+			want: shellText + " St Julians Clocked out 14:03" +
 				" Great work today. See you next shift! 👋 All done — you can close this page.",
 		},
 		{
@@ -1029,23 +1034,23 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 			name: "ok out, stale check-in, and no rule reason at all",
 			res: checkin.Result{Decision: withNote(decisionOf("ok", "out", false), noteStaleOpenIn),
 				BusinessType: "production"},
-			want: shellText + " St Julians Clocked out 14:03:22 APPROVED Trust 100 " + noteStaleOpenIn +
+			want: shellText + " St Julians Clocked out 14:03" +
 				" Shift complete. Thank you for your work today! 👋 All done — you can close this page.",
 		},
 		{
 			name: "an unrecognised verdict claims nothing in either direction",
 			res: checkin.Result{Decision: withNote(decisionOf("something-new", "in", false), noteNoPlace),
 				BusinessType: "restaurant"},
-			want: shellText + " St Julians Tapped 14:03:22 RECORDED Trust 100 " + noteNoPlace +
+			want: shellText + " St Julians Tapped 14:03" +
 				" This tap was recorded but not counted. Tell your manager if that looks wrong." +
 				" You can close this page.",
 		},
 	}
 	for _, tc := range tests {
 		// M10 WL-9 UPDATED THIS ON PURPOSE (ADR 0023 §7 names this test): a business
-		// with a logo gets every row again with the header's text changed by user
-		// decision K-2b -- the logo's alt, the business's name, is the one new text,
-		// and the co-brand line carries the wordmark's two words. Nothing else moves.
+		// with a logo gets every row again with the header's text changed -- the logo's
+		// alt, the business's name, is the one new text, and since the user's §9 decision
+		// of 2026-11-02 there is no co-brand line. Nothing else moves.
 		for _, withLogo := range []bool{false, true} {
 			name, want := tc.name, tc.want
 			if withLogo {
@@ -1076,9 +1081,8 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 	}
 }
 
-// shellTextWithLogo is shellText for a business with a logo (K-2b): the <title>, the
-// logo's alt and the co-brand line.
-const shellTextWithLogo = "Tapped — Taptime " + brandTestName + " taptime · punchless"
+// shellTextWithLogo is shellText for a business with a logo: the <title> and the logo's alt.
+const shellTextWithLogo = "Tapped — Taptime " + brandTestName
 
 // mustBodyWithLogo renders one result through the production router for a business
 // whose brand has a logo and an accent (the accent must not reach this screen, D-C).
@@ -1115,9 +1119,7 @@ func mustBody(t *testing.T, res checkin.Result) string {
 
 // TestResultScreen_UnknownVerdictIsTreatedAsNotCounted drives the branch nothing
 // else reaches. A verdict this screen does not recognise must fall to the
-// CONSERVATIVE answer (§4.6): a stamp that claims nothing, and copy that does not
-// say the hours were counted. The deleted ResultView.Stamp() had the same
-// fallback and nothing pinned it.
+// CONSERVATIVE answer (§4.6): copy that does not say the hours were counted.
 func TestResultScreen_UnknownVerdictIsTreatedAsNotCounted(t *testing.T) {
 	body, _ := resultBody(t, checkin.Result{
 		Outcome:      checkin.OutcomeRecorded,
@@ -1126,10 +1128,7 @@ func TestResultScreen_UnknownVerdictIsTreatedAsNotCounted(t *testing.T) {
 		BusinessType: "restaurant",
 	}, nil)
 
-	if !strings.Contains(body, `class="stamp stamp--ignored">RECORDED`) {
-		t.Fatal("an unrecognised verdict did not fall back to the neutral RECORDED stamp")
-	}
-	for _, no := range []string{"All done", "APPROVED", "stamp--approved", "kebabs rolling"} {
+	for _, no := range []string{"All done", "APPROVED", "RECORDED", "stamp", "kebabs rolling"} {
 		if strings.Contains(body, no) {
 			t.Fatalf("an unrecognised verdict rendered %q: the fallback must claim nothing", no)
 		}
@@ -1156,11 +1155,8 @@ func TestResultScreen_PracticeAndFlagSpeakWithOneVoice(t *testing.T) {
 	if !strings.Contains(body, "does not count toward your hours") {
 		t.Fatal("a practice tap lost the line that says it never counts")
 	}
-	if strings.Contains(body, "before it counts") {
-		t.Fatal("a practice flag says a manager will confirm it 'before it counts', contradicting the training line")
-	}
-	if !strings.Contains(body, "your manager will see it") {
-		t.Fatal("a practice flag no longer says a manager will look at it (§4.6: not silently approved)")
+	if strings.Contains(body, "before it counts") || strings.Contains(body, "manager") {
+		t.Fatal("a practice flag speaks of a manager (user §9 decision of 2026-11-02)")
 	}
 	if strings.Contains(body, "All done") {
 		t.Fatal("a flagged tap read as finished")
@@ -1200,7 +1196,7 @@ func TestResultScreen_BrandMessageNeverGoesSilent(t *testing.T) {
 // where that rule is enforceable. Changing this number is fine — changing it
 // without that conversation is what this fails on.
 func TestResultView_FieldCountIsTheSpec(t *testing.T) {
-	const want = 8
+	const want = 6
 	got := reflect.TypeOf(pages.ResultView{}).NumField()
 	if got != want {
 		t.Fatalf("ResultView has %d fields, want %d.\n"+
@@ -1585,9 +1581,10 @@ func TestCompiledCSS_GeneratesNoText(t *testing.T) {
 //   - IT READS THE STYLESHEET, SO IT CANNOT SEE WHETHER A TEMPLATE STILL USES A
 //     CLASS. A modifier can survive in app.css purely because its name appears in
 //     PROSE in a scanned .templ file — measured: `stamp--approved` occurs twice in
-//     result.templ, once in a class attribute and once inside a comment. The other
-//     half is TestResultScreen_StampCarriesTheWordAndTheBrandClass, which asserts
-//     the class reaches the HTML.
+//     result.templ, once in a class attribute and once inside a comment (that was
+//     before the screen lost its stamp on 2026-11-02). The other half is
+//     TestResultScreen_OnlyTheManagersDocketKeepsTheStampScoreAndNote, which asserts
+//     one class reaches the HTML of the docket.
 //
 //   - 🔴 A RULE CAN RECOLOUR A STAMP WITHOUT THIS SCAN SEEING IT. Four were
 //     measured, each leaving the WHOLE SUITE GREEN:
@@ -1595,11 +1592,10 @@ func TestCompiledCSS_GeneratesNoText(t *testing.T) {
 //     1. `class="stamp stamp--training text-saffron"` — an ordinary utility in
 //     the MARKUP, which is the normal way colour is added in this repo.
 //     .text-saffron sits in the utilities layer at equal specificity and later
-//     in the file, so it wins; the word rendered at 2.15:1. CLOSED, but on the
-//     OTHER side: TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount pins
-//     the exact class string, the way the four verdict stamps already were. It
-//     is not closed here, and the same trick through a class this file does not
-//     pin would be invisible again.
+//     in the file, so it wins; the word rendered at 2.15:1. It was closed on the
+//     OTHER side: web/templates/components' TestDockets_TheTrainingStampIsExactlyOneClassString
+//     pins the exact class string at each of the three sites. It is not closed here, and
+//     the same trick through a class no test pins would be invisible.
 //     2. `.docket * { color: … }` — equal specificity, later in the file. OPEN.
 //     3. `span[class~=stamp] { color: … }` — HIGHER specificity, and the
 //     minifier drops the quotes, so the selector does not even contain the
@@ -1757,7 +1753,7 @@ func TestScreens_RenderOnlyTheseElements(t *testing.T) {
 	// anchor; both share the layout shell.
 	confirmation := []string{
 		"html", "head", "meta", "title", "link", "body", "main", "header",
-		"section", "div", "p", "h1", "span", "dl", "dt", "dd",
+		"section", "p", "h1", "span",
 	}
 	failure := []string{
 		"html", "head", "meta", "title", "link", "body", "main", "header",

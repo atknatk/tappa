@@ -265,16 +265,15 @@ type Config struct {
 	// silently turn it back).
 	AdminIdentity bool
 
-	// RetentionYears is how long attendance records are kept, in whole years. It
-	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
-	// Art. 13 notice on the activation page renders this number, and a number
-	// that appeared out of a Go constant would be this repo inventing a legal
-	// claim on a customer's behalf (M5-02, user decision 2026-07-31).
+	// RetentionYears is a retention period for attendance records, in whole years. It is
+	// REQUIRED and range-checked at boot, with no default, and NOTHING READS IT: no screen or
+	// flow has used it since the user's decision of 2026-11-03 took the period off the
+	// activation screen (ADR 0026's note of that date). No code deletes records by it either.
 	//
-	// The value in .env / .env.example is a DEVELOPMENT PLACEHOLDER, not legal
-	// advice; the real figure is Q13 / backlog B3 and waits on a lawyer. The
-	// activation page says so in the rendered text, so an employee reading a dev
-	// deployment is not told a fabricated retention period.
+	// Retention is unresolved (Q13 / backlog B3). The value in .env / .env.example is a
+	// DEVELOPMENT PLACEHOLDER, not legal advice, and no default exists because a figure out of a
+	// Go constant would be this repo inventing a legal claim on a customer's behalf (user
+	// decision 2026-07-31). The variable stays until the user decides what to do with it.
 	RetentionYears int
 
 	LogLevel string
@@ -688,8 +687,8 @@ func validEnv(v string) error {
 // IsHardened reports whether this process runs with the production security defaults: in
 // production, or in the sandbox (M11 API-11, ADR 0028 §11, K-28). The sandbox is a shared,
 // internet-facing, multi-party deployment, so every gate that used to ask "is this production?"
-// asks this instead -- nine call sites, counted and pinned by cmd/tappa's
-// TestConfig_IsHardenedCoversTheNineGates. The three gates tied to EnvDev (devToolsFlag,
+// asks this instead -- eight call sites, counted and pinned by cmd/tappa's
+// TestConfig_IsHardenedCoversTheEightGates. The three gates tied to EnvDev (devToolsFlag,
 // handler.DevToolsEnabled, sun.WithDevelopmentMinting) are closed in the sandbox by being dev-only.
 //
 // THERE IS NO IsProd ANY MORE, ON PURPOSE: a gate that asked "production?" would leave the sandbox
@@ -1551,7 +1550,7 @@ func smtpHost(name, v string, prod bool) error {
 func intEnvRequiredRange(name string, min, max int) (int, error) {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
-		return 0, fmt.Errorf("%s is required (whole years, %d-%d; it is rendered in the GDPR Art. 13 notice, so this repo must not invent it)", name, min, max)
+		return 0, fmt.Errorf("%s is required (whole years, %d-%d; nothing reads it since 2026-11-03, but retention is unresolved (Q13) and this repo must not invent a figure)", name, min, max)
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil {

@@ -392,7 +392,7 @@ değişikliğidir.
 | **Sonuç ekranı** (`POST /api/checkin` → `pages.Result`) | başlıkta; altında co-brand satırı (K-2b) | **yok** | yalnız `alt` | logo varken co-brand satırı; logo yokken bugünkü Wordmark (accent olmadığı için K-2a burada uygulanmaz) | **WL-9** — `ResultView` 8 alan kalır (marka ayrı açık parametre); markalı tenant'ın sonuç sayfasında tema `<link>`'i **0** |
 | **Panel kabuğu** (`PanelShell`, `PanelShellWithScript`) | başlıkta | **4 px dekoratif şerit** (K4) | görünür metin | co-brand satırı | **WL-8** — `chrome()` +1 PK okuması; marka okuma hatası sayfayı düşürmez; OP-10'dan sonra |
 | **Panel → Account → *"Your brand"* önizlemesi** (panel kabuğunun içinde) | önizlemedeki tap ekranının başlığında, kaynağı `/admin/brand/logo/{sha}` | önizlemedeki **tap düğmesinin zemini** — **kaydedilmiş** accent | önizlemede `alt` | önizleme tap ekranının kendisidir | **WL-7** (WL-9'a bağımlı) — aşağıdaki *"Account önizlemesi"* paragrafının kuralları |
-| **Aktivasyon ailesi** — sihirbazın dört adımı (`GET /activate`, `?step=1..4`), *"Activation complete"* (`/activate/complete`), *"already set up"* *(WL-13, 2026-10-09: eski iki satırın — tur/practice ve aktivasyon — yerine; WL-13 notu)* | başlıkta, tap ekranının şekli (24 px yuva + altında co-brand, K-2b) — **yalnız VIES-doğrulanmış** işletmede (`tenants.vat_verified IS TRUE`); kaynağı sihirbazda `/activate/logo/{sha}` (davet çerezi), iki oturumlu ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini** (`.tap-button`; adım 4'te birincil düğme yok); accent varken sihirbazın ilerleme çubuğu, 01/02/03 numaraları ve işaretli onay kutusu **ink** | yalnız `alt` + bugünkü metin (işveren adı) | logo varken co-brand satırı; logo yokken Wordmark, accent varsa `taptime` ink (K-2a) | **WL-13** — kullanıcı kararları 1–3 (2026-10-09); adım 4'ün plaket çizimi Taptime kalır (§9 madde 4) |
+| **Aktivasyon ailesi** *(2026-11-02: üç adım, ortalanmış 56 px logo, co-brand yok, accent adım 1–2 — aktivasyon başlığı notu; bu satır WL-13 hâlidir)* — sihirbazın dört adımı (`GET /activate`, `?step=1..4`), *"Activation complete"* (`/activate/complete`), *"already set up"* *(WL-13, 2026-10-09: eski iki satırın — tur/practice ve aktivasyon — yerine; WL-13 notu)* | başlıkta, tap ekranının şekli (24 px yuva + altında co-brand, K-2b) — **yalnız VIES-doğrulanmış** işletmede (`tenants.vat_verified IS TRUE`); kaynağı sihirbazda `/activate/logo/{sha}` (davet çerezi), iki oturumlu ekranda `/t/logo/{sha}` | **adım 1–3'ün birincil düğmesinin zemini** (`.tap-button`; adım 4'te birincil düğme yok); accent varken sihirbazın ilerleme çubuğu, 01/02/03 numaraları ve işaretli onay kutusu **ink** | yalnız `alt` + bugünkü metin (işveren adı) | logo varken co-brand satırı; logo yokken Wordmark, accent varsa `taptime` ink (K-2a) | **WL-13** — kullanıcı kararları 1–3 (2026-10-09); adım 4'ün plaket çizimi Taptime kalır (§9 madde 4) |
 | Problem sayfaları (tap ve aktivasyon akışları) ve aktivasyonun *"phone already in use"* onayı (`pages.Confirm`) | yok | yok | — | Taptime | değişmez *(WL-13: marka yalnız kullanılabilir bir davetten bilinir ve bu ekranlarda ölü bir linki canlıdan ayırırdı; `pages.Problem` ve `pages.Confirm` marka parametresi almaz)* |
 | AdminChoose, yönetici girişi, parola sıfırlama | yok | yok | — | Taptime | değişmez (WL-8 kabulü: AdminChoose değişmez) |
 | Landing, legal, signup | yok | yok | — | Taptime | değişmez |
@@ -858,6 +858,7 @@ mutasyon: `.stamp`'e accent zemini → kırmızı, ölçüldü — §4 WL-5 notu
    Tenant accent'i kutuya yine girmez; değişen, yanında bir tenant accent'i durduğunda Taptime
    yeşilinin ink'e dönmesidir. Öteki kullanımlar ve accent'siz sihirbaz `accent-tappa-green`
    kalır.
+   *(2026-11-02: bu istisna sihirbazın onay kutusuyla birlikte kalktı — üstteki aktivasyon başlığı notu.)*
 10. Kullanıcıya görünen metin: tenant adı dışında yeni kelime yok — tap ekranında yeni metin
     logonun `alt`'ıdır (WL-9); K-2b'nin co-brand satırı bugün Wordmark'ta duran iki kelimeyi
     (`taptime`, `punchless`) tek satırda taşır.
@@ -1900,6 +1901,75 @@ rotaları, üç rotanın ortak sözlüğü, bütçesi ve ret satırı) · `inter
   biçim değişikliği yok (hata cümlesinin kodu aynı tomato renginde, 5,30:1).
 
 Üç parçalı iddia, mutasyon tablosu, sayılı sınırlar ve devirler: ADR 0024'ün WL-7 notu.
+
+## Çalışan ekranları notu (2026-11-02, kullanıcının §9 kararı — §2'nin tap, sonuç ve önizleme satırlarını, §5–§7'yi ve K-2b'yi değiştirir)
+
+Kullanıcının sözleriyle: tap ve sonuç ekranlarında logo büyük ve ortada; *"taptime · punchless"* satırı yok;
+sonuç ekranında APPROVED/FLAGGED/REJECTED damgası yok (çalışanlar anlamıyor), *"Trust 20"* yok, *"the tap
+signature could not be verified"* gibi cümleler yok. Tek ekran, çok sade.
+
+**Başlık.** Artık bir logo şekli var: `layout.BrandHeader`'ın logo kolu ortalanmış 56 px yuvadır; aynı gün eklenen
+`activationHeader` ve `ActivationPageWithScript` silindi, sihirbazın bekleme ekranı `PageWithScript`'e döndü. Tap,
+sonuç, Account önizlemesi (§2: önizleme tap ekranının kendi bileşenleridir) ve aktivasyon ailesi aynı başlığı çizer.
+Logosuz ve yalnız accent'li başlıklar, panel başlığı ve co-brand'i (`panelBrandHeader`), problem ve onay ekranları
+değişmez; tap golden'ları bayt-aynı kaldı. Holding plaketi kuralı ve VIES kapısı değişmez. Ölçüldü (390×844, statik
+sayfa, bir kez): başlık 43 → 56 px, tap düğmesinin üst kenarı 229 → 242, yani eski logolu şekle göre **+13 px**;
+logosuz başlığa göre +28 px, §5'in WL-9 bütçesi olan 16 px'in üstünde. Bu bir kullanıcı kararıdır.
+
+**Dürüst sonuç.** Logolu işletmede tap ve sonuç ekranı **Taptime'ı görünür hiçbir yerde adlandırmaz**: çalışan
+işleyeni o ekranlarda göremez. Aktivasyon bildirimi onu işleyen olarak adlandırmayı sürdürür. K-2b'nin *"Taptime'ın iki
+kelimesi ekranda kalır"* gerekçesi bu ekranlarda kalkmıştır.
+
+**Sonuç ekranı.** Docket'te mekân, başlık, saat (saat:dakika, saniyesiz — kullanıcı kararı aynı gün; kayıt, panel, rapor, CSV ve API saniyeyi korur); damga, güven puanı, kural notu ve TRAINING damgası yok
+(*"This practice tap does not count toward your hours."* düz cümle kalır). `ResultView.Trust` ve `.Note` silindi.
+`reject` (*"Not counted"*) ve `ignored` (*"Already tapped"*) başlıktan ve kapanış cümlesinden ayrılır.
+
+**§4.6 ve `flag` — kullanıcının aynı günkü ikinci kararı, risk kendisine açıkça söylenerek.** Damganın kalkmasıyla onay
+cümlesi `flag`'in tek taşıyıcısı kalmıştı; kullanıcı onu da kaldırdı. `flag` ekranı artık docket ve *"You can close this
+page."*'tir (practice'te docket'in cümlesi de); başlığı `ok`'unkiyle aynıdır, `ok`'tan farkı yalnız marka satırı ve *"All
+done"*un olmamasıdır. **Kırmızı çizgi kalır:** sistem kendi başına asla onaylamaz; kayıt `flag` yazılır, müdürün
+kuyruğunda bekler, saati onaya dek toplama girmez (`TestCheckinDB_AFlaggedTapWithASilentScreenIsStillFlaggedQueuedAndNotCounted`).
+**Adlandırılmış, kabul edilmiş bedel:** müdür karar verene dek kişi saatin sayıldığını sanabilir; müdürün sonradan reddettiği bir `flag` dokunuşunu
+ekrandan öğrenmez. Marka satırı ve *"All done"*un `flag`'de gösterilmemesi kuralı yalnız o satırlar içindir; kodda send-off'u
+§4.6'yla eşitleyen eski gerekçe (`brandMessage`) yalnız marka satırı için geçerlidir. Talep kartı ve *"Sent — your manager will
+review it."* değişmez: o kişinin gönderdiği talep içindir. Ek kayıp: *"your previous clock-in has no clock-out"* ve *"you chose to clock in/out"* cümleleri
+kartsız ekranda da gösterilmez. Motor, `transactions`, panelin docket'i, kuyruk, raporlar, panel damgaları ve damga CSS'i
+değişmez.
+
+**§6/§9 sonuçları.** §6 madde 8'in *"sonuçta accent yok"* hükmü aynen durur; §6 madde 10'un *"tek yeni metin logonun
+alt'ı"* hükmü durur, co-brand kalktı. *"Sayılı sınırlar"* 1'in hafifletenleri (24 px yuva, `max-w-[50%]`, logonun altında
+kaşe damgası) artık geçerli değildir: yuva 56 px, sınır %70, damga yok. Kullanıcı bunu kabul etti; ADR 0005 risk 9'un notu.
+
+Markasız golden'lar: 14 sonuç ve 6 kart golden'ı yeniden yazıldı (her birinde yalnız damga, puan, not ve onların sarmalayıcısı
+düştü; practice'te cümle düz `<p>` oldu); render sayısı 37'de kaldı.
+
+## Aktivasyon başlığı notu (2026-11-02, kullanıcının §9 kararı — §2'nin aktivasyon satırı, §7'nin WL-13 eki ve §6 madde 9'u değiştirir)
+
+Aktivasyon ailesinde (sihirbazın artık **üç** adımı — ADR 0026'nın 2026-11-02 notu —, *"Activation
+complete"*, *"already set up"*) logo varsa başlık **ortalanmış, 56 px yuvadır ve *"taptime ·
+punchless"* satırı yoktur**. Aşağıdaki WL-13 notunun *"tap ekranının şekli"* cümlesi bu ailede
+geçersizdir. Co-brand'in buradaki gerekçesi — Taptime'ın iki kelimesinin ekranda kalması (K-2b) —
+bu ailede kalkar: Taptime bildirim gövdesinde işleyen olarak ve bekleme ekranının plaket çiziminde
+adını taşımayı sürdürür. Panel başlığı **değişmez**; tap, sonuç ve önizleme başlıkları aynı gün üstteki notla aynı şekle geçti; logosuz başlık değişmez (Wordmark ya da ink `taptime`).
+
+Uygulama: aynı gün üstteki *"Çalışan ekranları notu"* ile `layout.BrandHeader`'ın logo koluna taşındı; ayrı bir
+aktivasyon başlığı kalmadı. Kutu saklanan
+orandır, yükseklik en çok 56 px ve **saklanandan büyük değildir** (panelin `PanelLogoOf` kuralı; 24
+px'lik tap yuvasından farklı olarak bu yuvada sıradan bir logo büyütülürdü); genişlik sütunun
+%70'iyle sınırlı; görsel ayrıca 56 px yükseklik sınırı taşır, çünkü baytlar geldikten sonra otomatik
+yükseklik yuvarlanmış özniteliği değil görselin kendi oranını izler (saklanan 4×512 aksi hâlde 1×128
+çizilip yuvayı taşardı). Yuva başlığındır, yani logo ne olursa olsun başlık 56 px'tir. VIES kapısı ve `alt`
+(işletme adı) değişmedi. **Accent:** slot adım 1 ve 2'nin `.tap-button`'ı, adım 3'te birincil düğme
+yok; sınıf bugün **yedi** `class` özniteliğinde (`tap.templ`'de üç, aktivasyon ailesinde dört: *Agree
+and continue*, *I'm ready*, *Try again*, *Continue anyway*). Accent varken ink kalan işaretler ilerleme
+çubuğu ve hazırlık adımının 01/02'sidir; §6 madde 9'un ink onay kutusu istisnası kutuyla birlikte
+kalktı (`.wizard-consent` ve `accent-ink` silindi); kalan devralma kutusu `accent-tomato` taşır.
+Markasız golden 38 → 37 render (`activate-wizard-4` gitti; beş aktivasyon golden'ı yeniden yazıldı;
+tap ve sonuç golden'ı bayt-aynı).
+
+Chrome'da ölçüldü (390×844, geliştirme sunucusu, bir kez): 512×128 logo 224×56, başlık 56 px, sol ve
+sağ boşluk 83 px; soğuk yüklemede layout-shift girdisi 0; yatay kaydırma yok; 1. adımın düğmesi ilk
+ekranda (alt kenarı 844), sayfa 876 px (üretim dışı yapılandırma notu dahil).
 
 ## WL-13 notu (2026-10-09 — aktivasyon ailesine tenant markası; §2'nin aktivasyon satırları, §7'nin sayılı listesi ve §9 madde 7 değişti)
 

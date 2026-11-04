@@ -96,23 +96,25 @@ const (
 	// WHAT ONE ACTIVATION ACTUALLY COSTS since the wizard (ADR 0026), counted by
 	// walking the flow:
 	//
-	//	8 requests  GET /activate?code= -> 303 -> GET /activate (step 1) ->
-	//	            GET ?step=2 -> POST /api/activate -> 303 -> GET ?step=3 ->
-	//	            GET ?step=4, then the activating tap on GET /t, which charges
-	//	            this budget too (CompleteByTap)
+	//	7 requests  GET /activate?code= -> 303 -> GET /activate (step 1) ->
+	//	            POST /api/activate -> 303 -> GET ?step=2 -> GET ?step=3, then the
+	//	            activating tap on GET /t, which charges this budget too
+	//	            (CompleteByTap), and its 303 to GET /activate/complete
 	//
-	// Skipping ahead is not possible past consent, so 8 is also the floor for a
+	// Skipping ahead is not possible past consent, so 7 is also the floor for a
 	// careful reader and about the ceiling for anyone who does not go Back. The
 	// waiting screen's poll is NOT charged here (statusLimit, below). A venue
-	// onboarding fifteen people therefore costs about 120 requests against a
-	// ceiling of 600 — 75 complete activations per window per address key.
+	// onboarding fifteen people therefore costs about 105 requests against a
+	// ceiling of 600 — 85 complete activations per window per address key. (Eight
+	// each, 120 and 75, while the wizard had four steps; merging two of them on
+	// 2026-11-02 only loosened this, so no limit moved.)
 	//
 	// M10 WL-13 ADDS ONE for a business that shows its logo on the wizard: the logo's
 	// own request, GET /activate/logo/{sha}, is charged here too (Activation.Logo, the
-	// same gate as the pages, before any database work). One, not four: the response
+	// same gate as the pages, before any database work). One, not three: the response
 	// is cacheable (private, immutable -- the URL is the content's digest), so steps 2
-	// to 4 take it from the browser's cache. 9 requests each, fifteen people about 135
-	// -- 66 complete activations per window per address key. The two session screens'
+	// and 3 take it from the browser's cache. 8 requests each, fifteen people about 120
+	// -- 75 complete activations per window per address key. The two session screens'
 	// logo goes through /t/logo/ and the tap surface's own budget, not this one.
 	//
 	// (The pre-wizard figures were 4, 5 or 7 requests depending on the tour.)
@@ -134,7 +136,7 @@ const (
 	//     a VALID activation. Refusing a real activation to save 480 counter
 	//     increments is a bad trade.
 	//   · HIGHER buys nothing: 600 already carries a fifteen-person crew walking
-	//     the whole wizard (about 120 requests) with five times the room to spare,
+	//     the whole wizard (about 105 requests) with five times the room to spare,
 	//     and every failure mode past this ceiling is already bounded by the other
 	//     two budgets. (This line also said "~45"; same drift, same fix.)
 	// What genuinely improved is not the number but the KEY, and that was the

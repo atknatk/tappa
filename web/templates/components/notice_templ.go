@@ -131,8 +131,7 @@ func Notice(tone Tone, heading string) templ.Component {
 	})
 }
 
-// Card is the plain paper block used for the notice, the Wi-Fi step and the
-// consent box: the same `bg-paper border border-line` frame, once.
+// Card is the plain paper block: the same `bg-paper border border-line` frame, once.
 func Card(heading string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -166,7 +165,7 @@ func Card(heading string) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(heading)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/notice.templ`, Line: 56, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/components/notice.templ`, Line: 55, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {

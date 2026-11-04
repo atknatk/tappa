@@ -1691,7 +1691,7 @@ func accountBrand(e BrandEditor, c PanelChrome) templ.Component {
 }
 
 // accountBrandPreview is the tap screen as the employee sees it: the header
-// (layout.BrandHeader -- logo and co-brand line, the ink wordmark, or the wordmark), the
+// (layout.BrandHeader -- the centred logo, the ink wordmark, or the wordmark), the
 // greeting (TapPreviewHeading) and the button's face (TapButtonFace with the preview
 // value: a button that cannot submit). The face says "Clock in" (M15-12, ADR 0032 §B.1)
 // and draws no "Not right? …" under it: a picture of the primary button, the accent's

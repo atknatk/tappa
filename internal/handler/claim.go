@@ -109,19 +109,12 @@ func afterCommit[T any](ctx context.Context, t *Tap, what string, read func() T)
 	return read()
 }
 
-// resultCard is the card the result screen draws and whether it asks about the check-in this very
-// tap left open -- the one case its left-open note is not shown (product lens N6).
-type resultCard struct {
-	view         pages.ClaimCardView
-	asksLeftOpen bool
-}
-
 // resultClaim is the card for this tap's result screen, or nil (ADR 0032 §C.1). ctx is the caller's:
 // the request's values without its cancellation, bounded by claimWait.
 //
 // Only a directed record can show one (ok, flag): an ignored or refused tap is not in the chain and
 // is never a showing (K4) -- Offer says the same; asking it is a read this screen does not need.
-func (t *Tap) resultClaim(ctx context.Context, id httpx.Identity, res checkin.Result) *resultCard {
+func (t *Tap) resultClaim(ctx context.Context, id httpx.Identity, res checkin.Result) *pages.ClaimCardView {
 	if res.TransactionID == uuid.Nil || res.Decision.Type == nil || res.Decision.Practice {
 		return nil
 	}
@@ -153,10 +146,8 @@ func (t *Tap) resultClaim(ctx context.Context, id httpx.Identity, res checkin.Re
 	if card.Prefilled != nil {
 		value = card.Prefilled.In(loc).Format("15:04")
 	}
-	out := &resultCard{view: claimCardView(cc, loc, signed, value, "")}
-	lo := res.Decision.LeftOpen
-	out.asksLeftOpen = card.Kind == claim.KindOut && lo != nil && lo.ID == card.AnchorID
-	return out
+	view := claimCardView(cc, loc, signed, value, "")
+	return &view
 }
 
 // claimCardView writes the card's words (ADR 0032 §C.1's sentences, and the check-in card's lead

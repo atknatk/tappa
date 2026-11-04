@@ -404,7 +404,7 @@ func TestSuspensionDB_TheActivationTapIsTheSameForASuspendedBusiness(t *testing.
 			t.Fatalf("open link: %v", err)
 		}
 		out.Screens[0] = pageText(h.tapHarness, body(t, welcome))
-		privacy := h.getBody(t, c, "/activate?step=2")
+		privacy := h.getBody(t, c, "/activate?step=1")
 		out.Screens[1] = pageText(h.tapHarness, privacy)
 		resp, err := c.PostForm(h.server.URL+"/api/activate", url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}})
 		if err != nil {

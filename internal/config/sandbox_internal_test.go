@@ -67,7 +67,7 @@ func TestSandboxSettings_TheSandboxSendsNoEmail(t *testing.T) {
 	}
 }
 
-// TestIsHardened_IsProductionOrTheSandbox (K-28): the predicate the nine gates ask.
+// TestIsHardened_IsProductionOrTheSandbox (K-28): the predicate the eight gates ask.
 func TestIsHardened_IsProductionOrTheSandbox(t *testing.T) {
 	for env, want := range map[string]bool{EnvProd: true, EnvSandbox: true, EnvDev: false, EnvStaging: false, "": false, "production": false} {
 		if got := (&Config{Env: env}).IsHardened(); got != want {

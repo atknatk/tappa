@@ -50,8 +50,8 @@ func claimScreenRenders(t *testing.T) []screenGolden {
 	result("result-ok-in-card-yesterday-prefilled", cardResult("ok"), outCard(true))
 	result("result-flag-in-card-yesterday-prefilled", cardResult("flag"), outCard(true))
 	result("result-ok-in-card-yesterday-no-shift", cardResult("ok"), outCard(false))
-	// The split shift (Ü-O2): 11:00 in, "Not right? Clock in" at 18:00 -- same day; the screen's
-	// note keeps "you chose to clock in" and loses the left-open part (N6).
+	// The split shift (Ü-O2): 11:00 in, "Not right? Clock in" at 18:00 -- same day. The screen
+	// prints no note since the user's §9 decision of 2026-11-02; the decision still carries both.
 	split := cardResult("ok")
 	split.OccurredAt = time.Date(2026, 7, 31, 16, 0, 0, 0, time.UTC)
 	split.Decision.EmployeeNote = noteIPMatched + "; " + noteLeftOpenScreen + "; " + tap.ChoseClockInEmployeeNote
@@ -160,7 +160,7 @@ func TestClaimScreens_RenderOnlyTheseElements(t *testing.T) {
 	}
 	assertTagSet(t, "claim card", got, []string{
 		"html", "head", "meta", "title", "link", "body", "main", "header",
-		"section", "div", "p", "h1", "span", "dl", "dt", "dd",
+		"section", "div", "p", "h1", "span",
 		"form", "input", "label", "button",
 	})
 }

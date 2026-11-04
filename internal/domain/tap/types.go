@@ -637,7 +637,8 @@ type Decision struct {
 	// ADR 0032 §A.1).
 	// It never contains a secret or a raw GPS coordinate (§4.7).
 	Note string
-	// EmployeeNote is Note as the employee's result screen shows it: the deciding
+	// EmployeeNote is Note in the employee's words. UNREAD BY THE HANDLER since the user's §9
+	// decision of 2026-11-02: the result screen prints no note. Left for a follow-up. The deciding
 	// rule's sentence and the direction's annotation, WITHOUT the sentences the
 	// engine's note effects add (ADR 0029). User decision 2026-10-19: the
 	// cross-location sentence is for the record and the report, not for the person
@@ -647,8 +648,9 @@ type Decision struct {
 	// one the two strings differ even at home.
 	EmployeeNote string
 	// EmployeeNoteAsked is EmployeeNote assembled from the same parts in the same
-	// order WITHOUT the left-open part (LeftOpenEmployeeNote): what the result screen
-	// shows when its claim card asks about the very check-in this tap left open (ADR
+	// order WITHOUT the left-open part (LeftOpenEmployeeNote), UNREAD BY THE HANDLER since
+	// the same decision: what the result screen showed when its claim card asked about
+	// the very check-in this tap left open (ADR
 	// 0032 §C.1, M15-17, product lens N6 -- the card asks the same thing). It is built
 	// beside EmployeeNote rather than cut out of it: the parts are joined with "; " and
 	// a later one ("you chose to clock in") may follow, so removing a substring would

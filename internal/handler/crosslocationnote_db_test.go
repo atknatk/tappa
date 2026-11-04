@@ -25,8 +25,8 @@ import (
 // first (the clock aside). The first screen is the production ok screen
 // TestCheckinDB_ScreenTextIsWhatProductionRenders pins.
 //
-// MUTANT (measured): the result view reading Decision.Note instead of EmployeeNote
-// -> the sentence is on the second screen, red.
+// Since the user's §9 decision of 2026-11-02 the screen prints no note at all, and the view
+// has no field for one; this still holds that the record keeps the sentence.
 func TestCheckinDB_ACrossLocationNoteStaysOffTheEmployeesScreen(t *testing.T) {
 	var sentence string
 	for _, d := range policy.Baseline() {
@@ -51,7 +51,7 @@ func TestCheckinDB_ACrossLocationNoteStaysOffTheEmployeesScreen(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	clockRE := regexp.MustCompile(`\d{2}:\d{2}:\d{2}`)
+	clockRE := regexp.MustCompile(`\d{2}:\d{2}`)
 
 	home := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
 	homeRec := h.lastRecord(t, h.employeeID)
@@ -76,7 +76,7 @@ func TestCheckinDB_ACrossLocationNoteStaysOffTheEmployeesScreen(t *testing.T) {
 	if awayText != homeText {
 		t.Errorf("the screen at another venue differs from the screen at home:\n away: %s\n home: %s", awayText, homeText)
 	}
-	want := shellText + " St Julians Clocked in <clock> APPROVED Trust 70 " + noteIPMatched +
+	want := shellText + " St Julians Clocked in <clock>" +
 		" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
 	if homeText != want {
 		t.Errorf("the home screen is not production's ok screen:\n got: %s\nwant: %s", homeText, want)

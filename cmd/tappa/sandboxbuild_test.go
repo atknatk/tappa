@@ -2,7 +2,7 @@ package main
 
 // sandboxbuild_test.go -- M11 API-11 (ADR 0028 §11, K-3, K-28): the sandbox is a separate BUILD of
 // this command, and these tests hold the split -- in the dependency graph, in the binaries, in the
-// nine hardened gates, in CI and at the image gate. They run in both builds; what a build can only
+// eight hardened gates, in CI and at the image gate. They run in both builds; what a build can only
 // say about itself is asked of the real artifacts, built here from the Makefile's own recipes.
 
 import (
@@ -224,14 +224,15 @@ func TestConfig_UntaggedBinaryRefusesSandbox(t *testing.T) {
 	}
 }
 
-// hardenedGates are K-28's nine (ADR 0028 Bağlam: "Üretim kodunda dokuz IsProd() çağrısı"), as
-// file:function -- the nine that asked "production?" and now ask config.IsHardened.
+// hardenedGates are K-28's nine (ADR 0028 Bağlam: "Üretim kodunda dokuz IsProd() çağrısı") less
+// NewActivation's, as file:function -- the ones that asked "production?" and now ask
+// config.IsHardened. Eight since 2026-11-03: that call only chose the activation page's development
+// notice, which the user's decision of that day removed (ADR 0028's note of that date).
 var hardenedGates = []string{
 	"internal/adminauth/cookie.go:NewCookies",
 	"internal/config/config.go:Load",
 	"internal/config/config.go:loadMail",
 	"internal/db/pool.go:newDB",
-	"internal/handler/activate.go:NewActivation",
 	"internal/handler/cookies.go:newCodeCookies",
 	"internal/handler/logincontext.go:newAdminCookies",
 	"internal/handler/signupstate.go:newSignupCookies",
@@ -249,10 +250,11 @@ var envComparisons = []string{
 	"internal/sun/mint.go:WithDevelopmentMinting:EnvDev",
 }
 
-// TestConfig_IsHardenedCoversTheNineGates (K-28: "IsHardened() = prod ∨ sandbox; dokuz IsProd()
-// çağrısının dokuzu bu yükleme geçer; EnvDev'e bağlı üç kapı sandbox'ta kapalı kalır"):
+// TestConfig_IsHardenedCoversTheEightGates (K-28: "IsHardened() = prod ∨ sandbox; dokuz IsProd()
+// çağrısının dokuzu bu yükleme geçer; EnvDev'e bağlı üç kapı sandbox'ta kapalı kalır"; eight since
+// the note above):
 //
-//	the code      every call of IsHardened in production code is one of the nine, each of the nine
+//	the code      every call of IsHardened in production code is one of the eight, each of the eight
 //	              calls it, nothing calls a method named IsProd (there is none: config removed it),
 //	              and every comparison with a TAPPA_ENV value outside internal/config is a known one
 //	the behaviour a sandbox configuration is the production one where a gate is reachable from
@@ -260,10 +262,10 @@ var envComparisons = []string{
 //	              simulator and dev minting are off even with TAPPA_DEV_TOOLS set and a loopback
 //	              base URL (CONTROL: the same configuration as dev turns both on)
 //
-// MUTANTS (measured): one gate written back as `cfg.Env == config.EnvProd` (the code half: eight
-// calls and an unknown comparison -- red); IsHardened = `Env == EnvProd` (the cookie rows -- red);
+// MUTANTS (measured): one gate written back as `cfg.Env == config.EnvProd` (the code half: one
+// call short and an unknown comparison -- red); IsHardened = `Env == EnvProd` (the cookie rows -- red);
 // DevToolsEnabled's `!= config.EnvDev` replaced by `== config.EnvProd` (the dev-tools row -- red).
-func TestConfig_IsHardenedCoversTheNineGates(t *testing.T) {
+func TestConfig_IsHardenedCoversTheEightGates(t *testing.T) {
 	var calls, comparisons, prodCalls []string
 	for _, f := range productionSources(t) {
 		rel, _ := filepath.Rel(repoRoot, f)
@@ -305,7 +307,7 @@ func TestConfig_IsHardenedCoversTheNineGates(t *testing.T) {
 	sort.Strings(calls)
 	sort.Strings(comparisons)
 	if !slices.Equal(calls, hardenedGates) {
-		t.Errorf("the IsHardened calls in production code are\n  %v\nwant the nine\n  %v", calls, hardenedGates)
+		t.Errorf("the IsHardened calls in production code are\n  %v\nwant the eight\n  %v", calls, hardenedGates)
 	}
 	if len(prodCalls) > 0 {
 		t.Errorf("production code calls IsProd at %v", prodCalls)

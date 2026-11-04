@@ -1328,9 +1328,10 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	}
 }
 
-// TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt drives a hostile sentence through
-// the deciding rule's note on the TWO surfaces that render it — the manager's docket
-// and the employee's tap result — and reads the escaping off the real HTML.
+// TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot drives a hostile sentence
+// through the deciding rule's note. The manager's docket prints it, and the escaping is read
+// off the real HTML. The employee's result printed it too until the user's §9 decision of
+// 2026-11-02; it prints no note now, and this is what holds that.
 //
 // 🔴 IT EXISTS BECAUSE THREE COMMENTS CLAIMED IT AND CITED THE WRONG TEST. They said
 // "templ escapes both on output — proved by
@@ -1345,7 +1346,7 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 // ⚠️ WHY THE FIXTURE IS THE REVIEW TEST'S. hostileNote is reused rather than copied so
 // the two surfaces cannot drift onto different definitions of "hostile"; the control
 // below fails if that constant stops carrying the characters that matter.
-func TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt(t *testing.T) {
+func TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot(t *testing.T) {
 	// CONTROL: the fixture is actually dangerous. Without this the assertions below
 	// would pass on any harmless string.
 	for _, ch := range []string{"<", ">", "&", `"`} {
@@ -1382,18 +1383,13 @@ func TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt(t *testing.T) {
 			"measuring the wrong surface rather than proving an escape:\n%s", docket)
 	}
 
-	// THE EMPLOYEE'S RESULT SCREEN, driven the way result_test.go drives it. §9 keeps
-	// this screen at one screen and one button; reading its HTML changes nothing on it.
+	// THE EMPLOYEE'S RESULT SCREEN, driven the way result_test.go drives it: no note at all.
 	body := mustBody(t, checkin.Result{
 		Outcome:      checkin.OutcomeRecorded,
 		Decision:     withNote(decisionOf("flag", "in", false), hostileNote),
 		LocationName: "St Julians", Timezone: "Europe/Malta", BusinessType: "restaurant",
 	})
-	if strings.Contains(body, raw) {
-		t.Errorf("the tap result rendered %q unescaped inside the policy note", raw)
-	}
-	if !strings.Contains(body, escaped) {
-		t.Errorf("the tap result does not carry the ESCAPED note either; the note may not "+
-			"be reaching this screen at all:\n%s", body)
+	if strings.Contains(body, raw) || strings.Contains(body, escaped) {
+		t.Errorf("the tap result carries the policy note, in either form:\n%s", body)
 	}
 }

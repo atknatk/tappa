@@ -19,7 +19,7 @@ package pages
 import "strings"
 
 // ActivateView is the activation form: who is activating, which venue's network
-// to join, and the GDPR Art. 13 facts.
+// to join, and the activation notice's facts.
 //
 // THE FIELDS ARE ALL DISPLAY DATA. There is deliberately no Code, no CodeHash and
 // no ids: the code travels in an HttpOnly cookie set by GET /activate (see
@@ -37,20 +37,12 @@ type ActivateView struct {
 	// (locations.wifi_ssid IS NULL, migration 00010). Empty is NOT an error: the
 	// step renders a shorter, network-less version.
 	WiFiSSID string
-	// RetentionYears is how long attendance records are kept, from
-	// TAPPA_RETENTION_YEARS. Rendered, never hard-coded: a retention period is a
-	// legal statement and this repo does not get to invent one for a customer.
-	RetentionYears int
-	// ShowConfigNotice adds a line saying the retention figure comes from this
-	// server's configuration. It is set on non-production deployments, where the
-	// number is a development placeholder rather than a vetted legal figure
-	// (Q13 / backlog B3).
-	ShowConfigNotice bool
 	// SecondDevice is true when this employee is already active — a new phone.
 	// The page warns that the other phone will be signed out.
 	SecondDevice bool
-	// ConsentMissing re-renders the form after a submit that skipped the consent
-	// box, with the error attached to the box itself.
+	// ConsentMissing re-renders the form after a submit that did not come from the
+	// agree button (a hand-made POST: the button carries the consent value), with the
+	// error attached to the button.
 	ConsentMissing bool
 
 	// CSRFToken is the synchronizer token echoed by the form. It is rendered ON
@@ -75,9 +67,6 @@ type ActivateView struct {
 	// for the waiting screen. The handler clamps it; the template treats anything
 	// it does not know as step 1.
 	Step int
-	// Consented is true once THIS browser has agreed to the notice (it holds the
-	// consent binding). Steps 3 and 4 exist only then.
-	Consented bool
 	// StatusURL is what the waiting screen's script polls. A same-origin path,
 	// handed in rather than typed into the template so route and page agree.
 	StatusURL string
@@ -88,8 +77,8 @@ type ActivateView struct {
 // progress bar draws ActivateStepTap segments, so the waiting screen reads as the
 // last step rather than as something after the wizard.
 const (
-	ActivateSteps   = 3
-	ActivateStepTap = 4
+	ActivateSteps   = 2
+	ActivateStepTap = 3
 )
 
 // AlreadySetUpView greets a phone that is already activated and opens the
@@ -340,9 +329,10 @@ type ProblemView struct {
 // shared by every tenant of that kind, so it identifies nobody — and it is not
 // rendered at all, it only chooses between sentences written in the template.
 type ResultView struct {
-	// Verdict is the recorded outcome: ok | flag | reject | ignored. It drives
-	// both the stamp text and the colour, and the two are never separated —
-	// status is never told by colour alone (accessibility, skill tappa-brand).
+	// Verdict is the recorded outcome: ok | flag | reject | ignored. It chooses the
+	// headline and the closing sentence. The screen prints no stamp, trust score or
+	// rule's sentence (user §9 decision of 2026-11-02); this view has no field for the
+	// last two, so the handler cannot hand them to it.
 	Verdict string
 	// Direction is "in" or "out", or "" for a verdict that carries none (a
 	// reject, an ignored duplicate). It is the difference between "Clocked in" and
@@ -353,50 +343,6 @@ type ResultView struct {
 	At string
 	// Venue is the TAPPED location's name, or "" when it could not be read.
 	Venue string
-	// Trust is the confidence score (20/50/70/100). Shown as data, in mono,
-	// because it is the number a manager asks about when a tap is queried.
-	Trust int
-	// Note is the deciding rule's human sentence ("verified via GPS only — no
-	// network proof of place"). The chain is short and was measured:
-	// internal/domain/tap/decide.go sets Note from the winning statement's
-	// pd.Reason, internal/handler/checkin.go copies it here, result.templ prints it.
-	//
-	// THE PROSE IS OURS, AND THAT IS A FACT ABOUT THE WRITE PATHS RATHER THAN A
-	// PROMISE. A customer can choose WHICH shipped statement applies and WHERE, and
-	// §5 rows 6-7 are theirs to change by name — but tenant.copyOfShipped copies a
-	// shipped statement WHOLE and replaces only its sid and its resource list, and
-	// tenant.AuthorCommand has no field a sentence could arrive in. Held by
-	// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs (which calls the
-	// generator) and, in cmd/tappa, by the three that derive the write paths from db/
-	// and the shipped Go rather than from a list of names:
-	// TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed,
-	// TestNoteProvenance_TheStoreCarriesNoWriterTheQueriesDoNotName and
-	// TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument. So this
-	// paragraph goes red rather than stale.
-	//
-	// ⚠️ A ROUND OF M8-04 ASSERTED THE OPPOSITE HERE — that a tenant's
-	// "author-written reason" lands in this string verbatim, bounded only by
-	// maxReasonLen — and the audit after it measured that claim to be false. It is
-	// recorded because the correction is not visible from the corrected text: the
-	// v1 rule editor is form-only ON PURPOSE (Q22), and the raw-JSON editor that
-	// would make the claim true is M9-07. If it ships, one of the four tests above is
-	// what says so, and which one depends on the shape it takes — cmd/tappa's
-	// noteprovenance_test.go lists the shapes that were injected and measured red
-	// (2026-08-20) and the one that was not.
-	//
-	// WHAT THE ENGINE GUARANTEES: no secret and no coordinate goes in here (§7), and
-	// templ escapes whatever is in it on output —
-	// TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt drives a hostile sentence
-	// through this field and through the docket's, rather than asserting it.
-	//
-	// ⚠️ THIS SCREEN PRINTS NO LAYER, AND THE DOCKET DOES — COUNTED, NOT CLOSED. A
-	// manager's docket marks a note whose decision came from the organisation's own
-	// rule (ledger.Record.NoteIsTenants); the employee's result does not. That is a
-	// smaller gap than the falsified claim made it look — the sentence is the same
-	// sentence either way, and what differs is only which document selected it — and
-	// closing it would be a feature on a screen §9 keeps at "one screen, one button,
-	// zero learning". It was left alone for that reason, not overlooked.
-	Note string
 	// Practice marks the training tap that never counts toward hours (§5).
 	Practice bool
 	// BusinessType is the tenant's category ('restaurant', 'production', … —

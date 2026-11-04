@@ -1,13 +1,13 @@
 package tenant
 
 // activationbrand.go -- a business's brand as the ACTIVATION FAMILY draws it (M10 WL-13;
-// ADR 0023's WL-13 note, ADR 0024 §5's WL-13 note): the wizard's four steps, "Activation
+// ADR 0023's WL-13 note, ADR 0024 §5's WL-13 note): the wizard's three steps, "Activation
 // complete" and "already set up".
 //
 // THE USER'S DECISIONS (2026-10-09), and where each one is kept:
 //
-//  1. Those six screens take the tap screen's shape: the header (a logo in the 24 px
-//     slot over the co-brand line) and the accent -- the layout's job.
+//  1. Those screens take the business's header (since the §9 decision of 2026-11-02 a
+//     logo centred in a 56 px slot, no co-brand line) and the accent -- the layout's job.
 //  2. THE LOGO ONLY FOR A BUSINESS VIES VERIFIED (tenants.vat_verified IS TRUE; FALSE and
 //     NULL, never asked or no answer, are both "not verified"). The accent and the
 //     Taptime wordmark stay either way. This is EM-7B's decision for the invitation

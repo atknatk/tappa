@@ -183,13 +183,13 @@ func (f *seedFlow) inviteCode(t *testing.T, p *phone) string {
 }
 
 // consentAndTap is the rest of the wizard for a browser that has opened its link:
-// step 2's consent POST, then a genuine NFC tap on plaque. It asserts the tap
+// step 1's consent POST, then a genuine NFC tap on plaque. It asserts the tap
 // completed the activation and that the browser now holds a session.
 func (f *seedFlow) consentAndTap(t *testing.T, p *phone, plaque string) {
 	t.Helper()
-	status, privacy := f.openPage(t, p, "/activate?step=2", seedOffSiteAddr)
+	status, privacy := f.openPage(t, p, "/activate?step=1", seedOffSiteAddr)
 	if status != http.StatusOK {
-		t.Fatalf("%s: step 2 status = %d", p.name, status)
+		t.Fatalf("%s: step 1 status = %d", p.name, status)
 	}
 	req, err := http.NewRequest(http.MethodPost, f.server.URL+"/api/activate",
 		strings.NewReader(url.Values{"consent": {"yes"}, "csrf": {formToken(t, privacy)}}.Encode()))

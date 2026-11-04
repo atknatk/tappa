@@ -227,13 +227,14 @@ func TestResultScreen_TheCardIsAskedOnlyOnADirectedRecord(t *testing.T) {
 	}
 }
 
-// TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard (product lens N5): the card sits
-// between the docket and the closing sentence on both verdicts that show one, so on `flag` the
-// "needs your manager's approval" sentence is read after the question, not over it.
-func TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard(t *testing.T) {
+// TestResultScreen_TheClosingSentenceStaysBelowTheCard (product lens N5): the card sits between
+// the docket and the closing sentence on both verdicts that show one. Since the user's §9
+// decision of 2026-11-02 the flag's closing says nothing of approval; the only "manager" on that
+// screen is the card's own, about the claim the person sends.
+func TestResultScreen_TheClosingSentenceStaysBelowTheCard(t *testing.T) {
 	for verdict, closing := range map[string]string{
 		"ok":   "All done — you can close this page.",
-		"flag": "Recorded — it needs your manager's approval before it counts toward your",
+		"flag": "You can close this page.",
 	} {
 		t.Run(verdict, func(t *testing.T) {
 			h, tp := newClaimHandler(t, &fakeCheckins{result: cardResult(verdict)}, &fakeClaims{card: outCard(true)})
@@ -242,17 +243,20 @@ func TestResultScreen_OnFlagTheClosingSentenceStaysBelowTheCard(t *testing.T) {
 			if docket < 0 || card < 0 || end < 0 || !(docket < card && card < end) {
 				t.Fatalf("docket at %d, card at %d, closing sentence at %d; want docket < card < closing\n%s", docket, card, end, body)
 			}
+			if strings.Contains(body[end:], "manager") || strings.Contains(body, "approval") {
+				t.Errorf("the screen speaks of approval or of a manager after the card:\n%s", body)
+			}
 		})
 	}
 }
 
-// TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally is product lens N6 with the
-// 2026-10-23 correction: with a card about the check-in this tap left open, the screen's note is
-// Decision.EmployeeNoteAsked -- the same parts without the left-open one -- and every other part
-// is exactly as the engine wrote it, the separator included. The shape here starts WITH the
-// left-open part, so a handler that cut "; <left-open>" out of the string would leave it standing.
-// Without a card, or with a card about another record, the note is the whole note.
-func TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally(t *testing.T) {
+// TestResultScreen_PrintsNoEmployeeNoteWithOrWithoutACard: until the user's §9 decision of
+// 2026-11-02 this test (product lens N6) chose
+// which of Decision.EmployeeNote and EmployeeNoteAsked the screen printed. It prints neither
+// now: with a card about the left-open check-in, without a card, and with a card about
+// another record, the left-open and "you chose" sentences are off the screen. The card's own
+// sentences carry the context when there is one.
+func TestResultScreen_PrintsNoEmployeeNoteWithOrWithoutACard(t *testing.T) {
 	res := cardResult("ok")
 	res.Decision.EmployeeNote = noteLeftOpenScreen + "; " + tap.ChoseClockInEmployeeNote
 	res.Decision.EmployeeNoteAsked = tap.ChoseClockInEmployeeNote
@@ -261,20 +265,22 @@ func TestResultScreen_TheCardTakesTheLeftOpenNoteOutStructurally(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		claims tapClaims
-		note   string
+		card   bool
 	}{
-		{"a card about the left-open check-in", &fakeClaims{card: outCard(true)}, tap.ChoseClockInEmployeeNote},
-		{"no card", noClaims{}, noteLeftOpenScreen + "; " + tap.ChoseClockInEmployeeNote},
-		{"a card about another record", &fakeClaims{card: other}, noteLeftOpenScreen + "; " + tap.ChoseClockInEmployeeNote},
+		{"a card about the left-open check-in", &fakeClaims{card: outCard(true)}, true},
+		{"no card", noClaims{}, false},
+		{"a card about another record", &fakeClaims{card: other}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h, tp := newClaimHandler(t, &fakeCheckins{result: res}, c.claims)
 			body := postTapThrough(t, h, tp).Body.String()
-			if want := `<p class="mt-2 text-ink/70">` + c.note + `</p>`; !strings.Contains(body, want) {
-				t.Fatalf("the screen's note is not %q:\n%s", c.note, body)
+			for _, banned := range []string{noteLeftOpenScreen, tap.ChoseClockInEmployeeNote} {
+				if strings.Contains(body, banned) {
+					t.Errorf("the screen says %q:\n%s", banned, body)
+				}
 			}
-			if c.note == tap.ChoseClockInEmployeeNote && strings.Contains(body, noteLeftOpenScreen) {
-				t.Error("the left-open sentence is on the screen beside the card that asks it")
+			if got := strings.Contains(body, "Send to my manager"); got != c.card {
+				t.Errorf("card on the screen = %v, want %v", got, c.card)
 			}
 		})
 	}

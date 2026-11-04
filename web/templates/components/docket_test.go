@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -166,5 +167,36 @@ func TestVerdictStamp_EveryVerdictHasItsWordAndAnUnknownOneHasNone(t *testing.T)
 		if !strings.Contains(b.String(), `class="stamp stamp--`) || !strings.Contains(b.String(), ">"+word+"<") {
 			t.Errorf("%s: %q", verdict, b.String())
 		}
+	}
+}
+
+// TestDockets_TheTrainingStampIsExactlyOneClassString pins the whole class string at each of the
+// three sites that draw TRAINING. An extra class is a colour override at equal specificity
+// (measured on the old result screen: a utility text colour drew the word at 2.15:1, and the whole
+// suite stayed green), so the literal is the guard. Three sites by source count, so a fourth
+// goes red here rather than unpinned.
+func TestDockets_TheTrainingStampIsExactlyOneClassString(t *testing.T) {
+	const want = `<span class="stamp stamp--training">TRAINING</span>`
+	practice := ownDocket()
+	practice.Practice = true
+	var spike strings.Builder
+	if err := SpikeDocket(SpikeFocusView{Docket: practice}).Render(context.Background(), &spike); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"transaction docket": renderDocket(t, false, practice),
+		"rail docket":        renderDocket(t, true, practice),
+		"spike docket":       spike.String(),
+	} {
+		if n := strings.Count(body, "stamp--training"); n != 1 || !strings.Contains(body, want) {
+			t.Errorf("%s: %d training stamp(s), want exactly %s\n%s", name, n, want, body)
+		}
+	}
+	src, err := os.ReadFile("docket.templ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(src), "stamp--training"); n != 3 {
+		t.Errorf("docket.templ names the training stamp %d times; this test pins three sites", n)
 	}
 }

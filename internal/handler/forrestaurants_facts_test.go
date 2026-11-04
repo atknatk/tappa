@@ -66,6 +66,8 @@ type restaurantsFactSources struct {
 	StaleHours int
 	// Decide is the engine the probes ask; a control swaps in one that behaves otherwise.
 	Decide func(tap.Input) tap.Decision
+	// ResultFields are pages.ResultView's field names: what the person's own screen can print.
+	ResultFields []string
 	// Anchors is what each Anchor derivation the facts lean on answers today ("" holds).
 	Anchors map[pages.Anchor]string
 	// BusinessDay is what the business-day pairing reads (businessDayProblem).
@@ -204,12 +206,13 @@ func loadRestaurantsFactSources(t *testing.T) restaurantsFactSources {
 		answers[a] = derive()
 	}
 	return restaurantsFactSources{
-		Report:   strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
-		Checkin:  strip(repoFile(t, "internal", "domain", "checkin", "checkin.go")),
-		Reports:  repoFile(t, "web", "templates", "pages", "reports.templ"),
-		Baseline: policy.Baseline(),
-		Decide:   tap.Decide,
-		Anchors:  answers,
+		Report:       strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
+		Checkin:      strip(repoFile(t, "internal", "domain", "checkin", "checkin.go")),
+		Reports:      repoFile(t, "web", "templates", "pages", "reports.templ"),
+		Baseline:     policy.Baseline(),
+		Decide:       tap.Decide,
+		ResultFields: resultViewFields(),
+		Anchors:      answers,
 
 		LedgerTest:    repoFile(t, "internal", "domain", "ledger", "report_test.go"),
 		CheckinDBTest: repoFile(t, "internal", "handler", "forrestaurants_db_test.go"),
@@ -431,8 +434,31 @@ func crossLocationViolation(s restaurantsFactSources) string {
 		return fmt.Sprintf("a tap at another venue is decided %s/%d and the same tap at home %s/%d", away.Verdict, away.Trust, home.Verdict, home.Trust)
 	case !strings.Contains(away.Note, reason):
 		return "the record of a tap at another venue does not carry the note"
-	case strings.Contains(away.EmployeeNote, reason):
-		return "the person's own screen shows the cross-location note"
+	}
+	if why := resultScreenPrintsNoNote(s.ResultFields); why != "" {
+		return why
+	}
+	return ""
+}
+
+// resultViewFields names pages.ResultView's fields.
+func resultViewFields() []string {
+	v := reflect.TypeOf(pages.ResultView{})
+	out := make([]string, 0, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		out = append(out, v.Field(i).Name)
+	}
+	return out
+}
+
+// resultScreenPrintsNoNote is "the person's own screen does not show the note", read from what
+// the screen can print: pages.ResultView has no field a note could arrive in (user §9 decision
+// of 2026-11-02).
+func resultScreenPrintsNoNote(fields []string) string {
+	for _, f := range fields {
+		if strings.Contains(strings.ToLower(f), "note") {
+			return "pages.ResultView has a field for a note again: " + f
+		}
 	}
 	return ""
 }
@@ -678,10 +704,9 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			}
 			return d
 		})},
-		{pages.FactCrossLocationTapIsNotedNotPenalised, "the person's screen shows the note", engine(func(_ tap.Input, d tap.Decision) tap.Decision {
-			d.EmployeeNote = d.Note
-			return d
-		})},
+		{pages.FactCrossLocationTapIsNotedNotPenalised, "the person's screen gains a field for the note", func(s *restaurantsFactSources) {
+			s.ResultFields = append(slices.Clone(s.ResultFields), "Note")
+		}},
 		{pages.FactRollMarksWorkAtAnotherVenue, "the day is not marked", replace(report, "ph.Marks[d].Other = true", "_ = d")},
 		{pages.FactRollMarksWorkAtAnotherVenue, "the legend loses its words", replace(func(s *restaurantsFactSources) *string { return &s.Reports },
 			">at a venue other than their home venue</span>", ">elsewhere</span>")},
@@ -996,8 +1021,11 @@ func restaurantsSampleProblems(t *testing.T, in, out, cover pages.PanelDocket, m
 	// The cover: the engine decides the tap away from home as drawn, and writes the note.
 	probs = append(probs, panelDocketProblems(cover, "")...)
 	dec := tap.Decide(coverProbe(cover, pages.RestaurantsCoverHome))
-	if !dec.CrossLocation || !strings.Contains(dec.Note, note) || strings.Contains(dec.EmployeeNote, note) {
-		probs = append(probs, fmt.Sprintf("the engine notes %q on the cover's record (screen: %q); the drawing prints %q", dec.Note, dec.EmployeeNote, note))
+	if !dec.CrossLocation || !strings.Contains(dec.Note, note) {
+		probs = append(probs, fmt.Sprintf("the engine notes %q on the cover's record; the drawing prints %q", dec.Note, note))
+	}
+	if why := resultScreenPrintsNoNote(resultViewFields()); why != "" {
+		probs = append(probs, why)
 	}
 	if cover.Venue == pages.RestaurantsCoverHome {
 		probs = append(probs, "the cover is at the person's home venue")

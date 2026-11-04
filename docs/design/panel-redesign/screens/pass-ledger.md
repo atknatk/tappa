@@ -117,7 +117,7 @@ header search and its "/" hint · "Manual entry" button (top bar and header) · 
 | `TestPanelMarkup_UsesNoHtmxSyntaxThatNeedsUnsafeEval`, `TestDocketFragment_UsesTheUnwidenedPolicy`, `TestDocketFragment_IsBehindTheSessionGate`, `TestVendoredScript_MatchesTheRecordedDigest` | `transactions_test.go:156,1004,831,1113` | unchanged behaviour |
 | `TestTypes_NothingOnTheReadPathCanCarryACoordinate` | `transactions_test.go:78` | no new field starting `ip…`, `gps…`, `lat…` |
 | `TestTransactions_AFailedReadIsAnErrorAndNeverAnEmptyDay`, `TestTransactions_AnUnqueriedViewClaimsNothing` | `transactions_test.go:299,327` | each new widget gets its own "unqueried claims nothing" case |
-| `TestTransactionDocket_*`, `TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt` | `transactions_test.go:598,654,698,1188,1255` | "IP yes"/"GPS yes", `class="docket"`, no `<table`, "APPROVED", "641", manual + TRAINING distinguishable |
+| `TestTransactionDocket_*`, `TestPolicyNote_IsEscapedWhereItIsPrintedAndAbsentWhereItIsNot` | `transactions_test.go:598,654,698,1188,1255` | "IP yes"/"GPS yes", `class="docket"`, no `<table`, "APPROVED", "641", manual + TRAINING distinguishable |
 | `TestTransactionDocket_ShowsTheEngineVerdictAndTheManagerDecisionSeparately` | `review_test.go:1136` | stamp + manager tally, never swapped |
 | `TestPanelScreens_FormControlsCarryATouchTargetClass` | `transactions_test.go:786` (+ `panelTouchTargets`, `dashboard_test.go:915`) | chips registered |
 | `TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason` | `holdingpanel_db_test.go:33` (`:112-119`) | partner rail docket: venue name + "not shown at a partner venue"; the negative "IP no · GPS yes" assertion stays meaningful (signs unchanged) |

@@ -832,7 +832,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 	for step := 1; step <= pages.ActivateStepTap; step++ {
 		screens["pages.Activate step "+strconv.Itoa(step)] = pages.Activate(pages.ActivateView{
 			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
-			WiFiSSID: "KF-Guest", RetentionYears: 2, CSRFToken: "t", Step: step, Consented: step > 2,
+			WiFiSSID: "KF-Guest", CSRFToken: "t", Step: step,
 			SecondDevice: true, StatusURL: ActivationStatusPath,
 		}, layout.Brand{})
 	}

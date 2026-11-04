@@ -987,7 +987,7 @@ listesi, iki aşamalı DNS ve `HTTPS_PROXY` işçi yolundan), `TestWebhookWorker
 **API-11** *(yazıldı — "API-11 uygulama notu"; adlar önerilenle aynı, önek eklendi)* —
 `TestPackaging_ProdBuildHasNoSandboxPackage` · `TestPackaging_SandboxBuildHasIt` ·
 `TestConfig_UntaggedBinaryRefusesSandbox` · `TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert` ·
-`TestConfig_IsHardenedCoversTheNineGates` · `TestSandbox_KeyWithoutOperatorIs403` ·
+`TestConfig_IsHardenedCoversTheEightGates` · `TestSandbox_KeyWithoutOperatorIs403` ·
 `TestSandbox_SimulatesAHoldingTap` · **CI kapısı:** iş akışı `make check-sandbox` ile `go vet -tags sandbox ./...`,
 staticcheck'i etiketle ve etiketin değiştirdiği paketlerin `go test -race -tags sandbox`'ını koşar
 (`TestCI_RunsVetAndTestWithTheSandboxTag` — iş akışını ve Makefile'ı okur, paket listesini ağaçtan yeniden
@@ -3446,7 +3446,7 @@ itilmesi kapsam dışıdır — tarifi deploy/README.md *"Sandbox (API-11) — k
    `config.Env*` karşılaştırması bilinen beşten biridir (üç `EnvDev` kapısı — `devtap.go`, `sun/mint.go`,
    `main.go`'nun `DevelopmentWithoutBlockedList`'i — sandbox'ta kapalı; iki `EnvSandbox`: `db/pool.go`,
    `sandbox.New`). Davranış yarısı: sandbox yapılandırması düz http üzerinde de Secure çerez alır, dev tap ve
-   dev minting kapalıdır (`TestConfig_IsHardenedCoversTheNineGates`).
+   dev minting kapalıdır (`TestConfig_IsHardenedCoversTheEightGates`).
 4. **Gerçek e-posta yok.** `TAPPA_ENV=sandbox` ile `TAPPA_RESET_DELIVERY` `none`, `TAPPA_INVITE_DELIVERY` `panel`
    olmak zorunda (`sandboxSettings`); taşıyıcının ayarları hiç okunmaz. Webhook KEK'i ve düğüm listesi
    (dev dışı her ortam gibi) zorunlu.
@@ -3856,6 +3856,16 @@ M14 bu ADR'yi değiştirmez: `api_keys.created_by` üyeliğin (`admin_users`) bi
 üyelik başınadır (K-6) ve devre dışı bir üyeliğin oluşturduğu anahtarlar bugünkü gibi çalışır — bu ADR
 o durumu ele almıyor; karar backlog'da (**T174**). Panel oturumunun mutlak ömrü de backlog'dadır
 (**T175**, ADR 0031 §10).
+
+## K-28 sayım notu (2026-11-03)
+
+`IsHardened` çağrı noktası **sekizdir**, dokuz değil: kullanıcının 2026-11-03 kararı aktivasyon ekranından saklama
+süresini ve yapılandırma bildirimini kaldırdı ([ADR 0026](0026-aktivasyon-ilk-nfc-dokunusunda.md)'nın o tarihli notu),
+`internal/handler/activate.go`'daki `NewActivation` çağrısı da gitti. O çağrı yalnız o bildirimi seçiyordu
+(`showConfigNotice: !cfg.IsHardened()`); başka okuyanı yoktu, güvenlik anlamı taşımıyordu. Test
+`TestConfig_IsHardenedCoversTheEightGates` adını aldı. Yukarıdaki K-28 tablosu, §11 metni ve API-11 uygulama notundaki
+*"dokuz"* sayısı ve `activate.go` listesi tarihseldir, olduğu gibi bırakıldı. O iki yerdeki test adı yeni adla
+değişti: `TestEveryNamedTestExists` var olmayan bir testi anan alıntıyı kabul etmez ve istisna listesi yalnız küçülebilir.
 
 ## T174 eki (2026-11-01) — anahtar işletmenindir, oluşturanın değil
 

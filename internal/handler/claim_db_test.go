@@ -164,8 +164,10 @@ func TestClaimDB_AnAnchorWithNoBusinessDayShowsNoCard(t *testing.T) {
 	if strings.Contains(body, "data-claim-card") {
 		t.Fatalf("a card for an anchor with no business day:\n%s", body)
 	}
-	if !strings.Contains(body, noteLeftOpenScreen) {
-		t.Errorf("without a card the left-open sentence must be shown:\n%s", body)
+	// The screen prints no note since the user's §9 decision of 2026-11-02, so nothing tells
+	// this person about the old check-in here; it stays on the record and in Odd shapes.
+	if strings.Contains(body, noteLeftOpenScreen) {
+		t.Errorf("the screen prints the left-open sentence:\n%s", body)
 	}
 }
 
