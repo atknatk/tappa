@@ -246,6 +246,9 @@ func TestIdentityClaimSignup_EveryPredicateRefusesAlone(t *testing.T) {
 			if c.guc != nil {
 				guc = c.guc(w)
 			}
+			if !strings.Contains(c.name, "S13") {
+				isWantBornAtTop(t, ctx, sp, "tenants", w.b.tenant)
+			}
 			identities := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities`)
 			admin := icCall(t, ctx, sp, guc, w.claim, w.b.tenant, nil)
 			if admin == uuid.Nil {
@@ -401,7 +404,9 @@ func TestIdentityClaimSignup_AnExistingIdentityClaimsOnlyWithItsOwnSession(t *te
 	} {
 		t.Run("refused/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-				if icCall(t, ctx, sp, b.tenant, h, b.tenant, c.session(sp)) != uuid.Nil {
+				session := c.session(sp)
+				isWantBornAtTop(t, ctx, sp, "tenants", b.tenant)
+				if icCall(t, ctx, sp, b.tenant, h, b.tenant, session) != uuid.Nil {
 					t.Fatal("claimed; want refused")
 				}
 				if n := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities WHERE email = $1`, person.email); n != 1 {

@@ -87,6 +87,36 @@ func lockWantTopLevel(t *testing.T, ctx context.Context, tx pgx.Tx) {
 	}
 }
 
+// TestAiSavepoint_LeavesTheTopLevel (T194): whatever shape a case leaves aiSavepoint in -- rows written, a
+// nested call, a refusal through opAs (pgx's nested Rollback, whose savepoint stays open), a statement that
+// failed -- what it did is gone and tx is back at its top level.
+func TestAiSavepoint_LeavesTheTopLevel(t *testing.T) {
+	ctx, tx := opTx(t)
+	exists := func(q pgx.Tx, id uuid.UUID) bool {
+		return opInt(t, ctx, q, `SELECT count(*) FROM tenants WHERE id = $1`, id) == 1
+	}
+	var outer, inner uuid.UUID
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		outer = aiTenant(t, ctx, sp)
+		aiSavepoint(t, ctx, sp, func(nested pgx.Tx) { inner = aiTenant(t, ctx, nested) })
+		if exists(sp, inner) || !exists(sp, outer) {
+			t.Fatalf("after the nested call: its row exists = %v, the outer's = %v; want false, true", exists(sp, inner), exists(sp, outer))
+		}
+		if err := opExecAs(t, ctx, sp, "tappa_app", `SELECT 1 / 0`); err == nil {
+			t.Fatal("PREMISE: the refused statement answered")
+		}
+	})
+	if exists(tx, outer) {
+		t.Fatal("a row written in the savepoint outlived it")
+	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		if _, err := sp.Exec(ctx, `SELECT 1 / 0`); err == nil {
+			t.Fatal("PREMISE: the failing statement answered")
+		}
+	})
+	lockWantTopLevel(t, ctx, tx)
+}
+
 // lockWantBusy asks lockInTurn for tables, whose last is admin_users, and wants its wait to run out there.
 func lockWantBusy(t *testing.T, ctx context.Context, tx pgx.Tx, tables ...string) {
 	t.Helper()
