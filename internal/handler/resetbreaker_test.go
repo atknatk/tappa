@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -208,6 +209,57 @@ func TestPasswordNotice_ATrippedBreakerDoesNotStopIt(t *testing.T) {
 	}
 }
 
+// breakerKnownAddress is the address with a FULL WINDOW of grants behind it in a
+// newBreakerFlow: the most rows the tripped branch writes synchronously in one request,
+// i.e. its slowest case.
+const breakerKnownAddress = "owner@tripped.example.test"
+
+// breakerAnswer is one POST /admin/reset as the visitor receives it.
+type breakerAnswer struct {
+	code    int
+	header  http.Header
+	body    string
+	elapsed time.Duration
+}
+
+// postBreakerAnswer asks in a fresh browser. The clock covers the POST alone.
+func postBreakerAnswer(t *testing.T, router http.Handler, email string) breakerAnswer {
+	t.Helper()
+	br := newBrowser(t, router)
+	page := br.do(http.MethodGet, adminResetPath, nil)
+	csrf := csrfFrom(t, htmlOf(t, page))
+	start := time.Now()
+	rec := br.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {email}})
+	elapsed := time.Since(start)
+	return breakerAnswer{code: rec.Code, header: rec.Header().Clone(), body: htmlOf(t, rec), elapsed: elapsed}
+}
+
+// breakerFlow is the recovery flow behind a real breaker, tripped or passing.
+type breakerFlow struct {
+	h      *AdminReset
+	router http.Handler
+	probe  *breakerProbe
+	trail  *fakeTrail
+	logged *bytes.Buffer
+}
+
+func newBreakerFlow(t *testing.T, tripped bool) breakerFlow {
+	t.Helper()
+	f := breakerFlow{probe: &breakerProbe{}, trail: &fakeTrail{}, logged: &bytes.Buffer{}}
+	ch, b, log := newProbeChannel(t, f.probe, f.logged)
+	grants := grantsFor(breakerKnownAddress, adminauth.ResetWindow)
+	h, err := NewAdminReset(&fakeResets{grantsFor: map[string][]adminauth.ResetGrant{breakerKnownAddress: grants}}, ch, f.trail, adminTestConfig(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopWorkerAtCleanup(t, h)
+	if tripped {
+		fillBreaker(t, b, 300)
+	}
+	f.h, f.router = h, mountReset(h)
+	return f
+}
+
 // TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing is K7A-4: with
 // the process-wide breaker refusing, each grant of a registered address (a full
 // adminauth.ResetWindow of them — the slowest case) is recorded
@@ -224,54 +276,12 @@ func TestPasswordNotice_ATrippedBreakerDoesNotStopIt(t *testing.T) {
 // fail).
 func TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing(t *testing.T) {
 	t.Parallel()
-	const known, unknown = "owner@tripped.example.test", "nobody@tripped.example.test"
-	// A FULL WINDOW of grants behind one address — the most rows the tripped branch
-	// writes synchronously in one request, i.e. its slowest case.
+	const known, unknown = breakerKnownAddress, "nobody@tripped.example.test"
 	const window = adminauth.ResetWindow
 
-	type answer struct {
-		code    int
-		header  http.Header
-		body    string
-		elapsed time.Duration
-	}
-	post := func(t *testing.T, router http.Handler, email string) answer {
-		t.Helper()
-		br := newBrowser(t, router)
-		page := br.do(http.MethodGet, adminResetPath, nil)
-		csrf := csrfFrom(t, htmlOf(t, page))
-		start := time.Now()
-		rec := br.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {email}})
-		elapsed := time.Since(start)
-		return answer{code: rec.Code, header: rec.Header().Clone(), body: htmlOf(t, rec), elapsed: elapsed}
-	}
-	type flow struct {
-		h      *AdminReset
-		router http.Handler
-		probe  *breakerProbe
-		trail  *fakeTrail
-		logged *bytes.Buffer
-		grants []adminauth.ResetGrant
-	}
-	build := func(t *testing.T, tripped bool) flow {
-		t.Helper()
-		f := flow{probe: &breakerProbe{}, trail: &fakeTrail{}, logged: &bytes.Buffer{}, grants: grantsFor(known, window)}
-		ch, b, log := newProbeChannel(t, f.probe, f.logged)
-		h, err := NewAdminReset(&fakeResets{grantsFor: map[string][]adminauth.ResetGrant{known: f.grants}}, ch, f.trail, adminTestConfig(), log)
-		if err != nil {
-			t.Fatal(err)
-		}
-		stopWorkerAtCleanup(t, h)
-		if tripped {
-			fillBreaker(t, b, 300)
-		}
-		f.h, f.router = h, mountReset(h)
-		return f
-	}
-
 	// THE TRIPPED BREAKER.
-	cut := build(t, true)
-	got := post(t, cut.router, known)
+	cut := newBreakerFlow(t, true)
+	got := postBreakerAnswer(t, cut.router, known)
 	// Before any drain: the request itself wrote both rows, with the breaker's reason.
 	rows := cut.trail.eventsSnapshot()
 	if len(rows) != window {
@@ -299,17 +309,17 @@ func TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing(t *test
 	}
 
 	// THE SAME REQUEST WITH THE BREAKER PASSING (control: both grants were sent).
-	open := build(t, false)
-	want := post(t, open.router, known)
+	open := newBreakerFlow(t, false)
+	want := postBreakerAnswer(t, open.router, known)
 	drain(t, open.h)
 	if open.probe.count() != window || open.trail.count(ActionAdminResetRequested) != window {
 		t.Fatalf("CONTROL FAILED: with the breaker passing, %d sent and %d requested row(s), want %d and %d",
 			open.probe.count(), open.trail.count(ActionAdminResetRequested), window, window)
 	}
 	// AN UNREGISTERED ADDRESS WHILE THE BREAKER REFUSES.
-	nobody := post(t, cut.router, unknown)
+	nobody := postBreakerAnswer(t, cut.router, unknown)
 
-	for name, a := range map[string]answer{"tripped, registered": got, "tripped, unregistered": nobody} {
+	for name, a := range map[string]breakerAnswer{"tripped, registered": got, "tripped, unregistered": nobody} {
 		if a.code != want.code {
 			t.Errorf("%s: status %d, want %d", name, a.code, want.code)
 		}
@@ -320,25 +330,86 @@ func TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing(t *test
 			t.Errorf("%s: the body differs from the passing breaker's:\n%s\n---\n%s", name, a.body, want.body)
 		}
 	}
-	// THE BAND, NOT ONLY THE FLOOR (adminresetoutbox_test.go's full-outbox precedent):
-	// the tripped registered arm writes its rows synchronously before the floor ends
-	// (up to adminauth.ResetWindow of them), so a drift that slows that branch past the
-	// floor would make the tripped answer measurably slower — the ceiling catches it.
-	for name, a := range map[string]answer{"tripped, registered": got, "passing, registered": want, "tripped, unregistered": nobody} {
+	// THE FLOOR STAYS HERE BECAUSE A PAUSE CAN ONLY ADD, so this bound holds however
+	// loaded the machine and whatever runs beside this test. The ceiling cannot be read on
+	// one sample of a parallel test: TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand.
+	for name, a := range map[string]breakerAnswer{"tripped, registered": got, "passing, registered": want, "tripped, unregistered": nobody} {
 		if a.elapsed < resetRequestFloor {
 			t.Errorf("%s answered in %v, under the floor %v", name, a.elapsed, resetRequestFloor)
 		}
-		if a.elapsed > resetRequestFloor+50*time.Millisecond {
-			t.Errorf("%s answered in %v, over floor+50ms (%v): the branch it took is visible in the clock",
-				name, a.elapsed, resetRequestFloor+50*time.Millisecond)
-		}
 	}
-	t.Logf("answered in: tripped registered %v, passing registered %v, tripped unregistered %v (floor %v)",
-		got.elapsed, want.elapsed, nobody.elapsed, resetRequestFloor)
 	// THE INDEPENDENT CONTROL: the comparison above can fail.
 	dark, _ := newResetRouter(t, &fakeResets{}, nil, &fakeTrail{})
-	if other := post(t, dark, known); other.body == want.body {
+	if other := postBreakerAnswer(t, dark, known); other.body == want.body {
 		t.Fatal("CONTROL FAILED: an undeliverable deployment's page equals the deliverable one, so the comparison proves nothing")
+	}
+}
+
+// TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand is the clock half of
+// TestAdminReset_ATrippedBreakerRecordsTheGrantAtOnceAndQueuesNothing: tripped or passing,
+// registered or not, a full window behind the address, the answer lands in
+// [resetRequestFloor, resetRequestFloor+50ms], so its time does not say what state the
+// breaker is in. The tripped registered arm writes its rows on the request; a drift that
+// slows that branch past the floor is what the ceiling catches.
+//
+// NOT PARALLEL, AND THE MEDIAN IS NOT WHAT MAKES THAT SAFE (T193; CI 41744035367 failed the
+// old single sample at 380 ms). Measured beside 128 locked OS threads at GOMAXPROCS=4: with
+// three goroutines holding this process's Ps the old single sample was red 24/30 and THIS
+// median 18/20, because losing a P repeats from sample to sample; with those goroutines gone
+// the old sample was green 30/30. A sequential test never shares the process with a
+// t.Parallel one, which is the fix. The median is for what remains, the isolated pause: other
+// packages' processes, and a process's first POST (all 9 overruns seen without those
+// goroutines were that request; the one attributed spent 145 ms before the floor arms).
+//
+// THE FLOOR IS READ ON EVERY SAMPLE, the ceiling on each arm's median, because a pause can
+// only add: an answer under the floor is the branch showing, however loaded the machine.
+//
+// ⚠️ THE BLIND SPOT THIS BUYS, NAMED: an overrun in at most two of an arm's five samples is
+// not seen. Not repeatable on demand, so no probing oracle (the T181 reasoning).
+func TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand(t *testing.T) {
+	const (
+		trippedRegistered   = "tripped, registered"
+		passingRegistered   = "passing, registered"
+		trippedUnregistered = "tripped, unregistered"
+		samples             = 5
+		window              = adminauth.ResetWindow
+	)
+	took := map[string][]time.Duration{}
+	for i := 0; i < samples; i++ {
+		// A fresh world per round, interleaved: every sample is the old single sample's
+		// shape (a world's first request included), and a machine that gets busier moves
+		// every arm.
+		cut := newBreakerFlow(t, true)
+		took[trippedRegistered] = append(took[trippedRegistered], postBreakerAnswer(t, cut.router, breakerKnownAddress).elapsed)
+		// ANTI-VACUITY: the arm named "tripped" wrote a full window on the request.
+		if n := cut.trail.count(ActionAdminResetUndelivered); n != window {
+			t.Fatalf("CONTROL FAILED: round %d, %d undelivered row(s) when the tripped arm answered, want %d", i+1, n, window)
+		}
+		open := newBreakerFlow(t, false)
+		took[passingRegistered] = append(took[passingRegistered], postBreakerAnswer(t, open.router, breakerKnownAddress).elapsed)
+		// Drained inside the round so this arm's worker is not on the next arm's clock.
+		drain(t, open.h)
+		if n := open.probe.count(); n != window {
+			t.Fatalf("CONTROL FAILED: round %d, %d message(s) sent with the breaker passing, want %d", i+1, n, window)
+		}
+		took[trippedUnregistered] = append(took[trippedUnregistered], postBreakerAnswer(t, cut.router, "nobody@tripped.example.test").elapsed)
+	}
+	ceiling := resetRequestFloor + 50*time.Millisecond
+	for _, name := range []string{trippedRegistered, passingRegistered, trippedUnregistered} {
+		all := took[name]
+		for j, d := range all {
+			if d < resetRequestFloor {
+				t.Errorf("%s answered in %v in round %d, under the floor %v: the breaker's state is visible in the clock",
+					name, d, j+1, resetRequestFloor)
+			}
+		}
+		sorted := slices.Sorted(slices.Values(all))
+		median := sorted[samples/2]
+		if median > ceiling {
+			t.Errorf("%s: the median of %d answers is %v, over floor+50ms (%v), samples %v: the branch it took is visible in the clock",
+				name, samples, median, ceiling, all)
+		}
+		t.Logf("%s: median %v, samples %v; band [%v, %v]", name, median, all, resetRequestFloor, ceiling)
 	}
 }
 

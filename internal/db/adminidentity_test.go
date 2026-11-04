@@ -116,19 +116,19 @@ func aiRows(ctx context.Context, sp pgx.Tx, sql string, args ...any) (int64, err
 }
 
 // aiSavepoint runs body in a savepoint of tx that is ALWAYS rolled back (grants a case needs, rows
-// it writes).
+// it writes) and then ended (lockUndoSavepoint), so tx goes on at its own level. pgx's nested Rollback
+// sends no RELEASE: every row tx wrote after a call carried a subtransaction's xid, and a "born in this
+// transaction" check (identity_create_for_signup, identity_claim_signup) refused it for that alone
+// (T194, TestAiSavepoint_LeavesTheTopLevel). The name may repeat: a nested call's shadows the outer one
+// and ROLLBACK TO and RELEASE reach the innermost.
 func aiSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.Tx)) {
 	t.Helper()
-	sp, err := tx.Begin(ctx)
-	if err != nil {
+	const name = "ai_savepoint"
+	if _, err := tx.Exec(ctx, `SAVEPOINT `+name); err != nil {
 		t.Fatalf("savepoint: %v", err)
 	}
-	defer func() {
-		if err := sp.Rollback(ctx); err != nil {
-			t.Fatalf("rollback to savepoint: %v", err)
-		}
-	}()
-	body(sp)
+	defer lockUndoSavepoint(t, ctx, tx, name)
+	body(tx)
 }
 
 // ------------------------------------------------------ the identity table --

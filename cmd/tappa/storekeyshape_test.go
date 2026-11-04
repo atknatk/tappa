@@ -486,7 +486,7 @@ var storeSurface = map[string]string{
 	// never comes back -- no row type carries token_hash, and tappa_app cannot read the column.
 	"InsertAPIKey": "(context.Context, InsertAPIKeyParams{TenantID uuid.UUID; Name string; TokenHash string; PrefixHint string; CreatedBy uuid.UUID}) (InsertAPIKeyRow{ID uuid.UUID; CreatedAt time.Time}, error)",
 	// T174: the list also reads the creating membership's name and status (never its address).
-	"ListAPIKeys":           "(context.Context, uuid.UUID) ([]ListAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; CreatedBy uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time; CreatorName string; CreatorStatus string}, error)",
+	"ListAPIKeys":           "(context.Context, uuid.UUID) ([]ListAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; CreatedBy uuid.UUID; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time; CreatorName string; CreatorStatus string; CreatorRole string}, error)",
 	"RevokeAPIKey":          "(context.Context, RevokeAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (RevokeAPIKeyRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
 	"RevokeAllAPIKeys":      "(context.Context, uuid.UUID) ([]RevokeAllAPIKeysRow{ID uuid.UUID; Name string; PrefixHint string; RevokedAt *time.Time}, error)",
 	"TouchAPIKey":           "(context.Context, TouchAPIKeyParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",

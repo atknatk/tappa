@@ -3648,6 +3648,9 @@ type Querier interface {
 	// says so next to the creator rather than the resolver refusing it. created_by is a composite FK
 	// onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
 	// key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
+	//
+	// The creator's role rides along for one reason (T189): internal/apikey's mark of a creator who
+	// cannot sign in is the members page's rule, and that rule asks about active OWNER rows alone.
 	ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error)
 	// The owner's list: newest first, at most 50, spent and cancelled ones included (the owner sees
 	// what was sent and what became of it).

@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -93,6 +94,92 @@ func newCheapFakeManager(t *testing.T, rows []db.ResolvedAdmin) *Manager {
 	return m
 }
 
+// timingFixtureCostLong is the work factor of the wall-clock fixtures of TestAuthenticate_TimingIsFlat
+// and TestAuthenticatePerson_FiveFailuresTakeOneTime wherever blowfish runs without the race detector:
+// every arm's digest and the padding's dummy alike.
+//
+// IT IS WHAT KEEPS ONE SAMPLE LONG ENOUGH TO MEASURE A LOGIN AND NOT THE SCHEDULER. The fixtures were
+// bcrypt.MinCost while the race detector made a cost-4 login ~200 ms; `make test` compiles blowfish
+// without it (the Makefile's RACE_OPT_OUT, T190), which took that login to ~10 ms. Measured with 128
+// locked OS threads spinning on a 16-core workstation (load 130-300; shell-loop burners understate
+// this badly), samples, rounds and gates unchanged. Median, maximum, runs over the gate:
+//
+//	TestAuthenticate_TimingIsFlat (gate 2.5x)
+//	  -race, blowfish instrumented, cost 4      1.18x   1.36x    0 of 15
+//	  RACE_OPT_OUT, cost 4                     10.68x  15.22x   31 of 40    (CI, one run: 1.71x)
+//	  RACE_OPT_OUT, cost 9                      1.11x   1.20x    0 of 40    (CI, one run: 1.26x)
+//	  RACE_OPT_OUT, cost 10                     1.11x   1.45x    0 of 20
+//	TestAuthenticatePerson_FiveFailuresTakeOneTime (gate 1.5x)
+//	  -race, blowfish instrumented, cost 4      1.12x   1.19x    0 of 10
+//	  RACE_OPT_OUT, cost 4                      1.15x   1.54x    2 of 40
+//	  RACE_OPT_OUT, cost 4, 45 rounds           1.13x   1.72x    1 of 15    (more rounds do not help)
+//	  RACE_OPT_OUT, cost 7                      1.27x   1.44x    0 of 20
+//	  RACE_OPT_OUT, cost 8                      1.18x   1.36x    0 of 20
+//	  RACE_OPT_OUT, cost 9                      1.08x   1.12x    0 of 20
+//
+// So the answer to the shorter sample is the longer sample, not the wider gate.
+const timingFixtureCostLong = 9
+
+// timingFixtureCostInstrumented is the same fixtures' work factor where the race detector is inside
+// blowfish, as under a bare `go test -race`: it makes a comparison ~20x longer by itself, and cost 9
+// there took TestAuthenticatePerson_FiveFailuresTakeOneTime alone to 785 s (load ~220), past go test's
+// default limit. The table above shows cost 4 holding in that build.
+const timingFixtureCostInstrumented = bcrypt.MinCost
+
+// raceOptOutInBuild reports whether a test binary built with -race carries the Makefile's RACE_OPT_OUT:
+// go stamps a binary's -gcflags in its build settings (the last entry, which is enough: the list is
+// closed, TestMakeTest_TheRaceOptOutIsAClosedList). A pure function for the table below it.
+func raceOptOutInBuild(settings []debug.BuildSetting) bool {
+	for _, s := range settings {
+		if s.Key == "-gcflags" && strings.Contains(s.Value, "-race=false") {
+			return true
+		}
+	}
+	return false
+}
+
+// timingFixtureDigest is a digest at this build's wall-clock fixture cost.
+func timingFixtureDigest(t *testing.T, password string) string {
+	t.Helper()
+	return fixtureDigestAt(t, password, timingFixtureCost())
+}
+
+// TestTimingFixtureCost_FollowsTheBuild pins the reading of the build settings, both ways, and that
+// this binary's own answer is one of the two costs.
+func TestTimingFixtureCost_FollowsTheBuild(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		settings []debug.BuildSetting
+		want     bool
+	}{
+		{"make test's stamp", []debug.BuildSetting{{Key: "-race", Value: "true"}, {Key: "-gcflags", Value: "regexp/...=-race=false"}}, true},
+		{"a bare go test -race", []debug.BuildSetting{{Key: "-race", Value: "true"}}, false},
+		{"other compiler flags", []debug.BuildSetting{{Key: "-race", Value: "true"}, {Key: "-gcflags", Value: "all=-l"}}, false},
+		{"no settings", nil, false},
+	} {
+		if got := raceOptOutInBuild(tc.settings); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if c := timingFixtureCost(); c != timingFixtureCostLong && c != timingFixtureCostInstrumented {
+		t.Fatalf("this build's fixture cost is %d, want %d or %d", c, timingFixtureCostLong, timingFixtureCostInstrumented)
+	}
+	// THE TABLE ABOVE PROVES THE READING, NOT THAT A REAL BINARY IS READ RIGHT. If the stamp stopped
+	// being what raceOptOutInBuild reads, make test would run these fixtures at cost 4 without the
+	// detector, a ~10 ms sample: quiet machines stay green and a loaded one goes red blaming a timing
+	// leak (T190's audit, 20 of 20). make test's GOFLAGS reaches this binary, so it can say which build
+	// this is without the stamp.
+	if strings.Contains(os.Getenv("GOFLAGS"), "-race=false") && raceBuild && timingFixtureCost() != timingFixtureCostLong {
+		t.Fatalf("this binary was built with GOFLAGS=%q under -race, so blowfish has no detector and one "+
+			"comparison is short, but its wall-clock fixture cost is %d, want %d: raceOptOutInBuild no longer "+
+			"finds -race=false in the build settings. Look at `go version -m` of a test binary; a toolchain "+
+			"change (the T180 day) is the likely cause. The timing tests would otherwise fail under load "+
+			"and read as a leak.", os.Getenv("GOFLAGS"), timingFixtureCost(), timingFixtureCostLong)
+	}
+	t.Logf("this build's wall-clock fixture cost: %d", timingFixtureCost())
+}
+
 func stats(d []time.Duration) (min, med, max time.Duration) {
 	s := append([]time.Duration(nil), d...)
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
@@ -124,8 +211,8 @@ func stats(d []time.Duration) (min, med, max time.Duration) {
 // reported "FAIL ... 601.242s" with user=596.93s — burning CPU, not deadlocked.
 //
 // WHAT IT MEASURES NOW: the five arms still have to be indistinguishable from each
-// other, but at a CHEAP, SHARED work factor (bcrypt.MinCost fixtures AND a MinCost
-// dummy — see newCheapFakeManager). The RATIO between arms is what this test has
+// other, but at a CHEAP, SHARED work factor (fixtures AND a dummy at timingFixtureCost(),
+// which is far below the shipped cost). The RATIO between arms is what this test has
 // always asserted, and padding adds the same constant to every arm, so the signal is
 // untouched; only the price is.
 //
@@ -221,17 +308,23 @@ func TestAuthenticate_TimingIsFlat(t *testing.T) {
 	// EVERY ARM MUST SHARE ONE COST, INCLUDING THE PADDING. Authenticate pads to
 	// MaxCandidates comparisons and takes the padding's cost from the first candidate's
 	// own digest — so an arm with NO candidate pads against the manager's dummy
-	// instead. newCheapFakeManager makes that dummy cheap too; without it the
-	// unknown-email arm would pay cost 12 while the others paid cost 4 and this test
-	// would measure the fixture, not the product.
-	digest := cheapDigest(t, "the-real-password")
+	// instead. manager below makes that dummy timingFixtureCost() too; without it the
+	// unknown-email arm would pay cost 12 while the others paid timingFixtureCost() and
+	// this test would measure the fixture, not the product.
+	digest := timingFixtureDigest(t, "the-real-password")
+	dummy := timingFixtureDigest(t, "a discarded padding password")
 	tenantID, adminID := uuid.New(), uuid.New()
+	manager := func(rows []db.ResolvedAdmin) *Manager {
+		m := newFakeManager(t, rows)
+		m.dummy = dummy
+		return m
+	}
 
-	unknown := newCheapFakeManager(t, nil)
-	wrong := newCheapFakeManager(t, []db.ResolvedAdmin{{
+	unknown := manager(nil)
+	wrong := manager([]db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "active",
 	}})
-	disabled := newCheapFakeManager(t, []db.ResolvedAdmin{{
+	disabled := manager([]db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "disabled",
 	}})
 

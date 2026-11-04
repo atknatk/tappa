@@ -594,7 +594,8 @@ FROM resolve_admin_owners_by_tenant($1)`
 // 🔴 tx IS THE CALLER'S TENANT TRANSACTION (db.WithTenant): the function answers only for the tenant
 // the transaction's app.tenant_id names -- any other tenantID is no rows, never another business's
 // owners. Called after the owners' row lock (internal/adminauth.Memberships), it reads under it:
-// unlinked_at cannot change on a locked row (an unlink and a relink update the row).
+// unlinked_at cannot change on a locked row (an unlink and a relink update the row). The two lists that
+// only print the answer (Memberships.List, internal/apikey's Keys.List -- T189) take no lock.
 func SignInOwners(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := tx.Query(ctx, adminOwnersByTenantSQL, tenantID)
 	if err != nil {

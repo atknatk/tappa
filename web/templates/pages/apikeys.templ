@@ -189,10 +189,10 @@ templ apiKeysList(v APIKeysView) {
 	if len(v.Keys) == 0 {
 		<p class="text-sm text-ink/70">No key has been created for this business.</p>
 	} else {
-		if v.AnyLiveFromADisabledCreator() {
+		if v.AnyLiveFromACreatorWithoutAccess() {
 			<p class="max-w-2xl text-sm leading-normal text-ink/70">
 				A key belongs to the business, not to the person who created it: it keeps working
-				after their access is disabled. Revoke it here if it should stop.
+				when they can no longer sign in. Revoke it here if it should stop.
 			</p>
 		}
 		<table class="hidden w-full border-collapse desk:table">
@@ -273,14 +273,18 @@ templ apiKeysList(v APIKeysView) {
 }
 
 // apiKeyCreator is who created the key, by name, and -- when that person's access to this business
-// is disabled -- a pill saying so in the members list's plain frame. The pill names the CREATOR,
-// not the key: the key's own state is its Live or Revoked pill (T174).
+// is disabled, or they cannot sign in to it -- a pill saying so in the members list's plain frame,
+// in the members list's words. The pill names the CREATOR, not the key: the key's own state is its
+// Live or Revoked pill (T174, T189).
 templ apiKeyCreator(k APIKeyRow) {
 	if k.CreatedBy != "" {
 		<span class="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-ink/70">
 			<span class="break-words">by { k.CreatedBy }</span>
 			if k.CreatorDisabled {
 				<span class="mono-pill border-line">Creator disabled</span>
+			}
+			if k.CreatorCannotSignIn {
+				<span class="mono-pill border-line">Creator can&#39;t sign in</span>
 			}
 		</span>
 	}

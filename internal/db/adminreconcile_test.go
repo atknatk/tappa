@@ -1267,7 +1267,7 @@ func TestIdentityReconcile00082_DownUndoesOnlyItsOwnAndUpAgain(t *testing.T) {
 		return rcShape(t, ctx, q, first) + "\n" + rcShape(t, ctx, q, second) + "\n" + rcShape(t, ctx, q, single) + "\n" + rcShape(t, ctx, q, backfilled)
 	}
 	world := func(sp pgx.Tx) {
-		opRunSection(t, ctx, sp, bfUp, "00073 Up")
+		bfRunSection(t, ctx, sp, bfUp, "00073 Up")
 		first = bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), shared, "active", 2, opFakeDigest("a"))
 		second = bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), shared, "active", 1, opFakeDigest("b"))
 		single = bfAdmin(t, ctx, sp, aiTenant(t, ctx, sp), bfEmail("rc-down-single"), "active", 1, opFakeDigest("c"))

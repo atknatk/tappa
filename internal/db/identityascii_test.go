@@ -373,6 +373,7 @@ func TestIdentityCreateForSignup_ANonASCIIAddressBirthsNothing(t *testing.T) {
 		return opInt(t, ctx, q, `SELECT count(*) FROM admin_identities WHERE email = $1::citext`, email)
 	}
 	squat := func(q pgx.Tx, w isWorld) bool {
+		isWantBornAtTop(t, ctx, q, "admin_users", w.admin)
 		linked := isCall(t, ctx, q, w.tenant, w.tenant, w.admin)
 		if ident, _ := isLinked(t, ctx, q, w.admin); linked != (ident != uuid.Nil) {
 			t.Fatalf("the answer (%v) and the row's link (%s) disagree", linked, ident)

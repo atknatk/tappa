@@ -3902,4 +3902,5 @@ devri de gereksizdir: `created_by` bir **iz** sütunudur (kim oluşturdu), yetki
   `TestDevelopers_ADisabledCreatorIsMarkedBesideTheCreator`.
 - Üye listesindeki cümle (ADR 0031 §5.12 — devre dışı bırakma / manager yapma düğmesinin yanında
   *"…those keep working. Review the API keys"*) kalıcıdır; "T174 karara bağlanana dek" koşulu düştü.
+- **T189 (2026-11-03):** kişinin reddettiği üyelik `status='active'` kalır ve `tappa_app` `unlinked_at`'i okuyamaz; liste böyle bir oluşturanı üye listesinin **kuralıyla** (aktif owner satırı + `db.SignInOwners`'ta yok; yeni fonksiyon, grant, migration yok) ve **sözcüğüyle** *"Creator can't sign in"* diye işaretler, sebebi söylemez, anahtar yine çalışır — pin: `TestApiKeyPanel_ARefusedCreatorIsMarkedAndTheKeyKeepsWorking`, `TestDevelopers_ACreatorWhoCannotSignInIsMarkedBesideTheCreator`.
 - Migration yok.
