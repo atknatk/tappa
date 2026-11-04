@@ -922,10 +922,15 @@ sql_scan() {
     function push(k, v) { nseg++; segk[nseg] = k; segv[nseg] = v }
     # lex(s) -> segk/segv: c (kod), s (duz dize, `\047\047` cozulmus), x (E/U& dizesi, ham),
     # d (dolar dizesi), q (tirnakli tanimlayici). Yorum kodda bir bosluk olur.
-    function lex(s,   i, n, c, c2, m, d, t, prev, pp, cur, q, j, nl, ch) {
-      nseg = 0; cur = ""; i = 1; n = length(s); m = ""; prev = " "; pp = " "
+    # T185: s, karakter karakter A[] dizisinden okunur (split(s, A, "") -- her awk kendi birimiyle,
+    # substr ile ayni birim: LC_ALL=C altinda bayt). substr(s, i, 1) original-awk 20231127 icinde
+    # (Ubuntu paketi, one-true-awk) i ile DOGRUSAL: 128 KB lik bir migration da karakter basina tek
+    # bir substr 48,6 sn, A[i] 0,12 sn (olculdu, ubuntu:24.04); tum dosyayi okuyan bu lex o awk ile
+    # 00085 te 294 sn surdu, mawk ile 0,12 sn. Okunan karakterler ve sira AYNI; yalniz erisim degisti.
+    function lex(s,   i, n, c, c2, m, d, t, prev, pp, cur, q, j, nl, ch, A) {
+      nseg = 0; cur = ""; i = 1; n = split(s, A, ""); m = ""; prev = " "; pp = " "
       while (i <= n) {
-        c = substr(s, i, 1); c2 = substr(s, i, 2)
+        c = A[i]; c2 = c A[i + 1]
         if (m == "b") {
           if (c2 == "*/") { d--; i += 2; if (d == 0) m = "" }
           else if (c2 == "/*") { d++; i += 2 }
@@ -934,27 +939,28 @@ sql_scan() {
         }
         if (m == "l") { if (c == "\n") m = ""; i++; continue }
         if (m == "d") {
-          if (substr(s, i, length(t)) == t) { push("d", cur); cur = ""; m = ""; i += length(t); prev = " "; pp = " " }
+          # t daima `$` ile baslar: `c == "$"` on kosulu sonucu degistirmez, substr cagrisini seyreltir.
+          if (c == "$" && substr(s, i, length(t)) == t) { push("d", cur); cur = ""; m = ""; i += length(t); prev = " "; pp = " " }
           else { cur = cur c; i++ }
           continue
         }
         if (m == "s" || m == "e" || m == "u" || m == "q") {
           q = (m == "q") ? "\"" : "\047"
-          if (m == "e" && c == "\\") { cur = cur c substr(s, i + 1, 1); i += 2 }
-          else if (c == q && substr(s, i + 1, 1) == q) { cur = cur c; i += 2 }
+          if (m == "e" && c == "\\") { cur = cur c A[i + 1]; i += 2 }
+          else if (c == q && A[i + 1] == q) { cur = cur c; i += 2 }
           else if (c == q) {
             # Dize DEVAMI (sql_lex ile ayni): bosluk/`--` yorumu + en az bir satir sonu + `\047` ->
             # ayni dize, ayni kip; parcalar BIRLESTIRILIR (PostgreSQL bu metni kosar).
             if (m != "q") {
               j = i + 1; nl = 0
               while (j <= n) {
-                ch = substr(s, j, 1)
+                ch = A[j]
                 if (ch == " " || ch == "\t" || ch == "\f" || ch == "\v") j++
                 else if (ch == "\n" || ch == "\r") { nl = 1; j++ }
-                else if (substr(s, j, 2) == "--") { while (j <= n && substr(s, j, 1) != "\n" && substr(s, j, 1) != "\r") j++ }
+                else if ((ch A[j + 1]) == "--") { while (j <= n && A[j] != "\n" && A[j] != "\r") j++ }
                 else break
               }
-              if (nl && substr(s, j, 1) == "\047") { if (m != "s") necont++; i = j + 1; continue }
+              if (nl && A[j] == "\047") { if (m != "s") necont++; i = j + 1; continue }
             }
             push((m == "e" || m == "u") ? "x" : m, cur); cur = ""; m = ""; i++; prev = c; pp = " "
           }

@@ -76,7 +76,7 @@
 -- halves are conditional on the same fact.
 --
 -- WHY status = 'active'. A disabled administrator has no panel to reach, and
--- CreateAdminSession already refuses them in SQL; handing them a token that rewrites
+-- identity_open_row_session already refuses them in SQL; handing them a token that rewrites
 -- their password_hash would be a write to an account somebody deliberately switched
 -- off. 0 rows -> pgx.ErrNoRows -> the caller says nothing different to the user
 -- (OBLIGATION 1) and writes an audit row (section 4.6).

@@ -2104,8 +2104,9 @@ func TestAdminChoose_AcceptsATenantInsideTheSignedSet(t *testing.T) {
 	if len(admins.issuedFor) != 1 || admins.issuedFor[0] != verifiedB {
 		t.Fatalf("issued for %+v, want exactly %+v", admins.issuedFor, verifiedB)
 	}
-	if trail.count(ActionAdminLoginSucceeded) != 1 {
-		t.Fatalf("%d success rows, want 1", trail.count(ActionAdminLoginSucceeded))
+	// The success row is the database's (identity_open_row_session, ADR 0036): the handler writes none.
+	if trail.count(ActionAdminLoginSucceeded) != 0 {
+		t.Fatalf("%d success rows from the handler, want 0 -- the definer writes it", trail.count(ActionAdminLoginSucceeded))
 	}
 	// The short-lived cookies are spent.
 	if _, ok := b.cookies[adminChoiceCookieName]; ok {
@@ -3658,8 +3659,9 @@ func TestAdminLogin_AnOrdinaryLoginLeavesNoTruncationRow(t *testing.T) {
 	if n := trail.count(ActionAdminLoginTruncated); n != 0 {
 		t.Errorf("%d truncation row(s) on an ordinary sign-in", n)
 	}
-	if n := trail.count(ActionAdminLoginSucceeded); n != 1 {
-		t.Errorf("%d success row(s), want 1", n)
+	// The success row is the database's (identity_open_row_session, ADR 0036): the handler writes none.
+	if n := trail.count(ActionAdminLoginSucceeded); n != 0 {
+		t.Errorf("%d success row(s) from the handler, want 0 -- the definer writes it", n)
 	}
 }
 

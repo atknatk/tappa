@@ -805,31 +805,34 @@ type Issued struct {
 // 🔴 THE PARAMETER TYPE IS THE ENFORCEMENT (OBLIGATION 5). It takes Verified, not
 // two uuids, so there is no call through which an identity the password did not
 // verify can be handed a session. The database cannot make this check — 00011
-// says so at length: CreateAdminSession never sees a password, and the pair a
-// picker hands back IS a consistent pair of real rows, so the INSERT ... SELECT
-// guard, the explicit tenant predicate and the RLS WITH CHECK are all satisfied by
-// the attack. The missing bind exists nowhere in SQL; it exists in this signature.
+// says so at length: the session's birth (identity_open_row_session since 00086,
+// CreateAdminSession before it) never sees a password, and the pair a picker hands
+// back IS a consistent pair of real rows, so the function's row, digest and tenant
+// predicates are all satisfied by the attack. The missing bind exists nowhere in
+// SQL; it exists in this signature.
 //
 // BOTH WRITES SHARE ONE TRANSACTION, and the order is load-bearing in one
 // direction only: MarkAdminLoggedIn is the weaker statement (it stamps a column),
-// CreateAdminSession is the one that must not happen for a disabled admin. Sharing
+// the session's birth is the one that must not happen for a disabled admin. Sharing
 // the transaction means a login that cannot create a session does not leave a
 // last_login_at claiming it did.
 //
 // TENANT SCOPING (section 4.5): the whole transaction runs inside
-// WithTenant(v.TenantID), both queries carry an explicit tenant_id predicate, and
-// CreateAdminSession additionally takes the session's tenant_id FROM THE ADMIN ROW
-// rather than from the parameter — so a session cannot be stamped with a tenant
-// the admin does not belong to even if this function were called with a mismatched
-// pair.
+// WithTenant(v.TenantID), both statements carry an explicit tenant_id predicate,
+// identity_open_row_session refuses a tenant that is not the transaction's context,
+// and it takes the session's tenant_id FROM THE LOCKED ADMIN ROW rather than from
+// the parameter — so a session cannot be stamped with a tenant the admin does not
+// belong to even if this function were called with a mismatched pair.
 //
 // 🔴 AND THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD VERIFIED
 // AGAINST (ADR 0031 §5.2, M14-07). v.Proof binds v to that digest (proof.go); inside the session's
 // transaction the row's CURRENT digest is read, the proof is checked against it in constant time,
-// and that digest becomes CreateAdminSession's @verified_digest -- whose predicate and FOR NO KEY UPDATE OF a
-// refuse a row whose credential changed between the read and the write (a membership refused from
-// an identity, a password change, a reset). A Verified without a proof is refused: the zero value is
-// the harmful direction here, so it fails closed.
+// and that digest becomes identity_open_row_session's p_verified_digest (T187, ADR 0036, 00086 -- the
+// proof moved from this binary's query text into the database: tappa_app's own INSERT is the contract
+// step's to revoke) -- whose predicate and FOR NO KEY UPDATE refuse a row whose credential changed
+// between the read and the write (a membership refused from an identity, a password change, a reset),
+// a disabled or refused row, and a tenant that is not the transaction's. A Verified without a proof is
+// refused: the zero value is the harmful direction here, so it fails closed.
 func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 	if v.AdminUserID == uuid.Nil || v.TenantID == uuid.Nil {
 		return Issued{}, errors.New("adminauth: issue: admin and tenant are required")
@@ -846,7 +849,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 		return Issued{}, fmt.Errorf("adminauth: issue: %w", err)
 	}
 
-	var row store.CreateAdminSessionRow
+	var row db.IdentitySession
 	err = m.data.WithTenant(ctx, v.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 		cur, e := q.GetAdminPasswordHashByID(ctx, store.GetAdminPasswordHashByIDParams{
@@ -858,12 +861,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 		if !m.proofHolds(v.Proof, v.AdminUserID, v.TenantID, cur.PasswordHash) {
 			return ErrProofStale
 		}
-		row, e = q.CreateAdminSession(ctx, store.CreateAdminSessionParams{
-			TokenHash:      h,
-			AdminUserID:    v.AdminUserID,
-			TenantID:       v.TenantID,
-			VerifiedDigest: cur.PasswordHash,
-		})
+		row, e = db.OpenRowSession(ctx, tx, v.AdminUserID, v.TenantID, h, db.NewPasswordHash(cur.PasswordHash), db.RowSessionSignIn)
 		if e != nil {
 			return e
 		}
@@ -880,15 +878,8 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 		return Issued{}, fmt.Errorf("adminauth: issue: %w", err)
 	}
 	return Issued{
-		Session: Session{
-			ID:          row.ID,
-			TenantID:    row.TenantID,
-			AdminUserID: row.AdminUserID,
-			CreatedAt:   row.CreatedAt,
-			LastUsedAt:  row.LastUsedAt,
-			RevokedAt:   row.RevokedAt,
-		},
-		Token: t,
+		Session: Session{ID: row.SessionID, TenantID: row.TenantID, AdminUserID: row.AdminUserID},
+		Token:   t,
 	}, nil
 }
 
@@ -899,7 +890,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 //	ErrProofStale   the row's digest is no longer the one the password verified (a password
 //	                change or a reset committed in between -- the picker can sit for minutes)
 //	pgx.ErrNoRows   the session write found no row to write for: the row was disabled, changed
-//	                or refused from an identity (CreateAdminSession's digest predicate, §5.2)
+//	                or refused from an identity (identity_open_row_session's predicates, ADR 0036)
 //	40P01           the write lost a deadlock to a concurrent change of the same row
 //
 // Nothing was signed in in any of the three. Every other error is the database failing.

@@ -265,7 +265,7 @@ func (s *Memberships) Change(ctx context.Context, tenantID, actorID, memberID uu
 			// they read it first and this transaction waited above (LockAdminMember) until their session
 			// was committed -- this later statement sees it -- or they read it after this commit and find
 			// it disabled (TestMemberships_ASessionOpenedBesideADisableDoesNotOutliveIt). The legacy
-			// CreateAdminSession takes the same lock (M14-07). In the second case the opening keeps
+			// identity_open_row_session (00086; CreateAdminSession before it) takes the same lock (M14-07). In the second case the opening keeps
 			// the dropped row's lock to its end and may go on to lock its next membership (another
 			// business): it took both after the identity's lock and this transaction waits on no
 			// identity, so the two cannot deadlock.

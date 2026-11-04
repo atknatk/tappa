@@ -3866,3 +3866,40 @@ süresini ve yapılandırma bildirimini kaldırdı ([ADR 0026](0026-aktivasyon-i
 `TestConfig_IsHardenedCoversTheEightGates` adını aldı. Yukarıdaki K-28 tablosu, §11 metni ve API-11 uygulama notundaki
 *"dokuz"* sayısı ve `activate.go` listesi tarihseldir, olduğu gibi bırakıldı. O iki yerdeki test adı yeni adla
 değişti: `TestEveryNamedTestExists` var olmayan bir testi anan alıntıyı kabul etmez ve istisna listesi yalnız küçülebilir.
+
+## T174 eki (2026-11-01) — anahtar işletmenindir, oluşturanın değil
+
+**Karar (kullanıcı, 2026-11-01, AskUserQuestion: *"Anahtarlar işletmenin kalsın"*).** Bir API anahtarı
+**işletmeye** aittir, onu oluşturan kişiye değil. Oluşturanın üyeliği devre dışı bırakıldığında
+(ADR 0031 §5.12, K-6) ya da manager yapıldığında anahtar **çalışmaya devam eder**; durduran tek şey
+bugünkü gibi bir owner'ın iptalidir (tek tek ya da "revoke all") ve operatörün K-22 kapısıdır. Yukarıdaki
+M14 notunun açık bıraktığı soru böylece kapanır; davranış değişmedi, artık **kararlaştırılmış** davranıştır.
+
+**Piyasa deseni.** Stripe'ın hesap anahtarları ve GitHub'ın organizasyon düzeyindeki entegrasyonları
+(GitHub App kurulumları) aynı biçimdedir: anahtar hesaba/organizasyona bağlıdır, onu oluşturan ekip
+üyesinin ayrılması entegrasyonu kırmaz; kimin oluşturduğu gösterilir, iptal yetkili kişinindir.
+
+**Neden otomatik iptal değil.** Devre dışı bırakma bir **kişi** kararıdır (bir yöneticinin panel
+erişimi); bordro/İK entegrasyonu ise işletmenin bir sistemidir. Devre dışı bırakmaya bağlanan otomatik
+iptal, entegrasyonu **sessizce** kırardı: dış sistem bir sonraki istekte 401 alır, punch'lar API'den
+okunmaz, ve bunu gören kişi devre dışı bırakmayı yapan owner değil, entegrasyonun bakımcısıdır. Sahiplik
+devri de gereksizdir: `created_by` bir **iz** sütunudur (kim oluşturdu), yetki değil — çözümleyici
+(`resolve_api_key_by_hash`, `00051:158-174`) onu okumaz, `tappa_resolver`'ın o sütunda yetkisi yoktur
+(`00051:154`).
+
+**Uygulama (dal `m14-apikeys`).**
+- Kimlik doğrulama değişmedi: `internal/apikey/auth.go` `Resolve` yalnız `revoked_at` ve
+  `api_enabled_at`'e bakar. Pin: `TestApiKeyAuth_ADisabledCreatorsKeyKeepsWorking` (yaratıcı panelin
+  kendi yolu `adminauth.Memberships` ile devre dışı bırakılır, anahtar doğrulanır; kalan owner iptal
+  eder, sonra 401). Mutant: `Resolve`'a "yaratıcı aktif olmalı" kontrolü → kırmızı.
+- Panelin listesi yaratıcıyı gösterir: `ListAPIKeys` (`db/queries/apikeys.sql`) `admin_users`'tan
+  yaratıcının `full_name`'ini ve `status`'unu okur — join anahtarın tenant'ına **ve** `@tenant_id`'ye
+  bağlı (§4.5), adres okunmaz. Her satırda *"by &lt;ad&gt;"*; üyeliği devre dışı olan yaratıcının yanında
+  üye listesinin düz çerçevesinde **"Creator disabled"** hapı — anahtarın kendi Live/Revoked hapının
+  yerine değil, yanına. Böyle bir anahtar **canlıyken** listenin üstünde tek cümle: anahtar işletmenindir,
+  çalışmaya devam eder, durması gerekiyorsa buradan iptal edilir. Pin:
+  `TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking`,
+  `TestDevelopers_ADisabledCreatorIsMarkedBesideTheCreator`.
+- Üye listesindeki cümle (ADR 0031 §5.12 — devre dışı bırakma / manager yapma düğmesinin yanında
+  *"…those keep working. Review the API keys"*) kalıcıdır; "T174 karara bağlanana dek" koşulu düştü.
+- Migration yok.

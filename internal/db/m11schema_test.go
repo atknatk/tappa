@@ -429,8 +429,9 @@ var m11Columns = []m11Column{
 	// tappa_app SELECT table-wide (00006) and UPDATE only on last_used_at and revoked_at (00011):
 	// never on this one. 00071 (M14-04, the orchestrator's decision on M14-03's audit) narrows
 	// tappa_app's INSERT from the table to (id, tenant_id, admin_user_id, token_hash): the
-	// application can no longer CHOOSE a session's proof -- today's CreateAdminSession names three
-	// columns and takes the DEFAULT now(). tappa_identitydefiner reads it (the switch copies it
+	// application can no longer CHOOSE a session's proof -- CreateAdminSession named three columns
+	// and took the DEFAULT now(); 00087 (T187's contract, ADR 0036) took tappa_app's INSERT on
+	// admin_sessions altogether, which changes no cell here. tappa_identitydefiner reads it (the switch copies it
 	// from the old session's row; 00072's freshness checks) and writes it at birth (the login's
 	// now(), the switch's copy). 00085 (T183, ADR 0035): tappa_resolver reads it -- the panel resolver
 	// reports a session ended 12 hours after its proof; it never returns the column.
@@ -517,9 +518,11 @@ var m11Functions = map[string]m11FunctionACL{
 	// EXECUTE is tappa_owner's).
 	"resolve_identity_by_email(citext)":          {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"identity_open_session(uuid,uuid,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_memberships(text)":                 {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_switch_session(text,uuid,text)":    {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
-	"identity_revoke_sessions(text,boolean)":     {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	// 00086 (T187, ADR 0036): the single-row panel session's birth.
+	"identity_open_row_session(uuid,uuid,text,text,text)": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_memberships(text)":                          {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_switch_session(text,uuid,text)":             {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
+	"identity_revoke_sessions(text,boolean)":              {owner: "tappa_identitydefiner", definer: true, execute: "tappa_app,tappa_identitydefiner"},
 	// 00072 (M14-05, ADR 0031 §5.2): eleven identity_* writers owned by tappa_identitydefiner and two
 	// md.7 token resolvers owned by tappa_resolver -- SECURITY DEFINER, EXECUTE tappa_app alone (and
 	// the owner). identitypassword_test.go pins their signatures, search_path and bodies further.

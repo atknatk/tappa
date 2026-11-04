@@ -93,7 +93,7 @@ kilit altında **kopyalar** — 00081).
      kanıtlanamaz; yazılmadı. `TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded` her hash
      aramasının ya ömür yüklemini ya bu tazeliği taşıdığını pinler (yeni bir definer ikisi de olmadan
      kırmızı).
-   - **Dokunulmayanlar, bilerek:** `identity_open_session` ve `identity_accept_invite_new` oturum **doğurur**;
+   - **Dokunulmayanlar, bilerek:** `identity_open_session` oturum **doğurur** (düzeltme, 2026-11-01, T187: ilk metin `identity_accept_invite_new`'i de sayıyordu — ölçüldü, gövdesi `admin_sessions`'ı anmaz, `pg_proc.prosrc`; ADR 0031 §5.2: "oturum vermez"; tek satırlık doğum 00086'dan beri `identity_open_row_session`'dadır, ADR 0036);
      `identity_consume_reset` / `identity_consume_row_reset` yalnız iptal eder; iptal yazarları
      (`RevokeAdminSession*`, `identity_revoke_sessions`'ın döngüsü) bitmiş satırı da damgalar — zararsız
      (tetikleyici damgayı monotonik tutar) ve 00085'ten önce de yaptıkları buydu.

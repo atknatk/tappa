@@ -1333,8 +1333,8 @@ func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
 	a.completeLogin(w, r, ip, chosen)
 }
 
-// completeLogin issues the session, writes the cookie, records the success and
-// sends the operator to the panel.
+// completeLogin issues the session, writes the cookie and sends the operator to the
+// panel; the success row is the database's (identity_open_row_session, ADR 0036).
 //
 // THE SHORT-LIVED COOKIES ARE CLEARED HERE, on the path that completes the login.
 // A choice blob is a bearer credential for the accounts inside it
@@ -1388,7 +1388,10 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 		return
 	}
 	a.resetLogin(w)
-	a.record(r.Context(), adminLoginSucceededEvent(v.TenantID, v.AdminUserID, issued.Session.ID))
+	// 🔴 NO admin.login.succeeded ROW HERE (T187, ADR 0036): identity_open_row_session wrote it inside
+	// Issue's transaction, in the session's business, byte for byte adminLoginSucceededEvent -- as
+	// identity_open_session does for completePersonLogin. A second one would double the trail
+	// (TestPanelE2E_SignInAndOut counts exactly one in the database).
 	// path names the arm for M14-19's counters (deploy/README.md, "M14-19 -- bayrak"): every sign-in
 	// that ends here is the per-business (legacy) arm, the flag off or on; the identity path's line is
 	// completePersonLogin's, path=identity. The contract is talked about when this one nears zero
@@ -1658,6 +1661,10 @@ func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
 
 // adminLoginSucceededEvent and adminLoggedOutEvent are the ORDINARY sign-in and sign-out rows: the
 // two events every tenant's log already carries for its own administrators.
+//
+// Since T187 (ADR 0036, 00086) Go writes the sign-in row nowhere: identity_open_row_session writes it for
+// the single-row sign-in, and adminLoginSucceededEvent is the reference shape the database's rows are
+// measured against (identityaudit_db_test.go).
 //
 // 🔴 THE DATABASE WRITES THE SAME TWO ROWS (ADR 0031 §5.4, migration 00071): identity_open_session
 // writes the sign-in row, identity_switch_session a sign-out in the business left and a sign-in in

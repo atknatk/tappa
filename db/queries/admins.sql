@@ -21,12 +21,13 @@
 -- and is not stored. Only token_hash is written or matched, and NO query below
 -- RETURNS it. The precise, grep-checkable form of that claim -- because a looser
 -- one was written here first and a grep refuted it: `token_hash` appears in NO
--- RETURNING list in this file, and in exactly ONE select-list, the
--- `SELECT a.tenant_id, a.id, @token_hash::text` of CreateAdminSession, where it is
--- the VALUE BEING INSERTED by an INSERT ... SELECT and not a value handed back.
--- The property that actually matters is measured on the generated code: no *Row
--- struct in internal/store/admins.sql.go carries a TokenHash field -- the only
--- TokenHash there is CreateAdminSessionParams', i.e. an INPUT. So a row read
+-- RETURNING list and in NO select-list in this file. Until T187's contract (00087,
+-- ADR 0036) it appeared in one, the `SELECT a.tenant_id, a.id, @token_hash::text` of
+-- CreateAdminSession, as the value being inserted; that query is gone -- a panel
+-- session is born in identity_open_row_session (internal/db.OpenRowSession) and
+-- tappa_app holds no INSERT on admin_sessions. The property that actually matters is
+-- measured on the generated code: no *Row struct in internal/store/admins.sql.go
+-- carries a TokenHash field. So a row read
 -- cannot leak the hash into a log, and the guarantee survives a regeneration
 -- rather than depending on how this comment is worded. password_hash USED to be
 -- selected by no query in this file; T73 (change-my-own-password) changed that, and
@@ -41,7 +42,7 @@
 -- *Row struct carrying a PasswordHash field is GetAdminPasswordHashByIDRow -- the two
 -- WRITERS (CreateAdminUser, SetOwnAdminPassword) name the column solely as the
 -- @password_hash parameter of an INSERT/UPDATE and their RETURNING lists omit it,
--- exactly as @token_hash is written-not-returned in CreateAdminSession, so a row read
+-- exactly as @token_hash was written-not-returned in CreateAdminSession (gone, 00087), so a row read
 -- on either write path cannot leak the digest into a log.
 --
 -- NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on both admin tables, so no
@@ -95,61 +96,6 @@
 -- writes those decides whether admin_users deserves its own column grants, a role
 -- guard, or an audit trigger; today the answer is "no query in this repo does it",
 -- which is exactly the discipline-not-structure position sessions.sql is in.
-
--- name: CreateAdminSession :one
--- Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
--- tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
--- yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never
--- gets a session" a property of the DATABASE rather than of the handler
--- remembering to check status -- the trap state.md records for employees (the
--- session resolver does not return employees.status, so every surface must check
--- it itself). The login resolver DOES return admin status, so phase B can refuse
--- earlier and with a uniform message; this is the belt underneath that.
---
--- tenant_id is taken from the ADMIN ROW, not from the caller's parameter, so the
--- session cannot be stamped with a tenant the admin does not belong to. The
--- @tenant_id parameter is still spelled out as a predicate (section 4.5 belt) and
--- the RLS WITH CHECK independently refuses a value that disagrees with the
--- transaction context.
---
--- token_hash is the HMAC of a token this query never sees; it is written, never
--- returned.
---
--- THE SESSION IS WRITTEN ONLY WHILE THE ROW STILL CARRIES THE DIGEST THE PASSWORD WAS
--- VERIFIED AGAINST, UNDER A LOCK ON THE ROW (ADR 0031 §5.2, identity_unlink_backfilled's
--- row; M14-07). tappa_app cannot read admin_users.unlinked_at (R16), so this statement cannot
--- see that a membership was refused between the password comparison and this write -- but
--- the refusal writes a SENTINEL digest in the same transaction, and a password change or a
--- reset writes a new one, so `a.password_hash = @verified_digest` says "nothing rewrote this
--- row's credential since it verified". @verified_digest is the digest internal/adminauth
--- compared the typed password with (never a value from a request). FOR NO KEY UPDATE OF a is what
--- makes the predicate hold against a CONCURRENT refusal: without it a write that started
--- while the refusal's transaction was open read the old row version and left a live session
--- on the refused row (measured on 17.10, M14-05's audit); with it the write waits for the
--- refusal, READ COMMITTED re-evaluates the predicate on the committed version, and the answer
--- is 0 rows. The lock needs an UPDATE privilege on admin_users -- tappa_app's UPDATE (status)
--- (00017) -- and FORCE RLS applies the UPDATE policy's USING to the locked row as well
--- (internal/db's adminsessiondigest_test.go measures both).
---
--- NO KEY UPDATE, NOT SHARE (2026-10-23, M14-07's audit, measured 86/120 deadlocks): Issue runs
--- MarkAdminLoggedIn -- an UPDATE of this same row -- in the same transaction, so a SHARE lock
--- had to be upgraded, and two concurrent sign-ins of one admin (a double click) each held SHARE
--- and waited for the other's: 40P01, a 500. FOR NO KEY UPDATE is the lock that UPDATE takes
--- anyway, so there is no upgrade (0/120); it still conflicts with the refusal's FOR UPDATE, and
--- it does not block the foreign-key checks (KEY SHARE) of other sessions being written.
---
--- The old binary's statement
--- (without the two) keeps working on the same schema: this is a change of the new binary's
--- query text alone.
-INSERT INTO admin_sessions (tenant_id, admin_user_id, token_hash)
-SELECT a.tenant_id, a.id, @token_hash::text
-FROM admin_users a
-WHERE a.id = @admin_user_id
-  AND a.tenant_id = @tenant_id
-  AND a.status = 'active'
-  AND a.password_hash = @verified_digest::text
-FOR NO KEY UPDATE OF a
-RETURNING id, tenant_id, admin_user_id, created_at, last_used_at, revoked_at;
 
 -- name: TouchAdminSession :one
 -- THE per-request authority for the panel, and the reason the session resolver
@@ -320,7 +266,7 @@ WHERE id = @id
 --
 -- The status = 'active' filter is what makes this query safe to drive a picker: a
 -- disabled admin's tenant is simply not offered, so the picker cannot present a
--- door that CreateAdminSession would then refuse to open.
+-- door that identity_open_row_session (CreateAdminSession before 00087) would then refuse to open.
 --
 -- ⚠️ THE PICKER'S OTHER O(N), named here because it is the one that SURVIVES the
 -- bcrypt bound. "Run once per candidate tenant" means one TENANT-SCOPED TRANSACTION
@@ -382,7 +328,7 @@ RETURNING id, last_login_at;
 -- claims "selected by no query here" -- T73's GetAdminPasswordHashByID selects it --
 -- but the WRITE-half invariant CreateAdminUser stands on is unchanged: the value
 -- appears once, as the @password_hash parameter of the INSERT's select-list, exactly
--- as @token_hash does in CreateAdminSession, and the RETURNING list below does not
+-- as @token_hash did in CreateAdminSession (gone, 00087), and the RETURNING list below does not
 -- name it. The generated CreateAdminUserRow therefore has no PasswordHash field, so a
 -- row read on this write path cannot leak the digest into a log.
 --
@@ -421,7 +367,7 @@ RETURNING id, tenant_id, full_name, role, status, created_at;
 -- it returns the digest as a PLAIN string to EXACTLY ONE package, internal/adminauth,
 -- which never logs, emits or re-returns it. Two uses there: ChangeOwnPassword feeds it
 -- to bcrypt.Compare, and Issue (M14-07) checks the sign-in's Proof against it and hands
--- it to CreateAdminSession as @verified_digest, inside the same transaction. No
+-- it to identity_open_row_session as p_verified_digest, inside the same transaction. No
 -- secret-wrapper type is used or needed: the login resolver wraps its hash because it
 -- runs WITHOUT a tenant context and hands a value across a wider boundary; this read
 -- runs inside WithTenant and its result never leaves adminauth.

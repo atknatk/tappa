@@ -8045,6 +8045,7 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 > - [ ] 2026-11-03 kullanıcı kararı: Sihirbaz artık saklama süresi ve hak beyanı **vermiyor**; bunları bağlantının arkasındaki yayınlanmış gizlilik politikası taşımak zorunda (GDPR Art. 13(2)(a), (b)) ve pilot kapısı bunu yayından **önce** doğrulamalı. Karar alınmış değildir: bugün o politika üretimde yayında değil. Yayınlanmış metinde süre ve haklar okundu mu?
 > - [ ] Aktivasyonun 1. adımındaki şartlar bağlantısı (ADR 0026'nın 2026-11-03 notu) üretime **ulaşmadı** ya da şu ikisi
 >       tamam: metinler yayında ve *"you agree to the terms"* ifadesini bir hukukçu netleştirdi. Ölçüm: as of 2026-11-03 https://taptime.mt/legal/privacy ve /legal/terms üretimde hâlâ *"not published yet / nothing on this page is in force"* bloğunu gösteriyor (curl ile okundu) ve /legal/terms Taptime ile abone olan kuruluş arasındaki sözleşmeyi anlatıyor; çalışan onun tarafı değil. Karar alınmış değildir.
+>       **2026-11-04:** kullanıcı bu madde açıkken dalın `main`'e birleştirilmesini istedi; bağlantı üretime çıkar. Madde pilot için açık kalır: metinler yayınlanmalı, ifade hukukçudan geçmeli.
 > - [ ] Telefon envanteri çıkarıldı ([M8-07](m8-deploy-pilot.md))
 > - [ ] Üretim tenant'ı kuruldu ve doğrulandı ([M8-07](m8-deploy-pilot.md))
 > - [ ] 🔴 **Duvara çıkan hiçbir plakette uygulama anahtarı 0 fabrika

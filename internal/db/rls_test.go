@@ -52,7 +52,8 @@ import (
 // list in TestRLS_WriteWithCheck_AllTables (case 2/7 write), and -- if it is
 // append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
-// audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
+// audit_log, transaction_reviews, admin_users, admin_sessions (write side: 42501 for
+// tappa_app since 00087, below the list), password_resets,
 // policies, policy_versions, policy_attachments, employee_invites, billing_periods,
 // invite_requests (M11 API-1, migration 00037).
 // tenant_branding (00028) holds one row per tenant, so the write list's "own" control
@@ -244,11 +245,6 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
 		  VALUES ($1, $2, 'iso-admin', $3, $4, 'owner')`,
 			[]any{fx.adminUserID, fx.tenantID, fx.adminEmail, fixtures.UnusablePasswordHash}},
-		// admin_sessions (M1-11) -- separate from employee sessions; composite FK to
-		// admin_users(id, tenant_id) proves the session's admin is same-tenant.
-		{`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash)
-		  VALUES ($1, $2, $3, $4)`,
-			[]any{fx.adminSessionID, fx.tenantID, fx.adminUserID, fx.adminTokenHash}},
 		// password_resets (M1-11) -- single-use; expires_at is NOT NULL.
 		{`INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at)
 		  VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
@@ -300,6 +296,16 @@ func buildFixture(t *testing.T, d *DB) fixture {
 	})
 	if err != nil {
 		t.Fatalf("buildFixture: %v", err)
+	}
+	// admin_sessions (M1-11) -- separate from employee sessions; composite FK to
+	// admin_users(id, tenant_id) proves the session's admin is same-tenant. Written as
+	// the OWNER: since 00087 (T187's contract, ADR 0036) tappa_app holds no INSERT on
+	// admin_sessions -- a session is born only in a definer -- and this row is a fixture,
+	// not a birth under test.
+	if _, err := ownerDB(t).pool.Exec(context.Background(),
+		`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
+		fx.adminSessionID, fx.tenantID, fx.adminUserID, fx.adminTokenHash); err != nil {
+		t.Fatalf("buildFixture: admin_sessions as the owner: %v", err)
 	}
 	return fx
 }
@@ -560,17 +566,6 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Own', $3, $4, 'manager')`, uuid.New(), b.tenantID, "own-"+uuid.NewString()+"@iso.example", fixtures.UnusablePasswordHash)
 				return e
 			}},
-		{"admin_sessions", blockRLS,
-			func(ctx context.Context, tx pgx.Tx) error {
-				// tenant_id = A (fails WITH CHECK under B); FK to A's admin user resolves
-				// because FK checks bypass RLS, so only WITH CHECK stands in the way.
-				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), a.tenantID, a.adminUserID, "forge-"+uuid.NewString())
-				return e
-			},
-			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
-				return e
-			}},
 		// 🔴 BOTH ARMS CARRY A HASH-SHAPED token_hash SINCE 00019, and that is what
 		// keeps this case measuring RLS. The values used to be "forge-<uuid>" /
 		// "own-<uuid>"; migration 00019 added a CHECK requiring ^[0-9a-f]{64}$, and a
@@ -677,6 +672,22 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			}
 		})
 	}
+
+	// admin_sessions is not in the list above since 00087 (T187's contract, ADR 0036): tappa_app
+	// holds NO INSERT on it, so neither a forged row nor B's own is writable -- a panel session is born
+	// only in a SECURITY DEFINER of ADR 0031 §5.2's closed list, whose explicit tenant predicate is the
+	// guard (adminrowsession_test.go, identitysession_test.go). Both shapes are measured to be refused
+	// by the privilege, before WITH CHECK is consulted; the composite FK still binds those definers
+	// (TestRLS_AdminSession_CompositeFKBlocksCrossTenant, as the owner).
+	t.Run("admin_sessions", func(t *testing.T) {
+		for name, owner := range map[string]fixture{"forged (A's tenant)": a, "own (B's tenant)": b} {
+			err := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), owner.tenantID, owner.adminUserID, randTokenHash(t))
+				return e
+			})
+			assertPermissionDenied(t, "tappa_app's INSERT into admin_sessions, "+name, err)
+		}
+	})
 }
 
 // Case 2 for tenants: its scope key is its own PK (id), so the ONLY row insertable
@@ -715,28 +726,30 @@ func TestRLS_WriteWithCheck_Tenants(t *testing.T) {
 // ============================================================================
 // Composite same-tenant FK (M1-11): admin_sessions(admin_user_id, tenant_id) ->
 // admin_users(id, tenant_id) structurally forbids linking a session to an admin of
-// ANOTHER tenant. This is a DIFFERENT guarantee from WITH CHECK: here tenant_id = B
-// matches the context (so WITH CHECK passes), but admin_user_id points at A's admin,
-// for which no (A's id, B) row exists -> a foreign_key_violation. The positive
-// control (B's OWN admin, checked last) proves the FK fails ONLY on the cross-tenant
-// link, not on some unrelated cause.
+// ANOTHER tenant. This is a DIFFERENT guarantee from WITH CHECK: here tenant_id = B,
+// but admin_user_id points at A's admin, for which no (A's id, B) row exists -> a
+// foreign_key_violation. The positive control (B's OWN admin, checked last) proves
+// the FK fails ONLY on the cross-tenant link, not on some unrelated cause.
+//
+// AS THE OWNER since 00087 (T187's contract, ADR 0036): tappa_app holds no INSERT on
+// admin_sessions; every writer left is a BYPASSRLS definer (identity_open_row_session,
+// identity_open_session, identity_switch_session), for which WITH CHECK does not exist
+// and the FK is the structural half that remains. The owner bypasses RLS the same way.
 // ============================================================================
 
 func TestRLS_AdminSession_CompositeFKBlocksCrossTenant(t *testing.T) {
 	app := appDB(t)
 	assertAppRole(t, app)
+	owner := ownerDB(t)
 
 	a := buildFixture(t, app) // foreign tenant (owns the admin we try to borrow)
-	b := buildFixture(t, app) // own tenant (the context we insert under)
+	b := buildFixture(t, app) // own tenant (the tenant we insert under)
 
-	// Negative: B's context, tenant_id = B (passes WITH CHECK), admin_user_id = A's.
-	// The composite FK finds no (A's admin id, B) row -> foreign_key_violation.
-	errX := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
-			uuid.New(), b.tenantID, a.adminUserID, "xfk-"+uuid.NewString())
-		return e
-	})
+	// Negative: tenant_id = B, admin_user_id = A's. The composite FK finds no
+	// (A's admin id, B) row -> foreign_key_violation, RLS bypassed or not.
+	_, errX := owner.pool.Exec(context.Background(),
+		`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
+		uuid.New(), b.tenantID, a.adminUserID, randTokenHash(t))
 	if errX == nil {
 		t.Fatalf("cross-tenant admin_session link succeeded, want composite-FK rejection")
 	}
@@ -746,12 +759,9 @@ func TestRLS_AdminSession_CompositeFKBlocksCrossTenant(t *testing.T) {
 
 	// Positive control (same-tenant, checked last): B linking to its OWN admin user
 	// must SUCCEED -- otherwise the rejection above could be for an unrelated reason.
-	if errOwn := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
-			uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
-		return e
-	}); errOwn != nil {
+	if _, errOwn := owner.pool.Exec(context.Background(),
+		`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
+		uuid.New(), b.tenantID, b.adminUserID, randTokenHash(t)); errOwn != nil {
 		t.Fatalf("positive control: B could not link a session to its OWN admin: %v", errOwn)
 	}
 }

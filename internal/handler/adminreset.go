@@ -1059,8 +1059,9 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		// nobody has to take either on trust.
 		//
 		// AND THE PRECEDENT IS TWENTY LINES AWAY IN THIS PACKAGE, pointing the same
-		// way: adminlogin.go writes ActionAdminLoginSucceeded with a direct a.record
-		// and applies its account budget only inside failLogin's FAILURE loop. "A
+		// way: the definer writes the sign-in's ActionAdminLoginSucceeded row
+		// unconditionally (identity_open_row_session / identity_open_session), and
+		// adminlogin.go applies its account budget only inside failLogin's FAILURE loop. "A
 		// successful state transition can never be silenced" was already this
 		// repository's rule.
 		//
