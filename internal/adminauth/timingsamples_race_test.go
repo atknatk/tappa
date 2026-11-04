@@ -8,6 +8,10 @@ package adminauth
 // there against ~0.6 s without, so 20 rounds per arm would cost ~680 s and exceed
 // Go's per-package test timeout. The test is NOT skipped (a skipped test does not
 // count as passed in this repo); it runs with a smaller sample and logs it.
+//
+// `make test` compiles blowfish without the detector (the Makefile's RACE_OPT_OUT, T190), and
+// keeps this number: what holds the spread under the noise anchor there is the sample's LENGTH
+// (timingFixtureCost, with the measurement), and 20 samples of the old 10 ms length did not.
 const timingSamples = 3
 
 // timingSpreadGate is 2.5x, DERIVED FROM MEASURED NOISE rather than chosen.

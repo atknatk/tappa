@@ -278,6 +278,29 @@ require-db-env:
 # no test hung -- the dump shows the parallel tests waiting, TestEveryNamedTestExists
 # running. 1800 s is ~1.6x the slowest green run; the next bump should split the package.
 # check-sandbox keeps 20m: its cmd/tappa run is ~1 min (the script tests are skipped).
+#
+# RACE_OPT_OUT (T190): -race instruments every package of this repository and every dependency,
+# except these two, whose own loops were most of what the detector cost. Measured on CI, per-test
+# with -json and a CPU profile of internal/handler (run 41739040505, nothing changed): ~80 % of the
+# package's 1078 CPU seconds inside the race runtime, regexp 16 % and blowfish 10 % of it attributed
+# before counting their share of that runtime. regexp is the source scanners' (the fact tests re-read
+# the migrations through a regexp per case), blowfish is bcrypt's key schedule (locally one cost-12
+# comparison 6.46 s under -race, 0.47 s with blowfish out, 0.30 s without -race). The same commit
+# with this line (run 41746424472): `make check` 25:11 -> 10:17, internal/handler 1073 -> 333 s,
+# internal/db 915 -> 403 s, internal/handler/operator 796 -> 151 s, internal/operatorauth 456 -> 43 s,
+# the same 11398 tests and 8 skips.
+# WHAT IS GIVEN UP, EXACTLY: a race inside those two packages' own memory accesses, or on a []byte
+# handed to regexp while another goroutine writes it, is not reported. Neither package shares mutable
+# state with its callers (regexp's pool is sync.Pool, which keeps its own annotations; a blowfish
+# cipher is per comparison), and every line of this repository stays instrumented.
+# GOFLAGS RATHER THAN -gcflags ON THE go test LINE: tests run `go list -export` of their own build
+# (raceBuild) and must land in the same cache, or each rebuilds the tree. check-sandbox does not take
+# it: its test step is ~1 min without (run 41746424472), and GOFLAGS would also reach its go vet and
+# go run lines. Bare `go test -race` is untouched, and that is what the test comments' "~11 s under
+# -race" mean. cmd/tappa
+# TestMakeTest_TheRaceOptOutIsAClosedList keeps this list these two.
+RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false
+test test-short cover: export GOFLAGS += $(RACE_OPT_OUT)
 test: require-db-env
 	go test -race -count=1 -timeout=30m ./...
 

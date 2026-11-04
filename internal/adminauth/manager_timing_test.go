@@ -93,6 +93,36 @@ func newCheapFakeManager(t *testing.T, rows []db.ResolvedAdmin) *Manager {
 	return m
 }
 
+// timingFixtureCost is the work factor of TestAuthenticate_TimingIsFlat's fixtures, every arm's
+// digest and the padding's dummy alike.
+//
+// IT IS WHAT KEEPS ONE SAMPLE LONG ENOUGH TO MEASURE A LOGIN AND NOT THE SCHEDULER. The fixtures were
+// bcrypt.MinCost while the race detector made a cost-4 login ~200 ms; `make test` now compiles blowfish
+// without it (the Makefile's RACE_OPT_OUT, T190), which took that login to ~10 ms, and a 10 ms sample
+// is one time slice. Measured with 32 CPU burners on a 16-core workstation (load 48-238), samples and
+// gate unchanged, the spread over the runs and the runs over the gate:
+//
+//	before RACE_OPT_OUT, cost 4, one login ~1 s     median 1.23x  max 1.50x   0 of 25
+//	RACE_OPT_OUT, cost 4, ~10 ms                    median 2.48x  max 7.10x  73 of 150   (CI: 1.71x)
+//	RACE_OPT_OUT, cost 4, 20 samples per arm        median 1.18x  max 2.99x   2 of 40
+//	RACE_OPT_OUT, cost 8, ~300 ms                   median 1.56x  max 2.01x   0 of 40
+//	RACE_OPT_OUT, cost 9, ~600 ms                   median 1.21x  max 1.48x   0 of 40
+//
+// So the answer to the shorter sample is the longer sample, not the wider gate: 9 is where the spread
+// is back to what it was, under worstObservedNoise. The two builds `make test` is not pay for it:
+// measured at load ~100, plain 69 s (20 samples per arm, 1.05x), bare `go test -race` 208 s (1.07x).
+const timingFixtureCost = 9
+
+// timingFixtureDigest is a digest at timingFixtureCost.
+func timingFixtureDigest(t *testing.T, password string) string {
+	t.Helper()
+	h, err := bcrypt.GenerateFromPassword([]byte(password), timingFixtureCost)
+	if err != nil {
+		t.Fatalf("GenerateFromPassword: %v", err)
+	}
+	return string(h)
+}
+
 func stats(d []time.Duration) (min, med, max time.Duration) {
 	s := append([]time.Duration(nil), d...)
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
@@ -124,8 +154,8 @@ func stats(d []time.Duration) (min, med, max time.Duration) {
 // reported "FAIL ... 601.242s" with user=596.93s — burning CPU, not deadlocked.
 //
 // WHAT IT MEASURES NOW: the five arms still have to be indistinguishable from each
-// other, but at a CHEAP, SHARED work factor (bcrypt.MinCost fixtures AND a MinCost
-// dummy — see newCheapFakeManager). The RATIO between arms is what this test has
+// other, but at a CHEAP, SHARED work factor (fixtures AND a dummy at timingFixtureCost,
+// which is far below the shipped cost). The RATIO between arms is what this test has
 // always asserted, and padding adds the same constant to every arm, so the signal is
 // untouched; only the price is.
 //
@@ -221,17 +251,23 @@ func TestAuthenticate_TimingIsFlat(t *testing.T) {
 	// EVERY ARM MUST SHARE ONE COST, INCLUDING THE PADDING. Authenticate pads to
 	// MaxCandidates comparisons and takes the padding's cost from the first candidate's
 	// own digest — so an arm with NO candidate pads against the manager's dummy
-	// instead. newCheapFakeManager makes that dummy cheap too; without it the
-	// unknown-email arm would pay cost 12 while the others paid cost 4 and this test
-	// would measure the fixture, not the product.
-	digest := cheapDigest(t, "the-real-password")
+	// instead. manager below makes that dummy timingFixtureCost too; without it the
+	// unknown-email arm would pay cost 12 while the others paid timingFixtureCost and
+	// this test would measure the fixture, not the product.
+	digest := timingFixtureDigest(t, "the-real-password")
+	dummy := timingFixtureDigest(t, "a discarded padding password")
 	tenantID, adminID := uuid.New(), uuid.New()
+	manager := func(rows []db.ResolvedAdmin) *Manager {
+		m := newFakeManager(t, rows)
+		m.dummy = dummy
+		return m
+	}
 
-	unknown := newCheapFakeManager(t, nil)
-	wrong := newCheapFakeManager(t, []db.ResolvedAdmin{{
+	unknown := manager(nil)
+	wrong := manager([]db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "active",
 	}})
-	disabled := newCheapFakeManager(t, []db.ResolvedAdmin{{
+	disabled := manager([]db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "disabled",
 	}})
 
