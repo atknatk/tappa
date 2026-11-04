@@ -166,3 +166,44 @@ func TestDevelopers_ADisabledCreatorIsMarkedBesideTheCreator(t *testing.T) {
 		t.Error("CONTROL: no disabled creator, yet a marker")
 	}
 }
+
+// TestDevelopers_ACreatorWhoCannotSignInIsMarkedBesideTheCreator (T189): the members page's words
+// beside the creator on both renderings, never the disabled pill, never in place of the key's own
+// pill, and no address and no reason. While such a key is LIVE the sentence says it keeps working; a
+// revoked one gets the pill and no sentence.
+func TestDevelopers_ACreatorWhoCannotSignInIsMarkedBesideTheCreator(t *testing.T) {
+	const pill = `<span class="mono-pill border-line">Creator can&#39;t sign in</span>`
+	const sentence = "it keeps working"
+	v := developersFixture()
+	v.Keys[0].CreatedBy, v.Keys[0].CreatorCannotSignIn = "Lena Spiteri", true
+	v.Keys[1].CreatedBy = "Maria Borg"
+	page := renderAPIKeys(t, v)
+	if n := len(regexp.MustCompile(`by Lena Spiteri</span>\s*`+regexp.QuoteMeta(pill)).FindAllString(page, -1)); n != 2 {
+		t.Errorf("%d markers beside the creator, want 2 (table and list)", n)
+	}
+	if n := strings.Count(page, pill); n != 2 {
+		t.Errorf("%d markers on the page, want 2", n)
+	}
+	if strings.Contains(page, "Creator disabled") {
+		t.Error("a creator who cannot sign in is called disabled")
+	}
+	if n := strings.Count(page, `<span class="mono-pill border-tappa-green bg-tappa-green/10">Live</span>`); n != 2 {
+		t.Errorf("the key's own Live pill is drawn %d times, want 2: the marker must not replace it", n)
+	}
+	if !strings.Contains(page, sentence) {
+		t.Error("a live key of a creator who cannot sign in: the sentence is missing")
+	}
+	if strings.Contains(page, "after their access is disabled") {
+		t.Error("the sentence calls this creator's access disabled")
+	}
+
+	v = developersFixture()
+	v.Keys[1].CreatedBy, v.Keys[1].CreatorCannotSignIn = "Lena Spiteri", true
+	page = renderAPIKeys(t, v)
+	if strings.Count(page, pill) != 2 || strings.Contains(page, sentence) {
+		t.Error("a revoked key of a creator who cannot sign in: want the marker and no sentence")
+	}
+	if strings.Contains(renderAPIKeys(t, developersFixture()), pill) {
+		t.Error("CONTROL: every creator can sign in, yet a marker")
+	}
+}

@@ -620,3 +620,199 @@ func TestApiKeyPanel_ADisabledCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T)
 		t.Error("the sentence stays when no live key has a disabled creator")
 	}
 }
+
+// addKeyCreator commits one more active owner row of this business, with a name of its own, the way
+// the fixture commits its two admins.
+func (f *apiKeysDBFixture) addKeyCreator(t *testing.T, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	release := holdPanelTablesLock(t)
+	defer release()
+	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+		                      VALUES ($1, $2, $3, $4, $5, 'owner', 'active')`,
+			id, f.tenantID, name, "keys-"+id.String()+"@m11.example", fixtures.UnusablePasswordHash)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("add a key creator: %v", err)
+	}
+	return id
+}
+
+// refuseMembership stamps what the person's "this is not me" leaves on the row (role and status
+// untouched, unlinked_at set). Only the owner can write it: tappa_app has no privilege on the column.
+func (f *apiKeysDBFixture) refuseMembership(t *testing.T, row uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close(context.Background()) })
+	release := holdPanelTablesLock(t)
+	defer release()
+	if _, err := c.Exec(ctx, `UPDATE admin_users SET identity_id = NULL, linked_via = NULL, linked_at = NULL, unlinked_at = now() WHERE id = $1`, row); err != nil {
+		t.Fatalf("refuse the membership: %v", err)
+	}
+	t.Cleanup(func() {
+		release := holdPanelTablesLock(t)
+		defer release()
+		if _, err := c.Exec(context.Background(), `UPDATE admin_users SET unlinked_at = NULL WHERE id = $1`, row); err != nil {
+			t.Errorf("cleanup: clear the refusal: %v", err)
+		}
+	})
+}
+
+// TestApiKeyPanel_ARefusedCreatorIsMarkedAndTheKeyKeepsWorking (T189, T174's family): an owner the
+// person refused on the confirmation list stays role='owner', status='active' with unlinked_at
+// stamped, which tappa_app cannot read. The key keeps working; the owner's list marks the creator with
+// the members page's words ("can't sign in") on both renderings, says nothing about why, prints no
+// address, and agrees with the members page's own read row by row. Three creators beside it are not
+// so marked: the owner (CONTROL), an owner demoted to manager (absent from the resolver's answer too,
+// and can sign in) and a disabled owner (the T174 pill, not this one). Another business's refused
+// creator and key are not on the page, and that business's page marks its own alone.
+//
+// MUTANTS (measured): the marker not drawn -> red; every creator marked -> red; the role or the status
+// test dropped from Keys.List -> red; the question put to another tenant -> red; the sentence not
+// counting this creator -> red.
+func TestApiKeyPanel_ARefusedCreatorIsMarkedAndTheKeyKeepsWorking(t *testing.T) {
+	const cannotSignIn = `<span class="mono-pill border-line">Creator can&#39;t sign in</span>`
+	const disabledPill = `<span class="mono-pill border-line">Creator disabled</span>`
+	f := newAPIKeysDBFixture(t)
+	ctx := context.Background()
+	trail, err := audit.New(f.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := adminauth.NewMemberships(f.data, trail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := f.addKeyCreator(t, "Refused Owner")
+	demoted := f.addKeyCreator(t, "Demoted Owner")
+	gone := f.addKeyCreator(t, "Gone Owner")
+	create := func(k *apiKeysDBFixture, actor uuid.UUID, name string) apikey.Created {
+		t.Helper()
+		c, err := k.keys.Create(ctx, apikey.CreateCommand{TenantID: k.tenantID, ActorID: actor, Name: name})
+		if err != nil {
+			t.Fatalf("create %q: %v", name, err)
+		}
+		return c
+	}
+	refusedKey := create(f, refused, "Payroll")
+	create(f, demoted, "Stock")
+	goneKey := create(f, gone, "Rota")
+	create(f, f.owner, "ERP")
+	if _, err := members.Change(ctx, f.tenantID, f.owner, demoted, adminauth.MemberMakeManager); err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+	if _, err := members.Change(ctx, f.tenantID, f.owner, gone, adminauth.MemberDisable); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	f.refuseMembership(t, refused)
+
+	other := newAPIKeysDBFixture(t)
+	elsewhere := other.addKeyCreator(t, "Elsewhere Owner")
+	otherKey := create(other, elsewhere, "Elsewhere Payroll")
+	other.refuseMembership(t, elsewhere)
+
+	authenticate := func() error {
+		tok, err := apikey.ParseBearer("Bearer " + refusedKey.Key.RevealToTheOwnerOnce())
+		if err != nil {
+			return err
+		}
+		c, err := f.auth.Check(tok)
+		if err != nil {
+			return err
+		}
+		_, err = f.auth.Resolve(ctx, c)
+		return err
+	}
+	if err := authenticate(); err != nil {
+		t.Fatalf("the key of a refused creator: %v, want it to keep working (T174)", err)
+	}
+
+	// The two lists agree on every creator: the members page's read is the reference.
+	list, err := members.List(ctx, f.tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusedOnMembers := map[uuid.UUID]bool{}
+	for _, m := range list {
+		refusedOnMembers[m.ID] = m.RefusedOwner
+	}
+	if !refusedOnMembers[refused] {
+		t.Fatal("PREMISE: the members page does not mark the refused owner")
+	}
+	onFile := f.keysOnFile(t)
+	if len(onFile) != 4 {
+		t.Fatalf("%d keys on file, want this business's 4", len(onFile))
+	}
+	for _, k := range onFile {
+		if k.CreatorCannotSignIn != refusedOnMembers[k.CreatedBy] {
+			t.Errorf("key %q of %q: the key list says %v, the members page %v", k.Name, k.CreatorName, k.CreatorCannotSignIn, refusedOnMembers[k.CreatedBy])
+		}
+		if k.CreatorActive != (k.CreatedBy != gone) {
+			t.Errorf("key %q of %q reads CreatorActive %v: a refused row is not a disabled one", k.Name, k.CreatorName, k.CreatorActive)
+		}
+	}
+
+	b := f.browserAs(t, f.owner, "owner")
+	page := b.do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if n := strings.Count(page, cannotSignIn); n != 2 {
+		t.Errorf("%d markers, want 2 (the refused creator's one key, table and list)", n)
+	}
+	if n := strings.Count(page, disabledPill); n != 2 {
+		t.Errorf("%d \"Creator disabled\" pills, want 2 (the disabled creator's one key, table and list)", n)
+	}
+	beside := func(name, pill string) int {
+		return len(regexp.MustCompile(`by `+name+`</span>\s*`+regexp.QuoteMeta(pill)+`\s*</span>`).FindAllString(page, -1))
+	}
+	for _, c := range []struct {
+		name, pill string
+		want       int
+	}{
+		{"Refused Owner", cannotSignIn, 2}, {"Refused Owner", disabledPill, 0},
+		{"Gone Owner", disabledPill, 2}, {"Gone Owner", cannotSignIn, 0},
+		{"Demoted Owner", cannotSignIn, 0}, {"Keys Admin", cannotSignIn, 0},
+	} {
+		if n := beside(c.name, c.pill); n != c.want {
+			t.Errorf("%q beside %s: %d times, want %d", c.pill, c.name, n, c.want)
+		}
+	}
+	if strings.Contains(page, "@m11.example") {
+		t.Error("the page prints a creator's address")
+	}
+	for _, why := range []string{"unlink", "not me", "confirmation list"} {
+		if strings.Contains(strings.ToLower(page), why) {
+			t.Errorf("the page says why the creator cannot sign in (%q): the members page does not", why)
+		}
+	}
+	for _, foreign := range []string{"Elsewhere Owner", "Elsewhere Payroll", otherKey.PrefixHint} {
+		if strings.Contains(page, foreign) {
+			t.Errorf("another business's %q is on the page", foreign)
+		}
+	}
+	otherPage := other.browserAs(t, other.owner, "owner").do(http.MethodGet, apiKeysHref, nil).Body.String()
+	if n := strings.Count(otherPage, cannotSignIn); n != 2 || !strings.Contains(otherPage, "by Elsewhere Owner") || strings.Contains(otherPage, "Refused Owner") {
+		t.Errorf("the other business's page: %d markers (want 2, its own creator's), this business's creator named: %v", n, strings.Contains(otherPage, "Refused Owner"))
+	}
+
+	// With the disabled creator's key revoked, only the refused creator's live key is left to explain.
+	if rec := b.do(http.MethodPost, apiKeyRevokeHref, url.Values{"key_id": {goneKey.ID.String()}}); !strings.Contains(rec.Header().Get("Location"), "done=revoked") {
+		t.Fatalf("revoke the disabled creator's key: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if page := b.do(http.MethodGet, apiKeysHref, nil).Body.String(); !strings.Contains(page, "it keeps working") {
+		t.Error("a live key of a creator who cannot sign in: the sentence that it keeps working is missing")
+	}
+	if rec := b.do(http.MethodPost, apiKeyRevokeHref, url.Values{"key_id": {refusedKey.ID.String()}}); !strings.Contains(rec.Header().Get("Location"), "done=revoked") {
+		t.Fatalf("the owner revokes the refused creator's key: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if err := authenticate(); !errors.Is(err, apikey.ErrRevoked) {
+		t.Fatalf("after the revocation: %v, want ErrRevoked", err)
+	}
+	if page := b.do(http.MethodGet, apiKeysHref, nil).Body.String(); strings.Contains(page, "it keeps working") {
+		t.Error("the sentence stays when no live key has a creator without access")
+	}
+}
