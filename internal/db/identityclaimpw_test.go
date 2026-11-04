@@ -159,8 +159,8 @@ func TestIdentityClaimSignup00080_EveryGuardRefusesAlone(t *testing.T) {
 	stranger := icNewPerson(t, ctx, tx)
 	b := icNewBusiness(t, ctx, tx)
 	h := icClaim(t, ctx, tx, person.email, icDraft(b), opFakeDigest("q"), "1 hour")
-	// Every business at the top level, before the first savepoint: a pgx savepoint rolled back stays
-	// established, so a business written after one carries a subtransaction's xmin (S13 -- refused).
+	// Every business at the top level: one written inside a savepoint carries a subtransaction's xmin
+	// (S13 -- refused, whatever the case is about; isWantBornAtTop).
 	both := icNewBusiness(t, ctx, tx)
 	bothClaim := icClaim(t, ctx, tx, stranger.email, icDraft(both), opFakeDigest("q"), "1 hour")
 	other := icNewBusiness(t, ctx, tx)
@@ -217,6 +217,7 @@ func TestIdentityClaimSignup00080_EveryGuardRefusesAlone(t *testing.T) {
 				if c.setup != nil {
 					c.setup(sp)
 				}
+				isWantBornAtTop(t, ctx, sp, "tenants", b.tenant)
 				if icpwCall(t, ctx, sp, b.tenant, h, b.tenant, c.session, c.digest) != uuid.Nil {
 					t.Fatal("claimed; want refused")
 				}
@@ -238,6 +239,7 @@ func TestIdentityClaimSignup00080_EveryGuardRefusesAlone(t *testing.T) {
 	t.Run("a session and a digest", func(t *testing.T) {
 		b2, h2 := both, bothClaim
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+			isWantBornAtTop(t, ctx, sp, "tenants", b2.tenant)
 			if icpwCall(t, ctx, sp, b2.tenant, h2, b2.tenant, &stranger.session, opFakeDigest("a")) != uuid.Nil {
 				t.Fatal("two proofs in one call claimed")
 			}
@@ -265,6 +267,7 @@ func TestIdentityClaimSignup00080_EveryGuardRefusesAlone(t *testing.T) {
 			aiExec(t, ctx, sp, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, stranger.admin)
 			// The fixtures share one digest; the stranger's identity gets its own.
 			aiExec(t, ctx, sp, `UPDATE admin_identities SET password_hash = $2 WHERE id = $1`, stranger.identity, opFakeDigest("s"))
+			isWantBornAtTop(t, ctx, sp, "tenants", b2.tenant)
 			if icpwCall(t, ctx, sp, b2.tenant, h2, b2.tenant, nil, person.digest) != uuid.Nil {
 				t.Fatal("one identity's digest claimed another address's draft")
 			}
@@ -274,6 +277,7 @@ func TestIdentityClaimSignup00080_EveryGuardRefusesAlone(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			b2, h2 := fresh, freshClaim
 			before := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities`)
+			isWantBornAtTop(t, ctx, sp, "tenants", b2.tenant)
 			if icpwCall(t, ctx, sp, b2.tenant, h2, b2.tenant, nil, opFakeDigest("q")) != uuid.Nil {
 				t.Fatal("the password path birthed a new address's identity")
 			}

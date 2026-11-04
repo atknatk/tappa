@@ -15,7 +15,8 @@ package db
 // over them. The function links only a row THIS transaction wrote (xmin = pg_current_xact_id()), and
 // a row inserted inside a savepoint carries the subtransaction's xid: a world built in a savepoint
 // would be refused for that reason alone and prove nothing about the others. The S13 case below is
-// exactly that shape, on purpose.
+// exactly that shape, on purpose. A case's setup that rewrites the row is such a write too, which is why
+// the linked and the disabled row are worlds of their own (T194; isWantBornAtTop holds the rule).
 
 import (
 	"context"
@@ -105,6 +106,21 @@ func isLinked(t *testing.T, ctx context.Context, q pgx.Tx, admin uuid.UUID) (uui
 	return *ident, *via
 }
 
+// isWantBornAtTop fails a refusal case whose row (table's, by id) is not a top-level write of q's
+// transaction: the xmin predicate would refuse the call whatever the case is about, and the case would
+// stay green with its own predicate gone (T194, measured: a row already linked and a disabled row, both
+// once rewritten in the case's savepoint). The S13 cases are that shape on purpose and do not call it.
+func isWantBornAtTop(t *testing.T, ctx context.Context, q pgx.Tx, table string, id uuid.UUID) {
+	t.Helper()
+	var top bool
+	if err := q.QueryRow(ctx, `SELECT xmin = pg_catalog.pg_current_xact_id()::xid FROM public.`+table+` WHERE id = $1`, id).Scan(&top); err != nil {
+		t.Fatalf("read the row's xmin: %v", err)
+	}
+	if !top {
+		t.Fatalf("PREMISE: the %s row %s carries a subtransaction's xid, so the xmin predicate refuses this case by itself", table, id)
+	}
+}
+
 // TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse is named exception 2's
 // behaviour. A new address in a business born in this transaction: true, ONE identity carrying the
 // row's digest byte for byte (the dual-write invariant), the row linked (`signup`, linked_at now())
@@ -129,6 +145,10 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 	noMail := isNewWorld(t, ctx, tx, "", "")
 	aiExec(t, ctx, tx, `UPDATE admin_users SET email = NULL WHERE id = $1`, noMail.admin)
 	// The UPDATE wrote noMail's row in this transaction too; its xmin is still the top-level xid.
+	linkedRow := isNewWorld(t, ctx, tx, "", "")
+	aiLink(t, ctx, tx, linkedRow.admin, aiIdentity(t, ctx, tx, aiEmail()))
+	disabledRow := isNewWorld(t, ctx, tx, "", "")
+	aiExec(t, ctx, tx, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, disabledRow.admin)
 
 	t.Run("a new address: one identity, the row's digest, the link, no audit row", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
@@ -163,6 +183,7 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 		tenant uuid.UUID       // the p_tenant_id passed
 		cut    string          // the predicate a mutation removes ("" = no mutation for this case)
 		put    string
+		also   [2]string // a second cut and put, when the predicate has a twin the call would stop at
 	}
 	otherTenant := aiTenant(t, ctx, tx)
 	cases := []refusal{
@@ -171,14 +192,11 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 		{name: "no context at all", world: fresh, guc: uuid.Nil, tenant: fresh.tenant,
 			cut: "IF (p_tenant_id = NULLIF(pg_catalog.current_setting('app.tenant_id', true), '')::uuid) IS NOT TRUE THEN", put: "IF false THEN"},
 		{name: "the row named under another business", world: fresh, guc: otherTenant, tenant: otherTenant},
-		{name: "a row already linked", world: fresh, guc: fresh.tenant, tenant: fresh.tenant,
-			setup: func(sp pgx.Tx) {
-				aiLink(t, ctx, sp, fresh.admin, aiIdentity(t, ctx, sp, aiEmail()))
-			}},
-		{name: "a disabled row", world: fresh, guc: fresh.tenant, tenant: fresh.tenant,
-			setup: func(sp pgx.Tx) {
-				aiExec(t, ctx, sp, `UPDATE admin_users SET status = 'disabled' WHERE id = $1`, fresh.admin)
-			}},
+		// The link's UPDATE repeats the predicate: with the read's alone cut it ends in its 40001.
+		{name: "a row already linked", world: linkedRow, guc: linkedRow.tenant, tenant: linkedRow.tenant,
+			cut: "       AND a.identity_id IS NULL\n", put: "\n", also: [2]string{"       AND a.identity_id IS NULL;\n", ";\n"}},
+		{name: "a disabled row", world: disabledRow, guc: disabledRow.tenant, tenant: disabledRow.tenant,
+			cut: "       AND a.status = 'active';\n", put: ";\n"},
 		{name: "S13: the row written under a savepoint", guc: uuid.Nil,
 			cut: "IF (v_xmin = pg_catalog.pg_current_xact_id()::xid\n        AND", put: "IF (true\n        AND"},
 		{name: "a row born before this transaction", world: oldRow, guc: oldRow.tenant, tenant: oldRow.tenant,
@@ -213,6 +231,9 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 			if c.setup != nil {
 				c.setup(sp)
 			}
+			if !strings.Contains(c.name, "S13") {
+				isWantBornAtTop(t, ctx, sp, "admin_users", w.admin)
+			}
 			before := opInt(t, ctx, sp, `SELECT count(*) FROM admin_identities WHERE password_hash = $1`, opFakeDigest("k"))
 			linked := isCall(t, ctx, sp, c.guc, c.tenant, w.admin)
 			if !linked {
@@ -246,7 +267,14 @@ func TestIdentityCreateForSignup_BirthsAnIdentityForANewAddressAndNothingElse(t 
 				if !strings.Contains(def, c.cut) {
 					t.Fatalf("PREMISE: the body lacks %q", c.cut)
 				}
-				aiExec(t, ctx, sp, strings.Replace(def, c.cut, c.put, 1))
+				def = strings.Replace(def, c.cut, c.put, 1)
+				if c.also[0] != "" {
+					if !strings.Contains(def, c.also[0]) {
+						t.Fatalf("PREMISE: the body lacks %q", c.also[0])
+					}
+					def = strings.Replace(def, c.also[0], c.also[1], 1)
+				}
+				aiExec(t, ctx, sp, def)
 				if !run(sp) {
 					t.Fatal("with the predicate removed the case is still refused: it does not test that predicate")
 				}
