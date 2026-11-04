@@ -3,7 +3,9 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -126,14 +128,30 @@ const probeLockTimeout = 25 * time.Millisecond
 // probeAttempts is the retry budget, and it is dated rather than derived because
 // nothing mechanical can pin "generous enough".
 //
-// MEASURED 2026-08-20, the run that reproduced T57: a background session held ROW
-// EXCLUSIVE on transactions for 300ms out of every ~500ms -- a ~60% duty cycle,
-// far heavier than the real suite, which lost this race roughly once in several
-// full runs. Attempts are spread by probeBackoff so they sample independent
-// moments, so even at that 60% occupancy a budget of 40 leaves 0.6^40 ~ 1e-9.
-// Exhausting it therefore does not mean "unlucky", it means the database is
-// genuinely jammed -- and that is reported, not skipped.
-const probeAttempts = 40
+// 🔴 IT IS A CONTENTION BUDGET AND NOT A GATE: it carries no verdict on section 4.3. This test
+// only rules once it HAS the locks, and a guard that is gone answers on the first attempt that
+// gets them (the statement succeeds and the assertion goes red). More attempts cannot let a
+// missing trigger through. What a larger budget costs is the time to report a really jammed
+// database, and one 25 ms waiter per lock in the queue of the other packages' statements.
+//
+// 40 -> 180 (T195, 2026-11-04). 40 attempts took 6.93 s on CI, and a TRUNCATE tenants CASCADE
+// probe needs every table of the closure free at once. internal/domain/checkin's lock tests hold
+// them with sleeps, so they do not shrink when the machine gets faster:
+// TestHoldingWindow_GateLockWaitIsWrittenOnceMore and
+// TestHoldingWindow_GateLockHeldThroughBothWaitsIsTheNamedCost are 10.5 s back to back and, with
+// TestHoldingWindow_ProjectionLockWaitIsWrittenOnceMore and its twin 0.3 s later, 18 s (CI run
+// 41766454159). `make test` compiling regexp and blowfish without the race detector moved
+// internal/db up beside them: the probe ran 21 s after that window on the run without it
+// (41739040505), inside it on 41746424472, 1 s before its 10.5 s stretch on 41766454159, and
+// 41763980771 went red after 40 attempts. Measured with a side session holding one table of the
+// closure: 180 attempts take 33 s, above the whole 18 s; a 12 s hold is answered at 12.1 s (attempt 69)
+// where 40 attempts go red at 7 s.
+//
+// The earlier reasoning stands for the short holders it was about (2026-08-20: a session holding
+// ROW EXCLUSIVE on transactions 60 % of the time leaves 0.6^40 ~ 1e-9): probeBackoff spreads the
+// attempts over independent moments. It simply never met one holder longer than the whole budget.
+// Exhausting the budget now does not mean "unlucky", and the message names who held the locks.
+const probeAttempts = 180
 
 // isLockContention answers whether err is the database saying "somebody else is
 // holding this table", which is the one class of failure that says NOTHING about
@@ -191,8 +209,131 @@ func tryTruncate(t *testing.T, d *DB, stmt string) error {
 	t.Fatalf("%s: %d attempts in a row could not take the locks (last: %v). This is LOCK CONTENTION "+
 		"with concurrent packages -- the statement never reached the append-only trigger, so this is "+
 		"NOT a section 4.3 regression and NOT a verdict on the guard. Something is holding these tables "+
-		"far longer than the suite does.", stmt, probeAttempts, err)
+		"far longer than the suite does. Holding them now: %s",
+		stmt, probeAttempts, err, truncateLockHolders(t, d, stmt))
 	return nil // unreachable: t.Fatalf calls runtime.Goexit
+}
+
+// truncateTarget is the table a TRUNCATE probe names.
+var truncateTarget = regexp.MustCompile(`^TRUNCATE\s+(\w+)`)
+
+// truncateLockHolders names the sessions holding a lock on a table stmt would have to lock: the
+// table and everything that references it, at any depth (T63: a message that says only "contention"
+// sent a reader after the wrong cause on 2026-08-20). It reads pg_locks and pg_stat_activity at the
+// moment of asking, so a holder that has just gone is not in it, and it says so.
+//
+// IT DOES NOT PRINT THE HOLDER'S STATEMENT, and it did: a statement carrying literals brings them along,
+// a test's message reaches CI's logs, the repository is public, and section 7 keeps addresses and tokens
+// out of logs (T190's re-audit measured a fake address and a fake token landing in the message). The pid,
+// the role, the state, the transaction's age and each lock with its table are enough to find the test.
+func truncateLockHolders(t *testing.T, d *DB, stmt string) string {
+	t.Helper()
+	m := truncateTarget.FindStringSubmatch(stmt)
+	if m == nil {
+		return "(not a TRUNCATE probe: " + stmt + ")"
+	}
+	rows, err := d.pool.Query(context.Background(), `
+		WITH RECURSIVE closure(oid) AS (
+			SELECT to_regclass($1)::oid
+			UNION
+			SELECT con.conrelid FROM pg_constraint con JOIN closure c ON con.confrelid = c.oid WHERE con.contype = 'f'
+		)
+		SELECT a.pid, a.usename, a.state,
+		       round(extract(epoch FROM clock_timestamp() - a.xact_start))::int,
+		       string_agg(DISTINCT c.relname || ' ' || l.mode, ', ')
+		  FROM pg_locks l
+		  JOIN closure z ON z.oid = l.relation
+		  JOIN pg_class c ON c.oid = l.relation
+		  JOIN pg_stat_activity a ON a.pid = l.pid
+		 WHERE l.granted AND a.pid <> pg_backend_pid()
+		 GROUP BY a.pid, a.usename, a.state, a.xact_start
+		 ORDER BY a.xact_start
+		 LIMIT 12`, "public."+m[1])
+	if err != nil {
+		return fmt.Sprintf("(could not read pg_locks: %v)", err)
+	}
+	defer rows.Close()
+	var lines []string
+	for rows.Next() {
+		var pid int32
+		var age *int32
+		var user, state, locks *string
+		if err := rows.Scan(&pid, &user, &state, &age, &locks); err != nil {
+			return fmt.Sprintf("(could not read pg_locks: %v)", err)
+		}
+		lines = append(lines, fmt.Sprintf("pid %d (%s, %s, transaction open %ds) holds %s",
+			pid, deref(user), deref(state), derefInt(age), deref(locks)))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Sprintf("(could not read pg_locks: %v)", err)
+	}
+	if len(lines) == 0 {
+		return "(nobody at this instant: the holder has just gone)"
+	}
+	return strings.Join(lines, " | ")
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "-"
+	}
+	return *s
+}
+
+func derefInt(n *int32) int32 {
+	if n == nil {
+		return -1
+	}
+	return *n
+}
+
+// TestAppendOnly_TruncateProbeNamesWhoHoldsTheLock is the message's own proof: a session holding a
+// lock on the probe's table is named with its pid and its lock, and it is gone once it has let go. A
+// lock on a table the probe has no business with is not reported against it. And what the holder last
+// ran stays out of the message: a literal in it is the shape that would carry an address to CI's log.
+func TestAppendOnly_TruncateProbeNamesWhoHoldsTheLock(t *testing.T) {
+	owner := ownerDB(t)
+	ctx := context.Background()
+	hold := func(statements ...string) (pid string, release func()) {
+		tx, err := owner.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range statements {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				_ = tx.Rollback(ctx)
+				t.Fatal(err)
+			}
+		}
+		return fmt.Sprintf("pid %d ", tx.Conn().PgConn().PID()), func() {
+			if err := tx.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	const literal = "t195-literal-of-the-holder@example.invalid"
+	pid, release := hold(`LOCK TABLE legal_documents IN ACCESS SHARE MODE`, `SELECT '`+literal+`'`)
+	got := truncateLockHolders(t, owner, "TRUNCATE legal_documents")
+	if !strings.Contains(got, pid) || !strings.Contains(got, "legal_documents AccessShareLock") {
+		t.Errorf("the message does not name the holder %q and its lock: %s", pid, got)
+	}
+	if strings.Contains(got, literal) || strings.Contains(got, "SELECT") {
+		t.Errorf("the message carries what the holder ran, and with it the statement's literals: %s", got)
+	}
+	release()
+	if got := truncateLockHolders(t, owner, "TRUNCATE legal_documents"); strings.Contains(got, pid) {
+		t.Errorf("the message names %q after it let go: %s", pid, got)
+	}
+
+	pid, release = hold(`LOCK TABLE billing_periods IN ACCESS SHARE MODE`)
+	defer release()
+	if got := truncateLockHolders(t, owner, "TRUNCATE legal_documents"); strings.Contains(got, pid) {
+		t.Errorf("a lock on another table is reported against the probe: %s", got)
+	}
+	if got := truncateLockHolders(t, owner, "TRUNCATE tenants CASCADE"); !strings.Contains(got, pid) {
+		t.Errorf("a lock in the CASCADE's closure (billing_periods references tenants) is not named: %s", got)
+	}
 }
 
 // truncateOnce is one attempt: begin, arm the timeout, issue the statement, roll

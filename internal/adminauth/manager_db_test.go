@@ -107,7 +107,13 @@ func newTenantRow(t *testing.T, d *db.DB, name string) uuid.UUID {
 // measured at the SHIPPED cost in manager_timing_test.go -- never here.
 func fixtureDigest(t *testing.T, password string) string {
 	t.Helper()
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	return fixtureDigestAt(t, password, bcrypt.MinCost)
+}
+
+// fixtureDigestAt is fixtureDigest at a named work factor.
+func fixtureDigestAt(t *testing.T, password string, cost int) string {
+	t.Helper()
+	h, err := bcrypt.GenerateFromPassword([]byte(password), cost)
 	if err != nil {
 		t.Fatalf("GenerateFromPassword: %v", err)
 	}

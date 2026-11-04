@@ -2,13 +2,33 @@
 
 package adminauth
 
+import "runtime/debug"
+
 // timingSamples and timingSpreadGate UNDER -race — i.e. what `make test` runs.
 
 // timingSamples is 3 under the race detector. One cost-12 comparison is ~11 s
 // there against ~0.6 s without, so 20 rounds per arm would cost ~680 s and exceed
 // Go's per-package test timeout. The test is NOT skipped (a skipped test does not
 // count as passed in this repo); it runs with a smaller sample and logs it.
+//
+// `make test` compiles blowfish without the detector (the Makefile's RACE_OPT_OUT, T190), and
+// keeps this number: what holds the spread under the noise anchor there is the sample's LENGTH
+// (timingFixtureCostLong, with the measurement), and more samples of the old length did not.
 const timingSamples = 3
+
+// raceBuild is whether this test binary was built with -race.
+const raceBuild = true
+
+// timingFixtureCost is the wall-clock fixtures' work factor in a -race build: the Long one when
+// blowfish was compiled without the detector, the MinCost one when the detector makes the sample long.
+// Two limits, of hand-typed commands and not of the Makefile's path: the stamp shows only the last
+// -gcflags, and only the presence of -race=false is read, not which package it names.
+func timingFixtureCost() int {
+	if info, ok := debug.ReadBuildInfo(); ok && raceOptOutInBuild(info.Settings) {
+		return timingFixtureCostLong
+	}
+	return timingFixtureCostInstrumented
+}
 
 // timingSpreadGate is 2.5x, DERIVED FROM MEASURED NOISE rather than chosen.
 //
