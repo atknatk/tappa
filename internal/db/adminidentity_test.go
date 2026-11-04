@@ -116,7 +116,8 @@ func aiRows(ctx context.Context, sp pgx.Tx, sql string, args ...any) (int64, err
 }
 
 // aiSavepoint runs body in a savepoint of tx that is ALWAYS rolled back (grants a case needs, rows
-// it writes).
+// it writes). It stays open after that (pgx's nested Rollback sends no RELEASE): a row tx writes after a
+// call is not at the top level, and identity_create_for_signup answers false on it -- T194.
 func aiSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, body func(sp pgx.Tx)) {
 	t.Helper()
 	sp, err := tx.Begin(ctx)

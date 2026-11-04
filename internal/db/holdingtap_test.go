@@ -1839,34 +1839,48 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 	}
 }
 
-// lockNowait runs LOCK ... NOWAIT over tables in a savepoint nested in tx: true and the locks
-// kept, or false (55P03) and nothing kept. Any other error fails the test.
+// lockNowait runs LOCK ... NOWAIT over tables in a savepoint of tx's: true and the locks kept, or false
+// (55P03) and nothing kept, the transaction back at the level it was called at. Any other error fails
+// the test. The savepoint is a named one (lockUndoSavepoint says why).
 func lockNowait(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) bool {
 	t.Helper()
-	nested, err := tx.Begin(ctx)
-	if err != nil {
+	const sp = "lock_nowait"
+	if _, err := tx.Exec(ctx, `SAVEPOINT `+sp); err != nil {
 		t.Fatal(err)
 	}
-	_, err = nested.Exec(ctx, `LOCK TABLE `+strings.Join(tables, ", ")+` IN ACCESS EXCLUSIVE MODE NOWAIT`)
+	_, err := tx.Exec(ctx, `LOCK TABLE `+strings.Join(tables, ", ")+` IN ACCESS EXCLUSIVE MODE NOWAIT`)
 	if err == nil {
-		if err := nested.Commit(ctx); err != nil {
+		if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT `+sp); err != nil {
 			t.Fatal(err)
 		}
 		return true
 	}
-	if rbErr := nested.Rollback(ctx); rbErr != nil {
-		t.Fatal(rbErr)
-	}
+	lockUndoSavepoint(t, ctx, tx, sp)
 	if code, _ := opCode(err); code != "55P03" {
 		t.Fatalf("lock the tables the Downs touch: %v", err)
 	}
 	return false
 }
 
+// lockUndoSavepoint undoes the savepoint name and ends it. pgx's nested Rollback is not enough for a
+// caller that goes on: it sends ROLLBACK TO SAVEPOINT and no RELEASE (pgx tx.go,
+// dbSimulatedNestedTx.Rollback), which leaves the savepoint in place and the session inside a fresh
+// subtransaction of it -- every later row then carries that subtransaction's xid, and a "born in this
+// transaction" check (xmin = pg_current_xact_id(): identity_create_for_signup's) answers false.
+// Measured (T191): one miss, and TestLockHelpers_ANowaitMissLeavesTheTopLevel is red at both.
+func lockUndoSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, name string) {
+	t.Helper()
+	for _, q := range []string{`ROLLBACK TO SAVEPOINT `, `RELEASE SAVEPOINT `} {
+		if _, err := tx.Exec(ctx, q+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // lockInTurn is lockForDowns' second way: the tables one at a time, in the order given, each a
 // BLOCKING LOCK -- so it takes its place in the table's queue and new holders line up behind it --
-// keeping the ones it took; true with all of them held, or false with none (the nested savepoint
-// rolled back) and the table whose wait ran out ("" when the hold budget below ran out first).
+// keeping the ones it took; true with all of them held, or false with none (its savepoint undone and
+// ended, lockUndoSavepoint) and the table whose wait ran out ("" when the hold budget below ran out first).
 //
 // WHY IT DOES NOT HAND ANOTHER TRANSACTION A DEADLOCK (one exception, named below). Holding some
 // tables while waiting for the next is how a cycle forms (a tap holds tags and waits for our
@@ -1894,19 +1908,17 @@ func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (
 		t.Fatal(err)
 	}
 	wait, hold := deadlockMs/5, time.Duration(deadlockMs/2)*time.Millisecond
-	held, err := tx.Begin(ctx)
-	if err != nil {
+	const held = "lock_in_turn"
+	if _, err := tx.Exec(ctx, `SAVEPOINT `+held); err != nil {
 		t.Fatal(err)
 	}
 	var first time.Time
 	for _, tb := range tables {
 		if !first.IsZero() && time.Since(first) > hold {
-			if err := held.Rollback(ctx); err != nil {
-				t.Fatal(err)
-			}
+			lockUndoSavepoint(t, ctx, tx, held)
 			return "", false
 		}
-		one, err := held.Begin(ctx)
+		one, err := tx.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1921,9 +1933,7 @@ func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (
 			if rbErr := one.Rollback(ctx); rbErr != nil {
 				t.Fatal(rbErr)
 			}
-			if rbErr := held.Rollback(ctx); rbErr != nil {
-				t.Fatal(rbErr)
-			}
+			lockUndoSavepoint(t, ctx, tx, held)
 			if code, _ := opCode(err); code != "55P03" {
 				t.Fatalf("lock %s in turn: %v", tb, err)
 			}
@@ -1936,7 +1946,7 @@ func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (
 			first = time.Now()
 		}
 	}
-	if err := held.Commit(ctx); err != nil {
+	if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT `+held); err != nil {
 		t.Fatal(err)
 	}
 	return "", true
