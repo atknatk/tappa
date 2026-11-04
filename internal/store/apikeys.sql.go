@@ -98,7 +98,7 @@ func (q *Queries) InsertAPIKey(ctx context.Context, arg InsertAPIKeyParams) (Ins
 
 const listAPIKeys = `-- name: ListAPIKeys :many
 SELECT k.id, k.name, k.prefix_hint, k.created_by, k.created_at, k.last_used_at, k.revoked_at,
-       u.full_name AS creator_name, u.status AS creator_status
+       u.full_name AS creator_name, u.status AS creator_status, u.role AS creator_role
 FROM api_keys AS k
 JOIN admin_users AS u ON u.id = k.created_by AND u.tenant_id = k.tenant_id
 WHERE k.tenant_id = $1
@@ -116,6 +116,7 @@ type ListAPIKeysRow struct {
 	RevokedAt     *time.Time
 	CreatorName   string
 	CreatorStatus string
+	CreatorRole   string
 }
 
 // The panel's list: newest first, revoked ones included (the owner sees what was issued and
@@ -126,6 +127,9 @@ type ListAPIKeysRow struct {
 // says so next to the creator rather than the resolver refusing it. created_by is a composite FK
 // onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
 // key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
+//
+// The creator's role rides along for one reason (T189): internal/apikey's mark of a creator who
+// cannot sign in is the members page's rule, and that rule asks about active OWNER rows alone.
 func (q *Queries) ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAPIKeysRow, error) {
 	rows, err := q.db.Query(ctx, listAPIKeys, tenantID)
 	if err != nil {
@@ -145,6 +149,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]ListAP
 			&i.RevokedAt,
 			&i.CreatorName,
 			&i.CreatorStatus,
+			&i.CreatorRole,
 		); err != nil {
 			return nil, err
 		}
