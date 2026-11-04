@@ -28,8 +28,11 @@ RETURNING id, created_at;
 -- says so next to the creator rather than the resolver refusing it. created_by is a composite FK
 -- onto admin_users (id, tenant_id) (00051), so the join finds exactly one row; it is pinned to the
 -- key's tenant AND to @tenant_id (CLAUDE.md §4.5). No address is read.
+--
+-- The creator's role rides along for one reason (T189): internal/apikey's mark of a creator who
+-- cannot sign in is the members page's rule, and that rule asks about active OWNER rows alone.
 SELECT k.id, k.name, k.prefix_hint, k.created_by, k.created_at, k.last_used_at, k.revoked_at,
-       u.full_name AS creator_name, u.status AS creator_status
+       u.full_name AS creator_name, u.status AS creator_status, u.role AS creator_role
 FROM api_keys AS k
 JOIN admin_users AS u ON u.id = k.created_by AND u.tenant_id = k.tenant_id
 WHERE k.tenant_id = @tenant_id

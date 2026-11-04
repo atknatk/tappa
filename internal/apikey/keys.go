@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -87,6 +89,12 @@ func NewKeys(prefix string, hmacKey []byte, data Database, trail Trail) (*Keys, 
 // disabling the creator's membership does not stop the key -- the resolver never reads created_by
 // -- so the list carries the creator and whether that membership is still active, for the owner to
 // see and, if they want, revoke.
+//
+// A MEMBERSHIP THE PERSON REFUSED IS NOT A DISABLED ONE (T189): it stays status='active' with
+// unlinked_at stamped, which tappa_app cannot read (R16), so CreatorActive stays true for it. It is
+// told apart as the members page tells it apart (adminauth.Memberships.List): an active owner row
+// missing from db.SignInOwners. The same limit holds on both lists: a refused row that is no longer an
+// active owner looks like any other, and a key says nothing a membership row does not.
 type Key struct {
 	ID         uuid.UUID
 	Name       string
@@ -96,9 +104,11 @@ type Key struct {
 	// membership is disabled.
 	CreatorName   string
 	CreatorActive bool
-	CreatedAt     time.Time
-	LastUsedAt    *time.Time
-	RevokedAt     *time.Time
+	// CreatorCannotSignIn: the creating membership is an active owner row that can get no session.
+	CreatorCannotSignIn bool
+	CreatedAt           time.Time
+	LastUsedAt          *time.Time
+	RevokedAt           *time.Time
 }
 
 // Listing is the section's read: the business's keys, newest first, and whether the operator has
@@ -220,11 +230,19 @@ func (k *Keys) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listing, 
 		if err != nil {
 			return fmt.Errorf("list: %w", err)
 		}
+		live, err := db.SignInOwners(ctx, tx, tenantID)
+		if err != nil {
+			return fmt.Errorf("list: %w", err)
+		}
 		out.Keys = make([]Key, 0, len(rows))
 		for _, r := range rows {
+			active := r.CreatorStatus == liveAdmin
 			out.Keys = append(out.Keys, Key{ID: r.ID, Name: r.Name, PrefixHint: r.PrefixHint, CreatedBy: r.CreatedBy,
-				CreatorName: r.CreatorName, CreatorActive: r.CreatorStatus == liveAdmin,
-				CreatedAt: r.CreatedAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt})
+				CreatorName: r.CreatorName, CreatorActive: active,
+				// The role test is not decoration: SignInOwners answers for owners alone, so an owner
+				// demoted to manager is absent from it and can sign in perfectly well.
+				CreatorCannotSignIn: active && r.CreatorRole == ownerRole && !slices.Contains(live, r.CreatedBy),
+				CreatedAt:           r.CreatedAt, LastUsedAt: r.LastUsedAt, RevokedAt: r.RevokedAt})
 		}
 		out.BudgetAlerts, err = budgetAlerts(ctx, q, tenantID)
 		return err

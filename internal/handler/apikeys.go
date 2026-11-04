@@ -209,7 +209,7 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 			ID: k.ID.String(), Name: k.Name, PrefixHint: k.PrefixHint,
 			CreatedOn: k.CreatedAt.In(zone).Format("2 Jan 2006, 15:04"),
 			LastUsed:  "Never",
-			CreatedBy: k.CreatorName, CreatorDisabled: !k.CreatorActive,
+			CreatedBy: k.CreatorName, CreatorDisabled: !k.CreatorActive, CreatorCannotSignIn: k.CreatorCannotSignIn,
 		}
 		if k.LastUsedAt != nil {
 			row.LastUsed = k.LastUsedAt.In(zone).Format("2 Jan 2006, 15:04")

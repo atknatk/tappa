@@ -158,21 +158,25 @@ type APIKeyRow struct {
 	CreatedOn  string
 	// CreatedBy is the creating membership's name (never its address). CreatorDisabled marks a
 	// creator whose membership in this business is disabled: the key is the business's and keeps
-	// working (T174), so the owner is told rather than the key stopped.
-	CreatedBy       string
-	CreatorDisabled bool
-	LastUsed        string
-	RevokedOn       string
+	// working (T174), so the owner is told rather than the key stopped. CreatorCannotSignIn marks an
+	// active owner who can get no session (T189): the members page's "Can't sign in", and no more
+	// than it says -- never why.
+	CreatedBy           string
+	CreatorDisabled     bool
+	CreatorCannotSignIn bool
+	LastUsed            string
+	RevokedOn           string
 }
 
 // Live reports whether the key still opens the API (subject to the business's gate).
 func (r APIKeyRow) Live() bool { return r.RevokedOn == "" }
 
-// AnyLiveFromADisabledCreator reports whether a live key was created by a membership that is now
-// disabled -- the case the list explains in a sentence (T174: the key keeps working).
-func (v APIKeysView) AnyLiveFromADisabledCreator() bool {
+// AnyLiveFromACreatorWithoutAccess reports whether a live key was created by a membership that is
+// now disabled or cannot sign in -- the case the list explains in a sentence (T174: the key keeps
+// working).
+func (v APIKeysView) AnyLiveFromACreatorWithoutAccess() bool {
 	for _, k := range v.Keys {
-		if k.Live() && k.CreatorDisabled && k.CreatedBy != "" {
+		if k.Live() && (k.CreatorDisabled || k.CreatorCannotSignIn) && k.CreatedBy != "" {
 			return true
 		}
 	}
