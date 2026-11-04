@@ -220,8 +220,12 @@ var truncateTarget = regexp.MustCompile(`^TRUNCATE\s+(\w+)`)
 // truncateLockHolders names the sessions holding a lock on a table stmt would have to lock: the
 // table and everything that references it, at any depth (T63: a message that says only "contention"
 // sent a reader after the wrong cause on 2026-08-20). It reads pg_locks and pg_stat_activity at the
-// moment of asking, so a holder that has just gone is not in it, and it says so. Only query text,
-// which pgx sends with placeholders, and only this repository's fixtures run here.
+// moment of asking, so a holder that has just gone is not in it, and it says so.
+//
+// IT DOES NOT PRINT THE HOLDER'S STATEMENT, and it did: a statement carrying literals brings them along,
+// a test's message reaches CI's logs, the repository is public, and section 7 keeps addresses and tokens
+// out of logs (T190's re-audit measured a fake address and a fake token landing in the message). The pid,
+// the role, the state, the transaction's age and each lock with its table are enough to find the test.
 func truncateLockHolders(t *testing.T, d *DB, stmt string) string {
 	t.Helper()
 	m := truncateTarget.FindStringSubmatch(stmt)
@@ -236,14 +240,13 @@ func truncateLockHolders(t *testing.T, d *DB, stmt string) string {
 		)
 		SELECT a.pid, a.usename, a.state,
 		       round(extract(epoch FROM clock_timestamp() - a.xact_start))::int,
-		       string_agg(DISTINCT c.relname || ' ' || l.mode, ', '),
-		       regexp_replace(left(a.query, 100), '\s+', ' ', 'g')
+		       string_agg(DISTINCT c.relname || ' ' || l.mode, ', ')
 		  FROM pg_locks l
 		  JOIN closure z ON z.oid = l.relation
 		  JOIN pg_class c ON c.oid = l.relation
 		  JOIN pg_stat_activity a ON a.pid = l.pid
 		 WHERE l.granted AND a.pid <> pg_backend_pid()
-		 GROUP BY a.pid, a.usename, a.state, a.xact_start, a.query
+		 GROUP BY a.pid, a.usename, a.state, a.xact_start
 		 ORDER BY a.xact_start
 		 LIMIT 12`, "public."+m[1])
 	if err != nil {
@@ -254,12 +257,12 @@ func truncateLockHolders(t *testing.T, d *DB, stmt string) string {
 	for rows.Next() {
 		var pid int32
 		var age *int32
-		var user, state, locks, query *string
-		if err := rows.Scan(&pid, &user, &state, &age, &locks, &query); err != nil {
+		var user, state, locks *string
+		if err := rows.Scan(&pid, &user, &state, &age, &locks); err != nil {
 			return fmt.Sprintf("(could not read pg_locks: %v)", err)
 		}
-		lines = append(lines, fmt.Sprintf("pid %d (%s, %s, transaction open %ds) holds %s; last statement: %s",
-			pid, deref(user), deref(state), derefInt(age), deref(locks), deref(query)))
+		lines = append(lines, fmt.Sprintf("pid %d (%s, %s, transaction open %ds) holds %s",
+			pid, deref(user), deref(state), derefInt(age), deref(locks)))
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Sprintf("(could not read pg_locks: %v)", err)
@@ -286,18 +289,21 @@ func derefInt(n *int32) int32 {
 
 // TestAppendOnly_TruncateProbeNamesWhoHoldsTheLock is the message's own proof: a session holding a
 // lock on the probe's table is named with its pid and its lock, and it is gone once it has let go. A
-// lock on a table the probe has no business with is not reported against it.
+// lock on a table the probe has no business with is not reported against it. And what the holder last
+// ran stays out of the message: a literal in it is the shape that would carry an address to CI's log.
 func TestAppendOnly_TruncateProbeNamesWhoHoldsTheLock(t *testing.T) {
 	owner := ownerDB(t)
 	ctx := context.Background()
-	hold := func(lock string) (pid string, release func()) {
+	hold := func(statements ...string) (pid string, release func()) {
 		tx, err := owner.pool.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(ctx, lock); err != nil {
-			_ = tx.Rollback(ctx)
-			t.Fatal(err)
+		for _, q := range statements {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				_ = tx.Rollback(ctx)
+				t.Fatal(err)
+			}
 		}
 		return fmt.Sprintf("pid %d ", tx.Conn().PgConn().PID()), func() {
 			if err := tx.Rollback(ctx); err != nil {
@@ -306,10 +312,14 @@ func TestAppendOnly_TruncateProbeNamesWhoHoldsTheLock(t *testing.T) {
 		}
 	}
 
-	pid, release := hold(`LOCK TABLE legal_documents IN ACCESS SHARE MODE`)
+	const literal = "t195-literal-of-the-holder@example.invalid"
+	pid, release := hold(`LOCK TABLE legal_documents IN ACCESS SHARE MODE`, `SELECT '`+literal+`'`)
 	got := truncateLockHolders(t, owner, "TRUNCATE legal_documents")
 	if !strings.Contains(got, pid) || !strings.Contains(got, "legal_documents AccessShareLock") {
 		t.Errorf("the message does not name the holder %q and its lock: %s", pid, got)
+	}
+	if strings.Contains(got, literal) || strings.Contains(got, "SELECT") {
+		t.Errorf("the message carries what the holder ran, and with it the statement's literals: %s", got)
 	}
 	release()
 	if got := truncateLockHolders(t, owner, "TRUNCATE legal_documents"); strings.Contains(got, pid) {

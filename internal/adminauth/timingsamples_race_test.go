@@ -16,8 +16,13 @@ import "runtime/debug"
 // (timingFixtureCostLong, with the measurement), and more samples of the old length did not.
 const timingSamples = 3
 
+// raceBuild is whether this test binary was built with -race.
+const raceBuild = true
+
 // timingFixtureCost is the wall-clock fixtures' work factor in a -race build: the Long one when
 // blowfish was compiled without the detector, the MinCost one when the detector makes the sample long.
+// Two limits, of hand-typed commands and not of the Makefile's path: the stamp shows only the last
+// -gcflags, and only the presence of -race=false is read, not which package it names.
 func timingFixtureCost() int {
 	if info, ok := debug.ReadBuildInfo(); ok && raceOptOutInBuild(info.Settings) {
 		return timingFixtureCostLong

@@ -70,10 +70,16 @@ const decoyRounds = 80
 
 // The anchors decoyGate and fiveCaseGate are pinned between (the gate test below).
 const (
-	decoyWorstNoise     = 1.28
-	decoyWeakestSignal  = 2.43
-	fiveCaseWorstNoise  = 1.19
-	fiveCaseCaughtShape = 18.8
+	decoyWorstNoise    = 1.28
+	decoyWeakestSignal = 2.43
+	fiveCaseWorstNoise = 1.19
+	// fiveCaseCaughtShape is the WEAKEST shape fiveCaseGate's table catches: the legacy window left
+	// unpadded, at its lowest in make test's build. It was 18.8, the fifth case's figure, and that
+	// let the gate rise to 18.5 with this pin green while a 2.5x gate would already miss part of the
+	// 1.79-3.70x it claims to catch. The fifth case cannot be the anchor anyway: its value is a
+	// property of how the mutant is written (T190's audit wrote one that compares and then skips the
+	// padding: 7.20-40.04x without RACE_OPT_OUT, 13.53-20.81x with it, against 48.5-54.6x here).
+	fiveCaseCaughtShape = 1.79
 )
 
 // TestIdentityDecoy_TakesWhatTheOpenTakes (S15): the decoy a failed sign-in sends instead of

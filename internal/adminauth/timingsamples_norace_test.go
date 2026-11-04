@@ -14,6 +14,9 @@ package adminauth
 // Go's 10-minute per-package timeout (609 s) and FAILED.
 const timingSamples = 20
 
+// raceBuild is whether this test binary was built with -race.
+const raceBuild = false
+
 // timingFixtureCost is the wall-clock fixtures' work factor without -race: nothing makes the sample
 // long but the work factor (timingFixtureCostLong, with the measurement).
 func timingFixtureCost() int { return timingFixtureCostLong }

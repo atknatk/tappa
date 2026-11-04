@@ -165,6 +165,18 @@ func TestTimingFixtureCost_FollowsTheBuild(t *testing.T) {
 	if c := timingFixtureCost(); c != timingFixtureCostLong && c != timingFixtureCostInstrumented {
 		t.Fatalf("this build's fixture cost is %d, want %d or %d", c, timingFixtureCostLong, timingFixtureCostInstrumented)
 	}
+	// THE TABLE ABOVE PROVES THE READING, NOT THAT A REAL BINARY IS READ RIGHT. If the stamp stopped
+	// being what raceOptOutInBuild reads, make test would run these fixtures at cost 4 without the
+	// detector, a ~10 ms sample: quiet machines stay green and a loaded one goes red blaming a timing
+	// leak (T190's audit, 20 of 20). make test's GOFLAGS reaches this binary, so it can say which build
+	// this is without the stamp.
+	if strings.Contains(os.Getenv("GOFLAGS"), "-race=false") && raceBuild && timingFixtureCost() != timingFixtureCostLong {
+		t.Fatalf("this binary was built with GOFLAGS=%q under -race, so blowfish has no detector and one "+
+			"comparison is short, but its wall-clock fixture cost is %d, want %d: raceOptOutInBuild no longer "+
+			"finds -race=false in the build settings. Look at `go version -m` of a test binary; a toolchain "+
+			"change (the T180 day) is the likely cause. The timing tests would otherwise fail under load "+
+			"and read as a leak.", os.Getenv("GOFLAGS"), timingFixtureCost(), timingFixtureCostLong)
+	}
 	t.Logf("this build's wall-clock fixture cost: %d", timingFixtureCost())
 }
 
