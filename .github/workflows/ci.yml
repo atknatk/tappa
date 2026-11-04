@@ -44,7 +44,7 @@ jobs:
     # is for: 28:15 + ~8:00 for the sandbox step's ordinary run = ~36:15, under 45.
     # 45 -> 55 with `make test`'s -timeout 20m -> 30m (Makefile, 2026-10-21): 8:15 + 30:00 =
     # 38:15 at worst for `make check`, + ~8:00 for the sandbox step = ~46:15, under 55.
-    timeout-minutes: 95
+    timeout-minutes: 55
     env:
       # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`
       # KOSMAZ. CI'nin kostugu `make check` -> `go test -race` kosar ve -race,
@@ -254,8 +254,6 @@ jobs:
         # fmt + vet + staticcheck + `go test -race` + `git diff --exit-code`.
         # Son adim, `make gen`/`make fmt` ciktisinin (uretilen dosyalar) commit
         # edildigini de dogrular — commit edilmemisse CI kirmizi (istenen).
-        env:
-          T190_JSON: ${{ runner.temp }}/t190.json
         run: make check
 
       - name: The sandbox build (make check-sandbox)
@@ -267,35 +265,6 @@ jobs:
         # TestCI_RunsVetAndTestWithTheSandboxTag recomputes it from the tree and reads this step).
         # After `make check`, on the same database: the suites share no state the order breaks.
         run: make check-sandbox
-
-      - name: T190 measure (TEMPORARY, reverted before the final commit)
-        if: ${{ !cancelled() }}
-        run: |
-          set +e
-          J="$RUNNER_TEMP/t190.json"
-          echo "nproc=$(nproc)"
-          jq -r 'select(.Test==null and (.Action=="pass" or .Action=="fail")) | "\(.Elapsed)\t\(.Action)\t\(.Package)"' "$J" | sort -rn | head -30
-          for pk in internal/handler; do
-            GOFLAGS='-gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false' /usr/bin/time -v go test -race -count=1 -timeout=30m -json -cpuprofile="$RUNNER_TEMP/handler.cpu" -o "$RUNNER_TEMP/handler.test" ./$pk/ > "$RUNNER_TEMP/iso-handler.json" 2> "$RUNNER_TEMP/iso-handler.time"
-            grep -E 'Elapsed|User time|System time|Percent of CPU' "$RUNNER_TEMP/iso-handler.time"
-          done
-          go tool pprof -top -nodecount=60 "$RUNNER_TEMP/handler.test" "$RUNNER_TEMP/handler.cpu" > "$RUNNER_TEMP/pprof-flat.txt" 2>&1
-          go tool pprof -top -cum -nodecount=120 "$RUNNER_TEMP/handler.test" "$RUNNER_TEMP/handler.cpu" > "$RUNNER_TEMP/pprof-cum.txt" 2>&1
-          head -30 "$RUNNER_TEMP/pprof-flat.txt"
-          exit 0
-
-      - name: T190 upload (TEMPORARY)
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: t190-measure
-          path: |
-            ${{ runner.temp }}/t190.json
-            ${{ runner.temp }}/iso-handler.json
-            ${{ runner.temp }}/iso-handler.time
-            ${{ runner.temp }}/handler.cpu
-            ${{ runner.temp }}/pprof-flat.txt
-            ${{ runner.temp }}/pprof-cum.txt
 
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
