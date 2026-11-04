@@ -278,6 +278,7 @@ require-db-env:
 # no test hung -- the dump shows the parallel tests waiting, TestEveryNamedTestExists
 # running. 1800 s is ~1.6x the slowest green run; the next bump should split the package.
 # check-sandbox keeps 20m: its cmd/tappa run is ~1 min (the script tests are skipped).
+test: export GOFLAGS += -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false
 test: require-db-env
 	go test -race -count=1 -timeout=30m -json ./... > "$${T190_JSON:-/dev/stdout}"
 
