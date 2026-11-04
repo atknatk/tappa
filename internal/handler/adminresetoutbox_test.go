@@ -7,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -518,14 +520,23 @@ func TestResetOutbox_EveryGrantInsideTheBudgetEndsInExactlyOneRow(t *testing.T) 
 // fallback: when the outbox will not take a grant, the REQUEST writes its undelivered
 // row — before the response returns — sends nothing for it, and still answers at the
 // floor rather than waiting for room.
+//
+// THE CEILING IS READ ON THE MEDIAN OF FIVE (T193): one sample let one pause decide. Not
+// parallel, because it measures the clock (TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand).
 func TestAdminReset_AFullOutboxRecordsTheGrantAtOnceAndDoesNotWait(t *testing.T) {
-	const first, filler, late = "first@registered.example.test", "filler@registered.example.test", "late@registered.example.test"
-	lateGrant := grantFor(late)
+	const first, filler = "first@registered.example.test", "filler@registered.example.test"
+	const samples = 5
+	addressed := map[string][]adminauth.ResetGrant{first: grantsFor(first, 1), filler: grantsFor(filler, resetOutboxSize)}
+	late := make([]string, samples)
+	lateGrants := make([]adminauth.ResetGrant, samples)
+	for i := range late {
+		late[i] = fmt.Sprintf("late-%d@registered.example.test", i)
+		lateGrants[i] = grantFor(late[i])
+		addressed[late[i]] = []adminauth.ResetGrant{lateGrants[i]}
+	}
 	trail := &fakeTrail{}
 	ch := newGateChannel()
-	router, h := newResetRouter(t, &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{
-		first: grantsFor(first, 1), filler: grantsFor(filler, resetOutboxSize), late: {lateGrant},
-	}}, ch, trail)
+	router, h := newResetRouter(t, &fakeResets{grantsFor: addressed}, ch, trail)
 
 	// One grant into the worker's hands, THEN exactly resetOutboxSize behind it: the
 	// order makes "full" deterministic rather than a race with the worker's dequeue.
@@ -536,25 +547,34 @@ func TestAdminReset_AFullOutboxRecordsTheGrantAtOnceAndDoesNotWait(t *testing.T)
 		t.Fatalf("%d row(s) before the overflow; the filler did not fit, so 'full' is not what is measured", n)
 	}
 
-	took := timeOneRequest(t, router, late)
-	// Read BEFORE any drain: the row must already be there.
-	rows := rowsPerReset(t, trail.eventsSnapshot())
-	if n := rows[lateGrant.Issued.Reset.ID.String()]; n != 1 {
-		t.Errorf("the overflowing grant has %d row(s) when its response returns, want 1", n)
+	var took []time.Duration
+	for i, who := range late {
+		took = append(took, timeOneRequest(t, router, who))
+		// Read BEFORE any drain: the row must already be there.
+		rows := rowsPerReset(t, trail.eventsSnapshot())
+		if n := rows[lateGrants[i].Issued.Reset.ID.String()]; n != 1 {
+			t.Errorf("overflowing grant %d has %d row(s) when its response returns, want 1", i, n)
+		}
 	}
-	if took > resetRequestFloor+50*time.Millisecond {
-		t.Errorf("the request answered in %v with the outbox full; it waited for room (floor %v)", took, resetRequestFloor)
+	median := slices.Sorted(slices.Values(took))[samples/2]
+	t.Logf("with the outbox full: median %v, samples %v (floor %v)", median, took, resetRequestFloor)
+	if median > resetRequestFloor+50*time.Millisecond {
+		t.Errorf("the median of %d answers is %v with the outbox full, samples %v; it waited for room (floor %v)",
+			samples, median, took, resetRequestFloor)
 	}
 	close(ch.release)
 	drain(t, h)
 	delivered, _ := ch.snapshot()
-	for _, d := range delivered {
-		if d.ResetID == lateGrant.Issued.Reset.ID {
-			t.Error("the overflowing grant was sent after all; a grant recorded undelivered must not be")
+	rows := rowsPerReset(t, trail.eventsSnapshot())
+	for i, g := range lateGrants {
+		for _, d := range delivered {
+			if d.ResetID == g.Issued.Reset.ID {
+				t.Errorf("overflowing grant %d was sent after all; a grant recorded undelivered must not be", i)
+			}
 		}
-	}
-	if rows := rowsPerReset(t, trail.eventsSnapshot()); rows[lateGrant.Issued.Reset.ID.String()] != 1 {
-		t.Errorf("the overflowing grant ended with %d row(s), want exactly 1", rows[lateGrant.Issued.Reset.ID.String()])
+		if n := rows[g.Issued.Reset.ID.String()]; n != 1 {
+			t.Errorf("overflowing grant %d ended with %d row(s), want exactly 1", i, n)
+		}
 	}
 }
 
