@@ -346,8 +346,10 @@ func TestAdminReset_RegisteredAndUnregisteredAreByteIdentical(t *testing.T) {
 // issuing plus 15 ms of delivery, the unregistered one pays nothing — and the
 // response times are still required to be indistinguishable, because
 // resetRequestFloor holds both.
+//
+// NOT PARALLEL (T193): medians do not survive a neighbour holding the process's Ps, the
+// reason TestAdminReset_ATrippedBreakerStaysInsideTheFloorBand gives.
 func TestAdminReset_TimingIsFlat(t *testing.T) {
-	t.Parallel()
 	known := "slow@registered.example.test"
 	resets := &fakeResets{
 		grantsFor:  map[string][]adminauth.ResetGrant{known: {grantFor(known)}},
