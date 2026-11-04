@@ -1,63 +1,76 @@
 package main
 
 import (
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
 
-// raceOptOutPackages is the closed list of packages `make test` compiles without the race detector
-// (the Makefile's RACE_OPT_OUT, with the measurement and what is given up). A pattern here takes the
+// raceOptOutDefinition is the one line that takes packages out of the race detector in `make test`
+// (the Makefile's RACE_OPT_OUT, with the measurement and what is given up). A pattern there takes the
 // detector away from everything it matches, and CLAUDE.md section 8's concurrency proofs (the replay
-// race, among others) are only proofs with the detector on: so a third entry, or a wider pattern, is a
-// decision that is taken here, with its own measurement, and not by editing one Makefile line.
-var raceOptOutPackages = []string{"golang.org/x/crypto/blowfish", "regexp/..."}
+// race, among others) are only proofs with the detector on: so a third entry, a wider pattern or a
+// compiler flag beside them is a decision that is taken here, with its own measurement, and not by
+// editing one Makefile line.
+const raceOptOutDefinition = "RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false"
 
-var raceOptOutEntry = regexp.MustCompile(`(\S*)=-race=(\S*)`)
+// raceOptOutUse is the one line that hands RACE_OPT_OUT to anything, and its targets are the three
+// whose recipes raceOptOutRecipes pin. GOFLAGS rather than the go test line: the Makefile says why.
+const raceOptOutUse = "test test-short cover: export GOFLAGS += $(RACE_OPT_OUT)"
+
+// raceOptOutRecipes are the three targets that take it. Each must still run with the detector on.
+var raceOptOutRecipes = []string{"test", "test-short", "cover"}
+
+// raceOffAnywhere matches the detector being switched off or the compiler being reached, in any
+// spelling this Makefile could carry: `-race=false` needs no `=` before it, so an indirect
+// `NR := -race=false` and a quoted `-gcflags=all="-l -race=false"` are both found.
+var raceOffAnywhere = regexp.MustCompile(`-race=|-gcflags`)
 
 // raceOptOutViolations reads a Makefile's text. It is a pure function so the negative controls below
 // can drive it with the shapes it exists to refuse.
 func raceOptOutViolations(makefile string) []string {
 	var bad []string
-	var defs int
-	got := map[string]bool{}
+	var defs, uses int
 	for line := range strings.SplitSeq(makefile, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
-		isDef := strings.HasPrefix(line, "RACE_OPT_OUT := ")
-		if isDef {
+		if strings.HasPrefix(line, "RACE_OPT_OUT ") || strings.HasPrefix(line, "RACE_OPT_OUT:") || strings.HasPrefix(line, "RACE_OPT_OUT=") {
 			defs++
-		}
-		for _, m := range raceOptOutEntry.FindAllStringSubmatch(line, -1) {
-			if !isDef {
-				bad = append(bad, "the detector is switched off outside RACE_OPT_OUT: "+strings.TrimSpace(line))
-				continue
+			if line != raceOptOutDefinition {
+				bad = append(bad, "RACE_OPT_OUT is not the closed list: "+line)
 			}
-			got[strings.TrimPrefix(m[1], "-gcflags=")] = true
+			continue
+		}
+		if raceOffAnywhere.MatchString(line) {
+			bad = append(bad, "the detector or the compiler is reached outside RACE_OPT_OUT: "+strings.TrimSpace(line))
+		}
+		if strings.Contains(line, "RACE_OPT_OUT") {
+			uses++
+			if line != raceOptOutUse {
+				bad = append(bad, "RACE_OPT_OUT is used outside its one line: "+strings.TrimSpace(line))
+			}
 		}
 	}
 	if defs != 1 {
 		bad = append(bad, "RACE_OPT_OUT is not defined exactly once")
 	}
-	if names := slices.Sorted(maps.Keys(got)); !slices.Equal(names, raceOptOutPackages) {
-		bad = append(bad, "RACE_OPT_OUT names "+strings.Join(names, " ")+", the list is "+strings.Join(raceOptOutPackages, " "))
+	if uses != 1 {
+		bad = append(bad, "RACE_OPT_OUT is not used on exactly one line, and `make test` without it goes back to the 30-minute limit")
 	}
-	if !strings.Contains(makefile, "\ntest test-short cover: export GOFLAGS += $(RACE_OPT_OUT)\n") {
-		bad = append(bad, "`make test` no longer takes RACE_OPT_OUT, and internal/handler goes back to the 30-minute limit")
-	}
-	if !regexp.MustCompile(`(?m)^test: require-db-env\n\tgo test -race `).MatchString(makefile) {
-		bad = append(bad, "`make test` no longer runs with -race")
+	for _, target := range raceOptOutRecipes {
+		re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(target) + `: require-db-env\n\tgo test -race `)
+		if !re.MatchString(makefile) {
+			bad = append(bad, "`make "+target+"` no longer runs with -race")
+		}
 	}
 	return bad
 }
 
 // TestMakeTest_TheRaceOptOutIsAClosedList holds the shipped Makefile to the list, and every shape below
-// is the one edit that would quietly take the detector from this repository's own code.
+// is one edit that would quietly take the detector from this repository's own code.
 func TestMakeTest_TheRaceOptOutIsAClosedList(t *testing.T) {
 	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
@@ -68,19 +81,24 @@ func TestMakeTest_TheRaceOptOutIsAClosedList(t *testing.T) {
 	if bad := raceOptOutViolations(shipped); len(bad) > 0 {
 		t.Fatalf("the shipped Makefile: %v", bad)
 	}
-	const def = "RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false"
-	if !strings.Contains(shipped, def+"\n") {
-		t.Fatalf("CONTROL FAILED: the Makefile does not carry %q, so the shapes below edit nothing", def)
-	}
+	const testLine = "go test -race -count=1 -timeout=30m"
 	for _, tc := range []struct{ name, old, new, blame string }{
-		{"every package", def, def + " -gcflags=all=-race=false", "RACE_OPT_OUT names"},
-		{"this repository's packages", def, def + " -gcflags=github.com/atknatk/tappa/...=-race=false", "RACE_OPT_OUT names"},
-		{"a wider pattern in place of one", "regexp/...=-race=false", "./...=-race=false", "RACE_OPT_OUT names"},
-		{"one entry gone", " -gcflags=regexp/...=-race=false", "", "RACE_OPT_OUT names"},
-		{"switched off on the test line", "go test -race -count=1 -timeout=30m", "go test -race -gcflags=all=-race=false -count=1 -timeout=30m", "outside RACE_OPT_OUT"},
-		{"a second definition", def, def + "\n" + def, "exactly once"},
-		{"the test target does not take it", "\ntest test-short cover: export GOFLAGS += $(RACE_OPT_OUT)\n", "\n", "no longer takes"},
-		{"the test target drops -race", "go test -race -count=1 -timeout=30m", "go test -count=1 -timeout=30m", "no longer runs with -race"},
+		{"every package", raceOptOutDefinition, raceOptOutDefinition + " -gcflags=all=-race=false", "not the closed list"},
+		{"this repository's packages", raceOptOutDefinition, raceOptOutDefinition + " -gcflags=github.com/atknatk/tappa/...=-race=false", "not the closed list"},
+		{"a wider pattern in place of one", "regexp/...=-race=false", "./...=-race=false", "not the closed list"},
+		{"one entry gone", " -gcflags=regexp/...=-race=false", "", "not the closed list"},
+		{"a quoted flag pair on the definition", raceOptOutDefinition, raceOptOutDefinition + ` -gcflags=all="-l -race=false"`, "not the closed list"},
+		{"a recursive definition", raceOptOutDefinition, strings.Replace(raceOptOutDefinition, ":=", "=", 1), "not the closed list"},
+		{"switched off on the test line", testLine, "go test -race -gcflags=all=-race=false -count=1 -timeout=30m", "outside RACE_OPT_OUT"},
+		{"a quoted flag pair on the test line", testLine, `go test -race -gcflags=all="-l -race=false" -count=1 -timeout=30m`, "outside RACE_OPT_OUT"},
+		{"an indirect variable", raceOptOutDefinition, raceOptOutDefinition + "\nNR := -race=false", "outside RACE_OPT_OUT"},
+		{"a second definition", raceOptOutDefinition, raceOptOutDefinition + "\n" + raceOptOutDefinition, "exactly once"},
+		{"the targets do not take it", "\n" + raceOptOutUse + "\n", "\n", "exactly one line"},
+		{"another target takes it", "\n" + raceOptOutUse + "\n", "\n" + raceOptOutUse + "\nbuild: export GOFLAGS += $(RACE_OPT_OUT)\n", "used outside its one line"},
+		{"the one line grows a target", raceOptOutUse, "test test-short cover build: export GOFLAGS += $(RACE_OPT_OUT)", "used outside its one line"},
+		{"the test target drops -race", "\tgo test -race -count=1 -timeout=30m", "\tgo test -count=1 -timeout=30m", "`make test` no longer runs with -race"},
+		{"test-short drops -race", "\tgo test -race -count=1 -short", "\tgo test -count=1 -short", "`make test-short` no longer runs with -race"},
+		{"cover drops -race", "\tgo test -race -coverprofile", "\tgo test -coverprofile", "`make cover` no longer runs with -race"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			edited := strings.Replace(shipped, tc.old, tc.new, 1)

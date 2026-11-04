@@ -3,6 +3,7 @@ package adminauth
 import (
 	"context"
 	"errors"
+	"golang.org/x/crypto/bcrypt"
 	"os"
 	"strings"
 	"sync"
@@ -182,8 +183,14 @@ func (w *idWorld) int(sql string, args ...any) int {
 // newIDWorld makes an identity for a fresh address (withIdentity) or only the address and password.
 func newIDWorld(t *testing.T, owner *pgx.Conn, withIdentity bool) *idWorld {
 	t.Helper()
+	return newIDWorldAt(t, owner, withIdentity, bcrypt.MinCost)
+}
+
+// newIDWorldAt is newIDWorld with the identity's digest at a named work factor.
+func newIDWorldAt(t *testing.T, owner *pgx.Conn, withIdentity bool, cost int) *idWorld {
+	t.Helper()
 	w := &idWorld{t: t, owner: owner, email: "m14-07-" + uuid.NewString() + "@identity.example", pw: "pw-" + uuid.NewString()}
-	w.digest = fixtureDigest(t, w.pw)
+	w.digest = fixtureDigestAt(t, w.pw, cost)
 	if !withIdentity {
 		return w
 	}

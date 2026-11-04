@@ -14,6 +14,10 @@ package adminauth
 // Go's 10-minute per-package timeout (609 s) and FAILED.
 const timingSamples = 20
 
+// timingFixtureCost is the wall-clock fixtures' work factor without -race: nothing makes the sample
+// long but the work factor (timingFixtureCostLong, with the measurement).
+func timingFixtureCost() int { return timingFixtureCostLong }
+
 // timingSpreadGate is 1.5x here — TIGHTER than the race build's 2.5x, and the
 // asymmetry is the measurement, not an oversight.
 //

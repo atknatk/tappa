@@ -2,6 +2,8 @@
 
 package adminauth
 
+import "runtime/debug"
+
 // timingSamples and timingSpreadGate UNDER -race — i.e. what `make test` runs.
 
 // timingSamples is 3 under the race detector. One cost-12 comparison is ~11 s
@@ -11,8 +13,17 @@ package adminauth
 //
 // `make test` compiles blowfish without the detector (the Makefile's RACE_OPT_OUT, T190), and
 // keeps this number: what holds the spread under the noise anchor there is the sample's LENGTH
-// (timingFixtureCost, with the measurement), and 20 samples of the old 10 ms length did not.
+// (timingFixtureCostLong, with the measurement), and more samples of the old length did not.
 const timingSamples = 3
+
+// timingFixtureCost is the wall-clock fixtures' work factor in a -race build: the Long one when
+// blowfish was compiled without the detector, the MinCost one when the detector makes the sample long.
+func timingFixtureCost() int {
+	if info, ok := debug.ReadBuildInfo(); ok && raceOptOutInBuild(info.Settings) {
+		return timingFixtureCostLong
+	}
+	return timingFixtureCostInstrumented
+}
 
 // timingSpreadGate is 2.5x, DERIVED FROM MEASURED NOISE rather than chosen.
 //

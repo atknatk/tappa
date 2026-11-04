@@ -299,6 +299,11 @@ require-db-env:
 # go run lines. Bare `go test -race` is untouched, and that is what the test comments' "~11 s under
 # -race" mean. cmd/tappa
 # TestMakeTest_TheRaceOptOutIsAClosedList keeps this list these two.
+# HOW IT WORKS, AND IT IS NOT DOCUMENTED: go build puts its own -race first and the per-package
+# flags after it, so the compiler sees `-race -race=false` and the last one wins (measured with
+# go build -n, the same on go1.26.10 and go1.27.1). Check it again on a toolchain bump (the T180
+# day). A change can only show as slower runs or a red build, never as a silently weaker detector:
+# -race stays on every other package whatever this line does.
 RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false
 test test-short cover: export GOFLAGS += $(RACE_OPT_OUT)
 test: require-db-env
@@ -387,7 +392,9 @@ check-sandbox: require-db-env
 #                    (~10,7 sn, yerine gercek Postgres'li ikizi).
 #
 # ⚠️ -short SUITTE TAM DORT SKIP URETIR, ve dordu de burada ADIYLA sayilir. Sayiyi
-# dogrulayan komut: `make test-short GOFLAGS=-v | grep -c -- "--- SKIP:"` -> 4.
+# dogrulayan komut: `GOFLAGS=-v make test-short | grep -c -- "--- SKIP:"` -> 4.
+# (ORTAM BICIMI: `make test-short GOFLAGS=-v` komut satiri degiskenidir, RACE_OPT_OUT'un
+# `+=`'ini ezer ve o kosu yalnizca yavaslar. Olculdu: ortam bicimi ekler, komut satiri duser.)
 # Besinci bir skip eklenirse bu yorum da guncellenmelidir (M5-09'da bu blok
 # uc zamanlama sayisini tasiyordu; ayni standart).
 # 🔴 BU SAYI "UC" DIYORDU VE YANLISTI — M8-01'de olculdu (2026-08-15): dorduncu

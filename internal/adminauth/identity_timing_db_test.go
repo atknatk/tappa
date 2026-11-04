@@ -72,8 +72,8 @@ const decoyRounds = 80
 const (
 	decoyWorstNoise     = 1.28
 	decoyWeakestSignal  = 2.43
-	fiveCaseWorstNoise  = 1.30
-	fiveCaseCaughtShape = 1.98
+	fiveCaseWorstNoise  = 1.19
+	fiveCaseCaughtShape = 18.8
 )
 
 // TestIdentityDecoy_TakesWhatTheOpenTakes (S15): the decoy a failed sign-in sends instead of
@@ -138,26 +138,29 @@ func TestIdentityDecoy_TakesWhatTheOpenTakes(t *testing.T) {
 // calm moment hit. The measurements below are pairedSpread's (the minima's, on the reference stack
 // unloaded: noise 1.02-1.09x, the first signal 2.58x).
 //
-// Measured with pairedSpread (cheap fixtures, 15 interleaved rounds) on a 16-core workstation already
-// at load average ~25, beside 16 CPU burners -- the event row of the three known-address cases
-// INCLUDED (it is inside the measurement, S15):
+// THE FIXTURES ARE timingFixtureCost()'s SINCE T190 (the gate itself unchanged). `make test` compiles
+// blowfish without the race detector, which at cost 4 left a sample of ~13 ms and a signal of 1.74-2.00x
+// that noise under load reached: 2 runs of 40 over the gate here, 5 of 80 in the T190 audit, up to 2.70x.
+// Noise and signal both come back with the sample's length (timingFixtureCostLong's table has the
+// other costs). Measured with pairedSpread, 15 interleaved rounds, the event row of the three
+// known-address cases INCLUDED (it is inside the measurement, S15):
 //
-//	noise    plain 1.06-1.30x (10 runs) · -race 1.06-1.25x (10)
-//	         (the minima under the same load: -race 1.05-1.68x, 1 run in 10 over the gate -- 1.68x
-//	         with the five medians within 1.15x of each other, CI's 1.66x reproduced)
+//	noise (make test's build, cost 9)   128 thread burners, load 130-300: 1.08x median, 1.12x max (20);
+//	                                    1.07x median, 1.10x max (10) · load ~60 from other work: 1.17x max (3)
+//	noise (plain, cost 9)               load ~50: 1.14-1.19x (2)
+//	noise (bare -race, cost 4)          128 thread burners: 1.12x median, 1.19x max (10)
 //
-// Signals, each a mutation of identity.go:
+// Signals, each a mutation of identity.go, at make test's build, loaded by other work / by the burners:
 //
-//	has_active_membership read BEFORE the comparisons (the fifth case refused      plain 1.98-2.06x (5)
-//	early, its decoy and event step kept), pairedSpread, loaded as above            -race 18.8-22.5x (5)  caught
-//	the legacy window left unpadded (1-2 comparisons instead of 9), minima          1.29x  NOT caught
-//	the decoy removed from every failure (uniform, so the five stay together)       1.03x  NOT caught
+//	has_active_membership read BEFORE the comparisons (the fifth case refused      48.5-54.6x (4) / ~166x (3)
+//	early, its decoy and event step kept); bare -race at cost 4: 18.8-22.5x (5)    caught
+//	the legacy window left unpadded (1-2 comparisons instead of 9)                 1.79-3.70x (4) / 2.72-2.95x (3)  caught
+//	the decoy removed from every failure (uniform, so the five stay together)      1.18x (4)  NOT caught
 //
-// The two it cannot see are exact elsewhere: TestAuthenticatePerson_EveryFailureIsOneShape counts
-// the comparisons and the calls of every exit, and TestIdentityDecoy_TakesWhatTheOpenTakes times the
-// decoy against the open. At these cheap fixtures one comparison is ~1 ms against ~5 ms of database
-// work; at the shipped cost the padding's signal is ~9x, which this gate would see -- but a
-// cost-12 sample here would cost minutes under -race for a property already held exactly.
+// The one it cannot see is exact elsewhere: TestIdentityDecoy_TakesWhatTheOpenTakes times the decoy
+// against the open, and TestAuthenticatePerson_EveryFailureIsOneShape counts the comparisons and the
+// calls of every exit (the legacy window's mutation is caught there too, and in a bare -race build
+// at cost 4 only there: 1.29x). A sample at the shipped cost 12 would add nothing to these.
 const fiveCaseGate = 1.5
 
 // pairedSpread is fiveCaseGate's estimator: d[i][r] is case i's sample in round r. For every pair of
@@ -213,17 +216,18 @@ func TestAuthenticatePerson_FiveFailuresTakeOneTime(t *testing.T) {
 	}
 	d := testDB(t)
 	m := testManager(t, d)
+	m.dummy = timingFixtureDigest(t, "a discarded padding password")
 	owner := ownerConn(t)
 	ctx := context.Background()
 
-	withRow := newIDWorld(t, owner, true)
+	withRow := newIDWorldAt(t, owner, true, timingFixtureCost())
 	withRow.linked(withRow.tenant("M14-07 Five A"), "active", "backfill", 72*time.Hour)
-	withBoth := newIDWorld(t, owner, true)
+	withBoth := newIDWorldAt(t, owner, true, timingFixtureCost())
 	withBoth.linked(withBoth.tenant("M14-07 Five B"), "active", "backfill", 72*time.Hour)
-	withBoth.row(withBoth.tenant("M14-07 Five B2"), fixtureDigest(t, "the legacy password"), "active", time.Hour)
-	legacyOnly := newIDWorld(t, owner, false)
+	withBoth.row(withBoth.tenant("M14-07 Five B2"), timingFixtureDigest(t, "the legacy password"), "active", time.Hour)
+	legacyOnly := newIDWorldAt(t, owner, false, timingFixtureCost())
 	legacyOnly.row(legacyOnly.tenant("M14-07 Five C"), legacyOnly.digest, "active", time.Hour)
-	disabled := newIDWorld(t, owner, true)
+	disabled := newIDWorldAt(t, owner, true, timingFixtureCost())
 	disabled.linked(disabled.tenant("M14-07 Five E"), "disabled", "backfill", 72*time.Hour)
 
 	// Fill the open-cost meter the way production does: with real opens.
