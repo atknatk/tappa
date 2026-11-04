@@ -302,7 +302,7 @@ require-db-env:
 RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false
 test test-short cover: export GOFLAGS += $(RACE_OPT_OUT)
 test: require-db-env
-	go test -race -count=1 -timeout=30m -json ./... > "$${T190_JSON:-/dev/stdout}"
+	go test -race -count=1 -timeout=30m ./...
 
 ## check-sandbox: sandbox derlemesi (-tags sandbox; ADR 0028 §11) — vet + staticcheck tum agac, test etikete bagli paketler
 # NEDEN TUM SUIT DEGIL: etiket yalniz SANDBOX_TEST_PKGS'teki paketlerin derlemesini degistirir —

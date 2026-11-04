@@ -250,30 +250,10 @@ jobs:
         # birakmaz).
         run: make seed
 
-      - name: T190 lock sampler (TEMPORARY, reverted before the final commit)
-        run: |
-          cat > "$RUNNER_TEMP/locks.sql" <<'SQL'
-          WITH RECURSIVE closure(oid) AS (
-            SELECT 'public.tenants'::regclass::oid
-            UNION SELECT con.conrelid FROM pg_constraint con JOIN closure c ON con.confrelid = c.oid WHERE con.contype = 'f'
-          )
-          SELECT to_char(clock_timestamp(),'HH24:MI:SS'), a.pid, a.usename, round(extract(epoch FROM clock_timestamp()-a.xact_start))::int,
-                 a.state, c.relname, l.mode, replace(left(a.query,110), E'\n', ' ')
-          FROM pg_locks l JOIN closure z ON z.oid = l.relation JOIN pg_class c ON c.oid = l.relation
-          JOIN pg_stat_activity a ON a.pid = l.pid
-          WHERE l.granted AND a.pid <> pg_backend_pid() AND clock_timestamp()-a.xact_start > interval '3 seconds';
-          SQL
-          PG=$(docker ps --format '{{.Names}}' | grep -i -m1 -E 'postgres|db')
-          SU=$(docker exec "$PG" printenv POSTGRES_USER)
-          echo "container=$PG superuser=$SU"
-          nohup bash -c "while :; do docker exec -i $PG psql -U $SU -d tappa -At -F '|' < '$RUNNER_TEMP/locks.sql'; sleep 1; done" > "$RUNNER_TEMP/locks.txt" 2>&1 &
-
       - name: make check (fmt + lint + test + uretilen-dosya kontrolu)
         # fmt + vet + staticcheck + `go test -race` + `git diff --exit-code`.
         # Son adim, `make gen`/`make fmt` ciktisinin (uretilen dosyalar) commit
         # edildigini de dogrular — commit edilmemisse CI kirmizi (istenen).
-        env:
-          T190_JSON: ${{ runner.temp }}/t190.json
         run: make check
 
       - name: The sandbox build (make check-sandbox)
@@ -285,15 +265,6 @@ jobs:
         # TestCI_RunsVetAndTestWithTheSandboxTag recomputes it from the tree and reads this step).
         # After `make check`, on the same database: the suites share no state the order breaks.
         run: make check-sandbox
-
-      - name: T190 upload (TEMPORARY)
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: t190-locks
-          path: |
-            ${{ runner.temp }}/t190.json
-            ${{ runner.temp }}/locks.txt
 
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
