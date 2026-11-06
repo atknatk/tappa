@@ -5985,6 +5985,15 @@ type Querier interface {
 	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
 	// of the payload, and `at` lets a test assert the row exists without re-reading.
 	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
+	// RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
+	// caller's, so a retry after an answer that never arrived -- the COMMIT may have
+	// reached the server -- finds its own row and adds nothing to a table nothing can
+	// delete from. 0 rows affected means that row is already there, which is success.
+	//
+	// `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason. ON CONFLICT DO
+	// NOTHING needs no UPDATE privilege (tappa_app has SELECT, INSERT only, 00005) and
+	// fires no audit_log_no_mutation: nothing is mutated.
+	RecordAuditEventOnce(ctx context.Context, arg RecordAuditEventOnceParams) (int64, error)
 	// The result, in the claiming transaction: the status and the record's id, never a body. Only the
 	// claim's own row (status IS NULL) is written.
 	RecordIdempotency(ctx context.Context, arg RecordIdempotencyParams) (int64, error)

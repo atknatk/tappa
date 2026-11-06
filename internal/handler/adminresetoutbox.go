@@ -123,6 +123,10 @@ import (
 //     M10 EM-7C each row is preceded by its link's withdrawal through the real
 //     adminauth.Resets.Withdraw, and the two together still fit (180–512 ms, three
 //     runs under -race) — TestResetOutboxDB_AFullOutboxFitsTheWriteReserve;
+//   - a stalled or absent database (T197, adminresetoutcome.go): each of a link's two
+//     writes on its own clock, a transient failure tried once more and a permanent one
+//     not, a request held by one budget and the retry on the worker, a lost COMMIT
+//     answer doubling nothing — TestResetOutcomeDB_ and TestResetOutcome_;
 //   - the drain runs AT THE SAME TIME as the HTTP drain: with a 2 s request in
 //     flight and a send stuck in the relay, the listener refused a new connection
 //     about 0.2 ms after shutdown() was called (bound 300 ms) and the sequence took
@@ -141,12 +145,12 @@ import (
 //     applied unconditionally (M06), no row for a panic before the row (M07), the
 //     "decided" mark set after the row instead of before it (M08), the drain's
 //     stop-sending ignored (M09), the send in flight not cancelled at the cut
-//     (M10b), Drain not closing the outbox (M12), recordOutcome bypassing the
+//     (M10b), Drain not closing the outbox (M12), admitOutcome bypassing the
 //     account budget (M24), the row written on the send's cancelled context (M26),
 //     a closing outbox reported as full (M32), the outbox taking grants after the
 //     drain began (M33 — a send on the closed channel, the test binary dies), a
 //     second worker (X02, with the full-outbox and shutdown tests);
-//   - the concurrency and racing tests: recordOutcome bypassing the budget (M34),
+//   - the concurrency and racing tests: admitOutcome bypassing the budget (M34),
 //     dispatch's fallback row bypassing it (X12), TryCharge split back into "Allowed,
 //     then Charge" (M39; the limiter's own test too, M39h);
 //   - the full-outbox test: a blocking hand-over (M02), a silent drop (M03);
@@ -193,7 +197,8 @@ import (
 // completeness claim.
 //
 // COUNTED LIMITS: a process that DIES (SIGKILL, OOM, a panic outside a grant)
-// loses the outbox: up to resetOutboxSize grants plus the one in flight end with NO
+// loses the outbox (and its retry queue, adminresetoutcome.go): up to resetOutboxSize
+// grants plus the one in flight end with NO
 // row (ADR 0022 counted limit 1 — the link may already be in a mailbox) and, since
 // M10 EM-7C, with no withdrawal either, so each of those accounts keeps a live link no
 // inbox may hold and gets no new one until it expires (adminauth.ResetTTL; the EM-7C
@@ -300,9 +305,13 @@ type resetJob struct {
 // resetOutbox is the bounded hand-over between the request and the worker.
 type resetOutbox struct {
 	jobs chan resetJob
+	// retries holds the outcomes a request could not finish on its own clock, for the
+	// one worker to finish (adminresetoutcome.go). A channel of its own because a full
+	// jobs is one of the reasons a request wrote the outcome itself.
+	retries chan *resetOutcome
 
-	// mu guards closed and the close of jobs, so an offer can never send on a
-	// closed channel.
+	// mu guards closed and the close of both channels, so an offer can never send on
+	// a closed channel.
 	mu     sync.Mutex
 	closed bool
 
@@ -321,7 +330,11 @@ type resetOutbox struct {
 }
 
 func newResetOutbox(size int) *resetOutbox {
-	q := &resetOutbox{jobs: make(chan resetJob, size), done: make(chan struct{})}
+	q := &resetOutbox{
+		jobs:    make(chan resetJob, size),
+		retries: make(chan *resetOutcome, resetRetryQueueSize),
+		done:    make(chan struct{}),
+	}
 	q.sendsStopped, q.stopSending = context.WithCancel(context.Background())
 	q.budgetSpent, q.spendBudget = context.WithCancel(context.Background())
 	return q
@@ -352,6 +365,7 @@ func (q *resetOutbox) close() {
 	if !q.closed {
 		q.closed = true
 		close(q.jobs)
+		close(q.retries)
 	}
 }
 
@@ -359,12 +373,6 @@ func (q *resetOutbox) close() {
 // drain stops sending.
 func (q *resetOutbox) sendContext(base context.Context) (context.Context, context.CancelFunc) {
 	return boundedBy(base, resetSendGrace, q.sendsStopped)
-}
-
-// auditContext bounds one outcome row's write by resetAuditGrace and ends it the
-// moment the drain's whole budget is spent.
-func (q *resetOutbox) auditContext(base context.Context) (context.Context, context.CancelFunc) {
-	return boundedBy(base, resetAuditGrace, q.budgetSpent)
 }
 
 // boundedBy is base with a timeout of d that also ends when stopper does.
@@ -403,17 +411,22 @@ func boundedBy(base context.Context, d time.Duration, stopper context.Context) (
 // (httpShutdownGrace), which outlasts the outbox's: tying this row to the drain's
 // spent budget would drop it while the pool is still open.
 //
-// ⚠️ SINCE M10 EM-7C THE ROW IS PRECEDED BY THE LINK'S WITHDRAWAL (recordOutcome), ON
+// ⚠️ SINCE M10 EM-7C THE ROW IS PRECEDED BY THE LINK'S WITHDRAWAL (attemptOutcome), ON
 // THE SAME REQUEST: every grant refused here — breaker, full outbox, closing outbox —
 // costs the request two transactions before its floor ends, on registered addresses
 // only; a full adminauth.ResetWindow is eight of each. Measured against real Postgres
 // (the real Withdraw and audit recorder): the answer stays inside [floor, floor+50ms]
 // — TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor. It is the shape of the
 // fallback row itself (ADR 0022 EM-5A note, limit 14; the EM-7C note's limit 9).
-func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant) {
+//
+// ⚠️ SINCE T197 THOSE WRITES HAVE fallbackUntil, ONE CLOCK FOR THE WHOLE REQUEST
+// (adminresetoutcome.go): before it a stalled database held this request
+// resetAuditGrace per grant, one after another (measured with real locks, a full window:
+// 40.5 s), and every grant lost both its withdrawal and its row.
+func (h *AdminReset) dispatch(r *http.Request, fallbackUntil time.Time, ip string, g adminauth.ResetGrant) {
 	base := context.WithoutCancel(r.Context())
 	if h.mail.RefusingResets() {
-		h.recordFallback(base, g, resetReasonBreaker)
+		h.recordFallback(base, fallbackUntil, g, resetReasonBreaker)
 		return
 	}
 	accepted, closing := h.outbox.offer(resetJob{base: base, ip: ip, g: g})
@@ -426,23 +439,30 @@ func (h *AdminReset) dispatch(r *http.Request, ip string, g adminauth.ResetGrant
 	}
 	h.log.WarnContext(base, "panel recovery: the delivery queue did not take the link, so it was not sent",
 		append(append([]any{"ip", ip}, grantIDs(g)...), "queue", state)...)
-	h.recordFallback(base, g, reason)
+	h.recordFallback(base, fallbackUntil, g, reason)
 }
 
-// recordFallback writes the undelivered row of a grant the request kept from the
-// worker, on the request's own row context (dispatch says why), bounded by
-// resetAuditGrace.
-func (h *AdminReset) recordFallback(base context.Context, g adminauth.ResetGrant, reason string) {
-	ctx, cancel := context.WithTimeout(base, resetAuditGrace)
-	defer cancel()
-	h.recordOutcome(ctx, g, ActionAdminResetUndelivered, "undelivered", reason)
-}
-
-// work is the one worker goroutine. It returns when the outbox is closed AND empty.
+// work is the one worker goroutine: it sends what is queued and finishes what requests
+// could not (adminresetoutcome.go). It returns when the outbox is closed AND both
+// channels are empty.
 func (h *AdminReset) work() {
 	defer close(h.outbox.done)
-	for j := range h.outbox.jobs {
-		h.handle(j)
+	jobs, retries := h.outbox.jobs, h.outbox.retries
+	for jobs != nil || retries != nil {
+		select {
+		case j, ok := <-jobs:
+			if !ok {
+				jobs = nil
+				continue
+			}
+			h.handle(j)
+		case o, ok := <-retries:
+			if !ok {
+				retries = nil
+				continue
+			}
+			h.contain(resetJob{base: o.base, g: o.g}, func() { h.settleOutcome(o) })
+		}
 	}
 }
 

@@ -235,6 +235,9 @@ func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 		t.Errorf("the fastest of %d runs answered in %v, over floor+50ms (%v): the fallback's %d withdrawals "+
 			"and rows are visible in the clock", runs, fastest, ceiling, len(grants))
 	}
+	// Since T197 a sample slow enough to meet resetFallbackBudget hands its remaining writes to the
+	// worker: the band above is this test's claim, and the writes are counted once they are all done.
+	drain(t, h)
 	if w := resets.withdrawals(); len(w) != runs*len(grants) {
 		t.Errorf("%d withdrawal(s) reached Postgres, want %d", len(w), runs*len(grants))
 	}

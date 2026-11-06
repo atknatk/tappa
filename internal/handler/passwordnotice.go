@@ -412,7 +412,7 @@ func (h *AdminReset) containNotice(base context.Context, c passwordChange, f fun
 // mode switch, the same per-account budget keyed on the identity, the same bounded send.
 //
 // ITS OUTCOME IS A LOG LINE, NOT AN AUDIT ROW: the notice belongs to no business (the per-identity
-// link's trail, recordIdentityOutcome's reason), and every business already holds its
+// link's trail, admitOutcome's reason), and every business already holds its
 // admin.recovery.completed row from the definer. The line carries ids only -- never the address.
 func (h *AdminReset) personPasswordChanged(ctx context.Context, identityID uuid.UUID, to string) {
 	base := context.WithoutCancel(ctx)

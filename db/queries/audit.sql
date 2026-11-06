@@ -53,6 +53,19 @@ INSERT INTO audit_log (tenant_id, actor_id, action, target, detail)
 VALUES (@tenant_id, @actor_id, @action, @target, @detail)
 RETURNING id, at;
 
+-- name: RecordAuditEventOnce :execrows
+-- RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
+-- caller's, so a retry after an answer that never arrived -- the COMMIT may have
+-- reached the server -- finds its own row and adds nothing to a table nothing can
+-- delete from. 0 rows affected means that row is already there, which is success.
+--
+-- `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason. ON CONFLICT DO
+-- NOTHING needs no UPDATE privilege (tappa_app has SELECT, INSERT only, 00005) and
+-- fires no audit_log_no_mutation: nothing is mutated.
+INSERT INTO audit_log (id, tenant_id, actor_id, action, target, detail)
+VALUES (@id, @tenant_id, @actor_id, @action, @target, @detail)
+ON CONFLICT (id) DO NOTHING;
+
 -- name: ConfirmRecentRemoval :one
 -- Did THIS admin, in THIS business, remove THIS row, JUST NOW?
 --

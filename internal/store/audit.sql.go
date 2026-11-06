@@ -476,3 +476,41 @@ func (q *Queries) RecordAuditEvent(ctx context.Context, arg RecordAuditEventPara
 	err := row.Scan(&i.ID, &i.At)
 	return i, err
 }
+
+const recordAuditEventOnce = `-- name: RecordAuditEventOnce :execrows
+INSERT INTO audit_log (id, tenant_id, actor_id, action, target, detail)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (id) DO NOTHING
+`
+
+type RecordAuditEventOnceParams struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	ActorID  *uuid.UUID
+	Action   string
+	Target   *string
+	Detail   []byte
+}
+
+// RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
+// caller's, so a retry after an answer that never arrived -- the COMMIT may have
+// reached the server -- finds its own row and adds nothing to a table nothing can
+// delete from. 0 rows affected means that row is already there, which is success.
+//
+// `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason. ON CONFLICT DO
+// NOTHING needs no UPDATE privilege (tappa_app has SELECT, INSERT only, 00005) and
+// fires no audit_log_no_mutation: nothing is mutated.
+func (q *Queries) RecordAuditEventOnce(ctx context.Context, arg RecordAuditEventOnceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordAuditEventOnce,
+		arg.ID,
+		arg.TenantID,
+		arg.ActorID,
+		arg.Action,
+		arg.Target,
+		arg.Detail,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

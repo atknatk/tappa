@@ -3434,7 +3434,9 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
 8. **Geri çekmenin kapsamadığı ölüm durumları:** süreç ÖLÜRSE (SIGKILL, OOM; EM-5A sınır 1) kuyruktaki grant'lar
    satırsız kalır **ve geri çekilmez** — o hesaplar `ResetTTL`'ye dek link alamaz (link canlı ama belki hiçbir kutuda
    yok); boşaltmanın bütün bütçesi tükenirse yazılamayan satırlarla birlikte geri çekmeler de terk edilir; geri çekme
-   veritabanı hatasıyla başarısız olursa hata satırı + `undelivered` satırı yazılır, link `ResetTTL`'ye dek tutar.
+   veritabanı hatasıyla başarısız olursa hata satırı yazılır ve link `ResetTTL`'ye dek tutar. *`undelivered` satırı bu
+   durumda da yazılır* cümlesi **2026-11-06'ya dek yanlıştı** (T197, aşağıdaki not): iki yazım tek bağlamı paylaştığından
+   veritabanı durunca satır da düşüyordu.
    Tersi yönde: zaman aşımına uğramış ama röleye ulaşmış bir gönderim (EM-5A sınır 15) de geri çekilir — kutudaki link
    *"That link no longer works"* der, sahibi yeniden ister ve hemen yeni link alır (fail-closed). **Süreç ölümü
    (SIGKILL/OOM) kalanı orkestratörce kabul edildi (4. tur).**
@@ -3446,6 +3448,16 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    tam pencere, kesici reddi) ölçüldü: yanıt **250,27–251,99 ms**, [taban, taban + 50 ms] içinde
    (`TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor`; sahte grant'lar olduğu için `UPDATE` satır bulmaz —
    gidiş-dönüş ve transaction ödenir, tek satırlık yazım ödenmez).
+   **T197 notu (2026-11-06) — bu yazımların süresi.** Yukarıdaki ölçüm sağlıklı veritabanınındır ve değişmedi. Durmuş
+   veritabanında (ölçüldü, gerçek Postgres, başka oturumda satır kilidi, gerçek link, kesici reddi; eski kod → yeni kod)
+   tam pencere **40,5 sn, 0 satır, 8 canlı link → 1,23 sn, 8 satır, 0 canlı link**; tek link 5,5 sn → 0,61 sn. Eski yol
+   grant başına 5 sn tutuyordu, kayıtlı adresi saatten okutuyordu ve hak başına iki yazımın ikisini birden kaybediyordu.
+   **Yeni kural:** bir istek bütün yedek yazımlarına **tek `resetFallbackBudget` (1 sn)** harcar, her yazım en çok
+   `resetFallbackStep` (500 ms); bitmeyen yazım **istekten çıkar**, süreç içi `retries` kuyruğundan (32) tek işçiye gider.
+   Yanıt yeniden denemeyi hiçbir zaman beklemez. Tavan tabanın **üstündedir**: durmuş veritabanında kayıtlı adresin yanıtı
+   1 sn'ye kadar uzayabilir, yani saat kanalı **daraldı, kapanmadı**. Bütçe tabanın altına çekilmedi, çünkü o zaman yavaş
+   bir günde satır yanıttan sonraya kayardı ve satırın yanıtla birlikte var olması bu yolun testlerinin tuttuğu şekildir.
+   Sağlıklı yolda davranış aynı: yazımlar sığar, satır yanıt dönerken vardır, zamanlama tabanı ve bant değişmedi.
 10. **`kept` satırları hesap bütçesini harcar:** anonim istekler bir hesabın sonraki `requested`/`undelivered`
     satırlarını bütçenin dışına itebilir (EM-5A'nın *"satırları sınırlar, gönderimleri değil"* sınırı) — gönderim
     etkilenmez.
@@ -3459,6 +3471,25 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
 16. **Kablolama pinleri kaynak düzeyindedir** (EM-7A sınır 11'in ikizi): `run()`'ı okur; dışında kurulanı, işaretçi ya
     da kapatma üzerinden yeniden atamayı görmez.
 17. **Gerçek SES ölçülmedi** — EM-5B.
+
+**T197 notu (2026-11-06) — sınır 8'in güncel hâli.** Bir linkin iki yazımı vardır: geri çekme ve sonuç satırı (kimlik
+linkinde satır yok, ADR 0031 §5.2; tek log satırı). **Her birinin kendi saati vardır** (EM-5'in gönderim/satır dersi bir
+kat aşağıda): biri durursa öteki kendi süresini kullanır. **Geçici hatada her yazım bir kez daha denenir, kalıcı hatada
+denenmez** (`db.Transient`: geçen süre, kopan ya da reddedilen bağlantı, sunucu kapanıyor/açılıyor, bağlantı sınırı, kilit
+ve serileştirme kaybı evet; kısıt, yetki, eksik fonksiyon, iptal edilmiş bağlam hayır). İki yazım iki kez yazılmaya
+güvenlidir, ölçüldü: geri çekme yalnız `NULL`'dan hareket eder, satır kendi id'sini taşır (`RecordAuditEventOnce`,
+`ON CONFLICT (id) DO NOTHING`, migration yok); COMMIT sunucuya ulaşıp cevabı kaybolduğunda tek satır, tek geri çekme
+(`TestResetOutcomeDB_ALostAnswerDoesNotDoubleAWrite`). Bütçe yazım başına değil sonuç başına bir kez işler. İşçide yazım başına
+süre `resetOutcomeGrace` (5 sn) + `resetRetryPause` (2 sn) + 5 sn, yani yazım başına ~12 sn'lik duruşu atlatır (önceden iki yazım
+toplam 5 sn).
+**Kalan, sayılı:** iki deneme de düşerse eskisi gibi: yazım başına ERROR, satır yok, link `ResetTTL`'ye dek canlı,
+sahibin istekleri `kept` (kimlik linkinde kişinin **bütün** işletmelerinde kurtarma durur,
+`TestPanelIdentityReset_BothTriesFailingLockThePersonOut`). Kapanış yönü güvenli: link hiçbir kutuda yok, kimse harcayamaz; maliyet
+kurtarma erişilebilirliğidir. `retries` kuyruğu doluysa ya da süreç kapanıyorsa aynı sonuç; süreç ölürse kuyruk da gider
+(sınır 1). İşçi tektir, yani veritabanı durunca arkasındaki gönderimler de yavaşlar (grant başına en çok ~22 sn). `kept` satırı
+(sınır 9(a)) bu kuralın dışındadır: tek yazım, yeniden deneme yok, istek başına hesap sayısı kadar 5 sn tutabilir (T211).
+**Önerilen, uygulanmadı (migration ister, kullanıcı kararı):** linke `delivered_at` sütunu; `kept` dalı teslim edildiği bilinmeyen,
+gönderim süresinden eski canlı linki geri çekip yeni basarsa kilitlenme `ResetTTL`'den bir sonraki isteğe iner (T212).
 
 **Devirler:**
 - **EM-5B:** önkoşul (b)'nin kodu bu notla; (c) kabul, genişletilmedi; **sınır 6 (işletmeler arası davet

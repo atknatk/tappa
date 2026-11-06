@@ -55,6 +55,11 @@ func New(data Database) (*Recorder, error) {
 // say so out loud; see db/queries/audit.sql for why no "system tenant" is
 // invented to paper over it.
 type Event struct {
+	// ID is the row's id when the CALLER may write this event twice, and uuid.Nil
+	// (the database picks one) otherwise. A second Record of an event with the same
+	// ID adds no row: a retry after an answer that never arrived cannot double a row
+	// in a table nothing can delete from (T197; ADR 0022's EM-7C note, limit 8).
+	ID       uuid.UUID
 	TenantID uuid.UUID
 	// ActorID is the ADMIN who caused the event, or nil for the system and for
 	// an employee acting on themselves (00005: the column is polymorphic and
@@ -87,12 +92,9 @@ func (r *Recorder) Record(ctx context.Context, e Event) (uuid.UUID, error) {
 	}
 	var id uuid.UUID
 	err = r.data.WithTenant(ctx, e.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		row, e := store.New(tx).RecordAuditEvent(ctx, params)
-		if e != nil {
-			return e
-		}
-		id = row.ID
-		return nil
+		var werr error
+		id, werr = e.insert(ctx, tx, params)
+		return werr
 	})
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("audit: record %q: %w", e.Action, err)
@@ -112,11 +114,29 @@ func (r *Recorder) RecordTx(ctx context.Context, tx pgx.Tx, e Event) (uuid.UUID,
 	if err != nil {
 		return uuid.Nil, err
 	}
-	row, err := store.New(tx).RecordAuditEvent(ctx, params)
+	id, err := e.insert(ctx, tx, params)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("audit: record %q: %w", e.Action, err)
 	}
-	return row.ID, nil
+	return id, nil
+}
+
+// insert appends the row: under the database's id, or under the caller's and at most
+// once (Event.ID).
+func (e Event) insert(ctx context.Context, tx pgx.Tx, p store.RecordAuditEventParams) (uuid.UUID, error) {
+	if e.ID == uuid.Nil {
+		row, err := store.New(tx).RecordAuditEvent(ctx, p)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return row.ID, nil
+	}
+	if _, err := store.New(tx).RecordAuditEventOnce(ctx, store.RecordAuditEventOnceParams{
+		ID: e.ID, TenantID: p.TenantID, ActorID: p.ActorID, Action: p.Action, Target: p.Target, Detail: p.Detail,
+	}); err != nil {
+		return uuid.Nil, err
+	}
+	return e.ID, nil
 }
 
 // params validates the event and renders its detail to JSON.

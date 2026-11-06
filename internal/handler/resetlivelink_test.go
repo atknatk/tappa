@@ -274,7 +274,7 @@ func TestAdminReset_TheSentPageSaysWhatAskingAgainDoes(t *testing.T) {
 }
 
 // TestAdminReset_AnUndeliveredLinkIsWithdrawnPastTheAccountsBudget: the withdrawal
-// comes BEFORE the account budget is asked (recordOutcome), so an account whose budget
+// comes BEFORE the account budget is asked (newResetOutcome), so an account whose budget
 // anonymous "kept" requests have spent still gets its undelivered link withdrawn —
 // otherwise those requests would buy the attacker an hour in which the owner's account
 // holds a link no inbox has and every request mints nothing. CONTROL: the budget really
