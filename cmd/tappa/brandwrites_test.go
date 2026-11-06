@@ -33,7 +33,7 @@ var brandWriteCallSites = map[string]map[string]int{
 }
 
 // brandWriteSQLRE is a statement that writes the table, in SQL or in a Go string.
-var brandWriteSQLRE = regexp.MustCompile(`(?i)\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?(?:public\.)?tenant_branding\b`)
+var brandWriteSQLRE = regexp.MustCompile(`(?i)\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE(?:\s+TABLE)?|COPY)\s+(?:ONLY\s+)?(?:"?public"?\.)?"?tenant_branding\b`)
 
 // brandWriteUses reads one Go file and returns how many times it names each write, and the string
 // literals that carry a statement writing the table. It counts every selector and not only calls:
@@ -92,6 +92,10 @@ func TestBrandWrites_TheScannersSeeWhatTheyAreFor(t *testing.T) {
 		{"a method expression", `w := (*store.Queries).EnsureTenantBrand; _ = w`, "EnsureTenantBrand", false},
 		{"raw SQL", "tx.Exec(ctx, `UPDATE tenant_branding SET accent = NULL`)", "", true},
 		{"raw SQL, another spacing", "tx.Exec(ctx, \"insert\\n into  public.tenant_branding (tenant_id) VALUES ($1)\")", "", true},
+		{"a quoted name", "tx.Exec(ctx, `UPDATE \"tenant_branding\" SET accent = NULL`)", "", true},
+		{"a quoted schema and name", "tx.Exec(ctx, `UPDATE \"public\".\"tenant_branding\" SET accent = NULL`)", "", true},
+		{"a bulk write", "tx.Exec(ctx, `COPY tenant_branding FROM STDIN`)", "", true},
+		{"a bulk write, quoted", "tx.Exec(ctx, `COPY \"tenant_branding\" (tenant_id) FROM STDIN`)", "", true},
 		{"the params struct is no write", `_ = store.SetTenantLogoParams{}`, "", false},
 		{"a read is no write", "tx.Query(ctx, `SELECT accent FROM tenant_branding`)", "", false},
 		{"a word in a string is no write", `_ = "SetTenantLogo"`, "", false},
