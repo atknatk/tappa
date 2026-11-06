@@ -39,7 +39,7 @@ func (f fakePlaqueList) Screen(context.Context, uuid.UUID) (tenant.PlaqueScreen,
 
 func devCfg(env, base string) *config.Config {
 	return &config.Config{Env: env, BaseURL: base, RetentionYears: 2, DevTools: env == config.EnvDev,
-		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"), InviteHMACKey: []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")}
+		SessionHMACKey: config.NewKey([]byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")), InviteHMACKey: config.NewKey([]byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"))}
 }
 
 // TestDevToolsEnabled_IsDevOnALoopbackAddressOnly: TAPPA_ENV=dev alone is not

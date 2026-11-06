@@ -32,9 +32,9 @@ func testConfig(t *testing.T) *config.Config {
 		t.Skip("DATABASE_URL not set; skipping invite DB tests (real Postgres required)")
 	}
 	return &config.Config{
-		DatabaseURL:   raw,
+		DatabaseURL:   config.NewDSN(raw),
 		BaseURL:       "http://localhost:8080",
-		InviteHMACKey: testKeyA,
+		InviteHMACKey: config.NewKey(testKeyA),
 	}
 }
 

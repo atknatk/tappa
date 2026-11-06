@@ -25,8 +25,8 @@ func TestConfig_WebhookSettingsAreRequiredOutsideDev(t *testing.T) {
 			if err != nil {
 				t.Fatalf("both set: %v", err)
 			}
-			if len(c.WebhookKEK) != 32 || len(c.WebhookBlockedAddresses) != 2 {
-				t.Fatalf("KEK %d bytes, %d blocked entries", len(c.WebhookKEK), len(c.WebhookBlockedAddresses))
+			if c.WebhookKEK.Len() != 32 || len(c.WebhookBlockedAddresses) != 2 {
+				t.Fatalf("KEK %d bytes, %d blocked entries", c.WebhookKEK.Len(), len(c.WebhookBlockedAddresses))
 			}
 		})
 		for _, v := range []string{"TAPPA_WEBHOOK_KEK", "TAPPA_WEBHOOK_BLOCKED_ADDRESSES"} {
@@ -46,7 +46,7 @@ func TestConfig_WebhookSettingsAreRequiredOutsideDev(t *testing.T) {
 		t.Setenv("TAPPA_WEBHOOK_KEK", "")
 		t.Setenv("TAPPA_WEBHOOK_BLOCKED_ADDRESSES", "")
 		c, err := config.Load()
-		if err != nil || c.WebhookKEK != nil || c.WebhookBlockedAddresses != nil {
+		if err != nil || c.WebhookKEK.Len() > 0 || c.WebhookBlockedAddresses != nil {
 			t.Fatalf("dev: %v", err)
 		}
 	})

@@ -29,7 +29,7 @@ func passDB(t *testing.T) *db.DB {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping (real Postgres required). Run `make test`.")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

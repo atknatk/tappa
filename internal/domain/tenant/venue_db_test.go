@@ -66,7 +66,7 @@ func newVenueFixture(t *testing.T) *venueFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping venue write tests (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

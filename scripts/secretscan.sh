@@ -560,7 +560,7 @@ IFS= read -r -d '' R7D_WAIVERS <<'R7DW' || true
 ^internal/handler/adminreset_test[.]go$;0135c768d87f458e87c5320447d29a4c3fd694a7de5f7485e26f6143d4839b07;sentetik sifirlama akisi test degeri
 ^internal/handler/adminreset_test[.]go$;59478a0ee7db4c9ee6c286307c5bf1e059c51d788dacbf07a42c1d0a87605fab;sentetik sifirlama akisi test degeri
 ^internal/handler/adminreset_test[.]go$;8f451658979cdd418b80dda3bf93a695edfbf8479a0872aa609c07a46620aefd;sentetik sifirlama akisi test degeri
-^internal/handler/health_db_test[.]go$;dcd571e17305d780051fcaf1f541eaf592a07fdf663c8c41d237fc358720e71d;sentetik DSN: hataya sizmama testi
+^internal/handler/health_db_test[.]go$;4ee3a331792ceb3fe438cc88a9311934c36a0091cdaa9a771aeaaf35c1634e37;sentetik DSN: hataya sizmama testi
 ^internal/handler/logincontext_test[.]go$;d3b8bd29b16d78c5663e9e6ef22ffd74414de62b8c1c1baf55a42f71584fc483;sabit zamanli karsilastirma testi
 ^test/fixtures/seed[.]sql$;fc3bde1e9e86d1626bb484ab9683cd47f9dbde09746750759deeb303e4c6b242;seed demo sahibi bcrypt ozeti (dev)
 ^test/fixtures/seed[.]sql$;3f6973aef02bc0e14af2eb9ecaf4e2278ca15a79b80c4fbfcc39360737fb3397;seed demo sahibi bcrypt ozeti (dev)
@@ -591,8 +591,8 @@ IFS= read -r -d '' R7D_WAIVERS <<'R7DW' || true
 # bunlari da yakaladi — kaynaginda siniflandirildi, hicbiri gercek bir anahtar degil:
 # AN12196 vektorleri, belge disi bir bayt rampasi, adinda fake/test/wrong gecen test
 # degerleri, sun_vectors.json'daki sahte degerlerin kopyalari (deger esitligi olculdu).
-^internal/handler/adminlogin_db_test[.]go$;9a36528d5f9fc5e486f3ebc7c8beb25fc9b031615b0a5a1261322e67d9d80238;sentetik test HMAC degeri (davet fixture, oturumdan ayri)
-^internal/handler/logincontext_test[.]go$;fd3cb0c2acb6fd0190349a0b98d4d9d59368cfc597afe8d31854e1fa2517bd43;sentetik test HMAC degeri (farkli oturum testi)
+^internal/handler/adminlogin_db_test[.]go$;7503ae2822592143b4b8606d8db572b31f95d68e1045d99ded8a04061f21db6b;sentetik test HMAC degeri (davet fixture, oturumdan ayri)
+^internal/handler/logincontext_test[.]go$;ede4fc9574440d3bf7a47f72ac45a90efd2d623c7de084ef7cf53dd8508080dc;sentetik test HMAC degeri (farkli oturum testi)
 ^internal/handler/tap_db_test[.]go$;015e1afff896440b13b9e615bb546e87805131c98d06cc3851660fd276d10763;sun_vectors.json sahte KEK ile ayni sahte deger
 ^internal/handler/tap_db_test[.]go$;1a22c9ac826c899ccc50f5fb9a55a32bd9ac5278b1d7fa98c1c091b9869fb58d;sun_vectors.json sahte tag_key_A ile ayni sahte deger
 ^internal/invite/code_test[.]go$;12067ab55839ce14b986e104d96ec136d6b105b3a053cfb11504b27cee290563;sentetik test degeri (davet kodu testi, tek bayt farkli ikili)

@@ -45,7 +45,7 @@ func TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	const apiHost = "api.taptime.mt"
-	cfg := &config.Config{DatabaseURL: appDSN, APIHost: apiHost, APIKeyHMACKey: mac}
+	cfg := &config.Config{DatabaseURL: config.NewDSN(appDSN), APIHost: apiHost, APIKeyHMACKey: config.NewKey(mac)}
 	data, err := db.New(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -744,7 +744,7 @@ func (p *panelHarness) mintReplaceConfirmation(t *testing.T, uid string) (string
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET the section = %d", res.StatusCode)
 	}
-	c, err := newAdminConfirm(&config.Config{SessionHMACKey: []byte("0123456789abcdef0123456789abcdef")})
+	c, err := newAdminConfirm(&config.Config{SessionHMACKey: config.NewKey([]byte("0123456789abcdef0123456789abcdef"))})
 	if err != nil {
 		return "", err
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/sun"
 )
 
@@ -292,7 +293,7 @@ func TestTapContext_RefusesToSignWithoutASession(t *testing.T) {
 
 func TestNewTapContexts_RefusesAShortKey(t *testing.T) {
 	cfg := tapCfg()
-	cfg.SessionHMACKey = []byte("short")
+	cfg.SessionHMACKey = config.NewKey([]byte("short"))
 	if _, err := newTapContexts(cfg); err == nil {
 		t.Fatal("a short key was accepted: it still produces plausible-looking output, so the failure would be invisible")
 	}
@@ -321,7 +322,7 @@ func TestTapContext_DomainSeparation(t *testing.T) {
 	got := c.sign(payload, sid)
 
 	// 1. The signing key is NOT the session key.
-	if string(c.key) == string(cfg.SessionHMACKey) {
+	if string(c.key) == string(cfg.SessionHMACKey.Reveal()) {
 		t.Fatal("the tap context key IS the session HMAC key: a leak of one would be a leak of both")
 	}
 	// The derivation is one-way, so knowing the derived key must not hand over
@@ -333,7 +334,7 @@ func TestTapContext_DomainSeparation(t *testing.T) {
 
 	// 2. A bare HMAC under the SESSION key over the same payload — what an
 	// invite- or session-shaped construction would produce — does not match.
-	bare := hmac.New(sha256.New, cfg.SessionHMACKey)
+	bare := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	bare.Write([]byte(payload))
 	if hmac.Equal(got, bare.Sum(nil)) {
 		t.Fatal("a bare HMAC under the session key reproduces a tap context signature")
@@ -352,7 +353,7 @@ func TestTapContext_DomainSeparation(t *testing.T) {
 	// 4. A DIFFERENT deployment key produces a different signature — the point of
 	// keying it at all.
 	other := tapCfg()
-	other.SessionHMACKey = []byte("OTHEROTHEROTHEROTHEROTHEROTHEROO")
+	other.SessionHMACKey = config.NewKey([]byte("OTHEROTHEROTHEROTHEROTHEROTHEROO"))
 	oc, err := newTapContexts(other)
 	if err != nil {
 		t.Fatalf("newTapContexts: %v", err)

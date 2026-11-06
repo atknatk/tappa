@@ -160,15 +160,15 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("invite: nil config")
 	}
-	if len(cfg.InviteHMACKey) != hmacKeyLen {
-		return nil, fmt.Errorf("invite: hmac key must be %d bytes, got %d", hmacKeyLen, len(cfg.InviteHMACKey))
+	if cfg.InviteHMACKey.Len() != hmacKeyLen {
+		return nil, fmt.Errorf("invite: hmac key must be %d bytes, got %d", hmacKeyLen, cfg.InviteHMACKey.Len())
 	}
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, errors.New("invite: base url is required to build an activation link")
 	}
 	return &Manager{
 		data:    data,
-		hmacKey: append([]byte(nil), cfg.InviteHMACKey...),
+		hmacKey: cfg.InviteHMACKey.Reveal(),
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
 	}, nil
 }

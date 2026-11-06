@@ -222,7 +222,7 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 // writes nothing else (ADR 0031 §5.2: the identity has no tenant, its trail is the opening's
 // reset_requested row).
 func (r *Resets) WithdrawIdentity(ctx context.Context, t ResetToken) error {
-	h, err := t.hash(r.hmacKey)
+	h, err := t.hash(r.hmacKey.Reveal())
 	if err != nil {
 		return fmt.Errorf("adminauth: withdraw identity reset: %w", err)
 	}

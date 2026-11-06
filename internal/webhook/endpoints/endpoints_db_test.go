@@ -43,7 +43,7 @@ func appDB(t *testing.T) *db.DB {
 	if dsn == "" || os.Getenv("DATABASE_MIGRATE_URL") == "" {
 		t.Skip("DATABASE_URL / DATABASE_MIGRATE_URL not set; skipping (real Postgres required)")
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

@@ -88,7 +88,7 @@ func (h *tapHarness) loadedPlaque(t *testing.T, status string, wall uuid.UUID) s
 	if err != nil {
 		t.Fatalf("tag key: %v", err)
 	}
-	ref, err := sun.Wrap(h.cfg.TagKEK, uidBytes, tagKey)
+	ref, err := sun.Wrap(h.cfg.TagKEK.Reveal(), uidBytes, tagKey)
 	if err != nil {
 		t.Fatalf("sun.Wrap: %v", err)
 	}

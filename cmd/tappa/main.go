@@ -333,7 +333,7 @@ func run() error {
 	// ONE verifier for both consumers below. The activation flow gets it whole
 	// because the activating tap (ADR 0026) must run the ATOMIC counter advance;
 	// the tap page gets it through an interface that names only the preview.
-	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
+	verifier := sun.NewVerifier(data, cfg.TagKEK.Reveal(), cfg.TagKEKPrevious.Reveal())
 	// The business's brand, READ side (M10 WL-6, WL-8, WL-13). The reader takes the pool
 	// and nothing else: it reads, it never writes, and the tenant it reads is the one
 	// each caller resolved -- a session, or (the activation wizard, WL-13) the invitation
@@ -385,14 +385,14 @@ func run() error {
 	// overview (M11 API-13a, K-22) puts the business into K-19's set at once: the deliveries that
 	// waited while the API was closed go now, not at the gate's next recheck.
 	operatorSurface.NoticeWorkTo(work)
-	// cfg.TagKEKPrevious is nil unless a KEK rotation is in progress, and
+	// cfg.TagKEKPrevious reveals nil unless a KEK rotation is in progress, and
 	// NewVerifier drops empty entries — so this is the one-KEK wiring in the
 	// steady state and the two-KEK wiring during the rotation window, with no
 	// branch here to get wrong.
 	//
 	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
 	// see announceKEKRotationWindow.
-	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
+	go announceKEKRotationWindow(ctx, cfg.TagKEKPrevious.Len() > 0, slog.Default())
 	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
 	// process, and the first that is not a tap. It exists because Q18 decided the
 	// system produces no checkout of its own: an hour the software invented is an hour
@@ -614,7 +614,7 @@ func run() error {
 	// It was written in the same change set that corrected five other dangling
 	// references, which is the whole lesson: a comment that names its subject cannot
 	// drift onto a different one.
-	encodeWrapper, err := encode.NewKEKWrapper(cfg.TagKEK)
+	encodeWrapper, err := encode.NewKEKWrapper(cfg.TagKEK.Reveal())
 	if err != nil {
 		return err
 	}
@@ -823,7 +823,7 @@ func run() error {
 	// THE INTEGRATION API'S KEYS (M11 API-3, ADR 0028 §3): the owner's panel issues, lists and
 	// revokes them. Every build but the sandbox's issues tt_live_ keys (§11, K-10; API-11 gives
 	// the sandbox build its own prefix). The /v1 chain that resolves them is API-4's.
-	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey, data, trail)
+	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey.Reveal(), data, trail)
 	if err != nil {
 		return err
 	}
@@ -834,7 +834,7 @@ func run() error {
 	// deployment without the KEK gets a panel that says the webhook is not configured. The client
 	// refuses the node's own and the ingress's addresses (TAPPA_WEBHOOK_BLOCKED_ADDRESSES), required
 	// outside dev too; in dev the registry rules alone apply.
-	if len(cfg.WebhookKEK) > 0 {
+	if cfg.WebhookKEK.Len() > 0 {
 		webhookEgress, err := egress.New(egress.Options{
 			Blocked:                       cfg.WebhookBlockedAddresses,
 			DevelopmentWithoutBlockedList: cfg.Env == config.EnvDev,
@@ -842,7 +842,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		webhookEndpoints, err := endpoints.New(cfg.WebhookKEK, data, trail, webhookEgress)
+		webhookEndpoints, err := endpoints.New(cfg.WebhookKEK.Reveal(), data, trail, webhookEgress)
 		if err != nil {
 			return err
 		}
@@ -855,7 +855,7 @@ func run() error {
 		// egress client as the ping -- one SSRF gate for every request to an owner's address. It runs
 		// for a business the worker hands it (a tap, an approval, an API call, a resend), never across
 		// businesses, and drains with the worker beside the HTTP server's Shutdown.
-		deliveries, err := delivery.New(cfg.WebhookKEK, data, webhookEgress, slog.Default())
+		deliveries, err := delivery.New(cfg.WebhookKEK.Reveal(), data, webhookEgress, slog.Default())
 		if err != nil {
 			return err
 		}

@@ -202,7 +202,7 @@ func TestAnnounceKEKRotationWindow_IsActuallyWiredIntoTheCommand(t *testing.T) {
 	}
 	// And it must be told the REAL state. Passing a literal would make the
 	// announcement permanently right or permanently wrong.
-	if !regexp.MustCompile(`announceKEKRotationWindow\(ctx,\s*len\(cfg\.TagKEKPrevious\)\s*>\s*0`).MatchString(text) {
+	if !regexp.MustCompile(`announceKEKRotationWindow\(ctx,\s*cfg\.TagKEKPrevious\.Len\(\)\s*>\s*0`).MatchString(text) {
 		t.Error("announceKEKRotationWindow is not driven by cfg.TagKEKPrevious; the line it prints would " +
 			"not track whether the process actually accepts the previous KEK")
 	}

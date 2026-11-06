@@ -27,7 +27,7 @@ func testDB(t *testing.T) *db.DB {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping audit DB tests (real Postgres required)")
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

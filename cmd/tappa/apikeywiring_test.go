@@ -92,7 +92,7 @@ func TestAPIKeyWiring_TheKeysServiceReachesThePanel(t *testing.T) {
 			continue
 		}
 		if c, ok := isCall(as.Rhs[0], "apikey", "NewKeys"); ok {
-			if len(c.Args) < 2 || !isIdent(c.Args[0], "apiKeyPrefix") || !isSel(c.Args[1], "cfg", "APIKeyHMACKey") {
+			if len(c.Args) < 2 || !isIdent(c.Args[0], "apiKeyPrefix") || !isSel(revealed(c.Args[1]), "cfg", "APIKeyHMACKey") {
 				t.Fatal("apikey.NewKeys is not called with apiKeyPrefix and cfg.APIKeyHMACKey")
 			}
 			if id, ok := as.Lhs[0].(*ast.Ident); ok {

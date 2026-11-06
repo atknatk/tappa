@@ -2395,6 +2395,11 @@ var cookiesNotOnTheNotice = map[string]struct{ file, why string }{
 // no longer in its file is a red test (it cannot outlive its reason), and the same
 // literal in any OTHER file is still read as a cookie.
 var cookieScanNonCookies = map[string]struct{ file, why string }{
+	"tappa_app": {
+		file: filepath.Join("internal", "db", "pool.go"),
+		why: "the PostgreSQL role a production customer pool must be (backlog T82), compared with " +
+			"current_user at start-up; no cookie carries it",
+	},
 	"tappa_operator": {
 		file: filepath.Join("internal", "db", "operatorpool.go"),
 		why: "the PostgreSQL role the operator's pool must sign in as (M10 OP-7), compared with " +

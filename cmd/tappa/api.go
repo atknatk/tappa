@@ -59,7 +59,7 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 			integrationAPIState, integrationAPIOff)
 		return nil, nil
 	}
-	chain, err := apikey.NewAuthenticator(apiKeyPrefix, cfg.APIKeyHMACKey, data, data)
+	chain, err := apikey.NewAuthenticator(apiKeyPrefix, cfg.APIKeyHMACKey.Reveal(), data, data)
 	if err != nil {
 		return nil, err
 	}

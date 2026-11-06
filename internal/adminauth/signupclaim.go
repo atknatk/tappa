@@ -109,12 +109,12 @@ func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config) (*SignupClaim
 	if cfg == nil {
 		return nil, errors.New("adminauth: nil config")
 	}
-	if len(cfg.SessionHMACKey) != hmacKeyLen {
-		return nil, fmt.Errorf("adminauth: hmac key must be %d bytes, got %d", hmacKeyLen, len(cfg.SessionHMACKey))
+	if cfg.SessionHMACKey.Len() != hmacKeyLen {
+		return nil, fmt.Errorf("adminauth: hmac key must be %d bytes, got %d", hmacKeyLen, cfg.SessionHMACKey.Len())
 	}
-	m := hmac.New(sha256.New, cfg.SessionHMACKey)
+	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(signupClaimKeyLabel)) // hash writes never fail (documented)
-	sessionKey, err := deriveKey(cfg.SessionHMACKey)
+	sessionKey, err := deriveKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}

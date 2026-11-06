@@ -918,7 +918,7 @@ func TestOpCompleteEnrollment_ConcurrentRaceExactlyOneWinner(t *testing.T) {
 	if strings.Contains(dsn, "?") {
 		sep = "&"
 	}
-	d, err := New(context.Background(), &config.Config{DatabaseURL: dsn + sep + "pool_max_conns=" + strconv.Itoa(racers+4)})
+	d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn + sep + "pool_max_conns=" + strconv.Itoa(racers+4))})
 	if err != nil {
 		t.Fatalf("owner race pool: %v", err)
 	}

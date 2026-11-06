@@ -145,7 +145,7 @@ func verifyCarries(t *testing.T, role string, c verifyCase) {
 	t.Helper()
 	t.Run(role+"/"+c.name, func(t *testing.T) {
 		data := &scriptedDB{tenant: uuid.New(), admin: uuid.New(), session: uuid.New(), role: role, script: c.script}
-		m, err := New(data, &config.Config{SessionHMACKey: []byte("0123456789abcdef0123456789abcdef")})
+		m, err := New(data, &config.Config{SessionHMACKey: config.NewKey([]byte("0123456789abcdef0123456789abcdef"))})
 		if err != nil {
 			t.Fatal(err)
 		}

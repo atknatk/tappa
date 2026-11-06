@@ -67,7 +67,7 @@ func TestAdvisoriesDB_AFailedAdviceCostsTheSentenceAndNeverTheRecords(t *testing
 			"Run `make test` -- a bare `go test` skips this silently and proves nothing.")
 	}
 	ctx := context.Background()
-	data, err := db.New(ctx, &config.Config{DatabaseURL: dsn})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestAdvisories_TheSavepointIsWhatMakesTheDegradationReal(t *testing.T) {
 			"Run `make test` -- a bare `go test` skips this silently and proves nothing.")
 	}
 	ctx := context.Background()
-	data, err := db.New(ctx, &config.Config{DatabaseURL: dsn})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestAdvisoriesDB_TheDayIsTheTENANTsAndNeverUTCs(t *testing.T) {
 			"Run `make test` -- a bare `go test` skips this silently and proves nothing.")
 	}
 	ctx := context.Background()
-	data, err := db.New(ctx, &config.Config{DatabaseURL: dsn})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

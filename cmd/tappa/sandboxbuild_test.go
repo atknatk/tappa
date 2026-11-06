@@ -169,6 +169,8 @@ func bootEnv(env string) []string {
 		"PATH=" + os.Getenv("PATH"),
 		"DATABASE_URL=postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable",
 		"TAPPA_ADDR=127.0.0.1:0",
+		// The dev default (http://localhost:8080) is a refusal under prod and sandbox (backlog T5).
+		"TAPPA_BASE_URL=https://boot.test",
 		"TAPPA_SESSION_HMAC_KEY=" + key('S'), "TAPPA_TAG_KEK=" + key('K'), "TAPPA_INVITE_HMAC_KEY=" + key('I'),
 		"TAPPA_API_KEY_HMAC_KEY=" + key('A'), "TAPPA_WEBHOOK_KEK=" + key('W'),
 		"TAPPA_WEBHOOK_BLOCKED_ADDRESSES=203.0.113.10", "TAPPA_RETENTION_YEARS=2",
@@ -227,9 +229,12 @@ func TestConfig_UntaggedBinaryRefusesSandbox(t *testing.T) {
 // hardenedGates are K-28's nine (ADR 0028 Bağlam: "Üretim kodunda dokuz IsProd() çağrısı") less
 // NewActivation's, as file:function -- the ones that asked "production?" and now ask
 // config.IsHardened. Eight since 2026-11-03: that call only chose the activation page's development
-// notice, which the user's decision of that day removed (ADR 0028's note of that date).
+// notice, which the user's decision of that day removed (ADR 0028's note of that date). A ninth call
+// since 2026-11-06, Load's validBaseURL (backlog T5); the test keeps its name because the ADR and
+// the state file cite it.
 var hardenedGates = []string{
 	"internal/adminauth/cookie.go:NewCookies",
+	"internal/config/config.go:Load",
 	"internal/config/config.go:Load",
 	"internal/config/config.go:loadMail",
 	"internal/db/pool.go:newDB",
@@ -254,7 +259,7 @@ var envComparisons = []string{
 // çağrısının dokuzu bu yükleme geçer; EnvDev'e bağlı üç kapı sandbox'ta kapalı kalır"; eight since
 // the note above):
 //
-//	the code      every call of IsHardened in production code is one of the eight, each of the eight
+//	the code      every call of IsHardened in production code is one of hardenedGates, each of them
 //	              calls it, nothing calls a method named IsProd (there is none: config removed it),
 //	              and every comparison with a TAPPA_ENV value outside internal/config is a known one
 //	the behaviour a sandbox configuration is the production one where a gate is reachable from
@@ -307,7 +312,7 @@ func TestConfig_IsHardenedCoversTheEightGates(t *testing.T) {
 	sort.Strings(calls)
 	sort.Strings(comparisons)
 	if !slices.Equal(calls, hardenedGates) {
-		t.Errorf("the IsHardened calls in production code are\n  %v\nwant the eight\n  %v", calls, hardenedGates)
+		t.Errorf("the IsHardened calls in production code are\n  %v\nwant\n  %v", calls, hardenedGates)
 	}
 	if len(prodCalls) > 0 {
 		t.Errorf("production code calls IsProd at %v", prodCalls)
@@ -726,7 +731,7 @@ func identName(e ast.Expr) string {
 // simulation -- the AST pins above stay green, this is red (under -tags sandbox, which CI runs).
 func TestSandboxExtensions_AreTheBuilds(t *testing.T) {
 	kek := make([]byte, 32)
-	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: kek, GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}
+	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: config.NewKey(kek), GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}
 	work, err := webhook.NewWorker(slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

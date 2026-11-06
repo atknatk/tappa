@@ -13,6 +13,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // stubAPIKeys is a keys service that answers nothing; the test below only asks whether one was
@@ -47,7 +48,7 @@ func TestNewAdminAuth_TheKeysServiceMatchesTheConfiguration(t *testing.T) {
 	build := func(withKey bool, opts ...AdminAuthOption) error {
 		cfg := adminTestConfig()
 		if withKey {
-			cfg.APIKeyHMACKey = []byte(strings.Repeat("a", 32))
+			cfg.APIKeyHMACKey = config.NewKey([]byte(strings.Repeat("a", 32)))
 		}
 		_, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 			&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(),
@@ -90,7 +91,7 @@ func (failingListKeys) List(context.Context, uuid.UUID, uuid.UUID) (apikey.Listi
 func TestApiKeyPanel_TheKeyIsShownEvenWhenTheListCannotBeRead(t *testing.T) {
 	raw := apikey.LivePrefix + strings.Repeat("Q", 42) + "A"
 	cfg := adminTestConfig()
-	cfg.APIKeyHMACKey = []byte(strings.Repeat("a", 32))
+	cfg.APIKeyHMACKey = config.NewKey([]byte(strings.Repeat("a", 32)))
 	// One tenant for the whole test (M14-10a): a session resolves to the same business on
 	// every request, which is what the page's form binding is computed against.
 	tenantID := uuid.New()

@@ -22,7 +22,7 @@ import (
 // sandboxApp is a sandbox configuration New accepts: TAPPA_ENV=sandbox, a 32-byte KEK and the tap
 // recorder's windows.
 func sandboxApp() *config.Config {
-	return &config.Config{Env: config.EnvSandbox, TagKEK: make([]byte, 32), GPSRadiusMeters: 150,
+	return &config.Config{Env: config.EnvSandbox, TagKEK: config.NewKey(make([]byte, 32)), GPSRadiusMeters: 150,
 		Debounce: 60 * time.Second, Freshness: 180 * time.Second}
 }
 
@@ -45,7 +45,7 @@ func TestNew_RefusesAConfigurationThatIsNotTheSandboxs(t *testing.T) {
 	for name, mutate := range map[string]func(*Config){
 		"no configuration": func(c *Config) { c.App = nil }, "no database": func(c *Config) { c.Data = nil },
 		"no work set":         func(c *Config) { c.Work = nil },
-		"a short KEK":         func(c *Config) { app := *sandboxApp(); app.TagKEK = make([]byte, 16); c.App = &app },
+		"a short KEK":         func(c *Config) { app := *sandboxApp(); app.TagKEK = config.NewKey(make([]byte, 16)); c.App = &app },
 		"no freshness window": func(c *Config) { app := *sandboxApp(); app.Freshness = 0; c.App = &app },
 	} {
 		c := ok

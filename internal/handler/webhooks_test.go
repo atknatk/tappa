@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 )
@@ -47,7 +48,7 @@ func TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration(t *testing.T) {
 	build := func(withKEK bool, opts ...AdminAuthOption) error {
 		cfg := adminTestConfig()
 		if withKEK {
-			cfg.WebhookKEK = []byte(strings.Repeat("w", 32))
+			cfg.WebhookKEK = config.NewKey([]byte(strings.Repeat("w", 32)))
 		}
 		_, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 			&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(),

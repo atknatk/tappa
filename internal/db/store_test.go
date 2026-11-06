@@ -49,7 +49,7 @@ func appDB(t *testing.T) *DB {
 	if raw == "" {
 		t.Skip("DATABASE_URL not set; skipping store DB tests (real Postgres required)")
 	}
-	d, err := New(context.Background(), &config.Config{DatabaseURL: raw})
+	d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

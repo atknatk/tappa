@@ -23,7 +23,7 @@ func testConfig() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
 		BaseURL:        "https://panel.example.test",
-		SessionHMACKey: testKey(),
+		SessionHMACKey: config.NewKey(testKey()),
 	}
 }
 

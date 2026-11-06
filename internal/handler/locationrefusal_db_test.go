@@ -55,7 +55,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping the refusal trail test (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

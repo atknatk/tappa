@@ -146,7 +146,7 @@ type operatorRoleFacts struct {
 // not REACH the server -- the closed list connectFailure and unreachableSQLSTATEs
 // define -- wraps ErrOperatorUnreachable; every other refusal does not.
 func NewOperatorDB(ctx context.Context, cfg *config.Config) (*OperatorDB, error) {
-	return openOperatorDB(ctx, cfg.OperatorDatabaseURL, nil)
+	return openOperatorDB(ctx, cfg.OperatorDatabaseURL.Reveal(), nil)
 }
 
 // openOperatorDB is NewOperatorDB with the per-connection hook pinLogParameters runs

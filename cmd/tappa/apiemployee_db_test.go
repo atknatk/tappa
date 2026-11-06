@@ -76,7 +76,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 		}
 	}
 	const apiHost = "api.taptime.mt"
-	cfg := &config.Config{DatabaseURL: appDSN, APIHost: apiHost, APIKeyHMACKey: mac, InviteHMACKey: codeKey, BaseURL: "https://taptime.mt"}
+	cfg := &config.Config{DatabaseURL: config.NewDSN(appDSN), APIHost: apiHost, APIKeyHMACKey: config.NewKey(mac), InviteHMACKey: config.NewKey(codeKey), BaseURL: "https://taptime.mt"}
 	data, err := db.New(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

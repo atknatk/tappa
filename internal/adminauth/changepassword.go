@@ -107,7 +107,7 @@ func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exce
 	if tenantID == uuid.Nil || adminID == uuid.Nil {
 		return PasswordChange{}, errors.New("adminauth: change password: tenant and admin are required")
 	}
-	h, err := session.hash(m.hmacKey)
+	h, err := session.hash(m.hmacKey.Reveal())
 	if err != nil {
 		// The cookie Verify just accepted cannot be malformed; if it is, nothing is changed.
 		return PasswordChange{}, ErrNoSuchAdmin

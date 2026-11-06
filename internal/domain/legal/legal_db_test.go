@@ -53,7 +53,7 @@ func newDBFixture(t *testing.T) *dbFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping legal DB tests (real Postgres required — CLAUDE.md §8)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

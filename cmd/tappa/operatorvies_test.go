@@ -86,7 +86,7 @@ func TestOperatorVIES_OnlyAVerdictBecomesAVerdict(t *testing.T) {
 	if viesForOperator(nil) != nil {
 		t.Error("a nil client became a VATChecker; operator.New would not refuse it")
 	}
-	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
+	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
 	if s, err := configuredSurface(noStore{}, noTexts{}, nil, cfg, slog.New(slog.DiscardHandler)); err == nil || s != nil {
 		t.Error("a configured surface was built without its VIES client")

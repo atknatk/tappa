@@ -316,7 +316,8 @@ func TestCookies_ConstructorStillRelaxesOnlyInDev(t *testing.T) {
 }
 
 // TestCookies_SchemeTestIsCaseInsensitive: URL schemes are case-insensitive
-// (RFC 3986 §3.1) and config.Load does not normalise BaseURL, so "HTTPS://" used
+// (RFC 3986 §3.1) and a Config built without config.Load can carry any spelling (Load itself
+// takes lower case alone, backlog T5), so "HTTPS://" used
 // to take the relaxation branch — a typo silently buying a weaker cookie on a
 // dev/staging box. The relaxation must be asked for, never acquired by accident.
 func TestCookies_SchemeTestIsCaseInsensitive(t *testing.T) {

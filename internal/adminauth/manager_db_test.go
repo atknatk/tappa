@@ -38,7 +38,7 @@ func testDB(t *testing.T) *db.DB {
 		t.Skip("DATABASE_URL not set; skipping adminauth DB tests (real Postgres required). " +
 			"Run `make test`, which loads .env — a bare `go test` proves nothing about RLS.")
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(raw)})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(withSmallPool(raw))})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

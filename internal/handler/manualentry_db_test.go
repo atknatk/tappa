@@ -67,7 +67,7 @@ func newManualFixture(t *testing.T) *manualFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping manual entry write tests (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

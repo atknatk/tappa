@@ -87,7 +87,7 @@ type vatFixture struct {
 func newVATFixture(t *testing.T, l *legalE2E) *vatFixture {
 	t.Helper()
 	appDSN := os.Getenv("DATABASE_URL")
-	app, err := db.New(l.ctx, &config.Config{DatabaseURL: appDSN})
+	app, err := db.New(l.ctx, &config.Config{DatabaseURL: config.NewDSN(appDSN)})
 	if err != nil {
 		t.Fatalf("tappa_app's pool: %v", err)
 	}

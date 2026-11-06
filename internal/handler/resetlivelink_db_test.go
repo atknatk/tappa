@@ -180,7 +180,7 @@ func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping (real Postgres required). Run `make test`.")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(dsn)})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(withSmallPool(dsn))})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

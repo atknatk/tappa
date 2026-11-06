@@ -31,7 +31,7 @@ func testDB(t *testing.T) *DB {
 	if raw == "" {
 		t.Skip("DATABASE_URL not set; skipping tenant DB tests (real Postgres required — CLAUDE.md §8, Q04)")
 	}
-	db, err := New(context.Background(), &config.Config{DatabaseURL: pinToOneConn(t, raw)})
+	db, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(pinToOneConn(t, raw))})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

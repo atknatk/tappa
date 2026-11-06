@@ -205,12 +205,12 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 	t.Helper()
 	cfg := &config.Config{
 		Env: config.EnvDev, BaseURL: "https://taptime.mt",
-		SessionHMACKey: randBytes(t, 32), InviteHMACKey: randBytes(t, 32), TagKEK: randBytes(t, 32),
-		APIKeyHMACKey:   randBytes(t, 32),
+		SessionHMACKey: config.NewKey(randBytes(t, 32)), InviteHMACKey: config.NewKey(randBytes(t, 32)), TagKEK: config.NewKey(randBytes(t, 32)),
+		APIKeyHMACKey:   config.NewKey(randBytes(t, 32)),
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
 	}
 	if on {
-		cfg.OperatorTOTPKEK, cfg.OperatorTokenHMACKey, cfg.OperatorHost = randBytes(t, 32), randBytes(t, 32), "ops.taptime.mt"
+		cfg.OperatorTOTPKEK, cfg.OperatorTokenHMACKey, cfg.OperatorHost = config.NewKey(randBytes(t, 32)), config.NewKey(randBytes(t, 32)), "ops.taptime.mt"
 		cfg.APIHost = "api.taptime.mt"
 		cfg.DevTools, cfg.BaseURL = true, "http://localhost:8080"
 		// The panel identity flag (ADR 0031 §8): on, the panel mounts its identity surfaces, and
@@ -246,7 +246,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	trail, err := audit.New(data)
 	must(err)
-	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
+	verifier := sun.NewVerifier(data, cfg.TagKEK.Reveal(), cfg.TagKEKPrevious.Reveal())
 	brandReader, err := tenant.NewBrandReader(data)
 	must(err)
 	activation, err := handler.NewActivation(invites, sessions, verifier, trail, brandReader, cfg, log)
@@ -287,7 +287,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	resetFlow, err := handler.NewAdminReset(resets, nil, trail, cfg, log)
 	must(err)
-	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey, data, trail)
+	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey.Reveal(), data, trail)
 	must(err)
 	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, handler.IntegrationKeys(apiKeys))
 	must(err)
@@ -313,7 +313,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	}
 	f.operator, err = configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, log)
 	must(err)
-	chain, err := apikey.NewAuthenticator(apiKeyPrefix, cfg.APIKeyHMACKey, data, data)
+	chain, err := apikey.NewAuthenticator(apiKeyPrefix, cfg.APIKeyHMACKey.Reveal(), data, data)
 	must(err)
 	writes, err := apikey.NewWrites(data)
 	must(err)

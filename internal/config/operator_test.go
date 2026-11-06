@@ -94,8 +94,8 @@ func TestLoad_OperatorSurfaceIsAllOrNothing(t *testing.T) {
 		if err != nil {
 			t.Fatalf("no operator variable must load: %v", err)
 		}
-		if c.OperatorSurfaceConfigured() || c.OperatorDatabaseURL != "" || c.OperatorTOTPKEK != nil ||
-			c.OperatorTokenHMACKey != nil || c.OperatorHost != "" {
+		if c.OperatorSurfaceConfigured() || c.OperatorDatabaseURL.Reveal() != "" || c.OperatorTOTPKEK.Len() > 0 ||
+			c.OperatorTokenHMACKey.Len() > 0 || c.OperatorHost != "" {
 			t.Fatal("with no operator variable set the Config carries operator values; the surface must be off")
 		}
 	})
@@ -107,8 +107,8 @@ func TestLoad_OperatorSurfaceIsAllOrNothing(t *testing.T) {
 		if err != nil {
 			t.Fatalf("four valid operator variables must load: %v", err)
 		}
-		if !c.OperatorSurfaceConfigured() || c.OperatorDatabaseURL != dsn || len(c.OperatorTOTPKEK) != 32 ||
-			len(c.OperatorTokenHMACKey) != 32 || c.OperatorHost != host {
+		if !c.OperatorSurfaceConfigured() || c.OperatorDatabaseURL.Reveal() != dsn || c.OperatorTOTPKEK.Len() != 32 ||
+			c.OperatorTokenHMACKey.Len() != 32 || c.OperatorHost != host {
 			t.Fatal("four valid operator variables did not all reach the Config")
 		}
 	})
@@ -459,9 +459,9 @@ func TestOperatorSurfaceConfigured_AnyOneFieldCounts(t *testing.T) {
 		t.Fatal("an empty Config reports the operator surface configured")
 	}
 	for name, c := range map[string]*config.Config{
-		"only the DSN":       {OperatorDatabaseURL: "postgres://x@127.0.0.1:1/x"},
-		"only the TOTP KEK":  {OperatorTOTPKEK: make([]byte, 32)},
-		"only the token key": {OperatorTokenHMACKey: make([]byte, 32)},
+		"only the DSN":       {OperatorDatabaseURL: config.NewDSN("postgres://x@127.0.0.1:1/x")},
+		"only the TOTP KEK":  {OperatorTOTPKEK: config.NewKey(make([]byte, 32))},
+		"only the token key": {OperatorTokenHMACKey: config.NewKey(make([]byte, 32))},
 		"only the host":      {OperatorHost: "ops.taptime.mt"},
 	} {
 		if !c.OperatorSurfaceConfigured() {

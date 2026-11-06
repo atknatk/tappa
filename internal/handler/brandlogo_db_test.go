@@ -94,7 +94,7 @@ func TestLogoRoutesDB_AnotherBusinessesDigestIsAnUnknownDigest(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping the logo routes over real Postgres")
 	}
 	ctx := context.Background()
-	data, err := db.New(ctx, &config.Config{DatabaseURL: dsn})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

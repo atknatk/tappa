@@ -187,7 +187,7 @@ func TestTapDB_ThePageAndTheRecordAskTheOneSwitch(t *testing.T) {
 func TestTapDB_OnAPeersPlaqueThePredictionIsTheEmployers(t *testing.T) {
 	h := newTapHarness(t)
 	owner := holdingOwner(t)
-	kek := h.cfg.TagKEK
+	kek := h.cfg.TagKEK.Reveal()
 	kf, kfVenue := uuid.New(), uuid.New()
 	kfUID := h.newTag(t, kek, kf, kfVenue, 100)
 	if _, err := owner.Exec(t.Context(), `UPDATE locations SET name = 'KF Sliema' WHERE id = $1`, kfVenue); err != nil {

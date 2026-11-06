@@ -319,7 +319,7 @@ func TestWithdraw_RetiresOnlyALiveLinkOfItsOwnTenant(t *testing.T) {
 	other := newTenantRow(t, d, "Withdraw Other Ltd")
 	resolved := func(tok ResetToken) db.ResolvedPasswordReset {
 		t.Helper()
-		h, err := tok.hash(r.hmacKey)
+		h, err := tok.hash(r.hmacKey.Reveal())
 		if err != nil {
 			t.Fatalf("hash: %v", err)
 		}
@@ -420,7 +420,7 @@ func bigPoolDB(t *testing.T) *db.DB {
 	if strings.Contains(raw, "?") {
 		sep = "&"
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: raw + sep + "pool_max_conns=20"})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw + sep + "pool_max_conns=20")})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

@@ -54,7 +54,7 @@ var ErrSwitchRefused = errors.New("adminauth: this business cannot be switched t
 // old token resolves to nothing afterwards; the caller sets the new one. Of N concurrent switches of
 // one session exactly one succeeds; the rest get ErrSwitchRefused and must not touch the cookie.
 func (m *Manager) Switch(ctx context.Context, current Token, target uuid.UUID) (Issued, error) {
-	h, err := current.hash(m.hmacKey)
+	h, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return Issued{}, ErrNoSession
@@ -68,7 +68,7 @@ func (m *Manager) Switch(ctx context.Context, current Token, target uuid.UUID) (
 	if err != nil {
 		return Issued{}, fmt.Errorf("adminauth: switch: %w", err)
 	}
-	nh, err := t.hash(m.hmacKey)
+	nh, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return Issued{}, fmt.Errorf("adminauth: switch: %w", err)
 	}
@@ -114,7 +114,7 @@ func (m *Manager) switchBucketOf(identity *uuid.UUID) [sha256.Size]byte {
 	if identity == nil || *identity == uuid.Nil {
 		return out
 	}
-	h := hmac.New(sha256.New, m.hmacKey)
+	h := hmac.New(sha256.New, m.hmacKey.Reveal())
 	_, _ = h.Write([]byte(switchBucketLabel + identity.String())) // hash writes never fail
 	copy(out[:], h.Sum(nil))
 	return out
@@ -147,7 +147,7 @@ type Membership struct {
 // a session that is not live lists nothing. Keyed by the cookie's token, like Switch: a tenant
 // from the request is never an input.
 func (m *Manager) Memberships(ctx context.Context, current Token) ([]Membership, error) {
-	h, err := current.hash(m.hmacKey)
+	h, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return nil, ErrNoSession
@@ -207,7 +207,7 @@ func (m *Manager) RevokeAll(ctx context.Context, tenantID, adminID, sessionID uu
 	if tenantID == uuid.Nil || adminID == uuid.Nil || sessionID == uuid.Nil {
 		return Revocation{}, errors.New("adminauth: revoke all: tenant, admin and session are required")
 	}
-	h, err := current.hash(m.hmacKey)
+	h, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return Revocation{}, ErrNoSession

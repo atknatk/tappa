@@ -51,7 +51,7 @@ func newHWorld(t *testing.T) *hWorld {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
-	data, err := db.New(ctx, &config.Config{DatabaseURL: appDSN})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(appDSN)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

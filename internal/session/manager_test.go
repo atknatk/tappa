@@ -20,7 +20,7 @@ import (
 
 // testConfig builds a Config with a fake key. Never reads the environment.
 func testConfig(env, baseURL string) *config.Config {
-	return &config.Config{Env: env, BaseURL: baseURL, SessionHMACKey: fakeHMACKey}
+	return &config.Config{Env: env, BaseURL: baseURL, SessionHMACKey: config.NewKey(fakeHMACKey)}
 }
 
 // countingDB is a fake Database that records how each method was called. It
@@ -66,7 +66,7 @@ func TestNew_RejectsBadWiring(t *testing.T) {
 	}
 	for _, n := range []int{0, 1, 16, 31, 33, 64} {
 		cfg := testConfig("dev", "")
-		cfg.SessionHMACKey = make([]byte, n)
+		cfg.SessionHMACKey = config.NewKey(make([]byte, n))
 		if _, err := New(&countingDB{}, cfg); err == nil {
 			t.Errorf("New accepted a %d-byte key", n)
 		}
@@ -77,7 +77,7 @@ func TestNew_RejectsBadWiring(t *testing.T) {
 // change how tokens hash.
 func TestNew_CopiesKey(t *testing.T) {
 	cfg := testConfig("dev", "")
-	cfg.SessionHMACKey = append([]byte(nil), fakeHMACKey...)
+	cfg.SessionHMACKey = config.NewKey(append([]byte(nil), fakeHMACKey...))
 	m, err := New(&countingDB{}, cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -90,8 +90,9 @@ func TestNew_CopiesKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	for i := range cfg.SessionHMACKey {
-		cfg.SessionHMACKey[i] ^= 0xFF
+	revealed := cfg.SessionHMACKey.Reveal()
+	for i := range revealed {
+		revealed[i] ^= 0xFF
 	}
 	after, err := tk.hash(m.hmacKey)
 	if err != nil {
