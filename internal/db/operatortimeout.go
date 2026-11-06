@@ -25,9 +25,9 @@ import (
 //	room for the session predicate, the first phase and the render, so a slow statement
 //	is the database's 57014 and the screen's designed 503 -- not the router's deadline   15 s
 //
-// Measured 2026-11-06 on a disposable database of 3,000 tenants, one with 20,000 people and 20,000
-// plaques, 2 M transactions and 2 M rows of operator trail: every other read under 120 ms. Production
-// holds far less. The writes are not bound by it: each runs under a 10 s context of its handler's.
+// Measured 2026-11-06 on a disposable database built far past any real business (backlog T98 has its
+// size): every other read under 120 ms. The writes are not bound by it: each runs under a 10 s
+// context of its handler's.
 //
 // A STATEMENT PAST IT LEAVES THE TRAIL TRUE (CLAUDE.md section 4.5): a read's 'read' row commits in
 // its first phase, so a second phase cut off keeps the row and returned nothing; a first phase cut
