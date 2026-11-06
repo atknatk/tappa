@@ -627,9 +627,9 @@ func TestOperatorDB_AJoinedFailureIsUnreachableOnlyWhenEveryAttemptIs(t *testing
 		{"a TLS alert: the server wants a client certificate", dsn("require", wantsClientCert), false,
 			"(a TLS alert (remote error))"},
 		{"a closed port, then a server that declines TLS", dsn("require", closedA, declines), false,
-			"(an error of type *errors.errorString; attempt 2 of 2)"},
+			"(the server declined TLS; attempt 2 of 2)"},
 		{"a server that declines TLS, then a closed port", dsn("require", declines, closedA), false,
-			"(an error of type *errors.errorString; attempt 1 of 2)"},
+			"(the server declined TLS; attempt 1 of 2)"},
 		{"a certificate this side rejects, then a closed port", dsn("verify-full", untrusted, closedA), false,
 			"(this side did not accept the server's TLS certificate; attempt 1 of 2)"},
 		{"CONTROL: two closed ports", dsn("require", closedA, closedB), true,
@@ -736,7 +736,7 @@ func TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal(t *testing.T) {
 	// The number of attempts depends on the host's addresses (localhost: ::1 and
 	// 127.0.0.1, each tried with TLS before either is tried plain); the first one is
 	// always a declined TLS request.
-	if errors.Is(err, ErrOperatorUnreachable) || !strings.Contains(err.Error(), "(an error of type *errors.errorString; attempt 1 of ") {
+	if errors.Is(err, ErrOperatorUnreachable) || !strings.Contains(err.Error(), "(the server declined TLS; attempt 1 of ") {
 		t.Errorf("sslmode=prefer, server without TLS, wrong password: %v, want a refusal naming the declined TLS attempt", err)
 	}
 	q.Set("sslmode", "disable")

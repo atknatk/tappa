@@ -306,10 +306,11 @@ func (d *DB) readRole(ctx context.Context) (RoleFacts, error) {
 // `user=... database=...`: host:port", and a server's FATAL echoing the database name, the role name
 // and a setting's value. None of it is a password in any measured case, but the line goes to the boot
 // log and the class is what an operator acts on: "connection refused", "SQLSTATE 28P01",
-// "the database host name does not resolve".
+// "the database host name does not resolve", "the server declined TLS" (pgxFixedFailures).
 //
-// WHAT THE OPERATOR LOSES: the host and port, and the server's sentence. The DSN is in the operator's
-// own Secret, and a SQLSTATE names the server's sentence exactly.
+// WHAT THE OPERATOR LOSES: the host and port, the server's sentence, and for a failure this package does
+// not recognise everything but its Go type ("an error of type *x.y"). Such a line says to read the DSN
+// (sslmode, target_session_attrs, the host), not what is wrong with it.
 //
 // The per-connection checks' three refusals pass through intact, operatorConnectErr's list: they carry
 // only the server's value of the pinned setting, a SQLSTATE or a mode's name, and their tests read them

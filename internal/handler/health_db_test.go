@@ -3,9 +3,12 @@ package handler
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +22,82 @@ import (
 //
 // ⚠️ THESE SKIP WITHOUT DATABASE_URL, so a bare `go test` proves nothing here. Run
 // them the way CI does: `make test`.
+
+// TestReadyz_TheProbeHandsTheClassifierTheDriversError is the path production runs: db.New, then the
+// connection goes away, then data.Ping, the probe cmd/tappa wires, through readinessFailure. DB.Ping is the
+// one connection path in internal/db that must NOT reduce the error (backlog T208): readiness keeps its
+// own reduction, and a reduced error reads as `other` here.
+//
+// A local TCP proxy stands between the pool and the server, so "the connection goes away" touches nothing
+// else on the database. The first Ping after the proxy closes may meet the dead idle connection; it
+// retires that connection, and the second has to dial.
+//
+// MUTANT (measured, 2026-11-06, reverted): DB.Ping through poolStepErr -- red here.
+func TestReadyz_TheProbeHandsTheClassifierTheDriversError(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DATABASE_URL (%d chars) is not a URL", len(dsn))
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	var mu sync.Mutex
+	var open []net.Conn
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			server, err := net.Dial("tcp", u.Host)
+			if err != nil {
+				_ = client.Close()
+				return
+			}
+			mu.Lock()
+			open = append(open, client, server)
+			mu.Unlock()
+			go func() { _, _ = io.Copy(server, client); _ = server.Close() }()
+			go func() { _, _ = io.Copy(client, server); _ = client.Close() }()
+		}
+	}()
+	through := *u
+	through.Host = ln.Addr().String()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(through.String())})
+	if err != nil {
+		t.Fatalf("db.New through the proxy: %v", err)
+	}
+	defer data.Close()
+	if err := data.Ping(ctx); err != nil {
+		t.Fatalf("CONTROL: the probe fails with the proxy up: %v", err)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	for _, c := range open {
+		_ = c.Close()
+	}
+	mu.Unlock()
+	_ = data.Ping(ctx) // may be the dead idle connection's own EOF
+	err = data.Ping(ctx)
+	if err == nil {
+		t.Fatal("the probe succeeded with the proxy closed")
+	}
+	class, cause := readinessFailure(err)
+	if class == errClassOther {
+		t.Errorf("the probe's error classified as %q (%q): the readiness record would tell the operator nothing; "+
+			"DB.Ping must hand back the driver's error", class, cause)
+	}
+}
 
 // TestReadyz_ARealDriverErrorNamesTheDeployment is the MEASUREMENT the response
 // boundary rests on, and it needs no database: it points the real driver at a closed
@@ -35,9 +114,9 @@ func TestReadyz_ARealDriverErrorNamesTheDeployment(t *testing.T) {
 	// Port 1 on the loopback: refused immediately, so this costs milliseconds. The
 	// user and database names are invented for this test.
 	//
-	// A pool's Ping and not db.New, because that is the error readiness classifies: internal/db's Ping
-	// (the probe cmd/tappa wires) returns pgx's own error, while db.New has answered with the class
-	// alone since backlog T84 (TestNew_AConnectFailureCarriesOnlyItsClass).
+	// A bare pool and not db.New, because this measures what the DRIVER says, and db.New has answered with
+	// the class alone since backlog T84 (TestNew_AConnectFailureCarriesOnlyItsClass). That internal/db's
+	// Ping hands readiness this same error is TestReadyz_TheProbeHandsTheClassifierTheDriversError.
 	cfg := &config.Config{
 		DatabaseURL: config.NewDSN("postgres://readyz_probe_user:pw@127.0.0.1:1/readyz_probe_db?sslmode=disable"),
 	}

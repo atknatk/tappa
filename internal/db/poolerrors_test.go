@@ -62,6 +62,16 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 			"the database host name does not resolve", []string{t84User, t84Database, t84Host},
 		},
 	}
+	// A server that answers an SSLRequest with 'N': CI's Postgres and the development one both do, but a
+	// fake says so whatever the server's configuration, so these rows pin pgx's own words.
+	declines := fakeServer(t, 'N', nil)
+	for _, mode := range []string{"require", "verify-full"} {
+		rows = append(rows, row{
+			"sslmode=" + mode + " against a server without TLS",
+			"postgres://" + userinfo + "@" + declines + "/" + t84Database + "?sslmode=" + mode + "&application_name=" + t84App,
+			"the server declined TLS", []string{t84User, t84Database},
+		})
+	}
 	if app := os.Getenv("DATABASE_URL"); app != "" {
 		u, err := url.Parse(app)
 		if err != nil || u.User == nil {
@@ -79,6 +89,14 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 			row{
 				"the server refuses a setting's value", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&datestyle=" + t84Value,
 				"SQLSTATE 22023", []string{t84Value},
+			},
+			row{
+				"target_session_attrs=read-only on a primary", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&target_session_attrs=read-only",
+				"the server is not in the wanted session state", []string{"read only"},
+			},
+			row{
+				"target_session_attrs=standby on a primary", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&target_session_attrs=standby",
+				"the server is not in the wanted session state", []string{"hot standby"},
 			},
 			row{
 				"the server does not know a setting", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&" + t84Setting + "=" + t84Value,
@@ -145,6 +163,10 @@ func TestPoolStepErr_KeepsTheClassAndDropsTheText(t *testing.T) {
 		{"two attempts", errors.Join(fmt.Errorf("%s: %w", canary, server), fmt.Errorf("%s: %w", canary, server)), "db: ping: attempt 1: SQLSTATE 28000; attempt 2: SQLSTATE 28000"},
 		{"the read-back's wrap", fmt.Errorf("db: reading %s on a new connection: %w", canary, dial), "db: ping: network error"},
 		{"an unknown failure", errors.New(canary), "db: ping: an error of type *errors.errorString"},
+		{"a fixed text with more on it is not that text", errors.New("server refused TLS connection: " + canary), "db: ping: an error of type *errors.errorString"},
+		{"pgx's refused TLS", fmt.Errorf("%s: %w", canary, errors.New("server refused TLS connection")), "db: ping: the server declined TLS"},
+		{"read-write on a read-only server", errors.New("read only connection"), "db: ping: the server is not in the wanted session state"},
+		{"primary on a standby", errors.New("server is in standby mode"), "db: ping: the server is not in the wanted session state"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := poolStepErr("ping", tc.err)
@@ -180,12 +202,14 @@ func TestPoolStepErr_KeepsTheClassAndDropsTheText(t *testing.T) {
 
 // TestOpeningThePool_WrapsNoDriverError is the steps no live database fails on demand (the role's three
 // statements, the stuck-writer read after the ping): in the functions that run while the customer pool
-// opens, every fmt.Errorf is either free of %w or wraps a context outcome. It reads the source, because a
-// server's text there is exactly what no test reaches. The list is the functions newDB calls; a new step
-// with its own wrap has to be added here to be seen, which is what TestConstructors_BodiesAreTheReviewedOnes pins for newDB.
+// opens, no fmt.Errorf carries %w, and readRole and requireFeedTimeouts return no bare err. (newDB does
+// return bare errors, its own steps' refusals; TestConstructors_BodiesAreTheReviewedOnes pins its tokens,
+// so a changed one is seen there.) It reads the source, because a server's text there is exactly what no
+// test reaches. A new step with its own wrap has to be added to the list to be seen here.
 //
-// MUTANT (measured, 2026-11-06, reverted): `fmt.Errorf("db: read connection role: %w", err)` back in
-// readRole, and the same in requireFeedTimeouts -- red here on each.
+// MUTANTS (measured, 2026-11-06, reverted): `fmt.Errorf("db: read connection role: %w", err)` back in
+// readRole, the same in requireFeedTimeouts, and a bare `return RoleFacts{}, err` in readRole -- red here
+// on each.
 func TestOpeningThePool_WrapsNoDriverError(t *testing.T) {
 	steps := map[string]bool{"newDB": true, "readRole": true, "requireFeedTimeouts": true}
 	seen := map[string]bool{}
@@ -202,6 +226,14 @@ func TestOpeningThePool_WrapsNoDriverError(t *testing.T) {
 			}
 			seen[fn.Name.Name] = true
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if ret, ok := n.(*ast.ReturnStmt); ok && fn.Name.Name != "newDB" {
+					for _, r := range ret.Results {
+						if id, ok := r.(*ast.Ident); ok && id.Name == "err" {
+							t.Errorf("%s: %s returns a bare err: pgx's and the server's text would reach the boot log "+
+								"(backlog T84); use poolStepErr", fset.Position(ret.Pos()), fn.Name.Name)
+						}
+					}
+				}
 				call, ok := n.(*ast.CallExpr)
 				if !ok || len(call.Args) == 0 {
 					return true

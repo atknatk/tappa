@@ -408,9 +408,28 @@ func classifyAttempt(err error) connectOutcome {
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return connectOutcome{reason: "the server closed the connection", unreachable: true}
 	default:
+		if class, ok := pgxFixedFailures[innermost(err).Error()]; ok {
+			return connectOutcome{reason: class}
+		}
 		return connectOutcome{reason: fmt.Sprintf("an error of type %T", innermost(err))}
 	}
 }
+
+// pgxFixedFailures are the failures pgconn reports as a bare errors.New, with nothing to classify but
+// their words, so a type alone said only "*errors.errorString" (measured for sslmode=require, verify-full
+// and target_session_attrs=read-only). The whole text has to match and the class is what is printed, so a
+// value can no more reach a message through here than through the default branch. pgconn/pgconn.go:555
+// and pgconn/config.go:1013-1073 at pgx 5.10; TestNew_AConnectFailureCarriesOnlyItsClass measures three
+// of the six against pgx itself, so a release that rewords those falls back to the type and goes red.
+var pgxFixedFailures = map[string]string{
+	"server refused TLS connection":     "the server declined TLS",
+	"read only connection":              serverSessionStateClass,
+	"connection is not read only":       serverSessionStateClass,
+	"server is not in hot standby mode": serverSessionStateClass,
+	"server is in standby mode":         serverSessionStateClass,
+}
+
+const serverSessionStateClass = "the server is not in the wanted session state"
 
 // innermost is the end of err's unwrap chain: its type names the failure more closely
 // than pgx's wrappers do (a declined TLS request is an *errors.errorString inside them).
