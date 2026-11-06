@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -115,6 +116,13 @@ func wl8Brand(t *testing.T, accent, logo bool) tenant.PanelBrand {
 // its kicker prints for it. The tests here compare whole bodies across renders; with the handler
 // reading the clock itself, a pair that straddled a minute differed in the kicker alone (the
 // flake the M14 test-infra card fixed).
+//
+// THAT WAS THE MINUTE. The two tests that compare whole bodies across renders also run in a
+// synctest bubble, a fixed clock with no seam in the handlers: the section handlers read the time
+// themselves, and with only the moment frozen a pair straddling midnight differs in The Pass's
+// whole-day link (the fake ledger's today) and a pair straddling a month in the billing section's
+// title (moved with a fake clock). The bubble's clock moves only when everything in it is durably
+// blocked, and these requests run on the test's goroutine against fakes.
 var panelBrandAsOf = time.Date(2026, time.August, 5, 9, 41, 0, 0, time.UTC)
 
 const passKickerAsOf = "Wed 5 Aug · 09:41 · UTC"
@@ -272,6 +280,10 @@ func attr(tag, name string) (string, bool) {
 // request, for the session's business. The failed and the inconsistent reads are
 // logged at ERROR with the tenant id; the refused accent at WARN.
 func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
+	synctest.Test(t, unbrandedSectionsAreTheWordmarkChrome)
+}
+
+func unbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 	assertSectionTableIsUsable(t)
 	wordmark := wordmarkHTML(t)
 	logoOnly := wl8Brand(t, false, true)
@@ -401,6 +413,10 @@ func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 // or its first eight digits) -- panelBrand's doc says so and this is where it is
 // measured. The three others log nothing about the brand.
 func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
+	synctest.Test(t, aBrandedBusinessGetsItsHeaderOnEverySection)
+}
+
+func aBrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 	assertSectionTableIsUsable(t)
 	wordmark := wordmarkHTML(t)
 	brands := newFakeBrands()
