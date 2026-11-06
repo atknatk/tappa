@@ -994,7 +994,7 @@ func TestConstructors_TheHookReachesOnlyThePin(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"New":           "{\n\treturn newDB(ctx, cfg, nil)\n}",
-		"NewOperatorDB": "{\n\treturn openOperatorDB(ctx, cfg.OperatorDatabaseURL, nil)\n}",
+		"NewOperatorDB": "{\n\treturn openOperatorDB(ctx, cfg.OperatorDatabaseURL.Reveal(), nil)\n}",
 	} {
 		if got := body(name); got != want {
 			t.Errorf("%s's body is\n%s\nwant exactly\n%s", name, got, want)
@@ -1049,7 +1049,7 @@ func TestConstructors_TheHookReachesOnlyThePin(t *testing.T) {
 // re-run green on the changed body.
 var reviewedBodies = map[string]string{
 	"newDB": `{
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL.Reveal())
 	if err != nil {
 		return nil, errors.New("db: DATABASE_URL is not a valid PostgreSQL connection string (the parser's " +
 			"message is not repeated: it quotes the value)")

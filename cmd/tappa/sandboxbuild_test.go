@@ -229,9 +229,12 @@ func TestConfig_UntaggedBinaryRefusesSandbox(t *testing.T) {
 // hardenedGates are K-28's nine (ADR 0028 Bağlam: "Üretim kodunda dokuz IsProd() çağrısı") less
 // NewActivation's, as file:function -- the ones that asked "production?" and now ask
 // config.IsHardened. Eight since 2026-11-03: that call only chose the activation page's development
-// notice, which the user's decision of that day removed (ADR 0028's note of that date).
+// notice, which the user's decision of that day removed (ADR 0028's note of that date). A ninth call
+// since 2026-11-06, Load's validBaseURL (backlog T5); the test keeps its name because the ADR and
+// the state file cite it.
 var hardenedGates = []string{
 	"internal/adminauth/cookie.go:NewCookies",
+	"internal/config/config.go:Load",
 	"internal/config/config.go:Load",
 	"internal/config/config.go:loadMail",
 	"internal/db/pool.go:newDB",
@@ -256,7 +259,7 @@ var envComparisons = []string{
 // çağrısının dokuzu bu yükleme geçer; EnvDev'e bağlı üç kapı sandbox'ta kapalı kalır"; eight since
 // the note above):
 //
-//	the code      every call of IsHardened in production code is one of the eight, each of the eight
+//	the code      every call of IsHardened in production code is one of hardenedGates, each of them
 //	              calls it, nothing calls a method named IsProd (there is none: config removed it),
 //	              and every comparison with a TAPPA_ENV value outside internal/config is a known one
 //	the behaviour a sandbox configuration is the production one where a gate is reachable from
@@ -309,7 +312,7 @@ func TestConfig_IsHardenedCoversTheEightGates(t *testing.T) {
 	sort.Strings(calls)
 	sort.Strings(comparisons)
 	if !slices.Equal(calls, hardenedGates) {
-		t.Errorf("the IsHardened calls in production code are\n  %v\nwant the eight\n  %v", calls, hardenedGates)
+		t.Errorf("the IsHardened calls in production code are\n  %v\nwant\n  %v", calls, hardenedGates)
 	}
 	if len(prodCalls) > 0 {
 		t.Errorf("production code calls IsProd at %v", prodCalls)

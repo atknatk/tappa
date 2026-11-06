@@ -116,7 +116,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 				deliveryVar = lhs.Name
 			}
 			sender, _ := c.Args[2].(*ast.Ident)
-			if len(c.Args) != 4 || !isSel(c.Args[0], "cfg", "WebhookKEK") || sender == nil || sender.Name != egressVar {
+			if len(c.Args) != 4 || !isSel(revealed(c.Args[0]), "cfg", "WebhookKEK") || sender == nil || sender.Name != egressVar {
 				t.Error("delivery.New is not given cfg.WebhookKEK and the egress client built above")
 			}
 		case isSel(c.Fun, "endpoints", "New"):
@@ -125,7 +125,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 				endpointsVar = lhs.Name
 			}
 			last, _ := c.Args[len(c.Args)-1].(*ast.Ident)
-			if len(c.Args) != 4 || !isSel(c.Args[0], "cfg", "WebhookKEK") || last == nil || last.Name != egressVar {
+			if len(c.Args) != 4 || !isSel(revealed(c.Args[0]), "cfg", "WebhookKEK") || last == nil || last.Name != egressVar {
 				t.Error("endpoints.New is not given cfg.WebhookKEK and the egress client built above")
 			}
 		default:
