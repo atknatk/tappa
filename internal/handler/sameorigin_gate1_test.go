@@ -448,7 +448,7 @@ func TestSameOrigin_EveryGateRouteRefusesSameSiteBeforeItsWork(t *testing.T) {
 // used to hand back the malformed base itself, so `Origin: /` passed on an empty base and an Origin
 // spelled like the junk passed on the junk.
 //
-// CONTROL: a well-formed base still matches its own origin, with a path and with a slash.
+// CONTROL: a well-formed base still matches its own origin, with and without its trailing slash.
 //
 // MUTANT (measured, 2026-11-06, reverted): originOf returning strings.TrimRight(base, "/") on the
 // malformed branch -- red on the empty base and on each spelled-like-the-base Origin.
@@ -478,7 +478,7 @@ func TestOriginOf_AMalformedBaseMatchesNoOrigin(t *testing.T) {
 			}
 		}
 	}
-	for _, base := range []string{"https://taptime.mt", "https://taptime.mt/", "https://taptime.mt/app"} {
+	for _, base := range []string{"https://taptime.mt", "https://taptime.mt/"} {
 		for name, check := range checks(base) {
 			if !check(post("https://taptime.mt")) {
 				t.Errorf("CONTROL: %s: base %q refused its own origin", name, base)

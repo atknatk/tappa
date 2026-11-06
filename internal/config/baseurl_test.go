@@ -31,10 +31,16 @@ func baseURLRefused(t *testing.T, env, raw string) (bool, string) {
 // environment, because no reader can use it; the hardened rows add https.
 //
 // MUTANTS (measured, 2026-11-06, each reverted; the rows that go red are named): the push of
-// validBaseURL removed (38 rows); the scheme check (scheme-relative, another scheme); the user-part
-// check (the three user rows); the query/fragment/whitespace check (the query and fragment rows, the
-// spaces in a path); the host check (no host, bad port); the host's character set (non-ASCII,
-// punctuation); the empty-port rule; the port range; the hardened https check (the prod-only rows).
+// validBaseURL removed (every refused row and the prod-only rows); the lower-case prefix made
+// case-insensitive (the three upper-case scheme rows); the prefix check removed (those and
+// scheme-relative, another scheme); the query/fragment/whitespace check (the query and fragment
+// rows); the user-part check (the three user rows); the host check (no host, every port and label
+// row); the default-port rule (the three default-port rows); the leading-zero rule (zero on another
+// port); the port range; the empty-port rule; the DNS label rule reduced to a non-empty host (the dot
+// and hyphen rows, non-ASCII, punctuation); the label rule without case-folding (the upper-case host,
+// the sandbox placeholder); without the underscore (the sandbox placeholder); the path rule (the
+// path rows); the path rule trimming slashes (two slashes, an escaped slash); the hardened https
+// check (the prod-only rows).
 func TestLoad_BaseURLShape(t *testing.T) {
 	untaggedOnly(t)
 	for _, tc := range []struct {
@@ -50,9 +56,11 @@ func TestLoad_BaseURLShape(t *testing.T) {
 		{"plain http on a real name", "http://taptime.mt", true, false},
 		{"the default when unset", "", true, false},
 		{"a port", "https://taptime.mt:8443", true, true},
-		{"a path", "https://taptime.mt/app", true, true},
-		{"an upper-case scheme, which the cookie codecs read case-insensitively", "HTTPS://taptime.mt", true, true},
-		{"an upper-case host", "https://TapTime.MT", true, true},
+		{"the other scheme's default port", "https://taptime.mt:80", true, true},
+		{"an upper-case host, which an Origin still equals", "https://TapTime.MT", true, true},
+		{"punycode", "https://xn--tptime-cua.mt", true, true},
+		{"localhost by name", "http://localhost", true, false},
+		{"a single label over https", "https://localhost", true, true},
 		{"IPv6 loopback", "http://[::1]:8080", true, false},
 		{"IPv6 over https", "https://[2001:db8::1]:8443/", true, true},
 		// Not a URL with a scheme and a host.
@@ -67,6 +75,9 @@ func TestLoad_BaseURLShape(t *testing.T) {
 		{"a port and no host", "https://:8443", false, false},
 		{"opaque", "https:taptime.mt", false, false},
 		// What an origin has no place for.
+		{"an upper-case scheme, which the NDEF builder and the heartbeat refuse", "HTTPS://taptime.mt", false, false},
+		{"a mixed-case scheme", "Http://localhost:8080", false, false},
+		{"an upper-case http", "HTTP://localhost:8080", false, false},
 		{"a query", "https://taptime.mt?a=1", false, false},
 		{"an empty query", "https://taptime.mt?", false, false},
 		{"a fragment", "https://taptime.mt#f", false, false},
@@ -81,6 +92,27 @@ func TestLoad_BaseURLShape(t *testing.T) {
 		{"a space in the path", "https://taptime.mt/a b", false, false},
 		{"a tab in the path", "https://taptime.mt/a\tb", false, false},
 		{"a newline", "https://taptime.mt\n", false, false},
+		// Hosts and ports a browser spells differently, so sameOrigin is false on every POST.
+		{"https's default port", "https://taptime.mt:443", false, false},
+		{"http's default port", "http://localhost:80", false, false},
+		{"https's default port on IPv6", "https://[2001:db8::1]:443", false, false},
+		{"a leading zero on the default port", "https://taptime.mt:0443", false, false},
+		{"a leading zero on another port", "https://taptime.mt:08443", false, false},
+		{"a trailing dot", "https://taptime.mt.", false, false},
+		{"a trailing dot before a port", "https://taptime.mt.:8443", false, false},
+		{"a dot alone", "https://.", false, false},
+		{"two dots", "https://..", false, false},
+		{"a leading dot", "https://.taptime.mt", false, false},
+		{"a doubled dot", "https://taptime..mt", false, false},
+		{"a hyphen alone", "https://-", false, false},
+		{"a label starting with a hyphen", "https://-taptime.mt", false, false},
+		{"a label ending with a hyphen", "https://taptime-.mt", false, false},
+		// A path: every link it mints is under a prefix nothing mounts.
+		{"a path", "https://taptime.mt/app", false, false},
+		{"a path with a trailing slash", "https://taptime.mt/app/", false, false},
+		{"two slashes", "https://taptime.mt//", false, false},
+		{"an escaped slash", "https://taptime.mt/%2f", false, false},
+		{"markup in the path", `https://taptime.mt/"><b>`, false, false},
 		{"a port out of range", "https://taptime.mt:99999", false, false},
 		{"port zero", "https://taptime.mt:0", false, false},
 		{"an empty port", "https://taptime.mt:", false, false},

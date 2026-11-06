@@ -1294,7 +1294,7 @@ func TestOperator00026_RestoreResidueReadsNothing(t *testing.T) {
 }
 
 // TestOperator00026_OperatorRoleIsNotPrivileged drives the SHIPPED boot probe
-// (roleFactsQuery) as tappa_operator: the role must pass the production pool's refusal
+// (roleFactsQuery) as tappa_operator: the role must reach past no row level security
 // (ADR 0021 §1), and it must stop passing the moment it becomes a member of
 // tappa_opdefiner -- which is the structural brake the ADR relies on.
 func TestOperator00026_OperatorRoleIsNotPrivileged(t *testing.T) {

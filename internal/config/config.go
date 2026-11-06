@@ -678,19 +678,31 @@ func AnnounceBusinessDay(log *slog.Logger, from *time.Time, now time.Time) {
 
 // validBaseURL is the one check of TAPPA_BASE_URL's shape (backlog T5). This value mints plaque URLs
 // and every link in an e-mail, the same-origin checks compare a request's Origin with it, and the
-// cookie codecs decide Secure from its scheme; those readers all assume a scheme and a host, so a
-// value without them is a startup failure and not something each reader survives on its own.
+// cookie codecs decide Secure from its scheme; those readers all assume an origin, so anything else
+// is a startup failure and not something each reader survives on its own.
 //
-// Accepted: http or https, a host, an optional port, an optional path, a trailing slash. A query,
-// a fragment or a user part has no meaning in an origin. Hardened environments take https alone,
-// and that includes the unset case, whose http://localhost:8080 default is a developer's: a plaque's
-// NDEF refuses http, the session cookie is Secure and the mail links would point at localhost.
+// Accepted: a lower-case http:// or https://, a host, an optional port, a trailing slash. The rest
+// is refused because a reader breaks on it while the rollout stays green:
+//
+//	HTTPS://x          sun.BuildTapNDEF and the heartbeat's `case` read a lower-case prefix
+//	x:443, x.          no Origin can equal these: a browser drops the default port, and the checks
+//	                   compare text (sameOrigin false, every POST refused)
+//	x/app              links become /app/admin/login, which nothing mounts, and a plaque keeps its
+//	                   URL for good
+//	?, #, a user part  an origin has no place for them
+//
+// Hardened environments take https alone, and that includes the unset case, whose
+// http://localhost:8080 default is a developer's: a plaque's NDEF refuses http, the session cookie is
+// Secure and the mail links would point at localhost.
 //
 // No message repeats the value and url.Parse's error is not wrapped, because it quotes the value: a
 // user part may be a password, and a mis-pasted DSN or key would reach the log.
 func validBaseURL(raw string, hardened bool) error {
 	refuse := func(why string) error {
 		return errors.New("TAPPA_BASE_URL: " + why + " (the value is not repeated here, because it could carry a password)")
+	}
+	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		return refuse("must start with http:// or https://, in lower case")
 	}
 	// url.Parse accepts all of these in a path or as an empty query or fragment ("https://x?", "https://x#").
 	if strings.ContainsAny(raw, "?# \t\r\n") {
@@ -700,14 +712,15 @@ func validBaseURL(raw string, hardened bool) error {
 	if err != nil {
 		return refuse("is not a URL")
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return refuse("must start with http:// or https://")
-	}
 	if u.User != nil {
 		return refuse("must have no user or password part")
 	}
 	if !validURLHost(u) {
-		return refuse("must name a host: a DNS name or an IP address, with a port in 1-65535 if it has one")
+		return refuse("must name a host a browser's Origin can equal: a DNS name or an IP address, with no trailing " +
+			"dot, and a port in 1-65535 only if it is not the scheme's default")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return refuse("must have no path: it is the origin the product is served from")
 	}
 	if hardened && u.Scheme != "https" {
 		return refuse("must be https when TAPPA_ENV is prod or sandbox, and it is required there: " +
@@ -716,33 +729,30 @@ func validBaseURL(raw string, hardened bool) error {
 	return nil
 }
 
-// validURLHost checks what url.Parse lets through: it takes "https://:8080", "https://x:99999" and
-// most punctuation in a host, none of which an Origin header could ever match. A bracketed host is
-// an IPv6 literal url.Parse has already checked ("[taptime.mt]" and "[127.0.0.1]" do not get here:
-// TestLoad_BaseURLShape's rows hold that); anything else is ASCII letters, digits, '.', '-' and '_',
-// which is every name the deployments use (deploy/sandbox/05-config.yaml's placeholder has the
-// underscore).
+// validURLHost checks what url.Parse lets through: it takes "https://:8080", "https://x:99999", "x:443"
+// and most punctuation in a host, none of which an Origin header could ever equal. A bracketed host
+// is an IPv6 literal url.Parse has already checked ("[taptime.mt]" and "[127.0.0.1]" do not get here:
+// TestLoad_BaseURLShape's rows hold that). Anything else takes isDNSHostName's rule, case-insensitively
+// because an upper-case host still matches (the checks use EqualFold), and with '_' as a letter because
+// deploy/sandbox/05-config.yaml's placeholder has one and a browser sends it unchanged.
 func validURLHost(u *url.URL) bool {
-	host := u.Hostname()
-	if host == "" || strings.HasSuffix(u.Host, ":") {
+	if strings.HasSuffix(u.Host, ":") {
 		return false
 	}
 	if p := u.Port(); p != "" {
-		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+		n, err := strconv.Atoi(p)
+		// A leading zero is spelled away by a browser the way a default port is.
+		if err != nil || n < 1 || n > 65535 || p != strconv.Itoa(n) {
+			return false
+		}
+		if (u.Scheme == "https" && n == 443) || (u.Scheme == "http" && n == 80) {
 			return false
 		}
 	}
 	if strings.HasPrefix(u.Host, "[") {
-		return true
+		return u.Hostname() != ""
 	}
-	for _, r := range host {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
-		default:
-			return false
-		}
-	}
-	return true
+	return isDNSHostName(strings.ReplaceAll(strings.ToLower(u.Hostname()), "_", "x"))
 }
 
 func validEnv(v string) error {

@@ -141,7 +141,8 @@ func NewCookies(cfg *config.Config) Cookies {
 	// The single relaxation in the codebase: non-prod AND not https.
 	//
 	// The scheme test is CASE-INSENSITIVE because URL schemes are (RFC 3986 §3.1)
-	// and config.Load does not normalise BaseURL. It used to be a
+	// and a Config built without config.Load can carry any spelling (Load itself takes lower
+	// case alone, backlog T5). It used to be a
 	// plain HasPrefix, so BaseURL="HTTPS://…" took the relaxation branch on a
 	// dev/staging box — a typo silently buying a weaker cookie. The relaxation
 	// must be asked for, never acquired by accident.

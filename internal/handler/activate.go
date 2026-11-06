@@ -1704,8 +1704,8 @@ func activationCSPFor(hasLogo bool) string { return logoImagePolicy(activationCS
 const noOrigin = "\x00"
 
 // originOf reduces a configured base URL to its scheme://host origin, which is
-// the form an Origin header takes. A BaseURL with a path ("https://x/app") would
-// otherwise never match one.
+// the form an Origin header takes. config.Load leaves a trailing slash as the only thing to
+// reduce (it refuses a path, backlog T5).
 //
 // The branch for a base without a scheme and a host is dead in production, because config.Load
 // refuses such a value at startup (validBaseURL, backlog T5). It stays because every same-origin
