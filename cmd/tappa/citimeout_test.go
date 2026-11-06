@@ -17,7 +17,7 @@ const (
 	ciAroundTheSlowestPackage = 8*time.Minute + 15*time.Second
 	ciSandboxStepOrdinary     = 8 * time.Minute
 	ciBeforeMakeCheck         = 51 * time.Second
-	ciMakeCheckOrdinary       = 25*time.Minute + 11*time.Second // run 41739040505, before T190; 15:46 at worst after it
+	ciMakeCheckOrdinary       = 25*time.Minute + 11*time.Second // run 41739040505, before T190; 17:25 on run 42214884680 after it
 )
 
 var (
@@ -28,10 +28,11 @@ var (
 	yamlCommentBreakRE   = regexp.MustCompile(`\n\s*# `)
 )
 
-// ciTimeoutViolations reads the two files' text. It is a pure function so the shapes it refuses can be
-// driven below: the shipped values satisfy every rule, so the shipped files alone cannot show one firing.
-func ciTimeoutViolations(makefile, ciYML string) []string {
-	var bad []string
+// ciTimeouts are the values, in minutes.
+type ciTimeouts struct{ test, cover, sandbox, job int }
+
+// parseCITimeouts reads the values and names any it cannot find.
+func parseCITimeouts(makefile, ciYML string) (v ciTimeouts, bad []string) {
 	minutes := func(re *regexp.Regexp, text, what string) int {
 		m := re.FindStringSubmatch(text)
 		if m == nil {
@@ -44,16 +45,24 @@ func ciTimeoutViolations(makefile, ciYML string) []string {
 		}
 		return n
 	}
-	test := minutes(makeTestTimeoutRE, makefile, "`make test`'s -timeout")
-	cover := minutes(makeCoverTimeoutRE, makefile, "`make cover`'s -timeout")
-	sandbox := minutes(makeSandboxTimeoutRE, makefile, "`make check-sandbox`'s -timeout")
+	v.test = minutes(makeTestTimeoutRE, makefile, "`make test`'s -timeout")
+	v.cover = minutes(makeCoverTimeoutRE, makefile, "`make cover`'s -timeout")
+	v.sandbox = minutes(makeSandboxTimeoutRE, makefile, "`make check-sandbox`'s -timeout")
 	if n := len(ciJobTimeoutRE.FindAllString(ciYML, -1)); n != 1 {
 		bad = append(bad, fmt.Sprintf("ci.yml carries %d timeout-minutes lines, want the one job's", n))
 	}
-	job := minutes(ciJobTimeoutRE, ciYML, "ci.yml's timeout-minutes")
+	v.job = minutes(ciJobTimeoutRE, ciYML, "ci.yml's timeout-minutes")
+	return v, bad
+}
+
+// ciTimeoutViolations reads the two files' text. It is a pure function so the shapes it refuses can be
+// driven below: the shipped values satisfy every rule, so the shipped files alone cannot show one firing.
+func ciTimeoutViolations(makefile, ciYML string) []string {
+	v, bad := parseCITimeouts(makefile, ciYML)
 	if len(bad) > 0 {
 		return bad
 	}
+	test, cover, sandbox, job := v.test, v.cover, v.sandbox, v.job
 
 	// Go's goroutine dump naming the stuck test only reaches the log if go's alarm fires before the runner
 	// cancels the job. A hang is one package at its limit, the other step in its ordinary time.
@@ -77,8 +86,8 @@ func ciTimeoutViolations(makefile, ciYML string) []string {
 }
 
 // TestCITimeouts_TheJobOutlastsEveryGoAlarm binds the Makefile's -timeout values to ci.yml's job limit,
-// which used to rest on a comment (T102). Any change to a value is red until this table's literals move
-// with it, so the change is made here too, where the rules are in sight.
+// which used to rest on a comment (T102). The table's edits are derived from the parsed values, so it
+// pins the rules and not today's numbers: a change that keeps them, its written sum included, stays green.
 func TestCITimeouts_TheJobOutlastsEveryGoAlarm(t *testing.T) {
 	t.Parallel()
 	read := func(rel ...string) string {
@@ -93,26 +102,33 @@ func TestCITimeouts_TheJobOutlastsEveryGoAlarm(t *testing.T) {
 		t.Fatalf("the shipped files: %v", bad)
 	}
 
-	const testLine, coverLine, sandboxLine = "\tgo test -race -count=1 -timeout=30m ./...",
-		"-coverprofile=coverage.out -timeout=30m", "-count=1 -timeout=20m -tags sandbox"
-	const sumLine = "    # 38:15 at worst for `make check`, + ~8:00 for the sandbox step = ~46:15, under 55."
+	v, bad := parseCITimeouts(makefile, ciYML)
+	if len(bad) > 0 {
+		t.Fatalf("the shipped files: %v", bad)
+	}
+	testAt := func(m int) string { return fmt.Sprintf("\tgo test -race -count=1 -timeout=%dm ./...", m) }
+	coverAt := func(m int) string { return fmt.Sprintf("-coverprofile=coverage.out -timeout=%dm", m) }
+	sandboxAt := func(m int) string { return fmt.Sprintf("-count=1 -timeout=%dm -tags sandbox", m) }
+	jobAt := func(m int) string { return fmt.Sprintf("timeout-minutes: %d", m) }
+	sumLine := fmt.Sprintf("    # %d:15 at worst for `make check`, + ~8:00 for the sandbox step = ~%d:15, under %d.",
+		v.test+8, v.test+16, v.job)
 	for _, tc := range []struct {
 		name          string
 		file          *string
 		old, new, why string
 	}{
-		{"make test raised past the job", &makefile, testLine, "\tgo test -race -count=1 -timeout=40m ./...", "go's dump never prints"},
-		{"make test raised, the sum left behind", &makefile, testLine, "\tgo test -race -count=1 -timeout=32m ./...", "no longer states the sum"},
-		{"make test loses its -timeout", &makefile, testLine, "\tgo test -race -count=1 ./...", "`make test`'s -timeout is not found"},
-		{"the job lowered under the hang", &ciYML, "timeout-minutes: 55", "timeout-minutes: 45", "go's dump never prints"},
-		{"the job changed, the sum left behind", &ciYML, "timeout-minutes: 55", "timeout-minutes: 60", "no longer states the sum"},
-		{"the job's limit gone", &ciYML, "timeout-minutes: 55", "", "0 timeout-minutes lines"},
-		{"a second job's limit", &ciYML, "timeout-minutes: 55", "timeout-minutes: 55\n    timeout-minutes: 5", "2 timeout-minutes lines"},
+		{"make test raised past the job", &makefile, testAt(v.test), testAt(v.job), "go's dump never prints"},
+		{"make test raised, the sum left behind", &makefile, testAt(v.test), testAt(v.test + 1), "no longer states the sum"},
+		{"make test loses its -timeout", &makefile, testAt(v.test), "\tgo test -race -count=1 ./...", "`make test`'s -timeout is not found"},
+		{"the job lowered under the hang", &ciYML, jobAt(v.job), jobAt(v.test + 16), "go's dump never prints"},
+		{"the job changed, the sum left behind", &ciYML, jobAt(v.job), jobAt(v.job + 5), "no longer states the sum"},
+		{"the job's limit gone", &ciYML, jobAt(v.job), "", "0 timeout-minutes lines"},
+		{"a second job's limit", &ciYML, jobAt(v.job), jobAt(v.job) + "\n    timeout-minutes: 5", "2 timeout-minutes lines"},
 		{"the sum rewritten", &ciYML, sumLine, "    # about 40 minutes", "no longer states the sum"},
-		{"check-sandbox raised past the job", &makefile, sandboxLine, "-count=1 -timeout=40m -tags sandbox", "`make check-sandbox` is at"},
-		{"check-sandbox loses its -timeout", &makefile, sandboxLine, "-count=1 -tags sandbox", "`make check-sandbox`'s -timeout is not found"},
-		{"cover back on go's default", &makefile, coverLine, "-coverprofile=coverage.out", "`make cover`'s -timeout is not found"},
-		{"cover drifts from test", &makefile, coverLine, "-coverprofile=coverage.out -timeout=10m", "the same suite with coverage on top"},
+		{"check-sandbox raised past the job", &makefile, sandboxAt(v.sandbox), sandboxAt(v.job), "`make check-sandbox` is at"},
+		{"check-sandbox loses its -timeout", &makefile, sandboxAt(v.sandbox), "-count=1 -tags sandbox", "`make check-sandbox`'s -timeout is not found"},
+		{"cover back on go's default", &makefile, coverAt(v.cover), "-coverprofile=coverage.out", "`make cover`'s -timeout is not found"},
+		{"cover drifts from test", &makefile, coverAt(v.cover), coverAt(v.test - 1), "the same suite with coverage on top"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			edited := map[*string]string{&makefile: makefile, &ciYML: ciYML}
