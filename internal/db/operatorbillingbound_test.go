@@ -90,8 +90,9 @@ func (x *boundProbeTx) Query(ctx context.Context, sql string, args ...any) (pgx.
 // shipped accessor on one connection that IS tappa_operator (SET SESSION AUTHORIZATION, the
 // pool tests' hook):
 //
-//   - the connection's statement_timeout before the call is the session's (the operator's
-//     pool sets none: 0 on the development server);
+//   - the connection's statement_timeout before the call is the session's (this raw connection
+//     sets none: 0 on the development server; the pool's own startup parameter, the same number,
+//     is T98's and is measured in operatortimeout_test.go);
 //   - phase two's read runs in a transaction where it is 15s -- read on that transaction,
 //     just before the read is sent;
 //   - after the call the connection's statement_timeout is the session's again: the bound was

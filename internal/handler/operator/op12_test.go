@@ -2560,6 +2560,13 @@ const slowestBillingRead = 6100 * time.Millisecond
 // TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound; that a read past it is a 503
 // with its ticket unconsumed is op12_db_test.go's TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed.)
 func TestBillingRead_TheBoundFiresBeforeTheRequestDeadline(t *testing.T) {
+	// T98: the pool's bound on every other statement, by the same arithmetic.
+	if 2*db.OperatorStatementTimeout > httpx.RequestTimeout {
+		t.Errorf("2 x the operator pool's statement bound (%v) is past the request's deadline (%v)", db.OperatorStatementTimeout, httpx.RequestTimeout)
+	}
+	if db.OperatorStatementTimeout < 2*slowestBillingRead {
+		t.Errorf("the operator pool's statement bound (%v) is under twice the slowest read measured (%v)", db.OperatorStatementTimeout, slowestBillingRead)
+	}
 	if 2*db.TenantBillingReadTimeout > httpx.RequestTimeout {
 		t.Errorf("2 x the billing read's bound (%v) is past the request's deadline (%v)", db.TenantBillingReadTimeout, httpx.RequestTimeout)
 	}
