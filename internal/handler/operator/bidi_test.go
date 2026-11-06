@@ -15,8 +15,8 @@ import (
 // bidiControls are the nine runes shownName drops, and pdiRLO the shape that walks out of a bdi
 // (T97): U+2069 closes the isolate the element opened, U+202E then overrides what follows.
 const (
-	bidiControls = "‪‫‬‭‮⁦⁧⁨⁩"
-	pdiRLO       = "⁩‮"
+	bidiControls = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+	pdiRLO       = "\u2069\u202e"
 )
 
 func carriesBidiControl(s string) bool { return strings.ContainsAny(s, bidiControls) }
@@ -109,7 +109,7 @@ func TestOperatorScreens_RightToLeftNamesAreLeftAsTyped(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
 	for _, name := range []string{
-		"مطعم الياسمين", "מסעדת השלום", "رستوران می‌خواهم", "‏מסעדה‎ 7", "Chef \U0001F468‍\U0001F373 Bar",
+		"مطعم الياسمين", "מסעדת השלום", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e 7", "Chef \U0001F468\u200d\U0001F373 Bar",
 	} {
 		g.store.mu.Lock()
 		g.store.tenants = []db.TenantSummary{{ID: uuid.New(), Name: name, Plan: "founding"}}
