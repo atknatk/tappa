@@ -210,6 +210,17 @@ func TestAccountDB_SavesTheThreeFieldsAndLeavesTheRestAlone(t *testing.T) {
 func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 	f := newAccountFixture(t)
 	ctx := context.Background()
+	// This fixture's tenant stays committed, and a screen-level test elsewhere prints the oldest
+	// tenant by its stored name: no name with a control is left behind, whatever this test finds.
+	t.Cleanup(func() {
+		err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `UPDATE tenants SET name = 'Kebab Factory Ltd' WHERE id = $1`, f.tenantID)
+			return e
+		})
+		if err != nil {
+			t.Errorf("clear the name: %v", err)
+		}
+	})
 	save := func(name, zone string) error {
 		_, err := f.accounts.Save(ctx, AccountCommand{TenantID: f.tenantID, ActorID: f.actorID,
 			Name: name, BusinessType: "restaurant", Timezone: zone})
