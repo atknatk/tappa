@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/sun"
 )
 
@@ -258,7 +259,7 @@ func TestSandbox_TheSimulationIsJudgedByTheRealCMAC(t *testing.T) {
 	if len(minted) != 2 {
 		t.Fatalf("minted %d URLs, want 2", len(minted))
 	}
-	independent := sun.NewVerifier(r.d, r.kek)
+	independent := sun.NewVerifier(r.d, config.NewKey(r.kek))
 	for i, want := range []bool{false, true} {
 		u, err := url.Parse(minted[i])
 		if err != nil {

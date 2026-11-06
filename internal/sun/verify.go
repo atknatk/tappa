@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/google/uuid"
@@ -132,15 +133,19 @@ type Verifier struct {
 	tags tagResolver
 	// keks is ordered: keks[0] is the primary (Config.TagKEK) and is tried first.
 	// It has more than one entry only during a KEK rotation; see UnwrapAny.
-	keks [][]byte
+	// config.Key because %+v of a Verifier, or of anything holding one by value,
+	// used to print these bytes (backlog T205, measured).
+	keks []config.Key
 	// devMinting is set only by WithDevelopmentMinting (mint.go); NewVerifier
 	// leaves it false, so a production Verifier cannot mint taps.
 	devMinting bool
 }
 
 // NewVerifier wires a Verifier. tags is normally *db.DB; kek is Config.TagKEK
-// (32 bytes, validated by internal/config). The KEK is held by reference, exactly
-// as keys.go's contract expects — the package caches no unwrapped tag key.
+// (32 bytes, validated by internal/config). A config.Key is passed in rather than
+// its bytes, so the process keeps one long-lived copy of the KEK (keys.go): this
+// holds config's value, not a copy of it (backlog T205). The package caches no
+// unwrapped tag key.
 //
 // previous is the OPTIONAL rotation fallback (Config.TagKEKPrevious). It is
 // variadic so that the twenty-eight existing call sites keep compiling unchanged
@@ -148,13 +153,13 @@ type Verifier struct {
 // a change whose whole point is that the read path must not break.
 //
 // EMPTY ENTRIES ARE DROPPED, and that is safe rather than lenient: an unset
-// previous KEK is nil, which is the ordinary steady state, so main can pass
+// previous KEK is the zero Key, which is the ordinary steady state, so main can pass
 // cfg.TagKEKPrevious straight through without a branch. A previous KEK that is
 // SET but malformed never arrives here at all — internal/config refuses to start.
-func NewVerifier(tags tagResolver, kek []byte, previous ...[]byte) *Verifier {
-	keks := [][]byte{kek}
+func NewVerifier(tags tagResolver, kek config.Key, previous ...config.Key) *Verifier {
+	keks := []config.Key{kek}
 	for _, p := range previous {
-		if len(p) > 0 {
+		if p.Len() > 0 {
 			keks = append(keks, p)
 		}
 	}

@@ -86,7 +86,7 @@ type claimContext struct {
 
 // claimContexts mints and parses signed claim contexts; tapContexts' shape.
 type claimContexts struct {
-	key []byte
+	key config.Key
 	ttl time.Duration
 	now func() time.Time
 }
@@ -100,7 +100,7 @@ func newClaimContexts(cfg *config.Config) (claimContexts, error) {
 	}
 	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(claimContextKeyLabel)) // hash writes never fail (documented)
-	return claimContexts{key: m.Sum(nil), ttl: claimContextTTL}, nil
+	return claimContexts{key: config.NewKey(m.Sum(nil)), ttl: claimContextTTL}, nil
 }
 
 func (c claimContexts) clock() time.Time {
@@ -139,7 +139,7 @@ func (c claimContexts) payload(v claimContext) string {
 }
 
 func (c claimContexts) sign(payload string, sessionID uuid.UUID) []byte {
-	m := hmac.New(sha256.New, c.key)
+	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(claimContextMACLabel))
 	_, _ = m.Write([]byte(payload))
 	_, _ = m.Write([]byte("|"))
@@ -149,7 +149,7 @@ func (c claimContexts) sign(payload string, sessionID uuid.UUID) []byte {
 
 // mint stamps v with the server clock and returns the form-field value.
 func (c claimContexts) mint(v claimContext, sessionID uuid.UUID) (string, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return "", errors.New("handler: claim contexts were not configured")
 	}
 	if sessionID == uuid.Nil {
@@ -167,7 +167,7 @@ func (c claimContexts) mint(v claimContext, sessionID uuid.UUID) (string, error)
 // parse verifies a context against sessionID: shape, SIGNATURE, expiry, then the fields --
 // tapContexts.parse's order, so no field of an unauthenticated value is ever read.
 func (c claimContexts) parse(v string, sessionID uuid.UUID) (claimContext, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return claimContext{}, errors.New("handler: claim contexts were not configured")
 	}
 	if sessionID == uuid.Nil {

@@ -203,9 +203,9 @@ type EV2Auth struct {
 	// (datasheet rev. 3.0 §9.1.1). Not secret; it is a replay/interleaving guard.
 	TI []byte
 	// KeyENC is KSesAuthENC — encryption and decryption of message data.
-	KeyENC []byte
+	KeyENC WipeableKey
 	// KeyMAC is KSesAuthMAC — MACing of commands and responses.
-	KeyMAC []byte
+	KeyMAC WipeableKey
 	// PDcap2 and PCDcap2 are the 12 capability bytes the PICC returns
 	// (datasheet rev. 3.0 §9.1.5). They are surfaced rather than dropped because
 	// the datasheet makes acting on a mismatch "the responsibility of the PCD …
@@ -221,8 +221,9 @@ func (a *EV2Auth) Zero() {
 	if a == nil {
 		return
 	}
-	Zero(a.KeyENC)
-	Zero(a.KeyMAC)
+	enc, mac := a.KeyENC.Reveal(), a.KeyMAC.Reveal()
+	Zero(enc)
+	Zero(mac)
 }
 
 // EV2AuthPart1 runs the PCD side of AuthenticateEV2First - Part1: it opens the
@@ -366,8 +367,8 @@ func EV2AuthPart2(key, rndA, rndB, encResp []byte) (*EV2Auth, error) {
 	// The slices are copied out of `plain`, which this function wipes on return.
 	return &EV2Auth{
 		TI:      append([]byte(nil), ti...),
-		KeyENC:  keyENC,
-		KeyMAC:  keyMAC,
+		KeyENC:  NewWipeableKey(keyENC),
+		KeyMAC:  NewWipeableKey(keyMAC),
 		PDcap2:  append([]byte(nil), pdCap...),
 		PCDcap2: append([]byte(nil), pcdCap...),
 	}, nil
@@ -495,14 +496,14 @@ func EV2WrapCommandFull(auth *EV2Auth, cmd byte, cmdCtr uint16, cmdHeader, cmdDa
 
 	var enc []byte
 	if len(cmdData) > 0 {
-		iv, err := ev2DataIV(auth.KeyENC, ev2LabelCmdIV, auth.TI, cmdCtr)
+		iv, err := ev2DataIV(auth.KeyENC.Reveal(), ev2LabelCmdIV, auth.TI, cmdCtr)
 		if err != nil {
 			return nil, err
 		}
 		defer Zero(iv)
 		padded := ev2Pad(cmdData)
 		defer Zero(padded) // a ChangeKey body is key material (§4.7)
-		enc, err = ev2CBCEncrypt(auth.KeyENC, iv, padded)
+		enc, err = ev2CBCEncrypt(auth.KeyENC.Reveal(), iv, padded)
 		if err != nil {
 			return nil, err
 		}
@@ -514,7 +515,7 @@ func EV2WrapCommandFull(auth *EV2Auth, cmd byte, cmdCtr uint16, cmdHeader, cmdDa
 	// "it goes on the wire anyway" argument does not cover them (see the file
 	// header). t itself is NOT wiped — it is copied verbatim into out below and
 	// returned, so scrubbing this copy protects nothing.
-	full, err := cmac(auth.KeyMAC, macIn)
+	full, err := cmac(auth.KeyMAC.Reveal(), macIn)
 	defer Zero(full[:])
 	if err != nil {
 		return nil, fmt.Errorf("sun: ev2: compute command MAC: %w", err)
@@ -568,7 +569,7 @@ func EV2UnwrapResponseFull(auth *EV2Auth, cmdCtr uint16, rc byte, respField []by
 	got := respField[len(respField)-ev2MACtLen:]
 
 	macIn := ev2MACInput(rc, respCtr, auth.TI, nil, enc)
-	full, err := cmac(auth.KeyMAC, macIn)
+	full, err := cmac(auth.KeyMAC.Reveal(), macIn)
 	defer Zero(full[:])
 	if err != nil {
 		return nil, fmt.Errorf("sun: ev2: compute response MAC: %w", err)
@@ -590,12 +591,12 @@ func EV2UnwrapResponseFull(auth *EV2Auth, cmdCtr uint16, rc byte, respField []by
 		return nil, nil
 	}
 
-	iv, err := ev2DataIV(auth.KeyENC, ev2LabelRespIV, auth.TI, respCtr)
+	iv, err := ev2DataIV(auth.KeyENC.Reveal(), ev2LabelRespIV, auth.TI, respCtr)
 	if err != nil {
 		return nil, err
 	}
 	defer Zero(iv)
-	plain, err := ev2CBCDecrypt(auth.KeyENC, iv, enc)
+	plain, err := ev2CBCDecrypt(auth.KeyENC.Reveal(), iv, enc)
 	if err != nil {
 		return nil, err
 	}
@@ -803,8 +804,8 @@ func ev2CheckAuth(a *EV2Auth) error {
 	if len(a.TI) != ev2TILen {
 		return fmt.Errorf("sun: ev2: transaction identifier must be %d bytes, got %d", ev2TILen, len(a.TI))
 	}
-	if len(a.KeyENC) != ev2KeyLen || len(a.KeyMAC) != ev2KeyLen {
-		return fmt.Errorf("sun: ev2: both session keys must be %d bytes, got %d and %d", ev2KeyLen, len(a.KeyENC), len(a.KeyMAC))
+	if a.KeyENC.Len() != ev2KeyLen || a.KeyMAC.Len() != ev2KeyLen {
+		return fmt.Errorf("sun: ev2: both session keys must be %d bytes, got %d and %d", ev2KeyLen, a.KeyENC.Len(), a.KeyMAC.Len())
 	}
 	return nil
 }

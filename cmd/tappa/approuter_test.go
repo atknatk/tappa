@@ -246,7 +246,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	trail, err := audit.New(data)
 	must(err)
-	verifier := sun.NewVerifier(data, cfg.TagKEK.Reveal(), cfg.TagKEKPrevious.Reveal())
+	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
 	brandReader, err := tenant.NewBrandReader(data)
 	must(err)
 	activation, err := handler.NewActivation(invites, sessions, verifier, trail, brandReader, cfg, log)

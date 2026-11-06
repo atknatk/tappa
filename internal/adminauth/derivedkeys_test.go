@@ -1,6 +1,7 @@
 package adminauth
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"testing"
@@ -70,6 +71,61 @@ func TestManagerAndResets_PrintNoDerivedKey(t *testing.T) {
 			if strings.Contains(text, raw(k.key)) || strings.Contains(text, fmt.Sprintf("%x", k.key)) ||
 				strings.Contains(text, string(k.key)) || strings.Contains(text, fmt.Sprintf("%q", k.key)) {
 				t.Errorf("%s prints the %s key", name, k.name)
+			}
+		}
+	}
+}
+
+// TestServices_PrintNoDerivedKey (backlog T205): the rest of this package's key-holding types, under the
+// same search as TestManagerAndResets_PrintNoDerivedKey.
+//
+// MUTANT (measured, 2026-11-06, reverted): config.Key over a plain string -- red here.
+func TestServices_PrintNoDerivedKey(t *testing.T) {
+	session := make([]byte, hmacKeyLen)
+	for i := range session {
+		session[i] = byte(i + 1)
+	}
+	cfg := &config.Config{SessionHMACKey: config.NewKey(session)}
+	invites, err := NewAdminInvites(&db.DB{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := NewSignupClaims(&db.DB{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binder, err := NewFormBinder(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := NewSwitchTokens(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		v    any
+		keys []config.Key
+	}{
+		{"AdminInvites", invites, []config.Key{invites.inviteKey, invites.sessionKey}},
+		{"SignupClaims", claims, []config.Key{claims.claimKey, claims.sessionKey}},
+		{"FormBinder", binder, []config.Key{binder.key}},
+		{"SwitchTokens", tokens, []config.Key{tokens.key}},
+	} {
+		for _, k := range c.keys {
+			if k.Len() != sha256.Size {
+				t.Fatalf("CONTROL: %s holds a key of %d bytes; the search would look at nothing", c.name, k.Len())
+			}
+			raw := k.Reveal()
+			bare := fmt.Sprint(raw)
+			for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%x", "%q", "%d"} {
+				for _, form := range []any{c.v, struct{ held any }{c.v}} {
+					text := fmt.Sprintf(verb, form)
+					if strings.Contains(text, bare[1:len(bare)-1]) || strings.Contains(text, fmt.Sprintf("%x", raw)) ||
+						strings.Contains(text, string(raw)) || strings.Contains(text, fmt.Sprintf("%q", raw)) {
+						t.Errorf("%s under %s prints a derived key", c.name, verb)
+					}
+				}
 			}
 		}
 	}

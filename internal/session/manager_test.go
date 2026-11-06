@@ -86,7 +86,7 @@ func TestNew_CopiesKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newToken: %v", err)
 	}
-	before, err := tk.hash(m.hmacKey)
+	before, err := tk.hash(m.hmacKey.Reveal())
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestNew_CopiesKey(t *testing.T) {
 	for i := range revealed {
 		revealed[i] ^= 0xFF
 	}
-	after, err := tk.hash(m.hmacKey)
+	after, err := tk.hash(m.hmacKey.Reveal())
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}

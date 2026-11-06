@@ -333,7 +333,7 @@ func run() error {
 	// ONE verifier for both consumers below. The activation flow gets it whole
 	// because the activating tap (ADR 0026) must run the ATOMIC counter advance;
 	// the tap page gets it through an interface that names only the preview.
-	verifier := sun.NewVerifier(data, cfg.TagKEK.Reveal(), cfg.TagKEKPrevious.Reveal())
+	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
 	// The business's brand, READ side (M10 WL-6, WL-8, WL-13). The reader takes the pool
 	// and nothing else: it reads, it never writes, and the tenant it reads is the one
 	// each caller resolved -- a session, or (the activation wizard, WL-13) the invitation
@@ -614,7 +614,7 @@ func run() error {
 	// It was written in the same change set that corrected five other dangling
 	// references, which is the whole lesson: a comment that names its subject cannot
 	// drift onto a different one.
-	encodeWrapper, err := encode.NewKEKWrapper(cfg.TagKEK.Reveal())
+	encodeWrapper, err := encode.NewKEKWrapper(cfg.TagKEK)
 	if err != nil {
 		return err
 	}

@@ -166,7 +166,7 @@ func wrappedFor(t *testing.T, uidHex string) []byte {
 	if err != nil {
 		t.Fatalf("decode uid: %v", err)
 	}
-	w, err := NewKEKWrapper(bytesOf(sun.KEKLen, 0x3B))
+	w, err := NewKEKWrapper(config.NewKey(bytesOf(sun.KEKLen, 0x3B)))
 	if err != nil {
 		t.Fatalf("NewKEKWrapper: %v", err)
 	}
@@ -1219,7 +1219,7 @@ func TestDBStore_AnOrdinaryHangUpIsREPAIRED_NotFiledAsDamage(t *testing.T) {
 	tenant := newEncodeTenant(t, d)
 	admin := newEncodeAdmin(t, d, tenant)
 
-	wrapper, err := NewKEKWrapper(bytesOf(sun.KEKLen, 0x3B))
+	wrapper, err := NewKEKWrapper(config.NewKey(bytesOf(sun.KEKLen, 0x3B)))
 	if err != nil {
 		t.Fatalf("NewKEKWrapper: %v", err)
 	}

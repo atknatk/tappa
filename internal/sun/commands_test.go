@@ -442,8 +442,8 @@ func TestAPDU_CommandBuildersRejectMalformedInput(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 			assertNoKeyBytesInMessage(t, err.Error(), cryptogram)
-			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyENC)
-			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyMAC)
+			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyENC.Reveal())
+			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyMAC.Reveal())
 		})
 	}
 

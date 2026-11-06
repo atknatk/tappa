@@ -183,8 +183,8 @@ func katAuth(t *testing.T, ti, keyENC, keyMAC string) *EV2Auth {
 	t.Helper()
 	return &EV2Auth{
 		TI:     hexBytes(t, ti),
-		KeyENC: hexBytes(t, keyENC),
-		KeyMAC: hexBytes(t, keyMAC),
+		KeyENC: NewWipeableKey(hexBytes(t, keyENC)),
+		KeyMAC: NewWipeableKey(hexBytes(t, keyMAC)),
 	}
 }
 
@@ -224,10 +224,10 @@ func TestEV2KAT_AuthPart2MatchesAN12196Table14(t *testing.T) {
 	if !bytes.Equal(auth.TI, hexBytes(t, katT14TI)) {
 		t.Fatalf("TI does not match Table 14 step 19\n got %X\nwant %s", auth.TI, katT14TI)
 	}
-	if !bytes.Equal(auth.KeyENC, hexBytes(t, katT14KeyENC)) {
+	if !bytes.Equal(auth.KeyENC.Reveal(), hexBytes(t, katT14KeyENC)) {
 		t.Fatal("KSesAuthENC does not match Table 14 step 27")
 	}
-	if !bytes.Equal(auth.KeyMAC, hexBytes(t, katT14KeyMAC)) {
+	if !bytes.Equal(auth.KeyMAC.Reveal(), hexBytes(t, katT14KeyMAC)) {
 		t.Fatal("KSesAuthMAC does not match Table 14 step 28")
 	}
 	// Steps 21-22: both capability fields are six zero bytes here.
@@ -433,10 +433,10 @@ func TestEV2KAT_AuthPart2ParsesKey03Response(t *testing.T) {
 	if !bytes.Equal(auth.TI, hexBytes(t, katT19TI)) {
 		t.Fatalf("TI does not match AN12196 rev. 2.0 §5.10 Table 19 step 19\n got %X\nwant %s", auth.TI, katT19TI)
 	}
-	if !bytes.Equal(auth.KeyENC, hexBytes(t, katT19KeyENC)) {
+	if !bytes.Equal(auth.KeyENC.Reveal(), hexBytes(t, katT19KeyENC)) {
 		t.Fatal("KSesAuthENC does not match Table 19 step 27")
 	}
-	if !bytes.Equal(auth.KeyMAC, hexBytes(t, katT19KeyMAC)) {
+	if !bytes.Equal(auth.KeyMAC.Reveal(), hexBytes(t, katT19KeyMAC)) {
 		t.Fatal("KSesAuthMAC does not match Table 19 step 28")
 	}
 }

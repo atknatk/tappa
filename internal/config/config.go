@@ -1157,7 +1157,7 @@ func blockedAddresses(v string) ([]netip.Prefix, error) {
 // namedKey is one key of this Config with the variable it came from.
 type namedKey struct {
 	name string
-	v    []byte
+	v    Key
 }
 
 // namedKeys is EVERY key this Config holds. TestNamedKeys_ListEveryKeyFieldOfTheConfig
@@ -1165,14 +1165,14 @@ type namedKey struct {
 // and not listed here is a red test rather than a key the separation rule never sees.
 func (c *Config) namedKeys() []namedKey {
 	return []namedKey{
-		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey.Reveal()},
-		{"TAPPA_TAG_KEK", c.TagKEK.Reveal()},
-		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious.Reveal()},
-		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey.Reveal()},
-		{envAPIKeyHMACKey, c.APIKeyHMACKey.Reveal()},
-		{envWebhookKEK, c.WebhookKEK.Reveal()},
-		{envOperatorTOTPKEK, c.OperatorTOTPKEK.Reveal()},
-		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey.Reveal()},
+		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey},
+		{"TAPPA_TAG_KEK", c.TagKEK},
+		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
+		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
+		{envAPIKeyHMACKey, c.APIKeyHMACKey},
+		{envWebhookKEK, c.WebhookKEK},
+		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
+		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},
 	}
 }
 
@@ -1216,14 +1216,14 @@ func keysSeparation(c *Config) error {
 	keys := c.namedKeys()
 	var clashes []string
 	for i, a := range keys {
-		if len(a.v) != 32 {
+		if a.v.Len() != 32 {
 			continue
 		}
 		for _, b := range keys[i+1:] {
-			if len(b.v) != 32 || dedicated(a.name, b.name) {
+			if b.v.Len() != 32 || dedicated(a.name, b.name) {
 				continue
 			}
-			if subtle.ConstantTimeCompare(a.v, b.v) == 1 {
+			if subtle.ConstantTimeCompare(a.v.Reveal(), b.v.Reveal()) == 1 {
 				clashes = append(clashes, a.name+" = "+b.name)
 			}
 		}

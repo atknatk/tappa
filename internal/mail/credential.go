@@ -52,8 +52,9 @@ var (
 func NewCredential(v string) Credential { return Credential{v: &v} }
 
 // reveal returns the raw value, or "" for the zero Credential. Deliberately
-// UNEXPORTED; its call sites are New's checks, the AUTH PLAIN exchange and the
-// Message-ID echo list in Send — all in this package. No test calls it.
+// UNEXPORTED; its call sites are New's checks, the AUTH PLAIN exchange, the
+// Message-ID echo list in Send and RecipientCap's digest — all in this package.
+// No test calls it.
 func (c Credential) reveal() string {
 	if c.v == nil {
 		return ""

@@ -27,6 +27,9 @@ func TestAdminInvites_IssuingTouchesNoIdentity(t *testing.T) {
 		"CancelOpenAdminInvitesForAddress", "InsertAdminInvite", "Add", "Errorf", "Is", "New",
 		"TrimSpace", "ValidRecipient", "WithTenant", "hash", "inviteNameOK", "isLookupableEmail", "isUniqueViolation",
 		"newInviteToken", "now",
+		// config.Key's accessor: inviteKey leaves its wrapper to hash the token (backlog T205). It reads
+		// no identity and no membership.
+		"Reveal",
 	}
 	var calls []string
 	found := false

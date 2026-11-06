@@ -86,7 +86,7 @@ func TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLogoGate: %v", err)
 	}
-	act, err := NewActivation(invites, sessions, sun.NewVerifier(data, kek), trail, dbBrandReader(t, data), cfg, discardLogger())
+	act, err := NewActivation(invites, sessions, sun.NewVerifier(data, config.NewKey(kek)), trail, dbBrandReader(t, data), cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
