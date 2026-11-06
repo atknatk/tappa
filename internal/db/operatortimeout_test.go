@@ -149,14 +149,19 @@ func TestOperatorPool_AHeldReadIsCutOffAtTheBound(t *testing.T) {
 	t.Logf("a held read answered SQLSTATE 57014 after %v", took.Round(time.Millisecond))
 }
 
-// pausedConn is a tappa_operator connection that runs beforeRead just before a read's second phase
-// goes out, so a test can hold that phase's ticket from another session.
+// pausedConn is a tappa_operator connection that runs beforeFirst just before a read's first phase
+// and beforeRead just before its second goes out, so a test can look at the session then and hold the
+// second phase's ticket from another session.
 type pausedConn struct {
 	*pgx.Conn
-	beforeRead func()
+	beforeFirst, beforeRead func()
 }
 
 func (p *pausedConn) pause(sql string) {
+	if strings.Contains(sql, "op_begin_read") && p.beforeFirst != nil {
+		p.beforeFirst()
+		p.beforeFirst = nil
+	}
 	if strings.Contains(sql, "op_read_") && p.beforeRead != nil {
 		p.beforeRead()
 		p.beforeRead = nil
@@ -247,18 +252,21 @@ func holdOpenTicket(t *testing.T, ctx context.Context, f *opLive) (hold func(), 
 }
 
 // TestOperatorReads_ACutOffReadLeavesTheTrailTrue (T98, CLAUDE.md section 4.5: an access leaves a
-// trace), each read, as tappa_operator, on a connection with a short statement_timeout -- the
-// production path but for the number (fifteen seconds per arm is what the billing E2E pays once):
+// trace), each read, as tappa_operator, the production path but for the number (fifteen seconds per
+// arm is what the billing E2E pays once):
 //
-//   - SECOND PHASE CUT OFF (its ticket held from another session): the call answers SQLSTATE 57014
-//     and no data; the read's 'read' row stays, one more, because the first phase committed; its
-//     ticket is not consumed. The access was attempted, the row says so, nothing left the database.
-//   - the same connection serves the same read afterwards: one more row, no error.
-//   - FIRST PHASE CUT OFF (the trail's table held in SHARE mode, which an INSERT waits on): 57014, no
-//     row and no ticket -- it rolled back, so there is no ticket a second phase could consume.
+//   - SECOND PHASE CUT OFF (its ticket held from another session, and a short statement_timeout set
+//     between the phases, never before the first: on a slow server 300 ms cut the first phase too,
+//     which is the other arm's question -- the session's bound is read just before the first phase
+//     and must be none): the call answers SQLSTATE 57014 and no data; the read's 'read' row stays,
+//     one more, because the first phase committed; its ticket is not consumed. The access was
+//     attempted, the row says so, nothing left the database.
+//   - the same connection serves the same read afterwards, with no bound: one more row, no error.
+//   - FIRST PHASE CUT OFF (the trail's table held in SHARE mode, which an INSERT waits on, and the
+//     short bound set under that hold): 57014, no row and no ticket -- it rolled back, so there is no
+//     ticket a second phase could consume.
 func TestOperatorReads_ACutOffReadLeavesTheTrailTrue(t *testing.T) {
 	ctx, f := opLiveFixture(t)
-	const shortBound = `SET statement_timeout = 300`
 	tickets := func() int64 {
 		return opInt(t, ctx, f.owner, `SELECT count(*) FROM operator_read_tickets WHERE session_id = $1 AND consumed_at IS NULL`, f.session)
 	}
@@ -272,14 +280,29 @@ func TestOperatorReads_ACutOffReadLeavesTheTrailTrue(t *testing.T) {
 			if err := asOperator(ctx, conn); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := conn.Exec(ctx, shortBound); err != nil {
-				t.Fatal(err)
+			bound := func(sql string) {
+				t.Helper()
+				if _, err := conn.Exec(ctx, sql); err != nil {
+					t.Fatalf("%s: %v", sql, err)
+				}
 			}
 			hold, release := holdOpenTicket(t, ctx, f)
 			defer release()
 			reads, open := f.liveReads(t, ctx, f.session), tickets()
-			err := read(ctx, &pausedConn{Conn: conn, beforeRead: hold})
+			err := read(ctx, &pausedConn{Conn: conn,
+				beforeFirst: func() {
+					var v string
+					if err := conn.QueryRow(ctx, `SHOW statement_timeout`).Scan(&v); err != nil || v != "0" {
+						t.Errorf("the first phase runs under statement_timeout %q (%v), want none: a short bound here can cut it", v, err)
+					}
+				},
+				beforeRead: func() {
+					hold()
+					bound(`SET statement_timeout = 300`)
+				},
+			})
 			release()
+			bound(`SET statement_timeout = 0`)
 			if err == nil || !cut(err) {
 				t.Fatalf("second phase held: %v, want SQLSTATE 57014", err)
 			}
@@ -310,10 +333,12 @@ func TestOperatorReads_ACutOffReadLeavesTheTrailTrue(t *testing.T) {
 				t.Fatalf("hold the trail: %v", err)
 			}
 			reads, open = f.liveReads(t, ctx, f.session), tickets()
+			bound(`SET statement_timeout = 300`)
 			first := read(ctx, conn)
 			if err := tx.Rollback(ctx); err != nil {
 				t.Fatal(err)
 			}
+			bound(`SET statement_timeout = 0`)
 			if first == nil || !cut(first) {
 				t.Fatalf("first phase held: %v, want SQLSTATE 57014", first)
 			}
@@ -342,9 +367,6 @@ func TestOperatorWrites_ACutOffWriteLeavesNeitherTheChangeNorItsRow(t *testing.T
 	if err := asOperator(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.Exec(ctx, `SET statement_timeout = 300`); err != nil {
-		t.Fatal(err)
-	}
 	facts := func() (suspended bool, rows int64) {
 		t.Helper()
 		if err := f.owner.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM tenants WHERE id = $1`, id).Scan(&suspended); err != nil {
@@ -361,8 +383,14 @@ func TestOperatorWrites_ACutOffWriteLeavesNeitherTheChangeNorItsRow(t *testing.T
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE`, id); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := conn.Exec(ctx, `SET statement_timeout = 300`); err != nil {
+		t.Fatal(err)
+	}
 	got := SuspendTenant(ctx, conn, f.hash, id, SuspensionNonPayment)
 	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `SET statement_timeout = 0`); err != nil {
 		t.Fatal(err)
 	}
 	if got == nil || !strings.Contains(got.Error(), "SQLSTATE 57014") {
@@ -380,10 +408,10 @@ func TestOperatorWrites_ACutOffWriteLeavesNeitherTheChangeNorItsRow(t *testing.T
 }
 
 // TestOperatorReads_TheCallersContextEndsABlockedRead: the context a read is called with reaches its
-// statements. Second phase held, no statement_timeout on the session: the caller's deadline ends the
-// wait and the call answers context.DeadlineExceeded -- not a wait until the lock is released, which
-// a watchdog does after five seconds, so a read that dropped its context fails here rather than
-// hanging. The 'read' row stays. Each arm has a connection of its own: pgx closes one whose statement
+// statements. Second phase held, no statement_timeout on the session: the caller's cancellation, sent
+// 300 ms after the hold so a slow first phase is not what it ends, stops the wait and the call
+// answers context.Canceled -- not a wait until the lock is released, which a watchdog does after
+// five seconds, so a read that dropped its context fails here rather than hanging. The 'read' row stays. Each arm has a connection of its own: pgx closes one whose statement
 // was cancelled.
 func TestOperatorReads_TheCallersContextEndsABlockedRead(t *testing.T) {
 	ctx, f := opLiveFixture(t)
@@ -396,20 +424,21 @@ func TestOperatorReads_TheCallersContextEndsABlockedRead(t *testing.T) {
 			hold, release := holdOpenTicket(t, ctx, f)
 			defer release()
 			reads := f.liveReads(t, ctx, f.session)
-			callCtx, cancel := context.WithTimeout(ctx, 700*time.Millisecond)
+			callCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			start := time.Now()
 			err := read(callCtx, &pausedConn{Conn: conn, beforeRead: func() {
 				hold()
+				time.AfterFunc(300*time.Millisecond, cancel)
 				time.AfterFunc(5*time.Second, release)
 			}})
 			took := time.Since(start)
 			release()
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Errorf("the read = %v, want context.DeadlineExceeded", err)
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("the read = %v, want context.Canceled", err)
 			}
 			if took >= 5*time.Second {
-				t.Errorf("the read took %v against a 700ms deadline: it waited for the lock", took)
+				t.Errorf("the read took %v against a cancel at 300 ms: it waited for the lock", took)
 			}
 			if n := f.liveReads(t, ctx, f.session) - reads; n != 1 {
 				t.Errorf("%d 'read' row(s) more, want 1", n)
