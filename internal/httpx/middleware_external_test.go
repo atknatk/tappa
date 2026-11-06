@@ -283,6 +283,7 @@ func setEnvForLoad(t *testing.T, env, trustedProxies string) {
 	t.Setenv("TAPPA_GPS_RADIUS_M", "")
 	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "")
 	t.Setenv("TAPPA_ENV", env)
+	t.Setenv("TAPPA_BASE_URL", "https://fixture.test") // prod refuses the dev default
 	t.Setenv("TAPPA_TRUSTED_PROXIES", trustedProxies)
 }
 

@@ -110,7 +110,9 @@ type Cookies struct {
 //	                                 it out loud: serve staging over https, or
 //	                                 accept that its sessions are sniffable.
 //	non-prod, unparseable BaseURL -> NOT Secure (anything that is not an https
-//	                                 prefix takes the relaxation branch)
+//	                                 prefix takes the relaxation branch; config.Load
+//	                                 refuses this value, so only a Config that
+//	                                 skipped Load gets here)
 //
 // THE TABLE ABOVE ASSUMES A Config THAT CAME FROM config.Load. Load enforces
 // TAPPA_ENV as a closed set, which is what makes "dev | staging | prod" the whole
@@ -139,16 +141,15 @@ func NewCookies(cfg *config.Config) Cookies {
 	// The single relaxation in the codebase: non-prod AND not https.
 	//
 	// The scheme test is CASE-INSENSITIVE because URL schemes are (RFC 3986 §3.1)
-	// and config.Load does not normalise or validate BaseURL. It used to be a
+	// and config.Load does not normalise BaseURL. It used to be a
 	// plain HasPrefix, so BaseURL="HTTPS://…" took the relaxation branch on a
 	// dev/staging box — a typo silently buying a weaker cookie. The relaxation
 	// must be asked for, never acquired by accident.
 	//
-	// LIMIT: this is a prefix test, not a URL parse. A BaseURL with leading
-	// whitespace, or one that is not a URL at all, does not match and therefore
-	// lands on NOT Secure — fail-OPEN for this one flag, which is why it is
-	// confined to non-prod. Validating BaseURL's shape belongs to config.Load and
-	// is deliberately not done here (see the note on that function).
+	// LIMIT: this is a prefix test, not a URL parse. A BaseURL with leading whitespace, or one
+	// that is not a URL at all, does not match and lands on NOT Secure -- fail-OPEN for this one
+	// flag, so it is confined to non-prod. config.Load refuses both shapes at startup
+	// (validBaseURL, backlog T5), so only a Config that skipped Load can reach it.
 	return Cookies{insecure: !strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://")}
 }
 

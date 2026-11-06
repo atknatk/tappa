@@ -169,6 +169,8 @@ func bootEnv(env string) []string {
 		"PATH=" + os.Getenv("PATH"),
 		"DATABASE_URL=postgres://tappa_app@127.0.0.1:1/tappa?sslmode=disable",
 		"TAPPA_ADDR=127.0.0.1:0",
+		// The dev default (http://localhost:8080) is a refusal under prod and sandbox (backlog T5).
+		"TAPPA_BASE_URL=https://boot.test",
 		"TAPPA_SESSION_HMAC_KEY=" + key('S'), "TAPPA_TAG_KEK=" + key('K'), "TAPPA_INVITE_HMAC_KEY=" + key('I'),
 		"TAPPA_API_KEY_HMAC_KEY=" + key('A'), "TAPPA_WEBHOOK_KEK=" + key('W'),
 		"TAPPA_WEBHOOK_BLOCKED_ADDRESSES=203.0.113.10", "TAPPA_RETENTION_YEARS=2",

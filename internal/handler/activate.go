@@ -1616,9 +1616,8 @@ func crossSite(r *http.Request) bool {
 // what an absent header means, and a browser that says same-site or cross-site has
 // not sent an absent one.
 //
-// A malformed configured BaseURL makes this check pass; config.Load does not
-// validate the URL's shape and this function is not the place to start (the same
-// note session.NewCookies carries).
+// A malformed configured BaseURL cannot reach this comparison through config.Load (backlog T5), and
+// from a Config that skipped Load it matches no Origin (originOf).
 func (a *Activation) sameOrigin(r *http.Request, strict bool) bool {
 	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
 	case "same-site", "cross-site":
@@ -1699,13 +1698,24 @@ const activationCSP = tapCSP + "; connect-src 'self'"
 // screen -- is sent with (TestUnbrandedScreens_AreByteIdenticalToTheGolden).
 func activationCSPFor(hasLogo bool) string { return logoImagePolicy(activationCSP, hasLogo) }
 
+// noOrigin is what originOf returns for a base with no origin. It is not the empty string: the
+// checks trim '/' from both sides, so an empty base would match `Origin: /`. A NUL is what no request
+// can carry, because net/http refuses a header value with a control character before any handler.
+const noOrigin = "\x00"
+
 // originOf reduces a configured base URL to its scheme://host origin, which is
 // the form an Origin header takes. A BaseURL with a path ("https://x/app") would
 // otherwise never match one.
+//
+// The branch for a base without a scheme and a host is dead in production, because config.Load
+// refuses such a value at startup (validBaseURL, backlog T5). It stays because every same-origin
+// check in this package reads this result and a Config can be built without Load; it fails closed,
+// where it used to return the malformed base for the checks to compare against
+// (TestOriginOf_AMalformedBaseMatchesNoOrigin).
 func originOf(base string) string {
 	u, err := url.Parse(base)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return strings.TrimRight(base, "/")
+		return noOrigin
 	}
 	return u.Scheme + "://" + u.Host
 }

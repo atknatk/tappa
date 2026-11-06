@@ -55,9 +55,10 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
-	t.Setenv("TAPPA_DEV_TOOLS", "")   // off unless a test opts in
-	t.Setenv("TAPPA_ENV", fixtureEnv) // unset -> default dev (the sandbox build: sandbox)
-	t.Setenv("TAPPA_API_HOST", "")    // the integration API off (M11 API-4) unless a test opts in
+	t.Setenv("TAPPA_DEV_TOOLS", "")                    // off unless a test opts in
+	t.Setenv("TAPPA_ENV", fixtureEnv)                  // unset -> default dev (the sandbox build: sandbox)
+	t.Setenv("TAPPA_BASE_URL", "https://fixture.test") // prod and sandbox refuse the dev default
+	t.Setenv("TAPPA_API_HOST", "")                     // the integration API off (M11 API-4) unless a test opts in
 	// The business-day switch (ADR 0032 §A.8) is OPTIONAL and off unless a test opts in, cleared
 	// for TAPPA_TAG_KEK_PREVIOUS's reason: an ambient value would decide whether Load refuses.
 	t.Setenv(config.EnvBusinessDayFrom, "")

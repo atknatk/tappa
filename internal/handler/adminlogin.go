@@ -1850,9 +1850,8 @@ func (a *AdminAuth) flooded(w http.ResponseWriter, r *http.Request, ip, where st
 // same-origin and still passes. Every other combination answers as before
 // (TestSameOrigin_EveryOtherHeaderCombinationIsUnchanged pins the grid).
 //
-// A malformed configured BaseURL makes this check pass; config.Load does not
-// validate the URL's shape and this is not the place to start (the same note
-// session.NewCookies carries).
+// A malformed configured BaseURL cannot reach this comparison through config.Load (backlog T5), and
+// from a Config that skipped Load it matches no Origin (originOf).
 func (a *AdminAuth) sameOrigin(r *http.Request) bool {
 	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
 	case "same-site", "cross-site":
