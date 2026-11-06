@@ -8,6 +8,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
 
@@ -77,7 +78,8 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 // half-closed POSTs. Rendering into a buffer waits on nothing, so the cancellation has nothing to
 // interrupt here, and the answer is the same status and bytes whoever stayed. A component that
 // fails for any other reason still lands below; a store failure is its handler's 503 and its log
-// line (TestSurface_AFailureIsStillAFailureForAClientThatLeft).
+// line (TestSurface_AFailureIsStillAFailureForAClientThatLeft). The password step whose lookup the
+// client cancelled is answerClientLeft's.
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	var buf bytes.Buffer
 	if err := c.Render(answered(r).Context(), &buf); err != nil {
@@ -108,6 +110,32 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 // bytes as the refusal of a client that stayed (TestSurface_AHalfClosedRefusalIsTheSameAnswer).
 func answered(r *http.Request) *http.Request {
 	return r.WithContext(context.WithoutCancel(r.Context()))
+}
+
+// clientLeft reports whether a step's error is the client's leaving and nothing else: the request's
+// context was cancelled (not past its deadline, which is a slow database) and the error says so.
+// Read it on r BEFORE answered(r), which has no cancellation left to read.
+func clientLeft(r *http.Request, err error) bool {
+	return errors.Is(err, context.Canceled) && errors.Is(r.Context().Err(), context.Canceled)
+}
+
+// answerClientLeft answers the password step when its lookup followed the client out (T213): the same
+// 503 the step's failure gets, at Debug and declared as designed, so it is no access record at
+// ERROR. It is the one step that needs it: the code step's lookup and the enrollment's statements
+// are detached already (operatorauth, detach), so the client's leaving does not reach them.
+//
+// WHY (measured; 15 of 15 in an earlier audit): a valid form and a FIN to POST /operator/login cancels
+// the lookup before any comparison, with no session and no address limit, and six of them in five
+// minutes would ring rule 5, which is what T109 closed for the render. It opens no oracle: only the
+// lookup follows the client. From the comparison on the step runs detached, so this answer means
+// nothing was compared, whichever password was sent. Any other failure, a database refusal for a
+// client that left included, keeps its ERROR and its record
+// (TestSurface_AFailedSignInLookupIsStillAFailureForAClientThatLeft). A signed-in screen's read that
+// followed the client is not answered here: it needs a session, so it is not anyone's alarm.
+func (s *Surface) answerClientLeft(w http.ResponseWriter, r *http.Request) {
+	s.log.DebugContext(r.Context(), "operator: the client left before the sign-in step ran")
+	httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+	s.problem(w, r, http.StatusServiceUnavailable, problemUnavailable)
 }
 
 // redirect answers 303 See Other: a POST becomes a plain GET and a refresh is harmless.

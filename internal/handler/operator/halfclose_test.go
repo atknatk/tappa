@@ -188,3 +188,45 @@ func TestSurface_AFailureIsStillAFailureForAClientThatLeft(t *testing.T) {
 		}
 	}
 }
+
+// TestSurface_AFailedSignInLookupIsStillAFailureForAClientThatLeft (T213): answerClientLeft is for one
+// shape, and only that shape loses its ERROR. A client that left AND a lookup that answers the
+// client's own cancellation: 503, no ERROR, no access record. Each of the others stays a 503 with the
+// step's line and the access record at ERROR, which is what rule 5 is for:
+//   - a client that left, the database refusing for its own reason (the real fault during a leaving);
+//   - a client that stayed, the lookup answering a cancellation that is not the client's;
+//   - a request past its deadline: a slow database, not a client that left.
+func TestSurface_AFailedSignInLookupIsStillAFailureForAClientThatLeft(t *testing.T) {
+	g := newRig(t)
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	late, cancelLate := context.WithDeadline(context.Background(), time.Unix(1, 0))
+	defer cancelLate()
+	login := url.Values{"email": {"nobody@example.test"}, "password": {"x"}}
+	for _, tc := range []struct {
+		name   string
+		ctx    context.Context
+		err    error
+		errors int
+	}{
+		{"left, the lookup cancelled", gone, fmt.Errorf("db: operator by email: %w", context.Canceled), 0},
+		{"left, the database refusing", gone, errors.New("db: operator by email: database error (SQLSTATE 25006)"), 2},
+		{"stayed, a cancellation not the client's", context.Background(), fmt.Errorf("db: operator by email: %w", context.Canceled), 2},
+		{"past its deadline", late, fmt.Errorf("db: operator by email: %w", context.DeadlineExceeded), 2},
+	} {
+		g.setStoreFailure("OperatorByEmail", tc.err)
+		g.logs.Reset()
+		w := g.do(req{method: http.MethodPost, host: opHost, path: "/operator/login", origin: opOrigin, form: login, ctx: tc.ctx})
+		logs := g.logs.String()
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: %d, want 503", tc.name, w.Code)
+		}
+		if n := errorLines(logs); n != tc.errors {
+			t.Errorf("%s: %d ERROR record(s), want %d:\n%s", tc.name, n, tc.errors, logs)
+		}
+		if records := strings.Count(logs, "level=ERROR msg=http.request"); (tc.errors == 0) != (records == 0) {
+			t.Errorf("%s: %d access record(s) at ERROR with %d wanted ERROR line(s)", tc.name, records, tc.errors)
+		}
+	}
+	g.setStoreFailure("OperatorByEmail", nil)
+}
