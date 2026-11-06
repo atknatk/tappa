@@ -1028,6 +1028,8 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		// Safe to log, here and in ListenAndServe's error on the fatal line: config.Load let through an IP
+		// address or localhost and a port, nothing else (backlog T206, validAddr).
 		slog.Info("listening", "addr", cfg.Addr, "env", cfg.Env)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err

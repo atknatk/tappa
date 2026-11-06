@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -355,6 +356,7 @@ func Load() (*Config, error) {
 		push(validEnv(c.Env))
 	}
 	push(validLogFormat(c.LogFormat))
+	push(validAddr(c.Addr))
 	push(validBaseURL(c.BaseURL, c.IsHardened()))
 	devTools, devErr := devToolsFlag(c.Env)
 	c.DevTools = devTools
@@ -1260,6 +1262,30 @@ func devToolsFlag(env string) (bool, error) {
 	default:
 		return false, errors.New("TAPPA_DEV_TOOLS: must be 1 or unset" + valueNotRepeated)
 	}
+}
+
+// validAddr is TAPPA_ADDR's gate, a port with an optional IP address or localhost in front of it. The value
+// goes to the log twice, in cmd/tappa's "listening" line and in net.Listen's error on the fatal one, so
+// what passes here must be unable to carry anything else: a host NAME could be any word, a zone any text
+// after the %, so neither is allowed, and a port is digits. Nothing here needs a name: production listens
+// on :8080 (deploy/k8s/05-config.yaml) and the tests on 127.0.0.1:<port>.
+func validAddr(v string) error {
+	refused := errors.New("TAPPA_ADDR: must be a listen address: a port such as :8080, or an IP address or " +
+		"localhost and a port such as 127.0.0.1:8080" + valueNotRepeated)
+	host, port, err := net.SplitHostPort(v)
+	if err != nil {
+		return refused
+	}
+	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		return refused
+	}
+	if host == "" || host == "localhost" {
+		return nil
+	}
+	if a, err := netip.ParseAddr(host); err != nil || a.Zone() != "" {
+		return refused
+	}
+	return nil
 }
 
 // valueNotRepeated ends a refusal of a variable's value (backlog T206). A value in the wrong variable can

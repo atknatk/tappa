@@ -24,7 +24,7 @@ var loadErrorVariables = map[string]bool{
 	"DATABASE_URL":                    false,
 	"DATABASE_MIGRATE_URL":            false,
 	"TAPPA_ENV":                       true,
-	"TAPPA_ADDR":                      false,
+	"TAPPA_ADDR":                      true,
 	"TAPPA_BASE_URL":                  true,
 	"TAPPA_LOG_LEVEL":                 false,
 	"TAPPA_LOG_FORMAT":                true,
@@ -81,6 +81,8 @@ var loadCanaries = []struct {
 	{"::ffff:10.9.8.0/120", []string{"10.9.8"}},
 	{"203.0.113.77/0", []string{"203.0.113.77"}},
 	{"canaryhost.example", []string{"canaryhost"}},
+	{"CanaryHost:5432", []string{"CanaryHost"}},
+	{"[::1%canaryzone]:8080", []string{"canaryzone"}},
 	{"canary@mailbox.invalid", []string{"canary@", "mailbox.invalid"}},
 	{"https://canaryuser:" + urlCanary + "@canaryurl.test/", []string{"canaryuser", urlCanary, "canaryurl"}},
 }
@@ -263,4 +265,61 @@ func TestLoad_EveryVariableAtOnceRepeatsNothing(t *testing.T) {
 		t.Fatalf("CONTROL: the dev-tools rule did not run: %s", errText)
 	}
 	checkNoNeedle(t, "dev tools beside a wrong environment", "TAPPA_ENV", errText, logText, []string{"CanaryWord"})
+}
+
+// TestLoad_AddrIsAListenAddress (backlog T206): TAPPA_ADDR's value reaches the "listening" line and the
+// fatal line of a failed listen, so only an IP address or localhost and a port passes. The accepted rows
+// are every value the repository uses; a host name and a zone are refused because either can spell
+// anything.
+//
+// MUTANTS (measured, 2026-11-06, reverted): validAddr's call deleted from Load -- red here and in
+// TestLoad_ACanaryValueReachesNoErrorText; the zone check deleted, and host names allowed -- red here; the
+// port check deleted -- red here; the value appended to the refusal -- red in the canary table.
+func TestLoad_AddrIsAListenAddress(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		ok    bool
+	}{
+		{"", true}, // the :8080 default
+		{":8080", true},
+		{"127.0.0.1:0", true},
+		{"127.0.0.1:8080", true},
+		{"0.0.0.0:8080", true},
+		{"[::1]:8080", true},
+		{"[::]:8080", true},
+		{"localhost:8080", true},
+		{":65535", true},
+
+		{"8080", false},
+		{":", false},
+		{":http", false},
+		{":65536", false},
+		{":-1", false},
+		{":+80", false},
+		{"host:8080", false},
+		{"LOCALHOST:8080", false},
+		{"localhost", false},
+		{" :8080", false},
+		{":8080 ", false},
+		{"[::1%eth0]:8080", false},
+		{"1.2.3.4:80:90", false},
+		{"http://127.0.0.1:8080", false},
+	} {
+		t.Run(strconv.Quote(tc.value), func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TAPPA_ADDR", tc.value)
+			err := loadErr(t)
+			if tc.ok && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if !tc.ok {
+				if err == nil {
+					t.Fatal("accepted")
+				}
+				if !strings.Contains(err.Error(), "TAPPA_ADDR") {
+					t.Fatalf("the refusal does not name the variable: %v", err)
+				}
+			}
+		})
+	}
 }
