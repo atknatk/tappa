@@ -69,9 +69,18 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 // screen and the billing screen render through it) or fails writes no partial page:
 // the status line has not been sent, and the answer is a plain 500
 // (TestTenantScreen_RefusesToRenderWithoutAName).
+//
+// THE COMPONENT RENDERS ON answered(r), EVERY TIME (T109): a component refuses a cancelled context,
+// so a client that half-closed got this 500 and its ERROR in place of the page it was answered --
+// and a refusal met before any store call (readForm's 400 and 413, the origin gate's 403) needs no
+// session to get there, so anyone could ring the 5xx alarm (deploy/README.md, rule 5) with six
+// half-closed POSTs. Rendering into a buffer waits on nothing, so the cancellation has nothing to
+// interrupt here, and the answer is the same status and bytes whoever stayed. A component that
+// fails for any other reason still lands below; a store failure is its handler's 503 and its log
+// line (TestSurface_AFailureIsStillAFailureForAClientThatLeft).
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	var buf bytes.Buffer
-	if err := c.Render(r.Context(), &buf); err != nil {
+	if err := c.Render(answered(r).Context(), &buf); err != nil {
 		s.log.ErrorContext(r.Context(), "operator: rendering a screen failed", "err", err)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -86,7 +95,8 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 // answered is r once the sign-in's step has decided (the password step, the code step, the
 // enrollment's last step): its values, none of its cancellation, so the page that says
 // what was decided is rendered whatever the client did (OP-14 phase E; the WL-9 precedent,
-// checkin.go's post).
+// checkin.go's post). render itself renders on it since T109; a handler's own `r = answered(r)`
+// is what carries the decision's later statements and sign-in cookies past the client.
 //
 // WHY (measured, OP-14 phase C's security audit, P8, the real router over TCP): a client
 // that half-closes its connection -- FIN after the request, still reading -- has the
