@@ -54,13 +54,15 @@ Sorgular `216e6533`'teki ADR §10'da; yalnız sayı döner.
 
 | Ölçü | Sonuç |
 |---|---|
-| İşletme | 4 (KF ve KM aynı kişinin; Creekville'de kadro yok) |
+| İşletme | 4 (Creekville'de kadro yok) |
 | Sahip / yönetici | Her birinde 1 / 0 |
 | Kadro | 2, 0, 8, 22 |
 | Yetkiliyle aynı adresli çalışan / yalnız aynı adlı | 0 / 0 |
 | Adrese göre öz-karar | 0 |
 | `transaction_reviews` / `punch_claim_decisions` / manuel satır | 17 / 0 / 0 |
 | Bekleyen işaretli / bunların yetkilinin kendi kaydı olanı | 3 / 0 |
+
+KF ve KM'nin aynı kişiye ait olması bu ölçümden gelmez; kaynağı `db/migrations/00011_add_admin_resolution.sql:22-23`.
 
 Sayılar çok küçük. **"0 öz-karar" davranış kanıtı değildir, yapısaldır:** yönetici yok, ve hiçbir yetkili adres ya da adla kadroda görünmüyor.
 
@@ -79,7 +81,7 @@ Araştırma 2026-11-06.
 
 **Okuma:** yönetici engeli için kaynak güçlü. "Üst yetkili serbest" için kaynak zayıf; bunu piyasaya dayandırmıyorum.
 
-**Sahip varsayılanı, soru değil, bildirim:** bağlı sahip kendi kaydına karar verebilir. Gerekçe piyasa değil, **ikinci kişinin olmaması**: 4/4 işletme tek sahipli; düz yasak sahibin işaretli kaydını çözülemez bırakır (§4.6'nın lafzı korunur, işlevi bozulur). Damga, tek sahipte kendi kendini etiketlemedir: bağı kuran da etiketlenen de aynı kişi. Delil gerekçesi (§4.3) bu yüzden zayıftır; damga yalnız iki sahipli işletmede öteki sahibe bir şey söyler.
+**Sahip varsayılanı, soru değil, bildirim:** bağlı sahip kendi kaydına karar verebilir. Gerekçe piyasa değil, **ikinci kişinin olmaması**: 4/4 işletme tek sahipli; düz yasak sahibin işaretli kaydını çözülemez bırakır (§4.6'nın lafzı korunur, işlevi bozulur). Damga, tek sahipte kendi kendini etiketlemedir: bağı kuran da etiketlenen de aynı kişi. Delil gerekçesi (§4.3) bu yüzden zayıftır; damga yalnız iki sahipli işletmede öteki sahibe bir şey söyler. **Bu muafiyet, ADR 0004 Y-C'nin kararını daraltır:** Rules metni *"nobody"* der (`rulebook.go:863`), `open-questions.md:51` istisnasız yazar. Soru olarak sorulmaz, ama bildirilirken bu daralma açıkça söylenir.
 
 ## 3. Seçenekler
 
@@ -88,17 +90,17 @@ Araştırma 2026-11-06.
 | | **A′** `employees.admin_user_id` | **B** `employees.admin_identity_id` | **C** e-posta eşitliği | **Erteleme** (yalnız T148-0) |
 |---|---|---|---|---|
 | Kapatır | Bağlı yöneticinin üç yolu | Aynı + işletmeler arası tanıma (gereksiz: kayıt ve karar hep aynı tenant, ADR 0027 K-1a) | Aynı adreslileri | Hiçbirini; yalnız yanlış vaadi |
-| Açık | Eşlenmemiş hesap, hesap paylaşımı, ikinci satır | Aynı + `identity_id` NULL satırlar | Ürün aynı adresi zaten dışlıyor: API 422 (`internal/domain/tenant/staffapi.go:439`), davet (`db/queries/invites.sql:451-454`); canlı eşleşme 0 | Hepsi, ilk yönetici gelince |
+| Açık | Eşlenmemiş hesap, hesap paylaşımı, ikinci satır | Aynı + `identity_id` NULL satırlar | Adres boş ya da farklıysa açık. Aynı adres yalnız API (`internal/domain/tenant/staffapi.go:439`) ve çalışan davet e-postasında reddedilir (`internal/invite/email.go:447`); yönetici daveti (`internal/adminauth/admininvite.go:273`) ve panel eklemesi bakmaz. Canlıdaki 0, yönetici olmamasının sonucu | Hepsi, ilk yönetici gelince |
 | §4.5 metni | Değişmez | **Değişir**: kullanıcı onayı + ADR 0031 | Değişmez | Değişmez |
 | Veri | Sütun + bileşik FK; geçmiş satıra dokunmaz | Kapsamsız tabloya FK; kişi anahtarı çalışan tablosuna iner | Yok | Yok |
 | Yanlış sonuç | Yanlış bağ (§8) | Yanlış bağ | Ortak posta kutusu | Yok |
-| Maliyet | Orta | Yüksek | Düşük, ama kapsamı neredeyse sıfır | Çok düşük |
+| Maliyet | Orta | Yüksek | Düşük, ama zayıf kanıt | Çok düşük |
 
-**Öneri A′.** C kapı olamaz; öneri kaynağı olarak da işe yaramaz: her yeni yönetici bağsız başlar.
+**Öneri A′.** C kapı olamaz: adres boş, farklı ya da ortak olabilir. Adres önerisi ise terfide değerlidir: kadrodaki Mia aynı adresle yönetici yapılabilir, ve o zaman Managers satırı sahibe bağ önerebilir. Karar yine sahibindir.
 
 ## 4. Önerilen karar
 
-**Bağ.** `employees.admin_user_id uuid NULL`, bileşik FK `(admin_user_id, tenant_id) → admin_users (id, tenant_id)`, `ON DELETE RESTRICT`. Çapraz tenant bağı FK reddeder (ölçüldü). Yalnız sahip yazar: `a.mayInvite` kapısı (`internal/handler/admininvites.go:168`). Bağ kurmak daraltır, K-26 zinciriyle askıda da geçer; çözmek durur (`internal/handler/adminmembers.go:31-36`). Definer ve sütun listesi önermiyorum: Tehdit 1'e karşı kazanç yok, §4.5'e yeni istisna olur.
+**Bağ.** `employees.admin_user_id uuid NULL`, bileşik FK `(admin_user_id, tenant_id) → admin_users (id, tenant_id)`, `ON DELETE RESTRICT`. Çapraz tenant bağı FK reddeder (ölçüldü). **Bağı iki ifade yazar:** sahibin bağ ifadesi (`a.mayInvite` kapısı, `internal/handler/admininvites.go:168`) ve eklemede taşıma (`CreateEmployee`, `db/queries/employees.sql:930`; §6). Ekleme her yöneticiye açıktır, ama taşıma yeni bağ yaratmaz, sahibin kurduğunu kopyalar. Tarama testi tam bu iki ifadeyi pinler. Bağ kurmak daraltır, K-26 zinciriyle askıda da geçer; çözmek durur (`internal/handler/adminmembers.go:31-36`). Definer ve sütun listesi önermiyorum: Tehdit 1'e karşı kazanç yok, §4.5'e yeni istisna olur.
 
 **Onay ekranı.** İki tarafın adı ve adresi, ve *"bu bağ doğruysa bu kişi geçmişte N kez kendi kaydına karar vermiş"*. İki aktif satır aynı yöneticiye bağlanınca uyarı.
 
@@ -116,7 +118,7 @@ Araştırma 2026-11-06.
 
 **Tetikleyiciler.** `tappa_check_transaction_review` ve `tappa_check_punch_claim_decision` değişir; `transactions`'a `BEFORE INSERT … WHEN (NEW.channel = 'manual')` eklenir: bağlı yönetici `ok` yazamaz, tap yolu bu tetikleyiciyi çalıştırmaz. `SECURITY INVOKER` açıkça yazılır (ölçüldü: `prosecdef=f`, `tappa_app` `role` okuyor). **TOCTOU:** READ COMMITTED altında rol ve bağ tek ifadede, çalışan satırına `FOR SHARE OF e`. Rol değişimiyle yarış açıkça kabul edilir: iki eylem de sahibin.
 
-**Bağ izi.** `AFTER INSERT OR UPDATE OF admin_user_id ON employees` eski ve yeni değeri `audit_log`'a yazar, `actor_id` NULL (ölçüldü: sütun nullable, `tappa_app` sütun düzeyi yazar, silemez). Aktörlü satırı uygulama ayrıca yazar.
+**Bağ izi.** İki tetikleyici eski ve yeni değeri `audit_log`'a yazar, `actor_id` NULL (ölçüldü: sütun nullable, `tappa_app` sütun düzeyi yazar, silemez): `AFTER UPDATE OF admin_user_id … WHEN (OLD.admin_user_id IS DISTINCT FROM NEW.admin_user_id)` ve `AFTER INSERT … WHEN (NEW.admin_user_id IS NOT NULL)`. Tek bir `INSERT OR UPDATE` olamaz: PostgreSQL `WHEN`'de `OLD`'u reddeder (ölçüldü, 17). Aktörlü satırı uygulama ayrıca yazar.
 
 **Ret izi.** Kararın içinde reddedip audit yazmak çalışmaz: hata işlemi geri alır (`internal/db/tenant.go:74-76`; `RecordTx` aynı işlemde, `internal/domain/review/review.go:168-170`, `manual.go:281-283`). Geri almadan **sonra** kendi işleminde `audit.Record` (`internal/audit/audit.go:83`; emsal `internal/handler/employeeemail.go:43`). İki ret yolu aynı sonuca iner: alan kapısı ve tetikleyici. `detail`: `employee_id`, yön, `occurred_at`, yol. Not metni yok.
 
@@ -130,7 +132,7 @@ ADR 0036'nın biçimiyle; "yetki değişmez" bir artı değildir.
 
 | | **Tehdit 1:** `tappa_app` olarak keyfî SQL yürüten süreç | **Tehdit 2:** binary hatası (kapı unutulur) |
 |---|---|---|
-| Bağ | `UPDATE employees SET admin_user_id = NULL` yapabilir (tablo düzeyi `00003:105`) | Tek yazan sqlc ifadesi tarama testiyle pinli |
+| Bağ | `UPDATE employees SET admin_user_id = NULL` yapabilir (tablo düzeyi `00003:105`) | İki yazan sqlc ifadesi tarama testiyle pinli (§4) |
 | Rol | `UPDATE admin_users SET role='owner'` yapabilir (`00017:380`, ölçüldü) | Değişmez |
 | Kimlik | `reviewer_id`, `entered_by` FK'siz, keyfî id yazar (ölçüldü) | Oturumdan gelir |
 | Tetikleyici | **Engel değil** | **Engel:** doğru id ile unutulmuş kapıyı reddeder |
@@ -146,10 +148,11 @@ Sonuç: bu tasarım iş kuralıdır ve hataya karşı kemerdir; ele geçirilmiş
 
 **Çare:**
 - Yönetici kendi bağlı satırını deaktive edemez; sahip edebilir.
-- Yönetici panelde bir yetkilinin adresiyle satır ekleyemez.
-- Sahibin onayladığı bağ, aynı adresle açılan yeni satıra taşınır. Bu otomatik bağ değildir: yalnız kısıtlar.
+- Yönetici panelde bir yetkilinin adresiyle satır ekleyemez; farklı ya da boş adresle ekleyebilir.
+- Sahibin kurduğu bağ, aynı adresle panelden açılan yeni satıra taşınır. Bu otomatik bağ değildir: yalnız kısıtlar. Aynı adreste birden çok pasif bağlı satır varsa en yeni `deactivated_at`'lı satırın bağı alınır, eşitlikte en büyük `id`.
+- API taşımaz (`CreateEmployeeFromAPI`, `employees.sql:1153`): anahtarları yalnız sahip verir, yetkili adresi orada 422'dir. API'den yeniden açılan satır bağsız başlar; sahip bağlar.
 
-Bağ yeniden işe alımı kendiliğinden kapsamaz: yeni satır (ADR 0010:191) farklı adresle bağsız başlar. **Yönetici farklı adresle yeni satır ekleyebilir; bu kalan risktir.** Hareket izli olur, kapanmaz.
+Bağ yeniden işe alımı kendiliğinden kapsamaz: yeni satır (ADR 0010:191) farklı ya da boş adresle bağsız başlar. **Yönetici farklı ya da boş adresle yeni satır ekleyebilir; bu kalan risktir.** Hareket izli olur, kapanmaz.
 
 ## 7. Kırmızı çizgiler ve kişisel veri
 
@@ -165,48 +168,48 @@ Bağ yeniden işe alımı kendiliğinden kapsamaz: yeni satır (ADR 0010:191) fa
 - **Eşlenmemiş hesap, en büyüğü.** Sahip bağ kurmazsa koruma o hesapta yok.
 - **Yanlış bağ.** Gerçek satır korumasız kalır, yanlış kişi engellenir. Onay ekranı azaltır, kapatmaz.
 - **İki yöneticinin birbirini onaylaması.** Kapatılmaz; audit görür.
-- **Farklı adresle ikinci satır** (§6). **Hesap paylaşımı:** hiçbir seçenek kapatmaz.
+- **Farklı ya da boş adresle ikinci satır** (§6). **Hesap paylaşımı:** hiçbir seçenek kapatmaz.
 - **Mekân ağı (incelemede, kod okundu, ölçülmedi):** `saveVenue`'da rol kapısı yok (`internal/handler/locationactions.go:109`). Yönetici kendi IP'sini ekler, fotoğraflanmış QR'la evden `ok` alır. Ayrı karar; T148'i bloke etmez.
 - **Yokluktaki sahip.** Başka yetkili yoksa yöneticinin işaretli saati sahip bakana dek saate girmez.
-- **`reviewer_id` FK'siz** (`00006_create_admin_users.sql:217-223`): ayrı backlog adayı.
+- **`reviewer_id` ve `entered_by` FK'siz** (`00006_create_admin_users.sql:217-223`, ölçüldü): ayrı backlog adayı.
 
 ## 9. Kullanıcıya sorular
 
-**1. Koruma ne zaman çıksın?** Yanına: yakında saat basan bir vardiya müdürü atanacak mı?
+**1. Koruma ne zaman çıksın?** Yanına: yakında saat basan bir vardiya müdürü atanacak mı? Takip davet formundaki uyarıya ve bu cevaba dayanır: "ilk saat basan yöneticiden önce" tarihini tutan mekanik bir kapı yok; bu (a) için de geçerli.
 - **(a) Metin düzeltmesi hemen; bağ ve engel ilk saat basan yöneticiden önce. Öneri.**
 - (b) Hepsi hemen. Canlıda korunacak kimse yokken iş yapılır.
-- (c) Talep gelene dek yalnız metin. En ucuz; davet formundaki uyarıya dayanır, yönetici tek basışla doğar.
+- (c) Talep gelene dek yalnız metin. En ucuz; yönetici tek basışla doğar.
 
 **2. Yönetici kendi saatini elle girince ne olsun?**
-- **(a) İşaretli yazılsın, başka yetkiliye düşsün. Öneri.** Beyan kaybolmaz, §4.6 ile aynı desen. Ölçüldü: kuyrukta görünür; beklerken 8 sa *awaiting*, onayda 8 sa *worked*, retle 8 sa *refused*. Akışa düşmez (`TestPunches_NoManualNoRejected`). `transactions.sql:399-408`'in `ok` gerekçesi (*"onaylayan yazanın kendisi"*) burada geçersiz: tetikleyici yazanı reddeder ve her yöneticinin üstünde en az bir aktif sahip vardır (`internal/adminauth/membership.go:224`). Peer mekânı kolu ölçülmedi.
+- **(a) İşaretli yazılsın, başka yetkiliye düşsün. Öneri.** Beyan kaybolmaz, §4.6 ile aynı desen. Ölçüldü, **yalnız okuma tarafı ve tek şekil** (`ok` giriş + elle konmuş `flag` `manual` çıkış): kuyrukta görünür; beklerken 8 sa *awaiting*, onayda 8 sa *worked*, retle 8 sa *refused*. Yazma yolu yok: bugün `flag` yazan ifade yok (`internal/domain/manual/manual.go:45-48`); T148-3'ün işi. Bu seçeneği üstün kılan hiç dokunulmamış vardiya **ölçülmedi** (§12). Akışa düşmez (`TestPunches_NoManualNoRejected`). `db/queries/transactions.sql:399-408`'in iki gerekçesi var: ilki (*onaylayacak kişi yazanın kendisi*) burada geçersiz, çünkü tetikleyici yazanı reddeder ve son sahip düşürülemez (`internal/adminauth/membership.go:249-251`). İkincisi (Q18: toplam onaya kadar eksik kalır) **durur**: bağlı yönetici için bilerek kabul edilen bedel.
 - (b) Reddedilsin. Dürüst cümleyle: saat talebi yalnız dokunuşun eksik yarısı içindir (`internal/domain/claim/claim.go:1-4`), kart sonuç ekranında çıkar, iki gösterim (`internal/domain/claim/offer.go:26-32`), kayıt başına bir hak, ret kesin (`00068:114-115`); hiç dokunulmamış vardiya, yanlış saat, reddedilmiş talep kapsam dışı; canlıda hiç karar üretmedi.
 - (c) Serbest, yalnız görünür. Diğer iki kapının anlamı kalmaz.
 
 **3. Bağ nasıl kurulsun?**
-- **(a) Çalışan satırından "Make manager" + davet sonrası Managers'ta kapanmayan "bu kişi kadroda mı" sorusu (kişi seç ya da "kadroda değil"); otomatik bağ yok. Öneri.**
+- **(a) Çalışan satırında "Invite as manager" davet formunu önceden doldurur; kabulden sonra satır bağlanana kadar Managers'ta "bağlı değil" görünür; kapatma cevabı yok; otomatik bağ yok. Öneri.** Bağı sahip kabulden sonra ayrıca kurar. Kadroda olmayan yönetici hep "bağlı değil" görünür: NULL bağ "cevap yok" ile "kadroda değil"i ayıramaz, bu bedel kabul edilir.
 - (b) Yalnız Managers sayfası. En sade, en çok unutulan.
-- (c) Davet formunda zorunlu cevap. En güçlüsü; `admin_invites` ve M14 matrisine dokunur.
+- (c) Bağ davete taşınır, davet formunda zorunlu cevap. En güçlüsü; ama `admin_invites`'ta çalışan sütunu yok (`db/migrations/00077_invite_administrators.sql:139-155`), sütun ve kabul fonksiyonu M14 matrisine dokunur ve §7'deki "definer yok" düşer.
 
-Adres önerisi kapsam kaynağı olamaz: ürün aynı adresi zaten dışlıyor, canlı eşleşme 0.
+(a)'da davet çalışan id'si **taşımaz**. Ad çakışmaz: "Make manager" bugün sahibi yöneticiye indiren düğmedir (`internal/handler/dashboard.go:422`, `web/templates/pages/admininvites.templ:149`).
 
 ## 10. Plan
 
-Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); bütün bağlar NULL iken davranış bugünküyle aynıdır. **İki deploy yeter:** T148-1, sonra T148-2/3/4. Geri dönüş: bağlar varken T148-3 öncesine dönülürse elle giriş 500 verir (`manual.go:888-891`).
+Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); bütün bağlar NULL iken davranış bugünküyle aynıdır. **İki deploy yeter:** T148-1, sonra T148-2/3/4. Geri dönüş: bağlar varken T148-3 öncesine dönülürse elle giriş 500 verir (`manual.go:831-838`, site kolu `:888-891`).
 
 | Kart | İş | Test |
 |---|---|---|
 | **T148-0** | Karardan bağımsız, ayrı dalda, migration yok. Rules metni + davet formu cümlesi (§11) | Çizim testi: motor cümlesi ve iki etiket bu guardrail'de yok |
-| **T148-1** | Sıcak tablo başına ayrı dosya, ifade başına `lock_timeout`, FK `NOT VALID` ve `VALIDATE` ayrı işlemlerde, `CONCURRENTLY` indeks (`00070` deseni), bağ izi, üç tetikleyici, `EXECUTE` yalnız sahipte (`00061`), Down dolu | Gerçek Postgres, `tappa_app`: üç yol × iki rol × bağlı/bağsız, onay ve ret ayrı; RLS (filtresiz); çapraz FK; tap kanalı tetiklemez; bağ izi; `internal/db/triggerexecute_test.go:142-145` güncellenir |
+| **T148-1** | Sıcak tablo başına ayrı dosya, ifade başına `lock_timeout`, FK `NOT VALID` ve `VALIDATE` ayrı işlemlerde, `CONCURRENTLY` indeks (`00070` deseni), bağ izinin iki tetikleyicisi, üç karar tetikleyicisi, `EXECUTE` yalnız sahipte (`00061`), Down dolu | Gerçek Postgres, `tappa_app`: üç yol × iki rol × bağlı/bağsız, onay ve ret ayrı; RLS (filtresiz); çapraz FK; tap kanalı tetiklemez; bağ izi; `internal/db/triggerexecute_test.go:142-145` güncellenir |
 | **T148-2** | Guardrail: alan adı, rol, fail-closed | Tablo: yönetici/kendi, sahip/kendi, rol yok, farklı kişi, bağ yok; `TestGuardrails_SelfReviewOnlyWhenSamePerson`, `TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges` güncellenir |
-| **T148-3** | `review`, `claim`, `manual`: bağı oku, karar; ret izi; `self_decided`; **hata eşleme** (claim tetikleyicisinin yeni mesajı `ErrRefused`'a düşer: `decide.go:393-396`; manuelde eşleme yok, 500: `manual.go:888-891`; ayrı cümleler `internal/handler/review.go:475-482`, `claimqueue.go:479-481`) | Ret izi **iki yolda**: alan kapısı ve tetikleyici; kayıt yazılmaz, tek audit satırı; `TestDecideDB_TheSelfDecisionCheckFiresOnlyOnAForgedIdentity` gerçek bağa çevrilir |
-| **T148-4** | Bağ ekranı (soru 3), onay ekranı, §6 çareleri, band. skill `tappa-brand` | Gerçek HTTP: sahip kapısı, 403 + iz, üç POST'un bağlı yöneticide kapanması, askıda bağ kurma |
+| **T148-3** | `review`, `claim`, `manual`: bağı oku, karar; ret izi; `self_decided`; **`flag` yazıcıları** (soru 2 (a) ise): `InsertManualTransaction`, `InsertManualTransactionAtAnchor`, `InsertManualSiteTransaction`; `manual.go:45-48` yorumu güncellenir; **hata eşleme** (claim tetikleyicisinin yeni mesajı `ErrRefused`'a düşer: `decide.go:393-396`; manuelde eşleme yok, 500: `manual.go:831-838`, `:888-891`; ayrı cümleler `internal/handler/review.go:475-482`, `claimqueue.go:479-481`) | Ret izi **iki yolda**: alan kapısı ve tetikleyici; kayıt yazılmaz, tek audit satırı; §12'deki `flag` şekilleri; `TestDecideDB_TheSelfDecisionCheckFiresOnlyOnAForgedIdentity` gerçek bağa çevrilir |
+| **T148-4** | Bağ ekranı (soru 3), onay ekranı, §6 çareleri, band. skill `tappa-brand` | Gerçek HTTP: sahip kapısı, 403 + iz, üç POST'un bağlı yöneticide kapanması, askıda bağ kurma; taşıma, seçim kuralı, API'nin taşımaması; iki yazıcı tarama testi |
 | **T148-6** | CLAUDE.md §5 (onaylı metin), ADR 0004 ve 0032 notları, ADR 0031 `:124` notu, `docs/plan/m3-policy-motoru.md:331`, `:355`, `open-questions.md:51`, `:52`, `:92`, kod yorumları, T148 kapanışı. *"Nobody can decide"* yasağı kalır | `TestEveryNamedTestExists`, `TestSecurityPage_SaysNoneOfTheRefusedPhrasings` |
 
 **Kabul kriterleri**
 1. Bağlı yönetici iki karar yolunda reddedilir, elle girişi `flag` olur: alan katmanı ve o atlanınca tetikleyici.
 2. Bağlı sahip üç yolda geçer; audit `detail`'inde `self_decided: true`.
 3. Bağsız hesabın davranışı bugünküyle aynıdır.
-4. Yalnız sahip bağ yazar; her değişim veritabanı izi bırakır.
+4. Bağı yalnız iki pinli ifade yazar (sahibin ifadesi, eklemede taşıma); her değişim veritabanı izi bırakır.
 5. Reddedilen deneme, kayıt yazılmadan tek audit satırı bırakır.
 6. Rules cümlesi davranışla aynıdır: `Match`'i bağlı yönetici, bağlı sahip ve bağsız hesapla koşan pin testine bağlanır.
 7. `tap.Decide` testleri (`TestDecide_DirectionNilForNonRecordVerdicts` ve ailesi), `TestEndpointState_NeverPaysAVerdictItDoesNotKNOW`, `TestPanel_CallsThePolicyEngineNowhere`, tap ve sonuç ekranları değişmez.
@@ -215,14 +218,15 @@ Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); büt
 
 Bu dal yazmaz; karardan bağımsız, ayrı dalda yapılır.
 
-- **Değişecek yerler:** `rulebook.go:863-864` (Rule), `:887` (When), `guardrails.go:616` (Reason), `policies.templ:413` (sonuç etiketi), `:416` (sabit *Cannot be switched off*), `:419` (motor cümlesi).
+- **Değişecek yerler:** `rulebook.go:863-864` (Rule), `:887` (When), `policies.templ:413` (sonuç etiketi), `:416` (sabit *Cannot be switched off*), `:419` (motor cümlesi). `guardrails.go:616` değişmez: Reason yalnız `:419`'da çizilir.
 - **When:** *Planned: a manager decides their own record*
 - **Rule:** *Not enforced yet. Taptime does not yet know which manager login belongs to which employee, so someone who is both can decide their own flagged record or type their own hours. Each decision is recorded with who made it.*
 - **Çizilmez:** bu guardrail'de motor cümlesi ve iki etiket. Guardrail sayısı değişmez.
-- **Managers davet formu** (`web/templates/pages/admininvites.templ:189`): tek cümle uyarı, aynı gerçeği söyler.
+- **Sayfa girişi** (`policies.templ:397-403`), *"each of them is a promise"*den sonra tek cümle: *The last one below is still planned: it is not enforced yet, so it is not yet one of these promises.*
+- **Managers davet formu** (`web/templates/pages/admininvites.templ:189`), `md:basis-full` ile tek cümle: *A manager can currently decide their own flagged record and type their own hours.*
 
 ## 12. Ölçülmedi
 
-Atlatma zinciri ve mekân ağı (kod okundu) · `punch_claim_decisions` tetikleyicisinin yeni hali · peer mekânına işaretli elle kayıt · `ALTER`'ların canlı kilit süresi · guardrail değişikliği ve ekranlar · When I Work üst rolleri, Homebase, ADP, Gusto.
+Atlatma zinciri ve mekân ağı (kod okundu) · `punch_claim_decisions` tetikleyicisinin yeni hali · **`flag` + `manual`:** giriş satırı, hiç dokunulmamış vardiya (giriş + çıkış manuel; soru 2 (a)'yı üstün kılan durum), `CorrectionsOnlyShorten` düzeltme şekli (`manual.go:89-112`), yazma yolu, peer mekânı kolu · `ALTER`'ların canlı kilit süresi · guardrail değişikliği ve ekranlar · When I Work üst rolleri, Homebase, ADP, Gusto.
 
-Prototip (geçici DB, depoya girmedi): bağlı yönetici onay, ret ve kendi manueli reddedildi; sahip üçünde geçti; bağsız hesap geçti; yöneticinin başkasına kararı geçti. Tetikleyicide `flag`'e izin veren kol (soru 2'nin önerisi) denenmedi: prototip o manueli düz reddediyordu. İşaretli elle kayıt raporu gerçek `ledger.Reader` ile ölçüldü; sonda deneme testi silindi.
+Prototip (geçici DB, depoya girmedi): bağlı yönetici onay, ret ve kendi manueli reddedildi; sahip üçünde geçti; bağsız hesap geçti; yöneticinin başkasına kararı geçti. Tetikleyicide `flag`'e izin veren kol (soru 2'nin önerisi) denenmedi: prototip o manueli düz reddediyordu. Tek şekilli `flag` + `manual` çıkışı gerçek `ledger.Reader` ile okundu (satır doğrudan yazıldı); deneme testi silindi.
