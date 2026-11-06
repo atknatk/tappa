@@ -741,7 +741,10 @@ func beginInTenant(t *testing.T, ctx context.Context, d *DB, tenantID uuid.UUID)
 		t.Fatalf("begin: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		// A connection already closed has nothing to roll back: twoWriters' cleanup cancelled the
+		// writer on it, pgx closes a connection whose query is cancelled, the server ended the
+		// transaction with it. Logged, that reads like the cause of a failure it did not cause.
+		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) && !tx.Conn().IsClosed() {
 			t.Logf("rollback: %v", err)
 		}
 	})
@@ -781,22 +784,35 @@ func twoWriters(t *testing.T, ctx context.Context, app *DB, tenant, admin uuid.U
 		err    error
 	}
 	done := make(chan result, 1)
+	// WRITER 2 OWNS tx2's CONNECTION WHILE IT RUNS, and a pgx connection is not for two goroutines.
+	// When the main goroutine falls (t.Fatalf below, under load), the cleanups run while writer 2
+	// is still waiting on writer 1's lock; beginInTenant's rollback then took the same connection:
+	// "rollback: conn busy" and a race report on pgx's buffers, burying the failure that caused
+	// them. This cleanup is registered after the rollbacks, so it runs before them: cancel writer 2,
+	// wait until it has left the connection. stopped and not done: done may be spent by then.
+	ctx2, cancel2 := context.WithCancel(ctx)
+	stopped := make(chan struct{})
+	t.Cleanup(func() {
+		cancel2()
+		<-stopped
+	})
 	go func() {
+		defer close(stopped)
 		q2 := store.New(tx2)
-		if err := q2.EnsureTenantBrand(ctx, store.EnsureTenantBrandParams{TenantID: tenant, UpdatedBy: admin}); err != nil {
+		if err := q2.EnsureTenantBrand(ctx2, store.EnsureTenantBrandParams{TenantID: tenant, UpdatedBy: admin}); err != nil {
 			done <- result{err: errors.Join(errors.New("writer 2 ensure"), err)}
 			return
 		}
-		b, err := q2.GetTenantBrandForUpdate(ctx, tenant)
+		b, err := q2.GetTenantBrandForUpdate(ctx2, tenant)
 		if err != nil {
 			done <- result{err: errors.Join(errors.New("writer 2 lock"), err)}
 			return
 		}
-		if _, err := q2.SetTenantAccent(ctx, store.SetTenantAccentParams{Accent: "DA291C", UpdatedBy: admin, TenantID: tenant}); err != nil {
+		if _, err := q2.SetTenantAccent(ctx2, store.SetTenantAccentParams{Accent: "DA291C", UpdatedBy: admin, TenantID: tenant}); err != nil {
 			done <- result{err: errors.Join(errors.New("writer 2 set"), err)}
 			return
 		}
-		done <- result{before: b.Accent, err: tx2.Commit(ctx)}
+		done <- result{before: b.Accent, err: tx2.Commit(ctx2)}
 	}()
 
 	// Writer 2 must be WAITING, in the expected statement, before writer 1 writes and
@@ -828,12 +844,19 @@ func twoWriters(t *testing.T, ctx context.Context, app *DB, tenant, admin uuid.U
 func TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted(t *testing.T) {
 	app := appDB(t)
 	assertAppRole(t, app)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	// A budget per case: one of 60 s shared by the three was spent by the first two on a loaded
+	// machine, and the third fell on a statement with nothing wrong with it (77 s, "writer 1 set:
+	// context deadline exceeded"). It bounds a hang; it measures nothing.
+	budget := func(t *testing.T) context.Context {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		t.Cleanup(cancel)
+		return ctx
+	}
 
 	// First brand: writer 2 waits in EnsureTenantBrand, on writer 1's uncommitted
 	// insert of the same primary key.
 	t.Run("first write", func(t *testing.T) {
+		ctx := budget(t)
 		tenant, admin := brandTenant(t, app)
 		if before := twoWriters(t, ctx, app, tenant, admin, "EnsureTenantBrand"); before == nil || *before != "1F5C41" {
 			t.Fatalf("writer 2's before = %v, want 1F5C41 (writer 1's committed value)", before)
@@ -843,6 +866,7 @@ func TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted(t *test
 	// Existing row: writer 2's EnsureTenantBrand finds the committed row and does
 	// nothing, and it waits in GetTenantBrandForUpdate, on writer 1's row lock.
 	t.Run("existing row", func(t *testing.T) {
+		ctx := budget(t)
 		tenant, admin := brandTenant(t, app)
 		saveBrand(t, app, tenant, admin, "BE3D2A", randLogo(t, 64))
 		if before := twoWriters(t, ctx, app, tenant, admin, "GetTenantBrandForUpdate"); before == nil || *before != "1F5C41" {
@@ -851,6 +875,7 @@ func TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted(t *test
 	})
 
 	t.Run("without ensure", func(t *testing.T) {
+		ctx := budget(t)
 		tenant, admin := brandTenant(t, app)
 		tx1 := beginInTenant(t, ctx, app, tenant)
 		q1 := store.New(tx1)
@@ -889,6 +914,16 @@ func waitForLockWait(t *testing.T, ctx context.Context, d *DB, pid int32, finish
 			t.Fatalf("read pg_stat_activity: %v", err)
 		}
 		if wait != nil && *wait == "Lock" {
+			// READ IT AGAIN: this row's two columns are not one moment. pg_stat_activity takes the
+			// statement text from its snapshot and the wait event from the live process afterwards
+			// (pg_stat_get_activity, read in PostgreSQL 17's source), so a writer that moved on between
+			// them is a Lock beside the statement it has just left. Seen once, under load, on the
+			// existing row: "writer 2 waits in EnsureTenantBrand". Rare: not reproduced in 1050 more
+			// runs. The lock it has met holds until writer 1 commits, which comes after this returns, so
+			// the second read's text is the statement that is waiting.
+			if err := d.pool.QueryRow(ctx, `SELECT query FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&query); err != nil {
+				t.Fatalf("read pg_stat_activity: %v", err)
+			}
 			return query
 		}
 		if finished() {
