@@ -34,9 +34,19 @@ func TestReadyz_ARealDriverErrorNamesTheDeployment(t *testing.T) {
 
 	// Port 1 on the loopback: refused immediately, so this costs milliseconds. The
 	// user and database names are invented for this test.
-	_, err := db.New(ctx, &config.Config{
+	//
+	// A pool's Ping and not db.New, because that is the error readiness classifies: internal/db's Ping
+	// (the probe cmd/tappa wires) returns pgx's own error, while db.New has answered with the class
+	// alone since backlog T84 (TestNew_AConnectFailureCarriesOnlyItsClass).
+	cfg := &config.Config{
 		DatabaseURL: config.NewDSN("postgres://readyz_probe_user:pw@127.0.0.1:1/readyz_probe_db?sslmode=disable"),
-	})
+	}
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL.Reveal())
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+	err = pool.Ping(ctx)
 	if err == nil {
 		t.Fatal("connecting to a closed port succeeded")
 	}

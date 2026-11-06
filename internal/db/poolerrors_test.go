@@ -35,7 +35,7 @@ const (
 )
 
 // TestNew_AConnectFailureCarriesOnlyItsClass (backlog T84): New's error names the step and the class,
-// the exact text an operator greps for, with no part of the DSN in any rendering.
+// the text an operator greps for, with no part of the DSN in any rendering.
 //
 // CONTROL, per row with a real connection: pgx's own error for the same DSN does carry the row's
 // canaries -- so the search is looking at the right bytes, and the day pgx stops saying them this test
@@ -55,11 +55,11 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 	rows := []row{
 		{
 			"nothing listens", "postgres://" + userinfo + "@" + closed + "/" + t84Database + params,
-			"db: ping: connection refused", []string{t84User, t84Database},
+			"connection refused", []string{t84User, t84Database},
 		},
 		{
 			"the host does not resolve", "postgres://" + userinfo + "@" + t84Host + ":5432/" + t84Database + params,
-			"db: ping: the database host name does not resolve", []string{t84User, t84Database, t84Host},
+			"the database host name does not resolve", []string{t84User, t84Database, t84Host},
 		},
 	}
 	if app := os.Getenv("DATABASE_URL"); app != "" {
@@ -70,19 +70,19 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 		rows = append(rows,
 			row{
 				"the server refuses the credential", "postgres://" + userinfo + "@" + u.Host + "/" + strings.TrimPrefix(u.Path, "/") + params,
-				"db: ping: SQLSTATE 28P01", []string{t84User},
+				"SQLSTATE 28P01", []string{t84User},
 			},
 			row{
 				"the database does not exist", "postgres://" + u.User.String() + "@" + u.Host + "/" + t84Database + params,
-				"db: ping: SQLSTATE 3D000", []string{t84Database},
+				"SQLSTATE 3D000", []string{t84Database},
 			},
 			row{
 				"the server refuses a setting's value", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&datestyle=" + t84Value,
-				"db: ping: SQLSTATE 22023", []string{t84Value},
+				"SQLSTATE 22023", []string{t84Value},
 			},
 			row{
 				"the server does not know a setting", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&" + t84Setting + "=" + t84Value,
-				"db: ping: SQLSTATE 42704", []string{t84Setting},
+				"SQLSTATE 42704", []string{t84Setting},
 			},
 		)
 	}
@@ -105,8 +105,12 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 				d.Close()
 				t.Fatal("New opened a pool on this DSN")
 			}
-			if err.Error() != r.want {
-				t.Errorf("New's error is %q, want %q", err, r.want)
+			// Contains and not equality, because `localhost` resolves to two addresses and either can answer
+			// first: "SQLSTATE 22023; attempt 1 of 2" (CI run 42215703132) and "attempt 1: connection refused;
+			// attempt 2: SQLSTATE 28P01" (measured, a Docker port published on IPv4 alone). The canaries
+			// below are what hold the text to the class.
+			if !strings.HasPrefix(err.Error(), "db: ping: ") || !strings.Contains(err.Error(), r.want) {
+				t.Errorf("New's error is %q, want the step and %q", err, r.want)
 			}
 			for i, text := range renderEverywhere(err) {
 				for _, c := range []string{t84User, t84Password, t84Database, t84Host, t84App, t84Setting, t84Value} {
