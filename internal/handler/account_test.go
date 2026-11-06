@@ -724,6 +724,26 @@ func TestAccountSave_SaysAHoldingMembersZoneIsLocked(t *testing.T) {
 	}
 }
 
+// TestAccountSave_SaysANewNameCarriesAHiddenCharacter (T97): the domain's refusal of a new name with
+// a bidi control is a form answer beside the name field, in the venue form's sentence, at Warn: it
+// is the owner's typing, not the "domain refused what the boundary accepted" inconsistency.
+func TestAccountSave_SaysANewNameCarriesAHiddenCharacter(t *testing.T) {
+	acc := newFakeAccount()
+	acc.saveErr = tenant.ErrNameHiddenCharacter
+	b := accountBrowser(t, acc, &fakeTrail{}, accountTestOwnerRole)
+	rec := b.do(http.MethodPost, accountHref, url.Values{
+		"name":          {"Rusty\u2069\u202eBar"},
+		"business_type": {"restaurant"},
+		"timezone":      {"Europe/Malta"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the refusal answered %d, want 200 with the form again", rec.Code)
+	}
+	if got := fieldError(t, htmlOf(t, rec), "name"); got != htmlText(hiddenNameSentence) {
+		t.Errorf("the name field says %q, want %q", got, hiddenNameSentence)
+	}
+}
+
 // TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList — the <select> is drawn from
 // the schema's own vocabulary, and a value that did not come from it is refused.
 func TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList(t *testing.T) {

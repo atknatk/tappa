@@ -1076,8 +1076,9 @@ func TestHoldingsScreen_EscapesWhatOperatorsAndBusinessesNamed(t *testing.T) {
 	g.seedHolding(uuid.Nil, `FAKE <script>x</script> & "Group" `+"\u202e"+`evil`, at, liveMembership(named, at))
 	body := g.get("/operator/holdings", c).Body.String()
 	for _, want := range []string{
-		`<bdi>FAKE &lt;script&gt;x&lt;/script&gt; &amp; &#34;Group&#34; ` + "\u202e" + `evil</bdi>`,
-		`<bdi>FAKE &lt;b&gt;Bar&lt;/b&gt; &amp; &#34;Grill&#34; ` + "\u202e" + `evil</bdi>`,
+		// T97: the override does not reach the page.
+		`<bdi>FAKE &lt;script&gt;x&lt;/script&gt; &amp; &#34;Group&#34; evil</bdi>`,
+		`<bdi>FAKE &lt;b&gt;Bar&lt;/b&gt; &amp; &#34;Grill&#34; evil</bdi>`,
 		`<span class="italic">Unnamed holding</span>`, `<span class="italic">Unnamed tenant</span>`,
 		blankHolding.String(), blank.String(),
 	} {

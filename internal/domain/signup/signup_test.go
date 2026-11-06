@@ -60,6 +60,31 @@ func TestValidateBusiness_ServerSide(t *testing.T) {
 	}
 }
 
+// TestValidateBusiness_ABidiControlInTheNameIsRefused (T97): the nine runes that open or close a
+// bidi embedding, override or isolate are refused with their own sentence, and PDI+RLO with them.
+// Right-to-left names, a joiner inside a word and the implicit marks are not this rule's business.
+func TestValidateBusiness_ABidiControlInTheNameIsRefused(t *testing.T) {
+	valid := func(name string) Business {
+		return Business{Name: name, VATNumber: "MT12345678", BusinessType: "restaurant", Structure: StructureSingle}
+	}
+	for _, r := range "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" {
+		if _, errs := ValidateBusiness(valid("Rusty" + string(r) + "Bar")); !strings.Contains(errs["name"], "hidden character") {
+			t.Errorf("U+%04X in the name: the name field says %q, want the hidden character's sentence", r, errs["name"])
+		}
+	}
+	if _, errs := ValidateBusiness(valid("Rusty\u2069\u202eBar")); !strings.Contains(errs["name"], "hidden character") {
+		t.Errorf("PDI+RLO in the name: the name field says %q", errs["name"])
+	}
+	for _, name := range []string{
+		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e", "Chef \U0001F468\u200d\U0001F373 Bar",
+	} {
+		b, errs := ValidateBusiness(valid(name))
+		if msg, refused := errs["name"]; refused || b.Name != name {
+			t.Errorf("%q: the name field says %q and the name is %q; want it accepted as typed", name, msg, b.Name)
+		}
+	}
+}
+
 // TestValidateBusiness_NormalisesWhatItChecks — the ONE-REPRESENTATION rule.
 //
 // The value that comes back is the value that will be stored, compared against the

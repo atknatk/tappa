@@ -162,6 +162,10 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case err == nil:
+	case errors.Is(err, tenant.ErrNameHiddenCharacter):
+		a.log.Warn("panel account save refused: a new name carries a refused character", "tenant_id", id.Admin.TenantID)
+		a.renderAccountFormAgain(w, r, id, form, "name", hiddenNameSentence)
+		return
 	case errors.Is(err, tenant.ErrAccountName):
 		// The domain's own bound refused a name the boundary let through, which means
 		// the two disagree. It is reported as a form failure rather than a 500 — the

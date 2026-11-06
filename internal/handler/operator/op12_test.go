@@ -1363,7 +1363,7 @@ func TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
 	const name = "Rusty <Bar> & \"Grill\" \u202eevil"
-	const esc = "Rusty &lt;Bar&gt; &amp; &#34;Grill&#34; \u202eevil"
+	const esc = "Rusty &lt;Bar&gt; &amp; &#34;Grill&#34; evil" // T97: without the override
 	odd := billingMonth{y: 2026, m: time.September, state: "frozen", people: 2, amount: "2.20", plan: `<script>x</script>`,
 		currency: `<b>X`, closedAt: time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)}
 	months := append([]db.TenantBillingMonth{odd.month()}, billingBeforeSignupMonths(2026, time.August, 11)...)

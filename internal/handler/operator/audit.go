@@ -408,14 +408,13 @@ func printableToken(raw string) bool {
 	return true
 }
 
-// visibleName is a stored name the screen may print: the name, or "" when there is none or
-// it has no visible character (namedVisibly) -- the row then names the account or the
-// tenant by its id.
+// visibleName is a stored name the screen may print (shownName), or "" when there is none or
+// it has no visible character -- the row then names the account or the tenant by its id.
 func visibleName(name *string) string {
-	if name == nil || !namedVisibly(*name) {
+	if name == nil {
 		return ""
 	}
-	return *name
+	return shownName(*name)
 }
 
 // thousands is n in decimal with a comma between groups of three digits (50,000) -- the

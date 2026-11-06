@@ -651,6 +651,10 @@ func hasVisibleRune(s string) bool {
 	return false
 }
 
+// NameHasBidiControl is containsBidiControl for the one writer outside this package that needs
+// that rule alone: a new business's name (signup.ValidateBusiness; T97).
+func NameHasBidiControl(s string) bool { return containsBidiControl(s) }
+
 // containsBidiControl reports whether s carries an explicit bidirectional override or
 // embedding. These are the runes that reorder text around them.
 func containsBidiControl(s string) bool {

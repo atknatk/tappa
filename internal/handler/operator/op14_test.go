@@ -908,13 +908,14 @@ func TestAuditScreen_PagesForwardOnlyAfterAFullPage(t *testing.T) {
 
 // TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed: an operator's display name, an
 // account's and a tenant's name that each close the markup around them and open a script,
-// and a name carrying a right-to-left override -- none is written raw, each is there escaped
-// inside a bdi element (so the assertion is not passing on a value that never rendered).
+// and a name carrying a right-to-left override, which arrives without it (T97) -- none is written
+// raw, each is there escaped inside a bdi element (so the assertion is not passing on a value that never rendered).
 func TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
 	const evil = `</bdi></a><script>alert(1)</script>`
 	const rtl = "\u202eFAKE override"
+	const rtlShown = "FAKE override" // T97: the override does not reach the page
 	s, a, b, tn := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	actor, account, tenant, rtlName := "op "+evil, "acc "+evil, "ten "+evil, rtl
 	e1 := auditEntry("read", 3, &s, &a, &actor)
@@ -928,7 +929,7 @@ func TestAuditScreen_EscapesWhatOperatorsAndTenantsNamed(t *testing.T) {
 		t.Error("the audit screen writes a script element")
 	}
 	for _, want := range []string{"<bdi>" + html.EscapeString(actor) + "</bdi>", "<bdi>" + html.EscapeString(account) + "</bdi>",
-		"<bdi>" + html.EscapeString(tenant) + "</bdi>", "<bdi>" + rtl + "</bdi>"} {
+		"<bdi>" + html.EscapeString(tenant) + "</bdi>", "<bdi>" + rtlShown + "</bdi>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the audit screen does not carry %q escaped in a bdi", want)
 		}

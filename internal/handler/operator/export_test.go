@@ -25,6 +25,9 @@ func FormValueForTest(v string) formValue { return formValue{v: &v} }
 // ProblemPagesForTest is problemPages() (render.go).
 func ProblemPagesForTest() []operatorpages.ProblemView { return problemPages() }
 
+// IsBidiControlForTest is tenants.go's isBidiControl.
+func IsBidiControlForTest(r rune) bool { return isBidiControl(r) }
+
 // VisibleTextForTest is legal.go's visibleText.
 func VisibleTextForTest(body string) bool { return visibleText(body) }
 
