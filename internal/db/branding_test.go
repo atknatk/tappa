@@ -744,7 +744,10 @@ func beginInTenant(t *testing.T, ctx context.Context, d *DB, tenantID uuid.UUID)
 		// A connection already closed has nothing to roll back: twoWriters' cleanup cancelled the
 		// writer on it, pgx closes a connection whose query is cancelled, the server ended the
 		// transaction with it. Logged, that reads like the cause of a failure it did not cause.
-		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) && !tx.Conn().IsClosed() {
+		// READ BEFORE THE ROLLBACK: pgx closes the connection on every failed rollback, so read
+		// after it this is always true and the line below never prints, conn busy included.
+		closedBefore := tx.Conn().IsClosed()
+		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) && !closedBefore {
 			t.Logf("rollback: %v", err)
 		}
 	})
