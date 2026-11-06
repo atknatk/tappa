@@ -254,10 +254,23 @@ psql_to "$TMP/have.grants" "SELECT g.table_name, g.grantee, g.privilege_type
   WHERE g.table_schema = 'public' AND g.grantee <> t.tableowner AND g.grantee <> 'PUBLIC';"
 psql_to "$TMP/columns" "SELECT table_name, column_name FROM information_schema.columns
   WHERE table_schema = 'public';"
+# 🔴 THE SECOND ARM IS THE SYSTEM COLUMNS (T214). information_schema.column_privileges reads
+# attnum > 0, and 00074 and 00078 grant SELECT (xmin) to tappa_identitydefiner, which pg_dump
+# carries: without this arm every restore from goose 74 on reported those grants MISSING with
+# the privilege in place, and a tool that cries on a correct database is one an operator learns
+# to skip. Read from pg_attribute, so the grant is still compared rather than filtered out of
+# the expected set: a lost one is `-`, one the dump does not have is `+`.
 psql_to "$TMP/have.colgrants" "SELECT g.table_name, g.grantee, g.column_name, g.privilege_type
   FROM information_schema.column_privileges g
   JOIN pg_tables t ON t.schemaname = 'public' AND t.tablename = g.table_name
-  WHERE g.table_schema = 'public' AND g.grantee <> t.tableowner AND g.grantee <> 'PUBLIC';"
+  WHERE g.table_schema = 'public' AND g.grantee <> t.tableowner AND g.grantee <> 'PUBLIC'
+  UNION ALL
+  SELECT c.relname, r.rolname, a.attname, x.privilege_type
+  FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN LATERAL aclexplode(a.attacl) x
+  JOIN pg_roles r ON r.oid = x.grantee
+  WHERE n.nspname = 'public' AND a.attnum < 0 AND r.oid <> c.relowner;"
 
 # Expand the dump's TABLE grants across that table's columns, then union with the
 # dump's own column grants — the same shape information_schema reports.
@@ -608,10 +621,12 @@ fi
 # TWO QUESTIONS, AND NEITHER HAS A LIST IN THIS FILE, so a trigger a later migration adds
 # is checked the day it exists:
 #
-#   does every trigger in public fire?  ANY user trigger not in ('O','A') fails. Section
-#     5's measurements say why those two: 'D' does not fire, and 'R' does not fire for an
-#     ordinary session, which a deploy is. The schema has no trigger that is meant to be
-#     off (all of them 'O', measured at goose 87).
+#   does every trigger in public fire?  ANY trigger not in ('O','A') fails, INTERNAL ONES
+#     INCLUDED: DISABLE TRIGGER ALL on a table with no trigger of its own turns off only its
+#     foreign keys' triggers, and a composite key like departments_location_fk is a tenant
+#     belt. Section 5's measurements say why those two states: 'D' does not fire, and 'R'
+#     does not fire for an ordinary session, which a deploy is. The schema has no trigger
+#     that is meant to be off (none, internal ones included, measured at goose 87).
 #   is it the trigger that was backed up?  EXPECTED is the dump's own CREATE TRIGGER lines
 #     -- section 3's rule: the artifact being restored is the reference, so this works on
 #     a backup older than this check -- and ACTUAL is pg_get_triggerdef, the function
@@ -622,6 +637,12 @@ fi
 # tgparentid = 0 in the second query: a partition's clone is not in a dump, its parent's
 # trigger is. No table is partitioned today. The first query counts clones too.
 #
+# AND ONE FLOOR THE DUMP DOES NOT SET: both questions above trust the dump, so a source that
+# had already lost a trigger compares equal to its restore and passes. Every table in
+# trunc_tables must also carry an enabled BEFORE UPDATE OR DELETE row trigger bound to
+# tappa_forbid_mutation, and tags its counter trigger. trunc_tables is not free text
+# (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations).
+#
 # THE MATCH IS ARMED BY pg_dump's OWN COMMENT LINE, so a COPY row that happens to start
 # with the words CREATE TRIGGER is not taken for one (it could only have failed the
 # restore, not passed it). cmd/tappa's TestRestoreVerify_TriggerGate runs this block with
@@ -631,8 +652,23 @@ fi
 TRIGGERS_OFF_SQL="SELECT c.relname || '.' || g.tgname || ' tgenabled=' || g.tgenabled::text
   FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'public' AND NOT g.tgisinternal
+  WHERE n.nspname = 'public'
     AND g.tgenabled NOT IN ('O', 'A');"
+FLOOR_ROW_GUARDS_SQL="SELECT c.relname
+  FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_proc p ON p.oid = g.tgfoid
+  WHERE n.nspname = 'public' AND NOT g.tgisinternal
+    AND (g.tgtype & 27) = 27        -- ROW, BEFORE, DELETE and UPDATE
+    AND g.tgenabled IN ('O', 'A')
+    AND p.proname = 'tappa_forbid_mutation';"
+FLOOR_COUNTER_SQL="SELECT count(*)
+  FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_proc p ON p.oid = g.tgfoid
+  WHERE n.nspname = 'public' AND c.relname = 'tags' AND g.tgname = 'tags_counter_monotonic'
+    AND g.tgenabled IN ('O', 'A')
+    AND p.proname = 'tappa_forbid_counter_rewind';"
 TRIGGER_DEFS_SQL="SET search_path = ''; SELECT pg_catalog.pg_get_triggerdef(g.oid, false) || ';'
   FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -660,6 +696,19 @@ else
   bad "the triggers differ from the dump -- a lost append-only or counter trigger leaves the privilege belt alone:"
   LC_ALL=C comm -23 "$TMP/want.triggers" "$TMP/have.triggers" | head -20 | sed 's/^/        dump    /' >&2
   LC_ALL=C comm -13 "$TMP/want.triggers" "$TMP/have.triggers" | head -20 | sed 's/^/        restore /' >&2
+fi
+$OWNER_PSQL -c "$FLOOR_ROW_GUARDS_SQL" > "$TMP/have.rowguards" \
+  || die "the row guard query failed against $PGDATABASE; no verdict is issued"
+floor_counter="$($OWNER_PSQL -c "$FLOOR_COUNTER_SQL")" \
+  || die "the counter trigger query failed against $PGDATABASE; no verdict is issued"
+floor_missing=""
+for t in $trunc_tables; do
+  grep -qx "$t" "$TMP/have.rowguards" || floor_missing="$floor_missing $t"
+done
+if [ -z "$floor_missing" ] && [ "$floor_counter" = "1" ]; then
+  ok "triggers: the append-only row guards and tags_counter_monotonic are here, whatever the dump says"
+else
+  bad "section 4.3's and 4.4's triggers are missing or off, whatever the dump says. Row guards missing:${floor_missing:- none}; tags_counter_monotonic present: $floor_counter of 1. If the dump agrees, the SOURCE had lost them."
 fi
 if [ -s "$TMP/have.triggersoff" ]; then
   bad "these triggers would NOT fire on an ordinary session: $(tr '\n' ' ' < "$TMP/have.triggersoff")

@@ -894,6 +894,8 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 //     function: FAIL, showing the difference;
 //   - a dump with no trigger: FAIL, not "nothing differs";
 //   - a line of data that merely starts with the words is not taken for a trigger;
+//   - THE FLOOR: dump and database agree and none is off, but a source that had lost a row guard or
+//     the counter trigger still FAILs, naming what is missing;
 //   - a catalog query that fails: no verdict (die), never a pass.
 func TestRestoreVerify_TriggerGate(t *testing.T) {
 	src := readScript(t, "pg-restore-verify.sh")
@@ -917,12 +919,17 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 		return d.String()
 	}
 	dir := t.TempDir()
+	const tables = "audit_log operator_audit_log"
 	for _, c := range []struct {
 		what, dump, defs, off string
-		stubFails             bool
+		rows, counter         string
 		pass                  bool
 		say                   string
 	}{
+		{what: "a source that lost a row guard, the dump and the database agreeing", dump: dump(a, b), defs: a + "\n" + b + "\n",
+			rows: "audit_log\n", counter: "1\n", say: "Row guards missing: operator_audit_log"},
+		{what: "a source that lost the counter trigger, the dump and the database agreeing", dump: dump(a, b), defs: a + "\n" + b + "\n",
+			rows: "audit_log\noperator_audit_log\n", counter: "0\n", say: "tags_counter_monotonic present: 0 of 1"},
 		{what: "the same triggers, all on", dump: dump(a, b), defs: a + "\n" + b + "\n", pass: true, say: "all 2 the dump declares"},
 		{what: "a row trigger disabled", dump: dump(a, b), defs: a + "\n" + b + "\n", off: "audit_log.audit_log_no_mutation tgenabled=D\n",
 			say: "audit_log.audit_log_no_mutation tgenabled=D"},
@@ -935,16 +942,21 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 		{what: "a trigger bound to another function", dump: dump(a, b), defs: a + "\n" + b2 + "\n", say: "restore " + b2},
 		{what: "a dump with no trigger", dump: dump(), defs: "", say: "declares no trigger"},
 	} {
+		if c.rows == "" {
+			c.rows, c.counter = "audit_log\noperator_audit_log\n", "1\n"
+		}
 		dumpFile, defsFile, offFile := filepath.Join(dir, "dump.sql"), filepath.Join(dir, "defs"), filepath.Join(dir, "off")
+		rowsFile, counterFile := filepath.Join(dir, "rows"), filepath.Join(dir, "counter")
 		stub := filepath.Join(dir, "psql")
-		for f, body := range map[string]string{dumpFile: c.dump, defsFile: c.defs, offFile: c.off,
-			stub: "#!/bin/sh\ncase \"$2\" in\nSET*) cat " + defsFile + " ;;\n*) cat " + offFile + " ;;\nesac\n"} {
+		for f, body := range map[string]string{dumpFile: c.dump, defsFile: c.defs, offFile: c.off, rowsFile: c.rows, counterFile: c.counter,
+			stub: "#!/bin/sh\ncase \"$2\" in\nSET*) cat " + defsFile + " ;;\n*tappa_forbid_counter_rewind*) cat " + counterFile +
+				" ;;\n*tappa_forbid_mutation*) cat " + rowsFile + " ;;\n*) cat " + offFile + " ;;\nesac\n"} {
 			if err := os.WriteFile(f, []byte(body), 0o700); err != nil {
 				t.Fatal(err)
 			}
 		}
 		script := "set -eu\nfails=0\nbad()  { echo \"  FAIL  $*\" >&2; fails=$((fails + 1)); }\nok()   { echo \"  ok    $*\"; }\n" +
-			"die()  { echo \"die: $*\" >&2; exit 2; }\nDUMP=" + dumpFile + "\nTMP=" + dir + "\nOWNER_PSQL=" + stub + "\nPGDATABASE=x\n" + src[i:j] + "\necho \"fails=$fails\"\n"
+			"die()  { echo \"die: $*\" >&2; exit 2; }\nDUMP=" + dumpFile + "\nTMP=" + dir + "\nOWNER_PSQL=" + stub + "\nPGDATABASE=x\ntrunc_tables=\"" + tables + "\"\n" + src[i:j] + "\necho \"fails=$fails\"\n"
 		out, err := exec.Command("sh", "-c", script).CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s: section 5b: %v\n%s", c.what, err, out)
@@ -959,13 +971,15 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 	stub := filepath.Join(dir, "psql")
 	for what, body := range map[string]string{
 		"the definitions": "case \"$2\" in\nSET*) exit 3 ;;\nesac\n",
-		"the state":       "case \"$2\" in\nSET*) ;;\n*) exit 3 ;;\nesac\n",
+		"the state":       "case \"$2\" in\nSET*) ;;\n*tappa_forbid*) ;;\n*) exit 3 ;;\nesac\n",
+		"the row guards":  "case \"$2\" in\n*tappa_forbid_counter_rewind*) ;;\n*tappa_forbid_mutation*) exit 3 ;;\nesac\n",
+		"the counter":     "case \"$2\" in\n*tappa_forbid_counter_rewind*) exit 3 ;;\nesac\n",
 	} {
 		if err := os.WriteFile(stub, []byte("#!/bin/sh\n"+body), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		script := "set -eu\nfails=0\nbad()  { fails=$((fails + 1)); }\nok()   { :; }\ndie()  { echo \"die: $*\" >&2; exit 2; }\nDUMP=" +
-			filepath.Join(dir, "dump.sql") + "\nTMP=" + dir + "\nOWNER_PSQL=" + stub + "\nPGDATABASE=x\n" + src[i:j] + "\necho reached the end\n"
+			filepath.Join(dir, "dump.sql") + "\nTMP=" + dir + "\nOWNER_PSQL=" + stub + "\nPGDATABASE=x\ntrunc_tables=\"" + tables + "\"\n" + src[i:j] + "\necho reached the end\n"
 		out, err := exec.Command("sh", "-c", script).CombinedOutput()
 		var ee *exec.ExitError
 		if !errors.As(err, &ee) || ee.ExitCode() != 2 || strings.Contains(string(out), "reached the end") {
