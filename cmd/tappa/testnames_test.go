@@ -66,15 +66,8 @@ func TestEveryNamedTestExists(t *testing.T) {
 			if !strings.HasSuffix(path, "_test.go") {
 				return
 			}
-			names, inStrings, err := declaredTests(path, b)
-			if err != nil {
+			if err := addDeclaredTests(path, b, declared, fixtures); err != nil {
 				t.Fatalf("%s will not parse, so its tests are not counted: %v", path, err)
-			}
-			for _, name := range names {
-				declared[name] = true
-			}
-			if len(inStrings) > 0 {
-				fixtures[path] = inStrings
 			}
 		})
 	}
@@ -85,12 +78,15 @@ func TestEveryNamedTestExists(t *testing.T) {
 	if !declared["TestEveryNamedTestExists"] {
 		t.Fatal("CONTROL FAILED: the collector did not find this very test")
 	}
-	t.Logf("%d test functions declared", len(declared))
+	carried := 0
+	for _, names := range fixtures {
+		carried += len(names)
+	}
+	t.Logf("%d test functions declared, %d more carried in strings by %d files", len(declared), carried, len(fixtures))
 
 	// 2. Collect every Test… name CITED outside a declaration.
 	citeRe := regexp.MustCompile(`\bTest[A-Z][A-Za-z0-9_]{4,}\b`)
-	type cite struct{ file, name string }
-	var cites []cite
+	var cites []citation
 	add := func(path string, b []byte) {
 		text := string(b)
 		for _, line := range strings.Split(text, "\n") {
@@ -100,7 +96,7 @@ func TestEveryNamedTestExists(t *testing.T) {
 				continue
 			}
 			for _, name := range citeRe.FindAllString(line, -1) {
-				cites = append(cites, cite{path, name})
+				cites = append(cites, citation{path, name})
 			}
 		}
 	}
@@ -263,14 +259,8 @@ func TestEveryNamedTestExists(t *testing.T) {
 	t.Logf("%d citations of test names outside declarations", len(cites))
 
 	// 3. Every citation must resolve; citationResolves says what that means.
-	seen := map[string]bool{}
-	var dangling []string
-	for _, c := range cites {
-		if citationResolves(c.name, fixtures[c.file], declared) || seen[c.name] {
-			continue
-		}
-		seen[c.name] = true
-		dangling = append(dangling, c.name)
+	dangling := danglingCitations(cites, fixtures, declared)
+	for _, c := range dangling {
 		if !known[c.name] {
 			rel, _ := filepath.Rel(repoRoot, c.file)
 			t.Errorf("%s cites %s, which is not a test that exists. A citation is evidence; a citation to "+
@@ -283,7 +273,7 @@ func TestEveryNamedTestExists(t *testing.T) {
 	// stops meaning anything.
 	live := map[string]bool{}
 	for _, d := range dangling {
-		live[d] = true
+		live[d.name] = true
 	}
 	// STALENESS, BOTH WAYS. An entry that no longer dangles must be deleted — and
 	// this now actually fires, because the inventory lives in testdata and no longer
@@ -300,8 +290,10 @@ func TestEveryNamedTestExists(t *testing.T) {
 
 const danglingBudget = 58
 
-// fixtureTestDeclRe is a test declared inside a string: Go source a test hands to a checker.
-var fixtureTestDeclRe = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
+// fixtureTestDeclRe is a test declared inside a string: Go source a test hands to a checker. It asks for
+// the whole signature because a test that LOOKS FOR a declaration carries the same words: `goFuncBody(src,
+// "func TestX(")` read as a fixture let that file's citation of TestX survive TestX's deletion.
+var fixtureTestDeclRe = regexp.MustCompile(`(?m)^func (Test\w+)\(t \*testing\.T\)`)
 
 // declaredTests reads a Go file with the parser and answers the test functions it declares, and the ones
 // it only carries in a string.
@@ -339,6 +331,40 @@ func declaredTests(path string, src []byte) (names, inStrings []string, err erro
 		return true
 	})
 	return names, inStrings, nil
+}
+
+// addDeclaredTests records one Go file's tests: what it declares for every citation in the repository,
+// what it only carries in a string for its own citations.
+func addDeclaredTests(path string, src []byte, declared map[string]bool, fixtures map[string][]string) error {
+	names, inStrings, err := declaredTests(path, src)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		declared[name] = true
+	}
+	if len(inStrings) > 0 {
+		fixtures[path] = inStrings
+	}
+	return nil
+}
+
+// citation is one Test… name written in one file.
+type citation struct{ file, name string }
+
+// danglingCitations returns the first citation of each name that resolves to nothing. A name counts once
+// even when another file's citation of it resolves, because the inventory is a list of names.
+func danglingCitations(cites []citation, fixtures map[string][]string, declared map[string]bool) []citation {
+	seen := map[string]bool{}
+	var dangling []citation
+	for _, c := range cites {
+		if citationResolves(c.name, fixtures[c.file], declared) || seen[c.name] {
+			continue
+		}
+		seen[c.name] = true
+		dangling = append(dangling, c)
+	}
+	return dangling
 }
 
 // citationResolves is the rule a citation is held to. A name resolves when it is a declared test, or a
@@ -388,6 +414,8 @@ func TestDeclaredTests_ReadsDeclarationsAndNothingThatLooksLikeOne(t *testing.T)
 			"var s = `\nfunc TestStr(t *testing.T) {}\n`\nfunc TestA(t *testing.T) {}\n", []string{"TestA"}, []string{"TestStr"}},
 		{"a test in a quoted string likewise",
 			"var s = \"package x\\nfunc TestStr(t *testing.T) {}\\n\"\n", nil, []string{"TestStr"}},
+		{"a search for a declaration carries nothing",
+			"var s = find(src, \"func TestA(\")\nvar r = `\nfunc TestB(`\nvar q = \"\\nfunc TestC(x int)\"\n", nil, nil},
 		{"a method is not a test", "type T struct{}\nfunc (T) TestM(t *testing.T) {}\n", nil, nil},
 		{"neither is a function of no further name", "func helper() {}\nfunc Test() {}\n", nil, nil},
 	} {
@@ -427,6 +455,37 @@ func TestCitationResolves_AFixtureIsEvidenceOnlyInItsOwnFile(t *testing.T) {
 	} {
 		if got := citationResolves(tc.cited, tc.own, declared); got != tc.want {
 			t.Errorf("%s: citationResolves(%q) = %v, want %v", tc.name, tc.cited, got, tc.want)
+		}
+	}
+}
+
+// TestDanglingCitations_AFixtureResolvesOnlyInTheFileThatCarriesIt drives the whole path a tree walk
+// cannot, from the sources to the verdict: the tree has no citation of a fixture from another file today.
+func TestDanglingCitations_AFixtureResolvesOnlyInTheFileThatCarriesIt(t *testing.T) {
+	t.Parallel()
+	declared, fixtures := map[string]bool{}, map[string][]string{}
+	for path, src := range map[string]string{
+		"carrier_test.go": "package x\nvar s = `\nfunc TestStr(t *testing.T) {}\n`\nfunc TestReal(t *testing.T) {}\n",
+		"other_test.go":   "package x\nvar s = `\nfunc TestElse(t *testing.T) {}\n`\n",
+	} {
+		if err := addDeclaredTests(path, []byte(src), declared, fixtures); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		cites []citation
+		want  []citation
+	}{
+		{"a declared test, from anywhere", []citation{{"carrier_test.go", "TestReal"}, {"doc.md", "TestReal"}}, nil},
+		{"a fixture from its own file", []citation{{"carrier_test.go", "TestStr"}}, nil},
+		{"a fixture from a document", []citation{{"doc.md", "TestStr"}}, []citation{{"doc.md", "TestStr"}}},
+		{"a fixture from a file carrying another", []citation{{"other_test.go", "TestStr"}}, []citation{{"other_test.go", "TestStr"}}},
+		{"own file first, then a document", []citation{{"carrier_test.go", "TestStr"}, {"doc.md", "TestStr"}}, []citation{{"doc.md", "TestStr"}}},
+		{"one name counts once", []citation{{"a.md", "TestNone"}, {"b.md", "TestNone"}}, []citation{{"a.md", "TestNone"}}},
+	} {
+		if got := danglingCitations(tc.cites, fixtures, declared); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
