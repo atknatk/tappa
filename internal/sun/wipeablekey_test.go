@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log/slog"
 	"strings"
 	"testing"
@@ -170,8 +173,7 @@ func TestVerifier_HoldsConfigsKeyRatherThanACopy(t *testing.T) {
 }
 
 // TestUnwrapAny_TheKeySurvivesEachAttempt: UnwrapAny wipes the copy each attempt reveals, and the wipe
-// must hit the copy and not the Key: the next call still opens. Whether the copy IS wiped is not
-// observable from here (a Key hands out a fresh one each time); zeroCallSiteCensus counts that Zero call.
+// must hit the copy and not the Key: the next call still opens. TestUnwrapAndWipe_WipesOnEveryPath is the wipe.
 func TestUnwrapAny_TheKeySurvivesEachAttempt(t *testing.T) {
 	kekBytes := canaryKey(32, 'K')
 	uid := canaryKey(7, 4)
@@ -192,5 +194,86 @@ func TestUnwrapAny_TheKeySurvivesEachAttempt(t *testing.T) {
 	}
 	if _, err := UnwrapAny(nil, uid, ref); err == nil {
 		t.Fatal("no KEK at all must be an error")
+	}
+}
+
+// TestUnwrapAndWipe_WipesOnEveryPath looks at the buffer itself, on the path that opens and the path that
+// does not.
+//
+// MUTANTS (measured, 2026-11-06, reverted): the Zero moved to the error branch -- the opening path red
+// here; the Zero deleted -- red here.
+func TestUnwrapAndWipe_WipesOnEveryPath(t *testing.T) {
+	kek := canaryKey(32, 'K')
+	uid := canaryKey(7, 4)
+	key := canaryKey(16, 'T')
+	ref, err := Wrap(kek, uid, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		kek  []byte
+		ok   bool
+	}{
+		{"the KEK that opens", canaryKey(32, 'K'), true},
+		{"a KEK that does not", canaryKey(32, 'W'), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := unwrapAndWipe(tc.kek, uid, ref)
+			if (err == nil) != tc.ok {
+				t.Fatalf("err = %v, want opened = %v", err, tc.ok)
+			}
+			if tc.ok && !bytes.Equal(got, key) {
+				t.Fatal("opened the wrong key")
+			}
+			if !bytes.Equal(tc.kek, make([]byte, 32)) {
+				t.Fatal("the KEK copy survived the call")
+			}
+		})
+	}
+}
+
+// TestParams_PrintsNoCMAC (backlog T209): a preview verifies a CMAC and advances nothing, so the value in
+// a Params is live. %+v of one used to print it.
+//
+// MUTANT (measured, 2026-11-06, reverted): config.Key over a plain string -- red here.
+func TestParams_PrintsNoCMAC(t *testing.T) {
+	p := mustParse(t, "04968A0A7A6B80", "0000AB", "83C0104D8AC39077")
+	if p.CMAC.Len() != 8 {
+		t.Fatalf("CONTROL: the parsed CMAC is %d bytes", p.CMAC.Len())
+	}
+	assertKeyHidden(t, "a Params", p, p.CMAC.Reveal())
+	assertKeyHidden(t, "a *Params", &p, p.CMAC.Reveal())
+}
+
+// TestUnwrapAny_EveryAttemptGoesThroughTheHelper: what TestUnwrapAndWipe_WipesOnEveryPath proves holds only
+// if UnwrapAny calls it. A Key hands out a fresh copy on each Reveal, so no run can see a copy that was left
+// behind; this reads the source.
+//
+// MUTANT (measured, 2026-11-06, reverted): `Unwrap(k.Reveal(), uid, ref)` in UnwrapAny -- green in every
+// behavioural test, red here.
+func TestUnwrapAny_EveryAttemptGoesThroughTheHelper(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "keys.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]int{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "UnwrapAny" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if c, ok := n.(*ast.CallExpr); ok {
+				if id, ok := c.Fun.(*ast.Ident); ok {
+					calls[id.Name]++
+				}
+			}
+			return true
+		})
+	}
+	if calls["unwrapAndWipe"] != 1 || calls["Unwrap"] != 0 {
+		t.Fatalf("UnwrapAny calls unwrapAndWipe %d time(s) and Unwrap %d: a revealed KEK copy would outlive its attempt",
+			calls["unwrapAndWipe"], calls["Unwrap"])
 	}
 }

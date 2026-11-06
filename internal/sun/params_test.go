@@ -62,8 +62,8 @@ func TestParse_ValidNFC(t *testing.T) {
 		t.Errorf("Ctr = %d, want 1601", p.Ctr)
 	}
 	wantMAC, _ := hex.DecodeString(demoCMAC)
-	if !bytes.Equal(p.CMAC, wantMAC) {
-		t.Errorf("CMAC = %x, want %x", p.CMAC, wantMAC)
+	if !bytes.Equal(p.CMAC.Reveal(), wantMAC) {
+		t.Errorf("CMAC = %x, want %x", p.CMAC.Reveal(), wantMAC)
 	}
 }
 
@@ -94,8 +94,8 @@ func TestParse_QR(t *testing.T) {
 			if p.Ctr != 0 {
 				t.Errorf("Ctr = %d, want 0 for QR", p.Ctr)
 			}
-			if p.CMAC != nil {
-				t.Errorf("CMAC = %x, want nil for QR", p.CMAC)
+			if p.CMAC.Len() != 0 {
+				t.Errorf("CMAC = %x, want none for QR", p.CMAC.Reveal())
 			}
 			if p.UID != seedUID {
 				t.Errorf("UID = %q, want %q", p.UID, seedUID)
@@ -277,12 +277,12 @@ func FuzzParse(f *testing.F) {
 		}
 		switch p.Channel {
 		case ChannelNFC:
-			if len(p.CMAC) != 8 {
-				t.Fatalf("nfc CMAC must be 8 bytes, got %d", len(p.CMAC))
+			if p.CMAC.Len() != 8 {
+				t.Fatalf("nfc CMAC must be 8 bytes, got %d", p.CMAC.Len())
 			}
 		case ChannelQR:
-			if p.CMAC != nil || p.Ctr != 0 {
-				t.Fatalf("qr must carry no ctr/cmac, got ctr=%d cmac=%x", p.Ctr, p.CMAC)
+			if p.CMAC.Len() != 0 || p.Ctr != 0 {
+				t.Fatalf("qr must carry no ctr/cmac, got ctr=%d, %d cmac bytes", p.Ctr, p.CMAC.Len())
 			}
 		default:
 			t.Fatalf("unexpected channel %q", p.Channel)

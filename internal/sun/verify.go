@@ -254,7 +254,7 @@ func (v *Verifier) Verify(ctx context.Context, p Params) (Result, error) {
 func (v *Verifier) verifySUN(tag db.ResolvedTag, p Params) (bool, error) {
 	// UnwrapAny, not Unwrap: during a KEK rotation the park is mixed and a row may
 	// still be sealed under the previous KEK. With one KEK configured this is
-	// Unwrap with one extra slice bounds check.
+	// Unwrap plus revealing and wiping one 32-byte copy of the KEK.
 	key, err := UnwrapAny(v.keks, p.UIDBytes, tag.AESKeyRef)
 	if err != nil {
 		return false, fmt.Errorf("unwrap tag key: %w", err)
@@ -263,7 +263,7 @@ func (v *Verifier) verifySUN(tag db.ResolvedTag, p Params) (bool, error) {
 	// (§4.7, keys.go Zero). defer runs after verifyMAC has read it.
 	defer Zero(key)
 
-	ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC)
+	ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC.Reveal())
 	if err != nil {
 		return false, fmt.Errorf("verify mac: %w", err)
 	}

@@ -545,7 +545,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 	typed := signup.Account{
 		FullName: r.PostFormValue("full_name"),
 		Email:    r.PostFormValue("email"),
-		Password: r.PostFormValue("password"),
+		Password: config.NewKey([]byte(r.PostFormValue("password"))),
 	}
 	account, errs := signup.ValidateAccount(typed)
 	if errs.Any() {
@@ -589,7 +589,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
 		return
 	}
-	grant, err := s.claims.Open(r.Context(), valid.Account.Email, account.Password, draft)
+	grant, err := s.claims.Open(r.Context(), valid.Account.Email, string(account.Password.Reveal()), draft)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// The database refused the draft: an address it will not store (the ASCII address rule --

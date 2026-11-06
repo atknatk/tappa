@@ -194,17 +194,15 @@ func Unwrap(kek, uid, ref []byte) ([]byte, error) {
 // An empty list is an error rather than a silent failure — a caller that lost its
 // keys must not look like a caller holding a corrupt ref.
 //
-// Each KEK is revealed for its one attempt and that copy is wiped; config.Key holds the original,
-// which nothing can wipe (backlog T205).
+// Each KEK is revealed for its one attempt and unwrapAndWipe wipes that copy; config.Key holds the
+// original, which nothing can wipe (backlog T205).
 func UnwrapAny(keks []config.Key, uid, ref []byte) ([]byte, error) {
 	if len(keks) == 0 {
 		return nil, fmt.Errorf("sun: unwrap: no KEK configured")
 	}
 	var firstErr error
 	for _, k := range keks {
-		kek := k.Reveal()
-		key, err := Unwrap(kek, uid, ref)
-		Zero(kek)
+		key, err := unwrapAndWipe(k.Reveal(), uid, ref)
 		if err == nil {
 			return key, nil
 		}
@@ -216,6 +214,13 @@ func UnwrapAny(keks []config.Key, uid, ref []byte) ([]byte, error) {
 		}
 	}
 	return nil, firstErr
+}
+
+// unwrapAndWipe is Unwrap over a KEK copy that exists for this one call, wiped however the call ends. A
+// helper so the defer is per attempt, not per UnwrapAny, and so a test can hand it a buffer and look.
+func unwrapAndWipe(kek, uid, ref []byte) ([]byte, error) {
+	defer Zero(kek)
+	return Unwrap(kek, uid, ref)
 }
 
 // sealOverhead is what Seal adds to its plaintext: the nonce in front and the GCM

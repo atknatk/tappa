@@ -977,7 +977,7 @@ var zeroCallSiteCensus = map[string]int{
 	"changekey.go":  2,
 	"verify.go":     1,
 	"mint.go":       4, // ADR 0026 dev minter: session key, full CMAC, MAC, unwrapped tag key
-	"keys.go":       1, // UnwrapAny: the KEK copy each attempt reveals (backlog T205)
+	"keys.go":       1, // unwrapAndWipe: the KEK copy each attempt reveals (backlog T205)
 }
 
 // TestSUN_EveryWipeInThePackageHasTheRightShape applies two of the four conditions
@@ -1888,7 +1888,7 @@ var wipeGateUnassigned = map[string]struct {
 	"params.go":      {0, "tap-URL parsing: uid, counter and the chip's MAC, all public"},
 	"preview.go":     {0, "read-only preview of a parsed tap; holds no plaintext key"},
 	"wipeablekey.go": {0, "the type that holds a wipeable buffer: it allocates no key material and its Reveal is the wipes' way in"},
-	"keys.go":        {0, "OWNS Zero and the KEK envelope. Its one Zero call is UnwrapAny's revealed KEK copy, undeferred because the attempt loops; the census counts it. An inventory here would count the mechanism as its own client"},
+	"keys.go":        {1, "OWNS Zero and the KEK envelope. Its one Zero call is unwrapAndWipe's, on UnwrapAny's revealed KEK copy; the census counts it. An inventory here would count the mechanism as its own client"},
 	// 🔴 verify.go's justification, MEASURED rather than assumed (2026-08-25, third
 	// round, after ev2.go was brought in and the obvious question became "why not
 	// this one too"). Three functions, twenty declarations. Exactly ONE plaintext

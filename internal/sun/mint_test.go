@@ -42,7 +42,7 @@ func TestMintTapPath_RoundTripsThroughVerifyMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse(%s): %v", path, err)
 	}
-	if ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC); err != nil || !ok {
+	if ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC.Reveal()); err != nil || !ok {
 		t.Fatalf("verifyMAC refused a minted URL: ok=%v err=%v", ok, err)
 	}
 	other, _ := MintTapPath(key, uid, 0x000642)

@@ -664,7 +664,7 @@ func TestNDEF_ChipMirrorRoundTripsThroughOurOwnVerifier(t *testing.T) {
 				return
 			}
 			// And the published SDM MAC verifies over the values that came back out.
-			ok, err := verifyMAC(hexBytes(t, katT5Key), p.UIDBytes, p.CtrBytes[:], p.CMAC)
+			ok, err := verifyMAC(hexBytes(t, katT5Key), p.UIDBytes, p.CtrBytes[:], p.CMAC.Reveal())
 			if err != nil {
 				t.Fatalf("verifyMAC: %v", err)
 			}
