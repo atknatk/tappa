@@ -370,13 +370,12 @@ func (a *Accounts) Save(ctx context.Context, c AccountCommand) (Settings, error)
 			}
 			return fmt.Errorf("read account before save: %w", err)
 		}
-		// A NEW OR CHANGED NAME MAY NOT CARRY A BIDI EMBEDDING, OVERRIDE OR ISOLATE (T97): the
-		// name goes on the invoice, the CSV headers and the operator's screens, and what these
-		// runes do is not local to it. Refused rather than stripped, for personName's reason. An
-		// UNCHANGED name is never refused, for refuseHiddenName's: the form sends the name with
-		// every save, and a business named before this rule could not change its timezone.
-		// Letters of any script, the joiners and the implicit marks are not this rule's business.
-		if name != strings.TrimSpace(before.Name) && containsBidiControl(name) {
+		// A NEW OR CHANGED NAME MAY NOT BREAK OUT OF ITS ISOLATE (T97, T216): the name goes on the
+		// invoice, the CSV headers and the operator's screens, and what these runes do is not
+		// local to it. Refused rather than stripped, for personName's reason. An UNCHANGED name is
+		// never refused, for refuseHiddenName's: the form sends the name with every save, and a
+		// business named before this rule could not change its timezone.
+		if name != strings.TrimSpace(before.Name) && NameBreaksIsolation(name) {
 			return hiddenName{sentinel: ErrAccountName}
 		}
 		// 🔴 A ZONE EDIT MAY NOT MOVE THE FIRST MONTH THIS BUSINESS CAN BE BILLED FOR

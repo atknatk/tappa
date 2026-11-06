@@ -200,9 +200,10 @@ func TestAccountDB_SavesTheThreeFieldsAndLeavesTheRestAlone(t *testing.T) {
 	}
 }
 
-// TestAccountDB_ANewNameMayNotCarryABidiControl (T97), through Save on the real row:
-//   - a new name with each of the nine runes, and with PDI+RLO, is refused -- ErrAccountName and
-//     ErrNameHiddenCharacter -- and the row keeps its name;
+// TestAccountDB_ANewNameMayNotCarryABidiControl (T97, T216), through Save on the real row:
+//   - a new name with each of the nine runes, with PDI+RLO, with a control and with a line or
+//     paragraph separator is refused -- ErrAccountName and ErrNameHiddenCharacter -- and the row
+//     keeps its name;
 //   - right-to-left names, a joiner inside a word and the implicit marks are saved as typed;
 //   - a name ALREADY on file with a control (written here by the fixture's own statement, the way
 //     a row from before the rule is) stays editable: saved unchanged it is not refused and the other
@@ -227,7 +228,7 @@ func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 		return err
 	}
 	onFile, _, _, _, _, _, _ := f.row(t, f.tenantID)
-	refused := []string{"Rusty\u2069\u202eBar"}
+	refused := []string{"Rusty\u2069\u202eBar", "Rusty\u001c\u200fBar", "Rusty\u2029Bar", "Rusty\u2028Bar", "Rusty\u0085Bar"}
 	for _, r := range "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" {
 		refused = append(refused, "Rusty"+string(r)+"Bar")
 	}
@@ -241,7 +242,7 @@ func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e 7", "Chef \U0001F468\u200d\U0001F373 Bar",
+		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e 7", "Chef \U0001F468\u200d\U0001F373 Bar", "Rusty\u200bBar",
 	} {
 		if err := save(name, "Europe/Malta"); err != nil {
 			t.Errorf("%q: Save = %v, want it accepted", name, err)

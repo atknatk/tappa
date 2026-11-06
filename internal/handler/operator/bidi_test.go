@@ -12,7 +12,7 @@ import (
 	"github.com/atknatk/tappa/internal/handler/operator"
 )
 
-// bidiControls are the nine runes shownName drops, and pdiRLO the shape that walks out of a bdi
+// bidiControls are nine of the runes shownName drops (the bidi ones), and pdiRLO the shape that walks out of a bdi
 // (T97): U+2069 closes the isolate the element opened, U+202E then overrides what follows.
 const (
 	bidiControls = "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
@@ -120,16 +120,37 @@ func TestOperatorScreens_RightToLeftNamesAreLeftAsTyped(t *testing.T) {
 	}
 }
 
+// TestOperatorScreens_ASeparatorInANameDoesNotReachThePage (T216): a paragraph separator to the bidi
+// algorithm -- U+2029, U+0085, U+001C -- followed by an RLM or a Hebrew letter ended the bdi's
+// paragraph (in an earlier audit, in headless Chrome, `111 - 222` swapped). None reaches the page, a
+// line separator and a tab neither, and the rest of the name does.
+func TestOperatorScreens_ASeparatorInANameDoesNotReachThePage(t *testing.T) {
+	g := newRig(t)
+	c := g.signIn(g.active())
+	for _, sep := range []string{"\u2029", "\u0085", "\u001c", "\u2028", "\t", "\x07"} {
+		g.store.mu.Lock()
+		g.store.tenants = []db.TenantSummary{{ID: uuid.New(), Name: "FAKE" + sep + "\u200f Bar", Plan: "founding"}}
+		g.store.mu.Unlock()
+		body := g.get("/operator/tenants", c).Body.String()
+		if !strings.Contains(body, "<bdi>FAKE\u200f Bar</bdi>") {
+			t.Errorf("%q: the list does not carry the name without it", sep)
+		}
+		if strings.Contains(body, "FAKE"+sep) {
+			t.Errorf("%q reaches the page", sep)
+		}
+	}
+}
+
 // TestShownName_TheSetIsTheDomains: shownName's set and the write rule's are one set over every
 // code point, so what the screens drop is what the account screen and sign-up refuse.
-// CONTROL: nine runes are in it.
+// CONTROL: 76 runes are in it: the nine bidi controls, the two separators and the 65 of Cc.
 func TestShownName_TheSetIsTheDomains(t *testing.T) {
 	in := 0
 	for r := rune(0); r <= 0x10FFFF; r++ {
 		if r >= 0xD800 && r <= 0xDFFF {
 			continue
 		}
-		a, b := operator.IsBidiControlForTest(r), tenant.NameHasBidiControl(string(r))
+		a, b := operator.BreaksIsolationForTest(r), tenant.NameBreaksIsolation(string(r))
 		if a != b {
 			t.Errorf("U+%04X: the screens say %v, the writes %v", r, a, b)
 		}
@@ -137,7 +158,7 @@ func TestShownName_TheSetIsTheDomains(t *testing.T) {
 			in++
 		}
 	}
-	if in != len([]rune(bidiControls)) {
-		t.Errorf("%d code points in the set, want %d", in, len([]rune(bidiControls)))
+	if in != 76 {
+		t.Errorf("%d code points in the set, want 76", in)
 	}
 }

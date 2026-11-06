@@ -296,24 +296,26 @@ func tenantID(raw string) (uuid.UUID, bool) {
 // zero-width or filler characters would render a banner and a link that name nobody.
 func namedVisibly(name string) bool { return visibleText(name) }
 
-// shownName is a stored name as an operator screen may print it: without the bidirectional
-// embeddings, overrides and isolates (isBidiControl), or "" when what is left has no visible
+// shownName is a stored name as an operator screen may print it: without the runes that break
+// out of the isolate around it (breaksIsolation), or "" when what is left has no visible
 // character (namedVisibly) -- the screen then names the row by its id. Every name a tenant or an
-// operator typed reaches a page through it (T97): the tenant list and banner, the holdings, the
-// plaques' locations, the audit log (visibleName) and the legal versions' publisher.
+// operator typed reaches a page through it (T97, T216): the tenant list and banner, the holdings,
+// the plaques' locations, the audit log (visibleName) and the legal versions' publisher.
 //
 // WHY THE bdi AROUND THE NAME IS NOT ENOUGH: U+2069 (PDI) closes the isolate the browser opened
-// for the element, so what follows it -- an override, U+202E -- runs out over the rest of the line:
-// a tenant's name could turn the words beside it around on the screen an operator acts from.
+// for the element, so what follows it -- an override, U+202E -- runs out over the rest of the line;
+// a paragraph separator ends the bidi paragraph, with the same effect for an RLM or a Hebrew letter
+// after it. A tenant's name could turn the words beside it around on the screen an operator acts
+// from.
 //
 // WHY THE READ DROPS THEM when the writes now refuse them (tenant.Accounts.Save, signup.
 // ValidateBusiness): a name on file from before that rule stays on file -- an unchanged name is
 // never refused --, and the audit log keeps printing names of rows it may not change (CLAUDE.md
-// section 4.3's argument). The stored text is not touched. Arabic and Hebrew letters and the
-// implicit marks (U+200E, U+200F, U+061C) reorder nothing around the name and are left as typed.
+// section 4.3's argument). The stored text is not touched. Arabic and Hebrew letters, the joiners
+// and the implicit marks (U+200E, U+200F, U+061C) are left as typed.
 func shownName(name string) string {
 	s := strings.Map(func(r rune) rune {
-		if isBidiControl(r) {
+		if breaksIsolation(r) {
 			return -1
 		}
 		return r
@@ -324,12 +326,15 @@ func shownName(name string) string {
 	return s
 }
 
-// isBidiControl reports the runes that open or close a bidirectional embedding, override or
-// isolate: U+202A-U+202E and U+2066-U+2069. It is internal/domain/tenant's containsBidiControl set;
+// breaksIsolation reports the runes a name may not carry onto a screen: the bidirectional
+// embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069), the controls (Cc, which
+// U+001C and U+0085, both paragraph separators to the bidi algorithm, are in), and the line and
+// paragraph separators (U+2028, U+2029). It is internal/domain/tenant's NameBreaksIsolation set;
 // this surface does not import that package, and TestShownName_TheSetIsTheDomains holds the two
 // equal over every code point.
-func isBidiControl(r rune) bool {
-	return (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+func breaksIsolation(r rune) bool {
+	return (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') ||
+		r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cc, r)
 }
 
 // tenantTabs is the sub-nav a tenant's screen carries inside its banner (M13-01, OP-1): the

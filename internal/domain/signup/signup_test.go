@@ -60,23 +60,32 @@ func TestValidateBusiness_ServerSide(t *testing.T) {
 	}
 }
 
-// TestValidateBusiness_ABidiControlInTheNameIsRefused (T97): the nine runes that open or close a
-// bidi embedding, override or isolate are refused with their own sentence, and PDI+RLO with them.
-// Right-to-left names, a joiner inside a word and the implicit marks are not this rule's business.
-func TestValidateBusiness_ABidiControlInTheNameIsRefused(t *testing.T) {
+// TestValidateBusiness_ARuneThatBreaksOutOfTheIsolateIsRefused (T97, T216): the nine runes that open
+// or close a bidi embedding, override or isolate, PDI+RLO, a control and the paragraph separators are
+// refused with their own sentence. U+2028, U+2029 and U+0085 are spaces to collapseSpaces, so they
+// never reach the rule here: they arrive as a space, and the name is stored without them.
+// Right-to-left names, a joiner inside a word, a zero-width space and the implicit marks pass.
+func TestValidateBusiness_ARuneThatBreaksOutOfTheIsolateIsRefused(t *testing.T) {
 	valid := func(name string) Business {
 		return Business{Name: name, VATNumber: "MT12345678", BusinessType: "restaurant", Structure: StructureSingle}
 	}
+	refused := []string{"Rusty\u2069\u202eBar", "Rusty\u001c\u200f Bar", "Rusty\u0007Bar"}
 	for _, r := range "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" {
-		if _, errs := ValidateBusiness(valid("Rusty" + string(r) + "Bar")); !strings.Contains(errs["name"], "hidden character") {
-			t.Errorf("U+%04X in the name: the name field says %q, want the hidden character's sentence", r, errs["name"])
+		refused = append(refused, "Rusty"+string(r)+"Bar")
+	}
+	for _, name := range refused {
+		if _, errs := ValidateBusiness(valid(name)); !strings.Contains(errs["name"], "direction override") {
+			t.Errorf("%q: the name field says %q, want the rule's sentence", name, errs["name"])
 		}
 	}
-	if _, errs := ValidateBusiness(valid("Rusty\u2069\u202eBar")); !strings.Contains(errs["name"], "hidden character") {
-		t.Errorf("PDI+RLO in the name: the name field says %q", errs["name"])
+	for _, name := range []string{"Rusty\u2029Bar", "Rusty\u2028Bar", "Rusty\u0085Bar"} {
+		b, errs := ValidateBusiness(valid(name))
+		if msg, is := errs["name"]; is || b.Name != "Rusty Bar" {
+			t.Errorf("%q: the name field says %q and the name is %q; want it collapsed to a space", name, msg, b.Name)
+		}
 	}
 	for _, name := range []string{
-		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e", "Chef \U0001F468\u200d\U0001F373 Bar",
+		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e", "Chef \U0001F468\u200d\U0001F373 Bar", "Rusty\u200bBar",
 	} {
 		b, errs := ValidateBusiness(valid(name))
 		if msg, refused := errs["name"]; refused || b.Name != name {
