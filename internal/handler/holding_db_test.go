@@ -239,6 +239,9 @@ func newLogoPeerFixture(t *testing.T, vies any) *logoPeerFixture {
 		if _, err := rand.Read(key); err != nil {
 			t.Fatal(err)
 		}
+		// A hex letter in the uid, forced: all-numeric (1 uid in 721) strings.ToLower is a no-op, and
+		// "a malformed tag" in TestHoldingLogo_OutsiderOrStaleDigestIs404 sends a well-formed one.
+		b[0] |= 0xA0
 		uid := strings.ToUpper(hex.EncodeToString(b))
 		for _, s := range []struct {
 			sql  string

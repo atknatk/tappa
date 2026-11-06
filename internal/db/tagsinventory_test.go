@@ -667,7 +667,10 @@ func TestTags00013_RetireRefusesANonCanonicalSuccessor(t *testing.T) {
 	fx := newTagTenant(t, app)
 
 	old := randUID(t)
-	successor := randUID(t)
+	// A letter, forced: all-numeric (1 draw in 721) strings.ToLower is a no-op, the "lower case"
+	// case then sends the canonical uid, the retire is correctly accepted and the test goes red over
+	// nothing (uidWithALetter's comment).
+	successor := uidWithALetter(t)
 	addPlaque(t, app, fx, old, fx.locationID, "active", 0)
 	addPlaque(t, app, fx, successor, fx.locationID, "active", 0)
 
