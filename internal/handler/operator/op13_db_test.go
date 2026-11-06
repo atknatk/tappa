@@ -15,7 +15,7 @@ package operator_test
 // WHAT ONE RUN LEAVES BEHIND (the class op10_db_test.go's header counts; append-only tables
 // and the foreign keys that point at them), by construction: one operator account
 // (op10b-…, newLegalE2E's; disabled at cleanup), its five sessions (the signed-in one and
-// four planted; revoked at cleanup), and its audit rows -- login, logout and four 'read'
+// four planted; revoked at cleanup), and its audit rows -- password_ok (OP-14 C), login, logout and four 'read'
 // rows: three of scope tenant_plaques (the screen, the unknown id, the planted live
 // session's read), one of tenant_detail (the overview that links the screen) and, per
 // retry when another test changes the tenant's plaques mid-read, one more tenant_plaques.

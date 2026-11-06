@@ -17,7 +17,8 @@ package operator_test
 // The class is the billing package's own (its database tests commit the same per test) and the
 // backlog's T81. Both tests leave, by construction, one operator account (op10b-…,
 // newLegalE2E's; disabled at cleanup), its sessions (revoked at cleanup) and its audit rows --
-// login, logout and the 'read' rows they count; read tickets are deleted at cleanup.
+// password_ok (OP-14 C), login, the 'read' rows they count and, for the billing screen's test
+// alone, logout; read tickets are deleted at cleanup.
 
 import (
 	"context"
