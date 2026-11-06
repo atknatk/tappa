@@ -53,8 +53,11 @@ import (
 
 // --- the derivations ---------------------------------------------------------
 
-// multipartUploadRE matches the three ways non-test Go reads a file upload.
-var multipartUploadRE = regexp.MustCompile(`\.(?:FormFile|MultipartReader|ParseMultipartForm)\(`)
+// multipartUploadRE matches the five ways non-test Go reads a file upload: the request's three
+// helpers, and the two a handler reaches by building the reader from the body itself. NewReader
+// carries its package name because bytes.NewReader, strings.NewReader and bufio.NewReader are
+// everywhere. A LIMIT: `multipart` imported under another name is not this spelling.
+var multipartUploadRE = regexp.MustCompile(`\.(?:FormFile|MultipartReader|ParseMultipartForm|ReadForm)\(|\bmultipart\.NewReader\(`)
 
 // logoUploadFile is the ONE file allowed to read a multipart body (M10 WL-7, ADR 0024
 // §6): the brand logo handler, as a path from the repository root -- the spelling
@@ -1644,13 +1647,24 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 
 	// The upload tripwire.
-	for _, s := range []string{`f, _, err := r.FormFile("staff")`, `mr, err := r.MultipartReader()`, `r.ParseMultipartForm(1 << 20)`} {
+	for _, s := range []string{
+		`f, _, err := r.FormFile("staff")`, `mr, err := r.MultipartReader()`, `r.ParseMultipartForm(1 << 20)`,
+		`mr := multipart.NewReader(r.Body, boundary)`, `form, err := mr.ReadForm(1 << 20)`,
+	} {
 		if !multipartUploadRE.MatchString(s) {
 			t.Errorf("the upload scanner would not see %q", s)
 		}
 	}
-	if multipartUploadRE.MatchString(`// FormFile was considered and rejected`) {
-		t.Error("the upload scanner matches prose rather than a call")
+	for _, s := range []string{
+		`// FormFile was considered and rejected`,
+		// The two readers every package here builds: the new NewReader arm must not take them.
+		`br := bytes.NewReader(raw)`, `sr := strings.NewReader(body)`,
+		// ReadForm is a method name, not a prefix.
+		`f, err := p.ReadFormat(raw)`, `x := readForm(raw)`,
+	} {
+		if multipartUploadRE.MatchString(s) {
+			t.Errorf("the upload scanner matches %q, which reads no upload", s)
+		}
 	}
 	// M10 WL-7: the one exemption is the logo handler's file, by its path, and only for
 	// the multipart stream. A reader anywhere else -- the employees' actions, the case
@@ -1667,6 +1681,12 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{"FormFile in the logo handler", map[string]string{logoUploadFile: `f, _, err := r.FormFile("logo")`}, false},
 		{"ParseMultipartForm in the logo handler", map[string]string{logoUploadFile: `mr, _ := r.MultipartReader(); r.ParseMultipartForm(64 << 10)`}, false},
 		{"the same file name in another directory", map[string]string{filepath.Join("internal", "brandupload.go"): `mr, err := r.MultipartReader()`}, false},
+		// T93: a body read without any of the request's three helpers.
+		{"a reader built from the body in the employees' actions", map[string]string{employees: `mr := multipart.NewReader(r.Body, b)`}, false},
+		{"ReadForm in the employees' actions", map[string]string{employees: `form, err := mr.ReadForm(1 << 20)`}, false},
+		{"a reader built from the body in the logo handler", map[string]string{logoUploadFile: `mr := multipart.NewReader(r.Body, b)`}, false},
+		{"ReadForm after the logo handler's stream", map[string]string{logoUploadFile: `mr, _ := r.MultipartReader(); form, _ := mr.ReadForm(1 << 20)`}, false},
+		{"a bytes reader in the employees' actions", map[string]string{employees: `br := bytes.NewReader(raw)`}, true},
 	} {
 		if got := bulkImportViolation(tc.src) == ""; got != tc.ok {
 			t.Errorf("bulkImportViolation, %s: holds %v, want %v", tc.name, got, tc.ok)
