@@ -506,7 +506,19 @@ func decodeUTF16(b []byte) ([]byte, bool) {
 // driven directly: the defect it closes is LATENT (the tree has no such directory
 // today), so a test that only walks the real repository cannot tell the two versions
 // apart.
+//
+// A NESTED CHECKOUT IS SKIPPED TOO (T87), and that half does read the disk: an agent's worktree under
+// .claude/worktrees is a second copy of the repository, so each inventory saw a second reader, a second
+// resolver and every other tree's citations. It is decided by the entry git itself leaves there and not
+// by the path, so a worktree anywhere is the same case. git refuses to track a path named .git, so this
+// can hide nothing from CI: a fresh checkout has no such directory.
 func skipScanDir(rel string) bool {
+	return skipScanDirIn(repoRoot, rel)
+}
+
+// skipScanDirIn is skipScanDir under any root, so the nested-checkout half can be driven in a temporary
+// directory instead of planting a .git in the repository.
+func skipScanDirIn(root, rel string) bool {
 	switch rel {
 	case ".git", ".tools", "bin", "node_modules":
 		return true
@@ -517,8 +529,78 @@ func skipScanDir(rel string) bool {
 	// stays in scope: android/README.md cites Go test names on purpose.
 	case "android/.gradle", "android/.kotlin", "android/build", "android/app/build":
 		return true
+	// The walk's own root is not a nested checkout, and in a worktree it carries a .git file too.
+	case ".":
+		return false
 	}
-	return false
+	return isCheckout(filepath.Join(root, rel))
+}
+
+// isCheckout reports whether a directory is the top of a git checkout: a .git file (a worktree or a
+// submodule) or a .git directory (a clone). Lstat, because a dangling link is still that entry.
+func isCheckout(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// TestScanScope_ANestedCheckoutIsSkippedAndTheRootIsNot pins the nested half, which the tree cannot show:
+// a fresh checkout holds no nested checkout.
+func TestScanScope_ANestedCheckoutIsSkippedAndTheRootIsNot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mk := func(rel string) string {
+		dir := filepath.Join(root, rel)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	write := func(rel string) {
+		if err := os.WriteFile(filepath.Join(mk(rel), ".git"), []byte("gitdir: elsewhere\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".")
+	write(filepath.Join(".claude", "worktrees", "agent-1"))
+	write(filepath.Join("docs", "somewhere", "else"))
+	mk(filepath.Join("clone", ".git"))
+	mk(filepath.Join("docs", "plain"))
+	mk(filepath.Join(".claude", "worktrees"))
+	for _, tc := range []struct {
+		rel  string
+		want bool
+	}{
+		{".", false}, // this worktree's own shape: skipping it would blind every scan
+		{filepath.Join(".claude", "worktrees", "agent-1"), true},
+		{filepath.Join("docs", "somewhere", "else"), true},
+		{"clone", true},
+		{filepath.Join("docs", "plain"), false},
+		{filepath.Join(".claude", "worktrees"), false}, // the parent is not a checkout; its children are
+		{"docs", false},
+		{filepath.Join("no", "such", "dir"), false},
+	} {
+		if got := skipScanDirIn(root, tc.rel); got != tc.want {
+			t.Errorf("skipScanDirIn(%q) = %v, want %v", tc.rel, got, tc.want)
+		}
+	}
+	// The repository's own root, in whichever shape this run has it.
+	if skipScanDir(".") {
+		t.Error("skipScanDir(\".\") is true: every scan that walks the repository would read nothing")
+	}
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(strings.Split(string(raw), "\n"), ".claude/worktrees/") {
+		t.Error(".gitignore does not list .claude/worktrees/, so the agents' worktrees show up as untracked and reach `git ls-files --others`")
+	}
+	mf, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mf), `-not -path './.claude/*'`) {
+		t.Error("`make fmt`'s find does not leave out .claude, so gofmt -w rewrites the source of a worktree another agent is working in")
+	}
 }
 
 // TestScanScope_SkipsBuildOutputWithoutSkippingEverythingNamedLikeIt pins the path-vs-name

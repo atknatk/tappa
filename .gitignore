@@ -59,6 +59,8 @@ coverage.*
 
 # --- claude local overrides ---
 .claude/settings.local.json
+# Agents' worktrees: whole other checkouts. The tree-walking tests skip them too (cmd/tappa skipScanDir).
+.claude/worktrees/
 
 # --- android relay (M8-05 FAZ B3) — build output and machine-local config ---
 # Compiled output and local.properties (it names this machine's SDK path) are

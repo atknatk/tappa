@@ -458,7 +458,7 @@ lint:
 
 ## fmt: gofmt + templ fmt
 fmt:
-	gofmt -w -s $$(find . -name '*.go' -not -name '*_templ.go' -not -path './.tools/*')
+	gofmt -w -s $$(find . -name '*.go' -not -name '*_templ.go' -not -path './.tools/*' -not -path './.claude/*')
 	$(TEMPL) fmt .
 
 ## check: CI'nin calistirdigi her sey
