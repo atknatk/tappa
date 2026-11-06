@@ -192,7 +192,7 @@ func TestTags00013_UIDHasOneCanonicalSpelling(t *testing.T) {
 
 	// ⚠️ THE LAST TWO DIGITS ARE FORCED TO LETTERS, AND WITHOUT THAT THIS TEST IS
 	// FLAKY IN THE DIRECTION THAT MATTERS. A random 14-hex uid is all DIGITS about
-	// once in 280 runs ((10/16)^14), and for such a uid ToLower is a no-op -- so
+	// once in 721 runs ((10/16)^14), and for such a uid ToLower is a no-op -- so
 	// the two negative cases would silently become the positive one and the test
 	// would fail while the schema was correct. Forcing 'AB' makes all three
 	// spellings genuinely different strings.
