@@ -342,7 +342,8 @@ templ webhookSection(w WebhookView, sectionHref string) {
 			}
 		</div>
 		<p class="max-w-2xl text-sm leading-normal text-ink/70">
-			We send every punch to one address of yours, signed with a key only you and Taptime hold.
+			We send every counted tap to one address of yours, signed with a key only you and Taptime hold.
+			Entries typed by a manager are not sent; they stay in the CSV.
 		</p>
 		<p class="max-w-2xl text-sm leading-normal text-ink/70">
 			<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuideWebhooksHref) }>How to receive webhooks</a>
@@ -398,7 +399,7 @@ templ webhookBody(w WebhookView) {
 				}
 				<div class="flex min-w-0 flex-col gap-1 desk:contents">
 					<dt class="lbl">Sends</dt>
-					<dd class="text-sm text-ink">Every punch, as it is recorded</dd>
+					<dd class="text-sm text-ink">Every counted tap, as it is counted</dd>
 				</div>
 				<div class="flex min-w-0 flex-col gap-1 desk:contents">
 					<dt class="lbl">Signing key</dt>
@@ -496,9 +497,9 @@ templ webhookDeliveries(w WebhookView) {
 			<span class="font-mono text-[11px] text-ink/70 md:text-xs">retries after 1 · 5 · 30 min · 2 · 6 h, then failed</span>
 		</div>
 		<p class="max-w-2xl text-sm leading-normal text-ink/70">
-			Every punch is sent to the webhook as it is recorded. A delivery that fails is tried again after
+			Every counted tap is sent to the webhook as it is counted. A delivery that fails is tried again after
 			1 minute, 5 minutes, 30 minutes, 2 hours and 6 hours; after the sixth try it is marked failed.
-			Your system can always read every punch from the punch feed as well.
+			Your system can always read every counted tap from the punch feed as well.
 		</p>
 		if len(w.Deliveries) == 0 {
 			<p class="text-sm text-ink/70">No delivery yet.</p>
