@@ -685,8 +685,11 @@ func AnnounceBusinessDay(log *slog.Logger, from *time.Time, now time.Time) {
 // is refused because a reader breaks on it while the rollout stays green:
 //
 //	HTTPS://x          sun.BuildTapNDEF and the heartbeat's `case` read a lower-case prefix
-//	x:443, x.          no Origin can equal these: a browser drops the default port, and the checks
-//	                   compare text (sameOrigin false, every POST refused)
+//	x:443, x:08443     a browser normalises the port and the checks compare text (sameOrigin false,
+//	                   every POST refused)
+//	x., -x, x..y       not a valid DNS name, or not the canonical one
+//	127.1, [0:0::1]    a browser normalises these too
+//	999.1.1.1, [::1%z] a URL parser refuses these, and the NDEF builder would still write them
 //	x/app              links become /app/admin/login, which nothing mounts, and a plaque keeps its
 //	                   URL for good
 //	?, #, a user part  an origin has no place for them
@@ -716,8 +719,8 @@ func validBaseURL(raw string, hardened bool) error {
 		return refuse("must have no user or password part")
 	}
 	if !validURLHost(u) {
-		return refuse("must name a host a browser's Origin can equal: a DNS name or an IP address, with no trailing " +
-			"dot, and a port in 1-65535 only if it is not the scheme's default")
+		return refuse("must name a host: a DNS name with no trailing dot or an IP address as a browser spells it, " +
+			"and a port in 1-65535 only if it is not the scheme's default")
 	}
 	if u.Path != "" && u.Path != "/" {
 		return refuse("must have no path: it is the origin the product is served from")
@@ -729,12 +732,17 @@ func validBaseURL(raw string, hardened bool) error {
 	return nil
 }
 
-// validURLHost checks what url.Parse lets through: it takes "https://:8080", "https://x:99999", "x:443"
-// and most punctuation in a host, none of which an Origin header could ever equal. A bracketed host
-// is an IPv6 literal url.Parse has already checked ("[taptime.mt]" and "[127.0.0.1]" do not get here:
-// TestLoad_BaseURLShape's rows hold that). Anything else takes isDNSHostName's rule, case-insensitively
-// because an upper-case host still matches (the checks use EqualFold), and with '_' as a letter because
-// deploy/sandbox/05-config.yaml's placeholder has one and a browser sends it unchanged.
+// validURLHost checks what url.Parse lets through: it takes "https://:8080", "https://x:99999", "x:443",
+// most punctuation and any spelling of an address.
+//
+// An address has to be the spelling a browser's URL parser serialises, because the checks compare
+// text. A bracketed host is compared with netip's canonical form, case-insensitively because an
+// upper-case one still matches (EqualFold). netip keeps the dotted form of an IPv4-mapped address
+// where the URL parser writes hex, so those are refused outright, the hex spelling included: nothing
+// here serves on one. A name whose last label is a number or starts with 0x is an address to that
+// parser, so it has to be one to netip, which takes four decimal octets and no leading zero.
+//
+// Any other host takes isDNSHostName's rule, case-insensitively for the same reason.
 func validURLHost(u *url.URL) bool {
 	if strings.HasSuffix(u.Host, ":") {
 		return false
@@ -749,10 +757,28 @@ func validURLHost(u *url.URL) bool {
 			return false
 		}
 	}
+	host := u.Hostname()
 	if strings.HasPrefix(u.Host, "[") {
-		return u.Hostname() != ""
+		addr, err := netip.ParseAddr(host)
+		return err == nil && addr.Zone() == "" && !addr.Is4In6() && strings.EqualFold(addr.String(), host)
 	}
-	return isDNSHostName(strings.ReplaceAll(strings.ToLower(u.Hostname()), "_", "x"))
+	if !isDNSHostName(strings.ToLower(host)) {
+		return false
+	}
+	if lastLabelIsNumeric(host) {
+		_, err := netip.ParseAddr(host)
+		return err == nil
+	}
+	return true
+}
+
+// lastLabelIsNumeric reports whether a host's last label is all digits or starts with 0x.
+func lastLabelIsNumeric(host string) bool {
+	last := strings.ToLower(host[strings.LastIndexByte(host, '.')+1:])
+	if strings.HasPrefix(last, "0x") {
+		return true
+	}
+	return strings.Trim(last, "0123456789") == ""
 }
 
 func validEnv(v string) error {

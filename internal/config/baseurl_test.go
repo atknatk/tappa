@@ -36,11 +36,14 @@ func baseURLRefused(t *testing.T, env, raw string) (bool, string) {
 // scheme-relative, another scheme); the query/fragment/whitespace check (the query and fragment
 // rows); the user-part check (the three user rows); the host check (no host, every port and label
 // row); the default-port rule (the three default-port rows); the leading-zero rule (zero on another
-// port); the port range; the empty-port rule; the DNS label rule reduced to a non-empty host (the dot
-// and hyphen rows, non-ASCII, punctuation); the label rule without case-folding (the upper-case host,
-// the sandbox placeholder); without the underscore (the sandbox placeholder); the path rule (the
-// path rows); the path rule trimming slashes (two slashes, an escaped slash); the hardened https
-// check (the prod-only rows).
+// port); the port range; the empty-port rule; the DNS rule removed (the unresolved placeholder, the
+// dot and hyphen rows, non-ASCII, punctuation); the DNS rule case-sensitive (the upper-case host);
+// '_' allowed again (the unresolved placeholder); the bracket rule always true (the five IPv6
+// rows); its zone check (the zone); its IPv4-mapped check (dotted); its canonical check (the two
+// zero rows); that check case-sensitive (the upper-case IPv6); the numeric-label rule removed (its
+// ten rows); the 0x prefix (the two hex last labels); 0x case-sensitive (upper-case hex); the
+// digits check (the eight numeric rows); the path rule (the path rows); the path rule trimming
+// slashes (two slashes, an escaped slash); the hardened https check (the prod-only rows).
 func TestLoad_BaseURLShape(t *testing.T) {
 	untaggedOnly(t)
 	for _, tc := range []struct {
@@ -50,7 +53,7 @@ func TestLoad_BaseURLShape(t *testing.T) {
 		// The values the deployments and tests use.
 		{"the live value", "https://taptime.mt", true, true},
 		{"a trailing slash", "https://taptime.mt/", true, true},
-		{"the sandbox placeholder", "https://SANDBOX_DOMAIN", true, true},
+		{"the sandbox's value with its placeholder resolved", "https://sandbox.example", true, true},
 		{"the dev default, spelled", "http://localhost:8080", true, false},
 		{"loopback with a port", "http://127.0.0.1:8080", true, false},
 		{"plain http on a real name", "http://taptime.mt", true, false},
@@ -92,12 +95,36 @@ func TestLoad_BaseURLShape(t *testing.T) {
 		{"a space in the path", "https://taptime.mt/a b", false, false},
 		{"a tab in the path", "https://taptime.mt/a\tb", false, false},
 		{"a newline", "https://taptime.mt\n", false, false},
-		// Hosts and ports a browser spells differently, so sameOrigin is false on every POST.
+		// The placeholder deploy/README.md's sed resolves: a value nobody resolved stops the boot.
+		{"the sandbox placeholder, unresolved", "https://SANDBOX_DOMAIN", false, false},
+		// Addresses as a browser spells them, and the ones it would refuse.
+		{"an IPv4 address", "http://127.0.0.1", true, false},
+		{"another IPv4 address with a port", "http://10.0.2.2:8080", true, false},
+		{"an upper-case IPv6 address, which an Origin still equals", "https://[2001:DB8::1]", true, true},
+		{"IPv6 zeros not compressed", "http://[0:0:0:0:0:0:0:1]", false, false},
+		{"IPv6 zeros half compressed", "https://[2001:db8:0::1]", false, false},
+		{"an IPv4-mapped address, dotted", "https://[::ffff:1.2.3.4]", false, false},
+		{"an IPv4-mapped address, in hex", "https://[::ffff:102:304]", false, false},
+		{"an IPv6 zone", "http://[fe80::1%25en0]", false, false},
+		{"two IPv4 parts", "http://127.1", false, false},
+		{"a hex IPv4 part", "http://0x7f.0.0.1", false, false},
+		{"a hex last label", "http://foo.0x1", false, false},
+		{"an upper-case hex last label", "http://FOO.0X1", false, false},
+		{"one number", "http://1", false, false},
+		{"a decimal IPv4", "http://2130706433", false, false},
+		{"an IPv4 leading zero", "http://010.0.0.1", false, false},
+		{"an octet out of range", "https://999.1.1.1", false, false},
+		{"the last octet out of range", "https://1.1.1.256", false, false},
+		{"a name ending in a number", "https://foo.1", false, false},
+		// Ports a browser normalises, so sameOrigin is false on every POST.
 		{"https's default port", "https://taptime.mt:443", false, false},
 		{"http's default port", "http://localhost:80", false, false},
 		{"https's default port on IPv6", "https://[2001:db8::1]:443", false, false},
 		{"a leading zero on the default port", "https://taptime.mt:0443", false, false},
 		{"a leading zero on another port", "https://taptime.mt:08443", false, false},
+		// Not a valid DNS name, or not the canonical one. These origins come through a URL parser as
+		// they are, so the refusal is about the name and not about sameOrigin; a trailing dot is
+		// false only for an Origin from the canonical name.
 		{"a trailing dot", "https://taptime.mt.", false, false},
 		{"a trailing dot before a port", "https://taptime.mt.:8443", false, false},
 		{"a dot alone", "https://.", false, false},
@@ -143,20 +170,31 @@ func TestLoad_BaseURLShape(t *testing.T) {
 
 // TestLoad_TheShippedBaseURLsPass reads the two ConfigMaps rather than a copy of their values: a
 // refusal of the live value would stop every pod at the next rollout.
+//
+// MUTANT (measured, 2026-11-06, reverted): the placeholder left unresolved -- red.
 func TestLoad_TheShippedBaseURLsPass(t *testing.T) {
 	untaggedOnly(t)
 	line := regexp.MustCompile(`(?m)^\s*TAPPA_BASE_URL:\s*"([^"]+)"`)
-	for _, file := range []string{"k8s/05-config.yaml", "sandbox/05-config.yaml"} {
-		raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", filepath.FromSlash(file)))
+	for _, tc := range []struct{ file, wantHost string }{
+		{"k8s/05-config.yaml", "taptime.mt"},
+		{"sandbox/05-config.yaml", "SANDBOX_DOMAIN"},
+	} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", filepath.FromSlash(tc.file)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		m := line.FindSubmatch(raw)
 		if m == nil {
-			t.Fatalf("%s names no TAPPA_BASE_URL", file)
+			t.Fatalf("%s names no TAPPA_BASE_URL", tc.file)
 		}
-		if refused, msg := baseURLRefused(t, config.EnvProd, string(m[1])); refused {
-			t.Errorf("%s: the shipped value is refused:\n%s", file, msg)
+		value := string(m[1])
+		if !strings.Contains(value, tc.wantHost) {
+			t.Errorf("%s no longer names %s; this test and deploy/README.md's sed read that name", tc.file, tc.wantHost)
+		}
+		// What deploy/README.md's `sed "s/SANDBOX_DOMAIN/$D/g"` applies before this file reaches a cluster.
+		value = strings.ReplaceAll(value, "SANDBOX_DOMAIN", "sandbox.example")
+		if refused, msg := baseURLRefused(t, config.EnvProd, value); refused {
+			t.Errorf("%s: the shipped value is refused:\n%s", tc.file, msg)
 		}
 	}
 }
