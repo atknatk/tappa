@@ -41,7 +41,7 @@ func newDayDBFixture(t *testing.T, role string) *dayDBFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping the business day end-to-end tests (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

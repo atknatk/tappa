@@ -50,7 +50,7 @@ type holdingFixtureTenant struct {
 // every tenant; a taken one is drawn again).
 func newHoldingFixtureTenants(t *testing.T, l *legalE2E, timezones ...string) []holdingFixtureTenant {
 	t.Helper()
-	app, err := db.New(l.ctx, &config.Config{DatabaseURL: os.Getenv("DATABASE_URL")})
+	app, err := db.New(l.ctx, &config.Config{DatabaseURL: config.NewDSN(os.Getenv("DATABASE_URL"))})
 	if err != nil {
 		t.Fatalf("tappa_app's pool: %v", err)
 	}

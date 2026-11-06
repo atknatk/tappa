@@ -124,7 +124,7 @@ func deriveProofKey(sessionKey []byte) ([]byte, error) {
 // proof minted for one row never fits another that happens to carry the same digest (an identity's
 // linked rows all carry its digest).
 func (m *Manager) proofOf(admin, tenant uuid.UUID, digest string) Proof {
-	mac := hmac.New(sha256.New, m.proofKey)
+	mac := hmac.New(sha256.New, m.proofKey.Reveal())
 	// hash writes never fail (documented); the digest is written as-is and never formatted.
 	_, _ = mac.Write([]byte(proofLabel))
 	_, _ = mac.Write([]byte(admin.String()))
@@ -140,7 +140,7 @@ func (m *Manager) proofOf(admin, tenant uuid.UUID, digest string) Proof {
 // proofHolds reports, in constant time, whether p is the proof of (admin, tenant, digest). A zero
 // proof never holds.
 func (m *Manager) proofHolds(p Proof, admin, tenant uuid.UUID, digest string) bool {
-	if !p.set || len(m.proofKey) == 0 {
+	if !p.set || m.proofKey.Len() == 0 {
 		return false
 	}
 	want := m.proofOf(admin, tenant, digest)

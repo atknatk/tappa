@@ -601,8 +601,8 @@ func TestLoad_MailConfigCarriesTheEnvironmentsValues(t *testing.T) {
 // fmt's verbs on the Config and on its Mail, slog's text and JSON handlers, and
 // encoding/json — shows neither value nor the first 8 characters of one. CONTROL: the
 // renderings did print the struct (the host is in each), so their silence about the
-// credentials is not an empty print. This is the struct's EXPORTED path; the rest of
-// Config is not redacted (backlog T80).
+// credentials is not an empty print. This is the struct's EXPORTED path; every other path and
+// every other secret field is TestConfig_NoRenderingCarriesASecret's.
 func TestLoad_MailCredentialsAreRedactedInTheConfig(t *testing.T) {
 	untaggedOnly(t) // a flow set to email; the sandbox sends none (TestSandboxSettings_TheSandboxSendsNoEmail)
 	setRequired(t)

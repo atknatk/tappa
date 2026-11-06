@@ -511,11 +511,11 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	if err != nil {
 		return nil, err
 	}
-	forms, err := adminauth.NewFormBinder(cfg.SessionHMACKey)
+	forms, err := adminauth.NewFormBinder(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	switches, err := adminauth.NewSwitchTokens(cfg.SessionHMACKey)
+	switches, err := adminauth.NewSwitchTokens(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +594,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// K-26 keeps open. Refused here at start-up rather than discovered on an incident.
 	// TestNewAdminAuth_TheKeysServiceMatchesTheConfiguration; cmd/tappa's wiring is pinned by
 	// TestAPIKeyWiring_TheKeysServiceReachesThePanel.
-	if len(cfg.APIKeyHMACKey) > 0 && a.apiKeys == nil {
+	if cfg.APIKeyHMACKey.Len() > 0 && a.apiKeys == nil {
 		return nil, errors.New("handler: the configuration holds the API key's HMAC key and the panel was given no keys service (IntegrationKeys)")
 	}
 	// 🔴 THE SAME FOR THE WEBHOOK (M11 API-9): a configuration that holds TAPPA_WEBHOOK_KEK (every
@@ -602,7 +602,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// panel built without the service would take away the owner's switch-off (K-26). Pinned by
 	// TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration and cmd/tappa's
 	// TestWebhookWiring_TheEndpointServiceReachesThePanel.
-	if len(cfg.WebhookKEK) > 0 && a.webhook == nil {
+	if cfg.WebhookKEK.Len() > 0 && a.webhook == nil {
 		return nil, errors.New("handler: the configuration holds the webhook KEK and the panel was given no webhook service (IntegrationWebhook)")
 	}
 	return a, nil

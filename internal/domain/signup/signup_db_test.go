@@ -127,7 +127,7 @@ func newProvisionerFixtureWithOwner(t *testing.T) (*Provisioner, *db.DB, *pgx.Co
 		t.Skip("DATABASE_URL not set; skipping signup provisioning tests (real Postgres required)")
 	}
 	owner := identityOwner(t)
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

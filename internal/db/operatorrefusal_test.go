@@ -181,7 +181,7 @@ func TestOperatorDB_AServerThatRefusesStopsTheBoot(t *testing.T) {
 			withParam(behindAClosedPort(t, app), "role", "tappa_operator"), "42501"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: tc.dsn})
+			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(tc.dsn)})
 			if err == nil {
 				o.Close()
 				t.Fatal("opened")
@@ -249,7 +249,7 @@ func TestPin_ADifferentlyCasedKeyCannotUnpinIt(t *testing.T) {
 	for _, key := range []string{strings.ToUpper(logParameterPin), "Log_Parameter_Max_Length_On_Error"} {
 		refused := map[string]int{}
 		for i := 0; i < opens; i++ {
-			d, err := New(ctx, &config.Config{DatabaseURL: withParam(app, key, "-1")})
+			d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(withParam(app, key, "-1"))})
 			if err != nil {
 				refused["customer"]++
 			} else {
@@ -302,7 +302,7 @@ func TestPin_ASizeIsRefusedLikeUnlimited(t *testing.T) {
 			return err
 		}
 		var np *logParameterNotPinnedError
-		if d, err := newDB(ctx, &config.Config{DatabaseURL: app}, set); err == nil || !errors.As(err, &np) {
+		if d, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, set); err == nil || !errors.As(err, &np) {
 			if d != nil {
 				d.Close()
 			}
@@ -378,7 +378,7 @@ func TestNewRefusesASwitchedSessionInProduction(t *testing.T) {
 	defer cancel()
 	switched := withParam(owner, "role", "tappa_app")
 
-	d, err := New(ctx, &config.Config{DatabaseURL: switched, Env: config.EnvProd})
+	d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(switched), Env: config.EnvProd})
 	if err == nil {
 		d.Close()
 		t.Fatal("New opened a production pool whose session signed in as the owner and runs as tappa_app")
@@ -387,7 +387,7 @@ func TestNewRefusesASwitchedSessionInProduction(t *testing.T) {
 		t.Errorf("the refusal does not say what it measured: %v", err)
 	}
 
-	dev, err := New(ctx, &config.Config{DatabaseURL: switched, Env: config.EnvDev})
+	dev, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(switched), Env: config.EnvDev})
 	if err != nil {
 		t.Fatalf("development refused a pool it opened before this round: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestNew_AnUnparseableDSNCarriesNoPassword(t *testing.T) {
 	if _, err := pgxpool.ParseConfig(dsn); err == nil || !strings.Contains(err.Error(), password) {
 		t.Fatalf("CONTROL: pgx's parse error no longer quotes a query-parameter password (err %v)", err != nil)
 	}
-	d, err := New(context.Background(), &config.Config{DatabaseURL: dsn})
+	d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err == nil {
 		d.Close()
 		t.Fatal("New accepted an unparseable DSN")
@@ -636,7 +636,7 @@ func TestOperatorDB_AJoinedFailureIsUnreachableOnlyWhenEveryAttemptIs(t *testing
 			"(attempt 1: connection refused; attempt 2: connection refused)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: tc.dsn})
+			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(tc.dsn)})
 			if err == nil {
 				o.Close()
 				t.Fatal("opened")
@@ -687,7 +687,7 @@ func TestPin_AReadBackThatCannotRunIsRefused(t *testing.T) {
 			t.Errorf("%s pool: a read-back that could not run is marked unreachable: %v", pool, err)
 		}
 	}
-	d, err := newDB(ctx, &config.Config{DatabaseURL: app}, abort)
+	d, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, abort)
 	if err == nil {
 		d.Close()
 		t.Fatal("customer pool opened on a connection whose read-back could not run")
@@ -728,7 +728,7 @@ func TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal(t *testing.T) {
 	q := u.Query()
 	q.Set("sslmode", "prefer")
 	u.RawQuery = q.Encode()
-	o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: u.String()})
+	o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(u.String())})
 	if err == nil {
 		o.Close()
 		t.Fatal("opened with a wrong password")
@@ -741,7 +741,7 @@ func TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal(t *testing.T) {
 	}
 	q.Set("sslmode", "disable")
 	u.RawQuery = q.Encode()
-	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: u.String()})
+	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(u.String())})
 	if err == nil {
 		o.Close()
 		t.Fatal("opened with a wrong password")
@@ -760,7 +760,7 @@ func TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal(t *testing.T) {
 	mq := missing.Query()
 	mq.Set("sslmode", "prefer")
 	missing.RawQuery = mq.Encode()
-	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: missing.String()})
+	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(missing.String())})
 	if err == nil {
 		o.Close()
 		t.Fatal("opened a database that does not exist")
@@ -770,7 +770,7 @@ func TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal(t *testing.T) {
 	}
 	closed := url.URL{Scheme: "postgres", User: url.User("tappa_operator"), Host: closedAddr(t), Path: "/tappa",
 		RawQuery: "sslmode=prefer"}
-	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: closed.String()})
+	o, err = NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(closed.String())})
 	if err == nil {
 		o.Close()
 		t.Fatal("opened a closed port")
@@ -869,7 +869,7 @@ func TestPin_ADSNCannotChooseClientSideInterpolation(t *testing.T) {
 		{"an upper-case value (pgx does not parse it)", "default_query_exec_mode", "SIMPLE_PROTOCOL", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d, err := New(ctx, &config.Config{DatabaseURL: withParam(app, tc.key, tc.value)})
+			d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(withParam(app, tc.key, tc.value))})
 			if err == nil {
 				d.Close()
 				t.Fatal("customer pool opened")
@@ -905,7 +905,7 @@ func TestPin_ADSNCannotChooseClientSideInterpolation(t *testing.T) {
 		return withParam(u.String(), "default_query_exec_mode", "simple_protocol")
 	}
 	var refusedEarly *execModeRefusedError
-	if d, err := New(ctx, &config.Config{DatabaseURL: closedHost(app)}); err == nil {
+	if d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(closedHost(app))}); err == nil {
 		d.Close()
 		t.Fatal("customer pool opened on a closed port")
 	} else if !errors.As(err, &refusedEarly) || !strings.HasPrefix(err.Error(), "db: DATABASE_URL asks for") {
@@ -919,7 +919,7 @@ func TestPin_ADSNCannotChooseClientSideInterpolation(t *testing.T) {
 	}
 	// Every allowed mode still opens both pools: the rule refuses a mode, not the key.
 	for _, mode := range boundParameterModes {
-		d, err := New(ctx, &config.Config{DatabaseURL: withParam(app, "default_query_exec_mode", execModeNames[mode])})
+		d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(withParam(app, "default_query_exec_mode", execModeNames[mode]))})
 		if err != nil {
 			t.Fatalf("customer pool refused the allowed mode %s: %v", execModeNames[mode], err)
 		}
@@ -1130,7 +1130,7 @@ func TestPools_KeepArgumentsOutOfTheStatementText(t *testing.T) {
 		t.Fatal("CONTROL FAILED: simple_protocol does not put the argument into the text; the measurement is blind")
 	}
 	for _, env := range []string{config.EnvDev, config.EnvProd} {
-		d, err := New(ctx, &config.Config{DatabaseURL: app, Env: env})
+		d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(app), Env: env})
 		if err != nil {
 			t.Fatalf("customer pool, env %s: %v", env, err)
 		}

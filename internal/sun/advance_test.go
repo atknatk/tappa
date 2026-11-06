@@ -135,7 +135,7 @@ func appDB(t *testing.T) *db.DB {
 		}
 		raw += sep + "pool_max_conns=" + strconv.Itoa(raceGoroutines+4)
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: raw})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

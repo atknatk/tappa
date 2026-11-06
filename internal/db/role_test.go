@@ -219,7 +219,7 @@ func TestNewRefusesAPrivilegedRoleInProduction(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			d, err := New(context.Background(), &config.Config{DatabaseURL: tc.dsn, Env: tc.env})
+			d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(tc.dsn), Env: tc.env})
 			if d != nil {
 				t.Cleanup(d.Close)
 			}
@@ -261,12 +261,12 @@ func TestReadRoleSeesTheOwnerAndTheApplicationRoleDifferently(t *testing.T) {
 		t.Skip("DATABASE_URL and DATABASE_MIGRATE_URL are both required; skipping the role measurement (real Postgres required)")
 	}
 
-	app, err := New(context.Background(), &config.Config{DatabaseURL: appDSN})
+	app, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(appDSN)})
 	if err != nil {
 		t.Fatalf("New(application role): %v", err)
 	}
 	t.Cleanup(app.Close)
-	owner, err := New(context.Background(), &config.Config{DatabaseURL: ownerDSN})
+	owner, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(ownerDSN)})
 	if err != nil {
 		t.Fatalf("New(owner role): %v", err)
 	}

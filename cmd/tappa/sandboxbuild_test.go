@@ -726,7 +726,7 @@ func identName(e ast.Expr) string {
 // simulation -- the AST pins above stay green, this is red (under -tags sandbox, which CI runs).
 func TestSandboxExtensions_AreTheBuilds(t *testing.T) {
 	kek := make([]byte, 32)
-	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: kek, GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}
+	cfg := &config.Config{Env: config.EnvSandbox, TagKEK: config.NewKey(kek), GPSRadiusMeters: 150, Debounce: time.Minute, Freshness: 3 * time.Minute}
 	work, err := webhook.NewWorker(slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

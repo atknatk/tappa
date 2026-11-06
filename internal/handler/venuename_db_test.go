@@ -41,7 +41,7 @@ func TestVenueSave_ANameOnFileStaysEditableAndANewHiddenOneIsASentence(t *testin
 		t.Skip("DATABASE_URL not set (real Postgres required)")
 	}
 	ctx := context.Background()
-	data, err := db.New(ctx, &config.Config{DatabaseURL: dsn})
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatal(err)
 	}

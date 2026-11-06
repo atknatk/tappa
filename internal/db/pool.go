@@ -91,7 +91,7 @@ func New(ctx context.Context, cfg *config.Config) (*DB, error) {
 // passes nil; this package's tests use it to change the setting after startup, the
 // one way to reach the read-back's refusal while the startup parameter is in place.
 func newDB(ctx context.Context, cfg *config.Config, before func(context.Context, *pgx.Conn) error) (*DB, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL.Reveal())
 	if err != nil {
 		// pgx's parse error is NOT wrapped (M10 OP-7, 2nd round): it quotes the connection
 		// string through pgconn's redactPW, which hides a password only in a URL's

@@ -205,7 +205,7 @@ func (f *fakeClaimDB) RecordFailedIdentityLogin(_ context.Context, id uuid.UUID,
 
 func newTestSignupClaims(t *testing.T, data SignupClaimDatabase) *SignupClaims {
 	t.Helper()
-	s, err := NewSignupClaims(data, &config.Config{SessionHMACKey: []byte(strings.Repeat("s", 32))})
+	s, err := NewSignupClaims(data, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("s", 32)))})
 	if err != nil {
 		t.Fatal(err)
 	}

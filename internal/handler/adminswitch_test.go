@@ -125,7 +125,7 @@ func TestAdminSwitch_FlagOffIsAPathThePanelNeverHad(t *testing.T) {
 // MUTATION (measured): the synchronizer check removed from adminSwitch -> the forged and empty
 // rows reach Switch, red.
 func TestAdminSwitch_RefusesForgedAndCrossSiteRequests(t *testing.T) {
-	otherSession, err := adminauth.NewSwitchTokens(adminTestConfig().SessionHMACKey)
+	otherSession, err := adminauth.NewSwitchTokens(adminTestConfig().SessionHMACKey.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}

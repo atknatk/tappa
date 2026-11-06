@@ -54,10 +54,10 @@ func TestActivationLogoDB_OnlyAVerifiedBusinessesOwnLogoIsServed(t *testing.T) {
 	cfg := &config.Config{
 		Env:            config.EnvDev,
 		BaseURL:        "http://localhost:8080",
-		DatabaseURL:    dsn,
-		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"),
-		InviteHMACKey:  []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
-		TagKEK:         kek,
+		DatabaseURL:    config.NewDSN(dsn),
+		SessionHMACKey: config.NewKey([]byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")),
+		InviteHMACKey:  config.NewKey([]byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")),
+		TagKEK:         config.NewKey(kek),
 		RetentionYears: 2,
 	}
 	ctx := context.Background()

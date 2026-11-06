@@ -84,7 +84,7 @@ func newRulebookFixtureWithPool(t *testing.T, poolMax int) *rulebookFixture {
 		}
 		dsn += sep + "pool_max_conns=" + strconv.Itoa(poolMax)
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

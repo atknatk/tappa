@@ -225,8 +225,8 @@ func TestNewAdminChoices_RefusesAWrongSizedKey(t *testing.T) {
 	}{
 		{"nil config", nil},
 		{"no key", &config.Config{Env: config.EnvDev}},
-		{"short key", &config.Config{Env: config.EnvDev, SessionHMACKey: []byte("too-short")}},
-		{"long key", &config.Config{Env: config.EnvDev, SessionHMACKey: make([]byte, 64)}},
+		{"short key", &config.Config{Env: config.EnvDev, SessionHMACKey: config.NewKey([]byte("too-short"))}},
+		{"long key", &config.Config{Env: config.EnvDev, SessionHMACKey: config.NewKey(make([]byte, 64))}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,14 +246,14 @@ func TestAdminChoices_KeyIsDerived(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAdminChoices: %v", err)
 	}
-	if string(c.key) == string(adminTestConfig().SessionHMACKey) {
+	if string(c.key) == string(adminTestConfig().SessionHMACKey.Reveal()) {
 		t.Fatalf("the choice blob is signed under the raw session key")
 	}
 	// A different session key must produce different signatures over identical
 	// input, or the derivation is not keyed at all.
 	other, err := newAdminChoices(&config.Config{
 		Env: config.EnvDev, BaseURL: testBaseURL,
-		SessionHMACKey: []byte("fedcba9876543210fedcba9876543210"),
+		SessionHMACKey: config.NewKey([]byte("fedcba9876543210fedcba9876543210")),
 	})
 	if err != nil {
 		t.Fatalf("newAdminChoices: %v", err)

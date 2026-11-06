@@ -39,7 +39,7 @@ func TestProof_BindsTheRowAndTheDigest(t *testing.T) {
 			t.Errorf("the proof holds for %s", name)
 		}
 	}
-	otherKey := &config.Config{Env: config.EnvDev, BaseURL: "https://panel.example.test", SessionHMACKey: []byte(strings.Repeat("k", 32))}
+	otherKey := &config.Config{Env: config.EnvDev, BaseURL: "https://panel.example.test", SessionHMACKey: config.NewKey([]byte(strings.Repeat("k", 32)))}
 	other, err := New(&fakeResolver{}, otherKey)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestProof_BindsTheRowAndTheDigest(t *testing.T) {
 	if other.proofHolds(p, admin, tenant, digest) {
 		t.Error("a proof made under one key holds under another")
 	}
-	if bytes.Equal(m.proofKey, m.hmacKey) {
+	if bytes.Equal(m.proofKey.Reveal(), m.hmacKey.Reveal()) {
 		t.Error("the proof key equals the session token key; the labels must separate them")
 	}
 }

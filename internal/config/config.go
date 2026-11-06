@@ -32,13 +32,16 @@ type Config struct {
 	// proof-of-place; an unbounded proxy list lets a caller forge its location.
 	TrustedProxies []netip.Prefix
 
-	DatabaseURL string
+	// DatabaseURL and every key below are redacting types (secret.go; backlog T80): a printer, a
+	// logger or a JSON encoder that reaches one sees a constant, and the value comes out only through
+	// Reveal. TestConfig_EverySecretFieldIsARedactingType reds a new secret field of any other type.
+	DatabaseURL DSN
 
-	SessionHMACKey []byte // 32 bytes
-	TagKEK         []byte // 32 bytes, wraps per-tag NTAG AES keys
+	SessionHMACKey Key // 32 bytes
+	TagKEK         Key // 32 bytes, wraps per-tag NTAG AES keys
 
 	// TagKEKPrevious is the KEK a plaque's wrapped key may ALSO be sealed under:
-	// OPTIONAL, nil when unset, and 32 bytes when set.
+	// OPTIONAL, the zero Key when unset, and 32 bytes when set.
 	//
 	// It exists for exactly one situation — a KEK rotation (cmd/rotatekek, and
 	// the "KEK döndürme" runbook in deploy/README.md). Re-sealing the park is not
@@ -52,19 +55,19 @@ type Config struct {
 	// 🔴 IT IS A ROTATION WINDOW, NOT A SETTING. While this is set, a LEAKED KEK
 	// still opens rows, so the rotation has not actually bought anything yet. The
 	// runbook's last step is to unset it and roll out; that step is the rotation.
-	TagKEKPrevious []byte
+	TagKEKPrevious Key
 
 	// InviteHMACKey keys the activation-code MAC (internal/invite). It is a
 	// SEPARATE key from SessionHMACKey on purpose — see keySeparation below for
 	// the measurement and the reasoning.
-	InviteHMACKey []byte // 32 bytes
+	InviteHMACKey Key // 32 bytes
 
 	// APIKeyHMACKey keys the integration API key's stored hash (M11 API-3, ADR 0028 §3,
 	// TAPPA_API_KEY_HMAC_KEY): api_keys.token_hash is HMAC-SHA256 under it, so a dump of the
 	// table alone cannot be tried against the API. REQUIRED -- the owner's panel issues keys and
 	// a deployment that could not hash one must not start -- 32 bytes, and different from every
 	// other key here (keysSeparation).
-	APIKeyHMACKey []byte
+	APIKeyHMACKey Key
 
 	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK;
 	// internal/webhook/endpoints). REQUIRED outside TAPPA_ENV=dev since M11 API-9 (webhookSettings):
@@ -72,7 +75,7 @@ type Config struct {
 	// and a deployment that could not seal a key must not start rather than answer 503 to the
 	// first owner who tries. OPTIONAL in dev: unset, the panel's webhook section says it is not
 	// configured. Set, it is 32 bytes and differs from every other key (namedKeys).
-	WebhookKEK []byte
+	WebhookKEK Key
 
 	// WebhookBlockedAddresses are the node's own public addresses and the ingress's
 	// (TAPPA_WEBHOOK_BLOCKED_ADDRESSES, M11 API-9, ADR 0028 §7): internal/egress refuses to dial
@@ -88,26 +91,22 @@ type Config struct {
 	// (/operator answers 503, the customer product is untouched); some but not all is
 	// a startup failure naming which are missing.
 	//
-	// The two keys sit here as raw []byte like every other key in this struct, and
-	// that is a recorded decision rather than an oversight (docs/plan/m10-platform.md,
-	// OP-4 block, "Kabullere bağlananlar — OP-7", the 8th-round decision (1)):
-	// internal/db imports this package, so this package cannot import
-	// internal/operatorauth and cannot hold its redacting Key. cmd/tappa converts the
-	// bytes with operatorauth.NewKey at the one place it builds the Authenticator.
-	// Redacting this struct as a whole is backlog T80; nothing in this repository
-	// formats a Config, and OP-7 adds no place that does.
+	// The two keys are config.Key like every other key in this struct, and not
+	// operatorauth.Key: internal/db imports this package, so this package cannot import
+	// internal/operatorauth. cmd/tappa converts them with operatorauth.NewKey at the one place
+	// it builds the Authenticator.
 	//
 	// OperatorDatabaseURL is tappa_operator's DSN (internal/db.NewOperatorDB). It
 	// carries a password, so no error in this package or in the pool's constructor
 	// repeats it.
-	OperatorDatabaseURL string
+	OperatorDatabaseURL DSN
 	// OperatorTOTPKEK seals and opens the operators' TOTP secrets (ADR 0020 §1);
 	// 32 bytes, and different from every other key here (operatorKeySeparation).
-	OperatorTOTPKEK []byte
+	OperatorTOTPKEK Key
 	// OperatorTokenHMACKey keys the operator session token's hash (ADR 0020 §2);
 	// 32 bytes, its OWN variable rather than a label on the session key, and
 	// different from every other key here.
-	OperatorTokenHMACKey []byte
+	OperatorTokenHMACKey Key
 	// OperatorHost is the separate host the operator surface lives on (ADR 0020 §4;
 	// D-B: ops.taptime.mt). Validated as ONE spelling — a lower-case DNS name with no
 	// scheme, port, path or user part — and never TAPPA_BASE_URL's own host. It is
@@ -177,8 +176,8 @@ type Config struct {
 	//
 	// Username and Password are mail.Credential, wrapped here, at load: they print as a
 	// placeholder through this struct's exported fields
-	// (TestLoad_MailCredentialsAreRedactedInTheConfig). That is all it buys — the rest of
-	// this struct still holds raw keys, and redacting it as a whole is backlog T80.
+	// (TestLoad_MailCredentialsAreRedactedInTheConfig), the same way the struct's keys and DSNs do
+	// (secret.go).
 	//
 	// RootCAs IS NEVER SET (ADR 0022 §2): nil means the image's system roots, and no
 	// variable of this package names a certificate authority. A private root would let
@@ -359,13 +358,14 @@ func Load() (*Config, error) {
 	c.DevTools = devTools
 	push(devErr)
 
-	c.DatabaseURL = os.Getenv("DATABASE_URL")
-	if c.DatabaseURL == "" {
+	databaseURL := os.Getenv("DATABASE_URL")
+	c.DatabaseURL = NewDSN(databaseURL)
+	if databaseURL == "" {
 		push(errors.New("DATABASE_URL is required"))
 	}
 	// The app must never hold the migration role: RLS is skipped for table
 	// owners and BYPASSRLS roles, which would silently void tenant isolation.
-	if c.DatabaseURL != "" && c.DatabaseURL == os.Getenv("DATABASE_MIGRATE_URL") {
+	if databaseURL != "" && databaseURL == os.Getenv("DATABASE_MIGRATE_URL") {
 		push(errors.New("DATABASE_URL must not equal DATABASE_MIGRATE_URL: the app connects as tappa_app (NOBYPASSRLS), migrations as tappa_owner"))
 	}
 
@@ -377,7 +377,7 @@ func Load() (*Config, error) {
 		push(err)
 	}
 	// TAPPA_TAG_KEK_PREVIOUS is OPTIONAL, but an optional value that is SET must
-	// still be valid: unset means nil, and anything else must decode to 32 bytes
+	// still be valid: unset means the zero Key, and anything else must decode to 32 bytes
 	// or the process refuses to start. Treating a malformed previous KEK as "not
 	// set" would be the worst of both — the operator believes the rotation window
 	// is open, every tap on a not-yet-re-sealed plaque answers 500, and nothing
@@ -389,12 +389,12 @@ func Load() (*Config, error) {
 	// only realistic way to get here is one value pasted into both variables, and
 	// it would leave the fallback doing nothing while every surface reports a
 	// rotation in progress.
-	push(kekSeparation(c.TagKEK, c.TagKEKPrevious))
+	push(kekSeparation(c.TagKEK.Reveal(), c.TagKEKPrevious.Reveal()))
 	if c.InviteHMACKey, err = key32("TAPPA_INVITE_HMAC_KEY"); err != nil {
 		push(err)
 	}
 	// The invite key must not simply BE the session key. See keySeparation.
-	push(keySeparation(c.SessionHMACKey, c.InviteHMACKey))
+	push(keySeparation(c.SessionHMACKey.Reveal(), c.InviteHMACKey.Reveal()))
 	// The integration API's two keys (M11 API-3, ADR 0028 §3): the key-hash key is required; the
 	// webhook KEK and the node/ingress list are required outside dev (M11 API-9, webhookSettings).
 	if c.APIKeyHMACKey, err = key32(envAPIKeyHMACKey); err != nil {
@@ -828,8 +828,8 @@ func OperatorSurfaceVariables() []string {
 // refuse the missing piece (an empty DSN, a key of the wrong size) instead of the
 // surface silently staying off.
 func (c *Config) OperatorSurfaceConfigured() bool {
-	return c.OperatorDatabaseURL != "" || len(c.OperatorTOTPKEK) > 0 ||
-		len(c.OperatorTokenHMACKey) > 0 || c.OperatorHost != ""
+	return c.OperatorDatabaseURL.Reveal() != "" || c.OperatorTOTPKEK.Len() > 0 ||
+		c.OperatorTokenHMACKey.Len() > 0 || c.OperatorHost != ""
 }
 
 // loadOperatorSurface reads the four operator variables as ONE set.
@@ -869,8 +869,9 @@ func loadOperatorSurface(c *Config) []error {
 			strings.Join(set, ", "), strings.Join(missing, ", "))}
 	}
 	var errs []error
-	c.OperatorDatabaseURL = os.Getenv(envOperatorDatabaseURL)
-	if strings.TrimSpace(c.OperatorDatabaseURL) == "" {
+	operatorDSN := os.Getenv(envOperatorDatabaseURL)
+	c.OperatorDatabaseURL = NewDSN(operatorDSN)
+	if strings.TrimSpace(operatorDSN) == "" {
 		errs = append(errs, errors.New("TAPPA_OPERATOR_DATABASE_URL: is set but holds only whitespace, which "+
 			"PostgreSQL's client reads as an empty connection string (every default, a local socket). Set the "+
 			"operator's DSN, or unset all four operator variables"))
@@ -996,7 +997,7 @@ func webhookSettings(c *Config) []error {
 		return nil
 	}
 	var errs []error
-	if c.WebhookKEK == nil && os.Getenv(envWebhookKEK) == "" {
+	if c.WebhookKEK.Len() == 0 && os.Getenv(envWebhookKEK) == "" {
 		errs = append(errs, fmt.Errorf("%s is required outside TAPPA_ENV=dev: it seals every webhook endpoint's signing key "+
 			"(generate: openssl rand -base64 32)", envWebhookKEK))
 	}
@@ -1053,18 +1054,18 @@ type namedKey struct {
 }
 
 // namedKeys is EVERY key this Config holds. TestNamedKeys_ListEveryKeyFieldOfTheConfig
-// derives the set of []byte fields from the struct itself, so a key added to Config
+// derives the set of Key fields from the struct itself, so a key added to Config
 // and not listed here is a red test rather than a key the separation rule never sees.
 func (c *Config) namedKeys() []namedKey {
 	return []namedKey{
-		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey},
-		{"TAPPA_TAG_KEK", c.TagKEK},
-		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
-		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
-		{envAPIKeyHMACKey, c.APIKeyHMACKey},
-		{envWebhookKEK, c.WebhookKEK},
-		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
-		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},
+		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey.Reveal()},
+		{"TAPPA_TAG_KEK", c.TagKEK.Reveal()},
+		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious.Reveal()},
+		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey.Reveal()},
+		{envAPIKeyHMACKey, c.APIKeyHMACKey.Reveal()},
+		{envWebhookKEK, c.WebhookKEK.Reveal()},
+		{envOperatorTOTPKEK, c.OperatorTOTPKEK.Reveal()},
+		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey.Reveal()},
 	}
 }
 
@@ -1130,9 +1131,9 @@ func keysSeparation(c *Config) error {
 // optionalKey32 is key32 for a variable that may legitimately be absent: unset
 // yields (nil, nil), and anything present must still be a valid 32-byte base64
 // key.
-func optionalKey32(name string) ([]byte, error) {
+func optionalKey32(name string) (Key, error) {
 	if os.Getenv(name) == "" {
-		return nil, nil
+		return Key{}, nil
 	}
 	return key32(name)
 }
@@ -1161,19 +1162,19 @@ func env(k, def string) string {
 	return def
 }
 
-func key32(name string) ([]byte, error) {
+func key32(name string) (Key, error) {
 	raw := os.Getenv(name)
 	if raw == "" {
-		return nil, fmt.Errorf("%s is required (generate: openssl rand -base64 32)", name)
+		return Key{}, fmt.Errorf("%s is required (generate: openssl rand -base64 32)", name)
 	}
 	b, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%s: not valid base64: %w", name, err)
+		return Key{}, fmt.Errorf("%s: not valid base64: %w", name, err)
 	}
 	if len(b) != 32 {
-		return nil, fmt.Errorf("%s: want 32 bytes, got %d", name, len(b))
+		return Key{}, fmt.Errorf("%s: want 32 bytes, got %d", name, len(b))
 	}
-	return b, nil
+	return NewKey(b), nil
 }
 
 // trustedProxySanity refuses (in production) or shouts about (everywhere else) a

@@ -90,9 +90,9 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	ctx := l.ctx
 	cfg := &config.Config{
 		Env: config.EnvDev, BaseURL: opBase, OperatorHost: opHost, APIHost: crossAPIHost,
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		SessionHMACKey: randBytes(t, 32), InviteHMACKey: randBytes(t, 32), TagKEK: randBytes(t, 32),
-		APIKeyHMACKey:   randBytes(t, 32),
+		DatabaseURL:    config.NewDSN(os.Getenv("DATABASE_URL")),
+		SessionHMACKey: config.NewKey(randBytes(t, 32)), InviteHMACKey: config.NewKey(randBytes(t, 32)), TagKEK: config.NewKey(randBytes(t, 32)),
+		APIKeyHMACKey:   config.NewKey(randBytes(t, 32)),
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
 		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}
@@ -181,14 +181,14 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	must(err)
 	resetFlow, err := handler.NewAdminReset(resets, nil, trail, cfg, log)
 	must(err)
-	keys, err := apikey.NewKeys(apikey.LivePrefix, cfg.APIKeyHMACKey, data, trail)
+	keys, err := apikey.NewKeys(apikey.LivePrefix, cfg.APIKeyHMACKey.Reveal(), data, trail)
 	must(err)
 	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules,
 		ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, handler.IntegrationKeys(keys))
 	must(err)
 
 	// /v1, as openAPISurface builds it.
-	chain, err := apikey.NewAuthenticator(apikey.LivePrefix, cfg.APIKeyHMACKey, data, data)
+	chain, err := apikey.NewAuthenticator(apikey.LivePrefix, cfg.APIKeyHMACKey.Reveal(), data, data)
 	must(err)
 	writes, err := apikey.NewWrites(data)
 	must(err)

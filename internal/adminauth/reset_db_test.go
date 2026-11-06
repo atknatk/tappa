@@ -125,7 +125,7 @@ func readDigest(t *testing.T, d *db.DB, tenantID, adminID uuid.UUID) string {
 // path that must keep working after a failed consume.
 func tokenIsSpent(t *testing.T, r *Resets, d *db.DB, tok ResetToken) bool {
 	t.Helper()
-	h, err := tok.hash(r.hmacKey)
+	h, err := tok.hash(r.hmacKey.Reveal())
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}

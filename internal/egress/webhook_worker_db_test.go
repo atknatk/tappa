@@ -195,7 +195,7 @@ func appDB(t *testing.T, appName string) *db.DB {
 		}
 		dsn += sep + "application_name=" + appName
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

@@ -60,7 +60,7 @@ func newAccountFixture(t *testing.T) *accountFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping account tests (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestAccountDB_ATimezoneEditMayNotMoveTheFirstChargeableMonth(t *testing.T) 
 	if raw == "" {
 		t.Skip("DATABASE_MIGRATE_URL not set; the boundary case needs the owner role to plant created_at")
 	}
-	owner, err := db.New(ctx, &config.Config{DatabaseURL: raw})
+	owner, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("db.New(owner): %v", err)
 	}

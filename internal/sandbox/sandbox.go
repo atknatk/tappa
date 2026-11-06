@@ -150,7 +150,7 @@ func New(c Config) (*Simulation, error) {
 		return nil, errors.New("sandbox: nil database")
 	case c.Work == nil:
 		return nil, errors.New("sandbox: nil work set")
-	case len(c.App.TagKEK) != sun.KEKLen:
+	case c.App.TagKEK.Len() != sun.KEKLen:
 		return nil, errors.New("sandbox: the tag KEK must be 32 bytes")
 	}
 	log := c.Log
@@ -166,13 +166,13 @@ func New(c Config) (*Simulation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	keks := [][]byte{c.App.TagKEK}
-	if len(c.App.TagKEKPrevious) > 0 {
-		keks = append(keks, c.App.TagKEKPrevious)
+	keks := [][]byte{c.App.TagKEK.Reveal()}
+	if c.App.TagKEKPrevious.Len() > 0 {
+		keks = append(keks, c.App.TagKEKPrevious.Reveal())
 	}
 	return &Simulation{
-		data: c.Data, verifier: sun.NewVerifier(route, c.App.TagKEK, c.App.TagKEKPrevious), taps: taps, trail: trail,
-		work: c.Work, kek: c.App.TagKEK, keks: keks, mint: sun.MintTapPath, log: log,
+		data: c.Data, verifier: sun.NewVerifier(route, c.App.TagKEK.Reveal(), c.App.TagKEKPrevious.Reveal()), taps: taps, trail: trail,
+		work: c.Work, kek: c.App.TagKEK.Reveal(), keks: keks, mint: sun.MintTapPath, log: log,
 	}, nil
 }
 

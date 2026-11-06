@@ -1461,7 +1461,7 @@ func adminTestConfig() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
 		BaseURL:        testBaseURL,
-		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
+		SessionHMACKey: config.NewKey([]byte("0123456789abcdef0123456789abcdef")),
 	}
 }
 

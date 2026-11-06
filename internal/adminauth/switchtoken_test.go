@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/google/uuid"
 )
 
@@ -139,7 +140,7 @@ func TestSwitchTokens_TheZeroValueAndBadInputsFailClosed(t *testing.T) {
 // MUTATION (measured): switchBucketOf keyed by its label alone (not the identity) -> the "another
 // identity" check is red.
 func TestSwitchBucket_IsThePersonsAndNamesNobody(t *testing.T) {
-	m := &Manager{hmacKey: mustDerive(t)}
+	m := &Manager{hmacKey: config.NewKey(mustDerive(t))}
 	one, two := uuid.New(), uuid.New()
 	a := Resolved{SessionID: uuid.New(), TenantID: uuid.New(), Linked: true, switchBucket: m.switchBucketOf(&one)}
 	b := Resolved{SessionID: uuid.New(), TenantID: uuid.New(), Linked: true, switchBucket: m.switchBucketOf(&one)}

@@ -91,7 +91,7 @@ func TestSignupProvision_ASignInlessIdentityClaimsWithItsPassword(t *testing.T) 
 	ctx := context.Background()
 	d := draftFor(t, StructureSingle, "Front door")
 	identity := plantSignInless(t, owner, strings.ToLower(d.Account.Email))
-	claims, err := adminauth.NewSignupClaims(data, &config.Config{SessionHMACKey: []byte(strings.Repeat("k", 32))})
+	claims, err := adminauth.NewSignupClaims(data, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("k", 32)))})
 	if err != nil {
 		t.Fatal(err)
 	}

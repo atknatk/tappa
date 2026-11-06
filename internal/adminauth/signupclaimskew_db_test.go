@@ -45,7 +45,7 @@ func TestSignupClaimTTL_LeavesTheSkewMarginUnderThe00078Ceiling(t *testing.T) {
 func TestSignupClaims_OpenSurvivesADatabaseClockBehindTheApplications(t *testing.T) {
 	d := testDB(t)
 	owner := ownerConn(t)
-	s, err := NewSignupClaims(d, &config.Config{SessionHMACKey: []byte(strings.Repeat("s", 32))})
+	s, err := NewSignupClaims(d, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("s", 32)))})
 	if err != nil {
 		t.Fatal(err)
 	}

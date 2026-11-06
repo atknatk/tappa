@@ -77,7 +77,7 @@ func ownerDB(t *testing.T) *DB {
 	if raw == "" {
 		t.Skip("migration-role DB URL not set; skipping owner-role RLS tests (real Postgres required -- CLAUDE.md section 8, Q04)")
 	}
-	d, err := New(context.Background(), &config.Config{DatabaseURL: raw})
+	d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("New(owner): %v", err)
 	}

@@ -37,7 +37,7 @@ func newFixture(t *testing.T) *fixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping tenant directory tests (real Postgres required, Q04)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

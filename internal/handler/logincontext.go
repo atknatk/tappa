@@ -443,10 +443,10 @@ func newAdminChoices(cfg *config.Config) (adminChoices, error) {
 	if cfg == nil {
 		return adminChoices{}, errors.New("handler: nil config")
 	}
-	if len(cfg.SessionHMACKey) != 32 {
-		return adminChoices{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d", len(cfg.SessionHMACKey))
+	if cfg.SessionHMACKey.Len() != 32 {
+		return adminChoices{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d", cfg.SessionHMACKey.Len())
 	}
-	m := hmac.New(sha256.New, cfg.SessionHMACKey)
+	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(adminChoiceKeyLabel)) // hash writes never fail (documented)
 	return adminChoices{key: m.Sum(nil), ttl: adminChoiceTTL}, nil
 }

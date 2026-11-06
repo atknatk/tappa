@@ -224,12 +224,12 @@ func newSeedFlow(t *testing.T) *seedFlow {
 	cfg := &config.Config{
 		Env:         config.EnvDev,
 		BaseURL:     "http://localhost:8080",
-		DatabaseURL: dsn,
+		DatabaseURL: config.NewDSN(dsn),
 		// Obviously fake, distinct 32-byte keys (agent-brief madde 2). They MUST
 		// differ: config.Load refuses equal keys and this fixture honours the same
 		// rule even though it does not go through Load.
-		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"),
-		InviteHMACKey:  []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
+		SessionHMACKey: config.NewKey([]byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")),
+		InviteHMACKey:  config.NewKey([]byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")),
 		RetentionYears: 2,
 		// The loopback hop httptest gives us is TRUSTED, so X-Forwarded-For can
 		// carry the venue's address. Nothing wider: RealIP walks right to left and
@@ -283,7 +283,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		// The message never carries the value (§4.7).
 		t.Fatalf("TAPPA_TAG_KEK is not 32 base64 bytes (decoded length %d)", len(kek))
 	}
-	cfg.TagKEK = kek
+	cfg.TagKEK = config.NewKey(kek)
 
 	sessions, err := session.New(data, cfg)
 	if err != nil {

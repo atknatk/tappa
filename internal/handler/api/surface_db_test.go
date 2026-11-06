@@ -60,7 +60,7 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 		t.Skip("DATABASE_URL and DATABASE_MIGRATE_URL are both required (real Postgres; the owner opens K-22's gate)")
 	}
 	ctx := context.Background()
-	d, err := db.New(ctx, &config.Config{DatabaseURL: appDSN})
+	d, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(appDSN)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

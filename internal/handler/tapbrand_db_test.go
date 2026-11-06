@@ -27,6 +27,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/brand"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
@@ -239,7 +240,7 @@ func TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld(t *testing.T) {
 	logo := h.brandBusiness(t, h.tenantID, 47, "DA291C")
 
 	cfg := *h.cfg
-	cfg.DatabaseURL = oneConnectionDSN(t, h.cfg.DatabaseURL)
+	cfg.DatabaseURL = config.NewDSN(oneConnectionDSN(t, h.cfg.DatabaseURL.Reveal()))
 	one, err := db.New(context.Background(), &cfg)
 	if err != nil {
 		t.Fatalf("db.New with one connection: %v", err)

@@ -54,7 +54,7 @@ func newBrandDBFixture(t *testing.T) *brandDBFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping the brand editor's end-to-end tests (real Postgres required)")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

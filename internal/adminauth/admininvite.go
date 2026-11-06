@@ -247,11 +247,11 @@ func NewAdminInvites(data InviteDatabase, cfg *config.Config) (*AdminInvites, er
 	if cfg == nil {
 		return nil, errors.New("adminauth: nil config")
 	}
-	ik, err := deriveInviteKey(cfg.SessionHMACKey)
+	ik, err := deriveInviteKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	sk, err := deriveKey(cfg.SessionHMACKey)
+	sk, err := deriveKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}

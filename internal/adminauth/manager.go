@@ -216,9 +216,10 @@ var (
 // struct fields (section 7): no package-level state, no init() magic.
 type Manager struct {
 	data Database
-	// hmacKey is this package's DERIVED key (token.go), held privately so a later
-	// mutation of the caller's config slice cannot change how tokens hash.
-	hmacKey []byte
+	// hmacKey is this package's DERIVED key (token.go). Every key here is a config.Key (backlog T80):
+	// a %+v of a struct that holds this Manager reaches these fields by reflection, and a []byte
+	// would print there (TestManagerAndResets_PrintNoDerivedKey).
+	hmacKey config.Key
 	// dummy is the digest padComparisons falls back to when a login resolved NO
 	// candidate, i.e. when there is no real stored digest to take the cost from.
 	//
@@ -235,13 +236,13 @@ type Manager struct {
 	// is injected elsewhere in this repo.
 	dummy string
 	// proofKey is the key of Proof (proof.go), derived from the session HMAC key like hmacKey.
-	proofKey []byte
+	proofKey config.Key
 	// verifyKey hashes an e-mail verification link (identityaccount.go, M14-18), derived like hmacKey
 	// under its own label: a session hash and a verification hash never share a key.
-	verifyKey []byte
+	verifyKey config.Key
 	// linkKey hashes a link link (identityaccount.go, M14-22) under a label of its own: a verification
 	// token never hashes to a link's hash, nor the reverse.
-	linkKey []byte
+	linkKey config.Key
 	// compareFn is the ONE bcrypt comparison every login path runs through (nil = Compare). It
 	// exists so a test can COUNT the comparisons of each sign-in exit exactly (ADR 0031 §5.6: every
 	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
@@ -270,23 +271,23 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("adminauth: nil config")
 	}
-	key, err := deriveKey(cfg.SessionHMACKey)
+	key, err := deriveKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	proofKey, err := deriveProofKey(cfg.SessionHMACKey)
+	proofKey, err := deriveProofKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	verifyKey, err := deriveVerifyKey(cfg.SessionHMACKey)
+	verifyKey, err := deriveVerifyKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	linkKey, err := deriveLinkKey(cfg.SessionHMACKey)
+	linkKey, err := deriveLinkKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key, dummy: dummyDigest, proofKey: proofKey, verifyKey: verifyKey, linkKey: linkKey, openCost: newCostMeter(openCostDefault)}, nil
+	return &Manager{data: data, hmacKey: config.NewKey(key), dummy: dummyDigest, proofKey: config.NewKey(proofKey), verifyKey: config.NewKey(verifyKey), linkKey: config.NewKey(linkKey), openCost: newCostMeter(openCostDefault)}, nil
 }
 
 // hash is the one digest a password change writes (see hashFn).
@@ -844,7 +845,7 @@ func (m *Manager) Issue(ctx context.Context, v Verified) (Issued, error) {
 	if err != nil {
 		return Issued{}, fmt.Errorf("adminauth: issue: %w", err)
 	}
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return Issued{}, fmt.Errorf("adminauth: issue: %w", err)
 	}
@@ -1019,7 +1020,7 @@ func suspensionOf(at *time.Time, reason *string) *Suspension {
 // equivalent obligation for a panel page load. A database FAILURE is not collapsed:
 // it comes back as itself, so an outage cannot read as "signed out".
 func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			// Classified into the sentinel here and nowhere else, and NOT wrapped,
