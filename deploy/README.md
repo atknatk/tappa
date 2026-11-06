@@ -8665,13 +8665,13 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     **kubelet'in probe kaynağı ayrı bir sorudur ve ölçülmemiştir** — "muhtemelen
     aynıdır" demek bu listenin varlık sebebine aykırı olurdu. Kapatmak isteyen önce
     onu ölçsün.
-11. **[owner DSN'i elle yazılabilir]** — **`DATABASE_URL`'e elle owner DSN'i
-    yazılırsa ürün itiraz etmez.** `config.Load`
-    yalnız **eşitliği** reddediyor. Kapatan şey bir **deploy kapısı**
-    (`deploy.yml` → *"the running server must not be connected as the migration
-    role"*, `pg_stat_activity` üzerinden), yani **deploy anına** özgü; deploy sonrası
-    değiştirilen bir değeri yakalamaz. Süreç içi kontrol bilinçli olarak
-    **yapılmadı** — gerekçesi kartta, ölçümüyle.
+11. **[`DATABASE_URL` rolü]** — **Üretimde (`prod`, `sandbox`) `DATABASE_URL` yalnız
+    `tappa_app` olarak bağlanabilir; başka her rolde süreç açılmaz.** `db.New` sunucuya
+    sorar (`current_user`, `session_user`, ayrıcalıklar) ve hem RLS'i aşabilen rolü (M8-04)
+    hem ayrıcalıksız ama yanlış rolü (`tappa_operator`; T82 — eskiden ilk istekte `42501`)
+    reddeder. Rollout'un kırılması beklenen sonuçtur: eski pod'lar ayakta kalır, log
+    beklenen rolü söyler. `deploy.yml`'ın `db-role` kapısı (`pg_stat_activity`) ayrı bir
+    katmandır ve `tappa_operator`'a izin verir, çünkü operatör havuzu o roldür.
 12. **[Harbor k8s-2'ye bağlı]** — OPS-2 (2026-10-19). 🔴 **BU MADDE İKİ ESKİ MADDENİN
     YERİNDE DURUYOR:** önce *[GHCR çekme kimliği ömürlü]* (T43: `secret/ghcr`'ı her deploy kendi
     `GITHUB_TOKEN`'ıyla yazıyordu, token iş bitince ölüyordu; kubelet KEP-2535
