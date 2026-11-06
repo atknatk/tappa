@@ -38,7 +38,7 @@ func TestPing_DoesNotDependOnTheSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 
-	data, err := New(ctx, &config.Config{DatabaseURL: maintenance})
+	data, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(maintenance)})
 	if err != nil {
 		// db.New pings during construction, so a Ping that read a table fails HERE.
 		if strings.Contains(err.Error(), "42P01") || strings.Contains(err.Error(), "does not exist") {

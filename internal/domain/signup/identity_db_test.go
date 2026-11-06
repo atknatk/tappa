@@ -150,7 +150,7 @@ func TestSignupProvision_AKnownAddressIsClaimedOnlyByItsPerson(t *testing.T) {
 func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
-	claims, err := adminauth.NewSignupClaims(data, &config.Config{SessionHMACKey: []byte(strings.Repeat("k", 32))})
+	claims, err := adminauth.NewSignupClaims(data, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("k", 32)))})
 	if err != nil {
 		t.Fatal(err)
 	}

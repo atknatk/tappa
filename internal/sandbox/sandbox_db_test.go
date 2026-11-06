@@ -74,7 +74,7 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 	t.Cleanup(cancel)
 	kek, mac := random(t, 32), random(t, 32)
 	cfg := &config.Config{
-		Env: config.EnvSandbox, DatabaseURL: appDSN, BaseURL: "https://sandbox.test", TagKEK: kek,
+		Env: config.EnvSandbox, DatabaseURL: config.NewDSN(appDSN), BaseURL: "https://sandbox.test", TagKEK: config.NewKey(kek),
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
 		BusinessDayFrom: fixtures.BusinessDaySwitchOn(),
 	}

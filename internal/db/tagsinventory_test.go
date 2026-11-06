@@ -192,7 +192,7 @@ func TestTags00013_UIDHasOneCanonicalSpelling(t *testing.T) {
 
 	// ⚠️ THE LAST TWO DIGITS ARE FORCED TO LETTERS, AND WITHOUT THAT THIS TEST IS
 	// FLAKY IN THE DIRECTION THAT MATTERS. A random 14-hex uid is all DIGITS about
-	// once in 280 runs ((10/16)^14), and for such a uid ToLower is a no-op -- so
+	// once in 721 runs ((10/16)^14), and for such a uid ToLower is a no-op -- so
 	// the two negative cases would silently become the positive one and the test
 	// would fail while the schema was correct. Forcing 'AB' makes all three
 	// spellings genuinely different strings.
@@ -667,7 +667,10 @@ func TestTags00013_RetireRefusesANonCanonicalSuccessor(t *testing.T) {
 	fx := newTagTenant(t, app)
 
 	old := randUID(t)
-	successor := randUID(t)
+	// A letter, forced: all-numeric (1 draw in 721) strings.ToLower is a no-op, the "lower case"
+	// case then sends the canonical uid, the retire is correctly accepted and the test goes red over
+	// nothing (uidWithALetter's comment).
+	successor := uidWithALetter(t)
 	addPlaque(t, app, fx, old, fx.locationID, "active", 0)
 	addPlaque(t, app, fx, successor, fx.locationID, "active", 0)
 

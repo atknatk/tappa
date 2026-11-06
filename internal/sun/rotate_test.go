@@ -215,7 +215,7 @@ func TestUnwrapAny_EmptyListIsAnErrorNotASilentMiss(t *testing.T) {
 }
 
 // TestNewVerifier_DropsEmptyPreviousKEKs pins the contract main.go depends on:
-// cfg.TagKEKPrevious is nil in the steady state and is passed straight through
+// cfg.TagKEKPrevious reveals nil in the steady state and is passed straight through
 // without a branch, so NewVerifier must not turn that nil into a key.
 //
 // A nil entry left in the list would be a REAL fault, not a cosmetic one:

@@ -192,7 +192,7 @@ func TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "http://" + ln.Addr().String()
-	cfg := &config.Config{Env: config.EnvDev, BaseURL: base, SessionHMACKey: []byte("0123456789abcdef0123456789abcdef")}
+	cfg := &config.Config{Env: config.EnvDev, BaseURL: base, SessionHMACKey: config.NewKey([]byte("0123456789abcdef0123456789abcdef"))}
 	reset, err := handler.NewAdminReset(&shutdownResets{grants: grants}, relay, trail, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

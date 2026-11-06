@@ -53,7 +53,7 @@ func (r *dbRig) queue() (*invite.Queue, *relay, *invite.Manager) {
 	if _, err := rand.Read(key); err != nil {
 		r.t.Fatal(err)
 	}
-	m, err := invite.New(r.d, &config.Config{InviteHMACKey: key, BaseURL: "https://taptime.mt"})
+	m, err := invite.New(r.d, &config.Config{InviteHMACKey: config.NewKey(key), BaseURL: "https://taptime.mt"})
 	if err != nil {
 		r.t.Fatal(err)
 	}

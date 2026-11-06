@@ -206,8 +206,8 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	operatorCfg := func(dsn string) *config.Config {
-		return &config.Config{OperatorDatabaseURL: dsn, OperatorTOTPKEK: randBytes(t, 32),
-			OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt"}
+		return &config.Config{OperatorDatabaseURL: config.NewDSN(dsn), OperatorTOTPKEK: config.NewKey(randBytes(t, 32)),
+			OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt"}
 	}
 
 	t.Run("unreachable: boots, surface unavailable", func(t *testing.T) {
@@ -280,9 +280,9 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 	dsn, _ := closedPortDSN(t)
 	for name, c := range map[string]*config.Config{
 		"only the host":      {OperatorHost: "ops.taptime.mt"},
-		"only the TOTP KEK":  {OperatorTOTPKEK: randBytes(t, 32)},
-		"only the token key": {OperatorTokenHMACKey: randBytes(t, 32)},
-		"only the DSN":       {OperatorDatabaseURL: dsn},
+		"only the TOTP KEK":  {OperatorTOTPKEK: config.NewKey(randBytes(t, 32))},
+		"only the token key": {OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))},
+		"only the DSN":       {OperatorDatabaseURL: config.NewDSN(dsn)},
 	} {
 		var buf bytes.Buffer
 		log := slog.New(logHandler(&buf, &config.Config{LogLevel: "debug", LogFormat: config.LogFormatJSON}))
@@ -304,7 +304,7 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 // wrong size is refused there), and the CONFIGURED fact is logged with the host.
 func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 	cfg := &config.Config{
-		OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
+		OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt",
 	}
 	var buf bytes.Buffer
@@ -320,8 +320,8 @@ func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 		t.Errorf("the CONFIGURED fact was not logged with its host: %q", buf.String())
 	}
 	for _, short := range []func(*config.Config){
-		func(c *config.Config) { c.OperatorTOTPKEK = c.OperatorTOTPKEK[:16] },
-		func(c *config.Config) { c.OperatorTokenHMACKey = nil },
+		func(c *config.Config) { c.OperatorTOTPKEK = config.NewKey(c.OperatorTOTPKEK.Reveal()[:16]) },
+		func(c *config.Config) { c.OperatorTokenHMACKey = config.Key{} },
 	} {
 		c := *cfg
 		short(&c)
@@ -364,7 +364,7 @@ func totpCode(secret []byte, at time.Time) string {
 // value). A swap, or one key in both slots, would sign people in all the same and undo
 // the separation config.Load enforces; this is what sees it.
 func TestOperatorAuthenticator_EachKeyIsInItsOwnSlot(t *testing.T) {
-	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32)}
+	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))}
 	store := &enrollStore{}
 	auth, err := operatorAuthenticator(store, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -389,10 +389,10 @@ func TestOperatorAuthenticator_EachKeyIsInItsOwnSlot(t *testing.T) {
 		t.Fatalf("the enrollment did not complete: %v", err)
 	}
 
-	if _, err := sun.Open(cfg.OperatorTOTPKEK, id[:], store.sealed); err != nil {
+	if _, err := sun.Open(cfg.OperatorTOTPKEK.Reveal(), id[:], store.sealed); err != nil {
 		t.Error("the TOTP secret is not sealed under TAPPA_OPERATOR_TOTP_KEK")
 	}
-	if _, err := sun.Open(cfg.OperatorTokenHMACKey, id[:], store.sealed); err == nil {
+	if _, err := sun.Open(cfg.OperatorTokenHMACKey.Reveal(), id[:], store.sealed); err == nil {
 		t.Error("the TOTP secret opens under the token HMAC key")
 	}
 	rec := httptest.NewRecorder()
@@ -403,7 +403,7 @@ func TestOperatorAuthenticator_EachKeyIsInItsOwnSlot(t *testing.T) {
 	if len(cookies) != 1 {
 		t.Fatalf("%d cookies set, want the session cookie", len(cookies))
 	}
-	m := hmac.New(sha256.New, cfg.OperatorTokenHMACKey)
+	m := hmac.New(sha256.New, cfg.OperatorTokenHMACKey.Reveal())
 	_, _ = m.Write([]byte(cookies[0].Value))
 	if store.sessionHash != hex.EncodeToString(m.Sum(nil)) {
 		t.Error("the stored session hash is not HMAC-SHA256(TAPPA_OPERATOR_TOKEN_HMAC_KEY, the token)")
@@ -433,13 +433,14 @@ func TestOperatorSurface_TheRunbookGrepMatchesTheShippedLine(t *testing.T) {
 	} else {
 		closeFn()
 	}
-	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
+	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
 	if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, slog.New(logHandler(&on, shipped))); err != nil {
 		t.Fatal(err)
 	}
 	unreachable := *cfg
-	unreachable.OperatorDatabaseURL, _ = closedPortDSN(t)
+	unreachableDSN, _ := closedPortDSN(t)
+	unreachable.OperatorDatabaseURL = config.NewDSN(unreachableDSN)
 	if _, closeFn, err := openOperatorSurface(t.Context(), &unreachable, noTexts{}, noCheck{}, slog.New(logHandler(&unavailable, shipped))); err != nil {
 		t.Fatal(err)
 	} else {
@@ -501,7 +502,7 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	cfg := &config.Config{OperatorDatabaseURL: dsn, OperatorTOTPKEK: kek, OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt",
+	cfg := &config.Config{OperatorDatabaseURL: config.NewDSN(dsn), OperatorTOTPKEK: config.NewKey(kek), OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
 	refusals := 0
 	for _, log := range loggers {
@@ -513,7 +514,7 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 		refusals++
 		// A key of the wrong size, refused by operatorauth.New.
 		short := *cfg
-		short.OperatorTOTPKEK = kek[:16]
+		short.OperatorTOTPKEK = config.NewKey(kek[:16])
 		if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, &short, log); err == nil {
 			t.Fatal("a 16-byte TOTP KEK built a configured surface")
 		} else {
@@ -530,8 +531,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	}
 	if owner := os.Getenv("DATABASE_MIGRATE_URL"); owner != "" {
 		for _, log := range loggers {
-			_, _, err := openOperatorSurface(ctx, &config.Config{OperatorDatabaseURL: owner, OperatorTOTPKEK: kek,
-				OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt"}, noTexts{}, noCheck{}, log)
+			_, _, err := openOperatorSurface(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(owner), OperatorTOTPKEK: config.NewKey(kek),
+				OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt"}, noTexts{}, noCheck{}, log)
 			if err == nil {
 				t.Fatal("the owner's DSN opened the operator surface")
 			}

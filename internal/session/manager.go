@@ -121,12 +121,12 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("session: nil config")
 	}
-	if len(cfg.SessionHMACKey) != hmacKeyLen {
-		return nil, fmt.Errorf("session: hmac key must be %d bytes, got %d", hmacKeyLen, len(cfg.SessionHMACKey))
+	if cfg.SessionHMACKey.Len() != hmacKeyLen {
+		return nil, fmt.Errorf("session: hmac key must be %d bytes, got %d", hmacKeyLen, cfg.SessionHMACKey.Len())
 	}
 	return &Manager{
 		data:    data,
-		hmacKey: append([]byte(nil), cfg.SessionHMACKey...),
+		hmacKey: cfg.SessionHMACKey.Reveal(),
 	}, nil
 }
 

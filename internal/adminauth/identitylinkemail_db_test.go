@@ -203,7 +203,7 @@ func TestLinkByEmail_EveryRefusalLinksNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestVerification: %v", err)
 	}
-	verHash, err := ver.token.hash(m.linkKey)
+	verHash, err := ver.token.hash(m.linkKey.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,8 +228,8 @@ func TestLinkByEmail_EveryRefusalLinksNothing(t *testing.T) {
 	}
 	// The verification link, hashed as a link would be AND as itself, straight at the database: the
 	// purpose column refuses it (the key separation is the first wall, this the second).
-	sh, _ := tok.hash(m.hmacKey)
-	verOwn, _ := ver.token.hash(m.verifyKey)
+	sh, _ := tok.hash(m.hmacKey.Reveal())
+	verOwn, _ := ver.token.hash(m.verifyKey.Reveal())
 	for _, h := range []string{verHash, verOwn} {
 		if _, err := d.LinkByEmail(ctx, h, sh); err == nil {
 			t.Error("identity_link_by_email accepted a verification link's hash")

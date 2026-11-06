@@ -442,3 +442,47 @@ func TestSameOrigin_EveryGateRouteRefusesSameSiteBeforeItsWork(t *testing.T) {
 		}
 	})
 }
+
+// TestOriginOf_AMalformedBaseMatchesNoOrigin (backlog T5): config.Load refuses these values, so this
+// is the second gate, for a Config built without Load. The checks read originOf's result, and it
+// used to hand back the malformed base itself, so `Origin: /` passed on an empty base and an Origin
+// spelled like the junk passed on the junk.
+//
+// CONTROL: a well-formed base still matches its own origin, with and without its trailing slash.
+//
+// MUTANT (measured, 2026-11-06, reverted): originOf returning strings.TrimRight(base, "/") on the
+// malformed branch -- red on the empty base and on each spelled-like-the-base Origin.
+func TestOriginOf_AMalformedBaseMatchesNoOrigin(t *testing.T) {
+	checks := func(base string) map[string]func(*http.Request) bool {
+		o := originOf(base)
+		act, admin, sign, reset, dev := &Activation{baseURL: o}, &AdminAuth{baseURL: o}, &Signup{baseURL: o}, &AdminReset{baseURL: o}, &DevTap{baseURL: o}
+		return map[string]func(*http.Request) bool{
+			"activation": func(r *http.Request) bool { return act.sameOrigin(r, true) },
+			"panel":      admin.sameOrigin, "signup": sign.sameOrigin, "reset": reset.sameOrigin, "dev tap": dev.sameOrigin,
+		}
+	}
+	post := func(origin string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/", nil)
+		r.Header.Set("Origin", origin)
+		return r
+	}
+	for _, base := range []string{"", "/", " ", "not a url", "localhost:8080", "javascript:alert(1)", "//taptime.mt", "https://", "https:taptime.mt"} {
+		for name, check := range checks(base) {
+			for _, origin := range []string{"/", base, strings.TrimRight(base, "/"), "https://taptime.mt", "http://localhost:8080"} {
+				if origin == "" {
+					continue // the Origin-less branch reads fetch metadata, and says nothing about the base
+				}
+				if check(post(origin)) {
+					t.Errorf("%s: base %q passed Origin %q", name, base, origin)
+				}
+			}
+		}
+	}
+	for _, base := range []string{"https://taptime.mt", "https://taptime.mt/"} {
+		for name, check := range checks(base) {
+			if !check(post("https://taptime.mt")) {
+				t.Errorf("CONTROL: %s: base %q refused its own origin", name, base)
+			}
+		}
+	}
+}

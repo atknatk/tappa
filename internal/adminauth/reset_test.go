@@ -191,7 +191,7 @@ func TestResetToken_RefusesAWrongSizedKey(t *testing.T) {
 	if _, err := deriveResetKey(make([]byte, hmacKeyLen-1)); err == nil {
 		t.Fatal("deriveResetKey accepted a short session key")
 	}
-	if _, err := NewResets(nil, &config.Config{SessionHMACKey: make([]byte, hmacKeyLen)}); err == nil {
+	if _, err := NewResets(nil, &config.Config{SessionHMACKey: config.NewKey(make([]byte, hmacKeyLen))}); err == nil {
 		t.Fatal("NewResets accepted a nil database")
 	}
 }

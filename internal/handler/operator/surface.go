@@ -225,9 +225,9 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 // value that can disagree with the deployment it describes. A default port (443 for
 // https, 80 for http) is dropped: a browser serialises Origin without it.
 //
-// The base URL must parse with an http or https scheme -- config.Load does not check
-// its shape (the panel's sameOrigin carries that note), so the check is here, at
-// start-up, where a bad value refuses the boot.
+// The base URL must parse with an http or https scheme. config.Load refuses any other shape
+// (backlog T5), so this branch serves a base handed in without Load, and a bad value refuses
+// the boot here too.
 func operatorOrigin(baseURL, host string) (string, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {

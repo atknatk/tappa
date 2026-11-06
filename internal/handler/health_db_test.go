@@ -35,7 +35,7 @@ func TestReadyz_ARealDriverErrorNamesTheDeployment(t *testing.T) {
 	// Port 1 on the loopback: refused immediately, so this costs milliseconds. The
 	// user and database names are invented for this test.
 	_, err := db.New(ctx, &config.Config{
-		DatabaseURL: "postgres://readyz_probe_user:pw@127.0.0.1:1/readyz_probe_db?sslmode=disable",
+		DatabaseURL: config.NewDSN("postgres://readyz_probe_user:pw@127.0.0.1:1/readyz_probe_db?sslmode=disable"),
 	})
 	if err == nil {
 		t.Fatal("connecting to a closed port succeeded")
@@ -80,7 +80,7 @@ func TestReadyz_AgainstARealPool(t *testing.T) {
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping the readiness endpoint's real-pool test (real Postgres required)")
 	}
-	data, err := db.New(t.Context(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(t.Context(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

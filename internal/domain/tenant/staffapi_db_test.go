@@ -217,7 +217,7 @@ func (f *staffFixture) liveRef(t *testing.T, tenantID uuid.UUID, ref string) int
 func TestDeactivationBudget_ConcurrentLastSlotExactlyOne(t *testing.T) {
 	f := newStaffFixture(t)
 	// A pool wide enough for every racer, so none waits for a connection while the others race.
-	wide, err := db.New(context.Background(), &config.Config{DatabaseURL: withPoolSize(t, os.Getenv("DATABASE_URL"), 20)})
+	wide, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(withPoolSize(t, os.Getenv("DATABASE_URL"), 20))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestEmployeesPutDomain_LinkRehireAndNames(t *testing.T) {
 // losers fail with the 23505.
 func TestEmployeesPutDomain_ConcurrentNewRefOpensOneRow(t *testing.T) {
 	f := newStaffFixture(t)
-	wide, err := db.New(context.Background(), &config.Config{DatabaseURL: withPoolSize(t, os.Getenv("DATABASE_URL"), 12)})
+	wide, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(withPoolSize(t, os.Getenv("DATABASE_URL"), 12))})
 	if err != nil {
 		t.Fatal(err)
 	}

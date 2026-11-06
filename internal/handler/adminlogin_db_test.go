@@ -175,7 +175,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	// The rows below are COMMITTED: hold the operator-tables lock shared while this harness lives
 	// (holdPanelTablesLock says why and how).
 	releaseTablesLock := holdPanelTablesLock(t)
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(dsn)})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(withSmallPool(dsn))})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
@@ -197,12 +197,12 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 		// over plain http by net/http/cookiejar). The Secure-in-prod guarantee is
 		// proven separately and structurally in adminauth's cookie tests.
 		BaseURL:        srv.URL,
-		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
+		SessionHMACKey: config.NewKey([]byte("0123456789abcdef0123456789abcdef")),
 		// The invite key is SEPARATE from the session key in production and is
 		// separate here too: a fixture that shares one key would let a test pass
 		// while the two were conflated.
-		InviteHMACKey: []byte("fedcba9876543210fedcba9876543210"),
-		DatabaseURL:   dsn,
+		InviteHMACKey: config.NewKey([]byte("fedcba9876543210fedcba9876543210")),
+		DatabaseURL:   config.NewDSN(dsn),
 		AdminIdentity: o.adminIdentity,
 	}
 
@@ -367,7 +367,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	if err != nil {
 		t.Fatalf("session.New: %v", err)
 	}
-	activation, err := NewActivation(invites, sessions, sun.NewVerifier(data, cfg.TagKEK), trail, dbBrandReader(t, data), cfg, slog.New(slog.DiscardHandler))
+	activation, err := NewActivation(invites, sessions, sun.NewVerifier(data, cfg.TagKEK.Reveal()), trail, dbBrandReader(t, data), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}

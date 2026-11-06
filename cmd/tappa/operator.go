@@ -197,8 +197,8 @@ func configuredSurface(store operatorStore, texts operator.LegalTexts, vies vies
 // would quietly undo the separation config.Load enforces.
 func operatorAuthenticator(store operatorauth.Store, cfg *config.Config, log *slog.Logger) (*operatorauth.Authenticator, error) {
 	return operatorauth.New(store, operatorauth.Config{
-		TOTPKEK:      operatorauth.NewKey(cfg.OperatorTOTPKEK),
-		TokenHMACKey: operatorauth.NewKey(cfg.OperatorTokenHMACKey),
+		TOTPKEK:      operatorauth.NewKey(cfg.OperatorTOTPKEK.Reveal()),
+		TokenHMACKey: operatorauth.NewKey(cfg.OperatorTokenHMACKey.Reveal()),
 		Log:          log,
 	})
 }

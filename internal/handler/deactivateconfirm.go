@@ -305,10 +305,10 @@ func newAdminConfirm(cfg *config.Config) (adminConfirm, error) {
 	if cfg == nil {
 		return adminConfirm{}, errors.New("handler: nil config")
 	}
-	if len(cfg.SessionHMACKey) != 32 {
-		return adminConfirm{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d", len(cfg.SessionHMACKey))
+	if cfg.SessionHMACKey.Len() != 32 {
+		return adminConfirm{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d", cfg.SessionHMACKey.Len())
 	}
-	m := hmac.New(sha256.New, cfg.SessionHMACKey)
+	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(adminConfirmKeyLabel)) // hash writes never fail (documented)
 	return adminConfirm{key: m.Sum(nil), ttl: adminConfirmTTL}, nil
 }

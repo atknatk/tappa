@@ -174,7 +174,7 @@ func TestPin_TheStartupParameterOverridesARoleDefault(t *testing.T) {
 			"this test cannot show the pin overriding anything", got)
 	}
 
-	d, err := New(ctx, &config.Config{DatabaseURL: maintenance})
+	d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(maintenance)})
 	if err != nil {
 		t.Fatalf("New refused a pool whose startup parameter outranks the role default: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestPin_ADSNCannotUnpinIt(t *testing.T) {
 		if got := rawSetting(t, ctx, dsn); got != "-1" {
 			t.Fatalf("CONTROL FAILED: the DSN parameter does not reach a raw connection (%q)", got)
 		}
-		d, err := New(ctx, &config.Config{DatabaseURL: dsn})
+		d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 		if err != nil {
 			t.Fatalf("New refused a DSN the pin should simply overwrite: %v", err)
 		}
@@ -233,7 +233,7 @@ func TestPin_AConnectionTheParameterDidNotReachIsRefused(t *testing.T) {
 	defer cancel()
 
 	t.Run("customer pool at open", func(t *testing.T) {
-		d, err := newDB(ctx, &config.Config{DatabaseURL: app}, unpinAfterStartup)
+		d, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, unpinAfterStartup)
 		var np *logParameterNotPinnedError
 		if err == nil || !errors.As(err, &np) || np.Got != "-1" {
 			if d != nil {
@@ -245,7 +245,7 @@ func TestPin_AConnectionTheParameterDidNotReachIsRefused(t *testing.T) {
 			t.Fatal("the customer pool refused AND returned a pool")
 		}
 		// CONTROL: the same path without the late SET opens.
-		ok, err := newDB(ctx, &config.Config{DatabaseURL: app}, nil)
+		ok, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, nil)
 		if err != nil {
 			t.Fatalf("CONTROL FAILED: the customer pool does not open at all: %v", err)
 		}
@@ -279,7 +279,7 @@ func TestPin_AConnectionTheParameterDidNotReachIsRefused(t *testing.T) {
 			}
 			return nil
 		}
-		d, err := newDB(ctx, &config.Config{DatabaseURL: app}, laterUnpinned)
+		d, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, laterUnpinned)
 		if err != nil {
 			t.Fatalf("the first connection was clean, yet the pool did not open: %v", err)
 		}
@@ -480,7 +480,7 @@ func TestOperatorDB_RefusesEveryRoleButTappaOperator(t *testing.T) {
 			{"the owner wearing role=tappa_operator", forged, `current_user="tappa_operator"`},
 		} {
 			t.Run(env+"/"+tc.name, func(t *testing.T) {
-				o, err := NewOperatorDB(ctx, &config.Config{Env: env, OperatorDatabaseURL: tc.dsn})
+				o, err := NewOperatorDB(ctx, &config.Config{Env: env, OperatorDatabaseURL: config.NewDSN(tc.dsn)})
 				if err == nil {
 					o.Close()
 					t.Fatalf("NewOperatorDB opened a pool for %s with TAPPA_ENV=%s", tc.name, env)
@@ -512,7 +512,7 @@ func TestOperatorDB_RefusesEveryRoleButTappaOperator(t *testing.T) {
 
 	t.Run("no DSN, a malformed DSN", func(t *testing.T) {
 		for _, dsn := range []string{"", "postgres://tappa_operator@127.0.0.1:notaport/tappa"} {
-			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: dsn})
+			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(dsn)})
 			if err == nil || o != nil {
 				t.Fatalf("a %d-byte DSN opened a pool", len(dsn))
 			}
@@ -795,7 +795,7 @@ func TestOperatorDB_UnreachabilityIsMarkedAndNothingElseIs(t *testing.T) {
 		{"a database that does not exist", missingDB.String(), "SQLSTATE 3D000"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: tc.dsn})
+			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(tc.dsn)})
 			if err == nil {
 				o.Close()
 				t.Fatal("opened")
@@ -808,7 +808,7 @@ func TestOperatorDB_UnreachabilityIsMarkedAndNothingElseIs(t *testing.T) {
 	t.Run("a context that is already over", func(t *testing.T) {
 		done, stop := context.WithCancel(ctx)
 		stop()
-		o, err := NewOperatorDB(done, &config.Config{OperatorDatabaseURL: owner})
+		o, err := NewOperatorDB(done, &config.Config{OperatorDatabaseURL: config.NewDSN(owner)})
 		if err == nil {
 			o.Close()
 			t.Fatal("opened on a cancelled context")
@@ -975,7 +975,7 @@ func TestOperatorDB_RefusalsCarryNoConnectionString(t *testing.T) {
 		{"unreachable, keyword/value", "host=127.0.0.1 port=1 user=" + user + " dbname=" + dbname + " password=" + password + " sslmode=disable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: tc.dsn})
+			o, err := NewOperatorDB(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(tc.dsn)})
 			if err == nil {
 				o.Close()
 				t.Fatal("the constructor opened a pool on a DSN that cannot work")

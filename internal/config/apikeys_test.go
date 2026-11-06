@@ -47,8 +47,8 @@ func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
 		if err != nil {
 			t.Fatalf("eight distinct keys must load: %v", err)
 		}
-		if len(c.APIKeyHMACKey) != 32 || len(c.WebhookKEK) != 32 {
-			t.Fatalf("the API key's HMAC key is %d bytes and the webhook KEK %d, want 32 and 32", len(c.APIKeyHMACKey), len(c.WebhookKEK))
+		if c.APIKeyHMACKey.Len() != 32 || c.WebhookKEK.Len() != 32 {
+			t.Fatalf("the API key's HMAC key is %d bytes and the webhook KEK %d, want 32 and 32", c.APIKeyHMACKey.Len(), c.WebhookKEK.Len())
 		}
 	})
 	pairs := 0
@@ -96,8 +96,8 @@ func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
 		setEveryKeyDistinct(t)
 		t.Setenv("TAPPA_WEBHOOK_KEK", "")
 		c, err := config.Load()
-		if err != nil || c.WebhookKEK != nil {
-			t.Fatalf("an unset webhook KEK: %v, %d bytes; want a load and nil", err, len(c.WebhookKEK))
+		if err != nil || c.WebhookKEK.Len() > 0 {
+			t.Fatalf("an unset webhook KEK: %v, %d bytes; want a load and nil", err, c.WebhookKEK.Len())
 		}
 		t.Setenv("TAPPA_WEBHOOK_KEK", base64.StdEncoding.EncodeToString(make([]byte, 31)))
 		if _, err := config.Load(); err == nil || !strings.Contains(err.Error(), "TAPPA_WEBHOOK_KEK") {

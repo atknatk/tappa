@@ -91,7 +91,7 @@ func New(ctx context.Context, cfg *config.Config) (*DB, error) {
 // passes nil; this package's tests use it to change the setting after startup, the
 // one way to reach the read-back's refusal while the startup parameter is in place.
 func newDB(ctx context.Context, cfg *config.Config, before func(context.Context, *pgx.Conn) error) (*DB, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL.Reveal())
 	if err != nil {
 		// pgx's parse error is NOT wrapped (M10 OP-7, 2nd round): it quotes the connection
 		// string through pgconn's redactPW, which hides a password only in a URL's
@@ -364,6 +364,10 @@ const RoleRiskWhy = "PostgreSQL skips row level security for a superuser and for
 	"as itself -- no role= startup parameter); " +
 	"migrations are the only thing that uses the owner role"
 
+// applicationRole is the one role a production customer pool may be (roleRefusal; the role is
+// defined in scripts/db-init/01-roles.sql).
+const applicationRole = "tappa_app"
+
 // roleRefusal decides whether the role this pool connected as is allowed to serve
 // traffic. A non-nil error is a refusal, and New turns it into a closed pool.
 //
@@ -389,13 +393,29 @@ const RoleRiskWhy = "PostgreSQL skips row level security for a superuser and for
 // seed, psql), and a tool that refuses to start in development is a tool somebody
 // routes around; a production process that cannot enforce tenant isolation must not
 // answer a single request.
+//
+// 🔴 AND PRODUCTION ALSO REFUSES EVERY OTHER ROLE, HOWEVER HARMLESS (backlog T82). The facts above
+// answer "can this role reach past RLS", and an unprivileged role answers no: DATABASE_URL naming
+// tappa_operator passes them, the process boots and turns healthy, and the first tenant query
+// answers 42501. Every GRANT and policy in the migrations names tappa_app, so no other role can
+// serve this product. Failing at the rollout keeps the old pods up; failing at the first request
+// does not. Outside production nothing changes: a development pool may be any role, and the owner's
+// warning in cmd/tappa is still the channel there.
 func roleRefusal(f RoleFacts, isProd bool) error {
-	if !f.Privileged() || !isProd {
+	if !isProd {
 		return nil
 	}
-	return fmt.Errorf("db: role %q (session_user %q) has rolsuper=%v rolbypassrls=%v owns_or_can_become_owner_of_an_rls_table=%v "+
-		"member_of_a_superuser_or_bypassrls_role=%v member_of_any_role=%v signed_in_as_another_role=%v: %s",
-		f.User, f.Session, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, f.MemberOfARole, f.switchedRole(), RoleRiskWhy)
+	if f.Privileged() {
+		return fmt.Errorf("db: role %q (session_user %q) has rolsuper=%v rolbypassrls=%v owns_or_can_become_owner_of_an_rls_table=%v "+
+			"member_of_a_superuser_or_bypassrls_role=%v member_of_any_role=%v signed_in_as_another_role=%v: %s",
+			f.User, f.Session, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, f.MemberOfARole, f.switchedRole(), RoleRiskWhy)
+	}
+	if f.User != applicationRole {
+		return fmt.Errorf("db: role %q (session_user %q) cannot serve this product: DATABASE_URL must sign in as %s, the role "+
+			"every grant and row level security policy names; on any other role the first tenant query fails with 42501",
+			f.User, f.Session, applicationRole)
+	}
+	return nil
 }
 
 // Tenant resolution (ADR 0002 madde 7) is intentionally NOT provided here.

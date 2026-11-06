@@ -317,9 +317,8 @@ var _ ResetDatabase = (*db.DB)(nil)
 // struct fields (§7); there is no package-level state.
 type Resets struct {
 	data ResetDatabase
-	// hmacKey is this flow's DERIVED key, held privately so a later mutation of the
-	// caller's config slice cannot change how tokens hash.
-	hmacKey []byte
+	// hmacKey is this flow's DERIVED key, a config.Key for Manager.hmacKey's reason (backlog T80).
+	hmacKey config.Key
 	// ttl is how long an issued token lives. A field rather than the constant so a
 	// test can build an already-expired token without sleeping; production always
 	// gets ResetTTL from NewResets.
@@ -352,11 +351,11 @@ func NewResets(data ResetDatabase, cfg *config.Config) (*Resets, error) {
 	if cfg == nil {
 		return nil, errors.New("adminauth: nil config")
 	}
-	key, err := deriveResetKey(cfg.SessionHMACKey)
+	key, err := deriveResetKey(cfg.SessionHMACKey.Reveal())
 	if err != nil {
 		return nil, err
 	}
-	return &Resets{data: data, hmacKey: key, ttl: ResetTTL, now: time.Now, digest: Hash}, nil
+	return &Resets{data: data, hmacKey: config.NewKey(key), ttl: ResetTTL, now: time.Now, digest: Hash}, nil
 }
 
 // Reset is the stored record of one reset request. It carries no token and no hash --
@@ -492,7 +491,7 @@ func (r *Resets) newHashedToken() (ResetToken, string, error) {
 	if err != nil {
 		return ResetToken{}, "", err
 	}
-	h, err := t.hash(r.hmacKey)
+	h, err := t.hash(r.hmacKey.Reveal())
 	if err != nil {
 		return ResetToken{}, "", err
 	}
@@ -622,7 +621,7 @@ type ConsumedReset struct {
 // So §4.6's coverage of this flow is a PHASE B OBLIGATION, written down here rather
 // than assumed, and it is not satisfied by anything in this file.
 func (r *Resets) Consume(ctx context.Context, t ResetToken, newPassword string) (ConsumedReset, db.ResolvedPasswordReset, error) {
-	h, err := t.hash(r.hmacKey)
+	h, err := t.hash(r.hmacKey.Reveal())
 	if err != nil {
 		// A malformed value and an unknown one are the same answer (§4.7: the error
 		// must not quote the value, and errResetMalformed does not).

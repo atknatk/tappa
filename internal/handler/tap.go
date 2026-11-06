@@ -90,7 +90,7 @@ type Tap struct {
 	devTools bool
 	// baseURL is this deployment's own origin, for the Origin check on the POST
 	// (checkin.go). Reduced to scheme://host at construction, the way an Origin
-	// header is written, so a BaseURL with a path still compares.
+	// header is written, so a BaseURL's trailing slash still compares.
 	baseURL string
 	// brandWait bounds the confirmation screen's brand read: resultBrandWait
 	// (checkin.go), a field so a test can shorten it.

@@ -92,7 +92,7 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if len(auths) != 1 || len(calls(open, "apikey", "NewAuthenticator")) != 1 {
 		t.Fatalf("apikey.NewAuthenticator is called %d times in api.go, want once, in openAPISurface", len(auths))
 	}
-	if a := auths[0].Args; len(a) < 2 || !isIdent(a[0], "apiKeyPrefix") || !isSel(a[1], "cfg", "APIKeyHMACKey") {
+	if a := auths[0].Args; len(a) < 2 || !isIdent(a[0], "apiKeyPrefix") || !isSel(revealed(a[1]), "cfg", "APIKeyHMACKey") {
 		t.Fatal("the chain is not built with apiKeyPrefix and cfg.APIKeyHMACKey -- the panel's two arguments")
 	}
 	news := calls(apiFile, "api", "New")
@@ -478,4 +478,18 @@ func TestAPIWiring_TheSuspensionReaderFollowsTheColumn(t *testing.T) {
 	if w := put(); w.Code != http.StatusCreated || venues() != 1 {
 		t.Fatalf("lifted, through the shipped surface: %d %s, %d venue(s); want 201 and one", w.Code, w.Body.String(), venues())
 	}
+}
+
+// revealed is the x of a call x.Reveal(), or nil for anything else: config's secrets reach their
+// readers through Reveal (secret.go, backlog T80), so that call is what a wiring test looks through.
+func revealed(e ast.Expr) ast.Expr {
+	c, ok := e.(*ast.CallExpr)
+	if !ok || len(c.Args) != 0 {
+		return nil
+	}
+	s, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok || s.Sel.Name != "Reveal" {
+		return nil
+	}
+	return s.X
 }

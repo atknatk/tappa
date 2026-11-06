@@ -173,7 +173,7 @@ const rowBucketLabel = "tappa/admin-account-row-bucket/v1|"
 
 // rowBucket is an unlinked row's own bucket: an opaque MAC of the row's id (no id in a limiter key).
 func (m *Manager) rowBucket(s Resolved) string {
-	h := hmac.New(sha256.New, m.hmacKey)
+	h := hmac.New(sha256.New, m.hmacKey.Reveal())
 	_, _ = h.Write([]byte(rowBucketLabel + s.TenantID.String() + "|" + s.AdminUserID.String())) // hash writes never fail
 	return "row:" + base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
@@ -191,7 +191,7 @@ func (m *Manager) RequestVerification(ctx context.Context, s Resolved, current T
 	if ident.EmailVerifiedAt != nil {
 		return IssuedVerification{}, ErrAlreadyVerified
 	}
-	sh, err := current.hash(m.hmacKey)
+	sh, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return IssuedVerification{}, ErrNoSession
@@ -202,7 +202,7 @@ func (m *Manager) RequestVerification(ctx context.Context, s Resolved, current T
 	if err != nil {
 		return IssuedVerification{}, fmt.Errorf("adminauth: request verification: %w", err)
 	}
-	h, err := t.hash(m.verifyKey)
+	h, err := t.hash(m.verifyKey.Reveal())
 	if err != nil {
 		return IssuedVerification{}, fmt.Errorf("adminauth: request verification: %w", err)
 	}
@@ -222,14 +222,14 @@ func (m *Manager) RequestVerification(ctx context.Context, s Resolved, current T
 // identity's first verification (a first_verify window opened). ErrVerificationRefused is its one
 // refusal: a click from a browser without a live session of the link's identity verifies nothing.
 func (m *Manager) VerifyEmail(ctx context.Context, raw string, current Token) (bool, error) {
-	h, err := wrap(raw).hash(m.verifyKey)
+	h, err := wrap(raw).hash(m.verifyKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return false, ErrVerificationRefused
 		}
 		return false, fmt.Errorf("adminauth: verify e-mail: %w", err)
 	}
-	sh, err := current.hash(m.hmacKey)
+	sh, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return false, ErrVerificationRefused
@@ -275,7 +275,7 @@ type Window struct {
 
 // ConfirmWindow reads the window of the person behind the cookie's session. It writes nothing.
 func (m *Manager) ConfirmWindow(ctx context.Context, current Token) (Window, error) {
-	h, err := current.hash(m.hmacKey)
+	h, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return Window{}, ErrNoSession
@@ -317,7 +317,7 @@ func (m *Manager) ConfirmWindow(ctx context.Context, current Token) (Window, err
 // a LIVE session, no password (the user's decision of 2026-10-27; its accepted risk is ADR 0031
 // §5.8's note of that day). ErrWindowRefused when no window is open.
 func (m *Manager) KeepAll(ctx context.Context, current Token) error {
-	h, err := current.hash(m.hmacKey)
+	h, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return ErrNoSession
@@ -603,7 +603,7 @@ func (m *Manager) RequestLink(ctx context.Context, s Resolved, current Token) (I
 	if !add {
 		return IssuedLink{}, ErrNothingToAdd
 	}
-	sh, err := current.hash(m.hmacKey)
+	sh, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return IssuedLink{}, ErrNoSession
@@ -614,7 +614,7 @@ func (m *Manager) RequestLink(ctx context.Context, s Resolved, current Token) (I
 	if err != nil {
 		return IssuedLink{}, fmt.Errorf("adminauth: request link: %w", err)
 	}
-	h, err := t.hash(m.linkKey)
+	h, err := t.hash(m.linkKey.Reveal())
 	if err != nil {
 		return IssuedLink{}, fmt.Errorf("adminauth: request link: %w", err)
 	}
@@ -643,14 +643,14 @@ type LinkedBusinesses struct {
 // on the GET that carried it) and links every business of the identity's address (00084). ErrLinkRefused
 // is its one refusal.
 func (m *Manager) LinkByEmail(ctx context.Context, raw string, current Token) (LinkedBusinesses, error) {
-	h, err := wrap(raw).hash(m.linkKey)
+	h, err := wrap(raw).hash(m.linkKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return LinkedBusinesses{}, ErrLinkRefused
 		}
 		return LinkedBusinesses{}, fmt.Errorf("adminauth: link by e-mail: %w", err)
 	}
-	sh, err := current.hash(m.hmacKey)
+	sh, err := current.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			return LinkedBusinesses{}, ErrLinkRefused

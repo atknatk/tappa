@@ -180,8 +180,8 @@ func tapCfg() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
 		BaseURL:        "http://localhost:8080",
-		SessionHMACKey: []byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"),
-		InviteHMACKey:  []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
+		SessionHMACKey: config.NewKey([]byte("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")),
+		InviteHMACKey:  config.NewKey([]byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")),
 		RetentionYears: 2,
 	}
 }

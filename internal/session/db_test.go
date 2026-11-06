@@ -34,7 +34,7 @@ func appDB(t *testing.T) *db.DB {
 	if raw == "" {
 		t.Skip("DATABASE_URL not set; skipping session DB tests (real Postgres required -- CLAUDE.md §8)")
 	}
-	d, err := db.New(context.Background(), &config.Config{DatabaseURL: raw})
+	d, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestVerify_UnknownAndWrongKey(t *testing.T) {
 	}
 
 	otherCfg := testConfig("dev", "")
-	otherCfg.SessionHMACKey = fakeHMACKey2
+	otherCfg.SessionHMACKey = config.NewKey(fakeHMACKey2)
 	other, err := New(d, otherCfg)
 	if err != nil {
 		t.Fatalf("New (other key): %v", err)

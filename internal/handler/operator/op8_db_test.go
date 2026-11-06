@@ -702,7 +702,7 @@ func TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue(t *testing.T) {
 	}
 
 	// The customer side, for real.
-	cfg := &config.Config{Env: "dev", DatabaseURL: app, SessionHMACKey: randBytes(t, 32), BaseURL: "http://localhost:8080"}
+	cfg := &config.Config{Env: "dev", DatabaseURL: config.NewDSN(app), SessionHMACKey: config.NewKey(randBytes(t, 32)), BaseURL: "http://localhost:8080"}
 	data, err := db.New(g.ctx, cfg)
 	if err != nil {
 		t.Fatalf("customer pool: %v", err)

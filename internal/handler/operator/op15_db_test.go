@@ -43,7 +43,7 @@ import (
 // its id and name.
 func suspensionFixture(t *testing.T, l *legalE2E) (uuid.UUID, string) {
 	t.Helper()
-	app, err := db.New(l.ctx, &config.Config{DatabaseURL: os.Getenv("DATABASE_URL")})
+	app, err := db.New(l.ctx, &config.Config{DatabaseURL: config.NewDSN(os.Getenv("DATABASE_URL"))})
 	if err != nil {
 		t.Fatalf("tappa_app's pool: %v", err)
 	}

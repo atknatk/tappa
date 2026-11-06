@@ -318,7 +318,7 @@ func (m *Manager) openIdentitySession(ctx context.Context, v verifiedIdentity, w
 	if err != nil {
 		return Issued{}, "", err
 	}
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return Issued{}, "", err
 	}
@@ -348,7 +348,7 @@ func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid
 	if err != nil {
 		return proofSession{}, err
 	}
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return proofSession{}, err
 	}

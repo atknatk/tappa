@@ -248,7 +248,7 @@ func raceDB(t *testing.T) *DB {
 		}
 		raw += sep + "pool_max_conns=" + strconv.Itoa(raceInviteGoroutines+4)
 	}
-	d, err := New(context.Background(), &config.Config{DatabaseURL: raw})
+	d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(raw)})
 	if err != nil {
 		t.Fatalf("New(race pool): %v", err)
 	}

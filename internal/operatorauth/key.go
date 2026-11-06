@@ -22,11 +22,11 @@ import (
 // array, a slice, a struct or a map only): it prints as an address.
 //
 // There is no exported accessor. The operator's two keys sit in internal/config's Config
-// as raw []byte like every other key there (internal/db imports internal/config, so
-// config cannot import this package and cannot hold a Key); OP-7's start-up refusal
-// "these keys differ from every other key" runs there, on the raw values
-// (config.keySeparation's precedent), and cmd/tappa's wiring converts them with NewKey.
-// Nothing outside this package needs to read a Key back.
+// as config.Key, the same pattern with a Reveal (internal/db imports internal/config, so
+// config cannot import this package and cannot hold THIS Key; backlog T80); OP-7's start-up
+// refusal "these keys differ from every other key" runs there (config.keySeparation's
+// precedent), and cmd/tappa's wiring converts them with NewKey. Nothing outside this
+// package needs to read a Key back.
 type Key struct{ v *string }
 
 const keyRedacted = "operatorauth.Key(redacted)"

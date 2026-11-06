@@ -245,11 +245,11 @@ func newSignupState(cfg *config.Config) (signupState, error) {
 	if cfg == nil {
 		return signupState{}, errors.New("handler: nil config")
 	}
-	if len(cfg.SessionHMACKey) != 32 {
+	if cfg.SessionHMACKey.Len() != 32 {
 		return signupState{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d",
-			len(cfg.SessionHMACKey))
+			cfg.SessionHMACKey.Len())
 	}
-	m := hmac.New(sha256.New, cfg.SessionHMACKey)
+	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(signupKeyLabel)) // hash writes never fail (documented)
 	return signupState{key: m.Sum(nil), ttl: signupTTL}, nil
 }

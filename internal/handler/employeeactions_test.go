@@ -755,7 +755,7 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	// whole file exists for.
 	otherKey, err := newAdminConfirm(&config.Config{
 		Env: config.EnvDev, BaseURL: testBaseURL,
-		SessionHMACKey: []byte("ffffffffffffffffffffffffffffffff"),
+		SessionHMACKey: config.NewKey([]byte("ffffffffffffffffffffffffffffffff")),
 	})
 	if err != nil {
 		t.Fatalf("newAdminConfirm(other key): %v", err)

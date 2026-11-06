@@ -80,6 +80,24 @@ func TestRoleRefusal(t *testing.T) {
 			isProd: true,
 		},
 		{
+			// T82: nothing here reaches past RLS, and nothing here can serve a request: 42501.
+			name:       "the operator role in production -- unprivileged and still the wrong role",
+			facts:      RoleFacts{User: "tappa_operator", Session: "tappa_operator"},
+			isProd:     true,
+			wantRefuse: true,
+		},
+		{
+			name:       "an unprivileged role of any other name in production",
+			facts:      RoleFacts{User: "reporting", Session: "reporting"},
+			isProd:     true,
+			wantRefuse: true,
+		},
+		{
+			name:   "the operator role outside production -- development opens any role",
+			facts:  RoleFacts{User: "tappa_operator", Session: "tappa_operator"},
+			isProd: false,
+		},
+		{
 			name:       "every attribute at once",
 			facts:      RoleFacts{User: "tappa_owner", Super: true, BypassRLS: true, OwnsScopedTable: true, InheritsPrivilege: true},
 			isProd:     true,
@@ -219,7 +237,7 @@ func TestNewRefusesAPrivilegedRoleInProduction(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			d, err := New(context.Background(), &config.Config{DatabaseURL: tc.dsn, Env: tc.env})
+			d, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(tc.dsn), Env: tc.env})
 			if d != nil {
 				t.Cleanup(d.Close)
 			}
@@ -244,6 +262,79 @@ func TestNewRefusesAPrivilegedRoleInProduction(t *testing.T) {
 	}
 }
 
+// TestNewRefusesAnyRoleButTheApplicationRoleInProduction is T82 against a real server: a role that
+// clears every privilege fact and cannot serve a single tenant query. tappa_operator is born NOLOGIN,
+// so the connection signs in as the owner and SET SESSION AUTHORIZATION moves both identities, the
+// way openOperatorDB's tests reach it; every other step is New's.
+//
+// CONTROLS: the same connection on TAPPA_ENV=dev opens and reports the role with no privilege fact,
+// so the refusal is the new rule's and not the older one's; the application role opens on prod; the
+// superuser keeps its own message in prod and still opens in dev.
+//
+// MUTANT (measured, 2026-11-06, reverted): the `f.User != applicationRole` branch removed -- red.
+func TestNewRefusesAnyRoleButTheApplicationRoleInProduction(t *testing.T) {
+	appDSN, ownerDSN := os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_MIGRATE_URL")
+	if appDSN == "" || ownerDSN == "" {
+		t.Skip("DATABASE_URL and DATABASE_MIGRATE_URL are both required (real Postgres required)")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	asOperator := func(ctx context.Context, c *pgx.Conn) error {
+		_, err := c.Exec(ctx, "SET SESSION AUTHORIZATION tappa_operator")
+		return err
+	}
+	ownerCfg := func(env string) *config.Config {
+		return &config.Config{DatabaseURL: config.NewDSN(ownerDSN), Env: env}
+	}
+
+	d, err := newDB(ctx, ownerCfg(config.EnvProd), asOperator)
+	if err == nil {
+		d.Close()
+		t.Fatal("New opened a production pool as tappa_operator; its first tenant query would answer 42501")
+	}
+	for _, want := range []string{`role "tappa_operator"`, `session_user "tappa_operator"`, "must sign in as tappa_app"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	for _, leak := range []string{"postgres://", "password=", "DATABASE_URL=", ownerDSN} {
+		if strings.Contains(err.Error(), leak) {
+			t.Errorf("the refusal carries %q; a DSN holds a password (CLAUDE.md §4.7)", "a DSN form")
+		}
+	}
+	if strings.Contains(err.Error(), "rolsuper=") {
+		t.Errorf("this is the privilege refusal, not the role refusal; the test no longer reaches the new rule: %v", err)
+	}
+
+	dev, err := newDB(ctx, ownerCfg(config.EnvDev), asOperator)
+	if err != nil {
+		t.Fatalf("development refused a pool on an unprivileged role: %v", err)
+	}
+	f := dev.RoleFacts()
+	dev.Close()
+	if f.User != "tappa_operator" || f.Session != "tappa_operator" || f.Privileged() {
+		t.Fatalf("CONTROL: the connection is not the unprivileged operator role: %+v", f)
+	}
+
+	app, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(appDSN), Env: config.EnvProd})
+	if err != nil {
+		t.Fatalf("production refused the application role, which is every deployment: %v", err)
+	}
+	app.Close()
+
+	if d, err := New(ctx, ownerCfg(config.EnvProd)); err == nil {
+		d.Close()
+		t.Error("production opened the superuser")
+	} else if !strings.Contains(err.Error(), "rolsuper=true") {
+		t.Errorf("the superuser's refusal changed: %v", err)
+	}
+	owner, err := New(ctx, ownerCfg(config.EnvDev))
+	if err != nil {
+		t.Fatalf("development refused the owner, which it opens for migrations and seeds: %v", err)
+	}
+	owner.Close()
+}
+
 // TestReadRoleSeesTheOwnerAndTheApplicationRoleDifferently is the positive control
 // for the measurement itself: a probe that answered "not privileged" for everything
 // would make the gate above green for the wrong reason.
@@ -261,12 +352,12 @@ func TestReadRoleSeesTheOwnerAndTheApplicationRoleDifferently(t *testing.T) {
 		t.Skip("DATABASE_URL and DATABASE_MIGRATE_URL are both required; skipping the role measurement (real Postgres required)")
 	}
 
-	app, err := New(context.Background(), &config.Config{DatabaseURL: appDSN})
+	app, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(appDSN)})
 	if err != nil {
 		t.Fatalf("New(application role): %v", err)
 	}
 	t.Cleanup(app.Close)
-	owner, err := New(context.Background(), &config.Config{DatabaseURL: ownerDSN})
+	owner, err := New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(ownerDSN)})
 	if err != nil {
 		t.Fatalf("New(owner role): %v", err)
 	}

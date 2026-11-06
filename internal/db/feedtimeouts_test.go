@@ -54,7 +54,7 @@ func TestFeedTimeouts_ShownAtStartup(t *testing.T) {
 		"a DSN asking for no idle timeout and no keepalives": withParam(withParam(app, "idle_in_transaction_session_timeout", "0"),
 			"tcp_keepalives_idle", "0"),
 	} {
-		d, err := New(ctx, &config.Config{DatabaseURL: dsn})
+		d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(dsn)})
 		if err != nil {
 			t.Fatalf("%s: New: %v", what, err)
 		}
@@ -73,7 +73,7 @@ func TestFeedTimeouts_ShownAtStartup(t *testing.T) {
 		_, err := c.Exec(ctx, `SET idle_in_transaction_session_timeout = 0`)
 		return err
 	}
-	d, err := newDB(ctx, &config.Config{DatabaseURL: app}, unset)
+	d, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, unset)
 	var ns *FeedTimeoutsNotSetError
 	if err == nil || !errors.As(err, &ns) || ns.Name != "idle_in_transaction_session_timeout" || ns.Got != "0" {
 		if d != nil {
@@ -84,7 +84,7 @@ func TestFeedTimeouts_ShownAtStartup(t *testing.T) {
 	if d != nil {
 		t.Fatal("the pool refused AND returned a pool")
 	}
-	ok, err := newDB(ctx, &config.Config{DatabaseURL: app}, nil)
+	ok, err := newDB(ctx, &config.Config{DatabaseURL: config.NewDSN(app)}, nil)
 	if err != nil {
 		t.Fatalf("CONTROL: the pool does not open at all: %v", err)
 	}

@@ -1294,7 +1294,7 @@ func TestOperator00026_RestoreResidueReadsNothing(t *testing.T) {
 }
 
 // TestOperator00026_OperatorRoleIsNotPrivileged drives the SHIPPED boot probe
-// (roleFactsQuery) as tappa_operator: the role must pass the production pool's refusal
+// (roleFactsQuery) as tappa_operator: the role must reach past no row level security
 // (ADR 0021 §1), and it must stop passing the moment it becomes a member of
 // tappa_opdefiner -- which is the structural brake the ADR relies on.
 func TestOperator00026_OperatorRoleIsNotPrivileged(t *testing.T) {
@@ -1317,8 +1317,10 @@ func TestOperator00026_OperatorRoleIsNotPrivileged(t *testing.T) {
 	if f.Privileged() {
 		t.Fatalf("RoleFacts.Privileged() = true for tappa_operator (%+v); a production OperatorDB would refuse to open", f)
 	}
-	if roleRefusal(f, true) != nil {
-		t.Fatalf("roleRefusal refuses tappa_operator in production: %v", roleRefusal(f, true))
+	// Privileged is what the operator pool's gate reads. The customer pool does refuse this role in
+	// production, by name and not for any reach past RLS (roleRefusal, backlog T82).
+	if err := roleRefusal(f, true); err == nil || !strings.Contains(err.Error(), "must sign in as tappa_app") {
+		t.Fatalf("roleRefusal on tappa_operator in production: %v, want the wrong-role refusal", err)
 	}
 
 	// POSITIVE CONTROL: membership in the BYPASSRLS definer is one SET ROLE away from

@@ -21,7 +21,7 @@ import (
 func budgetClaims(t *testing.T, w *idWorld) (*SignupClaims, func() SignupClaim) {
 	t.Helper()
 	d := testDB(t)
-	s, err := NewSignupClaims(d, &config.Config{SessionHMACKey: []byte(strings.Repeat("b", 32))})
+	s, err := NewSignupClaims(d, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("b", 32)))})
 	if err != nil {
 		t.Fatal(err)
 	}

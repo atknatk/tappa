@@ -49,7 +49,7 @@ func newAPIKeysDBFixture(t *testing.T) *apiKeysDBFixture {
 	if dsn == "" || owner == "" {
 		t.Skip("DATABASE_URL / DATABASE_MIGRATE_URL not set; skipping the API keys section's end-to-end tests")
 	}
-	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: config.NewDSN(dsn)})
 	if err != nil {
 		t.Fatalf("db.New: %v", err)
 	}

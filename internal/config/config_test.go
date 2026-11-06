@@ -55,9 +55,10 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
-	t.Setenv("TAPPA_DEV_TOOLS", "")   // off unless a test opts in
-	t.Setenv("TAPPA_ENV", fixtureEnv) // unset -> default dev (the sandbox build: sandbox)
-	t.Setenv("TAPPA_API_HOST", "")    // the integration API off (M11 API-4) unless a test opts in
+	t.Setenv("TAPPA_DEV_TOOLS", "")                    // off unless a test opts in
+	t.Setenv("TAPPA_ENV", fixtureEnv)                  // unset -> default dev (the sandbox build: sandbox)
+	t.Setenv("TAPPA_BASE_URL", "https://fixture.test") // prod and sandbox refuse the dev default
+	t.Setenv("TAPPA_API_HOST", "")                     // the integration API off (M11 API-4) unless a test opts in
 	// The business-day switch (ADR 0032 §A.8) is OPTIONAL and off unless a test opts in, cleared
 	// for TAPPA_TAG_KEK_PREVIOUS's reason: an ambient value would decide whether Load refuses.
 	t.Setenv(config.EnvBusinessDayFrom, "")
@@ -99,8 +100,8 @@ func TestLoad_InviteKeyMustDifferFromSessionKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("distinct keys must load: %v", err)
 	}
-	if len(c.InviteHMACKey) != 32 {
-		t.Errorf("invite key length = %d, want 32", len(c.InviteHMACKey))
+	if c.InviteHMACKey.Len() != 32 {
+		t.Errorf("invite key length = %d, want 32", c.InviteHMACKey.Len())
 	}
 }
 
@@ -581,12 +582,12 @@ func TestLoad_PreviousTagKEKIsOptionalButValidatedWhenSet(t *testing.T) {
 			if err != nil {
 				t.Fatalf("this configuration must load: %v", err)
 			}
-			if len(c.TagKEKPrevious) != tc.wantLen {
-				t.Fatalf("TagKEKPrevious is %d bytes, want %d", len(c.TagKEKPrevious), tc.wantLen)
+			if c.TagKEKPrevious.Len() != tc.wantLen {
+				t.Fatalf("TagKEKPrevious is %d bytes, want %d", c.TagKEKPrevious.Len(), tc.wantLen)
 			}
 			// The primary is never disturbed by the optional one.
-			if len(c.TagKEK) != 32 {
-				t.Fatalf("TagKEK is %d bytes, want 32", len(c.TagKEK))
+			if c.TagKEK.Len() != 32 {
+				t.Fatalf("TagKEK is %d bytes, want 32", c.TagKEK.Len())
 			}
 		})
 	}
@@ -602,8 +603,8 @@ func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.TagKEKPrevious != nil {
-		t.Fatalf("an unset rotation KEK must be nil, got %d bytes", len(c.TagKEKPrevious))
+	if c.TagKEKPrevious.Len() > 0 {
+		t.Fatalf("an unset rotation KEK must be nil, got %d bytes", c.TagKEKPrevious.Len())
 	}
 }
 

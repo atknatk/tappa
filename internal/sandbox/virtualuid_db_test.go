@@ -60,7 +60,7 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	defer cancel()
 	kek := random(t, 32)
 	pool := func(env string) *db.DB {
-		d, err := db.New(ctx, &config.Config{Env: env, DatabaseURL: appDSN})
+		d, err := db.New(ctx, &config.Config{Env: env, DatabaseURL: config.NewDSN(appDSN)})
 		if err != nil {
 			t.Fatalf("db.New (%s): %v", env, err)
 		}

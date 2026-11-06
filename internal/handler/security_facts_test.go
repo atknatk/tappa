@@ -742,8 +742,10 @@ func isolationViolation(s securityFactSources) string {
 			return m + " loosens " + tbl + "'s row-level security"
 		}
 	}
-	if !strings.Contains(goFuncBody(s.Pool, "func roleRefusal("), "if !f.Privileged() || !isProd {") {
-		return "internal/db no longer refuses a privileged role in production"
+	for _, gate := range []string{"if !isProd {", "if f.Privileged() {", "if f.User != applicationRole {"} {
+		if !strings.Contains(goFuncBody(s.Pool, "func roleRefusal("), gate) {
+			return "internal/db no longer refuses, in production, a privileged role and every role but the application role"
+		}
 	}
 	for _, f := range []db.RoleFacts{{Super: true}, {BypassRLS: true}, {OwnsScopedTable: true}} {
 		if !f.Privileged() {
@@ -1290,7 +1292,13 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}},
 		{"a later migration lifts the security", isolationViolation, later("ALTER TABLE employees NO FORCE ROW LEVEL SECURITY;")},
 		{"production starts under any role", isolationViolation, func(s *securityFactSources) {
-			s.Pool = within(s.Pool, goFuncBody(s.Pool, "func roleRefusal("), "if !f.Privileged() || !isProd {", "if true {")
+			s.Pool = within(s.Pool, goFuncBody(s.Pool, "func roleRefusal("), "if !isProd {", "if true {")
+		}},
+		{"production starts under a privileged role", isolationViolation, func(s *securityFactSources) {
+			s.Pool = within(s.Pool, goFuncBody(s.Pool, "func roleRefusal("), "if f.Privileged() {", "if false {")
+		}},
+		{"production starts under the wrong role", isolationViolation, func(s *securityFactSources) {
+			s.Pool = within(s.Pool, goFuncBody(s.Pool, "func roleRefusal("), "if f.User != applicationRole {", "if false {")
 		}},
 		{"a query names no business", isolationViolation, func(s *securityFactSources) {
 			s.Queries = maps.Clone(s.Queries)

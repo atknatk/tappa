@@ -129,7 +129,7 @@ func newShippedAPI(t *testing.T, name, apiCode string) *shippedAPI {
 	if _, err := rand.Read(mac); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{DatabaseURL: appDSN, APIHost: shippedAPIHost, APIKeyHMACKey: mac}
+	cfg := &config.Config{DatabaseURL: config.NewDSN(appDSN), APIHost: shippedAPIHost, APIKeyHMACKey: config.NewKey(mac)}
 	data, err := db.New(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
