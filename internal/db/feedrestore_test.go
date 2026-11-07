@@ -123,6 +123,11 @@ func feedBumpStatement(gap int64) string {
 //   - two restores in a row, the second without its step (the dump holds counters an earlier
 //     restore moved): FAIL by the dumped values (scripts/pg-backup.sh writes them to the
 //     manifest), PASS with the step; a counter with no dumped value: FAIL.
+//
+// What this does not run is the chain itself, a real dump restored the way the runbook says: that is
+// scripts/restore-chain-check.sh (`make restore-check`, a CI step since T215), whose one healthy run
+// every check here must pass. This test keeps the states that run never produces (T215 measured the
+// chain red with the runbook's counter step removed from both of its copies).
 func TestRestoreVerify_CountersAheadOfEvents(t *testing.T) {
 	ctx, tx := opTx(t)
 	sql, gap := feedRestoreScript(t)
@@ -197,6 +202,10 @@ func TestRestoreVerify_CountersAheadOfEvents(t *testing.T) {
 // (count(tenants) <> count(feed_counters), and named as missing) and one born with the tenants
 // trigger off (the same) -- and the step itself makes no row (an UPDATE). CONTROL: a tenant born
 // with the trigger on has its row.
+//
+// What this does not run is the chain itself, a real dump restored the way the runbook says: that is
+// scripts/restore-chain-check.sh (`make restore-check`, a CI step since T215), whose one healthy run
+// every check here must pass. This test keeps the states that run never produces.
 func TestRestoreVerify_EveryTenantHasACounter(t *testing.T) {
 	ctx, tx := opTx(t)
 	sql, gap := feedRestoreScript(t)

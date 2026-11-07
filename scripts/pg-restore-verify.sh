@@ -573,11 +573,11 @@ psql_to "$TMP/have.truncguards" "SELECT c.relname
     AND (g.tgtype & 32) <> 0        -- TRUNCATE
     AND (g.tgtype & 2)  <> 0        -- BEFORE
     AND g.tgenabled IN ('O', 'A')   -- fires on origin: NOT 'D', NOT replica-only 'R'
-    AND p.proname = 'tappa_forbid_mutation';"
+    AND p.proname = 'tappa_forbid_mutation' AND p.pronamespace = 'public'::regnamespace;"
 # The same triggers WITHOUT the two state predicates, so a failure can say WHY and
 # not only WHICH: "the guard is gone" and "the guard is sitting there disabled"
 # need different remedies from the operator.
-psql_to "$TMP/have.truncstate" "SELECT c.relname || ' tgenabled=' || g.tgenabled::text || ' calls=' || p.proname
+psql_to "$TMP/have.truncstate" "SELECT c.relname || ' tgenabled=' || g.tgenabled::text || ' calls=' || p.oid::regprocedure::text
   FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
   JOIN pg_proc p ON p.oid = g.tgfoid
@@ -606,6 +606,60 @@ if [ ! -s "$TMP/have.truncpriv" ]; then
   ok "append-only: tappa_app holds TRUNCATE on no table"
 else
   bad "tappa_app holds the TRUNCATE privilege on: $(tr '\n' ' ' < "$TMP/have.truncpriv")"
+fi
+
+# =================================================================================
+# 5a. A PRIVILEGE FLOOR THE DUMP DOES NOT SET (T215)
+#
+# Section 3 compares the privileges with the dump, so it cannot see what the dump itself
+# carries or leaves out: a source that already granted tappa_app UPDATE on tags.aes_key_ref
+# dumps that grant and restores it, and the two sides agree. Section 4's probe is the only
+# absolute privilege check, and it reads public.transactions alone. So, whatever the dump says:
+#
+#   the default for tables tappa_owner creates in public gives tappa_app nothing beyond
+#     SELECT, INSERT. That is 01-roles.sql's narrow default and what the runbook's narrowing
+#     leaves (A YOLU 4, B YOLU B3: REVOKE UPDATE, DELETE); the dump's own last lines widen it
+#     to arwd -- measured on a migrated goose-87 database, `tappa_app=arwd/tappa_owner`, the
+#     production default 03-dev-production-default-acl.sql copies -- so a restore that skipped
+#     or weakened the narrowing is refused here, by name. Until T215 nothing read pg_default_acl
+#     and a narrowing reduced to REVOKE UPDATE passed (in review);
+#   tappa_app may UPDATE neither wrapped key column of tags (aes_key_ref, app_key_ref: §4.7),
+#     nor DELETE a tags row: a deleted plaque row takes its key with it and the chip is locked
+#     for good (no migration grants it; live, 2026-11-07, read by the orchestrator: false);
+#   tappa_app may neither UPDATE any column of nor DELETE from any append-only table but
+#     transactions, which section 4 probes (measured at goose 87: false on all eleven).
+# Missing tables and columns (an older dump) match nothing rather than raise: to_regclass and
+# pg_attribute, not a cast.
+# =================================================================================
+floor_tables=""
+for t in $trunc_tables; do [ "$t" = transactions ] || floor_tables="$floor_tables $t"; done
+PRIV_FLOOR_SQL="SELECT 'default for new tables: ' || x.privilege_type
+  FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x
+  WHERE d.defaclrole = (SELECT oid FROM pg_roles WHERE rolname = 'tappa_owner')
+    AND d.defaclobjtype = 'r'
+    AND (d.defaclnamespace = 0 OR d.defaclnamespace = 'public'::regnamespace)
+    AND x.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'tappa_app')
+    AND x.privilege_type NOT IN ('SELECT', 'INSERT')
+  UNION ALL
+  SELECT 'tags.' || a.attname || ' UPDATE'
+  FROM pg_attribute a
+  WHERE a.attrelid = to_regclass('public.tags') AND a.attname IN ('aes_key_ref', 'app_key_ref') AND NOT a.attisdropped
+    AND has_column_privilege('tappa_app', a.attrelid, a.attnum, 'UPDATE')
+  UNION ALL
+  SELECT 'tags DELETE' WHERE has_table_privilege('tappa_app', to_regclass('public.tags'), 'DELETE')
+  UNION ALL
+  SELECT s.t || ' ' || v.p
+  FROM (SELECT t, to_regclass('public.' || t) AS r FROM unnest(string_to_array(btrim('$floor_tables'), ' ')) AS t) s
+  CROSS JOIN (VALUES ('UPDATE'), ('DELETE')) AS v(p)
+  WHERE s.r IS NOT NULL
+    AND ((v.p = 'UPDATE' AND has_any_column_privilege('tappa_app', s.r, 'UPDATE'))
+      OR (v.p = 'DELETE' AND has_table_privilege('tappa_app', s.r, 'DELETE')));"
+psql_to "$TMP/have.privfloor" "$PRIV_FLOOR_SQL"
+if [ ! -s "$TMP/have.privfloor" ]; then
+  ok "privileges, whatever the dump says: the default for new tables gives tappa_app SELECT, INSERT at most; tappa_app may not UPDATE tags' key columns, DELETE a tags row or UPDATE/DELETE the other ten append-only tables"
+else
+  bad "tappa_app holds, whatever the dump says: $(tr '\n' ';' < "$TMP/have.privfloor")
+        'default for new tables' means the runbook's narrowing (A YOLU 4 / B YOLU B3: ALTER DEFAULT PRIVILEGES ... REVOKE UPDATE, DELETE ON TABLES FROM tappa_app) did not run or was weakened; anything else is a privilege the SOURCE already had -- this restore copied it faithfully, and it must not be in service either."
 fi
 
 # =================================================================================
@@ -642,7 +696,14 @@ fi
 # trunc_tables must also carry an enabled BEFORE UPDATE OR DELETE row trigger bound to
 # tappa_forbid_mutation, with no WHEN and no UPDATE OF (each would make it a guard in name,
 # refusing nothing), and tags its counter trigger. trunc_tables is not free text
-# (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations).
+# (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations). The function is
+# matched by name AND schema (T215): a same-named zz_sec.tappa_forbid_mutation that refuses
+# nothing passed when only the name was read; section 5's TRUNCATE query carries the same pin.
+# ⚠️ ITS BODY IS NOT COMPARED, and that is a written limit: a source whose own
+# public.tappa_forbid_mutation was rewritten to refuse nothing dumps that body and restores it,
+# so a dump-against-restore comparison sees two equal bodies, and an absolute pin (a hash in this
+# file) would turn every older backup red the day a migration rewords the function. Rewriting it
+# takes the owner's privilege, which this script cannot defend against anyway.
 #
 # THE MATCH IS ARMED BY pg_dump's OWN COMMENT LINE, so a COPY row that happens to start
 # with the words CREATE TRIGGER is not taken for one (it could only have failed the
@@ -663,14 +724,14 @@ FLOOR_ROW_GUARDS_SQL="SELECT c.relname
     AND (g.tgtype & 27) = 27        -- ROW, BEFORE, DELETE and UPDATE
     AND g.tgqual IS NULL AND g.tgattr::text = ''   -- every row, every column
     AND g.tgenabled IN ('O', 'A')
-    AND p.proname = 'tappa_forbid_mutation';"
+    AND p.proname = 'tappa_forbid_mutation' AND p.pronamespace = 'public'::regnamespace;"
 FLOOR_COUNTER_SQL="SELECT count(*)
   FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
   JOIN pg_proc p ON p.oid = g.tgfoid
   WHERE n.nspname = 'public' AND c.relname = 'tags' AND g.tgname = 'tags_counter_monotonic'
     AND g.tgenabled IN ('O', 'A')
-    AND p.proname = 'tappa_forbid_counter_rewind';"
+    AND p.proname = 'tappa_forbid_counter_rewind' AND p.pronamespace = 'public'::regnamespace;"
 TRIGGER_DEFS_SQL="SET search_path = ''; SELECT pg_catalog.pg_get_triggerdef(g.oid, false) || ';'
   FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -809,7 +870,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether they would fire. None of them executes a TRUNCATE or
   # fires a trigger, so "the guards are present and would fire" is the claim, not
   # "TRUNCATE was tried and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, an enabled TRUNCATE guard on each of the eleven append-only tables, every trigger the dump declares with its definition and enabled, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the eleven append-only tables, every trigger the dump declares with its definition and enabled, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

@@ -290,13 +290,14 @@ GRANT USAGE ON SCHEMA public TO tappa_identitydefiner;
 --   katalog testi her yeni tabloyu o varsayilan altinda matrisle karsilastirir.
 --   Bu dosyanin dar satiri yalniz uretimin TAZE hacminde gecerli kalir (deploy.yml
 --   03'u tasimaz); 03'ten once kurulmus bir gelistirme hacmi hala dar olabilir
---   (`make db-reset`). `pg-restore-verify.sh` unutulan REVOKE'u goremez:
---   referansi dump'in kendisi, dump ise genis varsayilani ILAN ediyor.
+--   (`make db-reset`). `pg-restore-verify.sh` yeni bir tabloda unutulan REVOKE'u
+--   goremez: referansi dump'in kendisi, dump ise genis varsayilani ILAN ediyor.
+--   Varsayilanin kendisini T215'ten beri goruyor (bolum 5a).
 --
 --   ⚠️ CARE VAR VE OLCULDU: geri yukleme prosedurunun SON adimi tek bir ifadeyle
 --   varsayilani yeniden daraltiyor (`REVOKE UPDATE, DELETE ON TABLES`), var olan
 --   tablolara dokunmadan (45 yetki, tags false/false, sekans varsayilani `rU`
---   degismeden). deploy/README.md'nin A YOLU 7. adimi ve B YOLU B3'u onu tasiyor.
+--   degismeden). deploy/README.md'nin A YOLU 4. adimi ve B YOLU B3'u onu tasiyor.
 --   CALISAN veritabani icin ayni ifade istege bagli bir sertlestirmedir ve
 --   deploy/README.md'de sinir olarak sayiliyor -- burada dayatilmiyor, cunku canli
 --   bir veritabanini migration disinda degistirmek bir karardir.

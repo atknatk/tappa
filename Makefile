@@ -121,6 +121,15 @@ migrate-new:
 	@test -n "$(name)" || { echo "kullanim: make migrate-new name=add_foo"; exit 1; }
 	$(GOOSE) -dir db/migrations -s create $(name) sql
 
+## restore-check: yedek -> geri yukleme -> dogrulama zinciri (T215) — kendi konteynerlerinde, dev DB'ye dokunmaz
+# scripts/restore-chain-check.sh: kendi kaynak konteyneri (scripts/db-init + goose + seed +
+# test/fixtures/restore-chain.sql) -> gercek scripts/pg-backup.sh -> deploy/README.md 9(d)'nin
+# bloklari runbook'tan KESILIP kosulur ((d2) hedef, (d3) B2+B3, (d3b) sayac adimi, (d4)
+# pg-restore-verify.sh, (d5) temizlik). Docker ister; `make up`in veritabanini kullanmaz, bu
+# yuzden `require-db-env` yok. CI'da `make check`ten SONRA ayri adim (ci.yml gerekcesi orada).
+restore-check:
+	GOOSE="$(GOOSE)" ./scripts/restore-chain-check.sh
+
 ## seed: KF + KM demo verisini yukle (bkz. skill tappa-seed)
 # psql konteynerden calisir — host'ta psql aranmaz (bkz. scripts/seed.sh).
 seed:
@@ -553,5 +562,5 @@ hooks:
 	@echo "hooks: core.hooksPath=$$(git config --get core.hooksPath)"
 
 .PHONY: help tools gen templ sqlc css up down dev build build-sandbox check-sandbox migrate migrate-down \
-        migrate-status migrate-new seed db-reset simulate-day test test-short \
+        migrate-status migrate-new seed restore-check db-reset simulate-day test test-short \
         cover lint fmt check audit hooks require-db-env android android-test
