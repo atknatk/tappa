@@ -397,7 +397,8 @@ templ PolicyGuarantees(v PoliciesView) {
 				<p class="text-sm text-ink/85">
 					They are part of the product rather than a setting: there is no control to
 					turn one off, on this page or anywhere else, because each of them is a promise
-					the product is sold on. Some of them compare against a window Taptime sets
+					the product is sold on. The last one below is still planned: it is not enforced yet,
+					so it is not yet one of these promises. Some of them compare against a window Taptime sets
 					the same way for every business — marked below with the range it may take.
 					No business can change one.
 				</p>
@@ -410,13 +411,19 @@ templ PolicyGuarantees(v PoliciesView) {
 					<span class="rung-no">{ rungNumber(g.Order) }</span>
 					<div class="plate grid grid-cols-1 gap-x-4 gap-y-1 md:grid-cols-[minmax(0,1fr)_auto]">
 						<p class="font-display text-[15px] font-bold leading-snug text-ink">{ g.When }</p>
-						<p class="md:text-right"><span class="effect-pill effect-pill--locked"><span class="lock-mini"></span>{ g.Outcome }</span></p>
+						if g.Stage == "" {
+							<p class="md:text-right"><span class="effect-pill effect-pill--locked"><span class="lock-mini"></span>{ g.Outcome }</span></p>
+						}
 						<div class="flex flex-wrap items-center gap-x-2 gap-y-1 md:col-span-2">
 							<span class="font-mono text-xs text-ink">{ g.Sid }</span>
-							<span class="tally tally--locked pill-tally">Cannot be switched off</span>
+							if g.Stage == "" {
+								<span class="tally tally--locked pill-tally">Cannot be switched off</span>
+							}
 						</div>
 						<p class="text-xs text-ink/85 md:col-span-2">{ g.Rule }</p>
-						<p class="text-xs text-ink/85 md:col-span-2">Engine’s reason: “{ g.Reason }”</p>
+						if g.Stage == "" {
+							<p class="text-xs text-ink/85 md:col-span-2">Engine’s reason: “{ g.Reason }”</p>
+						}
 						if g.Tunable != "" {
 							<div class="mt-1 rounded-[10px] border border-line bg-paper px-3 py-2 md:col-span-2">
 								<p class="docket-label">{ g.Tunable }</p>

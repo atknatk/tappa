@@ -1254,3 +1254,45 @@ func TestAssemble_OnlyTheVersionCeilingCanFabricateAnUnknownState(t *testing.T) 
 			"ignorance", capped.VersionsCapped, capped.Baseline[0].State)
 	}
 }
+
+// TestGuardrailPlanned_TheSelfReviewPlateSaysItIsNotEnforced is ADR 0037's T148-0: sys:no-self-review
+// does not run, so its words say so, it alone is planned, and it is the last guarantee because the
+// Rules page's introduction says "the last one below". When T148-2 and T148-3 make it run, this test
+// goes with the entry in guardrailStage.
+func TestGuardrailPlanned_TheSelfReviewPlateSaysItIsNotEnforced(t *testing.T) {
+	t.Parallel()
+	gs := testRulebook(t).guardrails()
+	if len(gs) != 11 {
+		t.Fatalf("%d guarantees; ADR 0037 changes the words and not the count", len(gs))
+	}
+	last := gs[len(gs)-1]
+	if last.Sid != "sys:no-self-review" {
+		t.Fatalf("the last guarantee is %s; the page says the last one is the planned one", last.Sid)
+	}
+	const (
+		wantWhen = "Planned: a manager decides their own record"
+		wantRule = "Not enforced yet. Taptime does not yet know which manager login belongs to which " +
+			"employee, so someone who is both can decide their own flagged record or type their own " +
+			"hours. Each decision is recorded with who made it."
+	)
+	if last.When != wantWhen {
+		t.Errorf("When = %q, want %q", last.When, wantWhen)
+	}
+	if last.Rule != wantRule {
+		t.Errorf("Rule = %q, want %q", last.Rule, wantRule)
+	}
+	for _, g := range gs {
+		if g.Sid == last.Sid {
+			if g.Stage != GuardrailPlanned {
+				t.Errorf("%s has stage %q, want %q", g.Sid, g.Stage, GuardrailPlanned)
+			}
+		} else if g.Stage != "" {
+			t.Errorf("%s is enforced and has stage %q", g.Sid, g.Stage)
+		}
+		for _, words := range []string{g.When, g.Rule} {
+			if strings.Contains(strings.ToLower(words), "nobody approves") {
+				t.Errorf("%s still promises %q", g.Sid, words)
+			}
+		}
+	}
+}
