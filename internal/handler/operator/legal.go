@@ -326,8 +326,8 @@ func legalView(published map[string]legal.Doc, versions []db.LegalVersion) opera
 			Current:     x.Current,
 		}
 		switch {
-		case x.PublishedBy == db.LegalPublishedByOperator && x.PublisherName != nil:
-			row.Publisher = *x.PublisherName
+		case x.PublishedBy == db.LegalPublishedByOperator && visibleName(x.PublisherName) != "":
+			row.Publisher = visibleName(x.PublisherName)
 		case x.PublishedBy == db.LegalPublishedByOperator:
 			row.Publisher = "operator"
 		default:

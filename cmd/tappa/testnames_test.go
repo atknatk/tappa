@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -39,13 +44,7 @@ import (
 func TestEveryNamedTestExists(t *testing.T) {
 	// 1. Collect every declared test function.
 	declared := map[string]bool{}
-	// 🔴 THE DECLARATION SCAN IGNORES COMMENTED-OUT CODE. `^func Test…(` matches
-	// inside a /* */ block too, so the original defect — a deleted test with a
-	// surviving citation — stayed reachable by COMMENTING OUT rather than deleting.
-	declRe := regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
-	stripBlockComments := func(src string) string {
-		return regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(src, "")
-	}
+	fixtures := map[string][]string{}
 	walk := func(root string, fn func(path string, b []byte)) {
 		err := filepath.Walk(filepath.Join(repoRoot, root), func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
@@ -67,8 +66,8 @@ func TestEveryNamedTestExists(t *testing.T) {
 			if !strings.HasSuffix(path, "_test.go") {
 				return
 			}
-			for _, m := range declRe.FindAllStringSubmatch(stripBlockComments(string(b)), -1) {
-				declared[m[1]] = true
+			if err := addDeclaredTests(path, b, declared, fixtures); err != nil {
+				t.Fatalf("%s will not parse, so its tests are not counted: %v", path, err)
 			}
 		})
 	}
@@ -79,12 +78,15 @@ func TestEveryNamedTestExists(t *testing.T) {
 	if !declared["TestEveryNamedTestExists"] {
 		t.Fatal("CONTROL FAILED: the collector did not find this very test")
 	}
-	t.Logf("%d test functions declared", len(declared))
+	carried := 0
+	for _, names := range fixtures {
+		carried += len(names)
+	}
+	t.Logf("%d test functions declared, %d more carried in strings by %d files", len(declared), carried, len(fixtures))
 
 	// 2. Collect every Test… name CITED outside a declaration.
 	citeRe := regexp.MustCompile(`\bTest[A-Z][A-Za-z0-9_]{4,}\b`)
-	type cite struct{ file, name string }
-	var cites []cite
+	var cites []citation
 	add := func(path string, b []byte) {
 		text := string(b)
 		for _, line := range strings.Split(text, "\n") {
@@ -94,7 +96,7 @@ func TestEveryNamedTestExists(t *testing.T) {
 				continue
 			}
 			for _, name := range citeRe.FindAllString(line, -1) {
-				cites = append(cites, cite{path, name})
+				cites = append(cites, citation{path, name})
 			}
 		}
 	}
@@ -256,40 +258,9 @@ func TestEveryNamedTestExists(t *testing.T) {
 	}
 	t.Logf("%d citations of test names outside declarations", len(cites))
 
-	// 3. Every citation must resolve.
-	// A citation may name a FAMILY rather than one test — internal/domain/tap cites
-	// "TestDecide_" for the whole §5 table, and internal/handler cites "TestAccount".
-	// Those are legitimate and pre-date this check, so a citation resolves when it
-	// is an exact name OR a prefix of one. A name that is neither still fails —
-	// which is what caught the two dead citations described above.
-	// 🔴 PREFIX MATCHING IS LIMITED TO EXPLICIT FAMILY CITATIONS (those ending in
-	// "_"). The open prefix rule made the MOST COMMON rename invisible: renaming
-	// TestX to TestX_v2 left a citation of TestX resolving, because the new name
-	// has the old one as a prefix. Measured: exactly that mutation stayed green
-	// across 2 513 citations — and "a citation that resolves to nothing" is the
-	// class this whole check exists for, which it hit twice in this task.
-	resolves := func(name string) bool {
-		if declared[name] {
-			return true
-		}
-		if !strings.HasSuffix(name, "_") {
-			return false
-		}
-		for d := range declared {
-			if strings.HasPrefix(d, name) {
-				return true
-			}
-		}
-		return false
-	}
-	seen := map[string]bool{}
-	var dangling []string
-	for _, c := range cites {
-		if resolves(c.name) || seen[c.name] {
-			continue
-		}
-		seen[c.name] = true
-		dangling = append(dangling, c.name)
+	// 3. Every citation must resolve; citationResolves says what that means.
+	dangling := danglingCitations(cites, fixtures, declared)
+	for _, c := range dangling {
 		if !known[c.name] {
 			rel, _ := filepath.Rel(repoRoot, c.file)
 			t.Errorf("%s cites %s, which is not a test that exists. A citation is evidence; a citation to "+
@@ -302,7 +273,7 @@ func TestEveryNamedTestExists(t *testing.T) {
 	// stops meaning anything.
 	live := map[string]bool{}
 	for _, d := range dangling {
-		live[d] = true
+		live[d.name] = true
 	}
 	// STALENESS, BOTH WAYS. An entry that no longer dangles must be deleted — and
 	// this now actually fires, because the inventory lives in testdata and no longer
@@ -318,6 +289,206 @@ func TestEveryNamedTestExists(t *testing.T) {
 }
 
 const danglingBudget = 58
+
+// fixtureTestDeclRe is a test declared inside a string: Go source a test hands to a checker. It asks for
+// the whole signature because a test that LOOKS FOR a declaration carries the same words: `goFuncBody(src,
+// "func TestX(")` read as a fixture let that file's citation of TestX survive TestX's deletion.
+var fixtureTestDeclRe = regexp.MustCompile(`(?m)^func (Test\w+)\(t \*testing\.T\)`)
+
+// declaredTests reads a Go file with the parser and answers the test functions it declares, and the ones
+// it only carries in a string.
+//
+// 🔴 IT PARSES BECAUSE TEXT CANNOT TELL A DECLARATION FROM ITS LOOK-ALIKES, IN EITHER DIRECTION. A deleted
+// test with a surviving citation stayed reachable by COMMENTING OUT rather than deleting, so the scan
+// stripped /* */ blocks first -- with a regexp that knew no Go strings. A "/*" string then swallowed every
+// declaration down to the next */ (a false red), and a `func TestX(` opening a line of a raw string counted
+// as a test anybody in the repository could cite (a false pass; 74 names in cmd/opadmin/tableslock_test.go,
+// whose checker reads Go source, were "declared" that way, measured).
+func declaredTests(path string, src []byte) (names, inStrings []string, err error) {
+	f, err := parser.ParseFile(token.NewFileSet(), path, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil {
+			continue
+		}
+		if name := fn.Name.Name; strings.HasPrefix(name, "Test") && name != "Test" {
+			names = append(names, name)
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if text, err := strconv.Unquote(lit.Value); err == nil {
+			for _, m := range fixtureTestDeclRe.FindAllStringSubmatch(text, -1) {
+				inStrings = append(inStrings, m[1])
+			}
+		}
+		return true
+	})
+	return names, inStrings, nil
+}
+
+// addDeclaredTests records one Go file's tests: what it declares for every citation in the repository,
+// what it only carries in a string for its own citations.
+func addDeclaredTests(path string, src []byte, declared map[string]bool, fixtures map[string][]string) error {
+	names, inStrings, err := declaredTests(path, src)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		declared[name] = true
+	}
+	if len(inStrings) > 0 {
+		fixtures[path] = inStrings
+	}
+	return nil
+}
+
+// citation is one Test… name written in one file.
+type citation struct{ file, name string }
+
+// danglingCitations returns the first citation of each name that resolves to nothing. A name counts once
+// even when another file's citation of it resolves, because the inventory is a list of names.
+func danglingCitations(cites []citation, fixtures map[string][]string, declared map[string]bool) []citation {
+	seen := map[string]bool{}
+	var dangling []citation
+	for _, c := range cites {
+		if citationResolves(c.name, fixtures[c.file], declared) || seen[c.name] {
+			continue
+		}
+		seen[c.name] = true
+		dangling = append(dangling, c)
+	}
+	return dangling
+}
+
+// citationResolves is the rule a citation is held to. A name resolves when it is a declared test, or a
+// test the citing file itself carries in a string: its table names its own fixture, and that fixture is
+// evidence nowhere else.
+//
+// A citation may also name a FAMILY rather than one test: internal/domain/tap cites "TestDecide_" for the
+// whole section 5 table, and internal/handler cites "TestAccount". Those resolve as a prefix of a declared
+// test.
+//
+// 🔴 PREFIX MATCHING IS LIMITED TO EXPLICIT FAMILY CITATIONS (those ending in "_"). The open prefix rule
+// made the MOST COMMON rename invisible: renaming TestX to TestX_v2 left a citation of TestX resolving,
+// because the new name has the old one as a prefix. Measured: exactly that mutation stayed green across
+// 2 513 citations -- and "a citation that resolves to nothing" is the class this whole check exists for,
+// which it hit twice in this task.
+func citationResolves(name string, ownFixtures []string, declared map[string]bool) bool {
+	if declared[name] || slices.Contains(ownFixtures, name) {
+		return true
+	}
+	if !strings.HasSuffix(name, "_") {
+		return false
+	}
+	for d := range declared {
+		if strings.HasPrefix(d, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDeclaredTests_ReadsDeclarationsAndNothingThatLooksLikeOne pins the shapes a text scan got wrong.
+func TestDeclaredTests_ReadsDeclarationsAndNothingThatLooksLikeOne(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, src       string
+		want, inStrings []string
+	}{
+		{"plain", "func TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\n", []string{"TestA", "TestB"}, nil},
+		{"a block-comment opener in a string hides nothing",
+			"var s = \"/*\"\nfunc TestA(t *testing.T) {}\nvar e = \"*/\"\nfunc TestB(t *testing.T) {}\n",
+			[]string{"TestA", "TestB"}, nil},
+		{"the same opener in a raw string",
+			"var s = `/*`\nfunc TestA(t *testing.T) {}\n// */\n", []string{"TestA"}, nil},
+		{"a commented-out test is gone",
+			"/*\nfunc TestGone(t *testing.T) {}\n*/\nfunc TestA(t *testing.T) {}\n", []string{"TestA"}, nil},
+		{"a test in a raw string is carried, not declared",
+			"var s = `\nfunc TestStr(t *testing.T) {}\n`\nfunc TestA(t *testing.T) {}\n", []string{"TestA"}, []string{"TestStr"}},
+		{"a test in a quoted string likewise",
+			"var s = \"package x\\nfunc TestStr(t *testing.T) {}\\n\"\n", nil, []string{"TestStr"}},
+		{"a search for a declaration carries nothing",
+			"var s = find(src, \"func TestA(\")\nvar r = `\nfunc TestB(`\nvar q = \"\\nfunc TestC(x int)\"\n", nil, nil},
+		{"a method is not a test", "type T struct{}\nfunc (T) TestM(t *testing.T) {}\n", nil, nil},
+		{"neither is a function of no further name", "func helper() {}\nfunc Test() {}\n", nil, nil},
+	} {
+		got, inStrings, err := declaredTests("x_test.go", []byte("package x\n"+tc.src))
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if !slices.Equal(got, tc.want) || !slices.Equal(inStrings, tc.inStrings) {
+			t.Errorf("%s: declared %q and %q in strings, want %q and %q", tc.name, got, inStrings, tc.want, tc.inStrings)
+		}
+	}
+	if _, _, err := declaredTests("x_test.go", []byte("package x\nfunc TestA( {\n")); err == nil {
+		t.Error("a file that will not parse returned no error, so its tests would silently stop counting")
+	}
+}
+
+// TestCitationResolves_AFixtureIsEvidenceOnlyInItsOwnFile pins the rule, the fixture half of which no tree
+// walk can show: the tree has no citation of a fixture from another file today.
+func TestCitationResolves_AFixtureIsEvidenceOnlyInItsOwnFile(t *testing.T) {
+	t.Parallel()
+	// The names are this short so that this table is not itself read as citing them.
+	declared := map[string]bool{"TestReal": true, "TestAb_C": true}
+	for _, tc := range []struct {
+		name, cited string
+		own         []string
+		want        bool
+	}{
+		{"a declared test", "TestReal", nil, true},
+		{"a test its own file carries in a string", "TestStr", []string{"TestStr"}, true},
+		{"a test another file carries in a string", "TestStr", nil, false},
+		{"nothing at all", "TestNone", []string{"TestStr"}, false},
+		{"a family", "TestAb_", nil, true},
+		{"a family nothing declares", "TestZz_", nil, false},
+		{"a family only a fixture belongs to", "TestS_", []string{"TestS_x"}, false},
+		{"an open prefix is no family", "TestAb", nil, false},
+	} {
+		if got := citationResolves(tc.cited, tc.own, declared); got != tc.want {
+			t.Errorf("%s: citationResolves(%q) = %v, want %v", tc.name, tc.cited, got, tc.want)
+		}
+	}
+}
+
+// TestDanglingCitations_AFixtureResolvesOnlyInTheFileThatCarriesIt drives the whole path a tree walk
+// cannot, from the sources to the verdict: the tree has no citation of a fixture from another file today.
+func TestDanglingCitations_AFixtureResolvesOnlyInTheFileThatCarriesIt(t *testing.T) {
+	t.Parallel()
+	declared, fixtures := map[string]bool{}, map[string][]string{}
+	for path, src := range map[string]string{
+		"carrier_test.go": "package x\nvar s = `\nfunc TestStr(t *testing.T) {}\n`\nfunc TestReal(t *testing.T) {}\n",
+		"other_test.go":   "package x\nvar s = `\nfunc TestElse(t *testing.T) {}\n`\n",
+	} {
+		if err := addDeclaredTests(path, []byte(src), declared, fixtures); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		cites []citation
+		want  []citation
+	}{
+		{"a declared test, from anywhere", []citation{{"carrier_test.go", "TestReal"}, {"doc.md", "TestReal"}}, nil},
+		{"a fixture from its own file", []citation{{"carrier_test.go", "TestStr"}}, nil},
+		{"a fixture from a document", []citation{{"doc.md", "TestStr"}}, []citation{{"doc.md", "TestStr"}}},
+		{"a fixture from a file carrying another", []citation{{"other_test.go", "TestStr"}}, []citation{{"other_test.go", "TestStr"}}},
+		{"own file first, then a document", []citation{{"carrier_test.go", "TestStr"}, {"doc.md", "TestStr"}}, []citation{{"doc.md", "TestStr"}}},
+		{"one name counts once", []citation{{"a.md", "TestNone"}, {"b.md", "TestNone"}}, []citation{{"a.md", "TestNone"}}},
+	} {
+		if got := danglingCitations(tc.cites, fixtures, declared); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
 
 // ratchetOK enforces that the inventory size EQUALS the budget.
 //
@@ -394,7 +565,19 @@ func decodeUTF16(b []byte) ([]byte, bool) {
 // driven directly: the defect it closes is LATENT (the tree has no such directory
 // today), so a test that only walks the real repository cannot tell the two versions
 // apart.
+//
+// A NESTED CHECKOUT IS SKIPPED TOO (T87), and that half does read the disk: an agent's worktree under
+// .claude/worktrees is a second copy of the repository, so each inventory saw a second reader, a second
+// resolver and every other tree's citations. It is decided by the entry git itself leaves there and not
+// by the path, so a worktree anywhere is the same case. git refuses to track a path named .git, so this
+// can hide nothing from CI: a fresh checkout has no such directory.
 func skipScanDir(rel string) bool {
+	return skipScanDirIn(repoRoot, rel)
+}
+
+// skipScanDirIn is skipScanDir under any root, so the nested-checkout half can be driven in a temporary
+// directory instead of planting a .git in the repository.
+func skipScanDirIn(root, rel string) bool {
 	switch rel {
 	case ".git", ".tools", "bin", "node_modules":
 		return true
@@ -405,8 +588,78 @@ func skipScanDir(rel string) bool {
 	// stays in scope: android/README.md cites Go test names on purpose.
 	case "android/.gradle", "android/.kotlin", "android/build", "android/app/build":
 		return true
+	// The walk's own root is not a nested checkout, and in a worktree it carries a .git file too.
+	case ".":
+		return false
 	}
-	return false
+	return isCheckout(filepath.Join(root, rel))
+}
+
+// isCheckout reports whether a directory is the top of a git checkout: a .git file (a worktree or a
+// submodule) or a .git directory (a clone). Lstat, because a dangling link is still that entry.
+func isCheckout(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// TestScanScope_ANestedCheckoutIsSkippedAndTheRootIsNot pins the nested half, which the tree cannot show:
+// a fresh checkout holds no nested checkout.
+func TestScanScope_ANestedCheckoutIsSkippedAndTheRootIsNot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mk := func(rel string) string {
+		dir := filepath.Join(root, rel)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	write := func(rel string) {
+		if err := os.WriteFile(filepath.Join(mk(rel), ".git"), []byte("gitdir: elsewhere\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".")
+	write(filepath.Join(".claude", "worktrees", "agent-1"))
+	write(filepath.Join("docs", "somewhere", "else"))
+	mk(filepath.Join("clone", ".git"))
+	mk(filepath.Join("docs", "plain"))
+	mk(filepath.Join(".claude", "worktrees"))
+	for _, tc := range []struct {
+		rel  string
+		want bool
+	}{
+		{".", false}, // this worktree's own shape: skipping it would blind every scan
+		{filepath.Join(".claude", "worktrees", "agent-1"), true},
+		{filepath.Join("docs", "somewhere", "else"), true},
+		{"clone", true},
+		{filepath.Join("docs", "plain"), false},
+		{filepath.Join(".claude", "worktrees"), false}, // the parent is not a checkout; its children are
+		{"docs", false},
+		{filepath.Join("no", "such", "dir"), false},
+	} {
+		if got := skipScanDirIn(root, tc.rel); got != tc.want {
+			t.Errorf("skipScanDirIn(%q) = %v, want %v", tc.rel, got, tc.want)
+		}
+	}
+	// The repository's own root, in whichever shape this run has it.
+	if skipScanDir(".") {
+		t.Error("skipScanDir(\".\") is true: every scan that walks the repository would read nothing")
+	}
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(strings.Split(string(raw), "\n"), ".claude/worktrees/") {
+		t.Error(".gitignore does not list .claude/worktrees/, so the agents' worktrees show up as untracked and reach `git ls-files --others`")
+	}
+	mf, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mf), `-not -path './.claude/*'`) {
+		t.Error("`make fmt`'s find does not leave out .claude, so gofmt -w rewrites the source of a worktree another agent is working in")
+	}
 }
 
 // TestScanScope_SkipsBuildOutputWithoutSkippingEverythingNamedLikeIt pins the path-vs-name

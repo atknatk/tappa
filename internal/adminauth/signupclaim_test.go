@@ -281,7 +281,7 @@ func TestSignupClaims_OpenDoesTheSameWorkForEveryAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, ok := s.ProveWithSession(c, session)
-	want, _ := session.hash(s.sessionKey)
+	want, _ := session.hash(s.sessionKey.Reveal())
 	if !ok || p.session == nil || *p.session != want {
 		t.Fatal("the session proof is not the panel's hash of the cookie")
 	}

@@ -428,7 +428,7 @@ func newAdminLoginState() (adminLoginState, error) {
 // The key is derived once, at construction, and held privately, so a later
 // mutation of the caller's config slice cannot silently change how blobs sign.
 type adminChoices struct {
-	key []byte
+	key config.Key
 	ttl time.Duration
 	// now is injectable for tests; production leaves it nil and reads the wall
 	// clock.
@@ -448,7 +448,7 @@ func newAdminChoices(cfg *config.Config) (adminChoices, error) {
 	}
 	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(adminChoiceKeyLabel)) // hash writes never fail (documented)
-	return adminChoices{key: m.Sum(nil), ttl: adminChoiceTTL}, nil
+	return adminChoices{key: config.NewKey(m.Sum(nil)), ttl: adminChoiceTTL}, nil
 }
 
 func (c adminChoices) clock() time.Time {
@@ -501,7 +501,7 @@ func (c adminChoices) payload(issuedAt time.Time, verified []adminauth.Verified)
 // hash input and it means the next person to add a field does not have to know
 // about this.
 func (c adminChoices) sign(payload, bind string) []byte {
-	m := hmac.New(sha256.New, c.key)
+	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(adminChoiceMACLabel))
 	// Length prefix first: see the note above. hash writes never fail (documented).
 	_, _ = m.Write([]byte(strconv.Itoa(len(payload))))
@@ -519,7 +519,7 @@ func (c adminChoices) sign(payload, bind string) []byte {
 // completed step 1", and the only honest answer to "which of zero businesses?" is
 // to send the person back to the login form.
 func (c adminChoices) mint(verified []adminauth.Verified, bind string) (string, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		// A zero adminChoices would sign under an empty key — a MAC anybody can
 		// compute. Refuse rather than emit a decorative signature. (Where
 		// adminauth.Cookies made its zero value SAFE, this type cannot: there is no
@@ -551,7 +551,7 @@ func (c adminChoices) mint(verified []adminauth.Verified, bind string) (string, 
 // the same reason in miniature. This is tapcontext.go's order, kept deliberately
 // identical so the two are read as one pattern.
 func (c adminChoices) parse(v, bind string) ([]adminauth.Verified, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return nil, errors.New("handler: login choices were not configured")
 	}
 	if bind == "" {

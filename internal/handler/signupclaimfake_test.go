@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/signup"
 )
 
@@ -77,7 +78,7 @@ func (f *fakeSignupClaims) Open(_ context.Context, email, password string, draft
 	if err != nil {
 		return adminauth.ClaimGrant{}, err
 	}
-	d.Account.Email, d.Account.Password = email, password
+	d.Account.Email, d.Account.Password = email, config.NewKey([]byte(password))
 	if f.onOpen != nil {
 		f.onOpen(d)
 	}

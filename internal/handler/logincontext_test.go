@@ -246,7 +246,7 @@ func TestAdminChoices_KeyIsDerived(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAdminChoices: %v", err)
 	}
-	if string(c.key) == string(adminTestConfig().SessionHMACKey.Reveal()) {
+	if string(c.key.Reveal()) == string(adminTestConfig().SessionHMACKey.Reveal()) {
 		t.Fatalf("the choice blob is signed under the raw session key")
 	}
 	// A different session key must produce different signatures over identical
@@ -421,7 +421,7 @@ func TestAdminChoices_MACIsUnambiguousAcrossThePayloadBoundary(t *testing.T) {
 func TestAdminChoices_LengthPrefixIsWhatRemovesTheAmbiguity(t *testing.T) {
 	c := newTestChoices(t, nil)
 	oldSign := func(payload, bind string) []byte {
-		m := hmac.New(sha256.New, c.key)
+		m := hmac.New(sha256.New, c.key.Reveal())
 		m.Write([]byte(adminChoiceMACLabel))
 		m.Write([]byte(payload))
 		m.Write([]byte("|"))

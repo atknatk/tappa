@@ -332,7 +332,7 @@ func TestConfig_IsHardenedCoversTheEightGates(t *testing.T) {
 	if handler.DevToolsEnabled(sandbox) || !handler.DevToolsEnabled(dev) {
 		t.Errorf("the dev tap simulator: sandbox %v (want off), dev %v (want on)", handler.DevToolsEnabled(sandbox), handler.DevToolsEnabled(dev))
 	}
-	v := sun.NewVerifier(nil, make([]byte, 32))
+	v := sun.NewVerifier(nil, config.NewKey(make([]byte, 32)))
 	if _, err := v.WithDevelopmentMinting(sandbox); !errors.Is(err, sun.ErrDevMintingDisabled) {
 		t.Errorf("dev minting in the sandbox: %v, want ErrDevMintingDisabled", err)
 	}

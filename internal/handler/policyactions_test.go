@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/policy"
 )
@@ -1105,7 +1106,7 @@ func TestPolicyApply_AForgedConfirmationCostsNoRulebookRead(t *testing.T) {
 		return tok
 	}
 	subject := opDisable + "/" + uuid.NewString()
-	wrongKey := adminConfirm{key: []byte("not-the-servers-key-not-the-servers"), ttl: adminConfirmTTL}
+	wrongKey := adminConfirm{key: config.NewKey([]byte("not-the-servers-key-not-the-servers")), ttl: adminConfirmTTL}
 	cases := map[string]struct {
 		token    string
 		noCookie bool

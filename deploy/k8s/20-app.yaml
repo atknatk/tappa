@@ -139,8 +139,10 @@ spec:
       #
       # ⚠️ WHAT THAT FIRST CONTAINER ACTUALLY WRITES, so an operator can grep for it:
       # cmd/tappa logs through slog and the dial error is wrapped, so the line reads
-      #   level=ERROR msg=fatal err="db: ping: ... connect: connection refused"
-      # (internal/db/pool.go wraps it as "db: ping: %w"; cmd/tappa/main.go logs it as
+      #   level=ERROR msg=fatal err="db: ping: connection refused"
+      # (Other classes there: "SQLSTATE 28P01", "the server declined TLS" and "the server is not in the
+      # wanted session state", which both mean look at DATABASE_URL's sslmode and target_session_attrs.)
+      # (internal/db/pool.go's poolStepErr keeps only the class; cmd/tappa/main.go logs it as
       # msg=fatal). There is no "db: ping failed" string anywhere in the tree — an
       # earlier revision of this comment invented one, which would have sent an
       # operator grepping for a phrase that does not exist.
@@ -495,7 +497,7 @@ spec:
             # validation is synchronous and there are at most TWO dials, each with a
             # 10 s ceiling. The customer pool's comes first, and at its ceiling the
             # process EXITS rather than serving without a database (measured: exit 1,
-            # "db: ping: context deadline exceeded"). The operator pool's comes second,
+            # "db: ping: timed out: context deadline exceeded"). The operator pool's comes second,
             # only when the operator surface is configured, and at its ceiling the
             # process does NOT exit: the surface is unavailable and the customer product
             # serves (measured 2026-10-01: an operator database that accepts TCP and

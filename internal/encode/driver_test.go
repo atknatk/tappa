@@ -962,7 +962,7 @@ func TestDriver_RndACannotBeReadTwice(t *testing.T) {
 	// And a consumed slot is still wiped: take does not remove it from the ring.
 	ring.zeroAll()
 	for _, s := range ring.slots {
-		for _, b := range s.buf {
+		for _, b := range s.key.Reveal() {
 			if b != 0 {
 				t.Fatalf("slot %q survived zeroAll", s.name)
 			}

@@ -173,7 +173,8 @@ type Guardrail struct {
 	Effect string
 	// Reason is the sentence the employee sees, taken from the guardrail itself.
 	Reason string
-	// Rule is why it cannot be switched off, naming the red line it enforces.
+	// Rule is why it cannot be switched off, naming the red line it enforces; on a planned guarantee
+	// (Stage), what is not enforced yet.
 	Rule string
 	// When is the condition in a manager's words -- the plate's headline on the Rules
 	// screen ("The person has been deactivated"). It comes from guardrailWhen, held to
@@ -199,6 +200,10 @@ type Guardrail struct {
 	// (panelGuardrail), never read off its position, and it is a string for Alert's
 	// reason.
 	Guards string
+	// Stage is "" for a guarantee the product enforces and GuardrailPlanned for one it does not
+	// enforce yet, so the screen draws no promise for it. A string for Alert's reason: it says what
+	// is true of the product and no press can change it.
+	Stage string
 	// Bounded is the tunable window this guardrail compares against, or nil for the
 	// ones that have none. "Cannot be switched off but MAY be tuned within a
 	// range" is ADR 0004 §11's pattern -- but the tuning is Taptime's, once for the
@@ -821,6 +826,7 @@ func (r *Rulebook) guardrails() []Guardrail {
 			Alert:   guardrailAlertWords(g),
 			Bounded: r.boundedFor(g.Sid),
 			Guards:  guardsWords(g),
+			Stage:   guardrailStage[g.Sid],
 		})
 		if g.Effect == policy.EffectRedirect {
 			out[len(out)-1].Qualifier = guardrailQualifiers[g.Sid]
@@ -860,8 +866,22 @@ var guardrailRules = map[string]string{
 		"from that venue's own network; anything else waits for your approval. Neither you nor they can change it.",
 	"sys:policy-edit-owner-only": "ADR 0004 K2 — only the owner may change the rules. A manager who could " +
 		"widen a rule could widen their own pay.",
-	"sys:no-self-review": "ADR 0004 Y-C — nobody approves their own record. This is the one " +
-		"separation a small business cannot organise around.",
+	"sys:no-self-review": "Not enforced yet. Taptime does not yet know which manager login belongs to " +
+		"which employee, so someone who is both can decide their own flagged record or type their own " +
+		"hours. Each decision is recorded with who made it.",
+}
+
+// GuardrailPlanned is Guardrail.Stage for a guarantee in the engine that nothing calls yet.
+const GuardrailPlanned = "planned"
+
+// guardrailStage names the guarantees the product does not enforce yet.
+//
+// 🔴 sys:no-self-review IS THE ONE (ADR 0037, T148-0). Its comparison holds an admin_users id against
+// an employees id, and no production path evaluates it, so the screen must not sell it: a plate with
+// a lock and "Cannot be switched off" was a false promise. The entry goes when ADR 0037's T148-2 and
+// T148-3 make the guarantee run, and the Rule and When words above change with it.
+var guardrailStage = map[string]string{
+	"sys:no-self-review": GuardrailPlanned,
 }
 
 // guardrailWhen says, for each shipped guardrail, WHEN it fires -- a short phrase a
@@ -884,7 +904,7 @@ var guardrailWhen = map[string]string{
 	"sys:person-debounce":         "The same person taps again inside the repeat window",
 	"sys:cross-tenant-qr-site-ip": "A QR scan at another business of your group, off that venue's own network",
 	"sys:policy-edit-owner-only":  "Someone other than the owner changes a rule",
-	"sys:no-self-review":          "Someone reviews their own record",
+	"sys:no-self-review":          "Planned: a manager decides their own record",
 }
 
 // guardrailAlerts names the security alert a guardrail raises, in words. Only the

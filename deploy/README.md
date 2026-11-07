@@ -3487,7 +3487,11 @@ yani sağlıklı bir süreçte de sonradan sıfır görünür.)
 **Açılış reddi** (rollout `status` zaman aşımına uğrar, eski pod servis vermeye devam eder —
 `maxUnavailable: 0`): yeni pod'un log'unda `"msg":"fatal"` satırı nedeni adıyla söyler —
 *"only some are set"* (yarım küme), *"must differ"* (eşit anahtar), *"TAPPA_OPERATOR_HOST"*
-(host biçimi), *"refusing to open"* (DSN `tappa_operator` olarak bağlanmıyor ya da rolün
+(host biçimi), *"db: ping: …"* (**müşteri havuzu**, `DATABASE_URL`: satır yalnız sınıfı taşır, host,
+kullanıcı ve sunucunun cümlesi yoktur. `connection refused` ve `SQLSTATE …` bu bölümdeki anlamındadır;
+*"the server declined TLS"* sunucu TLS'siz, DSN'in `sslmode`'una bak; *"the server is not in the wanted
+session state"* DSN'in `target_session_attrs`'ına bak; *"an error of type …"* tanınmayan bir hata, DSN'i
+elle `psql` ile dene), *"refusing to open"* (DSN `tappa_operator` olarak bağlanmıyor ya da rolün
 nitelikleri ADR 0021 §1'e uymuyor — ör. sahibin DSN'i yapıştırılmış), *"the server refused
 the connection (SQLSTATE …)"* (sunucuya ulaşıldı ve DSN'in istediğini reddetti: `42501` bir
 rol ya da ayar yetkisi, `22023` olmayan bir rol, `42704` bilinmeyen bir ayar — DSN'deki fazla
@@ -3498,7 +3502,7 @@ iki havuz da yalnız bağlı parametre gönderen kipleri kabul eder, ölçen:
 (the … pool) is in query exec mode …"* (aynı kip DSN'den değil KODDAN gelmiş — DSN
 denetlenmişti; bir hata raporu konusudur, işletme ayarı değil), *"the connection attempt failed (…), which is not one of the failures that
 count as unreachable"* (sunucu cevabı olmayan bir ret: bir TLS uyarısı, bu tarafın kabul
-etmediği bir sertifika, TLS'i reddeden bir sunucu ya da tanınmayan bir hata — DSN'in
+etmediği bir sertifika, TLS'i reddeden bir sunucu (*"the server declined TLS"*) ya da tanınmayan bir hata — DSN'in
 `sslmode`'una bak; runbook'un DSN'i `sslmode=disable` taşır), ya da
 `log_parameter_max_length_on_error` (bağlantı başlangıç parametresi sunucuya ulaşmadı, ya da
 geri okuması koşamadı). Bir DSN birden çok deneme doğurursa (çok host'lu DSN; `sslmode=prefer`

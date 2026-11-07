@@ -55,6 +55,7 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
+	t.Setenv("TAPPA_ADDR", "")                         // -> default :8080
 	t.Setenv("TAPPA_DEV_TOOLS", "")                    // off unless a test opts in
 	t.Setenv("TAPPA_ENV", fixtureEnv)                  // unset -> default dev (the sandbox build: sandbox)
 	t.Setenv("TAPPA_BASE_URL", "https://fixture.test") // prod and sandbox refuse the dev default

@@ -194,9 +194,7 @@ func tenantPlaquesView(inv db.TenantPlaqueInventory, name operatorpages.TenantNa
 		}
 		if p.LocationID != nil {
 			row.LocationID = p.LocationID.String()
-			if p.LocationName != nil && namedVisibly(*p.LocationName) {
-				row.Location = *p.LocationName
-			}
+			row.Location = visibleName(p.LocationName)
 		}
 		if p.EncodedAt != nil {
 			row.EncodedAt = utcStamp(*p.EncodedAt)

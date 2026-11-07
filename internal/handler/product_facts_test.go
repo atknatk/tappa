@@ -703,7 +703,7 @@ func inviteViolation(s productFactSources) string {
 	if !inviteEmailModeRE.MatchString(s.Config) || !strings.Contains(s.InviteEmail, "a.invites.IssueAndDeliver(") {
 		return "the e-mail delivery mode is gone"
 	}
-	if !strings.Contains(s.InviteManager, "code.hash(m.hmacKey)") || !strings.Contains(s.Mig12, "WHERE i.code_hash = p_code_hash") {
+	if !strings.Contains(s.InviteManager, "code.hash(m.hmacKey.Reveal())") || !strings.Contains(s.Mig12, "WHERE i.code_hash = p_code_hash") {
 		return "an invitation is no longer kept as a keyed hash"
 	}
 	return ""
@@ -950,7 +950,7 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			"ALTER TABLE employees ADD CONSTRAINT employees_status_check CHECK (status IN ('invited', 'active', 'deactivated', 'suspended'));")},
 		{pages.FactInviteLinkShownOnceOrMailed, "the link is no longer shown once", replace(func(s *productFactSources) *string { return &s.Employees }, "Activation link — shown once", "Activation link")},
 		{pages.FactInviteLinkShownOnceOrMailed, "the e-mail mode goes", replace(func(s *productFactSources) *string { return &s.Config }, `InviteDeliveryEmail = "email"`, `InviteDeliveryEmail = "panel2"`)},
-		{pages.FactInviteLinkShownOnceOrMailed, "the code is stored plain", replace(func(s *productFactSources) *string { return &s.InviteManager }, "code.hash(m.hmacKey)", "code.plain()")},
+		{pages.FactInviteLinkShownOnceOrMailed, "the code is stored plain", replace(func(s *productFactSources) *string { return &s.InviteManager }, "code.hash(m.hmacKey.Reveal())", "code.plain()")},
 		{pages.FactManualEntryStartsFromThePerson, "the card no longer links to the entry", replace(func(s *productFactSources) *string { return &s.Roster }, ">Enter a record by hand</a>", ">Record</a>")},
 		{pages.FactVenueHoldsItsEvidenceAndHours, "a venue loses its shift", anchor(pages.AnchorVenueShiftAndAddress)},
 		{pages.FactVenueHoldsItsEvidenceAndHours, "a venue loses its GPS point", replace(func(s *productFactSources) *string { return &s.Mig02 }, "gps_lat     numeric", "gps_x       numeric")},

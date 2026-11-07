@@ -240,7 +240,7 @@ type tapContext struct {
 // mutation of the caller's config slice cannot silently change how contexts
 // sign (internal/invite's Manager takes the same precaution).
 type tapContexts struct {
-	key []byte
+	key config.Key
 	ttl time.Duration
 	// now is injectable for tests; production leaves it nil and reads the wall
 	// clock.
@@ -260,7 +260,7 @@ func newTapContexts(cfg *config.Config) (tapContexts, error) {
 	}
 	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(tapContextKeyLabel)) // hash writes never fail (documented)
-	return tapContexts{key: m.Sum(nil), ttl: tapContextTTL}, nil
+	return tapContexts{key: config.NewKey(m.Sum(nil)), ttl: tapContextTTL}, nil
 }
 
 func (c tapContexts) clock() time.Time {
@@ -296,7 +296,7 @@ func (c tapContexts) payload(t tapContext) string {
 // a context is usable only from the browser it was served to while the id stays
 // out of the page.
 func (c tapContexts) sign(payload string, sessionID uuid.UUID) []byte {
-	m := hmac.New(sha256.New, c.key)
+	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(tapContextMACLabel))
 	_, _ = m.Write([]byte(payload))
 	_, _ = m.Write([]byte("|"))
@@ -306,7 +306,7 @@ func (c tapContexts) sign(payload string, sessionID uuid.UUID) []byte {
 
 // mint stamps t with the server clock and returns the form-field value.
 func (c tapContexts) mint(t tapContext, sessionID uuid.UUID) (string, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		// A zero tapContexts would sign under an empty key — a MAC anybody can
 		// compute. Refuse, rather than emit a decorative signature. (Where
 		// session.Cookies made its zero value SAFE, this type cannot: there is
@@ -332,7 +332,7 @@ func (c tapContexts) mint(t tapContext, sessionID uuid.UUID) (string, error) {
 // unauthenticated value is ever acted on — and expiry comes before decoding for
 // the same reason in miniature.
 func (c tapContexts) parse(v string, sessionID uuid.UUID) (tapContext, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return tapContext{}, errors.New("handler: tap contexts were not configured")
 	}
 	if sessionID == uuid.Nil {

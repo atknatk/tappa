@@ -188,6 +188,7 @@ templ memberPress(href, id string, danger bool, label, name string) {
 // managersInviteForm is the name and the address. Stacked on a phone, side by side from the tablet up.
 templ managersInviteForm(v ManagersView) {
 	<form method="post" action={ templ.URL(components.Bound(ctx, v.InviteHref)) } class="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
+		<p class="text-sm leading-normal text-ink/85 md:basis-full">A manager can currently decide their own flagged record and type their own hours.</p>
 		<div class="field-stack md:flex-1">
 			<label class="lbl" for="manager-name">Their name</label>
 			<input class="field-input" id="manager-name" type="text" name="full_name" required maxlength={ itoa(v.NameMaxLength) } autocomplete="off"/>

@@ -252,7 +252,7 @@ func draftFor(t *testing.T, structure string, venues ...string) Draft {
 		Account: Account{
 			FullName: "Probe Owner",
 			Email:    "probe-" + uuid.NewString() + "@signup.example",
-			Password: "a passphrase nobody guesses",
+			Password: testPassword("a passphrase nobody guesses"),
 		},
 	}
 }
@@ -345,7 +345,7 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 	if digest != fixtureDigest {
 		t.Errorf("password_hash is not the draft's digest (it begins %q)", safePrefix(digest))
 	}
-	if digest == d.Account.Password {
+	if digest == string(d.Account.Password.Reveal()) {
 		t.Fatal("the password was stored in the clear")
 	}
 

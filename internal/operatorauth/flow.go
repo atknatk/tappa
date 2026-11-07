@@ -244,12 +244,21 @@ func (a *Authenticator) SessionHash(t SessionToken) (string, error) {
 
 // Logout revokes the session through the same predicate and writes its 'logout' row in
 // one statement (op_close_session). A dead session is ErrNoSession.
+//
+// THE STATEMENT IS DETACHED (T213), the sign-in steps' pattern: pressing "sign out" is a decision,
+// and it holds whether or not the browser stays to read the answer. Following the client, a
+// half-closed sign-out left the session open with no 'logout' row, and a forged cookie and a FIN
+// answered 503 with two ERROR records, which needs no session and rings deploy rule 5
+// (TestLogout_AClientThatLeftStillEndsTheSession). The statement's cost is unchanged: logoutGate's
+// ceiling counts the request, and this is its one statement.
 func (a *Authenticator) Logout(ctx context.Context, t SessionToken) error {
 	h, err := t.hash(a.keys.tokenKey.bytes())
 	if err != nil {
 		return ErrNoSession
 	}
-	err = a.store.CloseOperatorSession(ctx, h)
+	dctx, cancel := detach(ctx)
+	defer cancel()
+	err = a.store.CloseOperatorSession(dctx, h)
 	switch {
 	case err == nil:
 		return nil
@@ -400,7 +409,7 @@ func (a *Authenticator) recordPasswordless(ctx context.Context, kind db.Operator
 // can hold the nesting (TestShutdownBudget_TheSignInStatementsNestInsideTheHTTPGrace).
 const SignInStatementGrace = 5 * time.Second
 
-// detach is the context of ONE sign-in statement that must run whether or not the client
+// detach is the context of ONE sign-in or sign-out statement that must run whether or not the client
 // is still there: ctx's values, none of its cancellation or deadline, and
 // SignInStatementGrace as its only bound.
 func detach(ctx context.Context) (context.Context, context.CancelFunc) {

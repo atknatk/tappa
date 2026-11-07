@@ -197,7 +197,7 @@ func TestWebhookWiring_TheEndpointServiceReachesThePanel(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if n := d.Name(); n == ".git" || n == "node_modules" || n == "android" {
+			if n := d.Name(); n == ".git" || n == "node_modules" || n == "android" || (path != repoRoot && isCheckout(path)) {
 				return filepath.SkipDir
 			}
 			return nil

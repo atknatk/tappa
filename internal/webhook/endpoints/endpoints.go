@@ -55,6 +55,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/store"
@@ -145,7 +146,7 @@ type Sender interface {
 
 // Service is the owner's acts on the business's endpoint.
 type Service struct {
-	kek   []byte
+	kek   config.Key
 	data  Database
 	trail Trail
 	send  Sender
@@ -164,7 +165,7 @@ func New(kek []byte, data Database, trail Trail, send Sender) (*Service, error) 
 	if data == nil || trail == nil || send == nil {
 		return nil, errors.New("webhook endpoint: nil database, trail or sender")
 	}
-	return &Service{kek: append([]byte(nil), kek...), data: data, trail: trail, send: send, now: time.Now}, nil
+	return &Service{kek: config.NewKey(kek), data: data, trail: trail, send: send, now: time.Now}, nil
 }
 
 // Act names an act for the suspension table.
@@ -384,7 +385,7 @@ func (s *Service) mintSealed(id uuid.UUID) (webhook.SigningKey, []byte, error) {
 	if err != nil {
 		return webhook.SigningKey{}, nil, err
 	}
-	sealed, err := sun.Seal(s.kek, id[:], key.SealInput())
+	sealed, err := sun.Seal(s.kek.Reveal(), id[:], key.SealInput())
 	if err != nil {
 		return webhook.SigningKey{}, nil, fmt.Errorf("webhook endpoint: seal: %w", err)
 	}
@@ -580,7 +581,7 @@ func (s *Service) Ping(ctx context.Context, tenantID, actorID uuid.UUID) (Pinged
 		if addr, err = egress.EndpointFromStore(row.Url); err != nil {
 			return ErrStoredAddress
 		}
-		plain, err := sun.Open(s.kek, row.ID[:], row.SigningKeySealed)
+		plain, err := sun.Open(s.kek.Reveal(), row.ID[:], row.SigningKeySealed)
 		if err != nil {
 			return ErrKeyUnreadable
 		}

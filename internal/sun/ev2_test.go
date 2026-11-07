@@ -244,7 +244,7 @@ func TestEV2_AuthZeroWipesBothSessionKeys(t *testing.T) {
 	}
 	auth.Zero()
 	zeros := make([]byte, ev2KeyLen)
-	if !bytes.Equal(auth.KeyENC, zeros) || !bytes.Equal(auth.KeyMAC, zeros) {
+	if !bytes.Equal(auth.KeyENC.Reveal(), zeros) || !bytes.Equal(auth.KeyMAC.Reveal(), zeros) {
 		t.Fatal("Zero left session key bytes behind")
 	}
 	// TI is not secret and is deliberately untouched — a caller may still need it
@@ -270,8 +270,8 @@ func TestEV2_WrapCommandFullRejectsBrokenSessions(t *testing.T) {
 		{"nil", nil},
 		{"short_ti", &EV2Auth{TI: good.TI[:2], KeyENC: good.KeyENC, KeyMAC: good.KeyMAC}},
 		{"nil_ti", &EV2Auth{KeyENC: good.KeyENC, KeyMAC: good.KeyMAC}},
-		{"short_enc_key", &EV2Auth{TI: good.TI, KeyENC: good.KeyENC[:8], KeyMAC: good.KeyMAC}},
-		{"short_mac_key", &EV2Auth{TI: good.TI, KeyENC: good.KeyENC, KeyMAC: good.KeyMAC[:8]}},
+		{"short_enc_key", &EV2Auth{TI: good.TI, KeyENC: NewWipeableKey(good.KeyENC.Reveal()[:8]), KeyMAC: good.KeyMAC}},
+		{"short_mac_key", &EV2Auth{TI: good.TI, KeyENC: good.KeyENC, KeyMAC: NewWipeableKey(good.KeyMAC.Reveal()[:8])}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := EV2WrapCommandFull(tc.auth, 0x5F, 1, []byte{0x02}, body); err == nil {
@@ -394,16 +394,16 @@ func TestEV2_UnwrapResponseFullRejectsUnpaddablePlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ev2NextCtr: %v", err)
 	}
-	iv, err := ev2DataIV(auth.KeyENC, ev2LabelRespIV, auth.TI, respCtr)
+	iv, err := ev2DataIV(auth.KeyENC.Reveal(), ev2LabelRespIV, auth.TI, respCtr)
 	if err != nil {
 		t.Fatalf("ev2DataIV: %v", err)
 	}
 	plain := bytes.Repeat([]byte{0x01}, 16) // contains no 80h and does not end in 00h
-	enc, err := ev2CBCEncrypt(auth.KeyENC, iv, plain)
+	enc, err := ev2CBCEncrypt(auth.KeyENC.Reveal(), iv, plain)
 	if err != nil {
 		t.Fatalf("ev2CBCEncrypt: %v", err)
 	}
-	full, err := cmac(auth.KeyMAC, ev2MACInput(0x00, respCtr, auth.TI, nil, enc))
+	full, err := cmac(auth.KeyMAC.Reveal(), ev2MACInput(0x00, respCtr, auth.TI, nil, enc))
 	if err != nil {
 		t.Fatalf("cmac: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestEV2_UnwrapResponseFullRejectsAMisalignedCiphertext(t *testing.T) {
 		t.Fatalf("ev2NextCtr: %v", err)
 	}
 	stub := []byte{0xDE, 0xAD, 0xBE, 0xEF} // four bytes: not a whole AES block
-	full, err := cmac(auth.KeyMAC, ev2MACInput(0x00, respCtr, auth.TI, nil, stub))
+	full, err := cmac(auth.KeyMAC.Reveal(), ev2MACInput(0x00, respCtr, auth.TI, nil, stub))
 	if err != nil {
 		t.Fatalf("cmac: %v", err)
 	}

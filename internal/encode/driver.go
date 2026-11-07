@@ -611,8 +611,8 @@ func acceptAuthenticate2(_ context.Context, _ *Store, s *Session, data []byte) e
 	// because acceptVersionFrame3AndWriteRow now registers TWO plaque keys the same
 	// way (ADR 0017 §5.1 step 8 shipped, ADR 0018), and "unreachable today" is not a
 	// property a future edit preserves.
-	errENC := s.ring.add(keyNameSesENC, auth.KeyENC)
-	errMAC := s.ring.add(keyNameSesMAC, auth.KeyMAC)
+	errENC := s.ring.add(keyNameSesENC, auth.KeyENC.Reveal())
+	errMAC := s.ring.add(keyNameSesMAC, auth.KeyMAC.Reveal())
 	if errENC != nil {
 		return errENC
 	}

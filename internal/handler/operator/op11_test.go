@@ -1017,7 +1017,7 @@ func TestTenantOverview_AnUnnamedTenantIsNamedByItsID(t *testing.T) {
 // a search term that closes the search box's attribute and opens a script, in the box,
 // the "matching" line and the pager's hidden field -- none is written raw, each is there
 // escaped (so the assertion is not passing on a value that never rendered); and a name
-// carrying a right-to-left override sits inside a bdi element.
+// carrying a right-to-left override sits inside a bdi element, without the override (T97).
 func TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
@@ -1051,8 +1051,8 @@ func TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped(t *testing.T) {
 				}
 			}
 		}
-		if what == "the list" && !strings.Contains(body, "<bdi>"+rtl+"</bdi>") {
-			t.Error("the list does not isolate a name with a direction override")
+		if what == "the list" && !strings.Contains(body, "<bdi>FAKE override</bdi>") {
+			t.Error("the list does not isolate a name with a direction override, without the override (T97)")
 		}
 	}
 }
