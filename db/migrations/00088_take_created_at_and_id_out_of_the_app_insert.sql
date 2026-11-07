@@ -20,7 +20,8 @@
 --     this file turned 42501); under a trigger they would keep running with now() and assert on a row
 --     shape they no longer have. Under the grant they are 42501 -- loud -- and they moved to the owner,
 --     who can still write a past created_at (a trigger would bind the owner too, leaving no honest way
---     to build an aged row at all). 12 more in 4 files named id and now read it back (RETURNING id);
+--     to build an aged row at all). 12 more in 4 files named id: 11 now read it back (RETURNING id),
+--     and the one that measures the (occurred_at, id) order writes its chosen ids as the owner;
 --   * now() in a trigger is what DEFAULT now() already writes, so it buys nothing over the grant for an
 --     honest writer; clock_timestamp() would change what the debounce's DB-age leg measures (ADR 0006's
 --     "written, not done" note: a row written after W seconds of lock wait) and M15's W ordering -- a
