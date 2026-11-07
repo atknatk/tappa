@@ -1005,8 +1005,8 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 	if resetOutcomeTries != 2 {
 		t.Errorf("resetOutcomeTries = %d, want 2: one try and one retry (T197)", resetOutcomeTries)
 	}
-	if resetRetryQueueSize != resetOutboxSize {
-		t.Errorf("resetRetryQueueSize = %d, want resetOutboxSize's %d", resetRetryQueueSize, resetOutboxSize)
+	if resetRetryQueueSize != 256 {
+		t.Errorf("resetRetryQueueSize = %d, want 256. Re-derive it at its declaration: a short stall fills it a full window per request.", resetRetryQueueSize)
 	}
 	if adminauth.ResetWindow != adminauth.MaxCandidates {
 		t.Errorf("adminauth.ResetWindow = %d and MaxCandidates = %d; a recovery link outside "+

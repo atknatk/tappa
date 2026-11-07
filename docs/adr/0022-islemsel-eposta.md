@@ -3453,10 +3453,14 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    tam pencere **40,5 sn, 0 satır, 8 canlı link → 1,23 sn, 8 satır, 0 canlı link**; tek link 5,5 sn → 0,61 sn. Eski yol
    grant başına 5 sn tutuyordu, kayıtlı adresi saatten okutuyordu ve hak başına iki yazımın ikisini birden kaybediyordu.
    **Yeni kural:** bir istek bütün yedek yazımlarına **tek `resetFallbackBudget` (1 sn)** harcar, her yazım en çok
-   `resetFallbackStep` (500 ms); bitmeyen yazım **istekten çıkar**, süreç içi `retries` kuyruğundan (32) tek işçiye gider.
-   Yanıt yeniden denemeyi hiçbir zaman beklemez. Tavan tabanın **üstündedir**: durmuş veritabanında kayıtlı adresin yanıtı
-   1 sn'ye kadar uzayabilir, yani saat kanalı **daraldı, kapanmadı**. Bütçe tabanın altına çekilmedi, çünkü o zaman yavaş
-   bir günde satır yanıttan sonraya kayardı ve satırın yanıtla birlikte var olması bu yolun testlerinin tuttuğu şekildir.
+   `resetFallbackStep` (500 ms); bitmeyen yazım **istekten çıkar**, süreç içi `retries` kuyruğundan (256) tek işçiye gider.
+   Yanıt yeniden denemeyi hiçbir zaman beklemez. **Bu tavan dardır: yalnız mint'ten sonra başlayan duruşta yedek yazımlar
+   içindir.** O kolda yanıt tabanın üstüne ~1 sn çıkabilir (önceden 40 sn), yani saat kanalı orada daraldı, kapanmadı.
+   İsteğin öteki kolları tavanın dışındadır; T197 onları kötüleştirmedi (sayılar denetimde): `kept` 1/2/8 hesapta
+   5,01/10,02/40,05 sn, satır kayıp (T211); mint kolu kilit süresini izler, 3 sn kilit 3,02 sn; istekten önce kilit 6,0 sn,
+   bu deneydeki istek süresidir, yanıt 500 (üretimde 30 sn; T219); kayıtsız adres 251 ms, 200. Yani **200/500 de ayrışır**.
+   Bütçe tabanın altına çekilmedi: 200/100 ms denetimde çalıştı, ama bu kollar açıkken tek başına değmez ve yavaş bir günde
+   satırı yanıttan sonraya kaydırır.
    Sağlıklı yolda davranış aynı: yazımlar sığar, satır yanıt dönerken vardır, zamanlama tabanı ve bant değişmedi.
 10. **`kept` satırları hesap bütçesini harcar:** anonim istekler bir hesabın sonraki `requested`/`undelivered`
     satırlarını bütçenin dışına itebilir (EM-5A'nın *"satırları sınırlar, gönderimleri değil"* sınırı) — gönderim
@@ -3479,17 +3483,34 @@ denenmez** (`db.Transient`: geçen süre, kopan ya da reddedilen bağlantı, sun
 ve serileştirme kaybı evet; kısıt, yetki, eksik fonksiyon, iptal edilmiş bağlam hayır). İki yazım iki kez yazılmaya
 güvenlidir, ölçüldü: geri çekme yalnız `NULL`'dan hareket eder, satır kendi id'sini taşır (`RecordAuditEventOnce`,
 `ON CONFLICT (id) DO NOTHING`, migration yok); COMMIT sunucuya ulaşıp cevabı kaybolduğunda tek satır, tek geri çekme
-(`TestResetOutcomeDB_ALostAnswerDoesNotDoubleAWrite`). Bütçe yazım başına değil sonuç başına bir kez işler. İşçide yazım başına
-süre `resetOutcomeGrace` (5 sn) + `resetRetryPause` (2 sn) + 5 sn, yani yazım başına ~12 sn'lik duruşu atlatır (önceden iki yazım
-toplam 5 sn).
+(`TestResetOutcomeDB_ALostAnswerDoesNotDoubleAWrite`). `audit_log.at` bu yolda yazım anıdır, kuyrukta bekleyen satırda olaydan geç
+olabilir; bugün `admin.recovery.*` okuyan yüzey yok. Başka tenant'ın aynı id'li satırı başarı sayılmaz: 0 satır yalnız satır bu tenant'ınsa
+başarıdır, değilse `audit.ErrIDTaken` (`TestRecord_AnIDHeldByAnotherTenantIsAnError`; tek üretici `uuid.New()`, sömürülemez, denetimde).
+Bütçe yazım başına değil sonuç başına bir kez işler. Atlatılan duruş yazıma göre değişir: istekte hiç denenmemiş yazım `resetOutcomeGrace`
+(5 sn) + `resetRetryPause` (2 sn) + 5 sn, ~12 sn; istekte denenmiş yazım 0,5 + 2 + 5, ~7,5 sn, yani 8 sn'lik kara delikte 1 kayıp (denetimde).
+Önceden iki yazım toplam 5 sn.
+**Kuyruk boyu 256, 32 değil.** Bütçesi biten yazım hiç denenmeden kuyruğa gider, yani kısa duruş kuyruğu istek başına tam pencere doldurur.
+Denetimde 3 sn duruş, kilit mint'ten hemen sonra: 32'de 16 istek × 8 link 33 satır, 95 canlı link, 95 kayıp (eski kod 128 satır, 0 canlı);
+40 × 1 link 33 satır, 7 canlı (eski kod 40 satır). 256'da 16 × 8: 128 satır, 0 canlı, 0 kayıp, istek en çok 1,22 sn
+(`TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue`, burada en yavaşı 1,02 sn). Kuyruğa verilirken adres silinir; kalan yazımlar
+ona ihtiyaç duymaz.
+**Dolu kuyruk boşaltmaya sığmaz; `ResetDrainWriteReserve` değişmedi.** Ölçüldü (sağlıklı veritabanı, yerel macOS + Docker Desktop, load ~5,
+3 sn bütçe, kuyruk 256, koşu başına): race dışı 149/155/165, `-race` 113/144/135 satır yazıldı, kalan 91–143 satır ve geri çekme ERROR ile
+kayboldu (`TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain`). Dolu outbox'ın 33 satırı aynı makinede 205–276 ms ile hâlâ sığıyor.
+Bütçe bitince `Drain` kalanı tek ERROR satırında sayar (`queued_grants`, `queued_outcomes`), çünkü işçinin yazım başına ERROR'ları süreç
+çıkışından önce yazılamayabilir.
 **Kalan, sayılı:** iki deneme de düşerse eskisi gibi: yazım başına ERROR, satır yok, link `ResetTTL`'ye dek canlı,
 sahibin istekleri `kept` (kimlik linkinde kişinin **bütün** işletmelerinde kurtarma durur,
-`TestPanelIdentityReset_BothTriesFailingLockThePersonOut`). Kapanış yönü güvenli: link hiçbir kutuda yok, kimse harcayamaz; maliyet
-kurtarma erişilebilirliğidir. `retries` kuyruğu doluysa ya da süreç kapanıyorsa aynı sonuç; süreç ölürse kuyruk da gider
+`TestPanelIdentityReset_BothTriesFailingLockThePersonOut`). Link çoğunlukla hiçbir kutuda değildir; belirsiz gönderimde sahibinin kutusunda
+canlı olabilir ve harcanabilir. Yalnız sahibin kutusu; asıl sorun izdir: satır yok (`TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox`).
+ERROR satırı kimlik linkinde fazla söyleyebilir: `identity_withdraw_reset` tek ifadedir ve kilit ERROR'dan hemen sonra açılınca link 34 koşunun 1'inde ölü bulundu (33'ünde canlı).
+Olası neden kilidin `pgconn.asyncClose` iptalinden önce açılması (okundu, ölçülmedi). Yön güvenli; satır bağlı linkin `Withdraw`'ı işlem içindedir, istemci kaydetmez (3 koşuda canlı kaldı).
+`retries` kuyruğu doluysa ya da süreç kapanıyorsa aynı sonuç; süreç ölürse kuyruk da gider
 (sınır 1). İşçi tektir, yani veritabanı durunca arkasındaki gönderimler de yavaşlar (grant başına en çok ~22 sn). `kept` satırı
 (sınır 9(a)) bu kuralın dışındadır: tek yazım, yeniden deneme yok, istek başına hesap sayısı kadar 5 sn tutabilir (T211).
-**Önerilen, uygulanmadı (migration ister, kullanıcı kararı):** linke `delivered_at` sütunu; `kept` dalı teslim edildiği bilinmeyen,
-gönderim süresinden eski canlı linki geri çekip yeni basarsa kilitlenme `ResetTTL`'den bir sonraki isteğe iner (T212).
+**Kilitlenmeyi kısaltma (T212) bu hâliyle uygulanmaz:** `delivered_at` önerisinde `resetSendGrace` (15 sn) kuyruk beklemesini saymaz, sıradaki
+link başkasının isteğiyle ölür ve ADR 0015 (a) geri döner; `delivered_at` yazımı da düşebilir. Eşik gönderimin başladığı ana bağlıdır, ayrı denetim
+ister. Küçük seçenek: işçi düşen geri çekmeleri sınırlı bellek listesinde yeniden dener; başarırsa belirsiz gönderim sınıfını da kapatır.
 
 **Devirler:**
 - **EM-5B:** önkoşul (b)'nin kodu bu notla; (c) kabul, genişletilmedi; **sınır 6 (işletmeler arası davet

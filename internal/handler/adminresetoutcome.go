@@ -42,23 +42,27 @@ import (
 // A stalled database slows the queue behind it; nothing waits for the queue but mail.
 //
 // COUNTED LIMITS. Both tries failing is the old outcome: an ERROR for each write, a row
-// lost, a link live until ResetTTL with no inbox holding it, and the owner's requests
-// answered "kept" until then -- fail-closed, since no one can spend a link no inbox holds,
-// but an availability cost. So is a full or closed retry queue, a spent drain budget and a
-// process that dies, which also loses what the retry queue holds, like the outbox itself
-// (counted limit 1). The stall a grant survives is bounded by its clocks: on the worker
-// resetOutcomeGrace + resetRetryPause + resetOutcomeGrace per write, about 12 s, where it
-// was 5 s for both. recordKept's row is not here: it shares no clock with anything, it is
-// not retried, and it still holds its request up to resetAuditGrace per account.
+// lost, a link live until ResetTTL, and the owner's requests answered "kept" until then.
+// The link is usually in no inbox; after an uncertain send (the relay took it and the answer
+// was lost) it can be live and spendable in its owner's inbox, and only theirs, with no row
+// saying so -- the real cost is the trail, and availability
+// (TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox). So is a full or
+// closed retry queue, a spent drain budget and a process that dies, which also loses what the
+// retry queue holds, like the outbox itself (counted limit 1). The stall a write survives is
+// bounded by its clocks: on the worker resetOutcomeGrace + resetRetryPause + resetOutcomeGrace,
+// about 12 s, for a write the request never tried; for one it tried, resetFallbackStep +
+// resetRetryPause + resetOutcomeGrace, about 7.5 s (an 8 s black hole lost one in an audit).
+// It was 5 s for both writes. recordKept's row is not here: it shares no clock with anything,
+// it is not retried, and it still holds its request up to resetAuditGrace per account (T211).
 
 const (
 	// resetFallbackBudget is everything ONE REQUEST may spend on its fallback writes,
 	// however many grants it minted. A second is about twice the slowest full-window answer
 	// on record for CI (540 ms, floor included: backlog T127), so the row keeps existing when
 	// the response returns. It is deliberately not tied to resetRequestFloor: a budget under
-	// the floor would close the clock in a stall too, but would move the row off the response
-	// on any slow day, and the row being there when the response returns is what the breaker's
-	// and the full outbox's tests hold this path to.
+	// it (200 ms and 100 ms worked in an audit) would move the row off the response on any slow
+	// day, and alone it is not worth that, since the mint and kept arms split the answer in a
+	// stall by other means (T219, T211).
 	resetFallbackBudget = 1 * time.Second
 
 	// resetFallbackStep is one write's share of it: half, so a stalled withdrawal leaves
@@ -78,11 +82,16 @@ const (
 	// resetOutcomeTries counts every try of one write, wherever it runs.
 	resetOutcomeTries = 2
 
-	// resetRetryQueueSize is resetOutboxSize's number and its reasoning: four full windows
-	// waiting for the worker, a window of loss if the process dies. It only fills while the
-	// database is not answering and the breaker or the outbox is refusing; past it the
-	// write is abandoned with its ERROR, as it was before this queue existed.
-	resetRetryQueueSize = resetOutboxSize
+	// resetRetryQueueSize bounds the outcomes waiting for the worker. A request whose budget
+	// ran out sends every write here untried, so a short stall fills it a full window per
+	// request. At 32, an audit measured a regression against the code before this queue: a
+	// 3 s stall, 16 requests of 8 links, 33 rows and 95 links live and 95 writes lost, where
+	// that code gave 128 rows and 0 live (holding each request far longer). At 256 the same run
+	// gave 128 rows, 0 live, 0 lost, and at most 1.22 s per request. The upper bound is what
+	// resetOutboxSize's is: a window of loss if the process dies, and more than the drain can
+	// write (TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain). Past it each owed write
+	// is abandoned with its ERROR.
+	resetRetryQueueSize = 256
 )
 
 // resetOutcomeClocks are the constants above, as fields so a test can shorten them.
@@ -282,6 +291,8 @@ func (h *AdminReset) recordFallback(base context.Context, until time.Time, g adm
 		return
 	}
 	o.notBefore = time.Now().Add(h.clocks.retryPause)
+	// Neither remaining write needs the address, and this waits in memory for a while.
+	o.g.Recipient = ""
 	if h.outbox.offerRetry(o) {
 		return
 	}

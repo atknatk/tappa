@@ -547,6 +547,10 @@ func (h *AdminReset) Drain(ctx context.Context) error {
 		// in a defer can race the cancellation and win, leaving both undone.
 		q.stopSending()
 		q.spendBudget()
+		// Said HERE, with the count: the worker's own ERROR for each write may not get out
+		// before the process does.
+		h.log.ErrorContext(ctx, "panel recovery: the drain ended with outcomes still waiting, and their writes are lost",
+			"queued_grants", len(q.jobs), "queued_outcomes", len(q.retries))
 		return fmt.Errorf("handler: the reset outbox did not drain within its budget: %w", ctx.Err())
 	}
 }

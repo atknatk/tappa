@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -231,7 +232,7 @@ func TestResetOutcome_ARefusedRetryIsLoggedAsLost(t *testing.T) {
 	})
 	t.Run("the retry queue is full", func(t *testing.T) {
 		t.Parallel()
-		f := &flakyWrites{fakeResets: &fakeResets{}, withdrawErrs: []error{context.DeadlineExceeded}}
+		f := &flakyWrites{fakeResets: &fakeResets{}, withdrawErrs: []error{context.DeadlineExceeded}, rowErrs: []error{context.DeadlineExceeded}}
 		var logged outcomeLog
 		h := outcomeHandlerOver(t, f, &logged)
 		defer h.outbox.stopSending() // the drain at cleanup need not wait for its write reserve
@@ -239,10 +240,38 @@ func TestResetOutcome_ARefusedRetryIsLoggedAsLost(t *testing.T) {
 			t.Fatal("CONTROL: the retry queue did not fill")
 		}
 		h.recordFallback(context.Background(), time.Now().Add(time.Second), grantFor(known), resetReasonOutboxFull)
-		if logged.count(lineWithdrawalLost) != 1 {
-			t.Errorf("want the lost withdrawal's line:\n%s", logged.String())
+		if logged.count(lineWithdrawalLost) != 1 || logged.count(lineRowLost) != 1 {
+			t.Errorf("want one lost line per write:\n%s", logged.String())
 		}
 	})
+}
+
+// TestResetOutcome_AQueuedOutcomeCarriesNoAddress: an outcome waiting in memory for the worker has no
+// use for the address, so it does not hold one.
+//
+// MUTATION: the Recipient left on the queued outcome -> red.
+func TestResetOutcome_AQueuedOutcomeCarriesNoAddress(t *testing.T) {
+	t.Parallel()
+	const known = "known@outcome.example"
+	f := &flakyWrites{fakeResets: &fakeResets{}, withdrawErrs: []error{context.DeadlineExceeded}}
+	var logged outcomeLog
+	h := outcomeHandlerOver(t, f, &logged)
+	defer h.outbox.stopSending()
+	// The worker takes this one and sits in its wait, so the next stays queued for the test to read.
+	holder := newResetOutcome(context.Background(), grantFor(known), ActionAdminResetRequested, "ok", "")
+	holder.admitted, holder.notBefore = true, time.Now().Add(time.Hour)
+	if !h.outbox.offerRetry(holder) {
+		t.Fatal("CONTROL: the empty queue refused an outcome")
+	}
+	waitUntil(t, 5*time.Second, "the worker to take the holder", func() bool { return len(h.outbox.retries) == 0 })
+	h.recordFallback(context.Background(), time.Now().Add(time.Second), grantFor(known), resetReasonBreaker)
+	if len(h.outbox.retries) != 1 {
+		t.Fatalf("CONTROL: %d outcome(s) queued, want 1", len(h.outbox.retries))
+	}
+	o := <-h.outbox.retries
+	if o.g.Recipient != "" || strings.Contains(fmt.Sprintf("%+v", o), known) {
+		t.Errorf("the queued outcome holds the address %q", o.g.Recipient)
+	}
 }
 
 // fillRetries offers outcomes that owe nothing and wait an hour, until the queue refuses one: the

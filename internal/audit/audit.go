@@ -46,6 +46,9 @@ func New(data Database) (*Recorder, error) {
 	return &Recorder{data: data}, nil
 }
 
+// ErrIDTaken says an Event.ID is held by a row this tenant cannot see, so the event was not written.
+var ErrIDTaken = errors.New("audit: the event id is held by another tenant's row")
+
 // Event is one row of the trail.
 //
 // TenantID is REQUIRED and this is the package's hard edge: audit_log.tenant_id
@@ -57,8 +60,9 @@ func New(data Database) (*Recorder, error) {
 type Event struct {
 	// ID is the row's id when the CALLER may write this event twice, and uuid.Nil
 	// (the database picks one) otherwise. A second Record of an event with the same
-	// ID adds no row: a retry after an answer that never arrived cannot double a row
-	// in a table nothing can delete from (T197; ADR 0022's EM-7C note, limit 8).
+	// ID by the same tenant adds no row and succeeds: a retry after an answer that never
+	// arrived cannot double a row in a table nothing can delete from (T197; ADR 0022's
+	// EM-7C note, limit 8). Another tenant's row holding the ID is ErrIDTaken.
 	ID       uuid.UUID
 	TenantID uuid.UUID
 	// ActorID is the ADMIN who caused the event, or nil for the system and for
@@ -131,10 +135,24 @@ func (e Event) insert(ctx context.Context, tx pgx.Tx, p store.RecordAuditEventPa
 		}
 		return row.ID, nil
 	}
-	if _, err := store.New(tx).RecordAuditEventOnce(ctx, store.RecordAuditEventOnceParams{
+	q := store.New(tx)
+	n, err := q.RecordAuditEventOnce(ctx, store.RecordAuditEventOnceParams{
 		ID: e.ID, TenantID: p.TenantID, ActorID: p.ActorID, Action: p.Action, Target: p.Target, Detail: p.Detail,
-	}); err != nil {
+	})
+	if err != nil {
 		return uuid.Nil, err
+	}
+	if n == 1 {
+		return e.ID, nil
+	}
+	// 0 rows is success only when the row is this tenant's: the primary key spans tenants and
+	// RLS does not hide a conflict, so another tenant's row would otherwise swallow this event.
+	mine, err := q.AuditEventVisible(ctx, store.AuditEventVisibleParams{TenantID: p.TenantID, ID: e.ID})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !mine {
+		return uuid.Nil, ErrIDTaken
 	}
 	return e.ID, nil
 }

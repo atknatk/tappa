@@ -150,6 +150,8 @@ type Querier interface {
 	// manager pressed a button for something that was already true, and the honest
 	// answer is to say so rather than to report a change that did not happen.
 	AttachPolicyResource(ctx context.Context, arg AttachPolicyResourceParams) (AttachPolicyResourceRow, error)
+	// Is the row with this id this tenant's? It is what RecordAuditEventOnce's 0 rows means.
+	AuditEventVisible(ctx context.Context, arg AuditEventVisibleParams) (bool, error)
 	// One open invitation, by its id in this business. No row: unknown here, spent, or cancelled
 	// already -- the caller writes no audit row then.
 	CancelAdminInvite(ctx context.Context, arg CancelAdminInviteParams) (CancelAdminInviteRow, error)
@@ -5988,11 +5990,15 @@ type Querier interface {
 	// RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
 	// caller's, so a retry after an answer that never arrived -- the COMMIT may have
 	// reached the server -- finds its own row and adds nothing to a table nothing can
-	// delete from. 0 rows affected means that row is already there, which is success.
+	// delete from. 0 rows affected, on a row THIS tenant can see, is that success.
 	//
-	// `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason. ON CONFLICT DO
-	// NOTHING needs no UPDATE privilege (tappa_app has SELECT, INSERT only, 00005) and
-	// fires no audit_log_no_mutation: nothing is mutated.
+	// `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason, so it is when this write
+	// happened, which on a retry can be later than the event. ON CONFLICT DO NOTHING needs no
+	// UPDATE privilege (tappa_app holds INSERT on the id column by 00053:36) and fires no
+	// audit_log_no_mutation: nothing is mutated.
+	//
+	// The arbiter is the whole table's primary key and RLS does not hide a conflict, so 0 rows
+	// can also mean ANOTHER tenant's row holds the id: AuditEventVisible tells the two apart.
 	RecordAuditEventOnce(ctx context.Context, arg RecordAuditEventOnceParams) (int64, error)
 	// The result, in the claiming transaction: the status and the record's id, never a body. Only the
 	// claim's own row (status IS NULL) is written.

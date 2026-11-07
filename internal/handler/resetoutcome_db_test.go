@@ -8,11 +8,14 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,18 +38,24 @@ type outcomeWorld struct {
 	owner   *pgx.Conn
 	tenants []uuid.UUID
 	email   string
+	emails  []string
+	real    *adminauth.Resets
 	flow    *AdminReset
 	router  *chi.Mux
 	logged  *outcomeLog
+	mu      sync.Mutex
 	minted  []adminauth.ResetGrant
 	// afterMint runs between the mint and the fallback writes, on the request's goroutine.
 	afterMint func([]adminauth.ResetGrant)
 }
 
 type outcomeWorldOptions struct {
-	n       int
-	channel ResetChannel
-	proxy   *faultProxy
+	n int
+	// addresses is how many addresses each business has one administrator for (default 1), so
+	// that many requests can each mint n links.
+	addresses int
+	channel   ResetChannel
+	proxy     *faultProxy
 }
 
 func newOutcomeWorld(t *testing.T, o outcomeWorldOptions) *outcomeWorld {
@@ -74,7 +83,14 @@ func newOutcomeWorld(t *testing.T, o outcomeWorldOptions) *outcomeWorld {
 			t.Errorf("close the owner connection: %v", err)
 		}
 	})
-	w := &outcomeWorld{data: data, owner: owner, email: "t197-" + uuid.NewString() + "@outcome.example", logged: &outcomeLog{}}
+	w := &outcomeWorld{data: data, owner: owner, logged: &outcomeLog{}}
+	if o.addresses == 0 {
+		o.addresses = 1
+	}
+	for i := 0; i < o.addresses; i++ {
+		w.emails = append(w.emails, "t197-"+uuid.NewString()+"@outcome.example")
+	}
+	w.email = w.emails[0]
 	release := holdPanelTablesLock(t)
 	for i := 0; i < o.n; i++ {
 		id := uuid.New()
@@ -84,9 +100,13 @@ func newOutcomeWorld(t *testing.T, o outcomeWorldOptions) *outcomeWorld {
 				VALUES ($1, 'Outcome Ltd', $2, 'bar', 'single')`, id, "VAT-"+id.String()); e != nil {
 				return e
 			}
-			_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-				VALUES ($1, $2, 'Outcome Owner', $3, $4, 'owner', 'active')`, uuid.New(), id, w.email, ownerDigest)
-			return e
+			for _, email := range w.emails {
+				if _, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+					VALUES ($1, $2, 'Outcome Owner', $3, $4, 'owner', 'active')`, uuid.New(), id, email, ownerDigest); e != nil {
+					return e
+				}
+			}
+			return nil
 		}); err != nil {
 			t.Fatalf("insert the business: %v", err)
 		}
@@ -100,6 +120,7 @@ func newOutcomeWorld(t *testing.T, o outcomeWorldOptions) *outcomeWorld {
 	if err != nil {
 		t.Fatalf("adminauth.NewResets: %v", err)
 	}
+	w.real = real
 	w.flow, err = NewAdminReset(&mintHook{Resets: real, w: w}, o.channel, trail, adminTestConfig(),
 		slog.New(slog.NewTextHandler(w.logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
@@ -127,7 +148,9 @@ type mintHook struct {
 func (m *mintHook) IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
 	g, k, err := m.Resets.IssueForEmail(ctx, email)
 	if err == nil && len(g) > 0 {
-		m.w.minted = g
+		m.w.mu.Lock()
+		m.w.minted = append(m.w.minted, g...)
+		m.w.mu.Unlock()
 		if m.w.afterMint != nil {
 			m.w.afterMint(g)
 		}
@@ -166,10 +189,12 @@ func (w *outcomeWorld) stall(t *testing.T, links, rows bool) (release func()) {
 		t.Fatalf("begin the stalling transaction: %v", err)
 	}
 	if links {
+		w.mu.Lock()
 		ids := make([]uuid.UUID, 0, len(w.minted))
 		for _, g := range w.minted {
 			ids = append(ids, g.Issued.Reset.ID)
 		}
+		w.mu.Unlock()
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM password_resets WHERE id = ANY($1) FOR UPDATE`, ids); err != nil {
 			t.Fatalf("lock the links: %v", err)
 		}
@@ -462,12 +487,215 @@ func TestResetOutcomeDB_ALostAnswerDoesNotDoubleAWrite(t *testing.T) {
 	}
 }
 
+// TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue is the regression an audit measured at a
+// queue of 32: a short stall right after the mint, 16 requests of a full window each. Every budget
+// runs out and sends its writes to the queue untried. All of them fit: not one write is lost, and once
+// the database answers there are 128 rows and no live link.
+//
+// MUTATION: resetRetryQueueSize 32 -> 33 rows, 95 live links -> red.
+func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
+	const requests = 16
+	total := requests * adminauth.ResetWindow
+	w := newOutcomeWorld(t, outcomeWorldOptions{n: adminauth.ResetWindow, addresses: requests, channel: refusingChannel{&recordingChannel{}}})
+	allMinted, stalled := make(chan struct{}), make(chan struct{})
+	var arrived sync.WaitGroup
+	arrived.Add(requests)
+	go func() {
+		arrived.Wait()
+		close(allMinted)
+	}()
+	w.afterMint = func([]adminauth.ResetGrant) {
+		arrived.Done()
+		<-stalled
+	}
+	type form struct {
+		b    *browser
+		csrf string
+	}
+	forms := make([]form, requests)
+	for i := range forms {
+		b := newBrowser(t, w.router)
+		forms[i] = form{b, csrfFrom(t, htmlOf(t, b.do(http.MethodGet, adminResetPath, nil)))}
+	}
+	var answered sync.WaitGroup
+	took := make([]time.Duration, requests)
+	var start time.Time
+	begin := make(chan struct{})
+	for i := range forms {
+		answered.Add(1)
+		go func(i int) {
+			defer answered.Done()
+			rec := forms[i].b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {forms[i].csrf}, "email": {w.emails[i]}})
+			<-begin
+			took[i] = time.Since(start)
+			if rec.Code != http.StatusOK {
+				t.Errorf("request %d answered %d", i, rec.Code)
+			}
+		}(i)
+	}
+	<-allMinted
+	release := w.stall(t, true, true)
+	start = time.Now()
+	close(begin)
+	close(stalled)
+	answered.Wait()
+	slowest := slices.Max(took)
+	t.Logf("%d requests of %d links, every write stalled: the slowest answered %v after the stall began", requests, adminauth.ResetWindow, slowest)
+	if ceiling := 3 * resetFallbackBudget; slowest > ceiling {
+		t.Errorf("the slowest request took %v, over %v", slowest, ceiling)
+	}
+	if n := w.logged.count(lineWithdrawalLost) + w.logged.count(lineRowLost); n != 0 {
+		t.Errorf("%d write(s) lost when the requests answered, want none: the retry queue overflowed", n)
+	}
+	release()
+	w.finish(t)
+	if n := w.rows(t); n != total {
+		t.Errorf("%d row(s), want %d", n, total)
+	}
+	if n := w.liveLinks(t); n != 0 {
+		t.Errorf("%d live link(s), want 0", n)
+	}
+}
+
+// TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox measures what a lost outcome
+// can leave. The channel took the link and answered an error, which is what a lost 250 looks like, and
+// both writes then fail on both tries: one copy in the owner's box, one live link, no row, and the link
+// SPENDS. It reaches only the owner's own inbox; what is missing is the trail. This is the limit counted
+// in ADR 0022's T197 note, not a behaviour wanted: a retried withdrawal that succeeds closes it.
+//
+// ⚠️ It pays one shipped-cost bcrypt (the Consume), like TestPanelRecoveryDB_EndToEnd.
+func TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox(t *testing.T) {
+	mail := &recordingChannel{err: errSendFailed}
+	w := newOutcomeWorld(t, outcomeWorldOptions{n: 1, channel: mail})
+	w.flow.clocks.grace = 100 * time.Millisecond
+	w.flow.clocks.retryPause = 50 * time.Millisecond
+	var release func()
+	w.afterMint = func([]adminauth.ResetGrant) { release = w.stall(t, true, true) }
+
+	w.request(t)
+	waitUntil(t, 20*time.Second, "both lost-write lines", func() bool {
+		return w.logged.count(lineWithdrawalLost) == 1 && w.logged.count(lineRowLost) == 1
+	})
+	release()
+	box := mail.all()
+	if len(box) != 1 {
+		t.Fatalf("%d copies handed to the channel, want 1", len(box))
+	}
+	if n := w.liveLinks(t); n != 1 {
+		t.Errorf("%d live link(s), want 1", n)
+	}
+	if n := w.rows(t); n != 0 {
+		t.Errorf("%d row(s), want 0", n)
+	}
+	u, err := url.Parse(box[0].Link)
+	if err != nil {
+		t.Fatal("the link does not parse")
+	}
+	if _, _, err := w.real.Consume(context.Background(), adminauth.ParseResetToken(u.Query().Get("t")), "the-owners-new-password"); err != nil {
+		t.Errorf("Consume of the copy in the box: %v; the limit's sentence says it spends", err)
+	}
+}
+
+// TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain measures what the drain's budget does with
+// a retry queue far larger than ResetDrainWriteReserve was sized for: the real ResetDrainGrace, the real
+// Withdraw and the real recorder on a healthy database. The queue does not have to fit, and the log line
+// is the measurement. What must hold is that nothing goes quiet: each write is done or has its ERROR,
+// and a drain out of budget says how many it left.
+func TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping (real Postgres required). Run `make test`.")
+	}
+	ctx := context.Background()
+	data, err := db.New(ctx, &config.Config{DatabaseURL: config.NewDSN(withSmallPool(dsn))})
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(data.Close)
+	trail, err := audit.New(data)
+	if err != nil {
+		t.Fatalf("audit.New: %v", err)
+	}
+	tenantID := uuid.New()
+	if err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
+			VALUES ($1, 'Retry Queue Drain Ltd', $2, 'bar', 'single')`, tenantID, "VAT-"+tenantID.String())
+		return e
+	}); err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	real, err := adminauth.NewResets(data, adminTestConfig())
+	if err != nil {
+		t.Fatalf("adminauth.NewResets: %v", err)
+	}
+	logged := &outcomeLog{}
+	resets := &realWithdrawals{fakeResets: &fakeResets{}, real: real}
+	h, err := NewAdminReset(resets, refusingChannel{&recordingChannel{}}, trail, adminTestConfig(),
+		slog.New(slog.NewTextHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	if err != nil {
+		t.Fatalf("NewAdminReset: %v", err)
+	}
+	total := resetRetryQueueSize
+	gone := time.Now().Add(-time.Second)
+	grants := grantsFor("queued@drain.example.test", total)
+	for i := range grants {
+		grants[i].Issued.Reset.TenantID = tenantID
+		h.recordFallback(ctx, gone, grants[i], resetReasonBreaker)
+	}
+	if n := logged.count(lineWithdrawalLost) + logged.count(lineRowLost); n != 0 {
+		t.Fatalf("CONTROL: %d write(s) lost before the drain, so the queue did not take them all", n)
+	}
+	dctx, cancel := context.WithTimeout(ctx, ResetDrainGrace)
+	defer cancel()
+	start := time.Now()
+	drainErr := h.Drain(dctx)
+	took := time.Since(start)
+	select {
+	case <-h.outbox.done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the worker did not finish after the budget was spent")
+	}
+	var rows int
+	if err := data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`,
+			tenantID, ActionAdminResetUndelivered).Scan(&rows)
+	}); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	lostRows, lostWithdrawals := logged.count(lineRowLost), logged.count(lineWithdrawalLost)
+	withdrawn := len(resets.withdrawals())
+	t.Logf("a retry queue of %d, budget %v (write reserve %v): drain took %v (err %v); %d rows and %d withdrawals written, %d and %d lost with an ERROR",
+		total, ResetDrainGrace, ResetDrainWriteReserve, took, drainErr, rows, withdrawn, lostRows, lostWithdrawals)
+	// At least, not exactly: a write cut mid-COMMIT can both have happened and be logged as lost.
+	if rows+lostRows < total {
+		t.Errorf("%d rows + %d lost lines is under %d: a row went quiet", rows, lostRows, total)
+	}
+	if withdrawn+lostWithdrawals < total {
+		t.Errorf("%d withdrawals + %d lost lines is under %d: a withdrawal went quiet", withdrawn, lostWithdrawals, total)
+	}
+	if rows > total {
+		t.Errorf("%d rows, over %d", rows, total)
+	}
+	if said := logged.count("the drain ended with outcomes still waiting"); (drainErr != nil) != (said == 1) {
+		t.Errorf("drain error %v, %d summary line(s): a drain out of budget says so, once, and only then", drainErr, said)
+	}
+}
+
 // --- the per-identity link: a lock, and no row -------------------------------------------------
 
 // identityStallHook is the real flag-on Resets, with the same pause between mint and writes.
 type identityStallHook struct {
 	panelResets
 	afterMint func(adminauth.PersonResets)
+	// down makes WithdrawIdentity answer what a database out of reach answers.
+	down bool
+}
+
+func (h *identityStallHook) WithdrawIdentity(ctx context.Context, t adminauth.ResetToken) error {
+	if h.down {
+		return fmt.Errorf("adminauth: withdraw identity reset: %w", context.DeadlineExceeded)
+	}
+	return h.panelResets.WithdrawIdentity(ctx, t)
 }
 
 func (h *identityStallHook) IssueForPerson(ctx context.Context, email string) (adminauth.PersonResets, error) {
@@ -585,26 +813,30 @@ func TestPanelIdentityReset_AStalledWithdrawalIsTriedOnceMore(t *testing.T) {
 
 // TestPanelIdentityReset_BothTriesFailingLockThePersonOut is T197's sharpest case, measured: both tries
 // fail, the one ERROR line is written with ids only, and the person's next request is "kept" -- no
-// link in ANY of their businesses until ResetTTL (M14-14's audit). Fail-closed: the link is in no
-// inbox, nobody can spend it. This test is what would have to change if the lockout is ever shortened.
+// link in ANY of their businesses until ResetTTL (M14-14's audit). The link is usually in no inbox;
+// after an uncertain send it can be live and spendable in the owner's inbox
+// (TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox). This test is what would
+// have to change if the lockout is ever shortened.
+//
+// THE FAILURE IS THE HOOK'S, NOT A LOCK'S: a lock made this test flaky. identity_withdraw_reset is one
+// autocommitted statement, and with the lock released right after the ERROR line the link was found
+// dead in 1 run of 34 (the other 33 stayed live; the likely cause, read and not measured, is the lock
+// going before pgconn's asyncClose delivers its cancel). That is the safe direction, and the person is
+// locked out when the statement never takes effect, which is what the hook answers.
 func TestPanelIdentityReset_BothTriesFailingLockThePersonOut(t *testing.T) {
 	mail := &recordingChannel{err: errSendFailed}
 	p, owner, ident, hook, logged := identityOutcomeHarness(t, mail)
-	p.reset.clocks.grace = 100 * time.Millisecond
 	p.reset.clocks.retryPause = 50 * time.Millisecond
-	var release func()
-	hook.afterMint = func(adminauth.PersonResets) { release = identityStall(t, ident) }
+	hook.down = true
 
 	p.askReset(t, p.email)
 	waitUntil(t, 20*time.Second, "the lost-withdrawal line", func() bool { return logged.count(lineIdentityLost) == 1 })
-	release()
 	if n := liveIdentityLinks(t, owner, ident); n != 1 {
 		t.Errorf("%d live link(s), want 1", n)
 	}
 	if strings.Contains(strings.ToLower(logged.String()), strings.ToLower(p.email)) {
 		t.Error("a line carries the address")
 	}
-	hook.afterMint = nil
 	mail.mu.Lock()
 	mail.err = nil
 	mail.mu.Unlock()
