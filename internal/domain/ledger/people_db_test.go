@@ -445,10 +445,15 @@ func (p *peopleTenant) tap(r peopleTap) uuid.UUID {
 	if r.venue != "" {
 		venue = p.venues[r.venue]
 	}
-	id := uuid.New()
-	p.exec(`INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, type, verdict, channel, practice, queued)
-	        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7 = 'flag')`,
-		id, p.id, r.who, venue, r.at, kind, r.verdict, r.channel, r.practice)
+	// The id is the database's (00088, T163: tappa_app cannot name it), so it is read back.
+	var id uuid.UUID
+	const insert = `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, type, verdict, channel, practice, queued)
+	        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $6 = 'flag') RETURNING id`
+	if err := p.data.WithTenant(context.Background(), p.id, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, insert, p.id, r.who, venue, r.at, kind, r.verdict, r.channel, r.practice).Scan(&id)
+	}); err != nil {
+		p.t.Fatalf("%s: %v", insert, err)
+	}
 	return id
 }
 

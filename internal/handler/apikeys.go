@@ -160,7 +160,7 @@ func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx
 	}
 	if err != nil {
 		a.log.Error("panel: could not read the api keys", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, readFailedProblem(r))
 		return v, false
 	}
 	return v, true

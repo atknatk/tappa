@@ -155,18 +155,23 @@ const reportCSVBOM = "\uFEFF"
 // send. That trades a bounded nuisance for a manager who cannot download their payroll
 // at all, on a route that changes no product state.
 //
-// 🔴 WHAT THAT LEAVES OPEN, COUNTED (backlog T14's class). This route has ONE side
-// effect: an audit_log row. A cross-origin page can drive a signed-in manager's
-// browser through a TOP-LEVEL navigation here and cause one — inflating the trail the
-// export is audited by. What bounds it, measured rather than hoped:
+// 🔴 WHAT THAT LEFT OPEN, AND WHAT CLOSED IT (backlog T19). This route has ONE side
+// effect: an audit_log row. Until T19 a cross-origin page could drive a signed-in
+// manager's browser through a TOP-LEVEL navigation here and cause one -- inflating the
+// trail the export is audited by. mintGate (fetchsite.go) now refuses a request whose
+// Sec-Fetch-Site says another site started it, BEFORE this handler runs: no file, no
+// row. It reads only that header, so it keeps what made the route a GET: a bookmark
+// (none), our own link (same-origin) and a browser that sends no metadata all pass.
+// What still bounds the rest, measured rather than hoped:
 //
 //   - the panel cookie is SameSite=Lax (internal/adminauth/cookie.go), so a
 //     SUBRESOURCE fetch — img, iframe, fetch, XHR — carries no cookie and reaches
-//     requireLogin instead. Only a top-level navigation sends it, which navigates the
-//     victim's own tab and downloads a file to their machine: loud, and one at a time.
+//     requireLogin instead.
 //   - floodGate and sessionGate charge it like every other panel request, so the trail
 //     cannot be inflated faster than the panel can be used at all.
 //   - the row names the actor, so a burst is attributable rather than anonymous.
+//   - ⚠️ a browser that sends NO fetch metadata is not refused, so on it the old
+//     exposure remains: counted, the price of not breaking the download there.
 //
 // The alternative — making the download a POST — was weighed: it buys the Origin check
 // and costs the property that a week is an ADDRESS. Every other week control on this

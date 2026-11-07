@@ -74,7 +74,7 @@ func (s *claimScene) tap(t *testing.T, p *panelHarness, dir string, at time.Time
 	}
 	s.ctr++
 	var id uuid.UUID
-	if err := p.data.WithTenant(context.Background(), s.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := ownerTenantTx(t, s.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, business_day_start)
 		                         VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', $6, true, $7, $8) RETURNING id`,
 			s.tenant, s.person, s.venue, s.plaque, at, dir, s.ctr, day).Scan(&id)

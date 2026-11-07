@@ -1003,12 +1003,14 @@ func run() error {
 		return err
 	}
 
+	// THE PROCESS'S ONE http.Server: the panel, the tap surface, the operator's host and
+	// the integration API's host are routes of the same handler (httpx.NewRouter routes
+	// by host), so every bound here covers all of them. Its three timeouts are set by
+	// applyTimeouts and argued at productionTimeouts (server.go).
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		BaseContext:       assetContext(assets),
-		Handler:           appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       90 * time.Second,
+		Addr:        cfg.Addr,
+		BaseContext: assetContext(assets),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;
@@ -1025,6 +1027,7 @@ func run() error {
 		// behind 16 KiB.
 		MaxHeaderBytes: httpx.MaxHeaderBytes,
 	}
+	applyTimeouts(srv, productionTimeouts)
 
 	errCh := make(chan error, 1)
 	go func() {

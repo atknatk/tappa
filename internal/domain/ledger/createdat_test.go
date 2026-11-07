@@ -22,12 +22,11 @@ package ledger
 //
 // 🔴 THIS IS A NET, NOT A LOCK. A scan of source text can be walked around (a table name assembled
 // in another file, read from configuration, built byte by byte); what it catches is the ordinary
-// spelling and the review's seven plus five. The lasting closure is on the database's side -- a
-// column privilege (REVOKE INSERT (created_at) ON transactions FROM tappa_app, with INSERT granted
-// column by column) or a BEFORE INSERT trigger that overwrites created_at with now() -- and both
-// were weighed and set aside on purpose (ADR 0032 §A.6): test fixtures write created_at into the
-// past (the age and debounce tests, e.g. internal/domain/checkin/holding_db_test.go), and a column
-// grant needs maintenance on every new transactions column.
+// spelling and the review's seven plus five. The lasting closure is on the database's side, and since
+// migration 00088 (T163, ADR 0038) it is there for tappa_app: its INSERT on transactions is a column
+// list without created_at and id (internal/db's createdatgrant_test.go). What the grant cannot reach
+// is a SECURITY DEFINER body, which writes with its owner's rights -- the migration half of this scan
+// stays for that; the fixtures that write created_at into the past do it as the owner.
 
 import (
 	"go/ast"

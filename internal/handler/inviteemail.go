@@ -351,6 +351,19 @@ func mayShowInviteLink(id httpx.AdminIdentity) bool {
 	return id.Live() && id.Admin.Role == adminRoleOwner
 }
 
+// inviteFailure is the problem page for an IssueAndDeliver that failed (T21). When
+// the transaction failed the result carries no id and NOTHING was minted -- the new row
+// and the retirement of the person's earlier links rolled back together -- so the
+// writer's page is true. When delivery failed after the commit the row exists and the
+// earlier links are retired, so "nothing was written" would be false: the page says the
+// act may be half done.
+func inviteFailure(inv invite.Invite) pages.ProblemView {
+	if inv.ID == uuid.Nil {
+		return problemPanelWriteFailed
+	}
+	return problemPanelWriteUnfinished
+}
+
 // employeeInviteByEmail is employeeInvite in the e-mail mode, for a person the caller
 // has already read and found invitable.
 //
@@ -401,7 +414,7 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 	ch, err := invite.NewEmailChannel(sink, a.audit, &actor)
 	if err != nil {
 		a.log.Error("panel: could not build the invitation e-mail channel", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	inv, err := a.invites.IssueAndDeliver(r.Context(), invite.IssueParams{
@@ -432,7 +445,7 @@ func (a *AdminAuth) employeeInviteByEmail(w http.ResponseWriter, r *http.Request
 		// chain is this repository's id-carrying wraps around a database error — no
 		// address, no link (ADR 0022 §10's `err` key, B11).
 		a.log.Error("panel: could not issue the invitation", "employee_id", person.ID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	if err != nil {
@@ -532,7 +545,7 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 	ch, err := invite.NewManagerVisibleChannel(sink, a.audit, &actor)
 	if err != nil {
 		a.log.Error("panel: could not build the invitation channel", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	inv, err := a.invites.IssueAndDeliver(r.Context(), invite.IssueParams{
@@ -548,11 +561,11 @@ func (a *AdminAuth) employeeInviteOnScreen(w http.ResponseWriter, r *http.Reques
 		return
 	case err != nil:
 		a.log.Error("panel: could not issue the invitation", "employee_id", person.ID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, inviteFailure(inv))
 		return
 	case !sink.shown:
 		a.log.Error("panel: the invitation was issued but no link reached the screen", "invite_id", inv.ID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteUnfinished)
 		return
 	}
 	issued := pages.InviteIssuedView{
