@@ -153,8 +153,10 @@ func withdrawContext(ctx context.Context) (context.Context, context.CancelFunc) 
 // failed request leaves no live link that no inbox will ever hold (EM-7C's Withdraw reason: one live
 // link per account -- or per identity -- would otherwise refuse the owner's next request for
 // ResetTTL). It runs WITHOUT the request's cancellation: the failure is often that very cancellation
-// (a dropped connection). A withdrawal that fails too is joined to err -- never swallowed (§7) -- and
-// the caller logs it.
+// (a dropped connection). A withdrawal that fails too is joined to err as an OwedWithdrawal -- never
+// swallowed (§7) -- and the caller logs it and may try it again later (T210: the grants share one
+// withdrawGrace, so one stalled withdrawal leaves the rest an ended context; what fails is owed, not
+// lost, while the caller's list has room).
 func (r *Resets) withdrawAfterFailure(ctx context.Context, err error, minted []ResetGrant) error {
 	base, cancel := withdrawContext(ctx)
 	defer cancel()
@@ -167,10 +169,52 @@ func (r *Resets) withdrawAfterFailure(ctx context.Context, err error, minted []R
 			werr = r.Withdraw(base, g.Issued.Reset.TenantID, g.Issued.Reset.ID)
 		}
 		if werr != nil {
-			errs = append(errs, werr)
+			errs = append(errs, owed(g, werr))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// OwedWithdrawal is one link a failed request minted and could not withdraw (T210, T212): the grant,
+// WITHOUT its address (no withdrawal needs it, and the value travels in an error), and the
+// withdrawal's error. IssueForEmail and IssueForPerson return it inside their error, so a caller
+// that can try again later finds the link with OwedWithdrawals; this package neither retries nor knows
+// who does (internal/handler's worker does, and this package must not import it). Its text is the
+// withdrawal error's, so a line that logs the request's error reads as it did before; the grant's
+// token prints redacted (ResetToken).
+type OwedWithdrawal struct {
+	Grant ResetGrant
+	Err   error
+}
+
+func (o *OwedWithdrawal) Error() string { return o.Err.Error() }
+func (o *OwedWithdrawal) Unwrap() error { return o.Err }
+
+// owed is g's failed withdrawal, with the address dropped.
+func owed(g ResetGrant, err error) error {
+	g.Recipient = ""
+	return &OwedWithdrawal{Grant: g, Err: err}
+}
+
+// OwedWithdrawals lists every OwedWithdrawal in err's tree, in order; nil when there is none.
+func OwedWithdrawals(err error) []OwedWithdrawal {
+	var out []OwedWithdrawal
+	var walk func(error)
+	walk = func(e error) {
+		switch x := e.(type) {
+		case nil:
+		case *OwedWithdrawal:
+			out = append(out, *x)
+		case interface{ Unwrap() []error }:
+			for _, c := range x.Unwrap() {
+				walk(c)
+			}
+		case interface{ Unwrap() error }:
+			walk(x.Unwrap())
+		}
+	}
+	walk(err)
+	return out
 }
 
 // openForIdentity opens the identity's link, or reports the live one it holds. Exactly one result is
@@ -189,7 +233,8 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 	if err != nil {
 		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
 	}
-	o, err := r.data.OpenIdentityReset(ctx, who.id, h, r.now().Add(r.ttl))
+	expires := r.now().Add(r.ttl)
+	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil
 	}
@@ -202,7 +247,12 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		_, werr := r.data.WithdrawIdentityReset(wctx, h)
 		cancel()
 		if werr != nil {
-			err = errors.Join(err, fmt.Errorf("adminauth: withdraw identity reset: %w", werr))
+			// Owed by its token, the one handle a later WithdrawIdentity takes; the reset row's id
+			// is unknown here (the answer was lost), so the grant carries none.
+			err = errors.Join(err, owed(ResetGrant{
+				Issued:     IssuedReset{Reset: Reset{ExpiresAt: expires}, Token: t},
+				IdentityID: who.id,
+			}, fmt.Errorf("adminauth: withdraw identity reset: %w", werr)))
 		}
 		return nil, nil, err
 	}

@@ -226,7 +226,11 @@ type faultyResetDB struct {
 	cancelAfterOpen  context.CancelFunc
 	failAdminByEmail bool
 	failWithTenantAt int
-	withTenantCalls  int
+	// alsoFailWithTenantAt fails a second tenant transaction (T210: the withdrawal after the failure).
+	alsoFailWithTenantAt int
+	withTenantCalls      int
+	// failWithdrawIdentity makes identity_withdraw_reset answer what a database out of reach answers.
+	failWithdrawIdentity bool
 	// withdrawCtx records the identity withdrawal's context: live (not the cancelled request's) and
 	// bounded (a deadline -- withdrawGrace).
 	withdrawLive, withdrawBounded bool
@@ -235,6 +239,9 @@ type faultyResetDB struct {
 func (f *faultyResetDB) WithdrawIdentityReset(ctx context.Context, h string) (bool, error) {
 	_, f.withdrawBounded = ctx.Deadline()
 	f.withdrawLive = ctx.Err() == nil
+	if f.failWithdrawIdentity {
+		return false, context.DeadlineExceeded
+	}
 	return f.DB.WithdrawIdentityReset(ctx, h)
 }
 
@@ -258,7 +265,7 @@ func (f *faultyResetDB) GetAdminByEmail(ctx context.Context, email string) ([]db
 
 func (f *faultyResetDB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
 	f.withTenantCalls++
-	if f.withTenantCalls == f.failWithTenantAt {
+	if f.withTenantCalls == f.failWithTenantAt || f.withTenantCalls == f.alsoFailWithTenantAt {
 		return errInjected
 	}
 	return f.DB.WithTenant(ctx, tenantID, fn)
@@ -354,4 +361,84 @@ func TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink(t *testing.T) 
 			}
 		})
 	}
+}
+
+// TestIssueForPerson_AnUnwithdrawnLinkIsHandedBack is T210's half in this package: when the withdrawal
+// after a failure fails too, the error carries the link (OwedWithdrawal) -- without the address -- so
+// the caller can withdraw it later; withdrawing that grant, as the handler's worker does, frees the
+// owner at once. Both paths: the identity's link (its token; the reset id is not known) and a per-row
+// link (its tenant and id). MUTATION: owed() returning the bare error -> no grant handed back -> red.
+func TestIssueForPerson_AnUnwithdrawnLinkIsHandedBack(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	t.Run("the identity's link", func(t *testing.T) {
+		w := newPersonResetWorld(t)
+		cctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		r := cheapResets(t, &faultyResetDB{DB: d, cancelAfterOpen: cancel, failWithdrawIdentity: true})
+		_, err := r.IssueForPerson(cctx, w.typed)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("IssueForPerson = %v, want context.Canceled", err)
+		}
+		owed := OwedWithdrawals(err)
+		if len(owed) != 1 {
+			t.Fatalf("%d owed withdrawal(s) in the error, want the identity link's 1", len(owed))
+		}
+		g := owed[0].Grant
+		if g.IdentityID != w.ident || g.Recipient != "" || g.Issued.Reset.ExpiresAt.IsZero() || !errors.Is(owed[0].Err, context.DeadlineExceeded) {
+			t.Errorf("owed grant: identity %v (want %v), recipient %q (want none), expires %v, err %v",
+				g.IdentityID, w.ident, g.Recipient, g.Issued.Reset.ExpiresAt, owed[0].Err)
+		}
+		if strings.Contains(strings.ToLower(err.Error()), strings.ToLower(w.typed)) {
+			t.Error("the error's text carries the address")
+		}
+		live := `SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1 AND used_at IS NULL AND cancelled_at IS NULL`
+		if n := w.int(live, w.ident); n != 1 {
+			t.Fatalf("PREMISE: %d live identity links, want the one nobody could withdraw", n)
+		}
+		if err := cheapResets(t, d).WithdrawIdentity(ctx, g.Issued.Token); err != nil {
+			t.Fatalf("WithdrawIdentity of the owed grant: %v", err)
+		}
+		if n := w.int(live, w.ident); n != 0 {
+			t.Errorf("%d live identity links after the later withdrawal, want 0", n)
+		}
+	})
+
+	t.Run("a per-row link", func(t *testing.T) {
+		email := randEmail(t)
+		tenant := newTenantRow(t, d, "Owed One Ltd")
+		first := newAdminRow(t, d, tenant, email, "p", "active", "owner", "First")
+		newAdminRow(t, d, newTenantRow(t, d, "Owed Two Ltd"), email, "p", "active", "owner", "Second")
+		// Per row: the address read, then the mint; the second row's read (3) fails, and so does
+		// the first row's withdrawal after it (4).
+		r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: 3, alsoFailWithTenantAt: 4})
+		_, _, err := r.IssueForEmail(ctx, email)
+		owed := OwedWithdrawals(err)
+		if !errors.Is(err, errInjected) || len(owed) != 1 {
+			t.Fatalf("IssueForEmail = %v with %d owed, want the injected failure and the first row's link", err, len(owed))
+		}
+		g := owed[0].Grant
+		if g.Issued.Reset.AdminUserID != first || g.Issued.Reset.TenantID != tenant || g.Recipient != "" {
+			t.Errorf("owed grant: admin %v (want %v), tenant %v (want %v), recipient %q (want none)",
+				g.Issued.Reset.AdminUserID, first, g.Issued.Reset.TenantID, tenant, g.Recipient)
+		}
+		owner := ownerConn(t)
+		live := func() int {
+			var n int
+			if err := owner.QueryRow(ctx, `SELECT count(*) FROM password_resets WHERE admin_user_id = $1 AND used_at IS NULL AND cancelled_at IS NULL`, first).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+		if n := live(); n != 1 {
+			t.Fatalf("PREMISE: %d live links on the first row, want the one nobody could withdraw", n)
+		}
+		if err := cheapResets(t, d).Withdraw(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.ID); err != nil {
+			t.Fatalf("Withdraw of the owed grant: %v", err)
+		}
+		if n := live(); n != 0 {
+			t.Errorf("%d live links after the later withdrawal, want 0", n)
+		}
+	})
 }

@@ -629,6 +629,9 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 		// The address is NOT in the line (§4.7 spirit: an address is personal data and
 		// this path is unauthenticated).
 		h.log.Error("panel recovery: issuing failed", "ip", ip, "err", err)
+		// What the failed request minted and could not withdraw is owed, not forgotten (T210,
+		// T212): the worker tries it again later. A hand-over; this request does not wait.
+		h.oweFailedRequest(context.WithoutCancel(r.Context()), err)
 		done()
 		h.problem(w, r, http.StatusInternalServerError, problemResetServer)
 		return

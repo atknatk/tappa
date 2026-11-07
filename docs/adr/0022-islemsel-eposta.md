@@ -3434,7 +3434,9 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
 8. **Geri çekmenin kapsamadığı ölüm durumları:** süreç ÖLÜRSE (SIGKILL, OOM; EM-5A sınır 1) kuyruktaki grant'lar
    satırsız kalır **ve geri çekilmez** — o hesaplar `ResetTTL`'ye dek link alamaz (link canlı ama belki hiçbir kutuda
    yok); boşaltmanın bütün bütçesi tükenirse yazılamayan satırlarla birlikte geri çekmeler de terk edilir; geri çekme
-   veritabanı hatasıyla başarısız olursa hata satırı yazılır ve link `ResetTTL`'ye dek tutar. *`undelivered` satırı bu
+   veritabanı hatasıyla başarısız olursa hata satırı yazılır ve link `ResetTTL`'ye dek tutar — **2026-11-07'den beri
+   (T212, aşağıdaki not) geçici hatada link geri çekme listesinde bekler ve işçi veritabanı düzelince geri çeker;
+   `ResetTTL` yalnız liste reddederse (dolu, kapanıyor), hata kalıcıysa ya da süreç ölürse.** *`undelivered` satırı bu
    durumda da yazılır* cümlesi **2026-11-06'ya dek yanlıştı** (T197, aşağıdaki not): iki yazım tek bağlamı paylaştığından
    veritabanı durunca satır da düşüyordu.
    Tersi yönde: zaman aşımına uğramış ama röleye ulaşmış bir gönderim (EM-5A sınır 15) de geri çekilir — kutudaki link
@@ -3499,8 +3501,8 @@ ona ihtiyaç duymaz.
 kayboldu (`TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain`). Dolu outbox'ın 33 satırı aynı makinede 205–276 ms ile hâlâ sığıyor.
 Bütçe bitince `Drain` kalanı tek ERROR satırında sayar (`queued_grants`, `queued_outcomes`), çünkü işçinin yazım başına ERROR'ları süreç
 çıkışından önce yazılamayabilir.
-**Kalan, sayılı:** iki deneme de düşerse eskisi gibi: yazım başına ERROR, satır yok, link `ResetTTL`'ye dek canlı,
-sahibin istekleri `kept` (kimlik linkinde kişinin **bütün** işletmelerinde kurtarma durur,
+**Kalan, sayılı:** iki deneme de düşerse eskisi gibi: yazım başına ERROR, satır yok, link `ResetTTL`'ye dek canlı
+(**T212'ye dek; şimdi geri çekme listesi geri çekene dek**, aşağıdaki not), sahibin istekleri `kept` (kimlik linkinde kişinin **bütün** işletmelerinde kurtarma durur,
 `TestPanelIdentityReset_BothTriesFailingLockThePersonOut`). Link çoğunlukla hiçbir kutuda değildir; belirsiz gönderimde sahibinin kutusunda
 canlı olabilir ve harcanabilir. Yalnız sahibin kutusu; asıl sorun izdir: satır yok (`TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox`).
 ERROR satırı kimlik linkinde fazla söyleyebilir: `identity_withdraw_reset` tek ifadedir ve oran testin zamanlamasına bağlıdır: kilit ERROR'dan gecikmeli açıldığında link 34 koşunun 1'inde ölü bulundu, gecikmesiz açılan kilitte tek ifadeli autocommit yazım istemci hata görse de 40 koşunun 38'inde uygulandı (T197 denetimi, ölçüldü; işlem içinde 40'ta 0).
@@ -3511,6 +3513,61 @@ Neden kilidin `pgconn.asyncClose` iptalinden önce açılması (okundu). Yön g�
 **Kilitlenmeyi kısaltma (T212) bu hâliyle uygulanmaz:** `delivered_at` önerisinde `resetSendGrace` (15 sn) kuyruk beklemesini saymaz, sıradaki
 link başkasının isteğiyle ölür ve ADR 0015 (a) geri döner; `delivered_at` yazımı da düşebilir. Eşik gönderimin başladığı ana bağlıdır, ayrı denetim
 ister. Küçük seçenek: işçi düşen geri çekmeleri sınırlı bellek listesinde yeniden dener; başarırsa belirsiz gönderim sınıfını da kapatır.
+**Kullanıcı küçük seçeneği seçti (2026-11-07); uygulandı, aşağıdaki T212 notu.**
+
+**T212 notu (2026-11-07, dal `m14-withdrawretry`; migration yok) — geri çekme listesi.** İki denemesi de **geçici** hatayla
+(`db.Transient`) düşen geri çekme bırakılmaz: süreç içi, sınırlı bir listeye girer ve **tek işçi** veritabanı düzelince
+yeniden dener (`internal/handler/adminresetrecovery.go`). İlk geç deneme kayıptan `resetRecoveryFirst` (30 sn) sonra;
+geçici hatayla biten geçişte bütün liste geri itilir ve ara ikiye katlanır: 30 sn → 1 dk → 2 dk, `resetRecoveryMaxPause`
+(2 dk) tavan. Bir geçiş en çok `resetRecoveryPass` (1 sn) yeni deneme başlatır ve ilk geçici hatada biter (veritabanı
+ortak nedendir; listenin geri kalanı her biri bir `resetOutcomeGrace` harcayıp aynı şeyi öğrenirdi), dolayısıyla veritabanı
+dururken işçi geçiş başına en çok bir deneme tutulur — **ama o deneme `resetOutcomeGrace` (5 sn) sürebilir**: işçi tek
+olduğundan bu sürede kuyruktaki gönderimler bekler, yani duruş boyunca her başarısız geçiş gönderimleri en kötü ~5 sn
+geciktirir (denetimde 4,8 sn ölçüldü). Geçişler en az `resetRecoveryFirst`, duruş uzadıkça 2 dk arayla gelir. Duruş dakikalar içinde biterse kilitlenme de en çok ~2 dk sonra biter
+(*"çoğu durumda dakikalar"* kullanıcının öncülüdür, ölçülmedi). **Sonsuz deneme yok:** girdi linkin `expires_at`'inde
+denenmeden düşer (WARN; ölü link için deneme anlamsız), bir linkin ömründe (~1 saat) en çok ~30 başarısız geçiş; kalıcı
+hata (yetki, kısıt) denenmez (ERROR). Gönderimler durduktan sonra (boşaltma) liste denenmez.
+**Kim verir:** işçi (sonucun geri çekmesi iki denemede düşünce), istek (retry kuyruğu sonucu reddedince; yalnız devir,
+istek beklemez) ve mint'i hata dönen istek — `adminauth` başarısız isteğin geri çekemediği linkleri hatasının içinde
+`OwedWithdrawal` olarak döndürür, işleyici `adminauth.OwedWithdrawals` ile alır (**T210**). `internal/adminauth` işçiyi
+görmez; bağlantı bir hata tipidir: paket döngüsü yok, adres taşımaz (grant'ın `Recipient`'ı silinir, token her yazımda
+`[redacted]`), hata metni eskisiyle aynı.
+**Yalnız işçi dener, yalnız geri çekme:** yeni link basılmaz, sonuç satırı yeniden denenmez, link *"teslim edilmemiş"*
+sayılıp öldürülmez. Hedef linkin kendisidir (satır bağlı linkte tenant + reset id, kimlik linkinde linkin kendi token'ı →
+hash'i) ve iki fiil de yalnız `NULL`'dan hareket eder. ADR 0015'in (a)/(d) zararına (birinin isteğinin başkasının linkini
+öldürmesi) yeni yol açılmaz: listeye yalnız teslim edilememiş, isteyene hiç verilmemiş linkler girer.
+**Ölçüldü (gerçek Postgres):** satır bağlı link, başka oturumda satır kilidi: geri çekme iki denemede ve bir geç denemede
+düşer, link kilit boyunca canlı; kilit gidince liste geri çeker, sahibin sonraki isteği yeni link basar ve teslim eder
+(`TestResetRecoveryDB_ALockedLinkIsWithdrawnOnceTheLockGoes`). Kimlik linki, veritabanına ulaşamayan kanca ile (kilit bu
+testte kararsızdı, T197): aynı sonuç, audit satırı yok (`TestPanelIdentityReset_ALateWithdrawalUnlocksThePerson`).
+**Geç geri çekme yalnız kendi linkini öldürür:** sahibin yeni linki ve aynı işletmede başka yöneticinin linki canlı kalır
+(`TestResetRecoveryDB_ALateWithdrawalKillsOnlyItsOwnLink`). T197'nin autocommit bulgusu (istemci hata görse de uygulanmış
+geri çekme) deterministik üretildi: listedeki ikinci geri çekme hiçbir şey hareket ettirmez, başarır, kişinin yeni linki
+yaşar (`TestPanelIdentityReset_ALateWithdrawalLeavesTheNewLinkAlone`). Liste ve sırası sahte veritabanıyla:
+dolu liste ERROR (`TestResetRecovery_AFullListRefusesWithAnError`), boşaltmada tek özet satırı
+(`TestResetRecovery_TheDrainCountsWhatIsStillOwed`), süresi dolan link denenmez (`TestResetRecovery_AnExpiredLinkIsDroppedUntried`),
+geçiş takvimi ve kalıcı ret (`TestResetRecovery_TheWorkerTriesUntilTheDatabaseAnswers`, `TestResetRecovery_ThePauseDoublesToItsCap`),
+başarısız isteğin devri (`TestResetRecovery_AFailedRequestsWithdrawalIsOwed`; `adminauth` tarafı gerçek Postgres'le
+`TestIssueForPerson_AnUnwithdrawnLinkIsHandedBack`).
+**Boyut 256 (`resetRecoverySize` = `resetRetryQueueSize`):** listenin girişi bir duruşta retry kuyruğunun iki denemede
+düşürdükleridir; bir duruşta kaybedilen dolu bir retry kuyruğu sığar. Üst sınırı çeken: süreç ölümünde kayıp penceresi
+(kuyrukla aynı) ve bellek (adressiz bir grant, girdi başına birkaç yüz bayt). Geçiş süreyle sınırlı olduğu için dolu liste
+işçiyi 1 sn + bir denemeden uzun tutmaz (okundu). Ölçüldü (yerel macOS + Docker Desktop, load ~150, `-race`, tek koşu): sağlıklı veritabanında 256 girdi 1,04 sn'de temizlendi, kayıp yok (`TestResetRecoveryDB_AFullListClearsOnAHealthyDatabase`; sahte grant'lar, `UPDATE` satır bulmaz).
+**Geç başarı için audit satırı yok (karar):** sağlıklı yolda da geri çekmenin kendi satırı yoktur; `undelivered` satırı
+(kimlik linkinde sonuç log satırı) linkin teslim edilmediğini ve geri çekildiğini kaydeder, linkin ne zaman öldüğü linkin
+kendi `cancelled_at`'indedir. İkinci bir satır (`admin.recovery.*`, `RecordAuditEventOnce`) kendi bütçesini ve kendi kayıp
+yolunu isterdi, silinemeyen bir tabloda linkin satırının zaten tuttuğu bir olgu için; kimlik linkinin de satırı alacak
+tenant'ı yoktur (ADR 0031 §5.2). Geç başarı id'ler ve `owed_for` ile bir INFO satırıdır; başarısız geçiş WARN.
+**Satır:** geri çekme kaybı her yerde aynı ERROR'dur (*"withdrawing an undelivered (identity) link failed"*), `recovery`
+anahtarı kaderini söyler: `retrying` (listede), `list_full`, `closing`, `not_retried`. Başarısız isteğin geri çekemediği
+her link de artık bu satırı yazar (önceden yalnız *"issuing failed"* satırının hata metnindeydi).
+**Kalan, sayılı:** liste bellektedir: süreç ölürse (SIGKILL, OOM) kaybolur ve linkler eskisi gibi `ResetTTL`'ye dek
+canlıdır (sınır 1, sınır 8'in kabul edilmiş kalanı). Boşaltmada liste denenmez, tek ERROR satırında sayılıp bırakılır
+(`owed_withdrawals`; boşaltmanın bütçesi outbox'ın satırları içindir). Liste doluysa ya da kapanıyorsa ERROR, link
+`ResetTTL`'ye dek. Kalıcı hata denenmez. Sonuç satırı yeniden denenmez: iki denemede düşen `undelivered` satırı eskisi gibi
+kayıptır (ERROR). Belirsiz gönderimde kutudaki kopya geç geri çekme başarınca ölür, ona dek harcanabilir. T210'un paylaşılan
+`withdrawGrace`'i bilerek kaldı: istek 5 sn'ye bağlı kalır, süresi biten bağlamla düşen geri çekmeler listeye gider.
+**Haber yok** (değişmedi): bu yolun ERROR'ları hiçbir alarma bağlı değil (backlog T235).
 
 **Devirler:**
 - **EM-5B:** önkoşul (b)'nin kodu bu notla; (c) kabul, genişletilmedi; **sınır 6 (işletmeler arası davet
