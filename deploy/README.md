@@ -1028,6 +1028,20 @@ beklenen sonucu vermezse **sonrakine geçme**: (d4) boş ya da yarım bir verita
 doğrular, (d5) konteyneri siler. Döküm repo içine değil, `mktemp -d`'nin verdiği
 dizine iner.
 
+🔴 **Bu bloklar CI'da HER KOŞUDA koşulur (T215, `make restore-check`).**
+`scripts/restore-chain-check.sh` kendi kaynak konteynerini kurar (`scripts/db-init` + goose +
+seed + `test/fixtures/restore-chain.sql`), gerçek `scripts/pg-backup.sh`'ı CronJob'ın konteyner
+biçiminde koşar, sonra `(d2)`, `(d3)`, `(d3b)`, `(d4)` ve `(d5)`'i **bu dosyadan keser ve
+yazıldığı gibi** tek bir kabukta koşar (`set -euo pipefail`; değişen tek şey `tappa-drill`
+adı, koşu başına ayrı); `pg-restore-verify.sh` `exit 0` vermezse CI kırmızıdır. `(d1)`
+koşmaz: R2'den indirmenin yerine `pg-backup.sh`'ın kendi dosyası geçer, sha256'yı araç
+denetler. Bu yüzden: **(1)** blok başlıkları satır başında `(dN) ` olarak kalmalı, her birinin
+altındaki ilk `bash` bloğu koşulan bloktur; başlık değişirse betik adıyla durur. **(2)** B YOLU
+B2/B3/B4 blokları ile `(d3)`/`(d3b)`'nin here-doc SQL'i ve `sh -c` satırları **bayt bayt aynı**
+olmalı, ve `(d2)` B1'in iki init dosyasını kurmalı; değilse betik konteyner açmadan reddeder
+(*"9(d) is what this check runs; B YOLU is what an operator runs in a disaster"*). Yani bir
+runbook düzeltmesi yazıldığı gün sınanır.
+
 (d1) Geri al ve bütünlüğü doğrula. `STAMP` en yeni damgayı seçer; başka bir damga
 isteniyorsa listeden elle yazılır. (Bloklarda bilerek **hiç yorum yok**: zsh'in
 etkileşimli kabuğunda `interactive_comments` kapalıdır ve yapıştırılan bir `#` satırı
@@ -5876,7 +5890,10 @@ PGPASSWORD=<owner> TAPPA_APP_PASSWORD=<app> \
 603 sütun yetkisini dump'ın ilan ettiğiyle, 35 fonksiyonun sahibini /
 `SECURITY DEFINER`'ını / `search_path`'ini / `EXECUTE`'unu ve 5 rolün niteliklerini
 kaynağın manifest'iyle karşılaştırıyor ve `42501`'i assert ediyor; B2 atlanmışsa
-**fazlaları adıyla** listeler. (2026-08-16'daki goose 20 sayısı 45 + 454 idi.)
+**fazlaları adıyla** listeler. (2026-08-16'daki goose 20 sayısı 45 + 454 idi; goose 87'de,
+T215'in otomatik provasında 43 tablo + 1150 sütun yetkisi, 99 fonksiyon, 9 rol, 43
+tetikleyici.) **Son tam PASS provası artık her CI koşusudur** (T215, `make restore-check`,
+aşağıda *"Provanın kendisi"*); elle son prova T45, 2026-10-09, goose 34.
 Doğrulama geçtikten sonra indirilen döküm silinir: `rm -rf "$RESTORE"` (B3'te
 `mktemp -d` ile, repo dışında yaratıldı; çalışanların mesai kaydıdır).
 
@@ -5905,6 +5922,25 @@ yok (operatör adımı 9). Yedeksiz koşan bir kurtarma, bir sonraki arızada ay
 durur.
 
 ### Provanın kendisi — bu prosedür ölçüldü, tarif edilmedi
+
+**Otomatik prova (T215, 2026-11-07'den beri her CI koşusunda — `make restore-check`).**
+Operatör adımı 9(d)'nin `(d2)`–`(d5)` blokları runbook'tan kesilip koşulur (9(d)'nin başındaki
+not), yani B YOLU'nun B1 init'i, B2, B3 ve daraltması, B4'ün sayaç adımı ve doğrulama aracı.
+Kaynak, CI'ın ve geliştirmenin kurduğu biçimde ayrı bir konteynerdir (`arwd` varsayılanı dahil),
+`make up`'ın veritabanına dokunulmaz. **Ölçüldü (yerel, goose 87, 2026-11-07):** 42 tablo, 179
+satır (seed + `test/fixtures/restore-chain.sql`; on bir append-only tablonun her birinde satır,
+4 tenant'ın sayacı), 32 politika, 41 `FORCE`, 43 tablo + 1150 sütun yetkisi, 99 fonksiyon, 9 rol,
+43 tetikleyici; `pg-restore-verify: PASS`, exit 0; 79 sn (goose soğuk), 30–52 sn (sıcak).
+Negatif kanıtlar (her biri geri alındı, yalnız zincirin kendi konteynerlerinde):
+
+| Bozulma | Sonuç |
+|---|---|
+| doğrulama aracından T214'ün sistem sütunu kolu çıkarıldı (goose 74–87 arası araç) | **exit 1**: `- admin_users tappa_identitydefiner xmin SELECT`, `- tenants …` |
+| geri yükleme `tenants` üzerindeki `SELECT (xmin)`'i düşürdü (B3 ve `(d3)` ikisi de) | **exit 1**: `- tenants tappa_identitydefiner xmin SELECT` |
+| kaynakta `transactions_no_mutation` `D` (döküm `DISABLE`'ı taşır) | **exit 1**: tetikleyici `tgenabled=D` ve taban *"Row guards missing: transactions"* |
+| sayaç adımı runbook'un iki kopyasından da çıkarıldı | **exit 1**: *"4 counters stand less than 1000000 past …"* |
+| sayaç adımı yalnız `(d3b)`'den çıkarıldı | betik konteyner açmadan reddetti: B YOLU ile 9(d) ayrışmış |
+| kaynakta `SELECT (xmin)` yetkisi dökümden **önce** düşürüldü | ⚠️ **exit 0** — beklenen küme dökümün kendisidir; kaynağın zaten kaybettiği bir yetkiyi hiçbir karşılaştırma görmez (sınır, T100'ün tetikleyici tabanının yetkiler için karşılığı yok) |
 
 M8-02'nin kriteri *"geri yükleme **denenmiş**"* diyor. 2026-08-16'da bu reponun kendi
 seed'lenmiş veritabanından alınan gerçek bir yedekle, üç kontrollü koşu yapıldı:

@@ -37,7 +37,13 @@ func restoreTriggerSQL(t *testing.T, name string) string {
 //   - an INTERNAL trigger is seen too: DISABLE TRIGGER ALL on a table with a foreign key and no
 //     trigger of its own turns off only the foreign key's, and the query lists it;
 //   - the floor: all of trunc_tables have their row guard and tags its counter trigger; a row guard
-//     on UPDATE alone, switched off, with a WHEN or with UPDATE OF is not one.
+//     on UPDATE alone, switched off, with a WHEN or with UPDATE OF is not one;
+//   - the floor and section 5 read the guard function in public only: one of the same name in another
+//     schema, refusing nothing, is not a guard (T215).
+//
+// What this does not run is the chain itself, a real dump restored the way the runbook says: that is
+// scripts/restore-chain-check.sh (`make restore-check`, a CI step since T215), whose one healthy run
+// every check here must pass. This test keeps the states that run never produces.
 func TestRestoreVerify_TriggerQueries(t *testing.T) {
 	off := restoreTriggerSQL(t, "TRIGGERS_OFF_SQL")
 	defs := restoreTriggerSQL(t, "TRIGGER_DEFS_SQL")
@@ -187,6 +193,52 @@ func TestRestoreVerify_TriggerQueries(t *testing.T) {
 	if slices.Contains(lines(floor), "zz_t100") {
 		t.Errorf("the floor counts a disabled row guard")
 	}
+
+	// T215: the guard function is read by name AND schema. A same-named function in another schema
+	// that refuses nothing passed the floor (T213's last look, zz_sec.tappa_forbid_mutation); section
+	// 5's TRUNCATE query had the same blind spot.
+	m = regexp.MustCompile(`(?s)psql_to "\$TMP/have\.truncguards" "(.*?)"\n`).FindSubmatch(script)
+	if m == nil {
+		t.Fatal(`the script has no psql_to "$TMP/have.truncguards" "..."`)
+	}
+	truncGuards := string(m[1])
+	if _, err := tx.Exec(ctx, `
+		ALTER TABLE public.zz_t100 ENABLE TRIGGER zz_t100_no_mutation;
+		CREATE SCHEMA zz_t215;
+		CREATE FUNCTION zz_t215.tappa_forbid_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;
+		CREATE FUNCTION zz_t215.tappa_forbid_counter_rewind() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+		CREATE TRIGGER zz_t100_no_truncate BEFORE TRUNCATE ON public.zz_t100 FOR EACH STATEMENT EXECUTE FUNCTION public.tappa_forbid_mutation()`); err != nil {
+		t.Fatalf("the other schema: %v", err)
+	}
+	if !slices.Contains(lines(floor), "zz_t100") || !slices.Contains(lines(truncGuards), "zz_t100") {
+		t.Fatal("CONTROL FAILED: bound to public's function, the scratch table's guards are not seen")
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE OR REPLACE TRIGGER zz_t100_no_mutation BEFORE UPDATE OR DELETE ON public.zz_t100 FOR EACH ROW EXECUTE FUNCTION zz_t215.tappa_forbid_mutation();
+		CREATE OR REPLACE TRIGGER zz_t100_no_truncate BEFORE TRUNCATE ON public.zz_t100 FOR EACH STATEMENT EXECUTE FUNCTION zz_t215.tappa_forbid_mutation()`); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(lines(floor), "zz_t100") {
+		t.Errorf("the floor counts a row guard bound to zz_t215.tappa_forbid_mutation, which refuses nothing")
+	}
+	if slices.Contains(lines(truncGuards), "zz_t100") {
+		t.Errorf("section 5 counts a TRUNCATE guard bound to zz_t215.tappa_forbid_mutation, which refuses nothing")
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s';
+		CREATE OR REPLACE TRIGGER tags_counter_monotonic BEFORE UPDATE ON public.tags FOR EACH ROW EXECUTE FUNCTION zz_t215.tappa_forbid_counter_rewind()`); err != nil {
+		t.Fatal(err)
+	}
+	if got := lines(counter); !slices.Equal(got, []string{"0"}) {
+		t.Errorf("the floor's counter query answers %v on tags_counter_monotonic bound to zz_t215's function, want 0", got)
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE OR REPLACE TRIGGER tags_counter_monotonic BEFORE UPDATE ON public.tags FOR EACH ROW EXECUTE FUNCTION public.tappa_forbid_counter_rewind()`); err != nil {
+		t.Fatal(err)
+	}
+	if got := lines(counter); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("CONTROL FAILED: tags_counter_monotonic bound to public's function again, the counter query answers %v", got)
+	}
+
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '10s'; ALTER TABLE public.tags DISABLE TRIGGER tags_counter_monotonic`); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +255,10 @@ func TestRestoreVerify_TriggerQueries(t *testing.T) {
 //   - REVOKE takes one out, the verifier's `-`; a grant the dump does not have comes in, its `+`;
 //   - an ordinary column's grant still arrives through the first arm.
 //
-// What it does not prove is the chain from a real dump to a real restore, which CI does not run: T215.
+// What it does not prove is the chain from a real dump to a real restore: since T215 CI runs that,
+// scripts/restore-chain-check.sh (`make restore-check`), and with this arm removed that run is red
+// (measured, T215: `- admin_users tappa_identitydefiner xmin SELECT`). This test keeps `-`, `+` and
+// the owner's exclusion, which a healthy run never shows.
 func TestRestoreVerify_TheColumnGrantsSeeTheSystemColumns(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "pg-restore-verify.sh"))
 	if err != nil {

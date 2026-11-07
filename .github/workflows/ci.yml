@@ -267,6 +267,24 @@ jobs:
         # After `make check`, on the same database: the suites share no state the order breaks.
         run: make check-sandbox
 
+      - name: The restore chain (make restore-check)
+        # T215: backup -> restore -> verify, end to end, with the real scripts, on every run.
+        # scripts/pg-restore-verify.sh refused every restore from goose 74 on (T214) and nobody saw
+        # it, because nothing ran the chain. scripts/restore-chain-check.sh builds its OWN source
+        # container (scripts/db-init + goose + seed + test/fixtures/restore-chain.sql), runs
+        # scripts/pg-backup.sh in the CronJob's container shape, then deploy/README.md 9(d)'s blocks
+        # CUT OUT OF THE RUNBOOK -- (d2) target, (d3) B2 + B3, (d3b) the counter step, (d4)
+        # pg-restore-verify.sh, (d5) cleanup -- and needs exit 0. It does not touch `make up`'s
+        # database, so its place here is free.
+        # A STEP OF ITS OWN, NOT PART OF `make check`: it needs docker and two containers, which a
+        # developer's `make check` should not start, and `!cancelled()` (as the audit step below)
+        # keeps a red test from hiding a red restore and the other way round. After `make check`:
+        # goose is already compiled there (`make migrate`). Ordinary time ~1 min (locally 79 s with a
+        # cold goose, 30-52 s warm); the runbook's blocks have their own 300 s watchdog, so the step
+        # cannot hang the job.
+        if: ${{ !cancelled() }}
+        run: make restore-check
+
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
         # taramasi). rg yukarida kuruldu, tarama gercekten kosar.

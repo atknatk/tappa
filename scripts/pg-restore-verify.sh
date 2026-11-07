@@ -573,7 +573,7 @@ psql_to "$TMP/have.truncguards" "SELECT c.relname
     AND (g.tgtype & 32) <> 0        -- TRUNCATE
     AND (g.tgtype & 2)  <> 0        -- BEFORE
     AND g.tgenabled IN ('O', 'A')   -- fires on origin: NOT 'D', NOT replica-only 'R'
-    AND p.proname = 'tappa_forbid_mutation';"
+    AND p.proname = 'tappa_forbid_mutation' AND p.pronamespace = 'public'::regnamespace;"
 # The same triggers WITHOUT the two state predicates, so a failure can say WHY and
 # not only WHICH: "the guard is gone" and "the guard is sitting there disabled"
 # need different remedies from the operator.
@@ -642,7 +642,14 @@ fi
 # trunc_tables must also carry an enabled BEFORE UPDATE OR DELETE row trigger bound to
 # tappa_forbid_mutation, with no WHEN and no UPDATE OF (each would make it a guard in name,
 # refusing nothing), and tags its counter trigger. trunc_tables is not free text
-# (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations).
+# (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations). The function is
+# matched by name AND schema (T215): a same-named zz_sec.tappa_forbid_mutation that refuses
+# nothing passed when only the name was read; section 5's TRUNCATE query carries the same pin.
+# ⚠️ ITS BODY IS NOT COMPARED, and that is a written limit: a source whose own
+# public.tappa_forbid_mutation was rewritten to refuse nothing dumps that body and restores it,
+# so a dump-against-restore comparison sees two equal bodies, and an absolute pin (a hash in this
+# file) would turn every older backup red the day a migration rewords the function. Rewriting it
+# takes the owner's privilege, which this script cannot defend against anyway.
 #
 # THE MATCH IS ARMED BY pg_dump's OWN COMMENT LINE, so a COPY row that happens to start
 # with the words CREATE TRIGGER is not taken for one (it could only have failed the
@@ -663,14 +670,14 @@ FLOOR_ROW_GUARDS_SQL="SELECT c.relname
     AND (g.tgtype & 27) = 27        -- ROW, BEFORE, DELETE and UPDATE
     AND g.tgqual IS NULL AND g.tgattr::text = ''   -- every row, every column
     AND g.tgenabled IN ('O', 'A')
-    AND p.proname = 'tappa_forbid_mutation';"
+    AND p.proname = 'tappa_forbid_mutation' AND p.pronamespace = 'public'::regnamespace;"
 FLOOR_COUNTER_SQL="SELECT count(*)
   FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
   JOIN pg_proc p ON p.oid = g.tgfoid
   WHERE n.nspname = 'public' AND c.relname = 'tags' AND g.tgname = 'tags_counter_monotonic'
     AND g.tgenabled IN ('O', 'A')
-    AND p.proname = 'tappa_forbid_counter_rewind';"
+    AND p.proname = 'tappa_forbid_counter_rewind' AND p.pronamespace = 'public'::regnamespace;"
 TRIGGER_DEFS_SQL="SET search_path = ''; SELECT pg_catalog.pg_get_triggerdef(g.oid, false) || ';'
   FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
