@@ -1245,12 +1245,13 @@ func TestReportsExport_WritesOneAuditRowSayingWhoTookWhichWeek(t *testing.T) {
 // GET decision: what protects this route, and what does not.
 //
 // 🔴 THE SECOND HALF IS THE POINT. This route has one side effect -- an audit_log row
-// -- and it is on the READ chain, which carries no Origin check. A cross-origin
-// top-level navigation therefore succeeds and writes one row. That is a COUNTED limit
-// rather than a closed one (reportsExport states what bounds it), and it is pinned
-// here so that a future reader finds a measurement rather than a surprise: if
-// somebody moves this route onto ProtectWriting, this test tells them the download
-// link stopped working before a customer does.
+// -- and it is on the READ chain, which carries no Origin check. Until backlog T19 a
+// cross-origin top-level navigation succeeded and wrote one row; mintGate now refuses
+// one whose Sec-Fetch-Site says another site started it. What stays COUNTED is the
+// request that carries no fetch metadata at all (an older browser, or curl): it is
+// served and recorded, because refusing it would break the download there
+// (reportsExport, fetchsite.go). If somebody moves this route onto ProtectWriting, the
+// no-metadata half tells them the download link stopped working before a customer does.
 func TestReportsExport_InheritsTheREADChainAndTheGapIsCOUNTED(t *testing.T) {
 	records := newFakeLedger()
 	records.hours = reportWith(func(r *ledger.Report) {
@@ -1268,22 +1269,37 @@ func TestReportsExport_InheritsTheREADChainAndTheGapIsCOUNTED(t *testing.T) {
 		t.Errorf("an anonymous request recorded %d export(s)", n)
 	}
 
-	// WHAT DOES NOT: a cross-origin GET with a live session is served, because
-	// sameOriginGate is not on the read chain. Measured, not assumed.
+	// WHAT CLOSED (T19): a cross-site navigation with a live session is refused before
+	// the reader runs -- no file, no row.
 	b, trail2 := exportBrowser(t, records)
-	req := httptest.NewRequest(http.MethodGet, reportsCSVHref, nil)
-	req.RemoteAddr = b.ip
-	req.Header.Set("Origin", "https://evil.example")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.AddCookie(&http.Cookie{Name: adminauth.CookieName, Value: b.cookies[adminauth.CookieName]})
-	cross := httptest.NewRecorder()
-	b.h.ServeHTTP(cross, req)
-	if cross.Code != http.StatusOK {
-		t.Fatalf("a cross-origin GET answered %d; the chain has changed and the download "+
-			"link on the reports screen may have stopped working -- see reportsExport", cross.Code)
+	send := func(fetchSite string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, reportsCSVHref, nil)
+		req.RemoteAddr = b.ip
+		if fetchSite != "" {
+			req.Header.Set("Origin", "https://evil.example")
+			req.Header.Set("Sec-Fetch-Site", fetchSite)
+		}
+		req.AddCookie(&http.Cookie{Name: adminauth.CookieName, Value: b.cookies[adminauth.CookieName]})
+		rec := httptest.NewRecorder()
+		b.h.ServeHTTP(rec, req)
+		return rec
+	}
+	if cross := send("cross-site"); cross.Code != http.StatusForbidden {
+		t.Fatalf("a cross-site GET answered %d, want the gate's 403", cross.Code)
+	}
+	if n := trail2.count(ActionReportExported); n != 0 {
+		t.Errorf("the refused cross-site export recorded %d row(s), want 0", n)
+	}
+
+	// WHAT DOES NOT, COUNTED: a request with no fetch metadata is served, because the
+	// read chain has no Origin check and the gate lets an absent header through.
+	// Measured, not assumed.
+	if bare := send(""); bare.Code != http.StatusOK {
+		t.Fatalf("a GET without fetch metadata answered %d; the chain has changed and the "+
+			"download link on the reports screen may have stopped working -- see reportsExport", bare.Code)
 	}
 	if n := trail2.count(ActionReportExported); n != 1 {
-		t.Errorf("the cross-origin export recorded %d row(s), want 1 -- the trail is what "+
+		t.Errorf("the export without fetch metadata recorded %d row(s), want 1 -- the trail is what "+
 			"makes this limit attributable", n)
 	}
 }

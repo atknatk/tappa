@@ -161,7 +161,7 @@ func (a *AdminAuth) mountPlaque(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.log.Error("panel: could not mount the plaque", "err", err, "tag_uid", uid)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	a.log.Info("panel plaque mounted", "tag_uid", mounted.UID, "location_id", venueID)
@@ -241,7 +241,7 @@ func (a *AdminAuth) replacePlaque(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.log.Error("panel: could not replace the plaque", "err", err,
 			"retiring_tag_uid", retiring)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// 🔴 CLEARED ON SUCCESS ONLY — deleteVenue's asymmetry, and for the same reason.
@@ -314,7 +314,7 @@ func (a *AdminAuth) unmountPlaque(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.log.Error("panel: could not unmount the plaque", "err", err, "tag_uid", uid)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// Cleared on success only — deleteVenue carries the argument for the asymmetry.

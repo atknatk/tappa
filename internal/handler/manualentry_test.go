@@ -1106,11 +1106,9 @@ func TestManualEntryRecord_ARefreshOfARefusedWriteCannotAppendASecondRecord(t *t
 // describing a set the code owns belongs to a walk over that code, which is the same
 // rule mountWriting's comment now follows after drifting three times.
 //
-// IT ASSERTS ALMOST NOTHING ON PURPOSE. The debt is pre-existing and belongs to the
-// screens that own those handlers (M6-04/05/06); what this holds is that the handlers
-// which adopted the writer's page (the manual entry's, and since M10 EM-6 round 3 the
-// address change's) are not part of it, and that the census is not silently reading
-// nothing.
+// SINCE BACKLOG T21 IT ASSERTS THE WHOLE SET: no handler mountWriting registers, and no
+// helper only those handlers call, names problemPanelUnavailable. Before T21 it held only
+// the manual entry and the address change and printed the rest as debt.
 func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
@@ -1154,6 +1152,29 @@ func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpt
 		t.Fatalf("derived %d write route handler(s) from mountWriting; it registers more, "+
 			"so this census is reading the wrong function", len(writers))
 	}
+	// THE HELPERS ONLY WRITE ROUTES CALL (T21): a failure inside one of them is a failure
+	// of the press that called it, so it is classified with the routes. A helper a GET
+	// shares picks its page by method (readFailedProblem) and is not on this list.
+	for _, h := range []string{"accountIdentityBegin", "accountActBudget", "accountWindowAct",
+		"renderVenueFormAgain", "renderDepartmentFormAgain", "employeeInviteByEmail", "employeeInviteOnScreen"} {
+		writers[h] = true
+	}
+	declared := map[string]bool{}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, d := range file.Decls {
+				if fn, ok := d.(*ast.FuncDecl); ok {
+					declared[fn.Name.Name] = true
+				}
+			}
+		}
+	}
+	for h := range writers {
+		if !declared[h] {
+			t.Errorf("%s is classified as a write path but no function of that name exists: "+
+				"a rename would empty the census of it", h)
+		}
+	}
 
 	for _, pkg := range pkgs {
 		for name, file := range pkg.Files {
@@ -1193,25 +1214,23 @@ func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpt
 		"still telling a writer their page is empty: %s",
 		unavailable, len(census), writeFailed, strings.Join(census, ", "))
 
-	// 🔴 THE ONE ASSERTION: THE HANDLERS THAT ADOPTED THE WRITER'S PAGE ARE NOT ON THAT
-	// LIST. The rest is somebody else's screen and is printed rather than failed.
+	// 🔴 THE ASSERTION (T21): NO WRITE PATH TELLS A WRITER THEIR PAGE IS EMPTY. Until T21
+	// only the manual entry and the address change were held to it and the rest were
+	// printed as debt; T21 classified every call site and converted them, so the list
+	// must now be empty.
 	//
-	// M10 EM-6 round 3 adopted it for the address change, so its handler joins the
-	// manual entry's here. It is named EXACTLY (the name plus the " (" the census
-	// appends), not by prefix: a later employeeEmailSomething is not this route and is
-	// not covered by this task's measurement.
-	//
-	// The name is checked against the derived write routes first. Without that, a
-	// rename or a route moved out of mountWriting would empty the census of this
-	// handler and the assertion below would hold vacuously.
-	if !writers["employeeEmail"] {
-		t.Fatal("employeeEmail is not among the handlers mountWriting registers, so the " +
-			"assertion that it uses the writer's problem page would hold over nothing")
-	}
-	for _, entry := range census {
-		if strings.HasPrefix(entry, "manualEntry") || strings.HasPrefix(entry, "employeeEmail (") {
-			t.Errorf("%s still shows a WRITER the reader's problem page", entry)
+	// The handlers this task's two measurements are about are checked against the
+	// derived write routes first. Without that, a rename or a route moved out of
+	// mountWriting would empty the census of them and the assertion would hold vacuously.
+	for _, h := range []string{"employeeEmail", "manualEntryRecord", "saveVenue", "employeeInvite", "reviewDecision"} {
+		if !writers[h] {
+			t.Fatalf("%s is not among the handlers mountWriting registers, so the "+
+				"assertion that it uses the writer's problem page would hold over nothing", h)
 		}
+	}
+	if len(census) != 0 {
+		t.Errorf("write paths still show a WRITER the reader's problem page: %s",
+			strings.Join(census, ", "))
 	}
 }
 
