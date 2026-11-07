@@ -1,7 +1,7 @@
 # ADR 0037 — Yönetici kendi kaydına karar veremez: panel hesabını çalışan satırına bağlamak
 
-- **Durum:** **Önerilen.** Karar kullanıcının; kod ve migration yazılmadı. İlk taslak iki incelemeden ret aldı; bu sürüm o bulguları işler. Sorular §9'da.
-- **Tarih:** 2026-11-06 · **Backlog:** T148
+- **Durum:** **Kabul edildi (2026-11-07).** Kullanıcı §9'daki üç soruda önerileri seçti; sahip muafiyeti bildirildi, itiraz yok. **T148-0 uygulandı; T148-1 ve sonrası yazılmadı.** Şart: **bağ ve engel, ilk saat basan yöneticiden önce çıkar** (§10).
+- **Tarih:** 2026-11-06 (kabul 2026-11-07) · **Backlog:** T148
 - **İlgili:** ADR 0004 (Y-C) · ADR 0005 (Y-D) · ADR 0010 · ADR 0027 (K-1a) · ADR 0031 · ADR 0032 (G-O1) · ADR 0036 · CLAUDE.md §4.3, §4.5, §4.6, §5
 - **Atıflar** `origin/m14-identity` `ffbf1808`'e göredir. **Ölçüldü** = geçici Postgres, goose 87, `tappa_app`, 2026-11-06. **Kod okundu** = çalıştırılmadı. **(incelemede)** = bulgu incelemeden geldi, atıfı doğrulandı, ölçülmedi.
 
@@ -173,20 +173,22 @@ Bağ yeniden işe alımı kendiliğinden kapsamaz: yeni satır (ADR 0010:191) fa
 - **Yokluktaki sahip.** Başka yetkili yoksa yöneticinin işaretli saati sahip bakana dek saate girmez.
 - **`reviewer_id` ve `entered_by` FK'siz** (`00006_create_admin_users.sql:217-223`, ölçüldü): ayrı backlog adayı.
 
-## 9. Kullanıcıya sorular
+## 9. Kullanıcı kararları (2026-11-07)
+
+Kararlar: **1 (a), 2 (a), 3 (a).** Sahip muafiyeti (§2) bildirildi, itiraz yok. Aşağıda sorular, sorulduğu haliyle durur.
 
 **1. Koruma ne zaman çıksın?** Yanına: yakında saat basan bir vardiya müdürü atanacak mı? Takip davet formundaki uyarıya ve bu cevaba dayanır: "ilk saat basan yöneticiden önce" tarihini tutan mekanik bir kapı yok; bu (a) için de geçerli.
-- **(a) Metin düzeltmesi hemen; bağ ve engel ilk saat basan yöneticiden önce. Öneri.**
+- **(a) Seçildi.** Metin düzeltmesi hemen; bağ ve engel ilk saat basan yöneticiden önce.
 - (b) Hepsi hemen. Canlıda korunacak kimse yokken iş yapılır.
 - (c) Talep gelene dek yalnız metin. En ucuz; yönetici tek basışla doğar.
 
 **2. Yönetici kendi saatini elle girince ne olsun?**
-- **(a) İşaretli yazılsın, başka yetkiliye düşsün. Öneri.** Beyan kaybolmaz, §4.6 ile aynı desen. Ölçüldü, **yalnız okuma tarafı ve tek şekil** (`ok` giriş + elle konmuş `flag` `manual` çıkış): kuyrukta görünür; beklerken 8 sa *awaiting*, onayda 8 sa *worked*, retle 8 sa *refused*. Yazma yolu yok: bugün `flag` yazan ifade yok (`internal/domain/manual/manual.go:45-48`); T148-3'ün işi. Bu seçeneği üstün kılan hiç dokunulmamış vardiya **ölçülmedi** (§12). Akışa düşmez (`TestPunches_NoManualNoRejected`). `db/queries/transactions.sql:399-408`'in iki gerekçesi var: ilki (*onaylayacak kişi yazanın kendisi*) burada geçersiz, çünkü tetikleyici yazanı reddeder ve son sahip düşürülemez (`internal/adminauth/membership.go:249-251`). İkincisi (Q18: toplam onaya kadar eksik kalır) **durur**: bağlı yönetici için bilerek kabul edilen bedel.
+- **(a) Seçildi.** İşaretli yazılsın, başka yetkiliye düşsün. Beyan kaybolmaz, §4.6 ile aynı desen. Ölçüldü, **yalnız okuma tarafı ve tek şekil** (`ok` giriş + elle konmuş `flag` `manual` çıkış): kuyrukta görünür; beklerken 8 sa *awaiting*, onayda 8 sa *worked*, retle 8 sa *refused*. Yazma yolu yok: bugün `flag` yazan ifade yok (`internal/domain/manual/manual.go:45-48`); T148-3'ün işi. Bu seçeneği üstün kılan hiç dokunulmamış vardiya **ölçülmedi** (§12). Akışa düşmez (`TestPunches_NoManualNoRejected`). `db/queries/transactions.sql:399-408`'in iki gerekçesi var: ilki (*onaylayacak kişi yazanın kendisi*) burada geçersiz, çünkü tetikleyici yazanı reddeder ve son sahip düşürülemez (`internal/adminauth/membership.go:249-251`). İkincisi (Q18: toplam onaya kadar eksik kalır) **durur**: bağlı yönetici için bilerek kabul edilen bedel.
 - (b) Reddedilsin. Dürüst cümleyle: saat talebi yalnız dokunuşun eksik yarısı içindir (`internal/domain/claim/claim.go:1-4`), kart sonuç ekranında çıkar, iki gösterim (`internal/domain/claim/offer.go:26-32`), kayıt başına bir hak, ret kesin (`00068:114-115`); hiç dokunulmamış vardiya, yanlış saat, reddedilmiş talep kapsam dışı; canlıda hiç karar üretmedi.
 - (c) Serbest, yalnız görünür. Diğer iki kapının anlamı kalmaz.
 
 **3. Bağ nasıl kurulsun?**
-- **(a) Çalışan satırında "Invite as manager" davet formunu önceden doldurur; kabulden sonra satır bağlanana kadar Managers'ta "bağlı değil" görünür; kapatma cevabı yok; otomatik bağ yok. Öneri.** Bağı sahip kabulden sonra ayrıca kurar. Kadroda olmayan yönetici hep "bağlı değil" görünür: NULL bağ "cevap yok" ile "kadroda değil"i ayıramaz, bu bedel kabul edilir.
+- **(a) Çalışan satırında "Invite as manager" davet formunu önceden doldurur; kabulden sonra satır bağlanana kadar Managers'ta "bağlı değil" görünür; kapatma cevabı yok; otomatik bağ yok. Seçildi.** Bağı sahip kabulden sonra ayrıca kurar. Kadroda olmayan yönetici hep "bağlı değil" görünür: NULL bağ "cevap yok" ile "kadroda değil"i ayıramaz, bu bedel kabul edilir.
 - (b) Yalnız Managers sayfası. En sade, en çok unutulan.
 - (c) Bağ davete taşınır, davet formunda zorunlu cevap. En güçlüsü; ama `admin_invites`'ta çalışan sütunu yok (`db/migrations/00077_invite_administrators.sql:139-155`), sütun ve kabul fonksiyonu M14 matrisine dokunur ve §7'deki "definer yok" düşer.
 
@@ -202,7 +204,7 @@ Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); büt
 | **T148-1** | Sıcak tablo başına ayrı dosya, ifade başına `lock_timeout`, FK `NOT VALID` ve `VALIDATE` ayrı işlemlerde, `CONCURRENTLY` indeks (`00070` deseni), bağ izinin iki tetikleyicisi, üç karar tetikleyicisi, `EXECUTE` yalnız sahipte (`00061`), Down dolu | Gerçek Postgres, `tappa_app`: üç yol × iki rol × bağlı/bağsız, onay ve ret ayrı; RLS (filtresiz); çapraz FK; tap kanalı tetiklemez; bağ izi; `internal/db/triggerexecute_test.go:142-145` güncellenir |
 | **T148-2** | Guardrail: alan adı, rol, fail-closed | Tablo: yönetici/kendi, sahip/kendi, rol yok, farklı kişi, bağ yok; `TestGuardrails_SelfReviewOnlyWhenSamePerson`, `TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges` güncellenir |
 | **T148-3** | `review`, `claim`, `manual`: bağı oku, karar; ret izi; `self_decided`; **`flag` yazıcıları** (soru 2 (a) ise): `InsertManualTransaction`, `InsertManualTransactionAtAnchor`, `InsertManualSiteTransaction`; `manual.go:45-48` yorumu güncellenir; **hata eşleme** (claim tetikleyicisinin yeni mesajı `ErrRefused`'a düşer: `decide.go:393-396`; manuelde eşleme yok, 500: `manual.go:831-838`, `:888-891`; ayrı cümleler `internal/handler/review.go:475-482`, `claimqueue.go:479-481`) | Ret izi **iki yolda**: alan kapısı ve tetikleyici; kayıt yazılmaz, tek audit satırı; §12'deki `flag` şekilleri; `TestDecideDB_TheSelfDecisionCheckFiresOnlyOnAForgedIdentity` gerçek bağa çevrilir |
-| **T148-4** | Bağ ekranı (soru 3), onay ekranı, §6 çareleri, band. skill `tappa-brand` | Gerçek HTTP: sahip kapısı, 403 + iz, üç POST'un bağlı yöneticide kapanması, askıda bağ kurma; taşıma, seçim kuralı, API'nin taşımaması; iki yazıcı tarama testi |
+| **T148-4** | Bağ ekranı (soru 3), onay ekranı, §6 çareleri, band. Taşımanın `deactivated_at` sıralaması `NULLS LAST`. "Bağlı değil" **aktif** satır üzerinden hesaplanır: yalnız pasif satıra bağlı yönetici bağlı görünmez. "Invite as manager" yalnız `mayInvite`'e çizilir; URL adres taşımaz: çalışan id'si gider, ad ve adresi sunucu okur. skill `tappa-brand` | Gerçek HTTP: sahip kapısı, 403 + iz, üç POST'un bağlı yöneticide kapanması, askıda bağ kurma; taşıma, seçim kuralı, API'nin taşımaması; iki yazıcı tarama testi |
 | **T148-6** | CLAUDE.md §5 (onaylı metin), ADR 0004 ve 0032 notları, ADR 0031 `:124` notu, `docs/plan/m3-policy-motoru.md:331`, `:355`, `open-questions.md:51`, `:52`, `:92`, kod yorumları, T148 kapanışı. *"Nobody can decide"* yasağı kalır | `TestEveryNamedTestExists`, `TestSecurityPage_SaysNoneOfTheRefusedPhrasings` |
 
 **Kabul kriterleri**
@@ -214,15 +216,15 @@ Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); büt
 6. Rules cümlesi davranışla aynıdır: `Match`'i bağlı yönetici, bağlı sahip ve bağsız hesapla koşan pin testine bağlanır.
 7. `tap.Decide` testleri (`TestDecide_DirectionNilForNonRecordVerdicts` ve ailesi), `TestEndpointState_NeverPaysAVerdictItDoesNotKNOW`, `TestPanel_CallsThePolicyEngineNowhere`, tap ve sonuç ekranları değişmez.
 
-## 11. T148-0 tarifi
+## 11. T148-0 (uygulandı, 2026-11-07)
 
-Bu dal yazmaz; karardan bağımsız, ayrı dalda yapılır.
+Migration yok. Tap, sonuç ve aktivasyon ekranına dokunulmadı.
 
 - **Değişecek yerler:** `rulebook.go:863-864` (Rule), `:887` (When), `policies.templ:413` (sonuç etiketi), `:416` (sabit *Cannot be switched off*), `:419` (motor cümlesi). `guardrails.go:616` değişmez: Reason yalnız `:419`'da çizilir.
 - **When:** *Planned: a manager decides their own record*
 - **Rule:** *Not enforced yet. Taptime does not yet know which manager login belongs to which employee, so someone who is both can decide their own flagged record or type their own hours. Each decision is recorded with who made it.*
-- **Çizilmez:** bu guardrail'de motor cümlesi ve iki etiket. Guardrail sayısı değişmez.
-- **Sayfa girişi** (`policies.templ:397-403`), *"each of them is a promise"*den sonra tek cümle: *The last one below is still planned: it is not enforced yet, so it is not yet one of these promises.*
+- **Çizilmez:** bu guardrail'de motor cümlesi ve iki etiket. Kaynağı `tenant.Guardrail.Stage` (`guardrailStage`); T148-2 ve T148-3 guardrail'i koşturunca girdi ve metinler kalkar. Guardrail sayısı 11 kalır; panel özeti de 11 der (`internal/handler/policies.go:291`), giriş cümlesi bunu karşılar.
+- **Sayfa girişi** (`policies.templ:397-404`), *"each of them is a promise"*den sonra tek cümle: *The last one below is still planned: it is not enforced yet, so it is not yet one of these promises.*
 - **Managers davet formu** (`web/templates/pages/admininvites.templ:189`), `md:basis-full` ile tek cümle: *A manager can currently decide their own flagged record and type their own hours.*
 
 ## 12. Ölçülmedi

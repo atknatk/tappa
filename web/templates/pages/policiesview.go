@@ -73,6 +73,9 @@ type PolicyGuardrailView struct {
 	Reason string
 	// Rule is why it cannot be switched off, naming the red line it enforces.
 	Rule string
+	// Stage is tenant.Guardrail.Stage: empty for a guarantee in force. Anything else draws the plate
+	// without its effect, its lock label and the engine's sentence, because none of them is true yet.
+	Stage string
 	// Tunable, Current and Range describe the bounded window, or are empty for a
 	// guardrail with none. Tunable != "" is what the template tests, so there is no
 	// bool to mistake for a state.

@@ -307,6 +307,7 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 			When:    g.When,
 			Reason:  g.Reason,
 			Rule:    g.Rule,
+			Stage:   g.Stage,
 		}
 		// A GROUP STARTS WHERE WHAT A GUARANTEE GUARDS CHANGES -- the engine's answer
 		// (tenant.Guardrail.Guards), so the sub-heading follows the guarantees rather
