@@ -17,6 +17,12 @@
 -- §4.7), the admin's password hash is bcrypt's shape and the hash of nothing, and no row carries an
 -- e-mail address. Loaded once into an empty database; a second load fails on the first primary key, loudly.
 --
+-- EVERY COLUMN A CHECK OR A TRIGGER READS IS NAMED, never left to its default: a default is a
+-- migration's to change (m14-dbprivs' 00090 turns tags.status's to 'unassigned', and a plaque with a
+-- location is then refused by tags_unassigned_has_no_location -- in review, at v90). So tags.status,
+-- admin_users.status, policies.enabled and transactions.practice (punch_feed and the claim trigger
+-- read it) are written out; the defaults left are ids, timestamps and display values nothing checks.
+--
 -- Run as tappa_owner, in the tenant's own context (SET LOCAL, CLAUDE.md §6): punch_feed refuses a
 -- row whose tenant is not app.tenant_id, and one transaction per tenant because a transaction's feed
 -- events may use only the counter set its first event locked (ADR 0028 §5).
@@ -40,18 +46,18 @@ VALUES ('c4a10000-0000-4000-8000-000000000031', 'c4a10000-0000-4000-8000-0000000
         'c4a10000-0000-4000-8000-000000000011', 'c4a10000-0000-4000-8000-000000000021',
         'Restore Chain Cook', 'active', now() - interval '30 days');
 
-INSERT INTO admin_users (id, tenant_id, full_name, password_hash, role)
+INSERT INTO admin_users (id, tenant_id, full_name, password_hash, role, status)
 VALUES ('c4a10000-0000-4000-8000-000000000041', 'c4a10000-0000-4000-8000-000000000001', 'Restore Chain Owner',
         -- bcrypt's SHAPE (admin_users_password_hash_is_bcrypt) and no hash of anything: no
         -- password opens it, and nothing logs in to this database.
-        '$2a$12$' || repeat('x', 53), 'owner');
+        '$2a$12$' || repeat('x', 53), 'owner', 'active');
 
-INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref)
-VALUES ('C4A1000000000A', 'c4a10000-0000-4000-8000-000000000001', 'c4a10000-0000-4000-8000-000000000011',
+INSERT INTO tags (uid, tenant_id, location_id, status, aes_key_ref)
+VALUES ('C4A1000000000A', 'c4a10000-0000-4000-8000-000000000001', 'c4a10000-0000-4000-8000-000000000011', 'active',
         convert_to('NOT-A-KEY-restore-chain-fixture-only-T215...', 'UTF8'));
 
-INSERT INTO policies (id, tenant_id, name, layer)
-VALUES ('c4a10000-0000-4000-8000-000000000051', 'c4a10000-0000-4000-8000-000000000001', 'restore-chain', 'tenant');
+INSERT INTO policies (id, tenant_id, name, layer, enabled)
+VALUES ('c4a10000-0000-4000-8000-000000000051', 'c4a10000-0000-4000-8000-000000000001', 'restore-chain', 'tenant', true);
 
 INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document)
 VALUES ('c4a10000-0000-4000-8000-000000000052', 'c4a10000-0000-4000-8000-000000000001',
@@ -59,17 +65,17 @@ VALUES ('c4a10000-0000-4000-8000-000000000052', 'c4a10000-0000-4000-8000-0000000
 
 -- An ok check-in on the plaque: punch_feed writes punch_events seq 1 and moves the counter to 1.
 INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, ctr, type, occurred_at, verdict,
-                          channel, sun_valid, trust, business_day_start)
+                          channel, sun_valid, trust, business_day_start, practice)
 VALUES ('c4a10000-0000-4000-8000-000000000061', 'c4a10000-0000-4000-8000-000000000001',
         'c4a10000-0000-4000-8000-000000000031', 'c4a10000-0000-4000-8000-000000000011', 'C4A1000000000A',
-        1, 'in', now() - interval '3 hours', 'ok', 'nfc', true, 20, date_trunc('day', now() - interval '3 hours'));
+        1, 'in', now() - interval '3 hours', 'ok', 'nfc', true, 20, date_trunc('day', now() - interval '3 hours'), false);
 
 -- A flagged tap and the manager's approval: the review's punch_feed writes seq 2.
 INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, ctr, type, occurred_at, verdict,
-                          channel, sun_valid, trust, business_day_start)
+                          channel, sun_valid, trust, business_day_start, practice)
 VALUES ('c4a10000-0000-4000-8000-000000000062', 'c4a10000-0000-4000-8000-000000000001',
         'c4a10000-0000-4000-8000-000000000031', 'c4a10000-0000-4000-8000-000000000011', 'C4A1000000000A',
-        2, 'out', now() - interval '2 hours', 'flag', 'nfc', true, 20, date_trunc('day', now() - interval '3 hours'));
+        2, 'out', now() - interval '2 hours', 'flag', 'nfc', true, 20, date_trunc('day', now() - interval '3 hours'), false);
 
 INSERT INTO transaction_reviews (id, tenant_id, transaction_id, reviewer_id, outcome)
 VALUES ('c4a10000-0000-4000-8000-000000000071', 'c4a10000-0000-4000-8000-000000000001',
