@@ -236,9 +236,7 @@ func TestResetOutcome_ARefusedRetryIsLoggedAsLost(t *testing.T) {
 		var logged outcomeLog
 		h := outcomeHandlerOver(t, f, &logged)
 		defer h.outbox.stopSending() // the drain at cleanup need not wait for its write reserve
-		if !fillRetries(h, known) {
-			t.Fatal("CONTROL: the retry queue did not fill")
-		}
+		fillRetries(t, h, known)
 		h.recordFallback(context.Background(), time.Now().Add(time.Second), grantFor(known), resetReasonOutboxFull)
 		if logged.count(lineWithdrawalLost) != 1 || logged.count(lineRowLost) != 1 {
 			t.Errorf("want one lost line per write:\n%s", logged.String())
@@ -274,17 +272,29 @@ func TestResetOutcome_AQueuedOutcomeCarriesNoAddress(t *testing.T) {
 	}
 }
 
-// fillRetries offers outcomes that owe nothing and wait an hour, until the queue refuses one: the
-// worker sits in the first one's wait (the drain cuts it short), so the rest stay queued.
-func fillRetries(h *AdminReset, known string) bool {
-	for i := 0; i <= resetRetryQueueSize+1; i++ {
+// fillRetries leaves the worker holding one outcome and the queue full behind it. The worker must
+// TAKE the first before the rest go in: a fill that outran it ended with a full queue the worker then
+// made room in, and the next offer was accepted (CI run 42358063766; measured 1 of 300 at GOMAXPROCS 1
+// and 2, and 153 of 200 fills ending before the worker held one at GOMAXPROCS 1).
+func fillRetries(t *testing.T, h *AdminReset, known string) {
+	t.Helper()
+	waiting := func() *resetOutcome {
 		o := newResetOutcome(context.Background(), grantFor(known), ActionAdminResetRequested, "ok", "")
 		o.admitted, o.notBefore = true, time.Now().Add(time.Hour)
-		if !h.outbox.offerRetry(o) {
-			return true
+		return o
+	}
+	if !h.outbox.offerRetry(waiting()) {
+		t.Fatal("CONTROL: the empty retry queue refused an outcome")
+	}
+	waitUntil(t, 5*time.Second, "the worker to take the first outcome", func() bool { return len(h.outbox.retries) == 0 })
+	for i := 0; i < cap(h.outbox.retries); i++ {
+		if !h.outbox.offerRetry(waiting()) {
+			t.Fatalf("CONTROL: the retry queue refused outcome %d of %d", i+1, cap(h.outbox.retries))
 		}
 	}
-	return false
+	if h.outbox.offerRetry(waiting()) {
+		t.Fatal("CONTROL: a full retry queue took one more")
+	}
 }
 
 func outcomeHandlerOver(t *testing.T, f *flakyWrites, logged *outcomeLog) *AdminReset {
