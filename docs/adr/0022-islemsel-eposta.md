@@ -3503,8 +3503,8 @@ Bütçe bitince `Drain` kalanı tek ERROR satırında sayar (`queued_grants`, `q
 sahibin istekleri `kept` (kimlik linkinde kişinin **bütün** işletmelerinde kurtarma durur,
 `TestPanelIdentityReset_BothTriesFailingLockThePersonOut`). Link çoğunlukla hiçbir kutuda değildir; belirsiz gönderimde sahibinin kutusunda
 canlı olabilir ve harcanabilir. Yalnız sahibin kutusu; asıl sorun izdir: satır yok (`TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox`).
-ERROR satırı kimlik linkinde fazla söyleyebilir: `identity_withdraw_reset` tek ifadedir ve kilit ERROR'dan hemen sonra açılınca link 34 koşunun 1'inde ölü bulundu (33'ünde canlı).
-Olası neden kilidin `pgconn.asyncClose` iptalinden önce açılması (okundu, ölçülmedi). Yön güvenli; satır bağlı linkin `Withdraw`'ı işlem içindedir, istemci kaydetmez (3 koşuda canlı kaldı).
+ERROR satırı kimlik linkinde fazla söyleyebilir: `identity_withdraw_reset` tek ifadedir ve oran testin zamanlamasına bağlıdır: kilit ERROR'dan gecikmeli açıldığında link 34 koşunun 1'inde ölü bulundu, gecikmesiz açılan kilitte tek ifadeli autocommit yazım istemci hata görse de 40 koşunun 38'inde uygulandı (T197 denetimi, ölçüldü; işlem içinde 40'ta 0).
+Neden kilidin `pgconn.asyncClose` iptalinden önce açılması (okundu). Yön güvenli; satır bağlı linkin `Withdraw`'ı işlem içindedir, istemci kaydetmez (3 koşuda canlı kaldı).
 `retries` kuyruğu doluysa ya da süreç kapanıyorsa aynı sonuç; süreç ölürse kuyruk da gider
 (sınır 1). İşçi tektir, yani veritabanı durunca arkasındaki gönderimler de yavaşlar (grant başına en çok ~22 sn). `kept` satırı
 (sınır 9(a)) bu kuralın dışındadır: tek yazım, yeniden deneme yok, istek başına hesap sayısı kadar 5 sn tutabilir (T211).
