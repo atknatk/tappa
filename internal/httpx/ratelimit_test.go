@@ -310,6 +310,37 @@ func TestLimiter_RefundGivesBackOnlyItsOwnUnit(t *testing.T) {
 	}
 }
 
+// TestLimiter_ReserveReportsTheCrossingOncePerWindowAcrossRefunds pins the window flag behind Reserve's
+// `first` (the 2026-11-07 audit: a `count == limit+1` version passed every other test). 10 reserved, the
+// 11th refused and told it is the first; 5 refunded, 4 reserved again (count back at 10), one more
+// refused at count 11 again -- and told it is NOT the first.
+func TestLimiter_ReserveReportsTheCrossingOncePerWindowAcrossRefunds(t *testing.T) {
+	t.Parallel()
+	l := NewLimiter(10, time.Hour)
+	var held []*Reservation
+	for i := 0; i < 10; i++ {
+		res, within, first, _ := l.Reserve("k")
+		if !within || first {
+			t.Fatalf("reservation %d: within=%v first=%v", i, within, first)
+		}
+		held = append(held, res)
+	}
+	if _, within, first, n := l.Reserve("k"); within || !first || n != 11 {
+		t.Fatalf("11th: within=%v first=%v count=%d, want a refusal that is the first, at 11", within, first, n)
+	}
+	for _, res := range held[:5] {
+		res.Refund()
+	}
+	for i := 0; i < 4; i++ {
+		if _, within, _, _ := l.Reserve("k"); !within {
+			t.Fatalf("re-reservation %d after the refunds was refused", i)
+		}
+	}
+	if _, within, first, n := l.Reserve("k"); within || first || n != 11 {
+		t.Fatalf("second crossing: within=%v first=%v count=%d, want a refusal at 11 that is NOT the first", within, first, n)
+	}
+}
+
 // ---------------------------------------------------------------- tap limiter --
 
 func tapProbe() (http.Handler, *int) {

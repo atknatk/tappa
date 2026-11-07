@@ -2015,16 +2015,16 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 // it there.
 //
 // It is still render: no shell, no logo, adminCSP's literal policy.
+func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
+	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
+}
+
 // workBusy answers a request the password-work gate refused (adminauth.ErrBusy, backlog T86): 503,
 // one fixed page, no audit row (nothing was checked and no tenant is known before the gate). The
 // gate itself writes the one bounded WARN line. Retry-After is a hint, not a promise.
 func (a *AdminAuth) workBusy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Retry-After", "60")
 	a.renderProblem(w, r, http.StatusServiceUnavailable, problemAdminBusy)
-}
-
-func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
 }
 
 // panelHomeLabel is the name of the section transactionsHref opens ("The Pass"), read

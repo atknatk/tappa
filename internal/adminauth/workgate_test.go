@@ -67,7 +67,7 @@ func TestWorkGate_AtMostSlotsRunAtOnce(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
-	if peak.Load() > slots || served.Load() != n {
+	if peak.Load() > slots || served.Load() != int64(n) {
 		t.Fatalf("%d ran at once (slots %d); %d of %d served", peak.Load(), slots, served.Load(), n)
 	}
 }
@@ -253,5 +253,83 @@ func TestWorkGate_EveryPasswordMethodEntersTheGate(t *testing.T) {
 		if err := call(); !errors.Is(err, ErrBusy) || work.Load() != before {
 			t.Errorf("%s with a full gate: %v and %d bcrypt step(s); want ErrBusy and none", name, err, work.Load()-before)
 		}
+	}
+}
+
+// TestWorkGate_OneSourceHoldsAtMostOnePlace (the 2026-11-07 audit's fairness rule): N simultaneous
+// requests from ONE source hold at most one place -- the rest are refused at once -- while another
+// source still gets the queue and then the slot, and a context with no source is not under the rule.
+func TestWorkGate_OneSourceHoldsAtMostOnePlace(t *testing.T) {
+	t.Parallel()
+	const wait = 2 * time.Second
+	g := quietGate(t, 1, wait)
+	a := WithWorkSource(context.Background(), "198.51.100.7")
+	b := WithWorkSource(context.Background(), "2001:db8:1:2::/64")
+
+	held, err := g.enter(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	var wg sync.WaitGroup
+	var refused atomic.Int64
+	start := time.Now()
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := g.enter(a); errors.Is(err, ErrBusy) {
+				refused.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if took := time.Since(start); refused.Load() != n || took > wait/2 {
+		t.Fatalf("source A's %d extra requests: %d refused in %v, want all, at once", n, refused.Load(), took)
+	}
+	if len(g.queue) != 0 {
+		t.Fatalf("source A holds %d waiting place(s) besides its slot, want 0", len(g.queue))
+	}
+
+	// Source B waits in the queue and gets the slot when A lets go.
+	got := make(chan error, 1)
+	go func() {
+		release, err := g.enter(b)
+		if err == nil {
+			release()
+		}
+		got <- err
+	}()
+	deadline := time.Now().Add(wait)
+	for len(g.queue) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := g.enter(b); !errors.Is(err, ErrBusy) {
+		t.Fatalf("source B's second request while its first waits: %v, want ErrBusy at once", err)
+	}
+	held()
+	if err := <-got; err != nil {
+		t.Fatalf("source B behind source A: %v, want the slot", err)
+	}
+	// Released places are forgotten: A can come back.
+	release, err := g.enter(a)
+	if err != nil {
+		t.Fatalf("source A after releasing: %v", err)
+	}
+	release()
+	if len(g.held) != 0 {
+		t.Fatalf("the gate still counts %d source(s) after everything was released", len(g.held))
+	}
+}
+
+// TestWorkGate_TheQueueIsWhatTheWaitCanServe pins the shipped queue: WorkWait / signInHold = 2 waiters
+// per slot (the 2026-11-07 audit: 8 waiters, of whom about three could be served and the rest waited the
+// whole WorkWait for a 503). Raising it, or WorkWait, is a decision that comes with a new measurement.
+func TestWorkGate_TheQueueIsWhatTheWaitCanServe(t *testing.T) {
+	if workQueuePerSlot != 2 || WorkWait != 10*time.Second || signInHold != 3420*time.Millisecond {
+		t.Fatalf("queue %d per slot, wait %v, sign-in hold %v; shipped 2, 10s, 3.42s (ADR 0039)", workQueuePerSlot, WorkWait, signInHold)
+	}
+	if g := quietGate(t, 1, WorkWait); cap(g.queue) != workQueuePerSlot {
+		t.Fatalf("a one-slot gate waits %d, want %d", cap(g.queue), workQueuePerSlot)
 	}
 }

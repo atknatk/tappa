@@ -14,6 +14,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/signup"
+	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/web/templates/email"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -470,14 +471,18 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	// One locked step (TryCharge, backlog T90): Allowed then Charge let simultaneous confirmations all
 	// read "room left".
-	if within, n := s.confirmLimiter.TryCharge(ip); !within {
-		if s.confirmLimiter.FirstOverLimit(n) {
+	confirm, within, first, _ := s.confirmLimiter.Reserve(ip)
+	if !within {
+		if first {
 			s.log.Warn("signup rate limited", "scope", "confirm", "ip", ip,
 				"limit", signupConfirmLimit, "period", signupConfirmPeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupTooMany)
 		return
 	}
+	// Kept on every exit but the work gate's refusal (backlog T86): that refusal compared nothing, so it
+	// is no attempt and gives the unit back.
+	defer confirm.Keep()
 
 	c, ok := s.liveClaim(w, r, tok)
 	if !ok {
@@ -492,7 +497,7 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 
 	var proof adminauth.ClaimProof
 	if c.IdentityPassword {
-		if proof, ok = s.proveIdentityPassword(w, r, c, view); !ok {
+		if proof, ok = s.proveIdentityPassword(w, r, c, view, confirm); !ok {
 			return
 		}
 	} else if c.KnownAddress {
@@ -515,6 +520,7 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 		var err error
 		proof, err = s.claims.ProveWithPassword(r.Context(), c, password)
 		if errors.Is(err, adminauth.ErrBusy) {
+			confirm.Refund()
 			w.Header().Set("Retry-After", "60")
 			s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
 			return
@@ -585,15 +591,21 @@ var problemSignupClaimPaused = pages.SignupProblemView{
 // Charge, K simultaneous guesses all read "allowed" during the 250 ms comparison (measured by both
 // audits of 0b3d018a: 40 guesses, 40 comparisons, against a limit of 10). Past either, the answer is
 // problemSignupClaimPaused whatever was typed.
-func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c adminauth.SignupClaim, view pages.SignupConfirmView) (adminauth.ClaimProof, bool) {
-	if within, n := s.claimLinkLimiter.TryCharge(c.ID.String()); !within {
-		if s.claimLinkLimiter.FirstOverLimit(n) {
+//
+// confirm is the confirmation budget's unit for this request; it and the link's unit are given back when
+// the work gate refuses (backlog T86: nothing was compared).
+func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c adminauth.SignupClaim, view pages.SignupConfirmView, confirm *httpx.Reservation) (adminauth.ClaimProof, bool) {
+	link, within, first, _ := s.claimLinkLimiter.Reserve(c.ID.String())
+	if !within {
+		if first {
 			s.log.Warn("signup rate limited", "scope", "link", "claim_id", c.ID,
 				"limit", signupClaimLinkLimit, "period", signupClaimLinkPeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupClaimPaused)
 		return adminauth.ClaimProof{}, false
 	}
+	// Kept on every exit but the work gate's refusal (below).
+	defer link.Keep()
 	password := r.PostFormValue("password")
 	if password == "" || len(password) > signup.MaxPasswordBytes {
 		view.Errors = map[string]string{"password": "Type the password of your Taptime sign-in."}
@@ -611,6 +623,8 @@ func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c
 	case err == nil:
 		return proof, true
 	case errors.Is(err, adminauth.ErrBusy):
+		confirm.Refund()
+		link.Refund()
 		w.Header().Set("Retry-After", "60")
 		s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
 	case errors.Is(err, adminauth.ErrClaimBudgetSpent):

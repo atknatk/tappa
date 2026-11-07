@@ -593,7 +593,6 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	// A no-op once the draft was opened and the unit kept.
 	defer create.Refund()
-	keepOrCharge(s.attemptLimiter, attempt, ip)
 
 	// 🔴 FROM HERE TO THE RESPONSE THE TWO ADDRESSES ARE ONE (R18): a new address and one
 	// that already has a sign-in pay the same bcrypt, the same resolver read and the same
@@ -608,10 +607,16 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grant, err := s.claims.Open(r.Context(), valid.Account.Email, string(account.Password.Reveal()), draft)
+	// The attempt counts once the request reached the draft -- unless the work gate refused it, which
+	// compared and wrote nothing (backlog T86, the 2026-11-07 audit: ten busy submits spent the attempt
+	// budget and the eleventh got 429). Kept here, after the call, so the unit is held while it runs.
+	if !errors.Is(err, adminauth.ErrBusy) {
+		keepOrCharge(s.attemptLimiter, attempt, ip)
+	}
 	switch {
 	case errors.Is(err, adminauth.ErrBusy):
 		// Refused before the address was read (R18 holds) and before anything was written: the create
-		// unit goes back with the deferred refund, the attempt stays spent (it reached this step).
+		// and attempt units go back with the deferred refunds.
 		w.Header().Set("Retry-After", "60")
 		s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
 		return

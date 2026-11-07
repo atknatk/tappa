@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -43,11 +44,25 @@ import (
 // FIRST -- before the address is looked up, before any budget that reads a database -- so how long a
 // request waits, and whether it is refused, depends only on what else is running, never on what was
 // typed. A refusal is ErrBusy, decided in one of two time classes, both independent of the input:
-// at once (the queue is full) or after WorkWait. The handler answers it with one fixed page.
+// at once (the queue is full, or the request's source already holds a place) or after WorkWait. The
+// handler answers it with one fixed page.
 //
-// WHAT IT DOES NOT DO, named: it is not a per-caller budget -- a flood from many addresses fills it
+// ONE PLACE PER SOURCE (the security audit's finding, 2026-11-07): a request carries its client
+// address bucket (WithWorkSource; httpx.RealIP sets it from httpx.RateKey for every request -- an IPv4
+// address, an IPv6 /64), and a source holds at most ONE place in the gate, running or waiting. Its
+// second simultaneous request is refused at once -- the queue-full time class, decided from the
+// address the request came FROM, never from the address typed. Without the rule (denetimde, a count,
+// not a measurement) two sources with their own right password kept the slot busy and three more the
+// queue, refusing every sign-in, reset, registration, acceptance and password change in every business.
+// With it, keeping the gate full takes 1 + workQueuePerSlot = 3 sources per slot (ADR 0039).
+//
+// WHAT IT DOES NOT DO, named: it is not a per-caller budget -- a flood from enough addresses fills it
 // and a legitimate sign-in is then refused with "busy, try again" (that is the trade: the panel's
-// sign-in sheds load so the tap does not). It does not cover the operator surface
+// sign-in sheds load so the tap does not). Two people behind ONE address (an office NAT) signing in at
+// the same moment: the second is refused at once and retries. And THE SLOT IS HELD FOR THE WHOLE
+// OPERATION, its database round trips and the identity decoy's wait included (AuthenticatePerson,
+// freshIdentitySession, ChangeOwnPassword): with one slot, a slow database queues every panel sign-in
+// behind it. It does not cover the operator surface
 // (internal/operatorauth: its own process-wide enrollment budget and per-address work budget, and an
 // address restriction at the ingress). And a struct built without a constructor has a nil gate, which
 // gates nothing (only this package's own tests build one).
@@ -56,16 +71,24 @@ import (
 // it waited). Nothing was compared, written or charged to the caller's account.
 var ErrBusy = errors.New("adminauth: the password work is at capacity")
 
-// WorkWait is how long a request waits for a slot. One sign-in holds a slot for 1 + MaxCandidates
-// comparisons -- ~2.8-3.7 s at the readings above -- so with one slot a request admitted behind two or
-// three others still gets one; the server sets no WriteTimeout (cmd/tappa), so the wait is the
+// WorkWait is how long a request waits for a slot. A waiter waits for WHOLE operations ahead of it:
+// a sign-in holds its slot for 1 + MaxCandidates comparisons, ~2.8-3.7 s at the readings above (more
+// under load), not for one comparison. The server sets no WriteTimeout (cmd/tappa), so the wait is the
 // gate's alone.
 const WorkWait = 10 * time.Second
 
-// workQueuePerSlot bounds how many requests may WAIT per slot. With one slot and WorkWait above, about
-// three waiters can be served in time; more waiting would only turn into refusals after ten seconds,
-// each holding a goroutine and a connection. Beyond it a request is refused at once.
-const workQueuePerSlot = 8
+// signInHold is how long one sign-in holds a slot at this package's pinned security budget for a
+// cost-12 comparison (380 ms; adminratelimit.go sizes the panel's budgets on it): 1 + MaxCandidates of
+// them, 3.42 s.
+const signInHold = (1 + MaxCandidates) * 380 * time.Millisecond
+
+// workQueuePerSlot bounds how many requests may WAIT per slot: as many as WorkWait can serve behind a
+// running sign-in, WorkWait / signInHold = 2. A longer queue only turns into refusals after the whole
+// wait, each holding a goroutine and a connection. MEASURED (2026-11-07, this workstation, no -race,
+// load ~70, one slot, nine 8-comparison cost-12 sign-ins sent 30 ms apart): the running one answered at
+// 4.47 s, the first waiter at 9.08 s, the second at 13.85 s (admitted at 9.08), the other six were refused
+// after 10.1-10.3 s -- two waiters served, as derived. Beyond the queue a request is refused at once.
+const workQueuePerSlot = int(WorkWait / signInHold)
 
 // WorkSlots is the production slot count: half of GOMAXPROCS, at least one (see the measurement
 // above: one P left to the tap).
@@ -83,8 +106,12 @@ const workWarnEvery = time.Minute
 type WorkGate struct {
 	slots chan struct{}
 	queue chan struct{}
-	wait  time.Duration
-	log   *slog.Logger
+	// held counts the places (running or waiting) each source holds; at most one (enter). An entry is
+	// deleted at zero, so the map is never larger than the slots and the queue.
+	mu   sync.Mutex
+	held map[string]int
+	wait time.Duration
+	log  *slog.Logger
 	// lastWarn is the unix second of the last refusal line; refusals counts since then.
 	lastWarn atomic.Int64
 	refusals atomic.Int64
@@ -109,8 +136,51 @@ func newWorkGate(slots int, wait time.Duration, log *slog.Logger) *WorkGate {
 	return &WorkGate{
 		slots: make(chan struct{}, slots),
 		queue: make(chan struct{}, slots*workQueuePerSlot),
+		held:  map[string]int{},
 		wait:  wait,
 		log:   log,
+	}
+}
+
+type workSourceKey struct{}
+
+// WithWorkSource names the request's source for the gate's one-place-per-source rule: the client
+// address bucket (httpx.RateKey), set by httpx.RealIP for every request. A context without one is
+// admitted without the rule (a test, a caller outside the router).
+func WithWorkSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, workSourceKey{}, source)
+}
+
+// WorkSourceOf reports the source WithWorkSource put in ctx ("" for none).
+func WorkSourceOf(ctx context.Context) string { return workSource(ctx) }
+
+func workSource(ctx context.Context) string {
+	s, _ := ctx.Value(workSourceKey{}).(string)
+	return s
+}
+
+// claim takes the source's one place; false if it already holds one.
+func (g *WorkGate) claim(source string) bool {
+	if source == "" {
+		return true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.held[source] > 0 {
+		return false
+	}
+	g.held[source]++
+	return true
+}
+
+func (g *WorkGate) unclaim(source string) {
+	if source == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.held[source]--; g.held[source] <= 0 {
+		delete(g.held, source)
 	}
 }
 
@@ -119,14 +189,24 @@ func (g *WorkGate) enter(ctx context.Context) (func(), error) {
 	if g == nil {
 		return func() {}, nil
 	}
+	source := workSource(ctx)
+	if !g.claim(source) {
+		// The source already holds a place: refused at once (the queue-full class).
+		return nil, g.refuse()
+	}
+	release := func() {
+		<-g.slots
+		g.unclaim(source)
+	}
 	select {
 	case g.slots <- struct{}{}:
-		return g.release, nil
+		return release, nil
 	default:
 	}
 	select {
 	case g.queue <- struct{}{}:
 	default:
+		g.unclaim(source)
 		return nil, g.refuse()
 	}
 	defer func() { <-g.queue }()
@@ -134,16 +214,16 @@ func (g *WorkGate) enter(ctx context.Context) (func(), error) {
 	defer t.Stop()
 	select {
 	case g.slots <- struct{}{}:
-		return g.release, nil
+		return release, nil
 	case <-t.C:
+		g.unclaim(source)
 		return nil, g.refuse()
 	case <-ctx.Done():
 		// The caller left; nobody reads the answer, and the refusal is the same value.
+		g.unclaim(source)
 		return nil, ErrBusy
 	}
 }
-
-func (g *WorkGate) release() { <-g.slots }
 
 // refuse counts a refusal and writes the WARN line at most once per workWarnEvery. The line names the
 // gate's shape and how many were refused since the last one -- never an address or a person.

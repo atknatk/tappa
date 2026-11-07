@@ -57,7 +57,8 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	// forgeable address is worse than none.
 	//
 	// It is global because it is pure and cheap — no database, no allocation
-	// past one context value — and because a route that resolved a DIFFERENT
+	// past two context values (the address, and the same bucket for adminauth's
+	// work gate) — and because a route that resolved a DIFFERENT
 	// client address than its neighbour would be a bug waiting to be written.
 	// r.RemoteAddr is left alone.
 	//

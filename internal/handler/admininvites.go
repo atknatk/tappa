@@ -555,13 +555,17 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusBadRequest, problemInviteRestart)
 		return
 	}
-	if within, n := a.inviteAcceptLimiter.TryCharge(ip); !within {
-		if a.inviteAcceptLimiter.FirstOverLimit(n) {
+	accept, within, first, _ := a.inviteAcceptLimiter.Reserve(ip)
+	if !within {
+		if first {
 			a.log.Warn("panel invitation rate limited", "scope", "address", "ip", ip)
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemInviteTooMany)
 		return
 	}
+	// Kept on every exit but the work gate's refusal (backlog T86): that refusal compared nothing, so it
+	// is no attempt and gives the unit back.
+	defer accept.Keep()
 	tok := adminauth.ParseInviteToken(raw)
 	mode := r.PostFormValue("mode")
 	var (
@@ -591,6 +595,7 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, adminauth.ErrBusy):
+		accept.Refund()
 		a.workBusy(w, r)
 	case err == nil:
 		a.log.Info("panel invitation accepted", "tenant_id", got.TenantID, "admin_user_id", got.AdminUserID, "mode", mode)
