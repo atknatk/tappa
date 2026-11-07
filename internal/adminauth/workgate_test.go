@@ -256,69 +256,111 @@ func TestWorkGate_EveryPasswordMethodEntersTheGate(t *testing.T) {
 	}
 }
 
-// TestWorkGate_OneSourceHoldsAtMostOnePlace (the 2026-11-07 audit's fairness rule): N simultaneous
-// requests from ONE source hold at most one place -- the rest are refused at once -- while another
-// source still gets the queue and then the slot, and a context with no source is not under the rule.
-func TestWorkGate_OneSourceHoldsAtMostOnePlace(t *testing.T) {
+// TestWorkGate_ASourceWaitsInItsOwnLine (the audit's fairness rule and the third eye's double submit):
+// a source's second simultaneous request waits for its first, holding no global place; its third is
+// refused at once; another source keeps the global queue; both waiters are served once the first lets
+// go, the source's second about one operation after its first.
+func TestWorkGate_ASourceWaitsInItsOwnLine(t *testing.T) {
 	t.Parallel()
-	const wait = 2 * time.Second
+	const wait, hold = 3 * time.Second, 150 * time.Millisecond
 	g := quietGate(t, 1, wait)
 	a := WithWorkSource(context.Background(), "198.51.100.7")
 	b := WithWorkSource(context.Background(), "2001:db8:1:2::/64")
 
-	held, err := g.enter(a)
+	first, err := g.enter(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const n = 20
-	var wg sync.WaitGroup
-	var refused atomic.Int64
-	start := time.Now()
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if _, err := g.enter(a); errors.Is(err, ErrBusy) {
-				refused.Add(1)
+	began := time.Now()
+	type answer struct {
+		err   error
+		after time.Duration
+	}
+	second := make(chan answer, 1)
+	go func() {
+		release, err := g.enter(a)
+		at := time.Since(began)
+		if err == nil {
+			release()
+		}
+		second <- answer{err, at}
+	}()
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(wait)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
 			}
-		}()
+			time.Sleep(time.Millisecond)
+		}
 	}
-	wg.Wait()
-	if took := time.Since(start); refused.Load() != n || took > wait/2 {
-		t.Fatalf("source A's %d extra requests: %d refused in %v, want all, at once", n, refused.Load(), took)
-	}
+	waitFor("the second request to join its line", func() bool {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return g.held["198.51.100.7"] != nil && g.held["198.51.100.7"].n == 2
+	})
 	if len(g.queue) != 0 {
-		t.Fatalf("source A holds %d waiting place(s) besides its slot, want 0", len(g.queue))
+		t.Fatalf("the source's waiting request holds %d global queue place(s), want 0", len(g.queue))
 	}
-
-	// Source B waits in the queue and gets the slot when A lets go.
-	got := make(chan error, 1)
+	start := time.Now()
+	if _, err := g.enter(a); !errors.Is(err, ErrBusy) || time.Since(start) > wait/4 {
+		t.Fatalf("the source's third request: %v after %v, want ErrBusy at once", err, time.Since(start))
+	}
+	other := make(chan error, 1)
 	go func() {
 		release, err := g.enter(b)
 		if err == nil {
 			release()
 		}
-		got <- err
+		other <- err
 	}()
+	waitFor("the other source to take the global queue", func() bool { return len(g.queue) == 1 })
+
+	time.Sleep(hold) // the first request's operation
+	first()
+	if got := <-second; got.err != nil || got.after < hold {
+		t.Fatalf("the source's second request: %v after %v, want the slot after its first (%v)", got.err, got.after, hold)
+	}
+	if err := <-other; err != nil {
+		t.Fatalf("the other source: %v, want the slot", err)
+	}
+	g.mu.Lock()
+	left := len(g.held)
+	g.mu.Unlock()
+	if left != 0 || len(g.queue) != 0 || len(g.slots) != 0 {
+		t.Fatalf("after everything was released: %d line(s), %d queued, %d running", left, len(g.queue), len(g.slots))
+	}
+}
+
+// TestWorkGate_TheWholeWaitIsBounded: a request that spends most of WorkWait in its source's line and
+// then reaches the global queue gets only what is left, so it is refused after about one WorkWait in
+// all, not two. Another source holds the slot throughout; the source's first request waits in the
+// global queue and is refused at its own deadline, which hands the second its turn.
+func TestWorkGate_TheWholeWaitIsBounded(t *testing.T) {
+	t.Parallel()
+	const wait = 300 * time.Millisecond
+	g := quietGate(t, 1, wait)
+	x, err := g.enter(WithWorkSource(context.Background(), "203.0.113.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x()
+	a := WithWorkSource(context.Background(), "198.51.100.8")
+	firstDone := make(chan error, 1)
+	go func() { _, err := g.enter(a); firstDone <- err }()
 	deadline := time.Now().Add(wait)
 	for len(g.queue) == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if _, err := g.enter(b); !errors.Is(err, ErrBusy) {
-		t.Fatalf("source B's second request while its first waits: %v, want ErrBusy at once", err)
+	start := time.Now()
+	_, err = g.enter(a)
+	took := time.Since(start)
+	if !errors.Is(err, ErrBusy) || took > wait+wait/2 {
+		t.Fatalf("the source's second request: %v after %v, want ErrBusy within about one wait (%v)", err, took, wait)
 	}
-	held()
-	if err := <-got; err != nil {
-		t.Fatalf("source B behind source A: %v, want the slot", err)
-	}
-	// Released places are forgotten: A can come back.
-	release, err := g.enter(a)
-	if err != nil {
-		t.Fatalf("source A after releasing: %v", err)
-	}
-	release()
-	if len(g.held) != 0 {
-		t.Fatalf("the gate still counts %d source(s) after everything was released", len(g.held))
+	if err := <-firstDone; !errors.Is(err, ErrBusy) {
+		t.Fatalf("the source's first request: %v, want ErrBusy after its wait", err)
 	}
 }
 

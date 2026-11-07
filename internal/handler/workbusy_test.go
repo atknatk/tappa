@@ -182,3 +182,35 @@ func TestAdminInvite_ABusyGateSpendsNoAcceptance(t *testing.T) {
 		t.Fatalf("after %d busy refusals an acceptance got 429: the refusals spent the budget", adminInviteAcceptLimit+1)
 	}
 }
+
+// TestSignupConfirm_ABusyGateSpendsNothingOnTheSignInlessBranch is the identity-password twin of
+// TestSignupConfirm_ABusyGateSpendsNoConfirmation (the third eye, 2026-11-07: its two refunds were held
+// by no test): signupClaimLinkLimit+1 busy proofs give back both the confirmation unit and the link's,
+// and the sign-in's own password then creates the business.
+func TestSignupConfirm_ABusyGateSpendsNothingOnTheSignInlessBranch(t *testing.T) {
+	t.Parallel()
+	p := &fakeProvisioner{}
+	d, _ := newSignupDriver(t, p, nil)
+	email := strings.ToLower(accountForm("").Get("email"))
+	d.claims.known[email] = true
+	d.claims.signInless[email] = "the sign-in's own password"
+	link := confirmWalk(t, d)
+	d.get(link)
+	csrf := d.token(d.get(signupConfirmPath))
+	form := url.Values{"csrf": {csrf}, "password": {"the sign-in's own password"}}
+	d.claims.mu.Lock()
+	d.claims.busy = true
+	d.claims.mu.Unlock()
+	for i := 0; i < signupClaimLinkLimit+1; i++ {
+		if res := d.post(signupConfirmPath, form); res.Code != http.StatusServiceUnavailable {
+			t.Fatalf("busy proof %d answered %d, want 503", i, res.Code)
+		}
+	}
+	d.claims.mu.Lock()
+	d.claims.busy = false
+	d.claims.mu.Unlock()
+	if res := d.post(signupConfirmPath, form); res.Code != http.StatusOK || len(p.provisioned) != 1 {
+		t.Fatalf("after %d busy refusals the sign-in's password answered %d with %d business(es), want 200 and 1",
+			signupClaimLinkLimit+1, res.Code, len(p.provisioned))
+	}
+}

@@ -44,22 +44,29 @@ import (
 // FIRST -- before the address is looked up, before any budget that reads a database -- so how long a
 // request waits, and whether it is refused, depends only on what else is running, never on what was
 // typed. A refusal is ErrBusy, decided in one of two time classes, both independent of the input:
-// at once (the queue is full, or the request's source already holds a place) or after WorkWait. The
+// at once (the queue is full, or the request's source already has two in line) or after WorkWait. The
 // handler answers it with one fixed page.
 //
-// ONE PLACE PER SOURCE (the security audit's finding, 2026-11-07): a request carries its client
+// ONE GLOBAL PLACE PER SOURCE (the security audit's finding, 2026-11-07): a request carries its client
 // address bucket (WithWorkSource; httpx.RealIP sets it from httpx.RateKey for every request -- an IPv4
-// address, an IPv6 /64), and a source holds at most ONE place in the gate, running or waiting. Its
-// second simultaneous request is refused at once -- the queue-full time class, decided from the
-// address the request came FROM, never from the address typed. Without the rule (denetimde, a count,
-// not a measurement) two sources with their own right password kept the slot busy and three more the
-// queue, refusing every sign-in, reset, registration, acceptance and password change in every business.
-// With it, keeping the gate full takes 1 + workQueuePerSlot = 3 sources per slot (ADR 0039).
+// address, an IPv6 /64), and a source holds at most ONE place in the gate, running or waiting in the
+// global queue. Without the rule (denetimde, a count, not a measurement) two sources with their own
+// right password kept the slot busy and three more the queue, refusing every sign-in, reset,
+// registration, acceptance and password change in every business. With it, keeping the gate full takes
+// 1 + workQueuePerSlot = 3 sources per slot (ADR 0039).
+//
+// ITS SECOND REQUEST WAITS IN THE SOURCE'S OWN LINE, OUTSIDE THE GLOBAL QUEUE (the third eye,
+// 2026-11-07): the common second request is one person's double submit, two tabs or a mobile resend,
+// and refusing it showed "busy" while the first one signed the person in (reasoned, not measured in a
+// browser). So a source has at most one request in the gate and one waiting for that one's turn -- a
+// place that holds no slot and no queue place -- and its third is refused at once (the queue-full time
+// class, decided from the address the request came FROM, never from the address typed). Everything
+// waits at most WorkWait in all.
 //
 // WHAT IT DOES NOT DO, named: it is not a per-caller budget -- a flood from enough addresses fills it
 // and a legitimate sign-in is then refused with "busy, try again" (that is the trade: the panel's
 // sign-in sheds load so the tap does not). Two people behind ONE address (an office NAT) signing in at
-// the same moment: the second is refused at once and retries. And THE SLOT IS HELD FOR THE WHOLE
+// the same moment: the second waits for the first; a third is refused at once and retries. And THE SLOT IS HELD FOR THE WHOLE
 // OPERATION, its database round trips and the identity decoy's wait included (AuthenticatePerson,
 // freshIdentitySession, ChangeOwnPassword): with one slot, a slow database queues every panel sign-in
 // behind it. It does not cover the operator surface
@@ -106,10 +113,9 @@ const workWarnEvery = time.Minute
 type WorkGate struct {
 	slots chan struct{}
 	queue chan struct{}
-	// held counts the places (running or waiting) each source holds; at most one (enter). An entry is
-	// deleted at zero, so the map is never larger than the slots and the queue.
+	// held is each source's own line (sourceLine, enter); an entry is deleted when its line is empty.
 	mu   sync.Mutex
-	held map[string]int
+	held map[string]*sourceLine
 	wait time.Duration
 	log  *slog.Logger
 	// lastWarn is the unix second of the last refusal line; refusals counts since then.
@@ -136,7 +142,7 @@ func newWorkGate(slots int, wait time.Duration, log *slog.Logger) *WorkGate {
 	return &WorkGate{
 		slots: make(chan struct{}, slots),
 		queue: make(chan struct{}, slots*workQueuePerSlot),
-		held:  map[string]int{},
+		held:  map[string]*sourceLine{},
 		wait:  wait,
 		log:   log,
 	}
@@ -144,7 +150,7 @@ func newWorkGate(slots int, wait time.Duration, log *slog.Logger) *WorkGate {
 
 type workSourceKey struct{}
 
-// WithWorkSource names the request's source for the gate's one-place-per-source rule: the client
+// WithWorkSource names the request's source for the gate's per-source line: the client
 // address bucket (httpx.RateKey), set by httpx.RealIP for every request. A context without one is
 // admitted without the rule (a test, a caller outside the router).
 func WithWorkSource(ctx context.Context, source string) context.Context {
@@ -159,44 +165,83 @@ func workSource(ctx context.Context) string {
 	return s
 }
 
-// claim takes the source's one place; false if it already holds one.
-func (g *WorkGate) claim(source string) bool {
-	if source == "" {
-		return true
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.held[source] > 0 {
-		return false
-	}
-	g.held[source]++
-	return true
+// sourceLine is one source's own line in front of the gate: its turn (a one-place token: whoever holds
+// it runs or waits in the global queue) and how many of its requests are in line, at most two -- the one
+// holding the turn and one waiting for it OUTSIDE the global queue (the 2026-11-07 third eye: a double
+// submit, two tabs or a mobile resend must wait for the first, not be shown "busy" while the first signs
+// the person in and its cookie is lost).
+type sourceLine struct {
+	turn chan struct{}
+	n    int
 }
 
-func (g *WorkGate) unclaim(source string) {
-	if source == "" {
-		return
-	}
+// join puts a request in its source's line; nil if the line is full (a third request).
+func (g *WorkGate) join(source string) *sourceLine {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.held[source]--; g.held[source] <= 0 {
+	l := g.held[source]
+	if l == nil {
+		l = &sourceLine{turn: make(chan struct{}, 1)}
+		g.held[source] = l
+	}
+	if l.n >= 2 {
+		return nil
+	}
+	l.n++
+	return l
+}
+
+// leave takes a request out of its source's line; the line is forgotten when empty, so the map is never
+// larger than twice the slots and the queue.
+func (g *WorkGate) leave(source string, l *sourceLine) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if l.n--; l.n <= 0 {
 		delete(g.held, source)
 	}
 }
 
-// enter takes a slot, waiting at most g.wait, and returns its release. A nil gate admits everything.
+// enter takes a slot, waiting at most g.wait in all, and returns its release. A nil gate admits
+// everything.
+//
+// With a source: the request first takes its source's turn -- at once, or by waiting for the source's
+// previous request to finish, holding NO global place meanwhile; a third request of the source is
+// refused at once. Then it competes for the slot and the global queue like any request, within what is
+// left of the same g.wait. So filling the gate still costs one source per place, and how long a request
+// waits depends only on its own source's earlier request and the general load.
 func (g *WorkGate) enter(ctx context.Context) (func(), error) {
 	if g == nil {
 		return func() {}, nil
 	}
+	t := time.NewTimer(g.wait)
+	defer t.Stop()
 	source := workSource(ctx)
-	if !g.claim(source) {
-		// The source already holds a place: refused at once (the queue-full class).
-		return nil, g.refuse()
+	var line *sourceLine
+	if source != "" {
+		if line = g.join(source); line == nil {
+			// The source already has a request running and one waiting: refused at once.
+			return nil, g.refuse()
+		}
+		select {
+		case line.turn <- struct{}{}:
+		case <-t.C:
+			g.leave(source, line)
+			return nil, g.refuse()
+		case <-ctx.Done():
+			g.leave(source, line)
+			return nil, ErrBusy
+		}
+	}
+	// giveBack returns the source's turn and place in line (nothing without a source).
+	giveBack := func() {
+		if line != nil {
+			<-line.turn
+			g.leave(source, line)
+		}
 	}
 	release := func() {
 		<-g.slots
-		g.unclaim(source)
+		giveBack()
 	}
 	select {
 	case g.slots <- struct{}{}:
@@ -206,21 +251,19 @@ func (g *WorkGate) enter(ctx context.Context) (func(), error) {
 	select {
 	case g.queue <- struct{}{}:
 	default:
-		g.unclaim(source)
+		giveBack()
 		return nil, g.refuse()
 	}
 	defer func() { <-g.queue }()
-	t := time.NewTimer(g.wait)
-	defer t.Stop()
 	select {
 	case g.slots <- struct{}{}:
 		return release, nil
 	case <-t.C:
-		g.unclaim(source)
+		giveBack()
 		return nil, g.refuse()
 	case <-ctx.Done():
 		// The caller left; nobody reads the answer, and the refusal is the same value.
-		g.unclaim(source)
+		giveBack()
 		return nil, ErrBusy
 	}
 }
