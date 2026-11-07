@@ -173,7 +173,8 @@ type Guardrail struct {
 	Effect string
 	// Reason is the sentence the employee sees, taken from the guardrail itself.
 	Reason string
-	// Rule is why it cannot be switched off, naming the red line it enforces.
+	// Rule is why it cannot be switched off, naming the red line it enforces; on a planned guarantee
+	// (Stage), what is not enforced yet.
 	Rule string
 	// When is the condition in a manager's words -- the plate's headline on the Rules
 	// screen ("The person has been deactivated"). It comes from guardrailWhen, held to

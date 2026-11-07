@@ -31,19 +31,7 @@ const (
 // goes red too, and returns each rung's markup by sid.
 func plannedPlates(t *testing.T) (intro string, plates map[string]string) {
 	t.Helper()
-	screen := policyScreenFixture()
-	seen := false
-	for i := range screen.Guardrails {
-		if screen.Guardrails[i].Sid == plannedSid {
-			screen.Guardrails[i].Stage = tenant.GuardrailPlanned
-			screen.Guardrails[i].When = "Planned: a manager decides their own record"
-			screen.Guardrails[i].Rule = "Not enforced yet."
-			seen = true
-		}
-	}
-	if !seen {
-		t.Fatalf("the fixture has no %s", plannedSid)
-	}
+	screen := plannedScreen(t)
 	body := policyGuaranteeBytes(t, screen, false)
 	plates = map[string]string{}
 	for _, g := range screen.Guardrails {
@@ -60,6 +48,45 @@ func plannedPlates(t *testing.T) (intro string, plates map[string]string) {
 	}
 	first := fmt.Sprintf(`<span class="rung-no">%02d</span>`, screen.Guardrails[0].Order)
 	return body[:strings.Index(body, first)], plates
+}
+
+// plannedScreen is the fixture with the one guarantee that is planned today.
+func plannedScreen(t *testing.T) tenant.PolicyScreen {
+	t.Helper()
+	screen := policyScreenFixture()
+	seen := false
+	for i := range screen.Guardrails {
+		if screen.Guardrails[i].Sid == plannedSid {
+			screen.Guardrails[i].Stage = tenant.GuardrailPlanned
+			screen.Guardrails[i].When = "Planned: a manager decides their own record"
+			screen.Guardrails[i].Rule = "Not enforced yet."
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("the fixture has no %s", plannedSid)
+	}
+	return screen
+}
+
+// TestRulesScreen_TheSummaryDoesNotCountAPlannedGuaranteeAsAGuarantee: the line above the page is
+// what a reader takes first, and "11 guarantees" contradicted "not yet one of these promises". The
+// engine still ships all of them; the control is the page with none planned.
+func TestRulesScreen_TheSummaryDoesNotCountAPlannedGuaranteeAsAGuarantee(t *testing.T) {
+	const line = `<p class="font-mono text-xs uppercase tracking-widest text-ink/70">`
+	screen := plannedScreen(t)
+	total := len(screen.Guardrails)
+	if total < 2 {
+		t.Fatalf("%d guarantee(s) in the fixture", total)
+	}
+	want := fmt.Sprintf("%s%d guarantees · 1 planned · ", line, total-1)
+	if body := policyStatePage(t, policyPageState{screen: screen}); !strings.Contains(body, want) {
+		t.Errorf("the page does not open with %q", want)
+	}
+	control := fmt.Sprintf("%s%d guarantees · %d baseline", line, total, len(policyScreenFixture().Baseline))
+	if body := policyStatePage(t, policyPageState{screen: policyScreenFixture()}); !strings.Contains(body, control) {
+		t.Errorf("with nothing planned the page does not open with %q", control)
+	}
 }
 
 func TestRulesScreen_ThePlannedRungDrawsNoPromiseAndTheOthersKeepTheirs(t *testing.T) {

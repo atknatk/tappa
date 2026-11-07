@@ -1,6 +1,6 @@
 # ADR 0037 — Yönetici kendi kaydına karar veremez: panel hesabını çalışan satırına bağlamak
 
-- **Durum:** **Kabul edildi (2026-11-07).** Kullanıcı §9'daki üç soruda önerileri seçti; sahip muafiyeti bildirildi, itiraz yok. **T148-0 uygulandı; T148-1 ve sonrası yazılmadı.** Şart: **bağ ve engel, ilk saat basan yöneticiden önce çıkar** (§10).
+- **Durum:** **Kabul edildi (2026-11-07).** Kullanıcı §9'daki üç soruda önerileri seçti; sahip muafiyeti bildirildi, itiraz yok. **T148-0 uygulandı; T148-1 ve sonrası yazılmadı.** Şart: **bağ ve engel, ilk saat basan yöneticiden önce çıkar** (§9 soru 1).
 - **Tarih:** 2026-11-06 (kabul 2026-11-07) · **Backlog:** T148
 - **İlgili:** ADR 0004 (Y-C) · ADR 0005 (Y-D) · ADR 0010 · ADR 0027 (K-1a) · ADR 0031 · ADR 0032 (G-O1) · ADR 0036 · CLAUDE.md §4.3, §4.5, §4.6, §5
 - **Atıflar** `origin/m14-identity` `ffbf1808`'e göredir. **Ölçüldü** = geçici Postgres, goose 87, `tappa_app`, 2026-11-06. **Kod okundu** = çalıştırılmadı. **(incelemede)** = bulgu incelemeden geldi, atıfı doğrulandı, ölçülmedi.
@@ -12,7 +12,7 @@ Bir yönetici bugün kendi işaretli kaydını onaylayabilir, kendi saat talebin
 **Canlıda bugün yönetici yok.** Dört işletmenin dördünde bir sahip, sıfır yönetici var. Yani açık henüz kullanılamıyor, ama davet yüzeyi açık (`TAPPA_ADMIN_IDENTITY=on`) ve yönetici tek basışla doğar. Bu yüzden asıl soru *ne yapılacağı* kadar *ne zaman* yapılacağıdır; erteleme dürüst bir seçenektir.
 
 **Öneri:**
-1. Rules ekranındaki yanlış vaat hemen düzeltilir (T148-0).
+1. Rules ekranındaki yanlış vaat düzeltildi (T148-0).
 2. İlk saat basan yöneticiden önce, sahibin kurduğu bir bağ gelir: `employees.admin_user_id`.
 3. Bağlı yönetici kendi kaydına karar veremez; kendi elle girişi işaretli yazılır ve başka yetkiliye düşer.
 4. Bağlı sahip kendi kaydına karar verir, audit'e damgalanır.
@@ -32,7 +32,7 @@ Kaydın sahibi `employees.id`, karar veren `admin_users.id`. Aynı kişide bile 
 | `internal/domain/claim/decide.go:292` | `d.DecidedBy == c.EmployeeID` | Yalnız sahte satırla (`TestDecideDB_TheSelfDecisionCheckFiresOnlyOnAForgedIdentity`) |
 | `internal/policy/guardrails.go:610-621` | `ReviewerID == SubjectEmployeeID` | Koşmaz; alanları yalnız bir sentetik yoklama doldurur (`internal/domain/tenant/rulebook.go:933`), panel motoru çağırmaz (`TestPanel_CallsThePolicyEngineNowhere`) |
 
-Müşteriye görünen **Rules ekranı** hâlâ *"nobody approves their own record"* der (`rulebook.go:863-864`, `web/templates/pages/policies.templ:418`). LP-07 bunu public sayfalardan kaldırdı, panelden değil. **M14 boşluğu kapatmadı:** ADR 0031 yalnız yönetici satırlarını bağlar (`:124`, *"Çalışan kimliği … etkilenmez"*).
+Müşteriye görünen **Rules ekranı** T148-0'a kadar *"nobody approves their own record"* diyordu. LP-07 bunu public sayfalardan kaldırmış, panelde bırakmıştı. **M14 boşluğu kapatmadı:** ADR 0031 yalnız yönetici satırlarını bağlar (`:124`, *"Çalışan kimliği … etkilenmez"*).
 
 ### 1.2 Kim neyi yapabiliyor
 
@@ -81,7 +81,7 @@ Araştırma 2026-11-06.
 
 **Okuma:** yönetici engeli için kaynak güçlü. "Üst yetkili serbest" için kaynak zayıf; bunu piyasaya dayandırmıyorum.
 
-**Sahip varsayılanı, soru değil, bildirim:** bağlı sahip kendi kaydına karar verebilir. Gerekçe piyasa değil, **ikinci kişinin olmaması**: 4/4 işletme tek sahipli; düz yasak sahibin işaretli kaydını çözülemez bırakır (§4.6'nın lafzı korunur, işlevi bozulur). Damga, tek sahipte kendi kendini etiketlemedir: bağı kuran da etiketlenen de aynı kişi. Delil gerekçesi (§4.3) bu yüzden zayıftır; damga yalnız iki sahipli işletmede öteki sahibe bir şey söyler. **Bu muafiyet, ADR 0004 Y-C'nin kararını daraltır:** Rules metni *"nobody"* der (`rulebook.go:863`), `open-questions.md:51` istisnasız yazar. Soru olarak sorulmaz, ama bildirilirken bu daralma açıkça söylenir.
+**Sahip varsayılanı, soru değil, bildirim:** bağlı sahip kendi kaydına karar verebilir. Gerekçe piyasa değil, **ikinci kişinin olmaması**: 4/4 işletme tek sahipli; düz yasak sahibin işaretli kaydını çözülemez bırakır (§4.6'nın lafzı korunur, işlevi bozulur). Damga, tek sahipte kendi kendini etiketlemedir: bağı kuran da etiketlenen de aynı kişi. Delil gerekçesi (§4.3) bu yüzden zayıftır; damga yalnız iki sahipli işletmede öteki sahibe bir şey söyler. **Bu muafiyet, ADR 0004 Y-C'nin kararını daraltır:** Rules metni T148-0'a kadar *"nobody"* diyordu, `open-questions.md:51` istisnasız yazar. Soru olarak sorulmaz, ama bildirilirken bu daralma açıkça söylenir.
 
 ## 3. Seçenekler
 
@@ -205,7 +205,7 @@ Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); büt
 | **T148-2** | Guardrail: alan adı, rol, fail-closed | Tablo: yönetici/kendi, sahip/kendi, rol yok, farklı kişi, bağ yok; `TestGuardrails_SelfReviewOnlyWhenSamePerson`, `TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges` güncellenir |
 | **T148-3** | `review`, `claim`, `manual`: bağı oku, karar; ret izi; `self_decided`; **`flag` yazıcıları** (soru 2 (a) ise): `InsertManualTransaction`, `InsertManualTransactionAtAnchor`, `InsertManualSiteTransaction`; `manual.go:45-48` yorumu güncellenir; **hata eşleme** (claim tetikleyicisinin yeni mesajı `ErrRefused`'a düşer: `decide.go:393-396`; manuelde eşleme yok, 500: `manual.go:831-838`, `:888-891`; ayrı cümleler `internal/handler/review.go:475-482`, `claimqueue.go:479-481`) | Ret izi **iki yolda**: alan kapısı ve tetikleyici; kayıt yazılmaz, tek audit satırı; §12'deki `flag` şekilleri; `TestDecideDB_TheSelfDecisionCheckFiresOnlyOnAForgedIdentity` gerçek bağa çevrilir |
 | **T148-4** | Bağ ekranı (soru 3), onay ekranı, §6 çareleri, band. Taşımanın `deactivated_at` sıralaması `NULLS LAST`. "Bağlı değil" **aktif** satır üzerinden hesaplanır: yalnız pasif satıra bağlı yönetici bağlı görünmez. "Invite as manager" yalnız `mayInvite`'e çizilir; URL adres taşımaz: çalışan id'si gider, ad ve adresi sunucu okur. skill `tappa-brand` | Gerçek HTTP: sahip kapısı, 403 + iz, üç POST'un bağlı yöneticide kapanması, askıda bağ kurma; taşıma, seçim kuralı, API'nin taşımaması; iki yazıcı tarama testi |
-| **T148-6** | CLAUDE.md §5 (onaylı metin), ADR 0004 ve 0032 notları, ADR 0031 `:124` notu, `docs/plan/m3-policy-motoru.md:331`, `:355`, `open-questions.md:51`, `:52`, `:92`, kod yorumları, T148 kapanışı. *"Nobody can decide"* yasağı kalır | `TestEveryNamedTestExists`, `TestSecurityPage_SaysNoneOfTheRefusedPhrasings` |
+| **T148-6** | CLAUDE.md §5 (onaylı metin), ADR 0004 ve 0032 notları, ADR 0031 `:124` notu, `docs/plan/m3-policy-motoru.md:331`, `:355`, `open-questions.md:51`, `:52`, `:92`, kod yorumları, T148 kapanışı. *"Nobody can decide"* yasağı kalır. Koruma çıkınca doğrulanır: `web/templates/pages/securityview.go:657` *"of the eleven guardrails"* ve `web/templates/pages/productview.go:370` *"cannot be switched off"*; bugün self-review vaadi vermiyorlar, ama *eleven* planlı basamağı sayıyor | `TestEveryNamedTestExists`, `TestSecurityPage_SaysNoneOfTheRefusedPhrasings` |
 
 **Kabul kriterleri**
 1. Bağlı yönetici iki karar yolunda reddedilir, elle girişi `flag` olur: alan katmanı ve o atlanınca tetikleyici.
@@ -218,14 +218,16 @@ Yalnız genişletme. Migration Job rollout'tan önce koşar (ADR 0031 §2); büt
 
 ## 11. T148-0 (uygulandı, 2026-11-07)
 
-Migration yok. Tap, sonuç ve aktivasyon ekranına dokunulmadı.
+Migration yok. Tap, sonuç ve aktivasyon ekranına dokunulmadı. Satırlar uygulanmış hale göredir.
 
-- **Değişecek yerler:** `rulebook.go:863-864` (Rule), `:887` (When), `policies.templ:413` (sonuç etiketi), `:416` (sabit *Cannot be switched off*), `:419` (motor cümlesi). `guardrails.go:616` değişmez: Reason yalnız `:419`'da çizilir.
+- **Planlı basamak:** `internal/domain/tenant/rulebook.go` `guardrailRules` ve `guardrailWhen` metinleri, `guardrailStage` (`tenant.Guardrail.Stage`). T148-2 ve T148-3 guardrail'i koşturunca girdi ve metinler kalkar.
 - **When:** *Planned: a manager decides their own record*
 - **Rule:** *Not enforced yet. Taptime does not yet know which manager login belongs to which employee, so someone who is both can decide their own flagged record or type their own hours. Each decision is recorded with who made it.*
-- **Çizilmez:** bu guardrail'de motor cümlesi ve iki etiket. Kaynağı `tenant.Guardrail.Stage` (`guardrailStage`); T148-2 ve T148-3 guardrail'i koşturunca girdi ve metinler kalkar. Guardrail sayısı 11 kalır; panel özeti de 11 der (`internal/handler/policies.go:291`), giriş cümlesi bunu karşılar.
-- **Sayfa girişi** (`policies.templ:397-404`), *"each of them is a promise"*den sonra tek cümle: *The last one below is still planned: it is not enforced yet, so it is not yet one of these promises.*
-- **Managers davet formu** (`web/templates/pages/admininvites.templ:189`), `md:basis-full` ile tek cümle: *A manager can currently decide their own flagged record and type their own hours.*
+- **Çizilmez** (`web/templates/pages/policies.templ`, `g.Stage == ""` kapıları): bu basamakta sonuç etiketi, *Cannot be switched off* ve motor cümlesi. `internal/policy/guardrails.go`'daki Reason değişmedi: yalnız motor cümlesinde çizilirdi.
+- **Sayfa girişi**, *"each of them is a promise"*den sonra tek cümle: *The last one below is still planned: it is not enforced yet, so it is not yet one of these promises.*
+- **Panel özeti** (`internal/handler/policies.go`): yalnız `Stage == ""` olanları sayar: *10 guarantees · 1 planned · …*. İlk sürüm 11 diyordu ve giriş cümlesini yalanlıyordu. `tenant.Guardrail` sayısı 11 kalır.
+- **Managers davet formu** (`web/templates/pages/admininvites.templ`, `managersInviteForm`), `md:basis-full` ile tek cümle: *A manager can currently decide their own flagged record and type their own hours.*
+- **Pinler:** `TestGuardrailPlanned_TheSelfReviewPlateSaysItIsNotEnforced`, `TestRulesScreen_ThePlannedRungDrawsNoPromiseAndTheOthersKeepTheirs`, `TestRulesScreen_TheSummaryDoesNotCountAPlannedGuaranteeAsAGuarantee`, `TestManagersForm_TheWarningIsInTheFormAndNowhereElse`.
 
 ## 12. Ölçülmedi
 

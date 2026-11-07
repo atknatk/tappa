@@ -288,8 +288,21 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 
 	v.Radius = s.Radius
 	if s.Queried {
-		v.Summary = plural(len(s.Guardrails), "guarantee", "guarantees") + " · " +
-			plural(len(s.Baseline), "baseline rule", "baseline rules") + " · "
+		// A PLANNED GUARANTEE IS NOT COUNTED AS ONE (ADR 0037 §11): the line above the page and the
+		// page's introduction must not contradict each other about what is a promise.
+		inForce, planned := 0, 0
+		for _, g := range s.Guardrails {
+			if g.Stage == "" {
+				inForce++
+			} else {
+				planned++
+			}
+		}
+		v.Summary = plural(inForce, "guarantee", "guarantees") + " · "
+		if planned > 0 {
+			v.Summary += strconv.Itoa(planned) + " planned · "
+		}
+		v.Summary += plural(len(s.Baseline), "baseline rule", "baseline rules") + " · "
 		if len(s.Tenant) == 0 {
 			v.Summary += "none of your own"
 		} else {
