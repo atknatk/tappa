@@ -139,14 +139,26 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 # SQL and the `sh -c` lines, not the executor in front of them, so a (d3) edited into a copy of B3
 # -- `kubectl -n tappa exec ... statefulset/tappa-postgres` -- would pass it and run B2's
 # ALTER DEFAULT PRIVILEGES against whatever cluster the developer's kubeconfig names (read in
-# review, not measured). Two belts: such a block is refused by name here, before a container
-# starts, and step 3 runs the blocks with an emptied environment (no KUBECONFIG, no PG*, no
-# DATABASE_URL, HOME a scratch directory).
+# review, not measured), and `env -i` below does not stop a `docker exec -i tappa-db ...` aimed at
+# the developer's own database. Three belts, before a container starts:
+#   AN ALLOW RULE FOR DOCKER: every line that runs docker names this drill's container or network
+#     (`tappa-drill`, renamed per run below), so docker can only reach what (d2) created;
+#   AN ALLOW RULE FOR rm: the one rm a block may run is (d5)'s `rm -rf "$RESTORE"`;
+#   A DENY LIST for what has no business in a local drill: kubectl, rclone, ssh, curl, wget, nc,
+#     the home directory, the rclone config variable, a /Users/ path, docker's -H and --context.
+# A full allow list of commands was weighed and not taken: the blocks carry continuation lines and
+# here-documents, so "the first word of a line" is not a command and such a list would refuse the
+# runbook's own text or need a shell parser. Step 3 also runs the blocks with an emptied environment
+# (no KUBECONFIG, no PG*, no DATABASE_URL, HOME a scratch directory).
 for b in D2 D3 D3B D4 D5; do
   eval "text=\$$b"
-  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|\$HOME|\$CONF|\$\{HOME|\$\{CONF'; then
-    die "$RUNBOOK: the drill block $b names kubectl, rclone, \$HOME or \$CONF. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target or the operator's config is not run"
+  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H[[:space:]]|--context'; then
+    die "$RUNBOOK: the drill block $b names kubectl, rclone, ssh, curl, wget, nc, the home directory, the rclone config variable, a /Users/ path, -H or --context. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target, another host or the operator's files is not run"
   fi
+  bad_docker="$(printf '%s\n' "$text" | awk '/(^|[^A-Za-z0-9_-])docker([^A-Za-z0-9_-]|$)/ && !/tappa-drill/')"
+  [ -z "$bad_docker" ] || die "$RUNBOOK: the drill block $b runs docker without naming the drill's own container or network (tappa-drill): '$bad_docker' -- docker could reach another container, the development database included"
+  bad_rm="$(printf '%s\n' "$text" | awk '/^[[:space:]]*rm[[:space:]]/ && $0 != "rm -rf \"$RESTORE\""')"
+  [ -z "$bad_rm" ] || die "$RUNBOOK: the drill block $b removes something other than \"\$RESTORE\": '$bad_rm'"
 done
 lap "runbook: (d2) (d3) (d3b) (d4) (d5) cut out; B2/B3/B4 and (d3)/(d3b) carry the same SQL and command lines"
 

@@ -623,7 +623,9 @@ fi
 #     production default 03-dev-production-default-acl.sql copies -- so a restore that skipped
 #     or weakened the narrowing is refused here, by name. Until T215 nothing read pg_default_acl
 #     and a narrowing reduced to REVOKE UPDATE passed (in review);
-#   tappa_app may UPDATE neither wrapped key column of tags (aes_key_ref, app_key_ref: §4.7);
+#   tappa_app may UPDATE neither wrapped key column of tags (aes_key_ref, app_key_ref: §4.7),
+#     nor DELETE a tags row: a deleted plaque row takes its key with it and the chip is locked
+#     for good (no migration grants it; live, 2026-11-07, read by the orchestrator: false);
 #   tappa_app may neither UPDATE any column of nor DELETE from any append-only table but
 #     transactions, which section 4 probes (measured at goose 87: false on all eleven).
 # Missing tables and columns (an older dump) match nothing rather than raise: to_regclass and
@@ -644,6 +646,8 @@ PRIV_FLOOR_SQL="SELECT 'default for new tables: ' || x.privilege_type
   WHERE a.attrelid = to_regclass('public.tags') AND a.attname IN ('aes_key_ref', 'app_key_ref') AND NOT a.attisdropped
     AND has_column_privilege('tappa_app', a.attrelid, a.attnum, 'UPDATE')
   UNION ALL
+  SELECT 'tags DELETE' WHERE has_table_privilege('tappa_app', to_regclass('public.tags'), 'DELETE')
+  UNION ALL
   SELECT s.t || ' ' || v.p
   FROM (SELECT t, to_regclass('public.' || t) AS r FROM unnest(string_to_array(btrim('$floor_tables'), ' ')) AS t) s
   CROSS JOIN (VALUES ('UPDATE'), ('DELETE')) AS v(p)
@@ -652,7 +656,7 @@ PRIV_FLOOR_SQL="SELECT 'default for new tables: ' || x.privilege_type
       OR (v.p = 'DELETE' AND has_table_privilege('tappa_app', s.r, 'DELETE')));"
 psql_to "$TMP/have.privfloor" "$PRIV_FLOOR_SQL"
 if [ ! -s "$TMP/have.privfloor" ]; then
-  ok "privileges, whatever the dump says: the default for new tables gives tappa_app SELECT, INSERT at most; tappa_app may not UPDATE tags' key columns or UPDATE/DELETE the other ten append-only tables"
+  ok "privileges, whatever the dump says: the default for new tables gives tappa_app SELECT, INSERT at most; tappa_app may not UPDATE tags' key columns, DELETE a tags row or UPDATE/DELETE the other ten append-only tables"
 else
   bad "tappa_app holds, whatever the dump says: $(tr '\n' ';' < "$TMP/have.privfloor")
         'default for new tables' means the runbook's narrowing (A YOLU 4 / B YOLU B3: ALTER DEFAULT PRIVILEGES ... REVOKE UPDATE, DELETE ON TABLES FROM tappa_app) did not run or was weakened; anything else is a privilege the SOURCE already had -- this restore copied it faithfully, and it must not be in service either."

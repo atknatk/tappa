@@ -5572,6 +5572,12 @@ altındaki not). B YOLU'nun B3'ü gibi **geri yüklemeyle aynı blokta**, ve 6. 
 **doğrulamadan önce** yapıldığını denetler (T215: araç `tappa_owner`'ın `public` tabloları için
 varsayılanının `tappa_app`'e `SELECT`, `INSERT`'ten fazlasını vermesini reddeder).
 `pg_default_acl` veritabanı başına bir katalogdur, 7. adımın `RENAME`'i onu taşır.
+**Canlıda okundu (orkestratör, 2026-11-07, salt okunur):** `pg_default_acl` yalnız
+`tappa_owner|public|r|{tappa_app=arwd}` ve `tappa_owner|public|S|{tappa_app=rU}`, global satır
+yok; `tags.aes_key_ref` ve `tags.app_key_ref` üzerinde UPDATE, `tags` üzerinde DELETE ve on
+append-only tablonun hiçbirinde UPDATE ya da DELETE yok. Yani bugünkü bir yedeğin geri
+yüklemesi 5a'da yalnız daraltma atlanırsa FAIL verir; o `arwd` satırı tam olarak bu adımın
+daralttığıdır.
 
 > 🔴 **NEDEN AYNI INSTANCE'TA YENİ BİR VERİTABANI VE NEDEN TAZE BİR POD DEĞİL —
 > ÖLÇÜLDÜ, VE SONUÇ SEZGİYE TERS.** Taze bir Postgres pod'una geri yüklemek
@@ -9064,9 +9070,11 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     yüklenmiş veritabanı **geniş** — yani **doğrulama ortamı üretimden katıydı** ve ayrım
     kusuru **gizler** yönde. *(M11 API-1'den beri dev ve CI taze hacimde üretimin `arwd`'iyle
     kurulur: `scripts/db-init/03-dev-production-default-acl.sql`, ADR 0028 §1.)* `REVOKE` satırını unutan bir migration yerelde hiçbir fark
-    üretmez, üretimde sessizce `arwd` verir. `pg-restore-verify.sh` bunu **göremez**:
-    referansı dump'ın kendisi, ve dump geniş varsayılanı **ilan ediyor**.
-    ✅ **Geri yükleme yolunda KAPATILDI:** A YOLU 7. adım ve B YOLU B3, dump'tan sonra
+    üretmez, üretimde sessizce `arwd` verir. `pg-restore-verify.sh` yeni bir tablodaki
+    unutulmuş `REVOKE`'u **göremez**: referansı dump'ın kendisi, ve dump geniş varsayılanı
+    **ilan ediyor**. Varsayılanın kendisini T215'ten beri görür (bölüm 5a: geri yüklenmiş
+    veritabanında `SELECT, INSERT`'ten fazlası FAIL).
+    ✅ **Geri yükleme yolunda KAPATILDI:** A YOLU 4. adım ve B YOLU B3, dump'tan sonra
     varsayılanı tek ifadeyle geri daraltıyor (`REVOKE UPDATE, DELETE ON TABLES`),
     var olan tablolara dokunmadan — ölçüldü, `ar` geri geliyor ve yeni bir tablo
     `ar` alıyor.

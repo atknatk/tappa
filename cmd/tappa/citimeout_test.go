@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,10 +58,39 @@ func parseCITimeouts(makefile, ciYML string) (v ciTimeouts, bad []string) {
 	return v, bad
 }
 
+// stepTimeoutViolations names every timeout-minutes that is not the job's (four spaces) and not a
+// step key (eight spaces) of the `make restore-check` step, the one step with its own limit (T215). Without it, counting the
+// job's line alone let a limit on any other step pass -- `make check` capped at 5 minutes stayed
+// green (in review) -- and a step cut short there never prints go's dump either.
+func stepTimeoutViolations(ciYML string) []string {
+	lines := strings.Split(ciYML, "\n")
+	var bad []string
+	for i, l := range lines {
+		trimmed := strings.TrimLeft(l, " ")
+		indent := len(l) - len(trimmed)
+		if !strings.HasPrefix(trimmed, "timeout-minutes:") || indent == 4 {
+			continue
+		}
+		start := i
+		for start >= 0 && !strings.HasPrefix(lines[start], "      - ") {
+			start--
+		}
+		end := i + 1
+		for end < len(lines) && !strings.HasPrefix(lines[end], "      - ") {
+			end++
+		}
+		if indent != 8 || start < 0 || !slices.Contains(lines[start:end], "        run: make restore-check") {
+			bad = append(bad, fmt.Sprintf("ci.yml line %d carries a timeout-minutes at %d spaces outside the `make restore-check` step", i+1, indent))
+		}
+	}
+	return bad
+}
+
 // ciTimeoutViolations reads the two files' text. It is a pure function so the shapes it refuses can be
 // driven below: the shipped values satisfy every rule, so the shipped files alone cannot show one firing.
 func ciTimeoutViolations(makefile, ciYML string) []string {
 	v, bad := parseCITimeouts(makefile, ciYML)
+	bad = append(bad, stepTimeoutViolations(ciYML)...)
 	if len(bad) > 0 {
 		return bad
 	}
@@ -126,6 +156,8 @@ func TestCITimeouts_TheJobOutlastsEveryGoAlarm(t *testing.T) {
 		{"the job changed, the sum left behind", &ciYML, jobAt(v.job), jobAt(v.job + 5), "no longer states the sum"},
 		{"the job's limit gone", &ciYML, jobAt(v.job), "", "0 timeout-minutes lines"},
 		{"a second job's limit", &ciYML, jobAt(v.job), jobAt(v.job) + "\n    timeout-minutes: 5", "2 timeout-minutes lines"},
+		{"a step limit on make check", &ciYML, "        run: make check\n", "        timeout-minutes: 5\n        run: make check\n", "outside the `make restore-check` step"},
+		{"the restore step's limit at six spaces", &ciYML, "        timeout-minutes: 10\n", "      timeout-minutes: 10\n", "outside the `make restore-check` step"},
 		{"the sum rewritten", &ciYML, sumLine, "    # about 40 minutes", "no longer states the sum"},
 		{"check-sandbox raised past the job", &makefile, sandboxAt(v.sandbox), sandboxAt(v.job), "`make check-sandbox` is at"},
 		{"check-sandbox loses its -timeout", &makefile, sandboxAt(v.sandbox), "-count=1 -tags sandbox", "`make check-sandbox`'s -timeout is not found"},

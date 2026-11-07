@@ -283,7 +283,8 @@ jobs:
         # 42402485491; locally 79 s with a cold goose, 30-52 s warm). The runbook's blocks have their
         # own 300 s watchdog, but goose, the backup and docker itself do not, so the step carries its
         # own limit: a hang here ends at 10 minutes and never reaches the job's (cmd/tappa
-        # TestCITimeouts_TheJobOutlastsEveryGoAlarm counts only the job-level timeout-minutes).
+        # TestCITimeouts_TheJobOutlastsEveryGoAlarm counts the job-level timeout-minutes and refuses
+        # one on any other step).
         if: ${{ !cancelled() }}
         timeout-minutes: 10
         run: make restore-check
