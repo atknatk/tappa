@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -237,5 +238,37 @@ func TestResetRecovery_AFailedRequestsWithdrawalIsOwed(t *testing.T) {
 				t.Error("a line carries the address")
 			}
 		})
+	}
+}
+
+// TestResetRecovery_AnOwedWithdrawalCarriesNoAddress: on the worker's path the outcome still holds
+// the grant as the job carried it, address included; the list waits in memory for minutes, has no use
+// for the address, and does not hold it (TestResetOutcome_AQueuedOutcomeCarriesNoAddress's rule, one
+// step further).
+//
+// MUTATION: owe keeping the Recipient -> red.
+func TestResetRecovery_AnOwedWithdrawalCarriesNoAddress(t *testing.T) {
+	t.Parallel()
+	const known = "known@recovery.example"
+	stall := context.DeadlineExceeded
+	f := &flakyWrites{fakeResets: &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{known: grantsFor(known, 1)}},
+		withdrawErrs: []error{stall, stall}}
+	var logged outcomeLog
+	h, err := NewAdminReset(f, &recordingChannel{err: errSendFailed}, f, adminTestConfig(), slogOver(&logged))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopWorkerAtCleanup(t, h)
+	h.clocks.retryPause = time.Millisecond
+	h.clocks.recoveryFirst = time.Hour
+	requestReset(t, newBrowser(t, mountReset(h)), known)
+	waitUntil(t, 5*time.Second, "the withdrawal owed", func() bool { return h.outbox.owedCount() == 1 })
+	q := h.outbox
+	q.mu.Lock()
+	w := q.owed[0]
+	recipient, printed := w.g.Recipient, fmt.Sprintf("%+v", w.g)
+	q.mu.Unlock()
+	if recipient != "" || strings.Contains(printed, known) {
+		t.Errorf("the owed withdrawal holds the address %q", recipient)
 	}
 }

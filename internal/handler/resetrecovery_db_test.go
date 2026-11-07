@@ -30,10 +30,13 @@ const (
 	lineOwedAtDrain   = "the process is stopping with withdrawals still owed"
 )
 
-// recoveryClocks are short clocks for the list: a later try 200 ms after the loss, passes at most
-// 400 ms apart.
+// recoveryClocks are short WAITS for the list -- a later try 200 ms after the loss, passes at most
+// 400 ms apart -- and the shipped clock for every write. A write's clock is a deadline, not a wait:
+// at 100 ms an audit INSERT on a loaded machine missed it on both tries (measured, load ~500-615: 6 of
+// 20 runs lost the row, 4 more needed its retry), and that tested the load, not the list. Every wait
+// below is a condition.
 func recoveryClocks(h *AdminReset) {
-	h.clocks.grace = 100 * time.Millisecond
+	h.clocks.grace = resetOutcomeGrace
 	h.clocks.retryPause = 50 * time.Millisecond
 	h.clocks.recoveryFirst = 200 * time.Millisecond
 	h.clocks.recoveryMaxPause = 400 * time.Millisecond
@@ -80,15 +83,15 @@ func TestResetRecoveryDB_ALockedLinkIsWithdrawnOnceTheLockGoes(t *testing.T) {
 	w.afterMint = func([]adminauth.ResetGrant) { release = w.stall(t, true, false) }
 
 	w.request(t)
-	waitUntil(t, 20*time.Second, "the lost withdrawal, owed", func() bool {
+	waitUntil(t, 60*time.Second, "the lost withdrawal, owed", func() bool {
 		return w.logged.count(lineWithdrawalLost) == 1 && w.logged.count("recovery=retrying") == 1
 	})
-	waitUntil(t, 20*time.Second, "a later try failing under the lock", func() bool { return w.logged.count(lineOwedAgain) >= 1 })
+	waitUntil(t, 60*time.Second, "a later try failing under the lock", func() bool { return w.logged.count(lineOwedAgain) >= 1 })
 	if n := w.liveLinks(t); n != 1 {
 		t.Fatalf("CONTROL: %d live link(s) while the lock is held, want 1", n)
 	}
 	release()
-	waitUntil(t, 20*time.Second, "the list's withdrawal", func() bool { return w.logged.count(lineOwedRecovered) == 1 })
+	waitUntil(t, 60*time.Second, "the list's withdrawal", func() bool { return w.logged.count(lineOwedRecovered) == 1 })
 	if n := w.liveLinks(t); n != 0 {
 		t.Fatalf("%d live link(s) after the later try, want 0", n)
 	}
@@ -102,16 +105,18 @@ func TestResetRecoveryDB_ALockedLinkIsWithdrawnOnceTheLockGoes(t *testing.T) {
 	if len(w.minted) != 1 {
 		t.Fatalf("the owner's next request minted %d link(s), want 1", len(w.minted))
 	}
-	waitUntil(t, 20*time.Second, "the fresh link delivered", func() bool { return len(mail.all()) == 2 })
+	waitUntil(t, 60*time.Second, "the fresh link delivered", func() bool { return len(mail.all()) == 2 })
 	if n := w.liveLinks(t); n != 1 {
 		t.Errorf("%d live link(s), want the fresh one", n)
 	}
 	if n := w.rows(t); n != 1 {
-		t.Errorf("%d undelivered row(s), want the first link's 1: a later withdrawal writes no row", n)
+		t.Errorf("%d undelivered row(s), want the first link's 1: a later withdrawal writes no row; %d lost-row and %d row-retry line(s)",
+			n, w.logged.count(lineRowLost), strings.Count(w.logged.String(), "write=row"))
 	}
 	if strings.Contains(w.logged.String(), w.email) {
 		t.Error("a line carries the address")
 	}
+	t.Logf("row retries %d, rows lost %d", strings.Count(w.logged.String(), "write=row"), w.logged.count(lineRowLost))
 }
 
 // TestResetRecoveryDB_ALateWithdrawalKillsOnlyItsOwnLink is the target rule, measured: by the time the
@@ -131,7 +136,7 @@ func TestResetRecoveryDB_ALateWithdrawalKillsOnlyItsOwnLink(t *testing.T) {
 	owner, other := w.emails[0], w.emails[1]
 
 	requestReset(t, newBrowser(t, w.router), other)
-	waitUntil(t, 20*time.Second, "B's link delivered", func() bool { return len(mail.all()) == 1 })
+	waitUntil(t, 60*time.Second, "B's link delivered", func() bool { return len(mail.all()) == 1 })
 	b := w.minted[0].Issued.Reset.ID
 
 	mail.mu.Lock()
@@ -141,7 +146,7 @@ func TestResetRecoveryDB_ALateWithdrawalKillsOnlyItsOwnLink(t *testing.T) {
 	var release func()
 	w.afterMint = func([]adminauth.ResetGrant) { release = w.stall(t, true, false) }
 	requestReset(t, newBrowser(t, w.router), owner)
-	waitUntil(t, 20*time.Second, "A1's withdrawal, owed", func() bool { return w.logged.count("recovery=retrying") == 1 })
+	waitUntil(t, 60*time.Second, "A1's withdrawal, owed", func() bool { return w.logged.count("recovery=retrying") == 1 })
 	a1 := w.minted[0].Issued.Reset.ID
 	release()
 	// The earlier try that took effect after all.
@@ -159,10 +164,10 @@ func TestResetRecoveryDB_ALateWithdrawalKillsOnlyItsOwnLink(t *testing.T) {
 		t.Fatalf("PREMISE: the owner's request minted %d link(s), want A2", len(w.minted))
 	}
 	a2 := w.minted[0].Issued.Reset.ID
-	waitUntil(t, 20*time.Second, "A2 delivered", func() bool { return len(mail.all()) == 3 })
+	waitUntil(t, 60*time.Second, "A2 delivered", func() bool { return len(mail.all()) == 3 })
 
 	dueNow(w.flow)
-	waitUntil(t, 20*time.Second, "the list's try of A1", func() bool { return w.logged.count(lineOwedRecovered) == 1 })
+	waitUntil(t, 60*time.Second, "the list's try of A1", func() bool { return w.logged.count(lineOwedRecovered) == 1 })
 	if w.linkIsLive(t, a1) {
 		t.Error("A1 is live")
 	}
@@ -187,15 +192,15 @@ func TestPanelIdentityReset_ALateWithdrawalUnlocksThePerson(t *testing.T) {
 	hook.down.Store(true)
 
 	p.askReset(t, p.email)
-	waitUntil(t, 20*time.Second, "the lost withdrawal, owed", func() bool {
+	waitUntil(t, 60*time.Second, "the lost withdrawal, owed", func() bool {
 		return logged.count(lineIdentityLost) == 1 && logged.count("recovery=retrying") == 1
 	})
-	waitUntil(t, 20*time.Second, "a later try failing", func() bool { return logged.count(lineOwedAgain) >= 1 })
+	waitUntil(t, 60*time.Second, "a later try failing", func() bool { return logged.count(lineOwedAgain) >= 1 })
 	if n := liveIdentityLinks(t, owner, ident); n != 1 {
 		t.Fatalf("CONTROL: %d live link(s) while the database is out of reach, want 1", n)
 	}
 	hook.down.Store(false)
-	waitUntil(t, 20*time.Second, "the list's withdrawal", func() bool { return logged.count(lineOwedRecovered) == 1 })
+	waitUntil(t, 60*time.Second, "the list's withdrawal", func() bool { return logged.count(lineOwedRecovered) == 1 })
 	if n := liveIdentityLinks(t, owner, ident); n != 0 {
 		t.Fatalf("%d live link(s) after the later try, want 0", n)
 	}
@@ -204,7 +209,7 @@ func TestPanelIdentityReset_ALateWithdrawalUnlocksThePerson(t *testing.T) {
 	mail.err = nil
 	mail.mu.Unlock()
 	p.askReset(t, p.email)
-	waitUntil(t, 20*time.Second, "a fresh link delivered", func() bool { return len(mail.all()) == 2 })
+	waitUntil(t, 60*time.Second, "a fresh link delivered", func() bool { return len(mail.all()) == 2 })
 	if d := mail.all()[1]; !d.EveryBusiness {
 		t.Error("the fresh link is not the identity's")
 	}
@@ -240,7 +245,7 @@ func TestPanelIdentityReset_ALateWithdrawalLeavesTheNewLinkAlone(t *testing.T) {
 	hook.applied.Store(true)
 
 	p.askReset(t, p.email)
-	waitUntil(t, 20*time.Second, "the withdrawal, owed", func() bool { return logged.count("recovery=retrying") == 1 })
+	waitUntil(t, 60*time.Second, "the withdrawal, owed", func() bool { return logged.count("recovery=retrying") == 1 })
 	if n := liveIdentityLinks(t, owner, ident); n != 0 {
 		t.Fatalf("PREMISE: %d live link(s); the hook's withdrawals took effect, want 0", n)
 	}
@@ -249,10 +254,10 @@ func TestPanelIdentityReset_ALateWithdrawalLeavesTheNewLinkAlone(t *testing.T) {
 	mail.err = nil
 	mail.mu.Unlock()
 	p.askReset(t, p.email)
-	waitUntil(t, 20*time.Second, "the fresh link delivered", func() bool { return len(mail.all()) == 2 })
+	waitUntil(t, 60*time.Second, "the fresh link delivered", func() bool { return len(mail.all()) == 2 })
 
 	dueNow(p.reset)
-	waitUntil(t, 20*time.Second, "the list's try", func() bool { return logged.count(lineOwedRecovered) == 1 })
+	waitUntil(t, 60*time.Second, "the list's try", func() bool { return logged.count(lineOwedRecovered) == 1 })
 	if n := liveIdentityLinks(t, owner, ident); n != 1 {
 		t.Errorf("%d live link(s), want the fresh one: the late withdrawal killed a link it was not handed", n)
 	}

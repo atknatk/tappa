@@ -3521,7 +3521,9 @@ yeniden dener (`internal/handler/adminresetrecovery.go`). İlk geç deneme kayı
 geçici hatayla biten geçişte bütün liste geri itilir ve ara ikiye katlanır: 30 sn → 1 dk → 2 dk, `resetRecoveryMaxPause`
 (2 dk) tavan. Bir geçiş en çok `resetRecoveryPass` (1 sn) yeni deneme başlatır ve ilk geçici hatada biter (veritabanı
 ortak nedendir; listenin geri kalanı her biri bir `resetOutcomeGrace` harcayıp aynı şeyi öğrenirdi), dolayısıyla veritabanı
-dururken işçi geçiş başına en çok bir deneme tutulur. Duruş dakikalar içinde biterse kilitlenme de en çok ~2 dk sonra biter
+dururken işçi geçiş başına en çok bir deneme tutulur — **ama o deneme `resetOutcomeGrace` (5 sn) sürebilir**: işçi tek
+olduğundan bu sürede kuyruktaki gönderimler bekler, yani duruş boyunca her başarısız geçiş gönderimleri en kötü ~5 sn
+geciktirir (denetimde 4,8 sn ölçüldü). Geçişler en az `resetRecoveryFirst`, duruş uzadıkça 2 dk arayla gelir. Duruş dakikalar içinde biterse kilitlenme de en çok ~2 dk sonra biter
 (*"çoğu durumda dakikalar"* kullanıcının öncülüdür, ölçülmedi). **Sonsuz deneme yok:** girdi linkin `expires_at`'inde
 denenmeden düşer (WARN; ölü link için deneme anlamsız), bir linkin ömründe (~1 saat) en çok ~30 başarısız geçiş; kalıcı
 hata (yetki, kısıt) denenmez (ERROR). Gönderimler durduktan sonra (boşaltma) liste denenmez.
