@@ -198,6 +198,10 @@ type AdminReset struct {
 	// floor is APPLIED without paying it on every case. Production leaves it nil.
 	sleep func(time.Duration)
 
+	// clocks bound a grant's after-the-fact writes (adminresetoutcome.go). The shipped
+	// values are pinned; a test shortens them before its first request.
+	clocks resetOutcomeClocks
+
 	log *slog.Logger
 }
 
@@ -209,14 +213,14 @@ type panelResets interface {
 	// link per account. Neither changes the answer; both change the trail.
 	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error)
 	// Withdraw retires a link recorded undelivered, so the account's one live link
-	// is never one no inbox holds (recordOutcome).
+	// is never one no inbox holds (attemptOutcome).
 	Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error
 	Consume(ctx context.Context, t adminauth.ResetToken, newPassword string) (adminauth.ConsumedReset, db.ResolvedPasswordReset, error)
 	// IssueForPerson is the per-identity request (M14-14, ADR 0031 §5.9), asked instead of
 	// IssueForEmail when the identity gate opens SurfaceResetPerIdentity: the address's identity gets
 	// at most one live link, its unlinked rows today's per-row links.
 	IssueForPerson(ctx context.Context, email string) (adminauth.PersonResets, error)
-	// WithdrawIdentity retires a per-identity link recorded undelivered (recordOutcome).
+	// WithdrawIdentity retires a per-identity link recorded undelivered (attemptOutcome).
 	WithdrawIdentity(ctx context.Context, t adminauth.ResetToken) error
 	// NoticeRecipient reads the address on an administrator's own row for the "your
 	// password was changed" notice (M10 EM-9); "" means nowhere to send it.
@@ -296,7 +300,7 @@ const (
 	// handed to its recipient. The row exists because the alternative is silence:
 	// the requester must not be told (it would answer "is this address registered"),
 	// so the trail is the only place the fact can live (§4.6). Since M10 EM-7C the
-	// link is also withdrawn (recordOutcome).
+	// link is also withdrawn (attemptOutcome).
 	ActionAdminResetUndelivered = "admin.recovery.undelivered"
 	// ActionAdminResetKept (M10 EM-7C) marks a request that resolved to an account
 	// already holding a live link: nothing was minted, retired or sent, and the row
@@ -419,6 +423,8 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 		log:            log,
 
 		noticeSendGrace: PasswordNoticeSendGrace,
+
+		clocks: shippedOutcomeClocks(),
 	}
 	if mail != nil {
 		h.outbox = newResetOutbox(resetOutboxSize)
@@ -627,8 +633,12 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 		h.problem(w, r, http.StatusInternalServerError, problemResetServer)
 		return
 	}
+	// One clock for the whole request, not one per grant: dispatch is sequential, and
+	// what a request may spend on fallback writes must not grow with how many accounts
+	// the address resolved to (adminresetoutcome.go).
+	fallbackUntil := time.Now().Add(h.clocks.fallbackBudget)
 	for _, g := range grants {
-		h.dispatch(r, ip, g)
+		h.dispatch(r, fallbackUntil, ip, g)
 	}
 	for _, k := range kept {
 		h.recordKept(r, k)
@@ -745,62 +755,6 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 	h.recordWorkerOutcome(base, g, action, outcome, reason)
 }
 
-// recordWorkerOutcome is recordOutcome on the WORKER's row context: resetAuditGrace,
-// and ended the moment the shutdown drain's whole budget is spent (the process is
-// about to close its pool).
-func (h *AdminReset) recordWorkerOutcome(base context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
-	ctx, cancel := h.outbox.auditContext(base)
-	defer cancel()
-	h.recordOutcome(ctx, g, action, outcome, reason)
-}
-
-// recordOutcome writes a grant's ONE outcome row — requested or undelivered —
-// through the per-account audit budget, on the bounded context its caller made for
-// it (never the send's). Every path a grant can take ends here exactly once: deliver,
-// the full or closing outbox (dispatch, on the REQUEST's row context), the drain's
-// unsent tail (deliverJob) and a worker panic before the row (handle).
-//
-// 🔴 AN UNDELIVERED LINK IS WITHDRAWN FIRST (M10 EM-7C), and before the budget is
-// asked, so a row the budget suppresses does not keep the link alive. One live link
-// per account means a request mints nothing while a live link exists; a live link no
-// inbox holds would therefore turn one failed send into ResetTTL of silence for the
-// owner, their own requests included. Withdrawn, the next request mints at once. A
-// send that timed out may still have reached the mailbox: that link dies too, and
-// asking again gets a fresh one — fail-closed, never a window with no way to get a
-// link. A failed withdrawal is logged (ids only) and the row is still written.
-func (h *AdminReset) recordOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
-	if g.IdentityID != uuid.Nil {
-		h.recordIdentityOutcome(ctx, g, action, outcome, reason)
-		return
-	}
-	if action == ActionAdminResetUndelivered {
-		if err := h.resets.Withdraw(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.ID); err != nil {
-			h.log.ErrorContext(ctx, "panel recovery: withdrawing an undelivered link failed",
-				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
-				"err_type", fmt.Sprintf("%T", err))
-		}
-	}
-	h.recordForAdmin(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.AdminUserID, audit.Event{
-		TenantID: g.Issued.Reset.TenantID,
-		ActorID:  ptr(g.Issued.Reset.AdminUserID),
-		Action:   action,
-		Target:   g.Issued.Reset.AdminUserID.String(),
-		Detail: adminResetDetail{
-			Outcome: outcome,
-			Reason:  reason,
-			ResetID: g.Issued.Reset.ID.String(),
-			// 🔴 THE RETIREMENT COUNT IS IN THE ROW BECAUSE IT IS THE ONLY PLACE THE
-			// ACCEPTED RISK BECOMES VISIBLE. adminauth.Reset.RetiredCount is "how many
-			// previously live links this request killed", and ADR 0015's harm (a) is
-			// precisely somebody else's request killing yours. A takeover investigation
-			// reading "requested, retired 1" one minute after "requested, retired 0"
-			// is reading the attack; without the number it reads two ordinary requests.
-			RetiredCount: g.Issued.Reset.RetiredCount,
-			ExpiresAt:    g.Issued.Reset.ExpiresAt.UTC().Format(time.RFC3339),
-		},
-	})
-}
-
 // recordKept writes the "kept" row of an account whose live link made a new one
 // unnecessary (M10 EM-7C), on the request's own row context — the context dispatch's
 // fallback row uses, for the same reason — bounded by resetAuditGrace, through the
@@ -830,33 +784,8 @@ func (h *AdminReset) recordKept(r *http.Request, k adminauth.Reset) {
 // resetReasonLiveLink is the kept row's reason.
 const resetReasonLiveLink = "the account already holds a live recovery link, so no new one was created or sent"
 
-// recordIdentityOutcome is recordOutcome for a PER-IDENTITY link (M14-14): withdrawn first when it
-// was not delivered (recordOutcome's EM-7C reason, at the identity level), then ONE log line through
-// the per-identity budget -- and NO audit row. ADR 0031 §5.2 (identity_open_reset /
-// identity_withdraw_reset): the identity has no tenant, so there is no business whose trail could take
-// the row without naming the person's other businesses to it; the identity's own trail is the
-// reset_requested event the opening wrote. The line carries ids and constant-valued keys only (§7, ADR
-// 0031 §5.2's M14-14 note lists them): the reset row's id, the identity's id, the outcome and a fixed
-// reason -- never the address, the link or anything derived from them.
-func (h *AdminReset) recordIdentityOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
-	if action == ActionAdminResetUndelivered {
-		if err := h.resets.WithdrawIdentity(ctx, g.Issued.Token); err != nil {
-			h.log.ErrorContext(ctx, "panel recovery: withdrawing an undelivered identity link failed",
-				"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "err_type", fmt.Sprintf("%T", err))
-		}
-	}
-	if within, n := h.accountLimiter.TryCharge(identityResetBudgetKey(g.IdentityID)); !within {
-		if h.accountLimiter.FirstOverLimit(n) {
-			h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "identity", "identity_id", g.IdentityID)
-		}
-		return
-	}
-	h.log.InfoContext(ctx, "panel recovery: identity link outcome",
-		"identity_id", g.IdentityID, "reset_id", g.Issued.Reset.ID, "outcome", outcome, "reason", reason)
-}
-
 // recordIdentityKept is recordKept for a person whose identity already held a live link (EM-7C):
-// nothing was opened, retired or sent, and -- recordIdentityOutcome's reason -- the trail is one
+// nothing was opened, retired or sent, and -- admitOutcome's reason -- the trail is one
 // budgeted log line, not an audit row.
 func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityResetKept) {
 	if within, n := h.accountLimiter.TryCharge(identityResetBudgetKey(k.IdentityID)); !within {
@@ -1272,6 +1201,15 @@ type adminResetDetail struct {
 // had to sign up (ADR 0022 EM-7C note). Rows past this budget are what a flood of
 // "kept" requests spends — the sends are not affected.
 func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
+	if row, ok := h.admitForAdmin(ctx, tenantID, adminUserID, e); ok {
+		h.record(ctx, row)
+	}
+}
+
+// admitForAdmin charges the per-account budget ONCE and answers which row, if any, that
+// charge earned: e, the one rate_limited row of the charge that crossed the line, or
+// none. A write that is tried twice (adminresetoutcome.go) is charged here once.
+func (h *AdminReset) admitForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) (audit.Event, bool) {
 	key := adminUserID.String()
 	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every
 	// request's fallback row can write for the same administrator at once, and with
@@ -1280,25 +1218,26 @@ func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID u
 	// the budget is written, and the charge that crosses the line is a refused one.
 	within, n := h.accountLimiter.TryCharge(key)
 	if !within {
-		if h.accountLimiter.FirstOverLimit(n) {
-			h.record(ctx, audit.Event{
-				TenantID: tenantID,
-				ActorID:  ptr(adminUserID),
-				Action:   ActionAdminResetLimited,
-				Target:   key,
-				Detail: adminResetDetail{
-					Outcome:        "rate_limited",
-					Reason:         "too many recovery requests against this account",
-					Scope:          "account",
-					SuppressedFrom: n,
-				},
-			})
-			h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "account",
-				"admin_user_id", adminUserID)
+		if !h.accountLimiter.FirstOverLimit(n) {
+			return audit.Event{}, false
 		}
-		return
+		h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "account",
+			"admin_user_id", adminUserID)
+		limited := audit.Event{
+			TenantID: tenantID,
+			ActorID:  ptr(adminUserID),
+			Action:   ActionAdminResetLimited,
+			Target:   key,
+			Detail: adminResetDetail{
+				Outcome:        "rate_limited",
+				Reason:         "too many recovery requests against this account",
+				Scope:          "account",
+				SuppressedFrom: n,
+			},
+		}
+		return limited, true
 	}
-	h.record(ctx, e)
+	return e, true
 }
 
 // recordForLink writes the refusal row for ONE recovery link, bounded by a budget

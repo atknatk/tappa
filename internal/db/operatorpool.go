@@ -127,7 +127,8 @@ type operatorRoleFacts struct {
 // measured through the test hook, at open and on a later connection:
 // TestPin_AConnectionTheParameterDidNotReachIsRefused), and REFUSES to hand back a pool
 // that is not tappa_operator as ADR 0021 §1 describes it
-// (TestOperatorDB_RefusesEveryRoleButTappaOperator).
+// (TestOperatorDB_RefusesEveryRoleButTappaOperator). Every statement of the pool is bounded by
+// OperatorStatementTimeout, a startup parameter it reads back (operatortimeout.go, T98).
 //
 // 🔴 THE ROLE GATE REFUSES IN EVERY ENVIRONMENT, NOT ONLY IN PRODUCTION -- a deliberate
 // difference from the customer pool's roleRefusal, which only warns outside production.
@@ -168,6 +169,7 @@ func openOperatorDB(ctx context.Context, dsn string, before func(context.Context
 		return nil, err
 	}
 	pinLogParameters(poolCfg, "TAPPA_OPERATOR_DATABASE_URL", before)
+	pinOperatorStatementTimeout(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, operatorStepErr("build the pool", err)
@@ -182,6 +184,10 @@ func openOperatorDB(ctx context.Context, dsn string, before func(context.Context
 		return nil, err
 	}
 	if err := operatorRoleRefusal(facts); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := requireOperatorStatementTimeout(ctx, pool); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -408,9 +414,28 @@ func classifyAttempt(err error) connectOutcome {
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return connectOutcome{reason: "the server closed the connection", unreachable: true}
 	default:
+		if class, ok := pgxFixedFailures[innermost(err).Error()]; ok {
+			return connectOutcome{reason: class}
+		}
 		return connectOutcome{reason: fmt.Sprintf("an error of type %T", innermost(err))}
 	}
 }
+
+// pgxFixedFailures are the failures pgconn reports as a bare errors.New, with nothing to classify but
+// their words, so a type alone said only "*errors.errorString" (measured for sslmode=require, verify-full
+// and target_session_attrs=read-only). The whole text has to match and the class is what is printed, so a
+// value can no more reach a message through here than through the default branch. pgconn/pgconn.go:555
+// and pgconn/config.go:1013-1073 at pgx 5.10; TestNew_AConnectFailureCarriesOnlyItsClass measures three
+// of the five against pgx itself, so a release that rewords those falls back to the type and goes red.
+var pgxFixedFailures = map[string]string{
+	"server refused TLS connection":     "the server declined TLS",
+	"read only connection":              serverSessionStateClass,
+	"connection is not read only":       serverSessionStateClass,
+	"server is not in hot standby mode": serverSessionStateClass,
+	"server is in standby mode":         serverSessionStateClass,
+}
+
+const serverSessionStateClass = "the server is not in the wanted session state"
 
 // innermost is the end of err's unwrap chain: its type names the failure more closely
 // than pgx's wrappers do (a declined TLS request is an *errors.errorString inside them).

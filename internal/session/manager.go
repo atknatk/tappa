@@ -106,9 +106,9 @@ var (
 // (§7): no package-level state, no init() magic, no singleton.
 type Manager struct {
 	data Database
-	// hmacKey is a private copy of Config.SessionHMACKey, so a later mutation
-	// of the caller's slice cannot silently change how tokens hash.
-	hmacKey []byte
+	// hmacKey is Config.SessionHMACKey. A config.Key cannot be written to, so a
+	// caller cannot change how tokens hash, and it prints redacted (backlog T205).
+	hmacKey config.Key
 }
 
 // New builds a Manager. It refuses a wrong-sized HMAC key rather than degrading:
@@ -126,7 +126,7 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	}
 	return &Manager{
 		data:    data,
-		hmacKey: cfg.SessionHMACKey.Reveal(),
+		hmacKey: cfg.SessionHMACKey,
 	}, nil
 }
 
@@ -205,7 +205,7 @@ func (m *Manager) Issue(ctx context.Context, p IssueParams) (Issued, error) {
 	if err != nil {
 		return Issued{}, fmt.Errorf("session: issue: %w", err)
 	}
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return Issued{}, fmt.Errorf("session: issue: %w", err)
 	}
@@ -262,7 +262,7 @@ func (m *Manager) Issue(ctx context.Context, p IssueParams) (Issued, error) {
 // comparison to make constant-time; if one is ever added it must use
 // crypto/subtle.ConstantTimeCompare (redline R7), never == or bytes.Equal.
 func (m *Manager) Verify(ctx context.Context, t Token) (Resolved, error) {
-	h, err := t.hash(m.hmacKey)
+	h, err := t.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			// A cookie that cannot be one of ours is indistinguishable from no

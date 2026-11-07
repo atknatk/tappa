@@ -276,7 +276,8 @@ var keyInventory = []string{
 
 type keySlot struct {
 	name string
-	buf  []byte
+	// key is a sun.WipeableKey (backlog T205): %+v of a keyring used to print every key in it.
+	key sun.WipeableKey
 	// consumed is what makes RndA REUSE UNREPRESENTABLE rather than merely
 	// discouraged. See keyring.take.
 	consumed bool
@@ -405,14 +406,14 @@ func (k *keyring) add(name string, buf []byte) error {
 		sun.Zero(buf)
 		return err
 	}
-	if s.buf != nil {
+	if s.key.IsSet() {
 		sun.Zero(buf)
 		return fmt.Errorf("encode: key slot %q is already filled", name)
 	}
 	if len(buf) == 0 {
 		return fmt.Errorf("encode: refusing to register an empty buffer as %q", name)
 	}
-	s.buf = buf
+	s.key = sun.NewWipeableKey(buf)
 	return nil
 }
 
@@ -431,10 +432,10 @@ func (k *keyring) peek(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.buf == nil {
+	if !s.key.IsSet() {
 		return nil, fmt.Errorf("encode: key slot %q is empty", name)
 	}
-	return s.buf, nil
+	return s.key.Reveal(), nil
 }
 
 // take moves a buffer out for its ONE use.
@@ -459,18 +460,18 @@ func (k *keyring) take(name string) ([]byte, error) {
 	if s.consumed {
 		return nil, fmt.Errorf("encode: key slot %q has already been consumed and cannot be used twice", name)
 	}
-	if s.buf == nil {
+	if !s.key.IsSet() {
 		return nil, fmt.Errorf("encode: key slot %q is empty", name)
 	}
 	s.consumed = true
-	return s.buf, nil
+	return s.key.Reveal(), nil
 }
 
 // zeroAll wipes every registered buffer. Idempotent: calling it twice is a no-op,
 // which is what lets the single exit path be unconditional.
 func (k *keyring) zeroAll() {
 	for i := range k.slots {
-		sun.Zero(k.slots[i].buf)
+		sun.Zero(k.slots[i].key.Reveal())
 	}
 }
 
@@ -479,7 +480,7 @@ func (k *keyring) zeroAll() {
 func (k *keyring) filled() []string {
 	var out []string
 	for i := range k.slots {
-		if k.slots[i].buf != nil {
+		if k.slots[i].key.IsSet() {
 			out = append(out, k.slots[i].name)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
 
@@ -69,9 +70,19 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 // screen and the billing screen render through it) or fails writes no partial page:
 // the status line has not been sent, and the answer is a plain 500
 // (TestTenantScreen_RefusesToRenderWithoutAName).
+//
+// THE COMPONENT RENDERS ON answered(r), EVERY TIME (T109): a component refuses a cancelled context,
+// so a client that half-closed got this 500 and its ERROR in place of the page it was answered --
+// and a refusal met before any store call (readForm's 400 and 413, the origin gate's 403) needs no
+// session to get there, so anyone could ring the 5xx alarm (deploy/README.md, rule 5) with six
+// half-closed POSTs. Rendering into a buffer waits on nothing, so the cancellation has nothing to
+// interrupt here, and the answer is the same status and bytes whoever stayed. A component that
+// fails for any other reason still lands below; a store failure is its handler's 503 and its log
+// line (TestSurface_AFailureIsStillAFailureForAClientThatLeft). The password step whose lookup the
+// client cancelled is answerClientLeft's.
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	var buf bytes.Buffer
-	if err := c.Render(r.Context(), &buf); err != nil {
+	if err := c.Render(answered(r).Context(), &buf); err != nil {
 		s.log.ErrorContext(r.Context(), "operator: rendering a screen failed", "err", err)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -86,7 +97,8 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 // answered is r once the sign-in's step has decided (the password step, the code step, the
 // enrollment's last step): its values, none of its cancellation, so the page that says
 // what was decided is rendered whatever the client did (OP-14 phase E; the WL-9 precedent,
-// checkin.go's post).
+// checkin.go's post). render itself renders on it since T109; a handler's own `r = answered(r)`
+// is what carries the decision's later statements and sign-in cookies past the client.
 //
 // WHY (measured, OP-14 phase C's security audit, P8, the real router over TCP): a client
 // that half-closes its connection -- FIN after the request, still reading -- has the
@@ -98,6 +110,33 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 // bytes as the refusal of a client that stayed (TestSurface_AHalfClosedRefusalIsTheSameAnswer).
 func answered(r *http.Request) *http.Request {
 	return r.WithContext(context.WithoutCancel(r.Context()))
+}
+
+// clientLeft reports whether a step's error is the client's leaving and nothing else: the request's
+// context was cancelled (not past its deadline, which is a slow database) and the error says so.
+// Read it on r BEFORE answered(r), which has no cancellation left to read.
+func clientLeft(r *http.Request, err error) bool {
+	return errors.Is(err, context.Canceled) && errors.Is(r.Context().Err(), context.Canceled)
+}
+
+// answerClientLeft answers the password step when its lookup followed the client out (T213): the same
+// 503 the step's failure gets, at Debug and declared as designed, so it is no access record at
+// ERROR. Of the POSTs that need no session it is the one that follows the client: the code step's
+// lookup, the enrollment's statements and the sign-out are detached (operatorauth, detach), so the
+// client's leaving does not reach them.
+//
+// WHY (measured; 15 of 15 in an earlier audit): a valid form and a FIN to POST /operator/login cancels
+// the lookup before any comparison, with no session and no address limit, and six of them in five
+// minutes would ring rule 5, which is what T109 closed for the render. It opens no oracle: only the
+// lookup follows the client. From the comparison on the step runs detached, so this answer means
+// nothing was compared, whichever password was sent. Any other failure, a database refusal for a
+// client that left included, keeps its ERROR and its record
+// (TestSurface_AFailedSignInLookupIsStillAFailureForAClientThatLeft). A signed-in screen's read that
+// followed the client is not answered here: it needs a session, so it is not anyone's alarm.
+func (s *Surface) answerClientLeft(w http.ResponseWriter, r *http.Request) {
+	s.log.DebugContext(r.Context(), "operator: the client left before the sign-in step ran")
+	httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+	s.problem(w, r, http.StatusServiceUnavailable, problemUnavailable)
 }
 
 // redirect answers 303 See Other: a POST becomes a plain GET and a refresh is harmless.

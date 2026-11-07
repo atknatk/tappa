@@ -12,6 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const auditEventVisible = `-- name: AuditEventVisible :one
+SELECT EXISTS (SELECT 1 FROM audit_log WHERE tenant_id = $1 AND id = $2)
+`
+
+type AuditEventVisibleParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Is the row with this id this tenant's? It is what RecordAuditEventOnce's 0 rows means.
+func (q *Queries) AuditEventVisible(ctx context.Context, arg AuditEventVisibleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, auditEventVisible, arg.TenantID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const confirmRecentRemoval = `-- name: ConfirmRecentRemoval :one
 SELECT coalesce((detail->>'name')::text, '')::text AS removed_name
 FROM audit_log
@@ -475,4 +492,46 @@ func (q *Queries) RecordAuditEvent(ctx context.Context, arg RecordAuditEventPara
 	var i RecordAuditEventRow
 	err := row.Scan(&i.ID, &i.At)
 	return i, err
+}
+
+const recordAuditEventOnce = `-- name: RecordAuditEventOnce :execrows
+INSERT INTO audit_log (id, tenant_id, actor_id, action, target, detail)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (id) DO NOTHING
+`
+
+type RecordAuditEventOnceParams struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+	ActorID  *uuid.UUID
+	Action   string
+	Target   *string
+	Detail   []byte
+}
+
+// RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
+// caller's, so a retry after an answer that never arrived -- the COMMIT may have
+// reached the server -- finds its own row and adds nothing to a table nothing can
+// delete from. 0 rows affected, on a row THIS tenant can see, is that success.
+//
+// `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason, so it is when this write
+// happened, which on a retry can be later than the event. ON CONFLICT DO NOTHING needs no
+// UPDATE privilege (tappa_app holds INSERT on the id column by 00053:36) and fires no
+// audit_log_no_mutation: nothing is mutated.
+//
+// The arbiter is the whole table's primary key and RLS does not hide a conflict, so 0 rows
+// can also mean ANOTHER tenant's row holds the id: AuditEventVisible tells the two apart.
+func (q *Queries) RecordAuditEventOnce(ctx context.Context, arg RecordAuditEventOnceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordAuditEventOnce,
+		arg.ID,
+		arg.TenantID,
+		arg.ActorID,
+		arg.Action,
+		arg.Target,
+		arg.Detail,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

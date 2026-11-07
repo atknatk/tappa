@@ -768,10 +768,10 @@ func TestResetOutbox_ConcurrentRequestsForOneAccountStayInsideItsBudget(t *testi
 				// resetOutboxSize behind it — all directly, before the twenty.
 				fill := grantsFor("filler@registered.example.test", 1+resetOutboxSize)
 				req := httptest.NewRequest(http.MethodPost, adminResetPath, nil)
-				h.dispatch(req, "203.0.113.50", fill[0])
+				h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.50", fill[0])
 				gate.waitStarted(t)
 				for _, g := range fill[1:] {
-					h.dispatch(req, "203.0.113.50", g)
+					h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.50", g)
 				}
 			}
 
@@ -903,7 +903,7 @@ func TestResetOutbox_RacingRowWritersStayInsideTheBudget(t *testing.T) {
 			_, h := newResetRouter(t, &fakeResets{}, &recordingChannel{}, trail)
 			drain(t, h)
 			grants := sameAccount(40)
-			race(len(grants), func(i int) { h.dispatch(req, "203.0.113.60", grants[i]) })
+			race(len(grants), func(i int) { h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.60", grants[i]) })
 			check(t, run, trail.eventsSnapshot(), grants[0].Issued.Reset.AdminUserID.String(), adminResetAccountLimit)
 		}
 	})
@@ -914,7 +914,7 @@ func TestResetOutbox_RacingRowWritersStayInsideTheBudget(t *testing.T) {
 			trail := &fakeTrail{}
 			_, h := newResetRouter(t, &fakeResets{}, &recordingChannel{delay: time.Millisecond}, trail)
 			grants := sameAccount(60)
-			race(len(grants), func(i int) { h.dispatch(req, "203.0.113.61", grants[i]) })
+			race(len(grants), func(i int) { h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.61", grants[i]) })
 			drain(t, h)
 			check(t, run, trail.eventsSnapshot(), grants[0].Issued.Reset.AdminUserID.String(), adminResetAccountLimit)
 		}
@@ -1207,10 +1207,10 @@ func TestResetOutbox_AClientThatLeavesStillGetsItsFallbackRow(t *testing.T) {
 			case "full":
 				fill := grantsFor("filler@registered.example.test", 1+resetOutboxSize)
 				req := httptest.NewRequest(http.MethodPost, adminResetPath, nil)
-				h.dispatch(req, "203.0.113.70", fill[0])
+				h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.70", fill[0])
 				gate.waitStarted(t)
 				for _, g := range fill[1:] {
-					h.dispatch(req, "203.0.113.70", g)
+					h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.70", g)
 				}
 			}
 			b := newBrowser(t, router)
@@ -1433,7 +1433,7 @@ func TestResetOutbox_AnOfferRacingTheDrainNeverSendsOnAClosedQueue(t *testing.T)
 			go func(g adminauth.ResetGrant) {
 				defer wg.Done()
 				<-start
-				h.dispatch(req, "203.0.113.80", g)
+				h.dispatch(req, time.Now().Add(resetFallbackBudget), "203.0.113.80", g)
 			}(grants[i])
 		}
 		wg.Add(1)

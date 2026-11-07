@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/sun"
 )
 
@@ -18,23 +19,21 @@ import (
 // Anything more here would be a second place to get the envelope wrong.
 //
 // 🔴 THE KEK IS HELD, NOT COPIED, AND THAT IS THE M2-05 RULE KEPT RATHER THAN BENT.
-// internal/sun's own header states the discipline: "The KEK is passed in as an
-// explicit PARAMETER on every call … the only long-lived copy of the KEK is
-// config's." This struct stores the caller's SLICE HEADER, so the bytes it points at
-// are still config's bytes — one long-lived copy, not two. Copying them would make a
-// second one and would leave it unreachable from any wipe.
+// internal/sun's own header states the discipline: the only long-lived copy of the
+// KEK is config's. This struct stores config's own Key value, which points at the same
+// bytes (backlog T205; since T80 a caller could only hand it a revealed copy, and
+// %+v of a struct holding this wrapper printed those bytes). A Key cannot be written to,
+// so the aliasing costs nothing.
 //
-// ⚠️ THE COUNTED CONSEQUENCE OF NOT COPYING, because aliasing cuts both ways: a
-// caller that mutates or zeroes the slice it handed in breaks every subsequent
-// WrapKey, and this type cannot notice. Nothing in this repository does that —
-// config.Load builds the slice once and hands it out — and the alternative (a copy)
-// trades a bug nobody has for a key copy §4.7 would rather not have.
+// Each WrapKey reveals a copy for its one call and does not wipe it: only the keyring
+// calls sun.Zero in this package, and a Key cannot be wiped, so the process holds the
+// same bytes for its whole life anyway.
 //
 // ⚠️ AND WHAT IT IS NOT: there is no cache of anything. M2-05's decision was that no
 // plaintext TAG key is ever cached; this type never sees one for longer than the
 // call, never stores one, and never returns one.
 type KEKWrapper struct {
-	kek []byte
+	kek config.Key
 }
 
 // NewKEKWrapper builds a Wrapper over kek — internal/config's Config.TagKEK.
@@ -45,9 +44,9 @@ type KEKWrapper struct {
 // a round with the chip already selected. That is the same reasoning NewStore gives
 // for building the NDEF template once. The message reports a LENGTH and never a byte
 // (§4.7).
-func NewKEKWrapper(kek []byte) (*KEKWrapper, error) {
-	if len(kek) != sun.KEKLen {
-		return nil, fmt.Errorf("encode: the tag KEK must be %d bytes, got %d", sun.KEKLen, len(kek))
+func NewKEKWrapper(kek config.Key) (*KEKWrapper, error) {
+	if kek.Len() != sun.KEKLen {
+		return nil, fmt.Errorf("encode: the tag KEK must be %d bytes, got %d", sun.KEKLen, kek.Len())
 	}
 	return &KEKWrapper{kek: kek}, nil
 }
@@ -66,14 +65,14 @@ func NewKEKWrapper(kek []byte) (*KEKWrapper, error) {
 // own contract says the same ("the caller owns its lifetime"). Wiping it here would
 // pull a buffer out from under the ring that still has it registered.
 func (w *KEKWrapper) WrapKey(uid []byte, plainKey []byte) ([]byte, error) {
-	if w == nil || len(w.kek) != sun.KEKLen {
+	if w == nil || w.kek.Len() != sun.KEKLen {
 		// Reachable only through a zero-value KEKWrapper{} built without the
 		// constructor. Refusing beats forwarding an empty KEK to sun.Wrap, whose
 		// error would be about the KEK's size and would send a reader looking at
 		// configuration.
 		return nil, errors.New("encode: this wrapper was not built with NewKEKWrapper")
 	}
-	wrapped, err := sun.Wrap(w.kek, uid, plainKey)
+	wrapped, err := sun.Wrap(w.kek.Reveal(), uid, plainKey)
 	if err != nil {
 		// sun.Wrap's errors carry lengths only (its own header states and its tests
 		// assert that), so wrapping them adds context without adding bytes.

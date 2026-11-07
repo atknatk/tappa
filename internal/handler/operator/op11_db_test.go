@@ -15,7 +15,8 @@ package operator_test
 // tables and the foreign keys that point at them), measured around one run on the
 // development database (2026-10-03, owner connection, read-only transaction): one operator
 // account (op10b-…, newLegalE2E's; disabled at cleanup), its five sessions (the signed-in
-// one and four planted; revoked at cleanup), and nine audit rows -- login, logout and seven
+// one and four planted; revoked at cleanup), and ten audit rows -- password_ok (OP-14 C; the
+// 2026-10-03 run predates its writer, a run on 2026-11-06 counts it), login, logout and seven
 // 'read' rows: five of scope tenants (the list, three searches, the planted live session's
 // list) and two of tenant_detail (the overview, the unknown id); the overview adds one
 // more per retry when another test changes the tenant's counts mid-read. Read tickets are
@@ -219,8 +220,15 @@ func TestE2E_TenantScreensReadThroughTheDefinersAndAuditEachRead(t *testing.T) {
 		t.Fatal("the tenant's counts changed under every one of three attempts; another test is writing to it")
 	}
 	banner := strings.Index(page, `<section class="op-tenant" aria-label="Tenant">`)
-	if banner < 0 || !strings.Contains(page[banner:], html.EscapeString(name)) ||
-		!strings.Contains(page, "<title>Tenant overview — "+html.EscapeString(name)+" — Taptime operator</title>") {
+	// T97: the screen prints the name without bidi controls; the tenant is whichever is oldest here.
+	shown := strings.Map(func(r rune) rune {
+		if strings.ContainsRune(bidiControls, r) {
+			return -1
+		}
+		return r
+	}, name)
+	if banner < 0 || !strings.Contains(page[banner:], html.EscapeString(shown)) ||
+		!strings.Contains(page, "<title>Tenant overview — "+html.EscapeString(shown)+" — Taptime operator</title>") {
 		t.Errorf("the overview's banner or title does not carry the tenant's name")
 	}
 	if n := reads() - detailsBefore; n != views {

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -89,7 +90,7 @@ func previewFixture(t *testing.T, status string) (*Verifier, *spyResolver, Param
 	key := hexBytes(t, fakeTagKey)
 	mac := referenceMAC(t, key, uidBytes, hexBytes(t, fakeCtrHex))
 	s := &spyResolver{tag: fakeActiveTag(t, kek, uidBytes, key, status)}
-	return NewVerifier(s, kek), s, mustParse(t, fakeUIDHex, fakeCtrHex, hex.EncodeToString(mac[:]))
+	return NewVerifier(s, config.NewKey(kek)), s, mustParse(t, fakeUIDHex, fakeCtrHex, hex.EncodeToString(mac[:]))
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +121,7 @@ func TestPreview_NeverIssuesTheAdvanceQuery(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &spyResolver{tag: fakeActiveTag(t, kek, uidBytes, key, tc.status)}
-			pv, err := NewVerifier(s, kek).PreviewWithoutReplayProtection(
+			pv, err := NewVerifier(s, config.NewKey(kek)).PreviewWithoutReplayProtection(
 				context.Background(), mustParse(t, fakeUIDHex, tc.ctrHex, tc.cmac))
 			if err != nil {
 				t.Fatalf("preview err = %v, want nil", err)
@@ -242,7 +243,7 @@ func TestPreview_CarriesNothingAReplayCheckCouldBeBuiltFrom(t *testing.T) {
 
 func TestPreview_UnknownUIDReturnsErrUnknownTag(t *testing.T) {
 	s := &spyResolver{resolveErr: pgx.ErrNoRows}
-	_, err := NewVerifier(s, hexBytes(t, fakeKEKHex)).PreviewWithoutReplayProtection(
+	_, err := NewVerifier(s, config.NewKey(hexBytes(t, fakeKEKHex))).PreviewWithoutReplayProtection(
 		context.Background(), mustParse(t, fakeUIDHex, fakeCtrHex, "83c0104d8ac39077"))
 	if !errors.Is(err, ErrUnknownTag) {
 		t.Fatalf("err = %v, want ErrUnknownTag", err)
@@ -254,7 +255,7 @@ func TestPreview_UnknownUIDReturnsErrUnknownTag(t *testing.T) {
 
 func TestPreview_InfraErrorIsNotAnUnknownTag(t *testing.T) {
 	boom := errors.New("connection reset by peer")
-	_, err := NewVerifier(&spyResolver{resolveErr: boom}, hexBytes(t, fakeKEKHex)).
+	_, err := NewVerifier(&spyResolver{resolveErr: boom}, config.NewKey(hexBytes(t, fakeKEKHex))).
 		PreviewWithoutReplayProtection(context.Background(), mustParse(t, fakeUIDHex, fakeCtrHex, "83c0104d8ac39077"))
 	if errors.Is(err, ErrUnknownTag) {
 		t.Fatal("an outage was reported as ErrUnknownTag (a page that says 'unknown plaque' during an outage sends the employee to their manager for nothing)")
@@ -297,7 +298,7 @@ func TestPreview_NoSecretInErrors(t *testing.T) {
 	p := mustParse(t, fakeUIDHex, fakeCtrHex, hex.EncodeToString(mac[:]))
 
 	s := &spyResolver{tag: fakeActiveTag(t, rightKEK, uidBytes, key, "active")}
-	_, err := NewVerifier(s, wrongKEK).PreviewWithoutReplayProtection(context.Background(), p)
+	_, err := NewVerifier(s, config.NewKey(wrongKEK)).PreviewWithoutReplayProtection(context.Background(), p)
 	if err == nil {
 		t.Fatal("a wrong KEK must surface as an error, not as a quiet reject")
 	}
@@ -322,7 +323,7 @@ func TestPreview_AgainstPostgresDoesNotMoveTheCounter(t *testing.T) {
 	d := appDB(t)
 	kek := hexBytes(t, fakeKEKHex)
 	keyA := hexBytes(t, fakeTagKey)
-	ver := NewVerifier(d, kek)
+	ver := NewVerifier(d, config.NewKey(kek))
 	ctx := context.Background()
 
 	const startCtr = 500
@@ -411,7 +412,7 @@ func TestPreview_QRURLNeverUnwrapsTheTagKey(t *testing.T) {
 	// byte makes it unopenable — no secret is constructed or printed here.
 	tag.AESKeyRef[len(tag.AESKeyRef)-1] ^= 0xFF
 
-	ver := NewVerifier(&spyResolver{tag: tag}, kek)
+	ver := NewVerifier(&spyResolver{tag: tag}, config.NewKey(kek))
 
 	pv, err := ver.PreviewWithoutReplayProtection(context.Background(), mustParse(t, fakeUIDHex, "", ""))
 	if err != nil {

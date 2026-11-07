@@ -295,7 +295,7 @@ const adminConfirmFutureSkew = time.Minute
 // privately, so a later mutation of the caller's config slice cannot silently change
 // how confirmations sign.
 type adminConfirm struct {
-	key []byte
+	key config.Key
 	ttl time.Duration
 	// now is injectable for tests only; production leaves it nil.
 	now func() time.Time
@@ -310,7 +310,7 @@ func newAdminConfirm(cfg *config.Config) (adminConfirm, error) {
 	}
 	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(adminConfirmKeyLabel)) // hash writes never fail (documented)
-	return adminConfirm{key: m.Sum(nil), ttl: adminConfirmTTL}, nil
+	return adminConfirm{key: config.NewKey(m.Sum(nil)), ttl: adminConfirmTTL}, nil
 }
 
 func (c adminConfirm) clock() time.Time {
@@ -343,7 +343,7 @@ func (c adminConfirm) payload(issuedAt time.Time, action, subject string, sessio
 // shape the payload later takes, which is a guarantee the next person to add a field
 // does not have to know about.
 func (c adminConfirm) sign(payload string) []byte {
-	m := hmac.New(sha256.New, c.key)
+	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(adminConfirmMACLabel))
 	_, _ = m.Write([]byte(strconv.Itoa(len(payload))))
 	_, _ = m.Write([]byte("|"))
@@ -359,7 +359,7 @@ func (c adminConfirm) sign(payload string) []byte {
 // rather than defaults, which is adminChoices' rule: where a type has no safe zero
 // value, the zero value must fail loudly.
 func (c adminConfirm) mint(action, subject string, sessionID uuid.UUID) (string, error) {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return "", errors.New("handler: the deactivation confirmation was not configured")
 	}
 	if subject == "" || sessionID == uuid.Nil {
@@ -407,7 +407,7 @@ var (
 // unauthenticated value is ever acted on. This is logincontext.go's order and
 // tapcontext.go's, kept deliberately identical so the three read as one pattern.
 func (c adminConfirm) parse(v, action, subject string, sessionID uuid.UUID) error {
-	if len(c.key) == 0 {
+	if c.key.Len() == 0 {
 		return errors.New("handler: the deactivation confirmation was not configured")
 	}
 	if subject == "" || sessionID == uuid.Nil || action == "" {

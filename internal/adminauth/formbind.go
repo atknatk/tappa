@@ -9,6 +9,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // formbind.go -- the tenant binding every panel form carries (ADR 0031 §5.5, M14-10a).
@@ -51,7 +53,7 @@ const (
 var errFormBinderUnset = errors.New("adminauth: form binder has no key")
 
 // FormBinder produces and checks panel form bindings. The zero value refuses everything.
-type FormBinder struct{ key []byte }
+type FormBinder struct{ key config.Key }
 
 // NewFormBinder derives the binder's key from TAPPA_SESSION_HMAC_KEY.
 func NewFormBinder(sessionKey []byte) (FormBinder, error) {
@@ -60,7 +62,7 @@ func NewFormBinder(sessionKey []byte) (FormBinder, error) {
 	}
 	m := hmac.New(sha256.New, sessionKey)
 	_, _ = m.Write([]byte(formBindKeyLabel)) // hash writes never fail (documented)
-	return FormBinder{key: m.Sum(nil)}, nil
+	return FormBinder{key: config.NewKey(m.Sum(nil))}, nil
 }
 
 // Bind is the binding of tenant under the session whose raw token is t. It refuses a
@@ -70,7 +72,7 @@ func NewFormBinder(sessionKey []byte) (FormBinder, error) {
 // The result is not a secret beyond the cookie (whoever holds the cookie can load a page
 // and read it), but it is never logged: it is a per-session credential all the same.
 func (b FormBinder) Bind(t Token, tenant uuid.UUID) (string, error) {
-	if len(b.key) != sha256.Size {
+	if b.key.Len() != sha256.Size {
 		return "", errFormBinderUnset
 	}
 	if tenant == uuid.Nil {
@@ -83,7 +85,7 @@ func (b FormBinder) Bind(t Token, tenant uuid.UUID) (string, error) {
 	if _, err := base64.RawURLEncoding.DecodeString(v); err != nil {
 		return "", errMalformed
 	}
-	k := hmac.New(sha256.New, b.key)
+	k := hmac.New(sha256.New, b.key.Reveal())
 	_, _ = k.Write([]byte(v))
 	m := hmac.New(sha256.New, k.Sum(nil))
 	_, _ = m.Write([]byte(formBindPrefix + tenant.String()))

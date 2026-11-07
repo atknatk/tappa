@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -64,7 +65,7 @@ type Trail interface {
 // Keys is the panel acts' service.
 type Keys struct {
 	prefix string
-	key    []byte
+	key    config.Key
 	data   Database
 	trail  Trail
 }
@@ -80,7 +81,7 @@ func NewKeys(prefix string, hmacKey []byte, data Database, trail Trail) (*Keys, 
 	if data == nil || trail == nil {
 		return nil, errors.New("api key: nil database or trail")
 	}
-	return &Keys{prefix: prefix, key: append([]byte(nil), hmacKey...), data: data, trail: trail}, nil
+	return &Keys{prefix: prefix, key: config.NewKey(hmacKey), data: data, trail: trail}, nil
 }
 
 // Key is one row of the owner's list. No hash, no secret: the hint is all that names it.
@@ -302,7 +303,7 @@ func (k *Keys) Create(ctx context.Context, c CreateCommand) (Created, error) {
 		return Created{}, err
 	}
 	v := tok.reveal()
-	h, err := keyedHash(k.key, v)
+	h, err := keyedHash(k.key.Reveal(), v)
 	if err != nil {
 		return Created{}, err
 	}

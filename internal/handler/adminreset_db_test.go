@@ -365,7 +365,7 @@ func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
 // Postgres. The drain must finish inside its budget, with exactly one undelivered row
 // per grant. The log line is the measurement the reserve is argued from.
 //
-// SINCE M10 EM-7C EACH UNDELIVERED ROW IS PRECEDED BY A WITHDRAWAL (recordOutcome), so
+// SINCE M10 EM-7C EACH UNDELIVERED ROW IS PRECEDED BY A WITHDRAWAL (attemptOutcome), so
 // the reserve holds both: the withdrawals go to real Postgres through the real
 // adminauth.Resets.Withdraw (the grants are the fake's, so each UPDATE matches no row —
 // the round trip and the transaction are paid, the one-row write is not).

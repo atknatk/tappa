@@ -442,8 +442,8 @@ func TestAPDU_CommandBuildersRejectMalformedInput(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 			assertNoKeyBytesInMessage(t, err.Error(), cryptogram)
-			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyENC)
-			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyMAC)
+			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyENC.Reveal())
+			assertNoKeyBytesInMessage(t, err.Error(), auth.KeyMAC.Reveal())
 		})
 	}
 
@@ -664,7 +664,7 @@ func TestNDEF_ChipMirrorRoundTripsThroughOurOwnVerifier(t *testing.T) {
 				return
 			}
 			// And the published SDM MAC verifies over the values that came back out.
-			ok, err := verifyMAC(hexBytes(t, katT5Key), p.UIDBytes, p.CtrBytes[:], p.CMAC)
+			ok, err := verifyMAC(hexBytes(t, katT5Key), p.UIDBytes, p.CtrBytes[:], p.CMAC.Reveal())
 			if err != nil {
 				t.Fatalf("verifyMAC: %v", err)
 			}

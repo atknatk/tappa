@@ -624,7 +624,7 @@ func TestEmployeeDeactivate_TheConfirmationCannotBeForged(t *testing.T) {
 		{"a genuine token re-signed under a guessed key", func(t *testing.T, b *browser) (string, string) {
 			// The payload is readable — it is base64, not a secret — so an attacker can
 			// rebuild it for the employee they want. What they cannot do is sign it.
-			forged, err := adminConfirm{key: []byte("not-the-servers-key"), ttl: adminConfirmTTL}.
+			forged, err := adminConfirm{key: config.NewKey([]byte("not-the-servers-key")), ttl: adminConfirmTTL}.
 				mint(confirmActionDeactivate, employeeID.String(), panelTestSession)
 			if err != nil {
 				t.Fatalf("building the forgery: %v", err)

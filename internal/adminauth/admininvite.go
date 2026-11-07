@@ -232,7 +232,7 @@ type AdminInvites struct {
 	data InviteDatabase
 	// inviteKey hashes invitation tokens; sessionKey hashes the panel cookie the session acceptance
 	// carries (the Manager's derivation, token.go) -- the identity is found through it alone.
-	inviteKey, sessionKey []byte
+	inviteKey, sessionKey config.Key
 	ttl                   time.Duration
 	now                   func() time.Time
 	// digest is the new-password path's bcrypt (Hash in production; Resets.digest's reason for a field).
@@ -255,7 +255,7 @@ func NewAdminInvites(data InviteDatabase, cfg *config.Config) (*AdminInvites, er
 	if err != nil {
 		return nil, err
 	}
-	return &AdminInvites{data: data, inviteKey: ik, sessionKey: sk, ttl: InviteTTL, now: time.Now, digest: Hash}, nil
+	return &AdminInvites{data: data, inviteKey: config.NewKey(ik), sessionKey: config.NewKey(sk), ttl: InviteTTL, now: time.Now, digest: Hash}, nil
 }
 
 // Issue writes an invitation from the owner invitedBy of tenantID to email for fullName, retiring the
@@ -277,7 +277,7 @@ func (s *AdminInvites) Issue(ctx context.Context, tenantID, invitedBy uuid.UUID,
 	if err != nil {
 		return IssuedInvite{}, err
 	}
-	h, err := tok.hash(s.inviteKey)
+	h, err := tok.hash(s.inviteKey.Reveal())
 	if err != nil {
 		return IssuedInvite{}, fmt.Errorf("adminauth: issue invite: %w", err)
 	}
@@ -357,7 +357,7 @@ func (s *AdminInvites) Cancel(ctx context.Context, tenantID, inviteID uuid.UUID)
 // nothing (the GET's question; R19: it is never consumed by being looked at). A malformed token is
 // ErrInviteUnusable without a database call.
 func (s *AdminInvites) Usable(ctx context.Context, t InviteToken) error {
-	h, err := t.hash(s.inviteKey)
+	h, err := t.hash(s.inviteKey.Reveal())
 	if err != nil {
 		return ErrInviteUnusable
 	}
@@ -379,11 +379,11 @@ func (s *AdminInvites) Usable(ctx context.Context, t InviteToken) error {
 // and the database refused (another address's session, an unlinked or ended session, or the address
 // already in the business).
 func (s *AdminInvites) AcceptWithSession(ctx context.Context, t InviteToken, session Token) (db.AcceptedAdminInvite, error) {
-	ih, err := t.hash(s.inviteKey)
+	ih, err := t.hash(s.inviteKey.Reveal())
 	if err != nil {
 		return db.AcceptedAdminInvite{}, ErrInviteUnusable
 	}
-	sh, err := session.hash(s.sessionKey)
+	sh, err := session.hash(s.sessionKey.Reveal())
 	if err != nil {
 		return db.AcceptedAdminInvite{}, s.refusal(ctx, ih)
 	}
@@ -401,7 +401,7 @@ func (s *AdminInvites) AcceptWithSession(ctx context.Context, t InviteToken, ses
 // (identity_accept_invite_new). The caller has checked the two boxes (the panel's password rule).
 // ErrInviteUnusable / ErrInviteNotAccepted as AcceptWithSession's.
 func (s *AdminInvites) AcceptNew(ctx context.Context, t InviteToken, password string) (db.AcceptedAdminInvite, error) {
-	ih, err := t.hash(s.inviteKey)
+	ih, err := t.hash(s.inviteKey.Reveal())
 	if err != nil {
 		return db.AcceptedAdminInvite{}, ErrInviteUnusable
 	}

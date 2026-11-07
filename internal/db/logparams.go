@@ -253,8 +253,9 @@ func pinLogParameters(cfg *pgxpool.Config, variable string, before func(context.
 
 // requireLogParametersPinned reads the setting on c and refuses anything but "0". A
 // read that fails with a server error is a refusal (logParameterReadError); any other
-// failure -- the network, the dial's deadline -- is wrapped, so the operator pool
-// classifies it like any other failure during its ping.
+// failure -- the network, the dial's deadline -- is wrapped, so each pool classifies it like
+// any other failure during its ping. That wrap's text never leaves this package: this runs in
+// AfterConnect, and both pools answer a ping with the class alone (operatorConnectErr, poolStepErr).
 func requireLogParametersPinned(ctx context.Context, c *pgx.Conn) error {
 	var got string
 	if err := c.QueryRow(ctx, readLogParameterSQL).Scan(&got); err != nil {

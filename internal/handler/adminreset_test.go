@@ -989,6 +989,11 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 	}{
 		{"resetSendGrace", resetSendGrace, 15 * time.Second},
 		{"resetAuditGrace", resetAuditGrace, 5 * time.Second},
+		// The clocks of a link's after-the-fact writes (T197, adminresetoutcome.go).
+		{"resetFallbackBudget", resetFallbackBudget, time.Second},
+		{"resetFallbackStep", resetFallbackStep, 500 * time.Millisecond},
+		{"resetOutcomeGrace", resetOutcomeGrace, 5 * time.Second},
+		{"resetRetryPause", resetRetryPause, 2 * time.Second},
 		{"ResetDrainGrace", ResetDrainGrace, 3 * time.Second},
 		{"ResetDrainWriteReserve", ResetDrainWriteReserve, time.Second},
 	} {
@@ -996,6 +1001,12 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 			t.Errorf("%s = %v, want %v. Re-derive it at its declaration rather than editing this line.",
 				tc.name, tc.got, tc.want)
 		}
+	}
+	if resetOutcomeTries != 2 {
+		t.Errorf("resetOutcomeTries = %d, want 2: one try and one retry (T197)", resetOutcomeTries)
+	}
+	if resetRetryQueueSize != 256 {
+		t.Errorf("resetRetryQueueSize = %d, want 256. Re-derive it at its declaration: a short stall fills it a full window per request.", resetRetryQueueSize)
 	}
 	if adminauth.ResetWindow != adminauth.MaxCandidates {
 		t.Errorf("adminauth.ResetWindow = %d and MaxCandidates = %d; a recovery link outside "+

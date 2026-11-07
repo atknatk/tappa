@@ -43,6 +43,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/mail"
@@ -276,8 +277,9 @@ type Account struct {
 	// length of one request: Provision hands it to adminauth.Hash and never stores,
 	// logs or returns it. It is deliberately NOT carried in the wizard's signed
 	// state — internal/handler/signupstate.go says the same from its side, and it is
-	// why the account step is LAST.
-	Password string
+	// why the account step is LAST. A config.Key because a %+v of a Draft printed it
+	// (backlog T209).
+	Password config.Key
 }
 
 // Draft is a complete registration, ready to be provisioned.
@@ -325,6 +327,10 @@ func ValidateBusiness(b Business) (Business, Errors) {
 		// See isStorableText: the database refuses these bytes, so without this the
 		// registration fails at the last statement and answers 500.
 		errs.add("name", "That name contains a character we cannot store. Retype it.")
+	case tenant.NameBreaksIsolation(b.Name):
+		// T97, T216: the account screen's rule. An Arabic or a Hebrew name is letters, and passes;
+		// the venues' wider rule (NameHasHiddenCharacters, below) is not applied to this field.
+		errs.add("name", "That name has a line break or a direction override in it, usually from pasted text. Type it again.")
 	}
 
 	b.VATNumber = NormaliseVAT(b.VATNumber)
@@ -471,13 +477,13 @@ func ValidateAccount(a Account) (Account, Errors) {
 		errs.add("email", "That does not look like an email address we can send mail to.")
 	}
 
-	switch n := utf8.RuneCountInString(a.Password); {
-	case a.Password == "":
+	switch n := utf8.RuneCount(a.Password.Reveal()); {
+	case a.Password.Len() == 0:
 		errs.add("password", "Choose a password.")
 	case n < MinPasswordRunes:
 		errs.add("password", fmt.Sprintf("Use at least %d characters. A few words you will "+
 			"remember beats a short one you will not.", MinPasswordRunes))
-	case len(a.Password) > MaxPasswordBytes:
+	case a.Password.Len() > MaxPasswordBytes:
 		// BYTES, not runes, and the difference is the point: bcrypt's limit is a byte
 		// limit and its COMPARER silently truncates past it (internal/adminauth
 		// measured that a 100-byte password authenticates an account whose password

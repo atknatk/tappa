@@ -1363,7 +1363,7 @@ func TestBillingScreen_NamesTheTenantAndEscapesWhatItNamed(t *testing.T) {
 	g := newRig(t)
 	c := g.signIn(g.active())
 	const name = "Rusty <Bar> & \"Grill\" \u202eevil"
-	const esc = "Rusty &lt;Bar&gt; &amp; &#34;Grill&#34; \u202eevil"
+	const esc = "Rusty &lt;Bar&gt; &amp; &#34;Grill&#34; evil" // T97: without the override
 	odd := billingMonth{y: 2026, m: time.September, state: "frozen", people: 2, amount: "2.20", plan: `<script>x</script>`,
 		currency: `<b>X`, closedAt: time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)}
 	months := append([]db.TenantBillingMonth{odd.month()}, billingBeforeSignupMonths(2026, time.August, 11)...)
@@ -2358,9 +2358,9 @@ func readCardClasses(s string) (cards, editors int, findings []string) {
 // five -- each have a compiled rule.
 //
 // Threat model and escapes as in TestTallyRules_NoToneRuleColoursTheWord, plus the stamp test's
-// LIMIT 5 (a cascade this scan does not resolve). 🔴 IT SKIPS WHEN app.css IS ABSENT, which it
-// is on CI (.gitignore keeps the compiled sheet out; ci.yml builds no CSS) -- a skip is not a
-// pass; the source half above is the one CI runs.
+// LIMIT 5 (a cascade this scan does not resolve). 🔴 IT SKIPS WHEN app.css IS ABSENT -- a skip is
+// not a pass. .gitignore keeps the compiled sheet out of a checkout and ci.yml builds it (`make css`,
+// before `make check`), so CI runs this half too; a local run without `make css` does not.
 //
 // PART II -- red on: a tone rule declaring a colour or a text opacity (the third eye's MZ8
 // compiles to exactly that); a base rule of another colour, or none, or two; a tone missing.
@@ -2560,6 +2560,13 @@ const slowestBillingRead = 6100 * time.Millisecond
 // TestTenantBilling_ThePhaseTwoTransactionCarriesItsOwnTimeBound; that a read past it is a 503
 // with its ticket unconsumed is op12_db_test.go's TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed.)
 func TestBillingRead_TheBoundFiresBeforeTheRequestDeadline(t *testing.T) {
+	// T98: the pool's bound on every other statement, by the same arithmetic.
+	if 2*db.OperatorStatementTimeout > httpx.RequestTimeout {
+		t.Errorf("2 x the operator pool's statement bound (%v) is past the request's deadline (%v)", db.OperatorStatementTimeout, httpx.RequestTimeout)
+	}
+	if db.OperatorStatementTimeout < 2*slowestBillingRead {
+		t.Errorf("the operator pool's statement bound (%v) is under twice the slowest read measured (%v)", db.OperatorStatementTimeout, slowestBillingRead)
+	}
 	if 2*db.TenantBillingReadTimeout > httpx.RequestTimeout {
 		t.Errorf("2 x the billing read's bound (%v) is past the request's deadline (%v)", db.TenantBillingReadTimeout, httpx.RequestTimeout)
 	}
