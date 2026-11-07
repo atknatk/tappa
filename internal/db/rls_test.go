@@ -518,11 +518,11 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			}},
 		{"tags", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), a.tenantID, a.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), a.tenantID, a.locationID)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), b.tenantID, b.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), b.tenantID, b.locationID)
 				return e
 			}},
 		{"transactions", blockRLS,

@@ -217,9 +217,11 @@ func TestTags00013_UIDHasOneCanonicalSpelling(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			uid := tc.uid
+			// status is named: since 00090 (T76) an omitted one is 'unassigned', which a row with a
+			// location may not be -- the uid is the variable here, not the status.
 			_, err := execAs(t, app, fx.tenantID,
-				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref)
-				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`,
+				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`,
 				uid, fx.tenantID, fx.locationID)
 			if tc.ok {
 				if err != nil {
