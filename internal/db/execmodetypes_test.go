@@ -1050,6 +1050,9 @@ func TestConstructors_TheHookReachesOnlyThePin(t *testing.T) {
 //
 // Backlog T84 (2026-11-06): newDB's two pgx wraps became poolStepErr -- only the error's text changed,
 // no branch, no second parse, the pin and its check untouched.
+// T98 (2026-11-06): openOperatorDB gained pinOperatorStatementTimeout and its read-back, the shape
+// newDB's pinFeedTimeouts already has -- no branch, no second parse, the pin and its check untouched;
+// the same two tests re-run green on the changed body.
 var reviewedBodies = map[string]string{
 	"newDB": `{
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL.Reveal())
@@ -1101,6 +1104,7 @@ var reviewedBodies = map[string]string{
 		return nil, err
 	}
 	pinLogParameters(poolCfg, "TAPPA_OPERATOR_DATABASE_URL", before)
+	pinOperatorStatementTimeout(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, operatorStepErr("build the pool", err)
@@ -1115,6 +1119,10 @@ var reviewedBodies = map[string]string{
 		return nil, err
 	}
 	if err := operatorRoleRefusal(facts); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := requireOperatorStatementTimeout(ctx, pool); err != nil {
 		pool.Close()
 		return nil, err
 	}

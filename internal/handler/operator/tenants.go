@@ -296,6 +296,47 @@ func tenantID(raw string) (uuid.UUID, bool) {
 // zero-width or filler characters would render a banner and a link that name nobody.
 func namedVisibly(name string) bool { return visibleText(name) }
 
+// shownName is a stored name as an operator screen may print it: without the runes that break
+// out of the isolate around it (breaksIsolation), or "" when what is left has no visible
+// character (namedVisibly) -- the screen then names the row by its id. Every name a tenant or an
+// operator typed reaches a page through it (T97, T216): the tenant list and banner, the holdings,
+// the plaques' locations, the audit log (visibleName) and the legal versions' publisher.
+//
+// WHY THE bdi AROUND THE NAME IS NOT ENOUGH: U+2069 (PDI) closes the isolate the browser opened
+// for the element, so what follows it -- an override, U+202E -- runs out over the rest of the line;
+// a paragraph separator ends the bidi paragraph, with the same effect for an RLM or a Hebrew letter
+// after it. A tenant's name could turn the words beside it around on the screen an operator acts
+// from.
+//
+// WHY THE READ DROPS THEM when the writes now refuse them (tenant.Accounts.Save, signup.
+// ValidateBusiness): a name on file from before that rule stays on file -- an unchanged name is
+// never refused --, and the audit log keeps printing names of rows it may not change (CLAUDE.md
+// section 4.3's argument). The stored text is not touched. Arabic and Hebrew letters, the joiners
+// and the implicit marks (U+200E, U+200F, U+061C) are left as typed.
+func shownName(name string) string {
+	s := strings.Map(func(r rune) rune {
+		if breaksIsolation(r) {
+			return -1
+		}
+		return r
+	}, name)
+	if !namedVisibly(s) {
+		return ""
+	}
+	return s
+}
+
+// breaksIsolation reports the runes a name may not carry onto a screen: the bidirectional
+// embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069), the controls (Cc, which
+// U+001C and U+0085, both paragraph separators to the bidi algorithm, are in), and the line and
+// paragraph separators (U+2028, U+2029). It is internal/domain/tenant's NameBreaksIsolation set;
+// this surface does not import that package, and TestShownName_TheSetIsTheDomains holds the two
+// equal over every code point.
+func breaksIsolation(r rune) bool {
+	return (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') ||
+		r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cc, r)
+}
+
 // tenantTabs is the sub-nav a tenant's screen carries inside its banner (M13-01, OP-1): the
 // four mounted {id} routes of the one tenant the screen's read returned -- its overview,
 // plaques, billing months and VAT number. Links only: the sub-nav adds no read and no form.
@@ -310,8 +351,8 @@ func tenantTabs(tenant uuid.UUID) operatorpages.TenantTabs {
 // screen (OP-13) and the billing screen (OP-12) call it, with the id and the name their one
 // read returned.
 func tenantBanner(id uuid.UUID, name string) (operatorpages.TenantName, error) {
-	if namedVisibly(name) {
-		return operatorpages.NewTenantName(name)
+	if shown := shownName(name); shown != "" {
+		return operatorpages.NewTenantName(shown)
 	}
 	return operatorpages.UnnamedTenant(id.String())
 }
@@ -335,9 +376,7 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 			// start alone; the reason is the overview's.
 			Suspended: x.SuspendedAt != nil,
 		}
-		if namedVisibly(x.Name) {
-			row.Name = x.Name
-		}
+		row.Name = shownName(x.Name)
 		v.Rows = append(v.Rows, row)
 	}
 	return v

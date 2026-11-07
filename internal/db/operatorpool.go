@@ -127,7 +127,8 @@ type operatorRoleFacts struct {
 // measured through the test hook, at open and on a later connection:
 // TestPin_AConnectionTheParameterDidNotReachIsRefused), and REFUSES to hand back a pool
 // that is not tappa_operator as ADR 0021 §1 describes it
-// (TestOperatorDB_RefusesEveryRoleButTappaOperator).
+// (TestOperatorDB_RefusesEveryRoleButTappaOperator). Every statement of the pool is bounded by
+// OperatorStatementTimeout, a startup parameter it reads back (operatortimeout.go, T98).
 //
 // 🔴 THE ROLE GATE REFUSES IN EVERY ENVIRONMENT, NOT ONLY IN PRODUCTION -- a deliberate
 // difference from the customer pool's roleRefusal, which only warns outside production.
@@ -168,6 +169,7 @@ func openOperatorDB(ctx context.Context, dsn string, before func(context.Context
 		return nil, err
 	}
 	pinLogParameters(poolCfg, "TAPPA_OPERATOR_DATABASE_URL", before)
+	pinOperatorStatementTimeout(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, operatorStepErr("build the pool", err)
@@ -182,6 +184,10 @@ func openOperatorDB(ctx context.Context, dsn string, before func(context.Context
 		return nil, err
 	}
 	if err := operatorRoleRefusal(facts); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := requireOperatorStatementTimeout(ctx, pool); err != nil {
 		pool.Close()
 		return nil, err
 	}

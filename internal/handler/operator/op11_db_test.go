@@ -220,8 +220,15 @@ func TestE2E_TenantScreensReadThroughTheDefinersAndAuditEachRead(t *testing.T) {
 		t.Fatal("the tenant's counts changed under every one of three attempts; another test is writing to it")
 	}
 	banner := strings.Index(page, `<section class="op-tenant" aria-label="Tenant">`)
-	if banner < 0 || !strings.Contains(page[banner:], html.EscapeString(name)) ||
-		!strings.Contains(page, "<title>Tenant overview — "+html.EscapeString(name)+" — Taptime operator</title>") {
+	// T97: the screen prints the name without bidi controls; the tenant is whichever is oldest here.
+	shown := strings.Map(func(r rune) rune {
+		if strings.ContainsRune(bidiControls, r) {
+			return -1
+		}
+		return r
+	}, name)
+	if banner < 0 || !strings.Contains(page[banner:], html.EscapeString(shown)) ||
+		!strings.Contains(page, "<title>Tenant overview — "+html.EscapeString(shown)+" — Taptime operator</title>") {
 		t.Errorf("the overview's banner or title does not carry the tenant's name")
 	}
 	if n := reads() - detailsBefore; n != views {

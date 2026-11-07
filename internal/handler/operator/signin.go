@@ -38,6 +38,7 @@ func (s *Surface) signIn(w http.ResponseWriter, r *http.Request) {
 	}
 	email, password := postValue(r, "email"), postValue(r, "password")
 	c, err := s.auth.Password(r.Context(), rateKey(r), email.reveal(), password.reveal())
+	left := clientLeft(r, err)
 	r = answered(r)
 	switch {
 	case err == nil:
@@ -51,6 +52,8 @@ func (s *Surface) signIn(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusUnauthorized, operatorpages.SignIn(operatorpages.SignInView{Failed: true}))
 	case errors.Is(err, operatorauth.ErrThrottled):
 		s.problem(w, r, http.StatusTooManyRequests, problemTooMany(false))
+	case left:
+		s.answerClientLeft(w, r)
 	default:
 		s.log.ErrorContext(r.Context(), "operator: the first sign-in step failed", "err", err)
 		s.problem(w, r, http.StatusServiceUnavailable, problemUnavailable)

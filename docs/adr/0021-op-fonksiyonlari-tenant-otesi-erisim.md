@@ -730,6 +730,11 @@ fonksiyonun **içindedir** — enrollment token süresi de artık bir definer'ı
   (kapsam): üretimde müşteri havuzunun `current_user = tappa_operator` (ya da genel
   olarak `≠ tappa_app`) iken açılmayı reddetmesi — backlog adayı, OP-7 kart düzeltmesi
   "2b" satırında.
+- **T98 notu (2026-11-06), ölçülerek:** operatör havuzu her ifadeyi `db.OperatorStatementTimeout`
+  (15 sn) ile sınırlar: başlangıç parametresi, açılışta geri okunur, rol ayarı değil (ADR 0028 §5'in
+  gerekçesi). Kesilen okuma izi bozmaz: `read` satırı birinci aşamada commit olmuştur, ikinci aşama
+  veri döndürmez; birinci aşama kesilirse bilet doğmaz; yazma ve satırı tek ifadedir. Boşta işlem
+  ayrı konudur (T108).
 - **OP-7 notu (2026-10-01), ölçülerek** (ayrıntı: [m10-platform.md](../plan/m10-platform.md)
   → OP-7 kart düzeltmesi): (i) `db.OperatorDB` **kendisi bir `OperatorConn` değildir** —
   `Exec`/`QueryRow` yok; havuzu `OperatorConn`'dur ve yedi yöntemin her biri `operator.go`'nun

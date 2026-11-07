@@ -200,6 +200,77 @@ func TestAccountDB_SavesTheThreeFieldsAndLeavesTheRestAlone(t *testing.T) {
 	}
 }
 
+// TestAccountDB_ANewNameMayNotCarryABidiControl (T97, T216), through Save on the real row:
+//   - a new name with each of the nine runes, with PDI+RLO, with a control and with a line or
+//     paragraph separator is refused -- ErrAccountName and ErrNameHiddenCharacter -- and the row
+//     keeps its name;
+//   - right-to-left names, a joiner inside a word and the implicit marks are saved as typed;
+//   - a name ALREADY on file with a control (written here by the fixture's own statement, the way
+//     a row from before the rule is) stays editable: saved unchanged it is not refused and the other
+//     field moves; changed to another name with a control it is refused.
+func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
+	f := newAccountFixture(t)
+	ctx := context.Background()
+	// This fixture's tenant stays committed, and a screen-level test elsewhere prints the oldest
+	// tenant by its stored name: no name with a control is left behind, whatever this test finds.
+	t.Cleanup(func() {
+		err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `UPDATE tenants SET name = 'Kebab Factory Ltd' WHERE id = $1`, f.tenantID)
+			return e
+		})
+		if err != nil {
+			t.Errorf("clear the name: %v", err)
+		}
+	})
+	save := func(name, zone string) error {
+		_, err := f.accounts.Save(ctx, AccountCommand{TenantID: f.tenantID, ActorID: f.actorID,
+			Name: name, BusinessType: "restaurant", Timezone: zone})
+		return err
+	}
+	onFile, _, _, _, _, _, _ := f.row(t, f.tenantID)
+	refused := []string{"Rusty\u2069\u202eBar", "Rusty\u001c\u200fBar", "Rusty\u2029Bar", "Rusty\u2028Bar", "Rusty\u0085Bar"}
+	for _, r := range "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" {
+		refused = append(refused, "Rusty"+string(r)+"Bar")
+	}
+	for _, name := range refused {
+		err := save(name, "Europe/Malta")
+		if !errors.Is(err, ErrAccountName) || !errors.Is(err, ErrNameHiddenCharacter) {
+			t.Errorf("%q: Save = %v, want ErrAccountName and ErrNameHiddenCharacter", name, err)
+		}
+		if got, _, _, _, _, _, _ := f.row(t, f.tenantID); got != onFile {
+			t.Fatalf("%q was refused and the row reads %q", name, got)
+		}
+	}
+	for _, name := range []string{
+		"مطعم الياسمين", "מסעדת השלום בע״מ", "رستوران می\u200cخواهم", "\u200fמסעדה\u200e 7", "Chef \U0001F468\u200d\U0001F373 Bar", "Rusty\u200bBar",
+	} {
+		if err := save(name, "Europe/Malta"); err != nil {
+			t.Errorf("%q: Save = %v, want it accepted", name, err)
+		}
+		if got, _, _, _, _, _, _ := f.row(t, f.tenantID); got != name {
+			t.Errorf("%q reads back as %q", name, got)
+		}
+	}
+
+	const legacy = "Rusty\u202eBar"
+	err := f.data.WithTenant(ctx, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE tenants SET name = $1 WHERE id = $2`, legacy, f.tenantID)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("PREMISE: put a name from before the rule on file: %v", err)
+	}
+	if err := save(legacy, "Europe/Rome"); err != nil {
+		t.Errorf("the name on file, unchanged: Save = %v, want accepted", err)
+	}
+	if got, _, _, _, zone, _, _ := f.row(t, f.tenantID); got != legacy || zone != "Europe/Rome" {
+		t.Errorf("after the unchanged save the row reads (%q, %s), want the name kept and the zone moved", got, zone)
+	}
+	if err := save("Rusty\u202eBaz", "Europe/Rome"); !errors.Is(err, ErrNameHiddenCharacter) {
+		t.Errorf("the name on file, changed but still with a control: Save = %v, want it refused", err)
+	}
+}
+
 // TestAccountDB_TheChangeAndItsAuditRowShareATransaction.
 //
 // 🔴 IT MATTERS MORE HERE THAN ALMOST ANYWHERE. `tenants` has no updated_at, so a

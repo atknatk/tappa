@@ -651,6 +651,20 @@ func hasVisibleRune(s string) bool {
 	return false
 }
 
+// NameBreaksIsolation is the business name's character rule (T97, T216): the bidi embeddings,
+// overrides and isolates, the controls and the line and paragraph separators -- what lets a name out
+// of the isolate a screen puts around it. Only those: letters of any script, the joiners, a zero-width
+// space and the implicit marks are not its business (the venues' wider rule, NameHasHiddenCharacters,
+// is not applied to this field). The operator's screens drop the same set when they read.
+func NameBreaksIsolation(s string) bool {
+	if containsBidiControl(s) {
+		return true
+	}
+	return strings.ContainsFunc(s, func(r rune) bool {
+		return r == '\u2028' || r == '\u2029' || unicode.Is(unicode.Cc, r)
+	})
+}
+
 // containsBidiControl reports whether s carries an explicit bidirectional override or
 // embedding. These are the runes that reorder text around them.
 func containsBidiControl(s string) bool {

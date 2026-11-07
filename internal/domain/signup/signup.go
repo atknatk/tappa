@@ -327,6 +327,10 @@ func ValidateBusiness(b Business) (Business, Errors) {
 		// See isStorableText: the database refuses these bytes, so without this the
 		// registration fails at the last statement and answers 500.
 		errs.add("name", "That name contains a character we cannot store. Retype it.")
+	case tenant.NameBreaksIsolation(b.Name):
+		// T97, T216: the account screen's rule. An Arabic or a Hebrew name is letters, and passes;
+		// the venues' wider rule (NameHasHiddenCharacters, below) is not applied to this field.
+		errs.add("name", "That name has a line break or a direction override in it, usually from pasted text. Type it again.")
 	}
 
 	b.VATNumber = NormaliseVAT(b.VATNumber)

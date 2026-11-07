@@ -581,7 +581,7 @@ func liveMember(rows []db.HoldingRow, tenant uuid.UUID) bool {
 // holdingsView builds the screen: the notice, then the page's holdings with their memberships.
 // Next is offered only after a FULL page and never past maxHoldingPage; a full last page is
 // followed by an empty one, which the screen says. A holding or a business whose name shows
-// nothing is named by its id (namedVisibly).
+// nothing is named by its id (shownName).
 func holdingsView(rows []db.HoldingRow, page int32, notice holdingNotice) operatorpages.HoldingsView {
 	v := operatorpages.HoldingsView{
 		Page:    int(page),
@@ -604,9 +604,7 @@ func holdingsView(rows []db.HoldingRow, page int32, notice holdingNotice) operat
 			ContinuedFromBefore: page > 1 && i == 0,
 			ContinuesAfter:      v.HasNext && i == len(groups)-1,
 		}
-		if namedVisibly(head.HoldingName) {
-			h.Name = head.HoldingName
-		}
+		h.Name = shownName(head.HoldingName)
 		for _, r := range g.rows {
 			if r.MemberTenantID == nil {
 				continue
@@ -628,9 +626,7 @@ func holdingMemberView(holding uuid.UUID, r db.HoldingRow) operatorpages.Holding
 		TenantPath: pathTenants + "/" + t.String(),
 		Live:       r.LeftAt == nil,
 	}
-	if r.MemberName != nil && namedVisibly(*r.MemberName) {
-		m.Name = *r.MemberName
-	}
+	m.Name = visibleName(r.MemberName)
 	if r.MemberTimezone != nil {
 		m.Timezone = *r.MemberTimezone
 	}
