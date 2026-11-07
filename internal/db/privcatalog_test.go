@@ -225,7 +225,9 @@ SELECT line FROM (
 // (tappa_app's admin_sessions INSERT is ADR 0036's contract step); 00087 -- T187's contract, ADR 0036
 // Karar 3 -- took tappa_app's INSERT (id, tenant_id, admin_user_id, token_hash) on admin_sessions (a
 // panel session is born only in a definer), so tappa_app's admin_sessions lines are its UPDATE and its
-// table-level SELECT, and granted nothing -- and READ
+// table-level SELECT, and granted nothing; 00088 -- T163, ADR 0038 -- replaced tappa_app's table-level
+// INSERT on transactions with a column INSERT on every column but id and created_at (both the
+// database's), so its transactions lines are that column line and its table-level SELECT -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -370,6 +372,7 @@ column tenants tappa_identitydefiner SELECT id,name,vat_number,created_at,suspen
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_resolver SELECT id,api_enabled_at
+column transactions tappa_app INSERT tenant_id,employee_id,location_id,department_id,tag_uid,ctr,type,occurred_at,source_ip,ip_match,gps_lat,gps_lng,gps_match,sun_valid,trust,verdict,note,channel,entered_by,practice,queued,policy_version_id,matched_sid,policy_layer,policy_context,site_tenant_id,site_location_id,site_tag_uid,business_day_start,direction_source
 column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source
 column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source
 column webhook_deliveries tappa_app SELECT tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at,settled_at
@@ -564,7 +567,7 @@ table tags tappa_app INSERT
 table tenant_branding tappa_app SELECT
 table tenants tappa_app SELECT
 table transaction_reviews tappa_app SELECT,INSERT
-table transactions tappa_app SELECT,INSERT
+table transactions tappa_app SELECT
 table webhook_deliveries tappa_app DELETE
 `
 
@@ -718,10 +721,10 @@ func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 			"table employees zz_privcatalog_probe SELECT"},
 		// (3): PG17's MAINTAIN (VACUUM, ANALYZE, CLUSTER, REFRESH, REINDEX, LOCK TABLE).
 		{"MAINTAIN on transactions", `GRANT MAINTAIN ON public.transactions TO tappa_app`,
-			"table transactions tappa_app SELECT,INSERT,MAINTAIN"},
+			"table transactions tappa_app SELECT,MAINTAIN"},
 		// (4): a grant option, one per kind of object.
 		{"a table grant option", `GRANT SELECT ON public.transactions TO tappa_app WITH GRANT OPTION`,
-			"table transactions tappa_app SELECT*,INSERT"},
+			"table transactions tappa_app SELECT*"},
 		{"a column grant option", `GRANT SELECT (token_hash) ON public.api_keys TO tappa_resolver WITH GRANT OPTION`,
 			"column api_keys tappa_resolver SELECT* token_hash"},
 		{"a function grant option",

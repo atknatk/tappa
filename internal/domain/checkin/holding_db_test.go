@@ -62,6 +62,26 @@ type holdingWorld struct {
 	kfPoint                           geo.Point
 }
 
+// asOwner runs fn in one owner transaction under tenant's context -- how a fixture writes a
+// transactions row with its own created_at. Since 00088 (T163) tappa_app cannot name created_at (or
+// id): the column is the database's, and the debounce's server leg reads it. The context is set
+// because the punch feed's trigger wants the row's tenant as the transaction's.
+func (w *holdingWorld) asOwner(tenant uuid.UUID, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	w.t.Helper()
+	tx, err := w.owner.Begin(w.ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(w.ctx) }()
+	if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
+		return err
+	}
+	if err := fn(w.ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(w.ctx)
+}
+
 // newHoldingWorld commits the world and returns it with a real Service.
 func newHoldingWorld(t *testing.T) *holdingWorld {
 	t.Helper()
@@ -523,12 +543,12 @@ func TestHoldingTap_PersonDebounceSpansBothTenantsPlaques(t *testing.T) {
 	}
 }
 
-// seedSiteIn writes, as tappa_app in KM's context, KM's employee's check-in on KF's plaque
+// seedSiteIn writes, as the owner in KM's context (00088), KM's employee's check-in on KF's plaque
 // `ago` in the past (occurred_at and created_at) -- a row of exactly the shape Record writes, through
 // the same gate and CHECKs; the server clock cannot be moved through Record itself.
 func (w *holdingWorld) seedSiteIn(employee uuid.UUID, ago time.Duration) {
 	w.t.Helper()
-	err := w.data.WithTenant(w.ctx, w.km, func(ctx context.Context, tx pgx.Tx) error {
+	err := w.asOwner(w.km, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, created_at, verdict, channel, type, sun_valid, ctr,
 		                                                 site_tenant_id, site_location_id, site_tag_uid)
 		                      VALUES ($1, $2, now() - $3::interval, now() - $3::interval, 'flag', 'nfc', 'in', true, 100, $4, $5, $6)`,
@@ -555,7 +575,7 @@ func TestHoldingTap_DirectionChainStaysAtTheEmployer(t *testing.T) {
 		t.Errorf("in on KF's plaque, then KM's: %v (%s), want out", res.Decision.Type, res.Decision.Verdict)
 	}
 	other := w.employee(w.km, "active")
-	err = w.data.WithTenant(w.ctx, w.km, func(ctx context.Context, tx pgx.Tx) error {
+	err = w.asOwner(w.km, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, location_id, tag_uid)
 		                      VALUES ($1, $2, now() - interval '5 minutes', now() - interval '5 minutes', 'flag', 'nfc', 'in', true, 100, $3, $4)`,
 			w.km, other, w.kmVenue, w.kmTag)

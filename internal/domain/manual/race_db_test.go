@@ -119,13 +119,32 @@ func (w *raceWorld) exec(sql string, args ...any) {
 	}
 }
 
-// directed writes a directed tap of the person's, committed, as tappa_app in the tenant's context.
+// asOwner runs fn in one owner transaction under the tenant's context (the punch feed's trigger
+// wants the row's tenant as the transaction's).
+func (w *raceWorld) asOwner(fn func(ctx context.Context, tx pgx.Tx) error) error {
+	w.t.Helper()
+	tx, err := w.owner.Begin(w.ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(w.ctx) }()
+	if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.tenant.String()); err != nil {
+		return err
+	}
+	if err := fn(w.ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(w.ctx)
+}
+
+// directed writes a directed tap of the person's, committed, as the owner in the tenant's context
+// (00088, T163: tappa_app cannot name created_at, and this fixture chooses it).
 // written nil: NOW (created_at DEFAULT now()); otherwise that instant -- the check-in the scene starts
 // from is written at its own instant, so the tap's debounce (which measures created_at) does not
 // see it.
 func (w *raceWorld) directed(dir string, at time.Time, ctr int, written *time.Time) {
 	w.t.Helper()
-	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr)
 		                      VALUES ($1, $2, $3, $4, $5, coalesce($8, now()), 'ok', 'nfc', $6, true, $7)`, w.tenant, w.who, w.venue, w.plaque, at, dir, ctr, written)
 		return e

@@ -194,7 +194,7 @@ func TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone(t *testing
 // before ADR 0026: an `in`, verdict ok, practice=true, both stamps at `at`.
 func (f *seedFlow) seedHistoricPractice(t *testing.T, employeeID, locationID uuid.UUID, plaque string, at time.Time) {
 	t.Helper()
-	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := ownerTenantTx(t, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
 			                           occurred_at, created_at, verdict, channel, sun_valid, trust, practice)

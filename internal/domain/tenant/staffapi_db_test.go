@@ -203,6 +203,36 @@ func ownerExec(t *testing.T, sql string, args ...any) {
 	}
 }
 
+// ownerTenantTx runs fn in one owner transaction under tenantID's context -- how a fixture writes a
+// transactions row with its own created_at or id. Since 00088 (T163) tappa_app cannot name either:
+// both are the database's, and the debounce's server leg reads created_at. The context is set
+// because the punch feed's trigger wants the row's tenant as the transaction's.
+func ownerTenantTx(t *testing.T, tenantID uuid.UUID, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL is required to write a record with its own created_at (00088)")
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID.String()); err != nil {
+		return err
+	}
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (f *staffFixture) liveRef(t *testing.T, tenantID uuid.UUID, ref string) int {
 	return f.countRows(t, tenantID, `SELECT count(*) FROM employees WHERE tenant_id = $1 AND external_ref = $2 AND status <> 'deactivated'`, tenantID, ref)
 }

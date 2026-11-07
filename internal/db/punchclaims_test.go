@@ -40,14 +40,14 @@ func pcBuildWorld(t *testing.T, d *DB) pcWorld {
 	w := pcWorld{
 		tenant: uuid.New(), location: uuid.New(), employee: uuid.New(), other: uuid.New(),
 		admin: uuid.New(), admin2: uuid.New(),
-		openIn: uuid.New(), openIn2: uuid.New(), spareIn: uuid.New(), orphanOut: uuid.New(),
-		otherIn: uuid.New(), refused: uuid.New(), noDay: uuid.New(), practice: uuid.New(),
 		inAt:  time.Date(2026, 10, 19, 9, 12, 0, 0, time.UTC),
 		outAt: time.Date(2026, 10, 19, 15, 0, 0, 0, time.UTC),
 	}
 	day := time.Date(2026, 10, 19, 3, 0, 0, 0, time.UTC)
-	const tx = `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, business_day_start, practice)
-	            VALUES ($1, $2, $3, $4, $5, $6, 'qr', $7, $8, $9)`
+	// The anchors' ids are the database's, read back (fixtureInto, rls_test.go): since 00088 (T163)
+	// tappa_app cannot name transactions.id.
+	const tx = `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, business_day_start, practice)
+	            VALUES ($1, $2, $3, $4, $5, 'qr', $6, $7, $8) RETURNING id`
 	stmts := []struct {
 		sql  string
 		args []any
@@ -63,17 +63,23 @@ func pcBuildWorld(t *testing.T, d *DB) pcWorld {
 			[]any{w.admin, w.tenant, "pc-" + w.admin.String() + "@iso.example", fixtures.UnusablePasswordHash}},
 		{`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Mgr2', $3, $4, 'manager')`,
 			[]any{w.admin2, w.tenant, "pc-" + w.admin2.String() + "@iso.example", fixtures.UnusablePasswordHash}},
-		{tx, []any{w.openIn, w.tenant, w.employee, w.location, w.inAt, "ok", "in", day, false}},
-		{tx, []any{w.openIn2, w.tenant, w.employee, w.location, w.inAt.Add(time.Minute), "ok", "in", day, false}},
-		{tx, []any{w.spareIn, w.tenant, w.employee, w.location, w.inAt.Add(2 * time.Minute), "ok", "in", day, false}},
-		{tx, []any{w.orphanOut, w.tenant, w.employee, w.location, w.outAt, "ok", "out", day, false}},
-		{tx, []any{w.otherIn, w.tenant, w.other, w.location, w.inAt, "ok", "in", day, false}},
-		{tx, []any{w.refused, w.tenant, w.employee, w.location, w.inAt, "reject", nil, nil, false}},
-		{tx, []any{w.noDay, w.tenant, w.employee, w.location, w.inAt, "ok", "in", nil, false}},
-		{tx, []any{w.practice, w.tenant, w.employee, w.location, w.inAt, "ok", "in", day, true}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt, "ok", "in", day, false, fixtureInto{&w.openIn}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt.Add(time.Minute), "ok", "in", day, false, fixtureInto{&w.openIn2}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt.Add(2 * time.Minute), "ok", "in", day, false, fixtureInto{&w.spareIn}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.outAt, "ok", "out", day, false, fixtureInto{&w.orphanOut}}},
+		{tx, []any{w.tenant, w.other, w.location, w.inAt, "ok", "in", day, false, fixtureInto{&w.otherIn}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt, "reject", nil, nil, false, fixtureInto{&w.refused}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt, "ok", "in", nil, false, fixtureInto{&w.noDay}}},
+		{tx, []any{w.tenant, w.employee, w.location, w.inAt, "ok", "in", day, true, fixtureInto{&w.practice}}},
 	}
 	if err := d.WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		for i, s := range stmts {
+			if into, ok := s.args[len(s.args)-1].(fixtureInto); ok {
+				if e := tx.QueryRow(ctx, s.sql, s.args[:len(s.args)-1]...).Scan(into.id); e != nil {
+					return fmt.Errorf("pc fixture stmt %d: %w", i, e)
+				}
+				continue
+			}
 			if _, e := tx.Exec(ctx, s.sql, s.args...); e != nil {
 				return fmt.Errorf("pc fixture stmt %d: %w", i, e)
 			}
@@ -106,11 +112,10 @@ func pcClaim(t *testing.T, d *DB, w pcWorld, anchor uuid.UUID, kind string, clai
 // entered_by the approver) and returns its id.
 func pcManual(t *testing.T, d *DB, w pcWorld, employee uuid.UUID, typ string, at time.Time, by uuid.UUID) uuid.UUID {
 	t.Helper()
-	id := uuid.New()
+	var id uuid.UUID // the database's (00088)
 	if err := d.WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, entered_by, trust)
-		                      VALUES ($1, $2, $3, $4, $5, 'ok', 'manual', $6, $7, 0)`, id, w.tenant, employee, w.location, at, typ, by)
-		return e
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, entered_by, trust)
+		                         VALUES ($1, $2, $3, $4, 'ok', 'manual', $5, $6, 0) RETURNING id`, w.tenant, employee, w.location, at, typ, by).Scan(&id)
 	}); err != nil {
 		t.Fatalf("manual record: %v", err)
 	}
@@ -701,9 +706,9 @@ func TestPunchClaimDecisions_TheApprovalIsOnTheAnchorsOpenSideAndAfterTheClaim(t
 		if err != nil {
 			return err
 		}
-		id := uuid.New()
-		if _, err := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, entered_by, trust)
-		                           VALUES ($1, $2, $3, $4, $5, 'ok', 'manual', 'out', $6, 0)`, id, w.tenant, w.employee, w.location, outOK, w.admin); err != nil {
+		var id uuid.UUID
+		if err := tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, verdict, channel, type, entered_by, trust)
+		                            VALUES ($1, $2, $3, $4, 'ok', 'manual', 'out', $5, 0) RETURNING id`, w.tenant, w.employee, w.location, outOK, w.admin).Scan(&id); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, pcInsertDecision, w.tenant, row.ID, "approved", w.admin, outOK, id)

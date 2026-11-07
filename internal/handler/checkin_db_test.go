@@ -1886,7 +1886,7 @@ const (
 // so GetLastOpenTransaction finds it exactly as it would find a real one.
 func (h *tapHarness) openCheckInAgedBy(t *testing.T, age time.Duration) {
 	t.Helper()
-	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		// created_at IS AGED TOO, and that is not decoration (ADR 0006). The
 		// debounce also measures the SERVER-side age of this person's last recorded
 		// tap (ADR 0006), so a row
@@ -1933,7 +1933,7 @@ func (h *tapHarness) seedTapAgedBy(t *testing.T, employeeID uuid.UUID, age time.
 // no direction, which is itself part of what a caller may be measuring).
 func (h *tapHarness) seedAgedRecord(t *testing.T, employeeID uuid.UUID, age time.Duration, direction *string, verdict string, practice bool) {
 	t.Helper()
-	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
 			                           occurred_at, created_at, verdict, channel, sun_valid, trust, practice)
@@ -1964,7 +1964,7 @@ func (h *tapHarness) seedAgedRecord(t *testing.T, employeeID uuid.UUID, age time
 // in for a capability the product lacks any more.
 func (h *tapHarness) seedRecordWithSplitClocks(t *testing.T, employeeID uuid.UUID, occurredAgo, createdAgo time.Duration, channel, direction string) {
 	t.Helper()
-	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		enteredBy := &employeeID // a manual row must name who entered it
 		if channel != "manual" {
 			enteredBy = nil

@@ -92,7 +92,7 @@ func TestTapPageDB_AFailedPredictionReadNeverDropsThePage(t *testing.T) {
 	if err := f.brands.SaveAccent(ctx, BrandAccentCommand{TenantID: f.tenant, ActorID: f.owner, Accent: mustColour(t, "DA291C")}); err != nil {
 		t.Fatalf("save accent: %v", err)
 	}
-	if err := f.data.WithTenant(ctx, f.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := ownerTenantTx(t, f.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := fixtures.GiveFarDayCutoff(ctx, tx, f.tenant, emp, time.Now()); err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func TestPeerTapPageDB_AFailedPredictionReadNeverDropsThePage(t *testing.T) {
 	f := newSiteFixture(t)
 	venue := f.venue("KF Sliema")
 	uid := f.plaque(venue)
-	if err := f.data.WithTenant(f.ctx, f.km, func(ctx context.Context, tx pgx.Tx) error {
+	if err := ownerTenantTx(t, f.km, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := fixtures.GiveFarDayCutoff(ctx, tx, f.km, f.emp, time.Now()); err != nil {
 			return err
 		}
