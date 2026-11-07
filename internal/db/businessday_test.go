@@ -348,10 +348,14 @@ type bdRow struct {
 	at        time.Time
 }
 
+// bdChain writes the rows as the OWNER under the tenant's context: the arms choose the ids (the
+// (occurred_at, id) order is what they measure), and since 00088 (T163) tappa_app cannot name
+// transactions.id -- which is the point: a caller that could would choose which of two same-instant
+// rows is the later one.
 func bdChain(t *testing.T, d *DB, w bdWorld, rows []bdRow) uuid.UUID {
 	t.Helper()
 	person := bdEmployee(t, d, w, &w.branchA, nil)
-	if err := d.WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := ownerDB(t).WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		for _, r := range rows {
 			if _, err := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, type, occurred_at, verdict, channel)
 			                           VALUES ($1, $2, $3, $4, $5, $6, 'ok', 'nfc')`, r.id, w.tenant, person, w.branchA, r.direction, r.at); err != nil {

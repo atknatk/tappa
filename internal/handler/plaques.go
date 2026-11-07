@@ -466,10 +466,10 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 	// irreversible write implies the server RENDERED the warning, in response to a
 	// request for it, for THIS person, in THIS session, inside the window.
 	//
-	// ⚠️ THE SAME COUNTED LIMIT AS PHASE A APPLIES (backlog T14): this mint happens on
-	// a GET, which is outside the Origin gate, so a cross-origin top-level link can
-	// make an owner SEE a warning. They cannot read the response and the POST that
-	// spends it is still Origin-gated.
+	// THIS MINT HAPPENS ON A GET, outside the Origin gate, and since backlog T14 behind
+	// mintGate instead (fetchsite.go): a ?plaque= or ?confirm=unmount navigation another
+	// site started is refused before the card is built, so it arms nothing. The POST
+	// that spends the value is still Origin-gated.
 	//
 	// 🔴 A FAILURE TO MINT SUPPRESSES THE CONTROL RATHER THAN SHIPPING A DEAD BUTTON —
 	// removalView's rule. A form whose POST can only be refused is the defect this

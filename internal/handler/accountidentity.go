@@ -193,7 +193,7 @@ func (a *AdminAuth) accountIdentityBegin(w http.ResponseWriter, r *http.Request,
 	token, err := a.cookies.Read(r)
 	if err != nil {
 		a.log.Error("panel: the verified session's cookie could not be read again", "actor_id", id.Admin.AdminUserID, "at", where)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return id, adminauth.Token{}, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, accountIdentityMaxBody)
@@ -212,7 +212,7 @@ func (a *AdminAuth) accountActBudget(w http.ResponseWriter, r *http.Request, id 
 	bucket, err := a.admins.AccountBucket(r.Context(), id.Admin)
 	if err != nil {
 		a.log.Error("panel: the identity act's bucket could not be read", "actor_id", id.Admin.AdminUserID, "at", where, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return false
 	}
 	if n := a.identityActLimiter.Charge(bucket); n > adminIdentityActLimit {
@@ -290,7 +290,7 @@ func (a *AdminAuth) accountVerifyRequest(w http.ResponseWriter, r *http.Request)
 	bucket, err := a.admins.AccountBucket(r.Context(), id.Admin)
 	if err != nil {
 		a.log.Error("panel: the verification's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// THE PER-IDENTITY BUDGET (M14-18's inherited obligation 1): identity_request_verification mints a
@@ -323,7 +323,7 @@ func (a *AdminAuth) accountVerifyRequest(w http.ResponseWriter, r *http.Request)
 		return
 	case err != nil:
 		a.log.Error("panel: could not write the verification link", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	base := strings.TrimRight(a.inviteMail.baseURL, "/")
@@ -371,7 +371,7 @@ func (a *AdminAuth) accountVerifyConfirm(w http.ResponseWriter, r *http.Request)
 	}
 	if err != nil {
 		a.log.Error("panel: could not verify the e-mail address", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	a.log.Info("panel e-mail address verified", "actor_id", id.Admin.AdminUserID, "first", first)
@@ -393,7 +393,7 @@ func (a *AdminAuth) accountKeepAll(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.log.Error("panel: could not close the confirmation window", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	a.log.Info("panel confirmation window kept", "actor_id", id.Admin.AdminUserID)
@@ -460,7 +460,13 @@ func (a *AdminAuth) accountWindowAct(w http.ResponseWriter, r *http.Request, act
 		return
 	case err != nil:
 		a.log.Error("panel: the confirmation window act failed", "actor_id", id.Admin.AdminUserID, "at", act, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		// A FRESH SESSION OPENED BEFORE THE FAILURE LEFT ITS TRAIL (recordFresh, above), so
+		// "nothing was written" would be false then; the membership itself did not change.
+		problem := problemPanelWriteFailed
+		if len(fresh.Temporary) > 0 {
+			problem = problemPanelWriteUnfinished
+		}
+		a.renderProblem(w, r, http.StatusInternalServerError, problem)
 		return
 	}
 	a.log.Info("panel confirmation window act", "actor_id", id.Admin.AdminUserID, "at", act)

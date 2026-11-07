@@ -1645,15 +1645,13 @@ func (a *AdminAuth) removalView(w http.ResponseWriter, r *http.Request, in remov
 	if r.URL.Query().Get("confirm") != "remove" {
 		return v
 	}
-	// ⚠️ THIS MINT HAPPENS ON A **GET**, WHICH IS OUTSIDE THE ORIGIN GATE — a counted
-	// limit, not a closed one. sameOriginGate guards mountWriting; a card is opened by
-	// navigation, so a cross-origin top-level link to ?venue=<id>&confirm=remove will
-	// render the warning and set the confirmation cookie. What that does NOT buy an
-	// attacker: they cannot read the response (no CORS), and the POST that spends it is
-	// still Origin-gated, so the value is useless to them. What remains is that a
-	// third party can cause an owner to SEE a "Remove X?" warning. It is not specific
-	// to this phase — M6-05's employees.go ships the identical shape for deactivation —
-	// and it is recorded here rather than in a report that nobody re-reads.
+	// THIS MINT HAPPENS ON A **GET**, WHICH IS OUTSIDE THE ORIGIN GATE, and since
+	// backlog T14 it is behind mintGate instead (fetchsite.go, mounted on this section in
+	// mountSections): a ?confirm=remove navigation another site started is refused before
+	// this handler runs, so it renders no warning and sets no confirmation cookie. A
+	// navigation from our own pages, a bookmark, or a browser that sends no fetch
+	// metadata reaches here as before -- and the POST that spends the value is still
+	// Origin-gated whatever happens on this side.
 	//
 	// 🔴 THE SAME CONFIRMATION THE ROSTER USES, NOT A SECOND ONE. deactivateconfirm.go
 	// binds its value to ONE ACTION, ONE SUBJECT ID and ONE PANEL SESSION under an

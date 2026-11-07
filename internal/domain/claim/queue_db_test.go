@@ -22,7 +22,8 @@ import (
 
 // rowWith writes a directed record of the person's at `at` with its business day, on channel ch, with
 // direction_source stored as given (nil: NULL). A manual row carries the admin as entered_by and no
-// plaque -- the shape a code slip could write as tappa_app (no CHECK refuses it; ADR 0032 §B.4).
+// plaque -- the shape a code slip could write (no CHECK refuses it; ADR 0032 §B.4). Written by the
+// owner since 00088: tappa_app cannot name created_at.
 func (w *world) rowWith(dir string, at time.Time, ch string, source *string) uuid.UUID {
 	w.t.Helper()
 	s, ok := tap.BusinessDayStart(at, w.cutoff)
@@ -31,7 +32,7 @@ func (w *world) rowWith(dir string, at time.Time, ch string, source *string) uui
 	}
 	w.ctr++
 	var id uuid.UUID
-	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(func(ctx context.Context, tx pgx.Tx) error {
 		if ch == "manual" {
 			return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, trust, entered_by, business_day_start, direction_source)
 			                         VALUES ($1, $2, $3, $4, $4, 'ok', 'manual', $5, 20, $6, $7, $8) RETURNING id`,

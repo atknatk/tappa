@@ -122,9 +122,16 @@ func (f *cutoffFixture) person(name string, branch *uuid.UUID, department *uuid.
 // writes its fixtures: directly, with its own instants.
 func (f *cutoffFixture) tap(person, venue uuid.UUID, at time.Time, dir string) {
 	f.t.Helper()
-	f.exec(`INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at,
+	// As the owner: the fixture chooses created_at, which tappa_app cannot name since 00088.
+	const insert = `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at,
 	                                  verdict, channel, type, practice)
-	        VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', $6, false)`, uuid.New(), f.tenant, person, venue, at, dir)
+	        VALUES ($1, $2, $3, $4, $4, 'ok', 'nfc', $5, false)`
+	if err := ownerTenantTx(f.t, f.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, insert, f.tenant, person, venue, at, dir)
+		return err
+	}); err != nil {
+		f.t.Fatalf("fixture: %v\n%s", err, insert)
+	}
 }
 
 // set writes as the panel does: against the version on file right now.

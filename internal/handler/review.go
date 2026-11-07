@@ -466,7 +466,7 @@ func (a *AdminAuth) reviewDecision(w http.ResponseWriter, r *http.Request) {
 		// would tell a manager their decision was refused when in fact the database
 		// was unreachable — and would hide an outage behind a plausible sentence.
 		a.log.Error("panel: could not record the review", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 	}
 }
 

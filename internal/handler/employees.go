@@ -189,7 +189,7 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 	if err != nil {
 		// §4.6: say the read failed. Do NOT fall through to an empty roster.
 		a.log.Error("panel: could not read the employee roster", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, readFailedProblem(r))
 		return pages.EmployeesView{}, false
 	}
 

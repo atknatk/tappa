@@ -72,7 +72,7 @@ func newForgottenCheckout(t *testing.T) *forgottenCheckout {
 		t.Fatalf("PREMISE: the check-in's business day [%v, %v) must hold the claimed %v and end before now", s, next, f.leftAt)
 	}
 	ctx := context.Background()
-	if err := h.data.WithTenant(ctx, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	if err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `UPDATE locations SET shift_start = $3::time, shift_end = $4::time WHERE tenant_id = $1 AND id = $2`,
 			h.tenantID, h.locationID, local.Format("15:04"), f.leftAt.In(zone).Format("15:04")); e != nil {
 			return e

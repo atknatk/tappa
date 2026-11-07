@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -87,4 +89,35 @@ func ownerPoolForTest(t *testing.T) *pgxpool.Pool {
 			"(this fixture exists precisely because tappa_app may NOT write the column it writes)", user, super)
 	}
 	return pool
+}
+
+// ownerTenantTx runs fn in one owner transaction under tenantID's context, on one connection of
+// its own that is closed after -- how a fixture writes a transactions row with its own created_at.
+// Since 00088 (T163) tappa_app cannot name created_at (or id): the column is the database's, and
+// the debounce's server leg and M15's W read it. The context is set because the punch feed's
+// trigger wants the row's tenant as the transaction's.
+func ownerTenantTx(t *testing.T, tenantID uuid.UUID, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	t.Helper()
+	raw := os.Getenv("DATABASE_MIGRATE_URL")
+	if raw == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; a record with its own created_at is written by the owner (00088)")
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, raw)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID.String()); err != nil {
+		return err
+	}
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

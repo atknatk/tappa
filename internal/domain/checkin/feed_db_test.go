@@ -165,7 +165,7 @@ func TestFeedCounter_RowsThatAreNoEventAreWrittenPlainly(t *testing.T) {
 // (ADR 0028 §4; CLAUDE.md §5's Rusty Bar rule): KF's employee checks in at 18:00 and taps again at
 // 02:00 the next day. Tappa computes the second as OUT against the last OPEN check-in, never the
 // calendar day, and the feed carries exactly that: the 18:00 event 'in', the 02:00 event 'out'.
-// The 18:00 row is written as tappa_app in KF's context (Record cannot move the database's clock);
+// The 18:00 row is written as the owner in KF's context (Record cannot move the database's clock);
 // the 02:00 tap goes through Record with the service's clock set to 02:00.
 func TestFeedDirection_NightShiftInThenOutAcrossMidnight(t *testing.T) {
 	w := newHoldingWorld(t)
@@ -174,7 +174,7 @@ func TestFeedDirection_NightShiftInThenOutAcrossMidnight(t *testing.T) {
 	// The business day is judged on the SERVICE's clock below, so the far cutoff is far from it.
 	w.farDayCutoff(w.kf, w.kfEmp, checkOut)
 	var inID uuid.UUID
-	if err := w.data.WithTenant(w.ctx, w.kf, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(w.kf, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr)
 		                         VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', 'in', true, 100) RETURNING id`,
 			w.kf, w.kfEmp, w.kfVenue, w.kfTag, checkIn).Scan(&inID)

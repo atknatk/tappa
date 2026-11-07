@@ -92,11 +92,11 @@ func nullable(s string) any {
 	return s
 }
 
-// seedIn writes the employee's check-in at `at` on the tenant's own plaque, as tappa_app in the
-// tenant's context: occurred_at and created_at both at `at`, so neither debounce leg sees it.
+// seedIn writes the employee's check-in at `at` on the tenant's own plaque, as the owner in the
+// tenant's context (00088): occurred_at and created_at both at `at`, so neither debounce leg sees it.
 func (w *holdingWorld) seedIn(tenant, employee, venue uuid.UUID, uid string, at time.Time) {
 	w.t.Helper()
-	if err := w.data.WithTenant(w.ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(tenant, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at,
 		                                                verdict, channel, type, sun_valid, ctr)
 		                      VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', 'in', true, 90)`, tenant, employee, venue, uid, at)

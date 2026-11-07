@@ -48,7 +48,7 @@ func (h *tapHarness) seedDirected(t *testing.T, direction string, ago time.Durat
 		t.Fatal("no business day for the seed")
 	}
 	var id uuid.UUID
-	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type, occurred_at, created_at,
 			                           verdict, channel, sun_valid, trust, business_day_start, direction_source)
