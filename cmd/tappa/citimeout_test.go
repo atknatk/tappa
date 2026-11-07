@@ -24,8 +24,10 @@ var (
 	makeTestTimeoutRE    = regexp.MustCompile(`(?m)^test: require-db-env\n\tgo test -race -count=1 -timeout=(\d+)m \./\.\.\.$`)
 	makeCoverTimeoutRE   = regexp.MustCompile(`(?m)^cover: require-db-env\n\tgo test -race -coverprofile=coverage\.out -timeout=(\d+)m \./\.\.\.$`)
 	makeSandboxTimeoutRE = regexp.MustCompile(`(?m)^check-sandbox: require-db-env\n(?:\t.*\n)*?\tgo test -race -count=1 -timeout=(\d+)m -tags sandbox `)
-	ciJobTimeoutRE       = regexp.MustCompile(`(?m)^\s*timeout-minutes: (\d+)\s*$`)
-	yamlCommentBreakRE   = regexp.MustCompile(`\n\s*# `)
+	// The JOB's limit sits at four spaces; a step's own (eight, `make restore-check`'s, T215) bounds that
+	// step and is not the job's.
+	ciJobTimeoutRE     = regexp.MustCompile(`(?m)^    timeout-minutes: (\d+)\s*$`)
+	yamlCommentBreakRE = regexp.MustCompile(`\n\s*# `)
 )
 
 // ciTimeouts are the values, in minutes.

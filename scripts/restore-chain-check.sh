@@ -30,7 +30,8 @@
 # WHAT IT DOES NOT TOUCH: the development/CI database. Its source is its own container on a random
 # 127.0.0.1 port, the fixture never reaches `make up`'s database (the seeded tests read its counts).
 # The restore target is (d2)'s own container. Both are removed on exit, and the dump directory with
-# them (it is employees' attendance records in a real drill; here it is fixture rows).
+# them (it is employees' attendance records in a real drill; here it is fixture rows), and so are
+# their anonymous data volumes (`docker rm -f -v`).
 #
 # NO SECRET IS IN THIS FILE OR IN ITS LOG. The source's owner password is drawn per run
 # (openssl rand, as (d2) draws the target's) and handed to docker by NAME (`-e PGPASSWORD`), never
@@ -48,11 +49,6 @@ IMAGE=postgres:17-alpine
 RUNBOOK=deploy/README.md
 SEED=test/fixtures/seed.sql
 FIXTURE=test/fixtures/restore-chain.sql
-# Per run, so a second run on the same machine (another checkout, another agent) cannot collide.
-# Lower case, digits and dashes only: the name goes through sed below.
-RUN="rc$$"
-SRC="tappa-restorechain-src-$RUN"
-DRILL="tappa-drill-$RUN"
 # A watchdog for the runbook's blocks: (d2)'s `until ... pg_isready` has no limit of its own, and a
 # target whose init failed would spin there until the CI job's own limit. An ordinary run is ~20 s.
 DRILL_DEADLINE=300
@@ -64,13 +60,21 @@ for tool in docker openssl awk; do
 done
 docker info >/dev/null 2>&1 || die "docker is installed but the daemon does not answer"
 
+# Per run, so a second run on the same machine (another checkout, another agent) cannot collide.
+# Lower case, digits and dashes only: the name goes through sed below.
+RUN="rc$$$(openssl rand -hex 3)" || die "openssl rand failed"
+SRC="tappa-restorechain-src-$RUN"
+DRILL="tappa-drill-$RUN"
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tappa-restore-chain.XXXXXX")"
 RESTORE="$WORK/restore"
 mkdir -m 700 "$RESTORE"
 cleanup() {
   # Only the names this run created. `docker rm -f` on a name that does not exist is not an error
   # worth reporting: (d5) has already removed the target on a green run.
-  docker rm -f "$SRC" "$DRILL-db" >/dev/null 2>&1 || true
+  # -v: the source has no --rm, and its anonymous data volume (~50 MB) outlived every run without
+  # it (in review: 12 volumes after 9 runs); (d2)'s target has --rm, but not on a red path.
+  docker rm -f -v "$SRC" "$DRILL-db" >/dev/null 2>&1 || true
   docker network rm "$DRILL" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -131,6 +135,19 @@ for f in scripts/db-init/01-roles.sql deploy/k8s/postgres-init/02-app-password.s
   case "$D2" in *"$f"*) ;; *) die "$RUNBOOK: (d2) does not install $f, which B1 does: the drill's target would not be the one B YOLU builds" ;; esac
 done
 case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no longer runs scripts/pg-restore-verify.sh" ;; esac
+# 🔴 THE DRILL BLOCKS MUST NOT BE ABLE TO REACH ANYTHING BUT THEIR OWN CONTAINER. `same()` compares the
+# SQL and the `sh -c` lines, not the executor in front of them, so a (d3) edited into a copy of B3
+# -- `kubectl -n tappa exec ... statefulset/tappa-postgres` -- would pass it and run B2's
+# ALTER DEFAULT PRIVILEGES against whatever cluster the developer's kubeconfig names (read in
+# review, not measured). Two belts: such a block is refused by name here, before a container
+# starts, and step 3 runs the blocks with an emptied environment (no KUBECONFIG, no PG*, no
+# DATABASE_URL, HOME a scratch directory).
+for b in D2 D3 D3B D4 D5; do
+  eval "text=\$$b"
+  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|\$HOME|\$CONF|\$\{HOME|\$\{CONF'; then
+    die "$RUNBOOK: the drill block $b names kubectl, rclone, \$HOME or \$CONF. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target or the operator's config is not run"
+  fi
+done
 lap "runbook: (d2) (d3) (d3b) (d4) (d5) cut out; B2/B3/B4 and (d3)/(d3b) carry the same SQL and command lines"
 
 # =================================================================================================
@@ -185,7 +202,7 @@ set -- "$RESTORE"/tappa-*.sql.gz
 [ "$#" -eq 1 ] && [ -f "$1" ] || die "pg-backup.sh did not leave exactly one tappa-*.sql.gz in the staging directory"
 STAMP="${1##*/tappa-}"; STAMP="${STAMP%.sql.gz}"
 [ -f "$RESTORE/tappa-$STAMP.manifest" ] || die "pg-backup.sh left no manifest next to tappa-$STAMP.sql.gz"
-docker rm -f "$SRC" >/dev/null 2>&1 || true
+docker rm -f -v "$SRC" >/dev/null 2>&1 || true
 # The fixture's job, checked from the manifest: a row in each append-only table (the list is
 # pg-restore-verify.sh's own trunc_tables, which TestAppendOnlyTablesAreNamedByBothScripts derives
 # from db/migrations) and a feed counter past 0. Without this a fixture that quietly stopped writing
@@ -213,7 +230,13 @@ lap "backup: tappa-$STAMP.sql.gz and its manifest (source removed); every append
   echo 'set -euo pipefail'
   printf '%s\n' "$D2" "$D3" "$D3B" "$D4" "$D5"
 } | sed "s/tappa-drill/$DRILL/g" >"$WORK/drill.sh"
-RESTORE="$RESTORE" STAMP="$STAMP" bash "$WORK/drill.sh" &
+# An emptied environment: only what the blocks use. DOCKER_HOST is the endpoint this shell's docker
+# talks to (Docker Desktop's context lives under the real HOME, which the blocks do not get).
+DOCKER_ENDPOINT="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+[ -n "$DOCKER_ENDPOINT" ] || DOCKER_ENDPOINT="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+mkdir -m 700 "$WORK/home"
+env -i PATH="$PATH" HOME="$WORK/home" KUBECONFIG=/dev/null DOCKER_HOST="$DOCKER_ENDPOINT" \
+  RESTORE="$RESTORE" STAMP="$STAMP" bash "$WORK/drill.sh" &
 drill=$!
 waited=0
 while kill -0 "$drill" 2>/dev/null; do
