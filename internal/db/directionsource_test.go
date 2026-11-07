@@ -430,7 +430,10 @@ func dsRead(t *testing.T, ctx context.Context, q opQuerier) dsSurface {
 //
 // Since M15-13 the walk starts with 00067's Down (the punch feed's column and the two trigger
 // bodies that read transactions.direction_source -- goose's own order), any event's source set aside
-// first, and ends with 00067's Up. The walk runs in this test's transaction (rolled back), with the
+// first, and ends with 00067's Up. Since T163 it starts one file higher, with 00088's Down, and ends
+// with 00088's Up: 00088 turned tappa_app's INSERT on transactions into a column list, and a column
+// that 00065's Down drops and its Up adds again is not on a list -- in goose's own order 00088's Down
+// has given the table-level INSERT back by then. The walk runs in this test's transaction (rolled back), with the
 // tables the Downs name locked first (lockForDowns), and the Downs may take no strong lock outside
 // them.
 func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *testing.T) {
@@ -438,7 +441,8 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 	up65, down65 := opMigrationSections(t, ds00065File)
 	up66, down66 := opMigrationSections(t, ds00066File)
 	up67, down67 := opMigrationSections(t, ds00067File)
-	tables := append(append(downTables(down65), downTables(down66)...), downTables(down67)...)
+	up88, down88 := opMigrationSections(t, createdAtGrantFile)
+	tables := append(append(append(downTables(down65), downTables(down66)...), downTables(down67)...), downTables(down88)...)
 	slices.Sort(tables)
 	tables = slices.Compact(tables)
 	if strings.Join(tables, ",") != "punch_events,transactions" {
@@ -448,6 +452,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 	to66 := func(sp pgx.Tx) {
 		t.Helper()
 		feedSetAsideDirectionSources(t, ctx, sp)
+		opRunSection(t, ctx, sp, down88, "00088 Down")
 		opRunSection(t, ctx, sp, down67, "00067 Down")
 	}
 
@@ -576,6 +581,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 				}
 			}
 			to66(sp)
+			at66 := dsRead(t, ctx, sp) // HEAD's column and CHECKs, tappa_app's INSERT table-wide again (00088's Down)
 			opRunSection(t, ctx, sp, down66, "00066 Down")
 			at65 := dsRead(t, ctx, sp)
 			opRunSection(t, ctx, sp, down65, "00065 Down")
@@ -592,10 +598,14 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 				t.Errorf("after 00065's Up again:\n %+v\nwant what 00066's Down left -- its texts are 00065's\n %+v", again, at65)
 			}
 			opRunSection(t, ctx, sp, up66, "00066 Up again")
-			if again := dsRead(t, ctx, sp); again != head {
-				t.Errorf("after 00066's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
+			if again := dsRead(t, ctx, sp); again != at66 {
+				t.Errorf("after 00066's Up again:\n %+v\nwant what the walk started from\n %+v", again, at66)
 			}
 			opRunSection(t, ctx, sp, up67, "00067 Up again")
+			opRunSection(t, ctx, sp, up88, "00088 Up again")
+			if again := dsRead(t, ctx, sp); again != head {
+				t.Errorf("after 00088's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
+			}
 		})
 	})
 }
