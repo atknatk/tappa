@@ -8,7 +8,14 @@
 -- approval by it too. ADR 0032 §A.6 pinned "created_at has one writer, the database" with a source
 -- scan (internal/domain/ledger/createdat_test.go) and called that scan a net, not a lock: a process
 -- running arbitrary SQL as tappa_app could still back-date a predecessor's created_at and age it past
--- the 60 s brake. This file is the lock. id is the same kind of column -- the database draws it
+-- the 60 s brake. This file takes the VALUE away: created_at can no longer be given. It is not the
+-- whole lock -- the default is now(), the transaction's start, so a writer that holds its transaction
+-- open moves the value back by as long as it holds it (the security review, as tappa_app:
+-- BEGIN; pg_sleep(62); INSERT ...; ROLLBACK -> age at write 00:01:02.31, the debounce leg read 0 rows;
+-- pg_sleep is not 'idle in transaction', so the 30 s idle_in_transaction_session_timeout does not
+-- fire, and the app pool sets no statement_timeout). Closing that is (b') below, clock_timestamp(),
+-- and it is a separate decision left open (backlog T226; ADR 0006 already names the honest path).
+-- id is the same kind of column -- the database draws it
 -- (DEFAULT gen_random_uuid(), 00005), nothing in the product names it, and a caller that could would
 -- get a cross-tenant existence oracle on a guessed or leaked id (23505 on transactions_pkey) for
 -- nothing in return. 00068 gave punch_claims and punch_claim_decisions the same shape at birth.

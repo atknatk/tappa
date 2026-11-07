@@ -28,10 +28,12 @@ arası bir varlık kâhini kazanırdı.
 `tappa_app`'in `transactions` INSERT'i **sütun listesi** olur: `id` ve `created_at` dışındaki her sütun
 (bugün 30 sütun — `InsertTransaction`'ın birebir listesi). Tablo düzeyi SELECT kalır (her INSERT
 `id, created_at` döndürür). `created_at`'in değeri **değişmez**: `DEFAULT now()` (işlem başlangıcı).
+Bu, değeri **verilemez** kılar; kilidin tamamı değildir (bkz. "Bedel", ilk madde).
 
-**Sonuç kuralı (§6'ya ek):** `transactions`'a yeni bir sütun ekleyen migration, `tappa_app`'in
-yazması gerekiyorsa `GRANT INSERT (<sütun>) ON transactions TO tappa_app`'i **aynı dosyada** verir.
-Unutulursa tap'in INSERT'i 42501 olur — güvenli yönde ve CI'da: her checkin DB testi o sorguyu
+**Sonuç kuralı (§6'ya ek):** `transactions`'a eklenen yeni sütun ya **aynı migration'da**
+`GRANT INSERT (<sütun>) ON transactions TO tappa_app` alır ya da bilinçli olarak dışlama listesine
+(`internal/db/createdatgrant_test.go`'nun `cgAllColumnsBut`'ı ve 00088'in DO bloğu) girer; tablo
+düzeyi INSERT geri verilmez. Unutulursa tap'in INSERT'i 42501 olur — güvenli yönde ve CI'da: her checkin DB testi o sorguyu
 koşar, `internal/db/createdatgrant_test.go` listeyi "tablo eksi (`id`, `created_at`)"a tutar ve
 `db/queries`'teki her INSERT'in adlandırdığı sütunu katalogla karşılaştırır.
 
@@ -60,6 +62,17 @@ SELECT 55P03 aldı). `lock_timeout = '1s'` sıcak tablo kuralı gereği yine ilk
 
 ## Bedel
 
+- **Kalan risk (güvenlik denetimi, 2026-11-07):** `created_at` artık değer olarak verilemez; ama yazan,
+  işlemi açık tuttuğu süre kadar işlemin başladığı ana geri çekebilir (`DEFAULT now()` işlem başıdır).
+  Denetimde `tappa_app` olarak `BEGIN; pg_sleep(62); INSERT …; ROLLBACK`: yazıldığı andaki yaş
+  00:01:02.31, debounce bacağı 0 satır okudu; `pg_sleep` sırasında bağlantı *idle* sayılmadığı için
+  30 sn'lik `idle_in_transaction_session_timeout` devreye girmiyor, ana havuzda `statement_timeout` yok.
+  Etki kritik değil (aynı yetkideki saldırgan zaten `verdict='ok'` yazabiliyor); kapatmanın yolu (b′)
+  `clock_timestamp()`, ayrı bir karar olarak açık — backlog **T226**; ADR 0006 bu dürüst yolu zaten yazıyor.
+- **Eski bir migration'ın Down/Up'ını tek başına yürüyen testler** (00008, 00043, 00064, 00065, 00067
+  sınıfı) `transactions`'a bir sütunu düşürüp geri ekliyorsa, 00088'i sarmalamadan (önce Down'ı, sonda
+  Up'ı) koşarsa kırılır: geri eklenen sütun sütun listesinde değildir. goose'un kendi sırasında sorun
+  yok (00088'in Down'ı önce koşar). 00065'in testi düzeltildi (`2f5fc987`); 00064'ünki bugün yeşil.
 - Fikstürler: geçmiş `created_at` yazan 25 INSERT sahibin bağlantısına (kiracı bağlamıyla — punch feed
   tetikleyicisi bağlamı ister) taşındı; `id` adlandıran 12 INSERT `RETURNING id`'ye (RLS testleri
   `tappa_app` olarak kalır — `WITH CHECK` sınamasının sebebi yetki değil RLS olmalı) ya da id sırasını

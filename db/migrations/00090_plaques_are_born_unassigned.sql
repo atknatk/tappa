@@ -16,7 +16,9 @@
 -- 'unassigned' and an explicit NULL location_id -- it does not consult the default, and db/queries
 -- is identical on main (9b4aacbe). No function body inserts into tags (the two `INSERT INTO tags` in
 -- db/migrations are comments, 00022 and 00025); test/fixtures/seed.sql names the status of every row
--- it loads; cmd/ and scripts/ hold no INSERT into tags. Three test INSERTs relied on the old default
+-- it loads. In production code InsertUnassigned is the only INSERT into tags; every fixture must name
+-- the status (test/fixtures included -- a fixture that names a location_id and no status is refused
+-- from this file on). Three test INSERTs relied on the old default
 -- with a location (internal/db's tagsinventory_test.go and the two of rls_test.go's tags case) and now
 -- say 'active'.
 --
