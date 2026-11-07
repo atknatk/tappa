@@ -70,9 +70,14 @@ func (f *predictionFixture) exec(t *testing.T, sql string, args ...any) {
 // openIn writes a check-in of the person at the venue, at, and returns its id.
 func (f *predictionFixture) openIn(t *testing.T, employeeID uuid.UUID, at time.Time) uuid.UUID {
 	t.Helper()
-	id := uuid.New()
-	f.exec(t, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, practice)
-	           VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', 'in', false)`, id, f.tenantID, employeeID, f.locationID, at)
+	// As the owner: the fixture chooses created_at, and since 00088 tappa_app can name neither it nor id.
+	var id uuid.UUID
+	if err := ownerTenantTx(t, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, practice)
+		                         VALUES ($1, $2, $3, $4, $4, 'ok', 'nfc', 'in', false) RETURNING id`, f.tenantID, employeeID, f.locationID, at).Scan(&id)
+	}); err != nil {
+		t.Fatalf("open a check-in: %v", err)
+	}
 	return id
 }
 

@@ -128,6 +128,25 @@ func (w *world) exec(sql string, args ...any) {
 	}
 }
 
+// asOwner runs fn in one owner transaction under the tenant's context -- how a fixture writes a
+// transactions row with its own created_at. Since 00088 (T163) tappa_app cannot name created_at (or
+// id), and the punch feed's trigger still wants the row's tenant as the transaction's context.
+func (w *world) asOwner(fn func(ctx context.Context, tx pgx.Tx) error) error {
+	w.t.Helper()
+	tx, err := w.owner.Begin(w.ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(w.ctx) }()
+	if _, err := tx.Exec(w.ctx, `SELECT set_config('app.tenant_id', $1, true)`, w.tenant.String()); err != nil {
+		return err
+	}
+	if err := fn(w.ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(w.ctx)
+}
+
 func (w *world) venue(name, start, end string) uuid.UUID {
 	w.t.Helper()
 	var id uuid.UUID
@@ -162,7 +181,7 @@ func (w *world) row(dir string, at time.Time, loc uuid.UUID, day *time.Time, ver
 	if dir != "" {
 		typ = dir
 	}
-	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, business_day_start)
 		                         VALUES ($1, $2, $3, $4, $5, $5, $6, 'nfc', $7, true, $8, $9) RETURNING id`,
 			w.tenant, w.who, loc, w.plaque, at, verdict, typ, w.ctr, day).Scan(&id)
@@ -1148,7 +1167,7 @@ func (p *peerWorld) peerTap(dir string, at time.Time) uuid.UUID {
 	}
 	p.ctr++
 	var id uuid.UUID
-	if err := p.data.WithTenant(p.ctx, p.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := p.asOwner(func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, site_tenant_id, site_location_id, site_tag_uid, occurred_at, created_at, verdict, channel, type, sun_valid, ctr, business_day_start)
 		                         VALUES ($1, $2, $3, $4, $5, $6, $6, 'ok', 'nfc', $7, true, $8, $9) RETURNING id`,
 			p.tenant, p.who, p.peer, p.peerVenue, p.peerTag, at, dir, p.ctr, s).Scan(&id)
@@ -1212,7 +1231,7 @@ func (w *world) chosen(dir, channel, source string, at time.Time) uuid.UUID {
 	}
 	w.ctr++
 	var id uuid.UUID
-	if err := w.data.WithTenant(w.ctx, w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(func(ctx context.Context, tx pgx.Tx) error {
 		if channel == "manual" {
 			return tx.QueryRow(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, trust, entered_by, business_day_start, direction_source)
 			                         VALUES ($1, $2, $3, $4, $4, 'ok', 'manual', $5, 20, $6, $7, $8) RETURNING id`,

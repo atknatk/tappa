@@ -326,7 +326,9 @@ ve `occurred_at ≥ S` olan bir `in` var mı; `W` = `P`, çıkıştan **sonra ya
     ikisinde de yazar yok, ölçüldü). Bir duvar saati tetikleyicisi (`00033:293-308`'in deseni)
     değerlendirildi ve seçilmedi: test fixture'ları `created_at`'i bilerek geçmişe yazar (yaş ve debounce
     testleri, ör. `internal/domain/checkin/holding_db_test.go:516`) ve tetikleyici onları kırardı; kolon düzeyinde
-    `INSERT` yetkisi de her yeni `transactions` sütununda bir GRANT bakımı ister.
+    `INSERT` yetkisi de her yeni `transactions` sütununda bir GRANT bakımı ister. *(2026-11-07: kolon düzeyi
+    yetki T163'te seçildi — [ADR 0038](0038-kaydin-yazilma-ani-veritabaninindir.md), migration 00088; fixture'lar
+    geçmiş `created_at`'i artık sahibin bağlantısıyla yazar. Kaynak taraması `SECURITY DEFINER` gövdeleri için kalır.)*
   - **Holding ve manuel satırlar:** eş mekân satırı işverenin `transactions` satırıdır, aynı kural. Manuel
     satır `out` olarak S NULL'dır → (d); `P` olarak müdürün sonradan yazdığı satırdır → düzeltmenin (e)'si.
   - **M9-01 sınırı:** çevrimdışı kuyruktan **sonradan gelen** geçmiş bir çıkış da `W`'yi doğru yapar —
