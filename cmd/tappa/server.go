@@ -25,10 +25,11 @@ type serverTimeouts struct {
 //
 // WHY 30 s, and what it is measured against:
 //
-//   - THE LARGEST BODY IT GOVERNS is the operator's legal text (256 KiB in the handler,
-//     "320k" at the operator's Ingress; deploy/k8s/41-operator-ingress.yaml). After the
-//     worst header allowance (readHeader, 10 s) that leaves 20 s: 16 KB/s. The panel's
-//     forms are at most 64 KiB (the sign-up form) and the API's bodies 80 KiB
+//   - THE LARGEST BODY IT GOVERNS is the operator's legal text: 256 KiB in the handler
+//     (maxLegalBody), "320k" at the operator's Ingress (deploy/k8s/41-operator-ingress.yaml).
+//     After the worst header allowance (readHeader, 10 s) 20 s are left: the handler's
+//     256 KiB needs about 13 KB/s, the Ingress's 320 KiB about 16 KB/s. The panel's forms
+//     are at most 64 KiB (the sign-up form) and the API's bodies 80 KiB
 //     (42-api-ingress.yaml).
 //   - THE LARGEST BODY OF ALL, THE LOGO (1 MiB, brandUploadMaxBody), IS NOT GOVERNED BY
 //     IT. The upload gate sets its own connection deadline, now + 15 s, once it has
@@ -47,12 +48,14 @@ type serverTimeouts struct {
 //   - It equals httpx.RequestTimeout: a request has 30 s to arrive and then 30 s to be
 //     answered. A slow-body client holds a goroutine for at most this long.
 //
-// ⚠️ INGRESS BUFFERING WAS NOT MEASURED. ingress-nginx's documented default buffers a
-// request body before proxying it (proxy-request-buffering), in which case the pod
-// reads from the controller at cluster speed and a slow client meets the controller's
-// client_body_timeout instead; this bound then guards the paths that do not go
-// through a buffering proxy. Which one the cluster does is a read of the rendered
-// nginx.conf (deploy/README.md gives the read-only nginx -T command), not done here.
+// WHAT IT GUARDS IN PRODUCTION: THE PATH AROUND THE INGRESS. The live controller
+// buffers request bodies (read by the orchestrator with nginx -T, 2026-11-07:
+// proxy_request_buffering on, client_body_timeout 60s, global), so a slow client on the
+// public hosts meets the controller's 60 s and the pod reads the body at cluster
+// speed. What this bound covers is everything that reaches the pod directly:
+// deploy/k8s/12-networkpolicy.yaml has no ingress policy for the application pod (read
+// in the T21/T91 review), so any pod or node in the cluster can open a connection to
+// it and hold a body open -- without this, indefinitely.
 var productionTimeouts = serverTimeouts{
 	readHeader: 10 * time.Second,
 	read:       30 * time.Second,
