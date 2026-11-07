@@ -109,6 +109,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/egress"
@@ -200,7 +201,7 @@ type Sender interface {
 
 // Job is the delivery job. Dependencies are struct fields (§7).
 type Job struct {
-	kek  []byte
+	kek  config.Key
 	data Database
 	send Sender
 	log  *slog.Logger
@@ -223,7 +224,7 @@ func New(kek []byte, data Database, send Sender, log *slog.Logger) (*Job, error)
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Job{kek: append([]byte(nil), kek...), data: data, send: send, log: log, budget: RunBudget, recheck: GateRecheck,
+	return &Job{kek: config.NewKey(kek), data: data, send: send, log: log, budget: RunBudget, recheck: GateRecheck,
 		swept: map[uuid.UUID]time.Time{}}, nil
 }
 
@@ -356,7 +357,7 @@ func (j *Job) claim(ctx context.Context, tenantID uuid.UUID) (work, outcome, err
 		if w.to, err = egress.EndpointFromStore(ep.Url); err != nil {
 			return hold("stored_address")
 		}
-		plain, err := sun.Open(j.kek, ep.ID[:], ep.SigningKeySealed)
+		plain, err := sun.Open(j.kek.Reveal(), ep.ID[:], ep.SigningKeySealed)
 		if err != nil {
 			return hold("key_unreadable")
 		}

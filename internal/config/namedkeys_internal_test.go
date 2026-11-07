@@ -38,7 +38,7 @@ func TestNamedKeys_ListEveryKeyFieldOfTheConfig(t *testing.T) {
 
 	seen := map[string]int{}
 	for _, k := range c.namedKeys() {
-		name, ok := fieldOf[string(k.v)]
+		name, ok := fieldOf[string(k.v.Reveal())]
 		if !ok {
 			t.Errorf("namedKeys lists %s with a value no Key field of Config holds", k.name)
 			continue

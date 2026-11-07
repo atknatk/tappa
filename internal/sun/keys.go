@@ -5,6 +5,8 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"fmt"
+
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // Envelope encryption for per-tag NTAG 424 DNA AES keys (ADR 0003 madde 4,
@@ -30,9 +32,9 @@ import (
 // KEK HANDLING (§7, and the "no cached plaintext key" trap in m2-sun.md M2-05).
 // The KEK is passed in as an explicit PARAMETER on every call, exactly as the
 // card sanctions ("Wrap/Unwrap KEK'i parametre/bağımlılık olarak alsın"). The
-// package therefore holds NO KEK state at all — no package-level global, no
-// cached struct field — and never retains an unwrapped tag key either. Callers
-// pass Config.TagKEK; the only long-lived copy of the KEK is config's.
+// package holds no package-level KEK state; a Verifier's keks field holds the
+// config.Key values it was built from (a redacting type, backlog T205), and it
+// never retains an unwrapped tag key.
 //
 // Cryptography lives ONLY in internal/sun (CLAUDE.md §4.7). This file logs
 // nothing; its errors carry lengths and fixed strings, never key or KEK bytes,
@@ -191,13 +193,16 @@ func Unwrap(kek, uid, ref []byte) ([]byte, error) {
 // "no configured KEK opened this", never "the second one nearly worked" (§4.7).
 // An empty list is an error rather than a silent failure — a caller that lost its
 // keys must not look like a caller holding a corrupt ref.
-func UnwrapAny(keks [][]byte, uid, ref []byte) ([]byte, error) {
+//
+// Each KEK is revealed for its one attempt and unwrapAndWipe wipes that copy; config.Key holds the
+// original, which nothing can wipe (backlog T205).
+func UnwrapAny(keks []config.Key, uid, ref []byte) ([]byte, error) {
 	if len(keks) == 0 {
 		return nil, fmt.Errorf("sun: unwrap: no KEK configured")
 	}
 	var firstErr error
-	for _, kek := range keks {
-		key, err := Unwrap(kek, uid, ref)
+	for _, k := range keks {
+		key, err := unwrapAndWipe(k.Reveal(), uid, ref)
 		if err == nil {
 			return key, nil
 		}
@@ -209,6 +214,13 @@ func UnwrapAny(keks [][]byte, uid, ref []byte) ([]byte, error) {
 		}
 	}
 	return nil, firstErr
+}
+
+// unwrapAndWipe is Unwrap over a KEK copy that exists for this one call, wiped however the call ends. A
+// helper so the defer is per attempt, not per UnwrapAny, and so a test can hand it a buffer and look.
+func unwrapAndWipe(kek, uid, ref []byte) ([]byte, error) {
+	defer Zero(kek)
+	return Unwrap(kek, uid, ref)
 }
 
 // sealOverhead is what Seal adds to its plaintext: the nonce in front and the GCM

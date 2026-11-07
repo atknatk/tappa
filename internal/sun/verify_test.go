@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -207,7 +208,7 @@ func fakeActiveTag(t *testing.T, kek, uidBytes, tagKey []byte, status string) db
 
 func TestVerify_UnknownUIDReturnsErrUnknownTag(t *testing.T) {
 	f := &fakeResolver{resolveErr: pgx.ErrNoRows}
-	ver := NewVerifier(f, hexBytes(t, fakeKEKHex))
+	ver := NewVerifier(f, config.NewKey(hexBytes(t, fakeKEKHex)))
 
 	_, err := ver.Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077"))
 	if !errors.Is(err, ErrUnknownTag) {
@@ -221,7 +222,7 @@ func TestVerify_UnknownUIDReturnsErrUnknownTag(t *testing.T) {
 func TestVerify_ResolveInfraErrorSurfaced(t *testing.T) {
 	boom := errors.New("connection reset by peer")
 	f := &fakeResolver{resolveErr: boom}
-	ver := NewVerifier(f, hexBytes(t, fakeKEKHex))
+	ver := NewVerifier(f, config.NewKey(hexBytes(t, fakeKEKHex)))
 
 	_, err := ver.Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077"))
 	if errors.Is(err, ErrUnknownTag) {
@@ -242,7 +243,7 @@ func TestVerify_RetiredAndLostShortCircuit(t *testing.T) {
 	for _, status := range []string{"retired", "lost"} {
 		t.Run(status, func(t *testing.T) {
 			f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, key, status)}
-			ver := NewVerifier(f, kek)
+			ver := NewVerifier(f, config.NewKey(kek))
 
 			res, err := ver.Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077"))
 			if err != nil {
@@ -267,7 +268,7 @@ func TestVerify_QRHasNoSUN(t *testing.T) {
 	kek := hexBytes(t, fakeKEKHex)
 	uidBytes := hexBytes(t, fakeUIDHex)
 	f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, hexBytes(t, fakeTagKey), "active")}
-	ver := NewVerifier(f, kek)
+	ver := NewVerifier(f, config.NewKey(kek))
 
 	p := mustParse(t, fakeUIDHex, "", "") // QR: tag only
 	if p.HasSUN() {
@@ -296,7 +297,7 @@ func TestVerify_BadCMACDoesNotAdvance(t *testing.T) {
 	kek := hexBytes(t, fakeKEKHex)
 	uidBytes := hexBytes(t, fakeUIDHex)
 	f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, hexBytes(t, fakeTagKey), "active")}
-	ver := NewVerifier(f, kek)
+	ver := NewVerifier(f, config.NewKey(kek))
 
 	// A CMAC that cannot verify under the tag's key (all-zero 8 bytes).
 	res, err := ver.Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "0000000000000000"))
@@ -324,7 +325,7 @@ func TestVerify_AdvanceOutcomeMapping(t *testing.T) {
 
 	t.Run("nil_advance_is_sun_valid", func(t *testing.T) {
 		f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, key, "active"), wtErr: nil}
-		ver := NewVerifier(f, kek)
+		ver := NewVerifier(f, config.NewKey(kek))
 		res, err := ver.Verify(context.Background(), goodP)
 		if err != nil {
 			t.Fatalf("Verify err = %v, want nil", err)
@@ -339,7 +340,7 @@ func TestVerify_AdvanceOutcomeMapping(t *testing.T) {
 
 	t.Run("replay_maps_to_reject", func(t *testing.T) {
 		f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, key, "active"), wtErr: ErrReplay}
-		ver := NewVerifier(f, kek)
+		ver := NewVerifier(f, config.NewKey(kek))
 		res, err := ver.Verify(context.Background(), goodP)
 		if err != nil {
 			t.Fatalf("Verify err = %v, want nil (replay is a Result reject)", err)
@@ -352,7 +353,7 @@ func TestVerify_AdvanceOutcomeMapping(t *testing.T) {
 	t.Run("infra_error_surfaced", func(t *testing.T) {
 		boom := errors.New("deadlock detected")
 		f := &fakeResolver{tag: fakeActiveTag(t, kek, uidBytes, key, "active"), wtErr: boom}
-		ver := NewVerifier(f, kek)
+		ver := NewVerifier(f, config.NewKey(kek))
 		_, err := ver.Verify(context.Background(), goodP)
 		if !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want the wrapped infra failure", err)
@@ -372,7 +373,7 @@ func TestVerify_UnwrapFailureSurfaced(t *testing.T) {
 	uidBytes := hexBytes(t, fakeUIDHex)
 	// Tag wrapped under the RIGHT kek, but the Verifier holds the WRONG one.
 	f := &fakeResolver{tag: fakeActiveTag(t, rightKEK, uidBytes, hexBytes(t, fakeTagKey), "active")}
-	ver := NewVerifier(f, wrongKEK)
+	ver := NewVerifier(f, config.NewKey(wrongKEK))
 
 	_, err := ver.Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077"))
 	if err == nil {
@@ -400,21 +401,21 @@ func TestVerify_NoSecretInErrors(t *testing.T) {
 	var errs []error
 	// (1) wrong KEK -> unwrap error path.
 	f1 := &fakeResolver{tag: fakeActiveTag(t, rightKEK, uidBytes, key, "active")}
-	if _, e := NewVerifier(f1, wrongKEK).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
+	if _, e := NewVerifier(f1, config.NewKey(wrongKEK)).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
 		errs = append(errs, e)
 	}
 	// (2) corrupt aes_key_ref -> unwrap error path.
 	corrupt := fakeActiveTag(t, rightKEK, uidBytes, key, "active")
 	corrupt.AESKeyRef[gcmNonceLen] ^= 0x01
 	f2 := &fakeResolver{tag: corrupt}
-	if _, e := NewVerifier(f2, rightKEK).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
+	if _, e := NewVerifier(f2, config.NewKey(rightKEK)).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
 		errs = append(errs, e)
 	}
 	// (3) unknown tag + (4) infra error -> sentinel/ wrapped error paths.
-	if _, e := NewVerifier(&fakeResolver{resolveErr: pgx.ErrNoRows}, rightKEK).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
+	if _, e := NewVerifier(&fakeResolver{resolveErr: pgx.ErrNoRows}, config.NewKey(rightKEK)).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
 		errs = append(errs, e)
 	}
-	if _, e := NewVerifier(&fakeResolver{resolveErr: errors.New("boom")}, rightKEK).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
+	if _, e := NewVerifier(&fakeResolver{resolveErr: errors.New("boom")}, config.NewKey(rightKEK)).Verify(context.Background(), mustParse(t, fakeUIDHex, "000065", "83c0104d8ac39077")); e != nil {
 		errs = append(errs, e)
 	}
 
@@ -514,7 +515,7 @@ func TestVerify_VectorsAgainstPostgres(t *testing.T) {
 	kek := hexBytes(t, vf.KEK)
 	keyA := hexBytes(t, vf.TagKeyA)
 	keyB := hexBytes(t, vf.TagKeyBWrong)
-	ver := NewVerifier(d, kek)
+	ver := NewVerifier(d, config.NewKey(kek))
 	ctx := context.Background()
 
 	for _, vec := range vf.Vectors {
@@ -572,7 +573,7 @@ func TestVerify_RetiredAndLostAgainstPostgres(t *testing.T) {
 	d := appDB(t)
 	kek := hexBytes(t, fakeKEKHex)
 	keyA := hexBytes(t, fakeTagKey)
-	ver := NewVerifier(d, kek)
+	ver := NewVerifier(d, config.NewKey(kek))
 	ctx := context.Background()
 
 	for _, status := range []string{"retired", "lost"} {
@@ -602,7 +603,7 @@ func TestVerify_RetiredAndLostAgainstPostgres(t *testing.T) {
 func TestVerify_QRAgainstPostgres(t *testing.T) {
 	d := appDB(t)
 	kek := hexBytes(t, fakeKEKHex)
-	ver := NewVerifier(d, kek)
+	ver := NewVerifier(d, config.NewKey(kek))
 
 	tenantID, locationID, uid := newVerifyTag(t, d, kek, hexBytes(t, fakeTagKey), 42, "active")
 	res, err := ver.Verify(context.Background(), mustParse(t, uid, "", "")) // QR
@@ -624,7 +625,7 @@ func TestVerify_QRAgainstPostgres(t *testing.T) {
 // resolver returns pgx.ErrNoRows and Verify maps it to ErrUnknownTag.
 func TestVerify_UnknownUIDAgainstPostgres(t *testing.T) {
 	d := appDB(t)
-	ver := NewVerifier(d, hexBytes(t, fakeKEKHex))
+	ver := NewVerifier(d, config.NewKey(hexBytes(t, fakeKEKHex)))
 
 	unknown := strings.ToUpper(randUID(t)) // never inserted
 	_, err := ver.Verify(context.Background(), mustParse(t, unknown, "000065", "83c0104d8ac39077"))
@@ -642,7 +643,7 @@ func TestVerify_ConcurrentSameTapExactlyOneWinner(t *testing.T) {
 	d := appDB(t)
 	kek := hexBytes(t, fakeKEKHex)
 	keyA := hexBytes(t, fakeTagKey)
-	ver := NewVerifier(d, kek)
+	ver := NewVerifier(d, config.NewKey(kek))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

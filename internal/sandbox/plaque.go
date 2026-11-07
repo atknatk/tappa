@@ -170,7 +170,7 @@ func (s *Simulation) wrapFreshKey(uid []byte) ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("draw the plaque key: %w", err)
 	}
-	wrapped, err := sun.Wrap(s.kek, uid, key)
+	wrapped, err := sun.Wrap(s.kek.Reveal(), uid, key)
 	if err != nil {
 		return nil, fmt.Errorf("wrap the plaque key: %w", err)
 	}

@@ -43,6 +43,21 @@ func TestEnvForBuild_TheSandboxValueBelongsToTheSandboxBuild(t *testing.T) {
 	}
 }
 
+// TestEnvForBuild_RepeatsNoValue (backlog T206): the refusal an untagged run of Load never reaches, the
+// sandbox build's, says what it wants and not what it got.
+//
+// MUTANT (measured, 2026-11-06, reverted): `got %q` back in the sandbox branch -- red here.
+func TestEnvForBuild_RepeatsNoValue(t *testing.T) {
+	const fixture = "CanaryPw"
+	err := envForBuild("postgres://u:"+fixture+"@db.invalid/x", true)
+	if err == nil {
+		t.Fatal("the sandbox build accepted a value that is not its own")
+	}
+	if strings.Contains(err.Error(), fixture) || strings.Contains(err.Error(), "db.invalid") {
+		t.Errorf("the refusal repeats the value: %v", err)
+	}
+}
+
 // TestSandboxSettings_TheSandboxSendsNoEmail (ADR 0028 §11: "gerçek e-posta yok; davet panel
 // modunda"): with TAPPA_ENV=sandbox both flows must be off -- the reset flow none, the invitation
 // panel -- and every other environment is untouched by the rule.

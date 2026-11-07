@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -275,8 +276,8 @@ func sourceDerivations(t *testing.T) map[pages.Source]func() string {
 				"longer carries both a counter and a signature"
 		case ctr.Kind() != reflect.Uint32:
 			return "sun.Params.Ctr is a " + ctr.String() + " rather than the chip's counter"
-		case cmac.Kind() != reflect.Slice:
-			return "sun.Params.CMAC is a " + cmac.String() + " rather than signature bytes"
+		case cmac != reflect.TypeFor[config.Key]():
+			return "sun.Params.CMAC is a " + cmac.String() + " rather than signature bytes in a config.Key"
 		}
 		return ""
 	}

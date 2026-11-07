@@ -159,7 +159,7 @@ func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := claims.Open(ctx, d.Account.Email, d.Account.Password, draft)
+	grant, err := claims.Open(ctx, d.Account.Email, string(d.Account.Password.Reveal()), draft)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	proof, ok := claims.ProveWithPassword(c, d.Account.Password)
+	proof, ok := claims.ProveWithPassword(c, string(d.Account.Password.Reveal()))
 	if !ok {
 		t.Fatal("the chosen password did not prove the draft")
 	}

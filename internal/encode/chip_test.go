@@ -468,8 +468,8 @@ func (c *fakeChip) authPart2(body []byte) []byte {
 	if err != nil {
 		t.Fatalf("chip: deriving session keys: %v", err)
 	}
-	c.kenc = auth.KeyENC
-	c.kmac = auth.KeyMAC
+	c.kenc = auth.KeyENC.Reveal()
+	c.kmac = auth.KeyMAC.Reveal()
 	c.authed = true
 	c.ctr = 0
 	c.phase = phaseIdle

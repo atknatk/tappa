@@ -7,12 +7,15 @@ package encode
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/google/uuid"
@@ -381,7 +384,7 @@ func (stubTrail) Record(context.Context, audit.Event) (uuid.UUID, error) {
 // THIS uid, to exactly the key that went in" (ADR 0003 md. 4).
 func TestKEKWrapper_SealsTheADR0003EnvelopeAgainstTheRawUID(t *testing.T) {
 	kek := bytesOf(sun.KEKLen, 0x5C)
-	w, err := NewKEKWrapper(kek)
+	w, err := NewKEKWrapper(config.NewKey(kek))
 	if err != nil {
 		t.Fatalf("NewKEKWrapper: %v", err)
 	}
@@ -433,12 +436,12 @@ func TestKEKWrapper_SealsTheADR0003EnvelopeAgainstTheRawUID(t *testing.T) {
 // to sun.Wrap and produce an error about configuration from inside the round.
 func TestKEKWrapper_RefusesAMisSizedKEKAtConstruction(t *testing.T) {
 	for _, n := range []int{0, 16, 24, 31, 33} {
-		if _, err := NewKEKWrapper(bytesOf(n, 0x01)); err == nil {
+		if _, err := NewKEKWrapper(config.NewKey(bytesOf(n, 0x01))); err == nil {
 			t.Errorf("a %d-byte KEK was accepted; ADR 0003 md. 4 fixes AES-256, and aes.NewCipher "+
 				"would silently take 16 or 24 and downgrade the envelope", n)
 		}
 	}
-	if _, err := NewKEKWrapper(nil); err == nil {
+	if _, err := NewKEKWrapper(config.Key{}); err == nil {
 		t.Error("a nil KEK was accepted")
 	}
 
@@ -448,45 +451,72 @@ func TestKEKWrapper_RefusesAMisSizedKEKAtConstruction(t *testing.T) {
 	}
 
 	// POSITIVE CONTROL.
-	if _, err := NewKEKWrapper(bytesOf(sun.KEKLen, 0x01)); err != nil {
+	if _, err := NewKEKWrapper(config.NewKey(bytesOf(sun.KEKLen, 0x01))); err != nil {
 		t.Errorf("a correctly sized KEK was refused: %v", err)
 	}
 }
 
-// TestKEKWrapper_HoldsConfigsSliceRatherThanACopy.
+// TestKEKWrapper_HoldsConfigsKeyRatherThanACopy.
 //
 // 🔴 IT PINS A SECURITY DECISION THAT LOOKS LIKE AN IMPLEMENTATION DETAIL.
-// internal/sun's header states the rule -- "the only long-lived copy of the KEK is
-// config's" -- and a constructor that copied the slice would make a SECOND
-// long-lived copy, unreachable from anything that wipes the first. The observable
-// consequence of NOT copying is that a mutation of the caller's slice is visible
-// here, which is what this asserts.
-//
-// ⚠️ IT IS ALSO THE COUNTED COST, and the test is the honest record of it: a caller
-// that zeroes the slice it handed in breaks every subsequent WrapKey and this type
-// cannot notice. Nothing in this repository does that (config.Load builds the slice
-// once and hands it out), and the alternative trades a bug nobody has for a key
-// copy §4.7 would rather not have.
-func TestKEKWrapper_HoldsConfigsSliceRatherThanACopy(t *testing.T) {
-	kek := bytesOf(sun.KEKLen, 0x5C)
+// internal/sun's header states the rule -- the only long-lived copy of the KEK is
+// config's -- and a constructor that copied would make a SECOND long-lived copy.
+// A config.Key is a pointer in a struct, so "the same Key" is a comparison: the
+// wrapper's field is the value it was handed, not one built from its bytes.
+// (Backlog T205 replaced a test of the same rule over a shared slice. A Key cannot be
+// mutated, so that test's cost, a caller zeroing the slice under the wrapper, is gone.)
+func TestKEKWrapper_HoldsConfigsKeyRatherThanACopy(t *testing.T) {
+	kek := config.NewKey(bytesOf(sun.KEKLen, 0x5C))
 	w, err := NewKEKWrapper(kek)
 	if err != nil {
 		t.Fatalf("NewKEKWrapper: %v", err)
 	}
-	uid := []byte{0x04, 0xAC, 0x7E, 0x55, 0x00, 0x06, 0x01}
-	key := bytesOf(16, 0x11)
-
-	kek[0] ^= 0xFF // the caller's slice, mutated after construction
-	ref, err := w.WrapKey(uid, key)
-	if err != nil {
-		t.Fatalf("WrapKey: %v", err)
-	}
-	if _, err := sun.Unwrap(bytesOf(sun.KEKLen, 0x5C), uid, ref); err == nil {
-		t.Fatal("the envelope opened under the ORIGINAL KEK bytes, so the wrapper kept a COPY. " +
+	if w.kek != kek {
+		t.Fatal("the wrapper holds a different Key than it was handed, so it kept a COPY. " +
 			"internal/sun's rule is that config's is the only long-lived copy")
 	}
-	if _, err := sun.Unwrap(kek, uid, ref); err != nil {
-		t.Fatalf("the envelope does not open under the caller's CURRENT KEK bytes either: %v", err)
+	if config.NewKey(bytesOf(sun.KEKLen, 0x5C)) == kek {
+		t.Fatal("CONTROL: two Keys over equal bytes compare equal; the comparison above proves nothing")
+	}
+}
+
+// TestKEKWrapper_AndTheKeyringPrintNoKey (backlog T205, the measurement that opened it): a KEKWrapper's KEK
+// came out of %v %+v %#v %x and slog's text handler, and %+v of a keyring printed every key in the round.
+//
+// MUTANT (measured, 2026-11-06, reverted): config.Key over a plain string -- red here.
+func TestKEKWrapper_AndTheKeyringPrintNoKey(t *testing.T) {
+	kek := bytesOf(sun.KEKLen, 'K')
+	w, err := NewKEKWrapper(config.NewKey(kek))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring := newKeyring()
+	key := bytesOf(16, 'S')
+	if err := ring.add(keyNameSesENC, key); err != nil {
+		t.Fatal(err)
+	}
+	type holder struct {
+		w *KEKWrapper
+		r *keyring
+		k KEKWrapper
+		s keyring
+	}
+	h := holder{w, ring, *w, *ring}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%x", "%q", "%d"} {
+		for name, v := range map[string]any{"wrapper": w, "wrapper by value": *w, "ring": ring, "ring by value": *ring, "holder": h} {
+			text := fmt.Sprintf(verb, v)
+			for _, raw := range [][]byte{kek, key} {
+				bare := fmt.Sprint(raw)
+				if strings.Contains(text, string(raw)) || strings.Contains(text, fmt.Sprintf("%x", raw)) || strings.Contains(text, bare[1:len(bare)-1]) {
+					t.Errorf("the %s under %s prints a key", name, verb)
+				}
+			}
+		}
+	}
+	var log strings.Builder
+	slog.New(slog.NewTextHandler(&log, nil)).Info("probe", "w", w, "wv", *w, "r", ring)
+	if strings.Contains(log.String(), string(kek)) || strings.Contains(log.String(), string(key)) || strings.Contains(log.String(), fmt.Sprintf("%x", kek)) {
+		t.Error("slog's text handler prints a key")
 	}
 }
 

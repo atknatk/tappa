@@ -194,7 +194,7 @@ func TestInviteQueue_HoldsNoCode(t *testing.T) {
 	var secrets []string
 	for _, d := range r.sink.calls() {
 		code := codeOf(t, d)
-		h, err := code.hash(r.m.hmacKey)
+		h, err := code.hash(r.m.hmacKey.Reveal())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -9,6 +9,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // switchtoken.go -- the synchronizer token of POST /admin/switch (ADR 0031 §5.4, M14-10).
@@ -46,7 +48,7 @@ var errSwitchTokensUnset = errors.New("adminauth: switch tokens have no key")
 
 // SwitchTokens produces and checks the switch's synchronizer tokens. The zero value refuses
 // everything.
-type SwitchTokens struct{ key []byte }
+type SwitchTokens struct{ key config.Key }
 
 // NewSwitchTokens derives the key from TAPPA_SESSION_HMAC_KEY.
 func NewSwitchTokens(sessionKey []byte) (SwitchTokens, error) {
@@ -55,13 +57,13 @@ func NewSwitchTokens(sessionKey []byte) (SwitchTokens, error) {
 	}
 	m := hmac.New(sha256.New, sessionKey)
 	_, _ = m.Write([]byte(switchKeyLabel)) // hash writes never fail (documented)
-	return SwitchTokens{key: m.Sum(nil)}, nil
+	return SwitchTokens{key: config.NewKey(m.Sum(nil))}, nil
 }
 
 // Mint is the switch token of the session whose raw token is t and whose id is session. It
 // refuses a token this package could not have issued and the nil session.
 func (s SwitchTokens) Mint(t Token, session uuid.UUID) (string, error) {
-	if len(s.key) != sha256.Size {
+	if s.key.Len() != sha256.Size {
 		return "", errSwitchTokensUnset
 	}
 	if session == uuid.Nil {
@@ -74,7 +76,7 @@ func (s SwitchTokens) Mint(t Token, session uuid.UUID) (string, error) {
 	if _, err := base64.RawURLEncoding.DecodeString(v); err != nil {
 		return "", errMalformed
 	}
-	k := hmac.New(sha256.New, s.key)
+	k := hmac.New(sha256.New, s.key.Reveal())
 	_, _ = k.Write([]byte(v))
 	m := hmac.New(sha256.New, k.Sum(nil))
 	_, _ = m.Write([]byte(switchPrefix + session.String()))

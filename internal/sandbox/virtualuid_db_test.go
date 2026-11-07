@@ -112,10 +112,10 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 		t.Fatalf("the sandbox pool resolved a real NXP plaque on a transaction: %v", err)
 	}
 	qr := sun.Params{UID: nxp, Channel: sun.ChannelQR}
-	if _, err := sun.NewVerifier(devPool, kek).PreviewWithoutReplayProtection(ctx, qr); err != nil {
+	if _, err := sun.NewVerifier(devPool, config.NewKey(kek)).PreviewWithoutReplayProtection(ctx, qr); err != nil {
 		t.Fatalf("CONTROL: the development pre-check: %v", err)
 	}
-	if _, err := sun.NewVerifier(sandboxPool, kek).PreviewWithoutReplayProtection(ctx, qr); !errors.Is(err, sun.ErrUnknownTag) {
+	if _, err := sun.NewVerifier(sandboxPool, config.NewKey(kek)).PreviewWithoutReplayProtection(ctx, qr); !errors.Is(err, sun.ErrUnknownTag) {
 		t.Fatalf("the sandbox tap page's pre-check: %v, want an unknown plaque", err)
 	}
 	trail, err := audit.New(sandboxPool)

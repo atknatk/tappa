@@ -2,6 +2,7 @@ package sun
 
 import (
 	"context"
+	"github.com/atknatk/tappa/internal/config"
 	"regexp"
 	"strings"
 	"testing"
@@ -24,6 +25,15 @@ import (
 // fakeKEK3Hex is a THIRD fake 32-byte KEK: needed for the "opens under neither"
 // case, which cannot be built from the two keys the round-trip tests use.
 const fakeKEK3Hex = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+
+// kekKeys is a KEK list in the shape a Verifier holds it.
+func kekKeys(keks ...[]byte) []config.Key {
+	out := make([]config.Key, 0, len(keks))
+	for _, k := range keks {
+		out = append(out, config.NewKey(k))
+	}
+	return out
+}
 
 // TestUnwrapAny_TableOfRotationStates walks every state a row can be in during a
 // rotation, against every key list a process can hold. One case per row of the
@@ -51,25 +61,25 @@ func TestUnwrapAny_TableOfRotationStates(t *testing.T) {
 
 	// during is the ordering the runbook mandates while a rotation is live: the
 	// key rows are moving TO comes first, the key they are moving FROM second.
-	during := [][]byte{kekNew, kekOld}
+	during := kekKeys(kekNew, kekOld)
 
 	tests := []struct {
 		name    string
-		keks    [][]byte
+		keks    []config.Key
 		ref     []byte
 		wantOK  bool
 		wantKey []byte
 	}{
 		{
 			name:    "steady state: one KEK, row already under it",
-			keks:    [][]byte{kekNew},
+			keks:    kekKeys(kekNew),
 			ref:     sealedNew,
 			wantOK:  true,
 			wantKey: key,
 		},
 		{
 			name:   "the failure this whole window exists to prevent: one KEK, row under the other",
-			keks:   [][]byte{kekNew},
+			keks:   kekKeys(kekNew),
 			ref:    sealedOld,
 			wantOK: false,
 		},
@@ -92,7 +102,7 @@ func TestUnwrapAny_TableOfRotationStates(t *testing.T) {
 			// two variables swap and the park is mixed the OTHER way round; a list
 			// that only worked forwards would strand the rollback.
 			name:    "rollback window, order reversed, row under what is now the fallback",
-			keks:    [][]byte{kekOld, kekNew},
+			keks:    kekKeys(kekOld, kekNew),
 			ref:     sealedNew,
 			wantOK:  true,
 			wantKey: key,
@@ -157,7 +167,7 @@ func TestUnwrapAny_ErrorNamesNoKEKAndNoPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Wrap: %v", err)
 	}
-	_, err = UnwrapAny([][]byte{kekNew, kekOld}, uid, sealedOther)
+	_, err = UnwrapAny(kekKeys(kekNew, kekOld), uid, sealedOther)
 	if err == nil {
 		t.Fatal("a ref under an unheld key must not open")
 	}
@@ -215,8 +225,8 @@ func TestUnwrapAny_EmptyListIsAnErrorNotASilentMiss(t *testing.T) {
 }
 
 // TestNewVerifier_DropsEmptyPreviousKEKs pins the contract main.go depends on:
-// cfg.TagKEKPrevious reveals nil in the steady state and is passed straight through
-// without a branch, so NewVerifier must not turn that nil into a key.
+// cfg.TagKEKPrevious is the zero Key in the steady state and is passed straight through
+// without a branch, so NewVerifier must not turn that into a key.
 //
 // A nil entry left in the list would be a REAL fault, not a cosmetic one:
 // UnwrapAny would call Unwrap with a zero-length KEK on every single tap, and the
@@ -227,26 +237,26 @@ func TestNewVerifier_DropsEmptyPreviousKEKs(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		previous [][]byte
+		previous []config.Key
 		wantLen  int
 	}{
 		{"steady state: no previous argument at all", nil, 1},
-		{"steady state: an unset config value passed straight through", [][]byte{nil}, 1},
-		{"steady state: an empty (non-nil) slice", [][]byte{{}}, 1},
-		{"rotation window: a real previous KEK", [][]byte{prev}, 2},
-		{"a real one and an unset one", [][]byte{prev, nil}, 2},
+		{"steady state: an unset config value passed straight through", kekKeys(nil), 1},
+		{"steady state: an empty (non-nil) slice", kekKeys([]byte{}), 1},
+		{"rotation window: a real previous KEK", kekKeys(prev), 2},
+		{"a real one and an unset one", kekKeys(prev, nil), 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := NewVerifier(&fakeResolver{}, kek, tc.previous...)
+			v := NewVerifier(&fakeResolver{}, config.NewKey(kek), tc.previous...)
 			if len(v.keks) != tc.wantLen {
 				t.Fatalf("verifier holds %d KEKs, want %d", len(v.keks), tc.wantLen)
 			}
-			if string(v.keks[0]) != string(kek) {
+			if string(v.keks[0].Reveal()) != string(kek) {
 				t.Fatal("the primary KEK must be first: order decides which key is tried first")
 			}
 			for i, k := range v.keks {
-				if len(k) == 0 {
+				if k.Len() == 0 {
 					t.Fatalf("KEK %d is empty; every tap would spend an attempt on it", i)
 				}
 			}
@@ -274,7 +284,7 @@ func TestVerify_TapOnANotYetRotatedPlaqueStillWorks(t *testing.T) {
 
 	t.Run("during the rotation window the tap is verified", func(t *testing.T) {
 		f := &fakeResolver{tag: notYetRotated}
-		ver := NewVerifier(f, kekNew, kekOld)
+		ver := NewVerifier(f, config.NewKey(kekNew), config.NewKey(kekOld))
 		res, err := ver.Verify(context.Background(), params)
 		if err != nil {
 			t.Fatalf("a tap on a not-yet-rotated plaque must not error: %v", err)
@@ -290,7 +300,7 @@ func TestVerify_TapOnANotYetRotatedPlaqueStillWorks(t *testing.T) {
 
 	t.Run("NEGATIVE CONTROL: without the fallback the same tap is an error", func(t *testing.T) {
 		f := &fakeResolver{tag: notYetRotated}
-		ver := NewVerifier(f, kekNew)
+		ver := NewVerifier(f, config.NewKey(kekNew))
 		if _, err := ver.Verify(context.Background(), params); err == nil {
 			t.Fatal("with only the new KEK this tap MUST fail; if it does not, the test above proves nothing")
 		}

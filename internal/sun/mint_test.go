@@ -42,7 +42,7 @@ func TestMintTapPath_RoundTripsThroughVerifyMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse(%s): %v", path, err)
 	}
-	if ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC); err != nil || !ok {
+	if ok, err := verifyMAC(key, p.UIDBytes, p.CtrBytes[:], p.CMAC.Reveal()); err != nil || !ok {
 		t.Fatalf("verifyMAC refused a minted URL: ok=%v err=%v", ok, err)
 	}
 	other, _ := MintTapPath(key, uid, 0x000642)
@@ -82,7 +82,7 @@ func TestMintNextTapForDevelopment_MintsLastPlusOneOnlyForAPlaqueInService(t *te
 	tag := db.ResolvedTag{UID: "04AC7E55000601", TenantID: uuid.New(), LocationID: &wall, AESKeyRef: ref, LastCtr: 0x640, Status: "active"}
 
 	devCfg := &config.Config{Env: config.EnvDev, DevTools: true}
-	minter, err := NewVerifier(fakeMintTags{tag}, kek).WithDevelopmentMinting(devCfg)
+	minter, err := NewVerifier(fakeMintTags{tag}, config.NewKey(kek)).WithDevelopmentMinting(devCfg)
 	if err != nil {
 		t.Fatalf("WithDevelopmentMinting: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestMintNextTapForDevelopment_MintsLastPlusOneOnlyForAPlaqueInService(t *te
 	} {
 		bad := tag
 		mutate(&bad)
-		m, _ := NewVerifier(fakeMintTags{bad}, kek).WithDevelopmentMinting(devCfg)
+		m, _ := NewVerifier(fakeMintTags{bad}, config.NewKey(kek)).WithDevelopmentMinting(devCfg)
 		if _, err := m.MintNextTapForDevelopment(context.Background(), bad.UID); !errors.Is(err, ErrNotMintable) {
 			t.Errorf("%s: err = %v, want ErrNotMintable", name, err)
 		}
@@ -114,7 +114,7 @@ func TestMintNextTapForDevelopment_MintsLastPlusOneOnlyForAPlaqueInService(t *te
 // and WithDevelopmentMinting refuses without the dev opt-in — and never changes
 // the Verifier it was called on.
 func TestMintNextTapForDevelopment_IsDisabledByDefault(t *testing.T) {
-	v := NewVerifier(fakeMintTags{}, make([]byte, 32))
+	v := NewVerifier(fakeMintTags{}, config.NewKey(make([]byte, 32)))
 	if _, err := v.MintNextTapForDevelopment(context.Background(), "04AC7E55000601"); !errors.Is(err, ErrDevMintingDisabled) {
 		t.Fatalf("a default Verifier minted (err=%v)", err)
 	}

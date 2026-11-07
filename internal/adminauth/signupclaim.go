@@ -92,7 +92,7 @@ type SignupClaims struct {
 	data SignupClaimDatabase
 	// claimKey hashes a draft's token; sessionKey hashes a panel session cookie (Manager's key), for the
 	// existing identity's proof.
-	claimKey, sessionKey []byte
+	claimKey, sessionKey config.Key
 	ttl                  time.Duration
 	now                  func() time.Time
 	// digest and compare are bcrypt (Hash, Compare) in production; fields for the -race tests' sake
@@ -118,7 +118,7 @@ func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config) (*SignupClaim
 	if err != nil {
 		return nil, err
 	}
-	return &SignupClaims{data: data, claimKey: m.Sum(nil), sessionKey: sessionKey, ttl: SignupClaimTTL,
+	return &SignupClaims{data: data, claimKey: config.NewKey(m.Sum(nil)), sessionKey: config.NewKey(sessionKey), ttl: SignupClaimTTL,
 		now: time.Now, digest: Hash, compare: Compare}, nil
 }
 
@@ -155,7 +155,7 @@ func (s *SignupClaims) Open(ctx context.Context, email, password string, draft [
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
-	h, err := t.hash(s.claimKey)
+	h, err := t.hash(s.claimKey.Reveal())
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
@@ -228,7 +228,7 @@ func (c SignupClaim) Live(now time.Time) bool { return c.UsedAt == nil && now.Be
 // Resolve reads the draft a link names. It WRITES NOTHING (the confirmation page's GET, R19).
 // ErrNoSuchClaim when no draft carries the token.
 func (s *SignupClaims) Resolve(ctx context.Context, t ResetToken) (SignupClaim, error) {
-	h, err := t.hash(s.claimKey)
+	h, err := t.hash(s.claimKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errResetMalformed) {
 			return SignupClaim{}, ErrNoSuchClaim
@@ -297,7 +297,7 @@ func (s *SignupClaims) ProveWithPassword(c SignupClaim, password string) (ClaimP
 // hashed as the panel hashes it. identity_claim_signup decides whether that session's person is the
 // draft's address (R18); a malformed cookie proves nothing.
 func (s *SignupClaims) ProveWithSession(c SignupClaim, session Token) (ClaimProof, bool) {
-	h, err := session.hash(s.sessionKey)
+	h, err := session.hash(s.sessionKey.Reveal())
 	if err != nil || c.hash == "" {
 		return ClaimProof{}, false
 	}

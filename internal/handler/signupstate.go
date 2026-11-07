@@ -230,7 +230,7 @@ type signupDraft struct {
 // The key is derived once, at construction, and held privately, so a later mutation
 // of the caller's config slice cannot silently change how blobs sign.
 type signupState struct {
-	key []byte
+	key config.Key
 	ttl time.Duration
 	// now is injectable for tests; production leaves it nil and reads the wall
 	// clock.
@@ -251,7 +251,7 @@ func newSignupState(cfg *config.Config) (signupState, error) {
 	}
 	m := hmac.New(sha256.New, cfg.SessionHMACKey.Reveal())
 	_, _ = m.Write([]byte(signupKeyLabel)) // hash writes never fail (documented)
-	return signupState{key: m.Sum(nil), ttl: signupTTL}, nil
+	return signupState{key: config.NewKey(m.Sum(nil)), ttl: signupTTL}, nil
 }
 
 func (s signupState) clock() time.Time {
@@ -271,7 +271,7 @@ func (s signupState) clock() time.Time {
 // injective whatever shape the payload later takes — and this payload is JSON, i.e.
 // a shape that grows fields, which is exactly the case that argument was about.
 func (s signupState) sign(payload []byte, bind string) []byte {
-	m := hmac.New(sha256.New, s.key)
+	m := hmac.New(sha256.New, s.key.Reveal())
 	_, _ = m.Write([]byte(signupMACLabel))
 	_, _ = m.Write([]byte(strconv.Itoa(len(payload))))
 	_, _ = m.Write([]byte("|"))
@@ -290,7 +290,7 @@ func (s signupState) sign(payload []byte, bind string) []byte {
 // (signupratelimit.go). mint therefore takes the stamp from the CALLER for every
 // step after the first.
 func (s signupState) mint(d signupDraft, bind string) (string, error) {
-	if len(s.key) == 0 {
+	if s.key.Len() == 0 {
 		// A zero signupState would sign under an empty key — a MAC anybody can
 		// compute. Refuse rather than emit a decorative signature.
 		return "", errors.New("handler: signup state was not configured")
@@ -326,7 +326,7 @@ func (s signupState) mint(d signupDraft, bind string) (string, error) {
 // same reason in miniature. This is tapcontext.go's and logincontext.go's order,
 // kept deliberately identical so the three are read as one pattern.
 func (s signupState) parse(v, bind string) (signupDraft, error) {
-	if len(s.key) == 0 {
+	if s.key.Len() == 0 {
 		return signupDraft{}, errors.New("handler: signup state was not configured")
 	}
 	if bind == "" {
