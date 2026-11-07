@@ -169,8 +169,9 @@ type options struct{ gate *WorkGate }
 func WithWorkGate(g *WorkGate) Option { return func(o *options) { o.gate = g } }
 
 // gateOf is the gate a constructor installs. Without WithWorkGate it is a gate of its own with one slot
-// per P -- a backstop, never ungated, and wide enough that the package's tests (which build many
-// Managers and race a few operations on one) do not queue; production always shares one.
+// per P and a backstopQueue-wide queue -- a backstop, never ungated, and wide enough that the package's
+// tests (which build many services and race tens of operations on one) are served; production always
+// shares one (cmd/tappa, TestWorkGateWiring_OneGateServesEveryPasswordService).
 func gateOf(opts []Option) *WorkGate {
 	var o options
 	for _, f := range opts {
@@ -179,5 +180,12 @@ func gateOf(opts []Option) *WorkGate {
 	if o.gate != nil {
 		return o.gate
 	}
-	return newWorkGate(runtime.GOMAXPROCS(0), WorkWait, nil)
+	g := newWorkGate(runtime.GOMAXPROCS(0), WorkWait, nil)
+	g.queue = make(chan struct{}, backstopQueue)
+	return g
 }
+
+// backstopQueue is the unshared gate's waiting room: wide, because what builds an unshared gate is a
+// package test racing tens of cheap operations on one service, which a four-core CI runner's
+// slots x workQueuePerSlot refused (measured: 40 simultaneous guesses, 26 refused at once).
+const backstopQueue = 256

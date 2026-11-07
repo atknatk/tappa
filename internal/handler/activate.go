@@ -1343,8 +1343,9 @@ func (a *Activation) failAttempt(ctx context.Context, ip string, ictx invite.Con
 type inviteHoldKey struct{}
 
 type inviteHold struct {
-	key string
-	res *httpx.Reservation
+	// invite is the invitation id the reservation was charged under.
+	invite string
+	res    *httpx.Reservation
 }
 
 // holdInviteBudget gives the request a place for that reservation. The four entry points that run
@@ -1360,7 +1361,7 @@ func holdInviteBudget(r *http.Request) (*http.Request, func()) {
 // with no hold) -- each failure is still exactly one unit.
 func (a *Activation) chargeInvite(ctx context.Context, key string) {
 	var res *httpx.Reservation
-	if h, ok := ctx.Value(inviteHoldKey{}).(*inviteHold); ok && h.key == key {
+	if h, ok := ctx.Value(inviteHoldKey{}).(*inviteHold); ok && h.invite == key {
 		res = h.res
 	}
 	keepOrCharge(a.inviteLimiter, res, key)
@@ -1393,7 +1394,7 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 	res, within, first, _ := a.inviteLimiter.Reserve(key)
 	if within {
 		if h, ok := r.Context().Value(inviteHoldKey{}).(*inviteHold); ok && h.res == nil {
-			h.key, h.res = key, res
+			h.invite, h.res = key, res
 		} else {
 			// Nowhere to hold it (an entry point without holdInviteBudget): the check alone, as Allowed
 			// was -- the unit goes back at once and the failure, if any, charges.

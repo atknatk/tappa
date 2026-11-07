@@ -178,9 +178,10 @@ func (l *Limiter) chargeWindowLocked(key string) *window {
 // whether the event was chargeable: Keep leaves it charged, Refund gives it back. A nil *Reservation is
 // valid and settles nothing (Keep reports false), so a caller with no reservation falls back to Charge.
 type Reservation struct {
-	l   *Limiter
-	key string
-	w   *window
+	l *Limiter
+	// bucket is the limiter key the reservation was charged under (not a secret: an address, an id).
+	bucket string
+	w      *window
 	// settled is guarded by l.mu: each reservation answers exactly one Keep or Refund.
 	settled bool
 }
@@ -208,7 +209,7 @@ func (l *Limiter) Reserve(key string) (res *Reservation, within, first bool, cou
 	defer l.mu.Unlock()
 	w := l.chargeWindowLocked(key)
 	if w.count <= l.limit {
-		return &Reservation{l: l, key: key, w: w}, true, false, w.count
+		return &Reservation{l: l, bucket: key, w: w}, true, false, w.count
 	}
 	if !w.limited {
 		w.limited = true
@@ -246,7 +247,7 @@ func (r *Reservation) Refund() {
 		return
 	}
 	r.settled = true
-	if cur, ok := r.l.windows[r.key]; ok && cur == r.w && r.w.count > 0 {
+	if cur, ok := r.l.windows[r.bucket]; ok && cur == r.w && r.w.count > 0 {
 		r.w.count--
 	}
 }
