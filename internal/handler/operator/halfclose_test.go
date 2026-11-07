@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/atknatk/tappa/internal/handler/operator"
+	"github.com/atknatk/tappa/internal/operatorauth"
 )
 
 // errorLines is how many records of the rig's log are level ERROR. The rig writes each record in
@@ -229,4 +231,90 @@ func TestSurface_AFailedSignInLookupIsStillAFailureForAClientThatLeft(t *testing
 		}
 	}
 	g.setStoreFailure("OperatorByEmail", nil)
+}
+
+// TestLogout_AClientThatLeftStillEndsTheSession (T213), on a request whose context is already
+// cancelled, with the fake's statement answering that cancellation as the real one does:
+//   - a real session: 303, the cookie cleared and the session gone -- the decision was made;
+//   - a forged cookie, no session needed and no flood gate in front: 303, no ERROR and no access
+//     record at ERROR, so six of them ring nothing;
+//   - a database fault for a client that left is still the page that says the session is open, 503
+//     with its two ERROR records.
+func TestLogout_AClientThatLeftStillEndsTheSession(t *testing.T) {
+	g := newRig(t)
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	logout := func(c *http.Cookie) *httptest.ResponseRecorder {
+		return g.do(req{method: http.MethodPost, host: opHost, path: "/operator/logout", origin: opOrigin, cookies: []*http.Cookie{c}, ctx: gone})
+	}
+	c := g.signIn(g.active())
+	live := func() int {
+		g.store.mu.Lock()
+		defer g.store.mu.Unlock()
+		return len(g.store.live)
+	}
+	before := live()
+	g.logs.Reset()
+	if w := logout(c); w.Code != http.StatusSeeOther || cookie(w, operatorauth.SessionCookieName) == nil {
+		t.Errorf("a real session, half-closed: %d, cookie cleared %v; want 303 and cleared", w.Code, cookie(w, operatorauth.SessionCookieName) != nil)
+	}
+	if n := before - live(); n != 1 {
+		t.Errorf("a real session, half-closed: %d session(s) ended, want 1", n)
+	}
+	if n := errorLines(g.logs.String()); n != 0 {
+		t.Errorf("a real session, half-closed: %d ERROR record(s), want none", n)
+	}
+
+	forged := &http.Cookie{Name: operatorauth.SessionCookieName, Value: base64.RawURLEncoding.EncodeToString(randBytes(t, 32))}
+	g.logs.Reset()
+	if w := logout(forged); w.Code != http.StatusSeeOther {
+		t.Errorf("a forged cookie, half-closed: %d, want 303", w.Code)
+	}
+	if n := errorLines(g.logs.String()); n != 0 {
+		t.Errorf("a forged cookie, half-closed: %d ERROR record(s), want none", n)
+	}
+
+	g.setStoreFailure("CloseOperatorSession", errFakeDB)
+	defer g.setStoreFailure("CloseOperatorSession", nil)
+	g.logs.Reset()
+	if w := logout(forged); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("a database fault, half-closed: %d, want 503", w.Code)
+	}
+	if n := errorLines(g.logs.String()); n != 2 {
+		t.Errorf("a database fault, half-closed: %d ERROR record(s), want 2", n)
+	}
+}
+
+// TestE2E_AHalfClosedSignOutEndsTheSessionAndWritesItsRow (T213) is the same on PostgreSQL, whose
+// driver answers a cancelled context with an error that is context.Canceled: a real session whose
+// client left is revoked with its 'logout' row, the cookie no longer signs in, and a forged cookie is
+// 303 with no ERROR line.
+func TestE2E_AHalfClosedSignOutEndsTheSessionAndWritesItsRow(t *testing.T) {
+	l := newLegalE2E(t)
+	sess := l.signIn(l.f)
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	logout := func(c *http.Cookie) *httptest.ResponseRecorder {
+		return l.do(req{method: http.MethodPost, host: opHost, path: "/operator/logout", origin: opOrigin, cookies: []*http.Cookie{c}, ctx: gone})
+	}
+	if w := logout(sess); w.Code != http.StatusSeeOther {
+		t.Fatalf("the sign-out, half-closed = %d, want 303", w.Code)
+	}
+	if n := l.ownerInt(`SELECT count(*)::int FROM operator_audit_log WHERE kind = 'logout' AND actor_admin_id = $1`, l.f.id); n != 1 {
+		t.Errorf("the sign-out, half-closed, wrote %d logout row(s), want 1", n)
+	}
+	if n := l.ownerInt(`SELECT count(*)::int FROM platform_sessions WHERE admin_id = $1 AND revoked_at IS NULL`, l.f.id); n != 0 {
+		t.Errorf("%d session(s) of the operator still open, want 0", n)
+	}
+	if w := l.get("/operator", sess); w.Code != http.StatusSeeOther {
+		t.Errorf("the cookie after the sign-out = %d, want the sign-in's 303", w.Code)
+	}
+	l.logs.Reset()
+	forged := &http.Cookie{Name: operatorauth.SessionCookieName, Value: base64.RawURLEncoding.EncodeToString(randBytes(t, 32))}
+	if w := logout(forged); w.Code != http.StatusSeeOther {
+		t.Errorf("a forged cookie, half-closed = %d, want 303", w.Code)
+	}
+	if n := errorLines(l.logs.String()); n != 0 {
+		t.Errorf("a forged cookie, half-closed: %d ERROR record(s), want none", n)
+	}
 }

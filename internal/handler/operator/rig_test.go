@@ -438,11 +438,15 @@ func (f *fakeStore) TouchOperatorSession(_ context.Context, h string) (db.Operat
 	return s, nil
 }
 
-func (f *fakeStore) CloseOperatorSession(_ context.Context, h string) error {
+func (f *fakeStore) CloseOperatorSession(ctx context.Context, h string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.enter("CloseOperatorSession"); err != nil {
 		return err
+	}
+	// As the real statement does: a test of a client that left cannot see the detach otherwise.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("db: close operator session: %w", err)
 	}
 	if _, ok := f.live[h]; !ok {
 		return db.ErrOperatorRefused

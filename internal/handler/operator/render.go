@@ -121,8 +121,9 @@ func clientLeft(r *http.Request, err error) bool {
 
 // answerClientLeft answers the password step when its lookup followed the client out (T213): the same
 // 503 the step's failure gets, at Debug and declared as designed, so it is no access record at
-// ERROR. It is the one step that needs it: the code step's lookup and the enrollment's statements
-// are detached already (operatorauth, detach), so the client's leaving does not reach them.
+// ERROR. Of the POSTs that need no session it is the one that follows the client: the code step's
+// lookup, the enrollment's statements and the sign-out are detached (operatorauth, detach), so the
+// client's leaving does not reach them.
 //
 // WHY (measured; 15 of 15 in an earlier audit): a valid form and a FIN to POST /operator/login cancels
 // the lookup before any comparison, with no session and no address limit, and six of them in five
