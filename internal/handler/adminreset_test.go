@@ -994,6 +994,10 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 		{"resetFallbackStep", resetFallbackStep, 500 * time.Millisecond},
 		{"resetOutcomeGrace", resetOutcomeGrace, 5 * time.Second},
 		{"resetRetryPause", resetRetryPause, 2 * time.Second},
+		// The list of withdrawals owed (T212, adminresetrecovery.go).
+		{"resetRecoveryFirst", resetRecoveryFirst, 30 * time.Second},
+		{"resetRecoveryMaxPause", resetRecoveryMaxPause, 2 * time.Minute},
+		{"resetRecoveryPass", resetRecoveryPass, time.Second},
 		{"ResetDrainGrace", ResetDrainGrace, 3 * time.Second},
 		{"ResetDrainWriteReserve", ResetDrainWriteReserve, time.Second},
 	} {
@@ -1007,6 +1011,9 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 	}
 	if resetRetryQueueSize != 256 {
 		t.Errorf("resetRetryQueueSize = %d, want 256. Re-derive it at its declaration: a short stall fills it a full window per request.", resetRetryQueueSize)
+	}
+	if resetRecoverySize != 256 {
+		t.Errorf("resetRecoverySize = %d, want 256. Re-derive it at its declaration: one full retry queue lost in one stall fits.", resetRecoverySize)
 	}
 	if adminauth.ResetWindow != adminauth.MaxCandidates {
 		t.Errorf("adminauth.ResetWindow = %d and MaxCandidates = %d; a recovery link outside "+
