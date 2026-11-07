@@ -37,7 +37,7 @@ func restoreTriggerSQL(t *testing.T, name string) string {
 //   - an INTERNAL trigger is seen too: DISABLE TRIGGER ALL on a table with a foreign key and no
 //     trigger of its own turns off only the foreign key's, and the query lists it;
 //   - the floor: all of trunc_tables have their row guard and tags its counter trigger; a row guard
-//     on UPDATE alone or switched off is not one.
+//     on UPDATE alone, switched off, with a WHEN or with UPDATE OF is not one.
 func TestRestoreVerify_TriggerQueries(t *testing.T) {
 	off := restoreTriggerSQL(t, "TRIGGERS_OFF_SQL")
 	defs := restoreTriggerSQL(t, "TRIGGER_DEFS_SQL")
@@ -165,6 +165,21 @@ func TestRestoreVerify_TriggerQueries(t *testing.T) {
 	}
 	if !slices.Contains(lines(floor), "zz_t100") {
 		t.Errorf("the floor does not see an UPDATE OR DELETE row guard")
+	}
+	for what, def := range map[string]string{
+		"WHEN (false)": `BEFORE UPDATE OR DELETE ON public.zz_t100 FOR EACH ROW WHEN (false)`,
+		"UPDATE OF a":  `BEFORE UPDATE OF a OR DELETE ON public.zz_t100 FOR EACH ROW`,
+	} {
+		if _, err := tx.Exec(ctx, `CREATE OR REPLACE TRIGGER zz_t100_no_mutation `+def+` EXECUTE FUNCTION public.tappa_forbid_mutation()`); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if slices.Contains(lines(floor), "zz_t100") {
+			t.Errorf("the floor counts a guard with %s, which refuses nothing or almost nothing", what)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE OR REPLACE TRIGGER zz_t100_no_mutation BEFORE UPDATE OR DELETE ON public.zz_t100 FOR EACH ROW EXECUTE FUNCTION public.tappa_forbid_mutation()`); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `ALTER TABLE public.zz_t100 DISABLE TRIGGER zz_t100_no_mutation`); err != nil {
 		t.Fatal(err)

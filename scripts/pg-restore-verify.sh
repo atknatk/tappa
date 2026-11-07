@@ -640,7 +640,8 @@ fi
 # AND ONE FLOOR THE DUMP DOES NOT SET: both questions above trust the dump, so a source that
 # had already lost a trigger compares equal to its restore and passes. Every table in
 # trunc_tables must also carry an enabled BEFORE UPDATE OR DELETE row trigger bound to
-# tappa_forbid_mutation, and tags its counter trigger. trunc_tables is not free text
+# tappa_forbid_mutation, with no WHEN and no UPDATE OF (each would make it a guard in name,
+# refusing nothing), and tags its counter trigger. trunc_tables is not free text
 # (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations).
 #
 # THE MATCH IS ARMED BY pg_dump's OWN COMMENT LINE, so a COPY row that happens to start
@@ -660,6 +661,7 @@ FLOOR_ROW_GUARDS_SQL="SELECT c.relname
   JOIN pg_proc p ON p.oid = g.tgfoid
   WHERE n.nspname = 'public' AND NOT g.tgisinternal
     AND (g.tgtype & 27) = 27        -- ROW, BEFORE, DELETE and UPDATE
+    AND g.tgqual IS NULL AND g.tgattr::text = ''   -- every row, every column
     AND g.tgenabled IN ('O', 'A')
     AND p.proname = 'tappa_forbid_mutation';"
 FLOOR_COUNTER_SQL="SELECT count(*)
@@ -708,7 +710,7 @@ done
 if [ -z "$floor_missing" ] && [ "$floor_counter" = "1" ]; then
   ok "triggers: the append-only row guards and tags_counter_monotonic are here, whatever the dump says"
 else
-  bad "section 4.3's and 4.4's triggers are missing or off, whatever the dump says. Row guards missing:${floor_missing:- none}; tags_counter_monotonic present: $floor_counter of 1. If the dump agrees, the SOURCE had lost them."
+  bad "section 4.3's and 4.4's triggers are missing or off, whatever the dump says. Row guards missing:${floor_missing:- none}; tags_counter_monotonic present: $floor_counter of 1. If the dump agrees, they are not in the dump: it is older than their migrations or its source had lost them."
 fi
 if [ -s "$TMP/have.triggersoff" ]; then
   bad "these triggers would NOT fire on an ordinary session: $(tr '\n' ' ' < "$TMP/have.triggersoff")
