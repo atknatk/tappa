@@ -65,10 +65,12 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.reviewSection)
 			// M15-18: the Spike's second queue, "Time claims" -- a read under the Spike's own URL.
 			r.Get(claimsHref, a.claimsSection)
+		// THE TWO SECTIONS WHOSE GETs MINT A CONFIRMATION carry mintGate (fetchsite.go,
+		// backlog T14): a minting request started by another site is refused.
 		case pages.TabEmployees:
-			r.Get(s.Href, a.employeesSection)
+			r.With(a.mintGate(armsRosterConfirmation)).Get(s.Href, a.employeesSection)
 		case pages.TabLocations:
-			r.Get(s.Href, a.locationsSection)
+			r.With(a.mintGate(armsLocationsConfirmation)).Get(s.Href, a.locationsSection)
 		case pages.TabReports:
 			r.Get(s.Href, a.reportsSection)
 		case pages.TabAnomalies:
@@ -99,8 +101,12 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// inherit the same chain, and putting it inside this function makes that
 	// structural. It DOES write one audit_log row, which is the only thing in
 	// mountSections that writes anything; reportsExport carries the measurement of
-	// what a GET with that side effect leaves open and what bounds it.
-	r.Get(reportsCSVHref, a.reportsExport)
+	// what a GET with that side effect leaves open and what bounds it. Since backlog
+	// T19 a cross-site navigation cannot cause that row: mintGate refuses it first.
+	r.Group(func(r chi.Router) {
+		r.Use(a.mintGate(armsAlways))
+		r.Get(reportsCSVHref, a.reportsExport)
+	})
 	// 🔴 THE MANUAL-ENTRY FORM IS A GET AND IT BELONGS HERE; ITS TWO POSTs DO NOT
 	// (M6-08). This route reads one employee and the tenant's clock and renders a
 	// form — no record, no audit row, no confirmation minted, so a crawler following

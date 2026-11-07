@@ -1532,6 +1532,8 @@ type browser struct {
 	unbound bool
 	// raw keeps the binding in the recorded page (learnBinding).
 	raw bool
+	// fetchSite is the Sec-Fetch-Site a GET carries; "" sends none (backlog T14).
+	fetchSite string
 }
 
 // boundFormAction lifts a tenant binding out of a rendered form action.
@@ -1603,6 +1605,9 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 	req.RemoteAddr = b.ip
 	if method == http.MethodPost && b.origin != "" {
 		req.Header.Set("Origin", b.origin)
+	}
+	if method == http.MethodGet && b.fetchSite != "" {
+		req.Header.Set("Sec-Fetch-Site", b.fetchSite)
 	}
 	for name, value := range b.cookies {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
