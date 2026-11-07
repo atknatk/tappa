@@ -42,6 +42,8 @@ type fakeSignupClaims struct {
 	proveDelay time.Duration
 	// openErr, when set, is Open's answer.
 	openErr error
+	// openDelay stands in for Open's bcrypt, outside the lock (the budget race tests' window, T90).
+	openDelay time.Duration
 	// onOpen is called with every opened draft (the provisioner fake records them).
 	onOpen func(signup.Draft)
 	// proved is the draft the last successful proof proved; Provision reads it.
@@ -69,6 +71,9 @@ func rawToken(t adminauth.ResetToken) string {
 }
 
 func (f *fakeSignupClaims) Open(_ context.Context, email, password string, draft []byte) (adminauth.ClaimGrant, error) {
+	if f.openDelay > 0 {
+		time.Sleep(f.openDelay)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.openErr != nil {

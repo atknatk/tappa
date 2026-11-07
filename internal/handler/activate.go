@@ -292,6 +292,8 @@ var (
 // The redirect is what keeps the code out of the address bar, out of history and
 // out of any Referer (cookies.go explains the rest of the reasoning).
 func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
+	r, settle := holdInviteBudget(r)
+	defer settle()
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "activate_page") {
 		return
@@ -470,6 +472,8 @@ func wizardStep(r *http.Request, consented bool) int {
 // browser this product targets, which makes sameOrigin a real check here rather
 // than an optimistic one. A GET would have no such header.
 func (a *Activation) Continue(w http.ResponseWriter, r *http.Request) {
+	r, settle := holdInviteBudget(r)
+	defer settle()
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "activate_continue") {
 		return
@@ -554,6 +558,8 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 //	· record + bind      the consent row and the new binding, then the cookie
 //	                     that carries the binding.
 func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
+	r, settle := holdInviteBudget(r)
+	defer settle()
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "activate_submit") {
 		return
@@ -733,6 +739,8 @@ func (a *Activation) Pending(r *http.Request) bool {
 //	· finishActivation    consume (consent + binding in the same statement),
 //	                      revoke a replaced phone, issue, set the cookie.
 func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params) {
+	r, settle := holdInviteBudget(r)
+	defer settle()
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "activate_tap") {
 		return
@@ -890,7 +898,7 @@ type activationTap struct {
 // append-only).
 func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context, reason, tagUID string) {
 	if ictx.InviteID != uuid.Nil {
-		a.inviteLimiter.Charge(ictx.InviteID.String())
+		a.chargeInvite(ctx, ictx.InviteID.String())
 	}
 	if ictx.TenantID == uuid.Nil {
 		return
@@ -1309,7 +1317,7 @@ const (
 // anonymous flood starve a legitimate activation (ratelimit.go).
 func (a *Activation) failAttempt(ctx context.Context, ip string, ictx invite.Context, reason string, scope budgetScope) {
 	if scope == againstInvite && ictx.InviteID != uuid.Nil {
-		a.inviteLimiter.Charge(ictx.InviteID.String())
+		a.chargeInvite(ctx, ictx.InviteID.String())
 	}
 	if ictx.TenantID == uuid.Nil {
 		return
@@ -1328,13 +1336,51 @@ func (a *Activation) failAttempt(ctx context.Context, ip string, ictx invite.Con
 		"employee_id", ictx.EmployeeID, "invite_id", nonNil(ictx.InviteID))
 }
 
+// inviteHoldKey and inviteHold carry the invitation budget's reservation (backlog T90) from
+// overInviteBudget, where the request is admitted, to the failure that keeps it (chargeInvite). The
+// request's context is the carrier because the failures are reached through many helpers that all
+// take ctx and none of which takes the reservation.
+type inviteHoldKey struct{}
+
+type inviteHold struct {
+	key string
+	res *httpx.Reservation
+}
+
+// holdInviteBudget gives the request a place for that reservation. The four entry points that run
+// overInviteBudget call it first and defer the returned settle, which gives the unit back unless a
+// failure kept it: a request that did not fail costs the invitation nothing, as before.
+func holdInviteBudget(r *http.Request) (*http.Request, func()) {
+	h := &inviteHold{}
+	return r.WithContext(context.WithValue(r.Context(), inviteHoldKey{}, h)), func() { h.res.Refund() }
+}
+
+// chargeInvite counts one failure against the invitation key: it keeps the request's reservation for
+// that invitation, or charges when there is none to keep (a second failure in one request, a caller
+// with no hold) -- each failure is still exactly one unit.
+func (a *Activation) chargeInvite(ctx context.Context, key string) {
+	var res *httpx.Reservation
+	if h, ok := ctx.Value(inviteHoldKey{}).(*inviteHold); ok && h.key == key {
+		res = h.res
+	}
+	keepOrCharge(a.inviteLimiter, res, key)
+}
+
 // overInviteBudget is the per-invitation gate. It reports true (and has already
 // answered the request) when this invitation has burned through its window.
 //
-// IT IS CHECKED BEFORE THE FAILURE IS COUNTED, so exactly inviteFailureLimit
+// IT IS RESERVED BEFORE THE FAILURE IS COUNTED, so exactly inviteFailureLimit
 // failures are answered normally and the next one is refused — rather than the
 // limit-th request being the one that trips, which is the off-by-one this shape
 // avoids.
+//
+// 🔴 ONE LOCKED STEP, SETTLED LATER (backlog T90). It used to be Allowed here and Charge in the
+// failure, two locked steps with the request's work between them: simultaneous requests against one
+// invitation all read Allowed, wrote more than inviteFailureLimit activation.failed rows, and the
+// charge that crossed the line could be an admitted caller's -- then the rate_limited row was never
+// written. Now the unit is reserved here (httpx.Limiter.Reserve), kept by the failure (chargeInvite)
+// and given back when the request did not fail (holdInviteBudget's settle); the single rate_limited
+// row is Reserve's `first`, a flag on the window, so a refund cannot make it twice.
 //
 // A zero InviteID means the code resolved to nothing: there is no invitation to
 // budget, and such attempts are bounded by the per-IP window alone (ratelimit.go
@@ -1344,7 +1390,15 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 		return false
 	}
 	key := ictx.InviteID.String()
-	if a.inviteLimiter.Allowed(key) {
+	res, within, first, _ := a.inviteLimiter.Reserve(key)
+	if within {
+		if h, ok := r.Context().Value(inviteHoldKey{}).(*inviteHold); ok && h.res == nil {
+			h.key, h.res = key, res
+		} else {
+			// Nowhere to hold it (an entry point without holdInviteBudget): the check alone, as Allowed
+			// was -- the unit goes back at once and the failure, if any, charges.
+			res.Refund()
+		}
 		return false
 	}
 	// THE REFUSAL ITSELF IS CHARGED, AND THE ROW IS WRITTEN ONCE. An audit found
@@ -1355,11 +1409,11 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 	// audit_log: DELETE is forbidden" — so those rows are PERMANENT, and the trail
 	// §4.6 exists to protect becomes the thing being filled with noise.
 	//
-	// firstOverLimit is true exactly once per window, so the trail records THAT
-	// this invitation was throttled without recording every request that hit the
-	// wall. The count keeps climbing, so the window still expires normally.
-	n := a.inviteLimiter.Charge(key)
-	if a.inviteLimiter.FirstOverLimit(n) {
+	// first is true exactly once per window (Reserve charged this refusal), so the
+	// trail records THAT this invitation was throttled without recording every
+	// request that hit the wall. The count keeps climbing, so the window still
+	// expires normally.
+	if first {
 		a.record(r.Context(), audit.Event{
 			TenantID: ictx.TenantID,
 			Action:   ActionActivationLimited,
@@ -1566,7 +1620,7 @@ func (a *Activation) recordConflict(ctx context.Context, ip string, ictx invite.
 		return
 	}
 	if ictx.InviteID != uuid.Nil {
-		a.inviteLimiter.Charge(ictx.InviteID.String())
+		a.chargeInvite(ctx, ictx.InviteID.String())
 	}
 	a.record(ctx, audit.Event{
 		TenantID: ictx.TenantID,

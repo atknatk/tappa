@@ -64,7 +64,7 @@ func (a *AdminAuth) identityPath() bool {
 }
 
 // loginAsPerson is Login's identity path (this file's header). It answers the request.
-func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, email, password string) {
+func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, email, password string) {
 	// uuid.Nil: the sign-in form names no business; identity_open_session lands on the one used
 	// last, else the oldest active membership (K-4). The budget is the account limiter: the
 	// identity's failure rows are metered per identity, under a key the account rows never use
@@ -96,7 +96,7 @@ func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip str
 		// with nothing in it, never a session.
 		err = adminauth.ErrBadCredentials
 	}
-	a.concludeLogin(w, r, ip, st, in.Legacy, err)
+	a.concludeLogin(w, r, ip, st, attempt, in.Legacy, err)
 }
 
 // completePersonLogin writes the identity session's cookie and sends the person to the panel.

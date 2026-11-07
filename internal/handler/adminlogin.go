@@ -1067,20 +1067,28 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// THE BUDGET IS CHECKED BEFORE THE FAILURE IS COUNTED, so exactly
-	// adminAttemptLimit failures are answered normally and the next one is refused
-	// — rather than the limit-th request being the one that trips.
-	if !a.attemptLimiter.Allowed(ip) {
+	// THE BUDGET IS RESERVED BEFORE THE PASSWORD WORK AND SETTLED AFTER IT (backlog T90), so exactly
+	// adminAttemptLimit failures are answered normally and the next one is refused -- rather than the
+	// limit-th request being the one that trips. It used to be Allowed here and Charge in failLogin,
+	// two locked steps with a ~2 s sign-in between them: N simultaneous wrong passwords all read
+	// Allowed and the budget of 10 admitted N. Now the unit is taken here, in one locked step; failLogin
+	// keeps it, and every other exit (a sign-in, the picker, a 500, a busy gate) gives it back, so only a
+	// failure is counted -- the budget's meaning is unchanged. The decision reads the ADDRESS's count
+	// only, before the email is looked up, so it says nothing about the address typed.
+	attempt, within, first, _ := a.attemptLimiter.Reserve(ip)
+	if !within {
 		// The refusal itself is charged (ratelimit.go's rule: a limiter whose own
 		// refusals are free is a cheaper way to reach the thing it protects), and
 		// the log line is written once per window.
-		if n := a.attemptLimiter.Charge(ip); a.attemptLimiter.FirstOverLimit(n) {
+		if first {
 			a.log.Warn("panel sign-in rate limited", "scope", "address", "ip", ip,
 				"limit", adminAttemptLimit, "period", adminAttemptPeriod.String())
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 		return
 	}
+	// A no-op once failLogin kept it.
+	defer attempt.Refund()
 
 	// 🔴 THE WORK BUDGET, CHARGED WHATEVER THE OUTCOME. The attempt budget above is
 	// charged only by FAILURES (failLogin), which left a successful sign-in bounded
@@ -1091,15 +1099,17 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	//
 	// IT IS CHECKED HERE, BEFORE Authenticate, because the password loop is the
 	// expensive thing it exists to bound — the same position the attempt budget takes.
-	if !a.workLimiter.Allowed(ip) {
-		if n := a.workLimiter.Charge(ip); a.workLimiter.FirstOverLimit(n) {
+	//
+	// ONE LOCKED STEP (TryCharge, backlog T90): with Allowed then Charge, N simultaneous sign-ins all
+	// read "room left" before any of them charged.
+	if within, n := a.workLimiter.TryCharge(ip); !within {
+		if a.workLimiter.FirstOverLimit(n) {
 			a.log.Warn("panel sign-in rate limited", "scope", "work", "ip", ip,
 				"limit", adminLoginWorkLimit, "period", adminLoginWorkPeriod.String())
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 		return
 	}
-	a.workLimiter.Charge(ip)
 
 	// The email is normalised only by trimming surrounding whitespace. CASE IS NOT
 	// touched here: admin_users.email is citext and migration 00011's resolver
@@ -1115,7 +1125,7 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	// sign-in, byte for byte, while it is closed. Everything above -- the three budgets, Origin,
 	// the synchronizer token -- is the same for both.
 	if a.identityPath() {
-		a.loginAsPerson(w, r, ip, st, email, password)
+		a.loginAsPerson(w, r, ip, st, attempt, email, password)
 		return
 	}
 
@@ -1128,13 +1138,13 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
 		return
 	}
-	a.concludeLogin(w, r, ip, st, auth, err)
+	a.concludeLogin(w, r, ip, st, attempt, auth, err)
 }
 
 // concludeLogin is the sign-in's tail once the passwords were compared: the failure, the one
 // verified business, or the picker. auth is Authenticate's -- or, on the identity path, the legacy
 // arm's (adminauth.PersonSignIn.Legacy) -- and err is nil or adminauth.ErrBadCredentials.
-func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication, err error) {
+func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, auth adminauth.Authentication, err error) {
 	if auth.Truncated() {
 		// The one signal that keeps the lockout named at adminauth.MaxCandidates
 		// from being invisible. No email in the line (section 4.7 spirit: an address
@@ -1150,7 +1160,7 @@ func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip str
 			"authenticated", err == nil)
 	}
 	if err != nil {
-		a.failLogin(w, r, ip, st, auth)
+		a.failLogin(w, r, ip, st, attempt, auth)
 		return
 	}
 
@@ -1412,8 +1422,10 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 // per-cookie rather than per-outcome; TestAdminLogin_ThreeFailuresAreByteIdentical
 // pins both readings (same cookie -> literally identical bytes; different cookies
 // -> identical after normalising the one named field).
-func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication) {
-	a.attemptLimiter.Charge(ip)
+//
+// attempt is the unit Login reserved for this request (backlog T90); a failure keeps it.
+func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, auth adminauth.Authentication) {
+	keepOrCharge(a.attemptLimiter, attempt, ip)
 
 	// ⚠️ THE AUDIT TRAIL IS ATTRIBUTABLE ONLY WHEN THE EMAIL RESOLVED, AND THAT GAP
 	// IS REAL. The MECHANISM is directly below: with no candidates the loop does not
@@ -1433,8 +1445,13 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 	// reader to discover from an empty table.
 	for _, at := range auth.Attempts {
 		key := at.AdminUserID.String()
-		if !a.accountLimiter.Allowed(key) {
-			if n := a.accountLimiter.Charge(key); a.accountLimiter.FirstOverLimit(n) {
+		// ONE LOCKED STEP (TryCharge, backlog T90): with Allowed then Charge, simultaneous failures
+		// against one account all read "room left", wrote more than adminAccountLimit rows, and the
+		// charge that crossed the line could belong to an allowed caller -- then no rate_limited row
+		// was written at all.
+		within, n := a.accountLimiter.TryCharge(key)
+		if !within {
+			if a.accountLimiter.FirstOverLimit(n) {
 				// ONE row saying the trail is being throttled, then silence. The
 				// M5-02 lesson: an append-only table nobody can delete from must
 				// never be reachable without a budget.
@@ -1457,7 +1474,6 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 			}
 			continue
 		}
-		a.accountLimiter.Charge(key)
 		reason := "wrong password"
 		if at.PasswordMatched && !at.Active {
 			// A genuinely different security event: the CORRECT password on a
@@ -1586,10 +1602,11 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 	// refusing a request. What it no longer does is spend a budget that something else
 	// depends on. No new mechanism — the same limiter, a namespaced key.
 	key := "probe:" + verified[0].AdminUserID.String()
-	if !a.accountLimiter.Allowed(key) {
+	// One locked step (TryCharge, backlog T90). A refusal is now charged too, which moves no decision
+	// inside the window (httpx.Limiter.TryCharge).
+	if within, _ := a.accountLimiter.TryCharge(key); !within {
 		return
 	}
-	a.accountLimiter.Charge(key)
 	a.record(r.Context(), audit.Event{
 		TenantID: verified[0].TenantID,
 		ActorID:  &verified[0].AdminUserID,

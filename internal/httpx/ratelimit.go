@@ -62,6 +62,10 @@ type Limiter struct {
 type window struct {
 	count int
 	start time.Time
+	// limited is Reserve's record that this window's first refusal has been reported. A refund can
+	// bring count back under the limit, so "count == limit+1" can happen twice in one window of a
+	// limiter that refunds; the flag keeps the one row (backlog T90).
+	limited bool
 }
 
 // limiterMaxKeys bounds the window map. MEASURED, not estimated: 100k distinct
@@ -150,18 +154,101 @@ func (l *Limiter) TryCharge(key string) (within bool, count int) {
 }
 
 // chargeLocked is Charge's step; l.mu must be held.
-func (l *Limiter) chargeLocked(key string) int {
+func (l *Limiter) chargeLocked(key string) int { return l.chargeWindowLocked(key).count }
+
+// chargeWindowLocked charges one event and returns the window it went into; l.mu must be held. A
+// window that has expired is REPLACED by a new one (a new pointer), never reset in place, so a
+// Reservation tells its own window from a later one by that identity.
+func (l *Limiter) chargeWindowLocked(key string) *window {
 	now := l.clock()
 	w, ok := l.windows[key]
 	if !ok || now.Sub(w.start) >= l.period {
 		if len(l.windows) >= l.maxKeys {
 			l.evictLocked(now)
 		}
-		l.windows[key] = &window{count: 1, start: now}
-		return 1
+		w = &window{count: 1, start: now}
+		l.windows[key] = w
+		return w
 	}
 	w.count++
-	return w.count
+	return w
+}
+
+// Reservation is one event Reserve charged INSIDE the budget, which the caller settles once it knows
+// whether the event was chargeable: Keep leaves it charged, Refund gives it back. A nil *Reservation is
+// valid and settles nothing (Keep reports false), so a caller with no reservation falls back to Charge.
+type Reservation struct {
+	l   *Limiter
+	key string
+	w   *window
+	// settled is guarded by l.mu: each reservation answers exactly one Keep or Refund.
+	settled bool
+}
+
+// Reserve is TryCharge for a budget whose callers decide AFTER the work whether the event counted (a
+// failure-only budget: a sign-in failure, a draft that was opened). It charges one event, decides on
+// the count after charging -- one locked step, the T90 rule -- and, when the event is inside the
+// budget, hands back the Reservation the caller settles.
+//
+// 🔴 IT EXISTS BECAUSE "Allowed now, Charge after the work" WAS TWO LOCKED STEPS WITH THE WORK IN
+// BETWEEN (backlog T90): N simultaneous requests all read Allowed during a ~2 s sign-in and the budget
+// of 10 failures admitted N. A reservation makes the request in flight count from the moment it was
+// admitted, so at most limit events are inside the budget at any instant, settled or not; a refused
+// event is charged and never refunded, exactly as the refusal branch charged before.
+//
+// first is true for exactly ONE refusal per window -- the one that should write the window's single
+// rate_limited row or WARN line -- and it is a flag on the window rather than FirstOverLimit(count),
+// because a refund can bring the count back to limit after the crossing was reported.
+//
+// WHAT CHANGES FOR A CALLER, named: a request still in flight holds a unit. limit simultaneous
+// requests that will all turn out free (successful sign-ins) still make the next simultaneous one wait
+// for a refund or be refused; sequentially nothing changes (TestLimiter_ReserveDecidesAsAllowedThenChargeDid).
+func (l *Limiter) Reserve(key string) (res *Reservation, within, first bool, count int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w := l.chargeWindowLocked(key)
+	if w.count <= l.limit {
+		return &Reservation{l: l, key: key, w: w}, true, false, w.count
+	}
+	if !w.limited {
+		w.limited = true
+		first = true
+	}
+	return nil, false, first, w.count
+}
+
+// Keep settles the reservation as chargeable: it stays counted. It reports whether there was an unsettled
+// reservation to keep -- false for nil or one already settled, and the caller then charges the event
+// itself (keepOrCharge in internal/handler).
+func (r *Reservation) Keep() bool {
+	if r == nil {
+		return false
+	}
+	r.l.mu.Lock()
+	defer r.l.mu.Unlock()
+	if r.settled {
+		return false
+	}
+	r.settled = true
+	return true
+}
+
+// Refund settles the reservation as free and gives its unit back -- only while its window is still the
+// key's current one (an expired, replaced or evicted window holds other events, never this one) and never
+// below zero. A nil or already settled reservation is a no-op, so a deferred Refund after a Keep is safe.
+func (r *Reservation) Refund() {
+	if r == nil {
+		return
+	}
+	r.l.mu.Lock()
+	defer r.l.mu.Unlock()
+	if r.settled {
+		return
+	}
+	r.settled = true
+	if cur, ok := r.l.windows[r.key]; ok && cur == r.w && r.w.count > 0 {
+		r.w.count--
+	}
 }
 
 // FirstOverLimit reports whether this charge is the one that crossed the line.

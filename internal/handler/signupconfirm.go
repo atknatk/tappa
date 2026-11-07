@@ -468,15 +468,16 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	if !s.confirmLimiter.Allowed(ip) {
-		if n := s.confirmLimiter.Charge(ip); s.confirmLimiter.FirstOverLimit(n) {
+	// One locked step (TryCharge, backlog T90): Allowed then Charge let simultaneous confirmations all
+	// read "room left".
+	if within, n := s.confirmLimiter.TryCharge(ip); !within {
+		if s.confirmLimiter.FirstOverLimit(n) {
 			s.log.Warn("signup rate limited", "scope", "confirm", "ip", ip,
 				"limit", signupConfirmLimit, "period", signupConfirmPeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupTooMany)
 		return
 	}
-	s.confirmLimiter.Charge(ip)
 
 	c, ok := s.liveClaim(w, r, tok)
 	if !ok {
