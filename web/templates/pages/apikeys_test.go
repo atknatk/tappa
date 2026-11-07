@@ -207,3 +207,27 @@ func TestDevelopers_ACreatorWhoCannotSignInIsMarkedBesideTheCreator(t *testing.T
 		t.Error("CONTROL: every creator can sign in, yet a marker")
 	}
 }
+
+// TestDevelopers_SaysCountedTapsBecauseThatIsWhatIsSent (T149): the feed and the webhook carry a counted
+// tap, and an entry a manager typed enters neither (00049's punch_feed and holding_feed;
+// TestFeed_FlagApprovalManualPractice measures it). "Every punch" is what these sentences used to say.
+func TestDevelopers_SaysCountedTapsBecauseThatIsWhatIsSent(t *testing.T) {
+	page := strings.Join(strings.Fields(renderAPIKeys(t, developersFixture())), " ")
+	for _, want := range []string{
+		"We send every counted tap to one address of yours",
+		"Entries typed by a manager are not sent; they stay in the CSV.",
+		"Every counted tap, as it is counted",
+		"Every counted tap is sent to the webhook as it is counted.",
+		"read every counted tap from the punch feed",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page does not say %q", want)
+		}
+	}
+	lower := strings.ToLower(page)
+	for _, never := range []string{"every punch", "each punch", "as it is recorded"} {
+		if strings.Contains(lower, never) {
+			t.Errorf("the page says %q, and a record typed by a manager is not sent", never)
+		}
+	}
+}

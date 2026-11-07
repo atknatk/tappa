@@ -88,7 +88,7 @@ func (w *inviteWorld) session(tenant, row uuid.UUID) Token {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	h, err := tok.hash(w.s.sessionKey)
+	h, err := tok.hash(w.s.sessionKey.Reveal())
 	if err != nil {
 		w.t.Fatal(err)
 	}

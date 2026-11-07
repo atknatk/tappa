@@ -257,7 +257,7 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 	if err != nil {
 		return fmt.Errorf("invite: queue: %w", err)
 	}
-	hash, err := code.hash(q.m.hmacKey)
+	hash, err := code.hash(q.m.hmacKey.Reveal())
 	if err != nil {
 		return fmt.Errorf("invite: queue: %w", err)
 	}

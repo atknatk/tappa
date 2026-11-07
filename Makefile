@@ -271,7 +271,8 @@ require-db-env:
 # (OP-14C's included) before it bites again, while a real hang still ends in go's
 # goroutine dump naming the test. It has an upper bound too: the dump only reaches the
 # log if go's alarm fires before the CI job's timeout-minutes, which ci.yml sizes from
-# this value. test-short and cover are not CI paths and keep go's default.
+# this value. test-short is not a CI path and keeps go's default; cover says below why it does not.
+# cmd/tappa TestCITimeouts_TheJobOutlastsEveryGoAlarm reads these values and ci.yml's together.
 # 20m -> 30m (2026-10-21): the slowest package is now cmd/tappa, not operator. On the
 # runner it measured 686 s and 1092 s on two green runs (39552149529, 39515681171) and
 # crossed 1200 s twice in a row on main at e3c91c6 (run 39554900143, both attempts) with
@@ -447,8 +448,11 @@ test-short: require-db-env
 	go test -race -count=1 -short ./...
 
 ## cover: kapsam raporu
+# -timeout is test's, for test's reason: the same suite with the same flags (RACE_OPT_OUT) and coverage
+# on top. Go's default 10m is below one package already: internal/db took 629.4 s under `make test` on
+# the runner (run 42205205628), without coverage.
 cover: require-db-env
-	go test -race -coverprofile=coverage.out ./...
+	go test -race -coverprofile=coverage.out -timeout=30m ./...
 	go tool cover -func=coverage.out | tail -1
 
 ## lint: vet + staticcheck
@@ -458,7 +462,7 @@ lint:
 
 ## fmt: gofmt + templ fmt
 fmt:
-	gofmt -w -s $$(find . -name '*.go' -not -name '*_templ.go' -not -path './.tools/*')
+	gofmt -w -s $$(find . -name '*.go' -not -name '*_templ.go' -not -path './.tools/*' -not -path './.claude/*')
 	$(TEMPL) fmt .
 
 ## check: CI'nin calistirdigi her sey

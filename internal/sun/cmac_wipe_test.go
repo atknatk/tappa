@@ -328,7 +328,9 @@ var byteBufferInventory = map[string]string{
 	// stability, identity).
 
 	// ---- ev2.go / EV2Auth.Zero ----------------------------------------------
-	"ev2.go/Zero/a": wipedPlain, // the wipe method itself: Zero(a.KeyENC), Zero(a.KeyMAC)
+	"ev2.go/Zero/a":   exCallerOwned, // the receiver; the wipes below go through its two keys' live buffers
+	"ev2.go/Zero/enc": wipedPlain,    // the wipe method itself: Zero(enc), Zero(mac)
+	"ev2.go/Zero/mac": wipedPlain,    // (WipeableKey.Reveal is not a copy)
 
 	// ---- ev2.go / EV2AuthPart1 ----------------------------------------------
 	"ev2.go/EV2AuthPart1/key":     exCallerOwned,
@@ -975,6 +977,7 @@ var zeroCallSiteCensus = map[string]int{
 	"changekey.go":  2,
 	"verify.go":     1,
 	"mint.go":       4, // ADR 0026 dev minter: session key, full CMAC, MAC, unwrapped tag key
+	"keys.go":       1, // unwrapAndWipe: the KEK copy each attempt reveals (backlog T205)
 }
 
 // TestSUN_EveryWipeInThePackageHasTheRightShape applies two of the four conditions
@@ -1881,10 +1884,11 @@ var wipeGateUnassigned = map[string]struct {
 	// it derives with a bare-identifier defer in the declaring block — the shape
 	// verify.go's measured justification below describes. Its construction is the
 	// CMAC core's own (cmac, sv2, truncateSDMMAC), which wipeScannedFiles gates.
-	"mint.go":    {4, "dev-only tap minter: wipes the unwrapped key, session key, full CMAC and MAC by deferred Zero in the declaring block; the construction is the gated CMAC core's"},
-	"params.go":  {0, "tap-URL parsing: uid, counter and the chip's MAC, all public"},
-	"preview.go": {0, "read-only preview of a parsed tap; holds no plaintext key"},
-	"keys.go":    {0, "OWNS Zero and the KEK envelope. Its one Zero is undeferred and is the definition, not a use — an inventory here would count the mechanism as its own client"},
+	"mint.go":        {4, "dev-only tap minter: wipes the unwrapped key, session key, full CMAC and MAC by deferred Zero in the declaring block; the construction is the gated CMAC core's"},
+	"params.go":      {0, "tap-URL parsing: uid, counter and the chip's MAC, all public"},
+	"preview.go":     {0, "read-only preview of a parsed tap; holds no plaintext key"},
+	"wipeablekey.go": {0, "the type that holds a wipeable buffer: it allocates no key material and its Reveal is the wipes' way in"},
+	"keys.go":        {1, "OWNS Zero and the KEK envelope. Its one Zero call is unwrapAndWipe's, on UnwrapAny's revealed KEK copy; the census counts it. An inventory here would count the mechanism as its own client"},
 	// 🔴 verify.go's justification, MEASURED rather than assumed (2026-08-25, third
 	// round, after ev2.go was brought in and the obvious question became "why not
 	// this one too"). Three functions, twenty declarations. Exactly ONE plaintext
@@ -2354,8 +2358,8 @@ func TestEV2_DoesNotMutateItsInputs(t *testing.T) {
 	}
 	defer auth.Zero()
 	ti := append([]byte(nil), auth.TI...)
-	keyENC := append([]byte(nil), auth.KeyENC...)
-	keyMAC := append([]byte(nil), auth.KeyMAC...)
+	keyENC := append([]byte(nil), auth.KeyENC.Reveal()...)
+	keyMAC := append([]byte(nil), auth.KeyMAC.Reveal()...)
 
 	header := []byte{0x02}
 	body := []byte{0x11, 0x22, 0x33, 0x44}
@@ -2391,15 +2395,15 @@ func TestEV2_DoesNotMutateItsInputs(t *testing.T) {
 	}
 	const respRC = 0x00
 	respBody := []byte{0xDE, 0xAD, 0xBE, 0xEF}
-	respIV, err := ev2DataIV(auth.KeyENC, ev2LabelRespIV, auth.TI, respCtr)
+	respIV, err := ev2DataIV(auth.KeyENC.Reveal(), ev2LabelRespIV, auth.TI, respCtr)
 	if err != nil {
 		t.Fatalf("building the response IV: %v", err)
 	}
-	respEnc, err := ev2CBCEncrypt(auth.KeyENC, respIV, ev2Pad(respBody))
+	respEnc, err := ev2CBCEncrypt(auth.KeyENC.Reveal(), respIV, ev2Pad(respBody))
 	if err != nil {
 		t.Fatalf("encrypting the response body: %v", err)
 	}
-	respMAC, err := cmac(auth.KeyMAC, ev2MACInput(respRC, respCtr, auth.TI, nil, respEnc))
+	respMAC, err := cmac(auth.KeyMAC.Reveal(), ev2MACInput(respRC, respCtr, auth.TI, nil, respEnc))
 	if err != nil {
 		t.Fatalf("computing the response MAC: %v", err)
 	}
@@ -2432,7 +2436,7 @@ func TestEV2_DoesNotMutateItsInputs(t *testing.T) {
 	// whoever built it; a wipe that reached auth.KeyMAC inside a per-command
 	// function would break every SUBSEQUENT command in the same session, which no
 	// single-command test would notice.
-	if !bytes.Equal(auth.TI, ti) || !bytes.Equal(auth.KeyENC, keyENC) || !bytes.Equal(auth.KeyMAC, keyMAC) {
+	if !bytes.Equal(auth.TI, ti) || !bytes.Equal(auth.KeyENC.Reveal(), keyENC) || !bytes.Equal(auth.KeyMAC.Reveal(), keyMAC) {
 		t.Error("a per-command function MUTATED the session it was handed; the next " +
 			"command in this session would fail authentication for no visible reason")
 	}

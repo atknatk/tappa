@@ -184,7 +184,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("invite.New: %v", err)
 	}
-	verifier := sun.NewVerifier(data, kek)
+	verifier := sun.NewVerifier(data, config.NewKey(kek))
 	act, err := NewActivation(invites, sessions, verifier, trail, dbBrandReader(t, data), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)

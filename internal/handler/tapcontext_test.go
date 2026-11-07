@@ -322,14 +322,14 @@ func TestTapContext_DomainSeparation(t *testing.T) {
 	got := c.sign(payload, sid)
 
 	// 1. The signing key is NOT the session key.
-	if string(c.key) == string(cfg.SessionHMACKey.Reveal()) {
+	if string(c.key.Reveal()) == string(cfg.SessionHMACKey.Reveal()) {
 		t.Fatal("the tap context key IS the session HMAC key: a leak of one would be a leak of both")
 	}
 	// The derivation is one-way, so knowing the derived key must not hand over
 	// the session key; the check available here is that they differ and that the
 	// derived key is a full-length MAC output.
-	if len(c.key) != sha256.Size {
-		t.Fatalf("derived key is %d bytes, want %d", len(c.key), sha256.Size)
+	if c.key.Len() != sha256.Size {
+		t.Fatalf("derived key is %d bytes, want %d", c.key.Len(), sha256.Size)
 	}
 
 	// 2. A bare HMAC under the SESSION key over the same payload — what an
@@ -342,7 +342,7 @@ func TestTapContext_DomainSeparation(t *testing.T) {
 
 	// 3. Even under the DERIVED key, dropping the label changes the value — so
 	// the label is doing work rather than decorating the input.
-	unlabelled := hmac.New(sha256.New, c.key)
+	unlabelled := hmac.New(sha256.New, c.key.Reveal())
 	unlabelled.Write([]byte(payload))
 	unlabelled.Write([]byte("|"))
 	unlabelled.Write([]byte(sid.String()))

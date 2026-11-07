@@ -120,8 +120,8 @@ type Simulation struct {
 	taps     Recorder
 	trail    Trail
 	work     Noticer
-	kek      []byte
-	keks     [][]byte
+	kek      config.Key
+	keks     []config.Key
 	// mint is the chip: sun.MintTapPath. A field so that a test can hand the pre-check a URL whose
 	// MAC is not the key's (TestSandbox_TheSimulationIsJudgedByTheRealCMAC).
 	mint func(key, uid []byte, ctr uint32) (string, error)
@@ -166,13 +166,13 @@ func New(c Config) (*Simulation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
-	keks := [][]byte{c.App.TagKEK.Reveal()}
+	keks := []config.Key{c.App.TagKEK}
 	if c.App.TagKEKPrevious.Len() > 0 {
-		keks = append(keks, c.App.TagKEKPrevious.Reveal())
+		keks = append(keks, c.App.TagKEKPrevious)
 	}
 	return &Simulation{
-		data: c.Data, verifier: sun.NewVerifier(route, c.App.TagKEK.Reveal(), c.App.TagKEKPrevious.Reveal()), taps: taps, trail: trail,
-		work: c.Work, kek: c.App.TagKEK.Reveal(), keks: keks, mint: sun.MintTapPath, log: log,
+		data: c.Data, verifier: sun.NewVerifier(route, c.App.TagKEK, c.App.TagKEKPrevious), taps: taps, trail: trail,
+		work: c.Work, kek: c.App.TagKEK, keks: keks, mint: sun.MintTapPath, log: log,
 	}, nil
 }
 

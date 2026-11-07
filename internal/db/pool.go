@@ -110,11 +110,11 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 	pinFeedTimeouts(poolCfg)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
-		return nil, fmt.Errorf("db: new pool: %w", err)
+		return nil, poolStepErr("new pool", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("db: ping: %w", err)
+		return nil, poolStepErr("ping", err)
 	}
 	d := &DB{pool: pool, virtualTagsOnly: cfg.Env == config.EnvSandbox}
 	if err := d.requireFeedTimeouts(ctx); err != nil {
@@ -286,18 +286,54 @@ func (d *DB) readRole(ctx context.Context) (RoleFacts, error) {
 	// ONE connection for both statements, so the facts describe the same session.
 	conn, err := d.pool.Acquire(ctx)
 	if err != nil {
-		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
+		return RoleFacts{}, poolStepErr("read connection role", err)
 	}
 	defer conn.Release()
 	var f RoleFacts
 	row := conn.QueryRow(ctx, roleFactsQuery)
 	if err := row.Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege, &f.MemberOfARole); err != nil {
-		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
+		return RoleFacts{}, poolStepErr("read connection role", err)
 	}
 	if err := conn.QueryRow(ctx, sessionUserQuery).Scan(&f.Session); err != nil {
-		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
+		return RoleFacts{}, poolStepErr("read connection role", err)
 	}
 	return f, nil
+}
+
+// poolStepErr is the customer pool's error for one step of opening it: the step and the failure's
+// CLASS, the operator pool's classification (connectFailure) and nothing else (backlog T84). pgx's
+// text is not repeated, measured against a DSN whose every part was a canary: "failed to connect to
+// `user=... database=...`: host:port", and a server's FATAL echoing the database name, the role name
+// and a setting's value. None of it is a password in any measured case, but the line goes to the boot
+// log and the class is what an operator acts on: "connection refused", "SQLSTATE 28P01",
+// "the database host name does not resolve", "the server declined TLS" (pgxFixedFailures).
+//
+// WHAT THE OPERATOR LOSES: the host and port, the server's sentence, and for a failure this package does
+// not recognise everything but its Go type ("an error of type *x.y"). Such a line says to read the DSN
+// (sslmode, target_session_attrs, the host), not what is wrong with it.
+//
+// The per-connection checks' three refusals pass through intact, operatorConnectErr's list: they carry
+// only the server's value of the pinned setting, a SQLSTATE or a mode's name, and their tests read them
+// with errors.As. A context outcome stays on the chain for errors.Is. Nothing else does: an error that
+// keeps pgx's on its chain is one %+v in an unexported field away from it.
+func poolStepErr(step string, err error) error {
+	var notPinned *logParameterNotPinnedError
+	if errors.As(err, &notPinned) {
+		return fmt.Errorf("db: %s: %w", step, notPinned)
+	}
+	var readFailed *logParameterReadError
+	if errors.As(err, &readFailed) {
+		return fmt.Errorf("db: %s: %w", step, readFailed)
+	}
+	var modeRefused *execModeRefusedError
+	if errors.As(err, &modeRefused) {
+		return fmt.Errorf("db: %s: %w", step, modeRefused)
+	}
+	o := connectFailure(err)
+	if o.ctxErr != nil {
+		return fmt.Errorf("db: %s: %s: %w", step, o.reason, o.ctxErr)
+	}
+	return fmt.Errorf("db: %s: %s", step, o.reason)
 }
 
 // sessionUserQuery is RoleFacts.Session's statement (the field's comment says why).

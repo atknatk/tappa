@@ -90,7 +90,7 @@ func pinFeedTimeouts(cfg *pgxpool.Config) {
 func (d *DB) requireFeedTimeouts(ctx context.Context) error {
 	c, err := d.pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("db: read the stuck-writer timeouts: %w", err)
+		return poolStepErr("read the stuck-writer timeouts", err)
 	}
 	defer c.Release()
 	got := make([]string, len(feedTimeouts))
@@ -101,7 +101,7 @@ func (d *DB) requireFeedTimeouts(ctx context.Context) error {
 			return fmt.Errorf("db: reading the stuck-writer timeouts failed (SQLSTATE %s), so the pool is refused: a "+
 				"check that could not run has not passed", pg.Code)
 		}
-		return fmt.Errorf("db: reading the stuck-writer timeouts: %w", err)
+		return poolStepErr("read the stuck-writer timeouts", err)
 	}
 	for i, ft := range feedTimeouts {
 		if got[i] == ft.want || (ft.tcp && unixSocket && got[i] == "0") {

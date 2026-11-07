@@ -138,9 +138,9 @@ const (
 // (§7): no package-level state, no init() magic, no singleton.
 type Manager struct {
 	data Database
-	// hmacKey is a private copy of Config.InviteHMACKey, so a later mutation of
-	// the caller's slice cannot silently change how codes hash.
-	hmacKey []byte
+	// hmacKey is Config.InviteHMACKey. A config.Key cannot be written to, so a
+	// caller cannot change how codes hash, and it prints redacted (backlog T205).
+	hmacKey config.Key
 	// baseURL is the origin the activation link points at.
 	baseURL string
 	// now is injectable for tests only; production leaves it nil and reads the
@@ -168,7 +168,7 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	}
 	return &Manager{
 		data:    data,
-		hmacKey: cfg.InviteHMACKey.Reveal(),
+		hmacKey: cfg.InviteHMACKey,
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
 	}, nil
 }
@@ -270,7 +270,7 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 	if err != nil {
 		return Invite{}, fmt.Errorf("invite: issue: %w", err)
 	}
-	hash, err := code.hash(m.hmacKey)
+	hash, err := code.hash(m.hmacKey.Reveal())
 	if err != nil {
 		return Invite{}, fmt.Errorf("invite: issue: %w", err)
 	}
@@ -506,7 +506,7 @@ func (m *Manager) Lookup(ctx context.Context, c Code) (Context, error) {
 // resolver → tenant → consumption, 00009), so it stays a local string inside
 // this package and never enters a struct field, an error or a log line.
 func (m *Manager) resolve(ctx context.Context, c Code) (string, db.ResolvedInvite, error) {
-	hash, err := c.hash(m.hmacKey)
+	hash, err := c.hash(m.hmacKey.Reveal())
 	if err != nil {
 		if errors.Is(err, errMalformed) {
 			// A value that cannot be one of ours is indistinguishable from an
@@ -607,7 +607,7 @@ func (m *Manager) RecordConsent(ctx context.Context, c Code, b Binding) (Context
 	if err != nil {
 		return ictx, err
 	}
-	bindingHash, err := b.hash(m.hmacKey)
+	bindingHash, err := b.hash(m.hmacKey.Reveal())
 	if err != nil {
 		// The handler mints the binding itself, so a malformed one is a bug in
 		// this process, not something a visitor did.
@@ -682,7 +682,7 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 	// A binding that cannot be one of ours is not an attack worth a distinct
 	// answer: it simply cannot match, so it is classified like a missing consent
 	// rather than surfaced as an internal error.
-	bindingHash, bErr := b.hash(m.hmacKey)
+	bindingHash, bErr := b.hash(m.hmacKey.Reveal())
 	if bErr != nil && !errors.Is(bErr, errMalformed) {
 		return Activation{}, fmt.Errorf("invite: activate: %w", bErr)
 	}

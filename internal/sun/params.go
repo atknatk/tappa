@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/atknatk/tappa/internal/config"
 )
 
 // Plain SDM URL parsing (ADR 0003 §1). A tap arrives as
@@ -89,9 +91,11 @@ type Params struct {
 	// every non-palindromic counter — the M2-08 defect. Keep the raw URL order
 	// here and let sv2 own the single reversal. All-zero for QR (no counter).
 	CtrBytes [3]byte
-	// CMAC is the raw 8-byte truncated SDM MAC from the chip. Nil for QR. It is a
-	// value to verify, never to log (CLAUDE.md §4.7).
-	CMAC []byte
+	// CMAC is the raw 8-byte truncated SDM MAC from the chip, the zero Key for QR. It
+	// is a value to verify, never to log (CLAUDE.md §4.7, §7), and it is live until a
+	// Verify advances the counter: the preview verifies it and advances nothing. A
+	// config.Key because a %+v of Params printed it (backlog T209).
+	CMAC config.Key
 	// Channel is nfc (full SUN present) or qr (no ctr/cmac). See HasSUN.
 	Channel Channel
 }
@@ -209,7 +213,7 @@ func Parse(q url.Values) (Params, error) {
 	// reversal into SDMReadCtr's LSB-first order; see the CtrBytes field doc above.
 	// decodeFixedHex validated exactly 3 bytes.
 	copy(p.CtrBytes[:], ctrBytes)
-	p.CMAC = cmacBytes
+	p.CMAC = config.NewKey(cmacBytes)
 	return p, nil
 }
 

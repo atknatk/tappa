@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -114,7 +115,7 @@ type Database interface {
 // Authenticator holds the deployment's prefix and the HMAC key. Dependencies are fields (§7).
 type Authenticator struct {
 	prefix   string
-	key      []byte
+	key      config.Key
 	resolver Resolver
 	data     Database
 }
@@ -131,7 +132,7 @@ func NewAuthenticator(prefix string, hmacKey []byte, resolver Resolver, data Dat
 	if resolver == nil || data == nil {
 		return nil, errors.New("api key: nil resolver or database")
 	}
-	return &Authenticator{prefix: prefix, key: append([]byte(nil), hmacKey...), resolver: resolver, data: data}, nil
+	return &Authenticator{prefix: prefix, key: config.NewKey(hmacKey), resolver: resolver, data: data}, nil
 }
 
 // Check is the shape gate: this deployment's prefix and 43 characters of canonical base64url,
@@ -142,7 +143,7 @@ func (a *Authenticator) Check(t Token) (Checked, error) {
 	if !shape(v, a.prefix) {
 		return Checked{}, ErrMalformed
 	}
-	h, err := keyedHash(a.key, v)
+	h, err := keyedHash(a.key.Reveal(), v)
 	if err != nil {
 		return Checked{}, err
 	}

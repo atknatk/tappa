@@ -317,6 +317,10 @@ func TestTransactions_NoStatementWritesCreatedAt(t *testing.T) {
 			case ".git", ".tools", "node_modules", "vendor":
 				return filepath.SkipDir
 			}
+			// A nested checkout (cmd/tappa's skipScanDir says why) is another tree's source.
+			if _, statErr := os.Lstat(filepath.Join(path, ".git")); statErr == nil && path != root {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if strings.HasSuffix(path, ".sql") {

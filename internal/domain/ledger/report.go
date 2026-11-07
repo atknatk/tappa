@@ -428,9 +428,13 @@ type Report struct {
 	// M15-06 a (b) or (c) of the period itself is Totals.OutWithoutIn and never here, so no
 	// checkout is counted twice and none is uncounted.
 	StartedEarlier int
-	// Unattributable counts direction-carrying records with no employee on them.
-	// Migration 0005 permits that shape (§4.6: a record is written even with no
-	// context) and no chain can hold it, so it is counted rather than dropped.
+	// Unattributable counts direction-carrying records with no employee on them. The schema
+	// has refused that shape since 00014: transactions_decided_has_employee (00005) gives
+	// an ok or a flag its employee, transactions_refusal_has_no_direction (00014) denies a
+	// reject or an ignored row a direction
+	// (TestCheckoutsWithoutCheckIn_ACheckoutNamingNoEmployeeCannotBeWritten). So this is 0
+	// today and stays as §4.6's guard: 00014's Down reopens the shape, no chain can hold
+	// such a row, and it would be counted rather than dropped.
 	Unattributable int
 }
 
@@ -686,12 +690,13 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string, sites siteVe
 	out = make([]reportEvent, 0, len(rows))
 	for _, row := range rows {
 		if row.EmployeeID == nil || row.Type == nil {
-			// 🔴 COUNTED, NOT DROPPED (§4.6). Migration 0005 lets a record exist with
-			// no employee on it -- that is the shape a stolen plaque touched with no
-			// cookie writes -- and no chain can hold one, because there is no "who" to
-			// attribute the hours to. The number reaches the screen so the report never
-			// quietly differs from the transactions list. (The NULL type branch is a
-			// guard rather than a filter: the query's WHERE already excludes those.)
+			// 🔴 COUNTED, NOT DROPPED (§4.6). Nothing reaches this today: a directed row
+			// with no employee has been refused since 00014 (Report.Unattributable names
+			// the two CHECKs), and the row a stolen plaque writes carries no direction, so
+			// the query's WHERE leaves it out. It is a guard: no chain can hold such a row,
+			// because there is no "who" to attribute the hours to, and the number reaches
+			// the screen so the report never quietly differs from the transactions list.
+			// (The NULL type branch is a guard for the same WHERE.)
 			unattributable++
 			continue
 		}

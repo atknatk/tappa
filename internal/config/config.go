@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -354,6 +356,7 @@ func Load() (*Config, error) {
 		push(validEnv(c.Env))
 	}
 	push(validLogFormat(c.LogFormat))
+	push(validAddr(c.Addr))
 	push(validBaseURL(c.BaseURL, c.IsHardened()))
 	devTools, devErr := devToolsFlag(c.Env)
 	c.DevTools = devTools
@@ -519,8 +522,8 @@ func envForBuild(raw string, sandbox bool) error {
 	switch {
 	case sandbox && raw != EnvSandbox:
 		return fmt.Errorf("TAPPA_ENV: this binary is the sandbox build (-tags sandbox) and starts only with "+
-			"TAPPA_ENV=%s, got %q; a sandbox image is never a production, staging or development server "+
-			"(ADR 0028 §11)", EnvSandbox, raw)
+			"TAPPA_ENV=%s; a sandbox image is never a production, staging or development server "+
+			"(ADR 0028 §11)%s", EnvSandbox, valueNotRepeated)
 	case !sandbox && raw == EnvSandbox:
 		return fmt.Errorf("TAPPA_ENV=%s: this binary was built without the sandbox tag, and only the sandbox "+
 			"build (make build-sandbox) may run the sandbox (ADR 0028 §11)", EnvSandbox)
@@ -563,7 +566,7 @@ func validLogFormat(v string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("TAPPA_LOG_FORMAT: must be one of %s, got %q", strings.Join(logFormatValues, ", "), v)
+	return fmt.Errorf("TAPPA_LOG_FORMAT: must be one of %s%s", strings.Join(logFormatValues, ", "), valueNotRepeated)
 }
 
 // EnvBusinessDayFrom is the business-day switch's variable (ADR 0032 §A.8, Config.BusinessDayFrom).
@@ -635,20 +638,20 @@ func ParseBusinessDayFrom(raw string, now time.Time) (*time.Time, error) {
 	}
 	v, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		return nil, fmt.Errorf("%s: must be an RFC 3339 instant such as 2026-11-02T03:00:00Z, got %q",
-			EnvBusinessDayFrom, raw)
+		return nil, fmt.Errorf("%s: must be an RFC 3339 instant such as 2026-11-02T03:00:00Z%s",
+			EnvBusinessDayFrom, valueNotRepeated)
 	}
 	if v.Before(BusinessDayFromFloor()) {
-		return nil, fmt.Errorf("%s: %s is before %s, the date the business day was introduced "+
+		return nil, fmt.Errorf("%s: the instant is before %s, the date the business day was introduced "+
 			"(migration 00064); an older value can only be a typo, and it would switch the rule on at once, "+
-			"before the businesses set their cutoffs (ADR 0032 §A.8)", EnvBusinessDayFrom,
-			v.UTC().Format(time.RFC3339), BusinessDayFromFloor().Format(time.RFC3339))
+			"before the businesses set their cutoffs (ADR 0032 §A.8)%s", EnvBusinessDayFrom,
+			BusinessDayFromFloor().Format(time.RFC3339), valueNotRepeated)
 	}
 	if limit := now.Add(BusinessDayFromMaxAhead); v.After(limit) {
-		return nil, fmt.Errorf("%s: %s is more than %d days after start-up (%s); a release writes "+
+		return nil, fmt.Errorf("%s: the instant is more than %d days after start-up (%s); a release writes "+
 			"the switch for the coming days, so this is read as a typo rather than a switch that never "+
-			"turns on (ADR 0032 §A.8)", EnvBusinessDayFrom, v.UTC().Format(time.RFC3339),
-			int(BusinessDayFromMaxAhead/(24*time.Hour)), now.UTC().Format(time.RFC3339))
+			"turns on (ADR 0032 §A.8)%s", EnvBusinessDayFrom,
+			int(BusinessDayFromMaxAhead/(24*time.Hour)), now.UTC().Format(time.RFC3339), valueNotRepeated)
 	}
 	v = v.UTC()
 	return &v, nil
@@ -787,7 +790,7 @@ func validEnv(v string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("TAPPA_ENV: must be one of %s, got %q", strings.Join(envValues, ", "), v)
+	return fmt.Errorf("TAPPA_ENV: must be one of %s%s", strings.Join(envValues, ", "), valueNotRepeated)
 }
 
 // IsHardened reports whether this process runs with the production security defaults: in
@@ -1156,7 +1159,7 @@ func blockedAddresses(v string) ([]netip.Prefix, error) {
 // namedKey is one key of this Config with the variable it came from.
 type namedKey struct {
 	name string
-	v    []byte
+	v    Key
 }
 
 // namedKeys is EVERY key this Config holds. TestNamedKeys_ListEveryKeyFieldOfTheConfig
@@ -1164,14 +1167,14 @@ type namedKey struct {
 // and not listed here is a red test rather than a key the separation rule never sees.
 func (c *Config) namedKeys() []namedKey {
 	return []namedKey{
-		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey.Reveal()},
-		{"TAPPA_TAG_KEK", c.TagKEK.Reveal()},
-		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious.Reveal()},
-		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey.Reveal()},
-		{envAPIKeyHMACKey, c.APIKeyHMACKey.Reveal()},
-		{envWebhookKEK, c.WebhookKEK.Reveal()},
-		{envOperatorTOTPKEK, c.OperatorTOTPKEK.Reveal()},
-		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey.Reveal()},
+		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey},
+		{"TAPPA_TAG_KEK", c.TagKEK},
+		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
+		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
+		{envAPIKeyHMACKey, c.APIKeyHMACKey},
+		{envWebhookKEK, c.WebhookKEK},
+		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
+		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},
 	}
 }
 
@@ -1215,14 +1218,14 @@ func keysSeparation(c *Config) error {
 	keys := c.namedKeys()
 	var clashes []string
 	for i, a := range keys {
-		if len(a.v) != 32 {
+		if a.v.Len() != 32 {
 			continue
 		}
 		for _, b := range keys[i+1:] {
-			if len(b.v) != 32 || dedicated(a.name, b.name) {
+			if b.v.Len() != 32 || dedicated(a.name, b.name) {
 				continue
 			}
-			if subtle.ConstantTimeCompare(a.v, b.v) == 1 {
+			if subtle.ConstantTimeCompare(a.v.Reveal(), b.v.Reveal()) == 1 {
 				clashes = append(clashes, a.name+" = "+b.name)
 			}
 		}
@@ -1247,19 +1250,50 @@ func optionalKey32(name string) (Key, error) {
 // devToolsFlag reads TAPPA_DEV_TOOLS: unset or "0" is off, "1" is on, anything
 // else is a startup error, and "1" outside TAPPA_ENV=dev is a startup error too.
 func devToolsFlag(env string) (bool, error) {
-	switch v := strings.TrimSpace(os.Getenv("TAPPA_DEV_TOOLS")); v {
+	switch strings.TrimSpace(os.Getenv("TAPPA_DEV_TOOLS")) {
 	case "", "0":
 		return false, nil
 	case "1":
 		if env != EnvDev {
-			return false, fmt.Errorf("TAPPA_DEV_TOOLS=1 is only allowed with TAPPA_ENV=dev, got TAPPA_ENV=%q: "+
-				"the plaque-tap simulator must never run on a shared deployment", env)
+			return false, errors.New("TAPPA_DEV_TOOLS=1 is only allowed with TAPPA_ENV=dev: " +
+				"the plaque-tap simulator must never run on a shared deployment")
 		}
 		return true, nil
 	default:
-		return false, fmt.Errorf("TAPPA_DEV_TOOLS: must be 1 or unset, got %q", v)
+		return false, errors.New("TAPPA_DEV_TOOLS: must be 1 or unset" + valueNotRepeated)
 	}
 }
+
+// validAddr is TAPPA_ADDR's gate, a port with an optional IP address or localhost in front of it. The value
+// goes to the log twice, in cmd/tappa's "listening" line and in net.Listen's error on the fatal one, so
+// what passes here must be unable to carry anything else: a host NAME could be any word, a zone any text
+// after the %, so neither is allowed, and a port is digits. Nothing here needs a name: production listens
+// on :8080 (deploy/k8s/05-config.yaml) and the tests on 127.0.0.1:<port>.
+func validAddr(v string) error {
+	refused := errors.New("TAPPA_ADDR: must be a listen address: a port such as :8080, or an IP address or " +
+		"localhost and a port such as 127.0.0.1:8080" + valueNotRepeated)
+	host, port, err := net.SplitHostPort(v)
+	if err != nil {
+		return refused
+	}
+	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		return refused
+	}
+	if host == "" || host == "localhost" {
+		return nil
+	}
+	if a, err := netip.ParseAddr(host); err != nil || a.Zone() != "" {
+		return refused
+	}
+	return nil
+}
+
+// valueNotRepeated ends a refusal of a variable's value (backlog T206). A value in the wrong variable can
+// be a connection string with its password, and Load's error is the boot log's first line, so a message
+// says what was expected and never what it got. TestLoad_ACanaryValueReachesNoErrorText holds every
+// variable to it. A sentence, not a word, because an operator reading "must be one of dev, staging,
+// prod" wonders where the value went.
+const valueNotRepeated = " (the value is not repeated here)"
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -1326,21 +1360,15 @@ func key32(name string) (Key, error) {
 //     know, and refusing a legitimate but broad range would be a startup failure
 //     invented out of a guess.
 func trustedProxySanity(ps []netip.Prefix, isProd bool) error {
-	var defaults []string
-	for _, p := range ps {
-		if p.Bits() == 0 {
-			defaults = append(defaults, p.String())
-		}
-	}
-	if len(defaults) == 0 {
+	if !slices.ContainsFunc(ps, func(p netip.Prefix) bool { return p.Bits() == 0 }) {
 		return nil
 	}
 	const why = "trusting every address makes X-Forwarded-For fully forgeable: the resolver stops at the first UNTRUSTED hop, so with a default route it returns the value the client wrote (proof-of-place is worth 50 trust points, CLAUDE.md §5). List the real ingress addresses instead, or leave it empty to ignore the header entirely"
 	if isProd {
-		return fmt.Errorf("TAPPA_TRUSTED_PROXIES: refusing the default route %s: %s", strings.Join(defaults, ", "), why)
+		return errors.New("TAPPA_TRUSTED_PROXIES: refusing a default route (a /0 entry): " + why + valueNotRepeated)
 	}
-	slog.Warn("TAPPA_TRUSTED_PROXIES contains a default route; this would be a startup failure in production",
-		"prefixes", strings.Join(defaults, ", "), "why", why)
+	slog.Warn("TAPPA_TRUSTED_PROXIES contains a default route (a /0 entry); this would be a startup failure in production",
+		"why", why)
 	return nil
 }
 
@@ -1385,14 +1413,15 @@ func prefixes(s string) ([]netip.Prefix, error) {
 		return nil, nil // no proxy: RemoteAddr is used verbatim
 	}
 	var out []netip.Prefix
-	for _, part := range strings.Split(s, ",") {
+	for i, part := range strings.Split(s, ",") {
+		// netip's error quotes its input, so it is not wrapped (backlog T206).
 		p, err := netip.ParsePrefix(strings.TrimSpace(part))
 		if err != nil {
-			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: %q: %w", part, err)
+			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: entry %d is not a CIDR range such as 10.0.0.0/8%s", i+1, valueNotRepeated)
 		}
 		if p.Addr().Is4In6() {
-			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: %q: write IPv4 ranges in IPv4 form (%s/%d), not as v4-mapped IPv6: the mapped form is a second spelling of the same range, and a second spelling is how a range slips past the checks on this value",
-				strings.TrimSpace(part), p.Addr().Unmap(), max(p.Bits()-96, 0))
+			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: entry %d: write IPv4 ranges in IPv4 form, not as v4-mapped IPv6: the mapped form is a second spelling of the same range, and a second spelling is how a range slips past the checks on this value%s",
+				i+1, valueNotRepeated)
 		}
 		out = append(out, p)
 	}
@@ -1659,12 +1688,10 @@ func intEnvRequiredRange(name string, min, max int) (int, error) {
 	if raw == "" {
 		return 0, fmt.Errorf("%s is required (whole years, %d-%d; nothing reads it since 2026-11-03, but retention is unresolved (Q13) and this repo must not invent a figure)", name, min, max)
 	}
+	// strconv's error quotes its input, so it is not wrapped (backlog T206).
 	v, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	if v < min || v > max {
-		return 0, fmt.Errorf("%s: must be within [%d, %d], got %d", name, min, max, v)
+	if err != nil || v < min || v > max {
+		return 0, fmt.Errorf("%s: must be a whole number within [%d, %d]%s", name, min, max, valueNotRepeated)
 	}
 	return v, nil
 }
@@ -1704,12 +1731,10 @@ func floatEnvRange(name string, def, min, max float64) (float64, error) {
 	if raw == "" {
 		return def, nil
 	}
+	// strconv's error quotes its input, so it is not wrapped (backlog T206).
 	v, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	if v < min || v > max {
-		return 0, fmt.Errorf("%s: must be within [%g, %g], got %v", name, min, max, v)
+	if err != nil || v < min || v > max {
+		return 0, fmt.Errorf("%s: must be a number within [%g, %g]%s", name, min, max, valueNotRepeated)
 	}
 	return v, nil
 }

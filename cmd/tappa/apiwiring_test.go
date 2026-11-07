@@ -360,6 +360,9 @@ func TestAPIWiring_TheSuspensionReaderFollowsTheColumn(t *testing.T) {
 			case ".git", ".tools", "node_modules", "testdata":
 				return filepath.SkipDir
 			}
+			if path != repoRoot && isCheckout(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

@@ -210,8 +210,9 @@ func (b *mailbox) record(now time.Time) {
 // sends through it must share the ONE instance cmd/tappa builds.
 type RecipientCap struct {
 	breaker *Breaker
-	// hashKey keys the digests. Drawn once per process; never leaves it.
-	hashKey []byte
+	// hashKey keys the digests. Drawn once per process; never leaves it. A Credential because this
+	// package cannot import internal/config's Key: config imports mail (backlog T205).
+	hashKey Credential
 
 	// mu makes each decision and its record one step; it is held across the
 	// breaker's own step (never the other way round).
@@ -242,7 +243,7 @@ func NewRecipientCap(b *Breaker) (*RecipientCap, error) {
 	}
 	return &RecipientCap{
 		breaker: b,
-		hashKey: k,
+		hashKey: NewCredential(string(k)),
 		boxes:   make(map[mailboxKey]*list.Element),
 		order:   list.New(),
 		max:     recipientCapEntries,
@@ -382,7 +383,7 @@ func (c *RecipientCap) record(k mailboxKey, now time.Time) {
 // "ab"+"@x"; neither a scope the route passes (a UUID) nor an address the relay takes
 // can hold one. The normalised address lives only for this call.
 func (c *RecipientCap) digest(scope, to string) mailboxKey {
-	m := hmac.New(sha256.New, c.hashKey)
+	m := hmac.New(sha256.New, []byte(c.hashKey.reveal()))
 	_, _ = m.Write([]byte(scope))                // hash writes never fail (documented)
 	_, _ = m.Write([]byte{0})                    // hash writes never fail (documented)
 	_, _ = m.Write([]byte(normalizeMailbox(to))) // hash writes never fail (documented)

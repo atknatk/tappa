@@ -1250,7 +1250,7 @@ func TestResolverAccess_TheCallSitesAreTheOnesInventoried(t *testing.T) {
 		}
 		if info.IsDir() {
 			base := info.Name()
-			if base == ".git" || base == "node_modules" || base == ".tools" {
+			if base == ".git" || base == "node_modules" || base == ".tools" || (path != repoRoot && isCheckout(path)) {
 				return filepath.SkipDir
 			}
 			return nil
