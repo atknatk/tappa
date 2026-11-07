@@ -913,21 +913,14 @@ WHERE t.tenant_id = @tenant_id
 -- from the ARITHMETIC and shown as their own tally.
 --
 -- `t.type IS NOT NULL` is what excludes reject and ignored without naming them, and
--- the reason it works is a CODE INVARIANT rather than the schema constraint an earlier
--- version of this line claimed.
+-- since 00014 the schema holds that: transactions_refusal_has_no_direction refuses a
+-- reject or an ignored row with a direction. (00005 constrained the other direction
+-- only, transactions_ok_has_direction, and this line once wrongly claimed otherwise.)
+-- Behind it, internal/domain/tap: Decide assigns a direction ONLY inside its
+-- `if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag` gate (decide.go).
 --
--- 🔴 THERE IS NO CHECK SAYING "reject/ignored IMPLIES NO DIRECTION". Migration 0005
--- constrains the other direction only (transactions_ok_has_direction), so a directed
--- reject is a row this schema would accept. What keeps one from existing is
--- internal/domain/tap: Decide assigns a direction ONLY inside its
--- `if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag` gate (decide.go), and
--- internal/domain/checkin is the single write path. Measured on the live database:
--- zero such rows in 301 819 (2026-08-10).
---
--- So this predicate is exact TODAY and its exactness is somebody else's invariant.
--- M6-08 adds a second writer to this table; internal/domain/ledger's endpointState
--- therefore treats an unrecognised verdict as NOT payable rather than trusting that it
--- can never arrive.
+-- 00014's Down reopens the shape, so internal/domain/ledger's endpointState still treats
+-- an unrecognised verdict as NOT payable rather than trusting that it can never arrive.
 --
 -- THE WINDOW HAS TWO EDGES AND THEY MEAN DIFFERENT THINGS. from_at/until_at bound what
 -- is READ; the reporting period the caller attributes hours to ends earlier. The tail

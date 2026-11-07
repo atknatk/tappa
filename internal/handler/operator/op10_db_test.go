@@ -20,7 +20,7 @@ package operator_test
 // WHAT ONE RUN LEAVES BEHIND (the class internal/db's OP-10 tests leave, card OP-10A md.
 // 12; append-only tables and the foreign keys that point at them): one operator account
 // (disabled at cleanup), one session (revoked by the sign-out), its audit rows -- login,
-// logout, two reads and two or four legal_publish -- and as many committed 'privacy'
+// logout, password_ok (OP-14 C), two reads and two or four legal_publish -- and as many committed 'privacy'
 // versions: TWO when a privacy text the form can carry existed before the run (the run's
 // text, then that text again as the undo, so the public page ends where it started), FOUR
 // when none did (the run's text, a FAKE earlier text, the run's text again, the earlier

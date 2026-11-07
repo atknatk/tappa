@@ -15,7 +15,8 @@ package operator_test
 // tables and the foreign keys that point at them), measured around one run on the
 // development database (2026-10-03, owner connection, read-only transaction): one operator
 // account (op10b-…, newLegalE2E's; disabled at cleanup), its five sessions (the signed-in
-// one and four planted; revoked at cleanup), and nine audit rows -- login, logout and seven
+// one and four planted; revoked at cleanup), and ten audit rows -- password_ok (OP-14 C; the
+// 2026-10-03 run predates its writer, a run on 2026-11-06 counts it), login, logout and seven
 // 'read' rows: five of scope tenants (the list, three searches, the planted live session's
 // list) and two of tenant_detail (the overview, the unknown id); the overview adds one
 // more per retry when another test changes the tenant's counts mid-read. Read tickets are

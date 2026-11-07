@@ -44,6 +44,7 @@ jobs:
     # is for: 28:15 + ~8:00 for the sandbox step's ordinary run = ~36:15, under 45.
     # 45 -> 55 with `make test`'s -timeout 20m -> 30m (Makefile, 2026-10-21): 8:15 + 30:00 =
     # 38:15 at worst for `make check`, + ~8:00 for the sandbox step = ~46:15, under 55.
+    # cmd/tappa TestCITimeouts_TheJobOutlastsEveryGoAlarm reads this sum and the Makefile's values together.
     timeout-minutes: 55
     env:
       # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`

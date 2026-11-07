@@ -833,9 +833,9 @@ func TestProblemScreen_RetryOnlyWhereRefetchingCanHelp(t *testing.T) {
 //     (TestTapResponses_CarryTheContentSecurityPolicy). The URL channel on this
 //     surface is therefore NOT "meta refresh" — it is "meta refresh AND any
 //     navigational response header nobody is watching".
-//   - CSS `content:`, except on a developer machine. TestCompiledCSS_GeneratesNoText
-//     reads the built stylesheet, and CI never builds one, so it ALWAYS SKIPS
-//     there; a skip is not a pass.
+//   - CSS `content:`, on a run without `make css`. TestCompiledCSS_GeneratesNoText
+//     reads the built stylesheet and SKIPS without one. ci.yml builds it first; a
+//     local run may not. A skip is not a pass.
 //   - anything a future <script> writes at runtime. No script on these screens
 //     today.
 //   - the five ACTIVATION failure screens, which share pages.Problem with the six
@@ -1487,14 +1487,11 @@ func TestProblemScreens_SayExactlyThisAndNothingElse(t *testing.T) {
 //
 // TWO LIMITS, both real:
 //
-//   - 🔴 IT NEVER RUNS IN CI, AND THAT IS MEASURED, NOT SUSPECTED.
-//     .github/workflows/ci.yml runs exactly `make tools`, `make up`, `make check`
-//     and `make audit`; none of those builds CSS, and .gitignore line 16 keeps
-//     /web/static/css/app.css out of the checkout. So on CI this test ALWAYS
-//     SKIPS, and the CSS channel is guarded only on a developer machine after a
-//     manual `make css`. A skip is not a pass — it is the check having nothing to
-//     read. Adding a `make css` step to CI would fix it and is not this task's to
-//     make.
+//   - 🔴 IT SKIPS WITHOUT A BUILT STYLESHEET. .gitignore keeps
+//     /web/static/css/app.css out of the checkout. ci.yml builds it first (`make
+//     css`, added on 2026-08-15 because this test always skipped there); a local
+//     run needs the same. A skip is not a pass — it is the check having nothing to
+//     read.
 //   - IT IS A SCAN, NOT A PROOF. Decorative glyphs are allowed through, so a
 //     single letter dressed as decoration would pass. It closes the mutation that
 //     was measured, not the category.
@@ -1562,11 +1559,9 @@ func TestCompiledCSS_GeneratesNoText(t *testing.T) {
 //
 // FIVE LIMITS, none of them papered over:
 //
-//   - 🔴 IT NEVER RUNS IN CI, for the same measured reason as
-//     TestCompiledCSS_GeneratesNoText above: .github/workflows/ci.yml runs `make
-//     tools`, `make up`, `make check` and `make audit`, none of which builds CSS,
-//     and .gitignore line 16 keeps app.css out of the checkout. So this SKIPS on
-//     CI, always. A skip is not a pass — it is the check having nothing to read.
+//   - 🔴 IT SKIPS WITHOUT A BUILT STYLESHEET, as TestCompiledCSS_GeneratesNoText
+//     above does: ci.yml builds it first, a local run needs `make css`. A skip is
+//     not a pass — it is the check having nothing to read.
 //
 //   - IT READS A DECLARED COLOUR, NOT A RENDERED PIXEL. An ancestor `opacity`, a
 //     `filter`, or a ground darker than paper would all change the contrast a
