@@ -44,6 +44,8 @@ type fakeSignupClaims struct {
 	openErr error
 	// openDelay stands in for Open's bcrypt, outside the lock (the budget race tests' window, T90).
 	openDelay time.Duration
+	// busy answers Open and both password proofs as a full work gate does (adminauth.ErrBusy, T86).
+	busy bool
 	// onOpen is called with every opened draft (the provisioner fake records them).
 	onOpen func(signup.Draft)
 	// proved is the draft the last successful proof proved; Provision reads it.
@@ -76,6 +78,9 @@ func (f *fakeSignupClaims) Open(_ context.Context, email, password string, draft
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.busy {
+		return adminauth.ClaimGrant{}, adminauth.ErrBusy
+	}
 	if f.openErr != nil {
 		return adminauth.ClaimGrant{}, f.openErr
 	}
@@ -124,15 +129,18 @@ func (f *fakeSignupClaims) byID(id uuid.UUID) *fakeSignupClaim {
 	return nil
 }
 
-func (f *fakeSignupClaims) ProveWithPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool) {
+func (f *fakeSignupClaims) ProveWithPassword(_ context.Context, c adminauth.SignupClaim, password string) (adminauth.ClaimProof, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.busy {
+		return adminauth.ClaimProof{}, adminauth.ErrBusy
+	}
 	fc := f.byID(c.ID)
 	if fc == nil || fc.password != password {
-		return adminauth.ClaimProof{}, false
+		return adminauth.ClaimProof{}, adminauth.ErrBadCredentials
 	}
 	f.proved = fc
-	return adminauth.ClaimProof{}, true
+	return adminauth.ClaimProof{}, nil
 }
 
 func (f *fakeSignupClaims) ProveWithSession(c adminauth.SignupClaim, _ adminauth.Token) (adminauth.ClaimProof, bool) {
@@ -153,6 +161,9 @@ func (f *fakeSignupClaims) ProveWithIdentityPassword(_ context.Context, c admina
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.busy {
+		return adminauth.ClaimProof{}, adminauth.ErrBusy
+	}
 	f.identityProofs++
 	if f.budgetSpent {
 		return adminauth.ClaimProof{}, adminauth.ErrClaimBudgetSpent

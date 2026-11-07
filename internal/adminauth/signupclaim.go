@@ -99,10 +99,12 @@ type SignupClaims struct {
 	// (Resets.digest's reason, its measurement).
 	digest  func(password string) (string, error)
 	compare func(digest, password string) bool
+	// gate is the process-wide ceiling on password work (workgate.go, backlog T86).
+	gate *WorkGate
 }
 
 // NewSignupClaims builds the flow; it refuses a wrong-sized key (NewResets' reason).
-func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config) (*SignupClaims, error) {
+func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config, opts ...Option) (*SignupClaims, error) {
 	if data == nil {
 		return nil, errors.New("adminauth: nil database")
 	}
@@ -119,7 +121,7 @@ func NewSignupClaims(data SignupClaimDatabase, cfg *config.Config) (*SignupClaim
 		return nil, err
 	}
 	return &SignupClaims{data: data, claimKey: config.NewKey(m.Sum(nil)), sessionKey: config.NewKey(sessionKey), ttl: SignupClaimTTL,
-		now: time.Now, digest: Hash, compare: Compare}, nil
+		now: time.Now, digest: Hash, compare: Compare, gate: gateOf(opts)}, nil
 }
 
 // ClaimGrant is a draft just opened: the token for the link (it cannot print itself), the address the
@@ -147,7 +149,14 @@ func (g ClaimGrant) Link(base string) string {
 // address has an identity or not. pgx.ErrNoRows: the database refused the draft (a value its CHECKs would
 // refuse, an address that is not ASCII) -- the caller's validation should have caught it first.
 func (s *SignupClaims) Open(ctx context.Context, email, password string, draft []byte) (ClaimGrant, error) {
+	// The work gate holds the bcrypt alone (workgate.go): entered before anything else, released once
+	// the digest exists.
+	release, err := s.gate.enter(ctx)
+	if err != nil {
+		return ClaimGrant{}, err
+	}
 	digest, err := s.digest(password)
+	release()
 	if err != nil {
 		return ClaimGrant{}, fmt.Errorf("adminauth: open signup claim: %w", err)
 	}
@@ -284,13 +293,19 @@ func (p ClaimProof) Claim(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (u
 }
 
 // ProveWithPassword is the new address's proof: the re-entered password against the draft's digest
-// (one bcrypt comparison, always paid). ok is false on a mismatch -- nothing is proved and nothing may be
-// created (R2).
-func (s *SignupClaims) ProveWithPassword(c SignupClaim, password string) (ClaimProof, bool) {
-	if !s.compare(c.digest.RevealForPasswordComparison(), password) || c.hash == "" {
-		return ClaimProof{}, false
+// (one bcrypt comparison, always paid once the work gate admits it). ErrBadCredentials on a mismatch --
+// nothing is proved and nothing may be created (R2); ErrBusy when the gate refused (workgate.go).
+func (s *SignupClaims) ProveWithPassword(ctx context.Context, c SignupClaim, password string) (ClaimProof, error) {
+	release, err := s.gate.enter(ctx)
+	if err != nil {
+		return ClaimProof{}, err
 	}
-	return ClaimProof{hash: c.hash, draft: c.Draft}, true
+	matched := s.compare(c.digest.RevealForPasswordComparison(), password)
+	release()
+	if !matched || c.hash == "" {
+		return ClaimProof{}, ErrBadCredentials
+	}
+	return ClaimProof{hash: c.hash, draft: c.Draft}, nil
 }
 
 // ProveWithSession is the existing identity's proof: the panel session cookie of the confirming browser,
@@ -342,6 +357,13 @@ func (s *SignupClaims) ProveWithIdentityPassword(ctx context.Context, c SignupCl
 	if budget == nil {
 		return ClaimProof{}, errors.New("adminauth: sign-in-less proof: no failure budget")
 	}
+	// The work gate before the budget (workgate.go): a refusal for load spends none of the identity's
+	// budget and writes no event.
+	release, err := s.gate.enter(ctx)
+	if err != nil {
+		return ClaimProof{}, err
+	}
+	defer release()
 	ours := c.IdentityPassword && c.hash != "" && c.identityID != uuid.Nil
 	if ours {
 		if within, count := budget.TryCharge(claimBudgetKey(c.identityID)); !within {

@@ -70,6 +70,11 @@ func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip str
 	// identity's failure rows are metered per identity, under a key the account rows never use
 	// (adminauth.identityBudgetKey).
 	in, err := a.admins.AuthenticatePerson(r.Context(), email, password, uuid.Nil, a.accountLimiter)
+	if errors.Is(err, adminauth.ErrBusy) {
+		// Refused before anything was read (adminauth's work gate): nothing opened, nothing to undo.
+		a.workBusy(w, r)
+		return
+	}
 	if err != nil && in.Abandoned != nil {
 		// AFTER the open, whatever the error (a 40P01 included): not a lapse to sign in again from.
 		a.abandonedLogin(w, r, *in.Abandoned, err)

@@ -231,10 +231,10 @@ func TestSignupClaims_OpenHashesAtTheShippedCost(t *testing.T) {
 	if err != nil || c.ID != g.ClaimID || c.Email != "maria@example.mt" || c.KnownAddress {
 		t.Fatalf("resolve: %v %+v", err, c)
 	}
-	if _, ok := s.ProveWithPassword(c, "not it"); ok {
+	if _, err := s.ProveWithPassword(context.Background(), c, "not it"); !errors.Is(err, ErrBadCredentials) {
 		t.Fatal("a wrong password proved the draft")
 	}
-	if p, ok := s.ProveWithPassword(c, "a passphrase nobody guesses"); !ok || p.hash == "" || p.session != nil {
+	if p, err := s.ProveWithPassword(context.Background(), c, "a passphrase nobody guesses"); err != nil || p.hash == "" || p.session != nil {
 		t.Fatal("the chosen password did not prove the draft as a new address")
 	}
 	if _, err := s.Resolve(context.Background(), ParseSignupClaimToken("short")); err != ErrNoSuchClaim {

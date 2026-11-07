@@ -253,6 +253,14 @@ var (
 		Message: "We have stopped accepting registrations from this connection for a few minutes.",
 		Hint:    "Wait a little and try again. If you are setting up several businesses, they can be registered a few at a time.",
 	}
+	// problemSignupBusy is the answer when the process-wide password-work gate refused
+	// (adminauth.ErrBusy, backlog T86). It is decided before the address is read, so it is the
+	// same for every address (R18); nothing was stored.
+	problemSignupBusy = pages.SignupProblemView{
+		Title:   "Taptime is busy",
+		Message: "Too many passwords are being checked right now, so this step was not saved.",
+		Hint:    "Go back and try again in a minute.",
+	}
 	problemSignupServer = pages.SignupProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "Your business was not created and nothing was saved.",
@@ -601,6 +609,12 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	grant, err := s.claims.Open(r.Context(), valid.Account.Email, string(account.Password.Reveal()), draft)
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		// Refused before the address was read (R18 holds) and before anything was written: the create
+		// unit goes back with the deferred refund, the attempt stays spent (it reached this step).
+		w.Header().Set("Retry-After", "60")
+		s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
+		return
 	case errors.Is(err, pgx.ErrNoRows):
 		// The database refused the draft: an address it will not store (the ASCII address rule --
 		// the caller's bytes decide this, never server state, so the answer reveals nothing).

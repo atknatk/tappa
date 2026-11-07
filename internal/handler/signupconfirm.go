@@ -106,7 +106,7 @@ const (
 type signupClaimer interface {
 	Open(ctx context.Context, email, password string, draft []byte) (adminauth.ClaimGrant, error)
 	Resolve(ctx context.Context, t adminauth.ResetToken) (adminauth.SignupClaim, error)
-	ProveWithPassword(c adminauth.SignupClaim, password string) (adminauth.ClaimProof, bool)
+	ProveWithPassword(ctx context.Context, c adminauth.SignupClaim, password string) (adminauth.ClaimProof, error)
 	ProveWithSession(c adminauth.SignupClaim, session adminauth.Token) (adminauth.ClaimProof, bool)
 	ProveWithIdentityPassword(ctx context.Context, c adminauth.SignupClaim, password string, budget adminauth.FailureBudget) (adminauth.ClaimProof, error)
 	Now() time.Time
@@ -512,7 +512,14 @@ func (s *Signup) ConfirmSubmit(w http.ResponseWriter, r *http.Request) {
 			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
 			return
 		}
-		if proof, ok = s.claims.ProveWithPassword(c, password); !ok {
+		var err error
+		proof, err = s.claims.ProveWithPassword(r.Context(), c, password)
+		if errors.Is(err, adminauth.ErrBusy) {
+			w.Header().Set("Retry-After", "60")
+			s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
+			return
+		}
+		if err != nil {
 			// R2: whoever clicked is not whoever chose the password -- nothing is created.
 			view.Errors = map[string]string{"password": "That is not the password chosen for this registration."}
 			s.render(w, r, http.StatusUnprocessableEntity, pages.SignupConfirm(view))
@@ -603,6 +610,9 @@ func (s *Signup) proveIdentityPassword(w http.ResponseWriter, r *http.Request, c
 	switch {
 	case err == nil:
 		return proof, true
+	case errors.Is(err, adminauth.ErrBusy):
+		w.Header().Set("Retry-After", "60")
+		s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
 	case errors.Is(err, adminauth.ErrClaimBudgetSpent):
 		s.log.Info("signup refused: the sign-in-less branch's budget is spent", "claim_id", c.ID)
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupClaimPaused)

@@ -339,12 +339,14 @@ type Resets struct {
 	// anything over MaxPasswordBytes. The test that IS about the stored work factor
 	// (TestConsume_StoresADigestAtTheShippedCost) deliberately does not substitute it.
 	digest func(password string) (string, error)
+	// gate is the process-wide ceiling on password work (workgate.go, backlog T86).
+	gate *WorkGate
 }
 
 // NewResets builds a Resets. It refuses a wrong-sized HMAC key rather than degrading:
 // a short or empty key still produces plausible-looking hex, so the failure would stay
 // invisible until somebody noticed reset links were forgeable.
-func NewResets(data ResetDatabase, cfg *config.Config) (*Resets, error) {
+func NewResets(data ResetDatabase, cfg *config.Config, opts ...Option) (*Resets, error) {
 	if data == nil {
 		return nil, errors.New("adminauth: nil database")
 	}
@@ -355,7 +357,7 @@ func NewResets(data ResetDatabase, cfg *config.Config) (*Resets, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Resets{data: data, hmacKey: config.NewKey(key), ttl: ResetTTL, now: time.Now, digest: Hash}, nil
+	return &Resets{data: data, hmacKey: config.NewKey(key), ttl: ResetTTL, now: time.Now, digest: Hash, gate: gateOf(opts)}, nil
 }
 
 // Reset is the stored record of one reset request. It carries no token and no hash --
@@ -645,7 +647,15 @@ func (r *Resets) Consume(ctx context.Context, t ResetToken, newPassword string) 
 	// it. So the order is kept and the cost is accepted, bounded by a PER-ADDRESS RATE
 	// LIMIT on the endpoint: a PHASE B OBLIGATION, written into the M7-04 card's
 	// acceptance criteria and into ADR 0015's accepted risks rather than only here.
+	//
+	// The work gate holds the bcrypt alone (workgate.go, backlog T86), and like the bcrypt it comes
+	// before the token is resolved, so the wait says nothing about the token either.
+	release, err := r.gate.enter(ctx)
+	if err != nil {
+		return ConsumedReset{}, db.ResolvedPasswordReset{}, err
+	}
 	digest, err := r.digest(newPassword)
+	release()
 	if err != nil {
 		return ConsumedReset{}, db.ResolvedPasswordReset{}, fmt.Errorf("adminauth: consume reset: %w", err)
 	}

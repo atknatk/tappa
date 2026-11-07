@@ -427,7 +427,17 @@ func run() error {
 	// It also carries the middleware M6-02 mounts the dashboard behind
 	// (AdminAuth.Protect), so the dashboard does not have to know how an admin is
 	// resolved.
-	admins, err := adminauth.New(data, cfg)
+	//
+	// THE PASSWORD-WORK GATE (backlog T86, internal/adminauth/workgate.go): ONE per process, handed to
+	// the four services that run bcrypt -- this manager, the resets, the sign-up drafts and the manager
+	// invitations -- so at most WorkSlots() password operations run at once, whatever the number of
+	// sources, and a P is left to the tap surface this process shares.
+	passwordWork, err := adminauth.NewWorkGate(adminauth.WorkSlots(), adminauth.WorkWait, slog.Default())
+	if err != nil {
+		return err
+	}
+	slog.Info("bcrypt work gate", "slots", adminauth.WorkSlots(), "wait", adminauth.WorkWait.String())
+	admins, err := adminauth.New(data, cfg, adminauth.WithWorkGate(passwordWork))
 	if err != nil {
 		return err
 	}
@@ -751,7 +761,7 @@ func run() error {
 		// screen says a link is on its way".
 		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
 	}
-	resets, err := adminauth.NewResets(data, cfg)
+	resets, err := adminauth.NewResets(data, cfg, adminauth.WithWorkGate(passwordWork))
 	if err != nil {
 		return err
 	}
@@ -867,7 +877,7 @@ func run() error {
 	// by the invitee through ADR 0031 §5.2's identity_accept_invite / _new. Built always; its routes are
 	// mounted only while TAPPA_ADMIN_IDENTITY is on, and its e-mail rides the invitation transport above
 	// (one per-mailbox cap, one breaker).
-	adminInvites, err := adminauth.NewAdminInvites(data, cfg)
+	adminInvites, err := adminauth.NewAdminInvites(data, cfg, adminauth.WithWorkGate(passwordWork))
 	if err != nil {
 		return err
 	}
@@ -938,7 +948,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	signupClaims, err := adminauth.NewSignupClaims(data, cfg)
+	signupClaims, err := adminauth.NewSignupClaims(data, cfg, adminauth.WithWorkGate(passwordWork))
 	if err != nil {
 		return err
 	}

@@ -946,6 +946,16 @@ var (
 		Message: "We have stopped accepting sign-ins from here for a few minutes.",
 		Hint:    "Wait a little and try again.",
 	}
+	// problemAdminBusy is the answer when the process-wide password-work gate refused
+	// (adminauth.ErrBusy, backlog T86): too many password checks at once across all callers.
+	// ONE value for every gated panel act and every address typed -- it is decided before the
+	// address is read -- so it says nothing about the address; and nothing was checked, so
+	// nothing was changed.
+	problemAdminBusy = pages.ProblemView{
+		Title:   "Taptime is busy",
+		Message: "Too many passwords are being checked right now, so yours was not checked. Nothing was changed.",
+		Hint:    "Try again in a minute.",
+	}
 	problemAdminServer = pages.ProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "You were not signed in and nothing was changed.",
@@ -1130,6 +1140,10 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth, err := a.admins.Authenticate(r.Context(), email, password)
+	if errors.Is(err, adminauth.ErrBusy) {
+		a.workBusy(w, r)
+		return
+	}
 	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
 		// A database or internal failure is NOT bad credentials: saying so would
 		// tell every operator at once that their password stopped working, and would
@@ -2001,6 +2015,14 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 // it there.
 //
 // It is still render: no shell, no logo, adminCSP's literal policy.
+// workBusy answers a request the password-work gate refused (adminauth.ErrBusy, backlog T86): 503,
+// one fixed page, no audit row (nothing was checked and no tenant is known before the gate). The
+// gate itself writes the one bounded WARN line. Retry-After is a hint, not a promise.
+func (a *AdminAuth) workBusy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "60")
+	a.renderProblem(w, r, http.StatusServiceUnavailable, problemAdminBusy)
+}
+
 func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
 	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
 }

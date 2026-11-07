@@ -590,6 +590,8 @@ func (a *AdminAuth) inviteAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		a.workBusy(w, r)
 	case err == nil:
 		a.log.Info("panel invitation accepted", "tenant_id", got.TenantID, "admin_user_id", got.AdminUserID, "mode", mode)
 		a.short.clearInviteLink(w)
