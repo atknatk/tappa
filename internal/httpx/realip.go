@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/atknatk/tappa/internal/adminauth"
 )
 
 // The client address is EVIDENCE, not metadata. An IP that matches the venue's
@@ -181,7 +183,11 @@ func RealIP(trusted []netip.Prefix) func(http.Handler) http.Handler {
 				r.Header.Del(h)
 			}
 			if addr.IsValid() {
-				r = r.WithContext(context.WithValue(r.Context(), clientIPKey{}, addr))
+				ctx := context.WithValue(r.Context(), clientIPKey{}, addr)
+				// The password-work gate's one-place-per-source rule keys on the same bucket every
+				// abuse budget uses (adminauth/workgate.go, backlog T86): set here, once, so no
+				// handler has to remember it.
+				r = r.WithContext(adminauth.WithWorkSource(ctx, RateKey(addr)))
 			}
 			next.ServeHTTP(w, r)
 		})

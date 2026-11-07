@@ -465,6 +465,13 @@ var (
 		Message: "We have stopped accepting recovery attempts from here for a few minutes.",
 		Hint:    "Wait a little and try again.",
 	}
+	// problemResetBusy is the answer when the process-wide password-work gate refused
+	// (adminauth.ErrBusy, backlog T86). Nothing was checked: the link is still unspent.
+	problemResetBusy = pages.ProblemView{
+		Title:   "Taptime is busy",
+		Message: "Too many passwords are being set right now, so yours was not. Your link has not been used.",
+		Hint:    "Try again in a minute.",
+	}
 	problemResetServer = pages.ProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "Nothing was changed and no password was set.",
@@ -952,17 +959,27 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if within, n := h.submitLimiter.TryCharge(ip); !within {
-		if h.submitLimiter.FirstOverLimit(n) {
+	submit, within, first, _ := h.submitLimiter.Reserve(ip)
+	if !within {
+		if first {
 			h.log.Warn("panel recovery rate limited", "scope", "submit", "ip", ip,
 				"limit", adminResetSubmitLimit, "period", adminResetSubmitPeriod.String())
 		}
 		h.problem(w, r, http.StatusTooManyRequests, problemResetTooMany)
 		return
 	}
+	// Kept on every exit but the work gate's refusal (backlog T86): that refusal compared nothing, so it
+	// is no attempt and gives the unit back.
+	defer submit.Keep()
 
 	consumed, resolved, err := h.resets.Consume(r.Context(), adminauth.ParseResetToken(raw), chosen)
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		// Before the token was resolved, so it says nothing about the link.
+		submit.Refund()
+		w.Header().Set("Retry-After", "60")
+		h.problem(w, r, http.StatusServiceUnavailable, problemResetBusy)
+		return
 	case err == nil:
 		h.clearLink(w)
 		// 🔴 UNBUDGETED, AND THE DIRECT CALL IS THE FIX FOR A MEASURED §4.6 DEFECT.

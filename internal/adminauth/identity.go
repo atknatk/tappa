@@ -138,6 +138,12 @@ func (m *Manager) AuthenticatePerson(ctx context.Context, email, password string
 	if budget == nil {
 		return PersonSignIn{}, errors.New("adminauth: authenticate person: no failure budget")
 	}
+	// The work gate first, before the address is looked at (Authenticate's rule, workgate.go).
+	release, err := m.gate.enter(ctx)
+	if err != nil {
+		return PersonSignIn{}, err
+	}
+	defer release()
 	// The caller's own bytes decide this branch, never server state -- Authenticate's argument.
 	// Every comparison is still paid.
 	if email == "" || password == "" || !isLookupableEmail(email) {

@@ -107,6 +107,12 @@ func (m *Manager) ChangeOwnPassword(ctx context.Context, tenantID, adminID, exce
 	if tenantID == uuid.Nil || adminID == uuid.Nil {
 		return PasswordChange{}, errors.New("adminauth: change password: tenant and admin are required")
 	}
+	// The work gate (workgate.go, backlog T86): two comparisons and a digest, under one slot.
+	release, err := m.gate.enter(ctx)
+	if err != nil {
+		return PasswordChange{}, err
+	}
+	defer release()
 	h, err := session.hash(m.hmacKey.Reveal())
 	if err != nil {
 		// The cookie Verify just accepted cannot be malformed; if it is, nothing is changed.

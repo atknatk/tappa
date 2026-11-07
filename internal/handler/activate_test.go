@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -196,11 +197,15 @@ func (f *fakeSessions) RevokeAllForEmployee(context.Context, uuid.UUID, uuid.UUI
 }
 
 type fakeAudit struct {
+	// mu makes Record safe for the concurrent budget test (T90); readers run after the requests.
+	mu     sync.Mutex
 	events []audit.Event
 	err    error
 }
 
 func (f *fakeAudit) Record(_ context.Context, e audit.Event) (uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.events = append(f.events, e)
 	return uuid.New(), f.err
 }

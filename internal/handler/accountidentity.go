@@ -445,6 +445,9 @@ func (a *AdminAuth) accountWindowAct(w http.ResponseWriter, r *http.Request, act
 	}
 	a.recordFresh(r, fresh, act)
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		a.workBusy(w, r)
+		return
 	case errors.Is(err, adminauth.ErrBadCredentials):
 		a.accountIdentityAgain(w, r, http.StatusOK, func(v *pages.AccountIdentityView) {
 			for i := range v.WindowRows {

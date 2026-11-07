@@ -64,12 +64,17 @@ func (a *AdminAuth) identityPath() bool {
 }
 
 // loginAsPerson is Login's identity path (this file's header). It answers the request.
-func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, email, password string) {
+func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, email, password string) {
 	// uuid.Nil: the sign-in form names no business; identity_open_session lands on the one used
 	// last, else the oldest active membership (K-4). The budget is the account limiter: the
 	// identity's failure rows are metered per identity, under a key the account rows never use
 	// (adminauth.identityBudgetKey).
 	in, err := a.admins.AuthenticatePerson(r.Context(), email, password, uuid.Nil, a.accountLimiter)
+	if errors.Is(err, adminauth.ErrBusy) {
+		// Refused before anything was read (adminauth's work gate): nothing opened, nothing to undo.
+		a.workBusy(w, r)
+		return
+	}
 	if err != nil && in.Abandoned != nil {
 		// AFTER the open, whatever the error (a 40P01 included): not a lapse to sign in again from.
 		a.abandonedLogin(w, r, *in.Abandoned, err)
@@ -96,7 +101,7 @@ func (a *AdminAuth) loginAsPerson(w http.ResponseWriter, r *http.Request, ip str
 		// with nothing in it, never a session.
 		err = adminauth.ErrBadCredentials
 	}
-	a.concludeLogin(w, r, ip, st, in.Legacy, err)
+	a.concludeLogin(w, r, ip, st, attempt, in.Legacy, err)
 }
 
 // completePersonLogin writes the identity session's cookie and sends the person to the panel.

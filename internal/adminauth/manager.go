@@ -259,12 +259,15 @@ type Manager struct {
 	// openCost is the measured duration of identity_open_session, which the decoy pads itself to
 	// (identity.go, S15). It is per Manager, never package state.
 	openCost *costMeter
+	// gate is the process-wide ceiling on password work (workgate.go, backlog T86), shared with
+	// Resets, SignupClaims and AdminInvites through WithWorkGate.
+	gate *WorkGate
 }
 
 // New builds a Manager. It refuses a wrong-sized HMAC key rather than degrading:
 // a short or empty key still produces plausible-looking hex, so the failure would
 // stay invisible until somebody noticed sessions were forgeable.
-func New(data Database, cfg *config.Config) (*Manager, error) {
+func New(data Database, cfg *config.Config, opts ...Option) (*Manager, error) {
 	if data == nil {
 		return nil, errors.New("adminauth: nil database")
 	}
@@ -287,7 +290,7 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: config.NewKey(key), dummy: dummyDigest, proofKey: config.NewKey(proofKey), verifyKey: config.NewKey(verifyKey), linkKey: config.NewKey(linkKey), openCost: newCostMeter(openCostDefault)}, nil
+	return &Manager{data: data, hmacKey: config.NewKey(key), dummy: dummyDigest, proofKey: config.NewKey(proofKey), verifyKey: config.NewKey(verifyKey), linkKey: config.NewKey(linkKey), openCost: newCostMeter(openCostDefault), gate: gateOf(opts)}, nil
 }
 
 // hash is the one digest a password change writes (see hashFn).
@@ -530,6 +533,14 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 	// uniform refusal PHASE B OBLIGATION 1 asks for, and the request stops being
 	// FREE — reaching this return means failLogin runs, so the attempt budget is
 	// charged like any other failure. Before the fix none of the three held.
+	//
+	// THE WORK GATE IS ENTERED FIRST (workgate.go, backlog T86): before the address is looked at, so
+	// the wait and a refusal (ErrBusy) depend on the load alone, never on the address typed.
+	release, err := m.gate.enter(ctx)
+	if err != nil {
+		return Authentication{}, err
+	}
+	defer release()
 	if email == "" || password == "" || !isLookupableEmail(email) {
 		m.pad(password, "", 0)
 		return Authentication{}, ErrBadCredentials

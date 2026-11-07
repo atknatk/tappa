@@ -237,10 +237,12 @@ type AdminInvites struct {
 	now                   func() time.Time
 	// digest is the new-password path's bcrypt (Hash in production; Resets.digest's reason for a field).
 	digest func(password string) (string, error)
+	// gate is the process-wide ceiling on password work (workgate.go, backlog T86).
+	gate *WorkGate
 }
 
 // NewAdminInvites builds the service from the session HMAC key (both keys derived from it).
-func NewAdminInvites(data InviteDatabase, cfg *config.Config) (*AdminInvites, error) {
+func NewAdminInvites(data InviteDatabase, cfg *config.Config, opts ...Option) (*AdminInvites, error) {
 	if data == nil {
 		return nil, errors.New("adminauth: nil database")
 	}
@@ -255,7 +257,7 @@ func NewAdminInvites(data InviteDatabase, cfg *config.Config) (*AdminInvites, er
 	if err != nil {
 		return nil, err
 	}
-	return &AdminInvites{data: data, inviteKey: config.NewKey(ik), sessionKey: config.NewKey(sk), ttl: InviteTTL, now: time.Now, digest: Hash}, nil
+	return &AdminInvites{data: data, inviteKey: config.NewKey(ik), sessionKey: config.NewKey(sk), ttl: InviteTTL, now: time.Now, digest: Hash, gate: gateOf(opts)}, nil
 }
 
 // Issue writes an invitation from the owner invitedBy of tenantID to email for fullName, retiring the
@@ -409,7 +411,13 @@ func (s *AdminInvites) AcceptNew(ctx context.Context, t InviteToken, password st
 	if err := s.Usable(ctx, t); err != nil {
 		return db.AcceptedAdminInvite{}, err
 	}
+	// The work gate holds the bcrypt alone (workgate.go), after the link: a dead link waits for nothing.
+	release, err := s.gate.enter(ctx)
+	if err != nil {
+		return db.AcceptedAdminInvite{}, err
+	}
 	d, err := s.digest(password)
+	release()
 	if err != nil {
 		return db.AcceptedAdminInvite{}, fmt.Errorf("adminauth: accept invite: %w", err)
 	}
