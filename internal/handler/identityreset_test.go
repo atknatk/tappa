@@ -142,7 +142,7 @@ func TestAdminReset_AnIdentityLinkIsDeliveredForEveryBusinessAndWritesNoRow(t *t
 
 // TestAdminReset_AnUndeliveredIdentityLinkIsWithdrawnByItsToken: a failed send of a per-identity link
 // withdraws it (WithdrawIdentity), never through the per-row Withdraw, and writes no audit row.
-// MUTATION: recordOutcome's identity branch removed -> the per-row path runs (Withdraw + a row) -> red.
+// MUTATION: admitOutcome's and withdraw's identity branches removed -> the per-row path runs (Withdraw + a row) -> red.
 func TestAdminReset_AnUndeliveredIdentityLinkIsWithdrawnByItsToken(t *testing.T) {
 	t.Parallel()
 	known := "person@example.test"

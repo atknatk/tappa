@@ -10,6 +10,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"strings"
@@ -234,5 +235,89 @@ func TestAuditLog_IsAppendOnlyForTheApp(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("privilege probe: %v", err)
+	}
+}
+
+// TestRecord_AnEventWithAnIDIsWrittenOnce: a second Record of an event with the same id adds no row and
+// is not an error (T197: a retry after an answer that never arrived), through the application's own
+// role, whose privileges on the table are SELECT and INSERT. Without an id, the database's: two rows.
+func TestRecord_AnEventWithAnIDIsWrittenOnce(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	tenantID := newTenant(t, d)
+	r, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := Event{ID: uuid.New(), TenantID: tenantID, Action: "test.once", Detail: map[string]string{"try": "first"}}
+	for i := 0; i < 2; i++ {
+		id, err := r.Record(ctx, e)
+		if err != nil {
+			t.Fatalf("try %d: %v", i+1, err)
+		}
+		if id != e.ID {
+			t.Errorf("try %d answered id %v, want the caller's %v", i+1, id, e.ID)
+		}
+	}
+	plain := Event{TenantID: tenantID, Action: "test.plain"}
+	for i := 0; i < 2; i++ {
+		if _, err := r.Record(ctx, plain); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(action string) int {
+		var n int
+		if err := d.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`, tenantID, action).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count("test.once"); n != 1 {
+		t.Errorf("%d row(s) for two writes of one id, want 1", n)
+	}
+	if n := count("test.plain"); n != 2 {
+		t.Errorf("%d row(s) for two writes with no id, want 2", n)
+	}
+}
+
+// TestRecord_AnIDHeldByAnotherTenantIsAnError: the primary key spans tenants and RLS does not hide a
+// conflict, so a write under an id another tenant's row holds affects 0 rows, and that must not read as
+// "already written". It writes nothing, changes nothing of the other tenant's, and says so.
+//
+// MUTATION: 0 rows taken as success without asking whose row it is -> Record answers nil -> red.
+func TestRecord_AnIDHeldByAnotherTenantIsAnError(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	a, b := newTenant(t, d), newTenant(t, d)
+	r, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.New()
+	if _, err := r.Record(ctx, Event{ID: id, TenantID: a, Action: "test.taken"}); err != nil {
+		t.Fatalf("tenant A: %v", err)
+	}
+	if _, err := r.Record(ctx, Event{ID: id, TenantID: b, Action: "test.taken"}); !errors.Is(err, ErrIDTaken) {
+		t.Errorf("tenant B under A's id: %v, want ErrIDTaken", err)
+	}
+	if _, err := r.Record(ctx, Event{ID: id, TenantID: a, Action: "test.taken"}); err != nil {
+		t.Errorf("tenant A's own second write: %v, want success", err)
+	}
+	count := func(tenant uuid.UUID) int {
+		var n int
+		if err := d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'test.taken'`, tenant).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(a); n != 1 {
+		t.Errorf("tenant A has %d row(s), want 1", n)
+	}
+	if n := count(b); n != 0 {
+		t.Errorf("tenant B has %d row(s), want 0", n)
 	}
 }

@@ -53,6 +53,27 @@ INSERT INTO audit_log (tenant_id, actor_id, action, target, detail)
 VALUES (@tenant_id, @actor_id, @action, @target, @detail)
 RETURNING id, at;
 
+-- name: RecordAuditEventOnce :execrows
+-- RecordAuditEvent for a write its caller may send TWICE (T197): the id is the
+-- caller's, so a retry after an answer that never arrived -- the COMMIT may have
+-- reached the server -- finds its own row and adds nothing to a table nothing can
+-- delete from. 0 rows affected, on a row THIS tenant can see, is that success.
+--
+-- `at` stays the DATABASE's DEFAULT for RecordAuditEvent's reason, so it is when this write
+-- happened, which on a retry can be later than the event. ON CONFLICT DO NOTHING needs no
+-- UPDATE privilege (tappa_app holds INSERT on the id column by 00053:36) and fires no
+-- audit_log_no_mutation: nothing is mutated.
+--
+-- The arbiter is the whole table's primary key and RLS does not hide a conflict, so 0 rows
+-- can also mean ANOTHER tenant's row holds the id: AuditEventVisible tells the two apart.
+INSERT INTO audit_log (id, tenant_id, actor_id, action, target, detail)
+VALUES (@id, @tenant_id, @actor_id, @action, @target, @detail)
+ON CONFLICT (id) DO NOTHING;
+
+-- name: AuditEventVisible :one
+-- Is the row with this id this tenant's? It is what RecordAuditEventOnce's 0 rows means.
+SELECT EXISTS (SELECT 1 FROM audit_log WHERE tenant_id = @tenant_id AND id = @id);
+
 -- name: ConfirmRecentRemoval :one
 -- Did THIS admin, in THIS business, remove THIS row, JUST NOW?
 --
