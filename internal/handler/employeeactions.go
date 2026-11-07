@@ -314,7 +314,7 @@ func (a *AdminAuth) employeeAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		a.log.Error("panel: could not add the employee", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 
@@ -402,7 +402,7 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		a.log.Error("panel: could not read the employee before inviting", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	if !person.Invitable() {
@@ -426,7 +426,7 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 	ch, err := invite.NewManagerVisibleChannel(sink, a.audit, &actor)
 	if err != nil {
 		a.log.Error("panel: could not build the invitation channel", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	inv, err := a.invites.IssueAndDeliver(r.Context(), invite.IssueParams{
@@ -458,7 +458,7 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		// internal/invite refuses on purpose, because a delivered code that was never
 		// committed is worse than a committed one that was never delivered.
 		a.log.Error("panel: could not issue the invitation", "employee_id", employeeID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, inviteFailure(inv))
 		return
 	}
 	if !sink.shown {
@@ -467,7 +467,7 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		// must not be shown a page with an empty link on it (§4.6: no silent failure).
 		a.log.Error("panel: the invitation was issued but no link reached the screen",
 			"invite_id", inv.ID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteUnfinished)
 		return
 	}
 
@@ -628,7 +628,7 @@ func (a *AdminAuth) employeeDeactivate(w http.ResponseWriter, r *http.Request) {
 		// would tell a manager the person's taps are being refused when nothing was
 		// written — and would hide an outage behind a plausible sentence.
 		a.log.Error("panel: could not deactivate the employee", "err", err, "employee_id", employeeID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 	}
 }
 
@@ -707,7 +707,7 @@ func (a *AdminAuth) employeeMove(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, rosterReturn(f, employeeID, "", "no-change"))
 	default:
 		a.log.Error("panel: could not move the employee", "err", err, "employee_id", employeeID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 	}
 }
 

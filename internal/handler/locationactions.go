@@ -168,7 +168,7 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		a.log.Error("panel: could not save the venue", "err", err, "venue_id", sub.VenueID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 
@@ -243,7 +243,7 @@ func (a *AdminAuth) saveDepartment(w http.ResponseWriter, r *http.Request) {
 	default:
 		a.log.Error("panel: could not save the department", "err", err,
 			"department_id", sub.DepartmentID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 
@@ -298,13 +298,13 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 	screen, err := a.venues.Screen(r.Context(), httpx.AdminOf(r).TenantID())
 	if err != nil {
 		a.log.Error("panel: could not re-read the venues after a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	plaques, err := a.locationsPlaques(r)
 	if err != nil {
 		a.log.Error("panel: could not re-read the plaques after a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	form.ErrorField = field
@@ -314,7 +314,7 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 	bindFormTargets(&v)
 	if err := a.formPage(r, &v, screen, plaques); err != nil {
 		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
@@ -340,13 +340,13 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	screen, err := a.venues.Screen(r.Context(), id.TenantID())
 	if err != nil {
 		a.log.Error("panel: could not re-read the venues after a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	plaques, err := a.locationsPlaques(r)
 	if err != nil {
 		a.log.Error("panel: could not re-read the plaques after a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	form, outcome := a.departmentFormFromSubmission(r, sub, screen)
@@ -361,7 +361,7 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 		a.redirect(w, venueReturn("", "unknown-venue"))
 		return
 	default:
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	form.ErrorField = field
@@ -371,7 +371,7 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	bindFormTargets(&v)
 	if err := a.formPage(r, &v, screen, plaques); err != nil {
 		a.log.Error("panel: could not read the venue behind a rejected form", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
@@ -663,7 +663,7 @@ func (a *AdminAuth) deleteVenue(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		a.log.Error("panel: could not delete the venue", "err", err, "venue_id", venueID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// 🔴 THE COOKIE IS CLEARED AFTER A SUCCESSFUL REMOVAL, WHICH IS THE OPPOSITE OF
@@ -736,7 +736,7 @@ func (a *AdminAuth) deleteDepartment(w http.ResponseWriter, r *http.Request) {
 	default:
 		a.log.Error("panel: could not delete the department", "err", err,
 			"department_id", departmentID)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// Cleared on success only — deleteVenue carries the argument for the asymmetry.

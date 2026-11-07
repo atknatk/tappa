@@ -68,6 +68,7 @@ func TestPanelProblem_TheOwnerPillComesFromTheConstant(t *testing.T) {
 	}
 	others := map[string]pages.ProblemView{
 		"problemPanelUnavailable": problemPanelUnavailable, "problemPanelWriteFailed": problemPanelWriteFailed,
+		"problemPanelWriteUnfinished": problemPanelWriteUnfinished, "problemPanelElsewhere": problemPanelElsewhere,
 		"problemAdminServer": problemAdminServer, "problemAdminRestart": problemAdminRestart,
 		"problemAdminTooMany": problemAdminTooMany, "problemAdminNoCookie": problemAdminNoCookie,
 		"problemAdminSignInAgain":     problemAdminSignInAgain,
@@ -169,7 +170,7 @@ func TestPanelProblem_AnUnauthenticatedProblemLinksToTheSignInPage(t *testing.T)
 // particular no promise about taps and no tap-screen button.
 func TestPanelProblem_KeepsTheConstantsWordsAndAddsNone(t *testing.T) {
 	h := newAdminRouterWithBrands(t, &fakeAdmins{}, &fakeBrands{}, discardLogger())
-	for _, v := range []pages.ProblemView{problemPanelUnavailable, problemPanelWriteFailed, problemAccountUnreadable, problemAPIKeysOwnerOnly} {
+	for _, v := range []pages.ProblemView{problemPanelUnavailable, problemPanelWriteFailed, problemPanelWriteUnfinished, problemPanelElsewhere, problemAccountUnreadable, problemAPIKeysOwnerOnly} {
 		rec := httptest.NewRecorder()
 		h.renderProblem(rec, httptest.NewRequest(http.MethodGet, transactionsHref, nil), http.StatusForbidden, v)
 		body := htmlOf(t, rec)

@@ -145,7 +145,7 @@ func (a *AdminAuth) renderClaims(w http.ResponseWriter, r *http.Request, st clai
 	if err != nil {
 		// §4.6: a failed read is said, never drawn as an empty queue.
 		a.log.Error("panel: could not read the claim queue", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, readFailedProblem(r))
 		return
 	}
 	zone := page.Zone
@@ -198,7 +198,7 @@ func (a *AdminAuth) renderClaims(w http.ResponseWriter, r *http.Request, st clai
 		in, err := a.claims.Inspect(r.Context(), id.TenantID(), c.ID, nil)
 		if err != nil {
 			a.log.Error("panel: could not read the claim in focus", "err", err, "claim_id", c.ID)
-			a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+			a.renderProblem(w, r, http.StatusInternalServerError, readFailedProblem(r))
 			return
 		}
 		f := claimFocusView(in, personName(c.EmployeeName), zone)

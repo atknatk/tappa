@@ -977,29 +977,50 @@ var (
 	// and counts rows). A security lens confirmed the same for the shipped sentence's
 	// last clause.
 	//
-	// ⚠️ IT IS USED ON internal/handler/manualentry.go's CALL SITES AND ON
-	// internal/handler/employeeemail.go's ONE (M10 EM-6 round 3), AND THE REST ARE
-	// COUNTED RATHER THAN CONVERTED — by a test, not by this comment. Converting them
-	// is a mechanical edit across five files owned by M6-04/05/06 and belongs to
-	// whoever owns those screens; the pattern is here, ready. A call site that adopts
-	// this page adopts its two claims, so it brings its own measurement of them: the
-	// address change's is TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce
-	// (the manual entry's is the test named above).
+	// ✅ SINCE BACKLOG T21 EVERY PANEL WRITE ROUTE ANSWERS A DATABASE FAILURE WITH THIS
+	// PAGE, OR WITH problemPanelWriteUnfinished BELOW -- never with the reader's page. The
+	// call sites were classified one by one: a read before the write (nothing reached
+	// the write, so nothing was written), the write itself (one db.WithTenant
+	// transaction or one SECURITY DEFINER call: the act and its trail row roll back
+	// together, measured for the manual entry by
+	// TestManualDB_TheRecordAndItsAuditRowSHAREATransaction and for the address change by
+	// TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce, read for the
+	// rest), and the few that fail AFTER something was committed, which get the other
+	// page. A helper shared with a GET picks by method (readFailedProblem).
 	//
-	// 🔴 THE CENSUS IS DERIVED AND PRINTED BY
+	// 🔴 THE CENSUS IS DERIVED BY
 	// TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty,
 	// which parses this package and classifies every call site against the routes
-	// mountWriting registers. An integer written here would be a second representation
-	// of a set the code owns — the exact shape that drifted three times in
-	// mountWriting's own comment, and once already in the first version of this one
-	// (it said 33; the census says 32, because the earlier count had scooped up a
-	// mention inside a comment).
+	// mountWriting registers, and now fails on any write handler that names the reader's
+	// page. An integer written here would be a second representation of a set the code
+	// owns.
 	problemPanelWriteFailed = pages.ProblemView{
 		Title:   "We could not save that",
 		Message: "The panel could not reach the database, so nothing was written: no record, no change and no trail entry. What you were looking at before is unchanged.",
 		Hint:    "Try again in a minute — pressing again will not enter it twice.",
 	}
+	// problemPanelWriteUnfinished is a write that failed AFTER part of it was committed
+	// (T21): an invitation whose row committed and whose link was never shown, and an
+	// identity act whose fresh session left its trail before the act itself failed.
+	// "Nothing was written" would be false there, and "Nothing has been changed" too; what
+	// stays true is §4.6's -- nothing is deleted and no record is lost.
+	problemPanelWriteUnfinished = pages.ProblemView{
+		Title:   "We could not finish that",
+		Message: "Something failed part-way through, so part of it may already be saved. Nothing has been deleted and no record has been lost.",
+		Hint:    "Open the page again to see what was saved before you press again.",
+	}
 )
+
+// readFailedProblem is the problem page for a failed read in a helper a GET and a POST
+// share (T21): to a reader it is problemPanelUnavailable; to somebody who pressed a
+// button -- whose write was refused before the read, so nothing was written -- it is
+// problemPanelWriteFailed.
+func readFailedProblem(r *http.Request) pages.ProblemView {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return problemPanelUnavailable
+	}
+	return problemPanelWriteFailed
+}
 
 // LoginPage serves GET /admin/login: mint the synchronizer token and render the
 // form.
