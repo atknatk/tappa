@@ -69,6 +69,14 @@ func mintingGETs() []mintingGET {
 			b := plaqueBrowser(t, venues, &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{onWall}}})
 			return b, locationsHref + "?plaque=" + uidOnWall + "&confirm=unmount", confirmMinted
 		}},
+		{"export the month's invoice (billing.exported)", func(t *testing.T) (*browser, string, func(*httptest.ResponseRecorder) bool) {
+			trail := &fakeTrail{}
+			b := billingBrowserWithTrail(t, newFakeBooks(), trail, "owner")
+			return b, billingCSVHref, func(rec *httptest.ResponseRecorder) bool {
+				return trail.count(ActionBillingExported) != 0 ||
+					strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv")
+			}
+		}},
 		{"export the week's hours (report.exported)", func(t *testing.T) (*browser, string, func(*httptest.ResponseRecorder) bool) {
 			records := newFakeLedger()
 			records.hours = reportWith(func(r *ledger.Report) {

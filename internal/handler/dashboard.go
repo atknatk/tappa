@@ -121,15 +121,20 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// rulebook are in mountWriting, because both need the Origin check AHEAD of the
 	// resolver and neither can get it here.
 	r.Get(policyVersionHref, a.policyVersionPage)
-	// 🔴 THE BILLING EXPORT IS REGISTERED HERE AND IT WRITES NOTHING AT ALL — one
-	// fewer side effect than the hours export above, which is why it needs none of
-	// that route's four paragraphs about what a cross-origin navigation can inflate.
-	// It is not a section (it has no tab) but it reads the same month the billing
-	// section does, so it must inherit the same chain, and putting it inside this
-	// function makes that structural. The two POSTs that FREEZE a month are in
-	// mountWriting, because both need the Origin check AHEAD of the resolver and
-	// neither can get it here.
-	r.Get(billingCSVHref, a.billingExport)
+	// 🔴 THE BILLING EXPORT IS REGISTERED HERE AND IT WRITES ONE ROW, LIKE THE HOURS
+	// EXPORT ABOVE: every file it serves appends a billing.exported audit row
+	// (billingExport), which §4.3 never takes back. This comment said it "WRITES
+	// NOTHING AT ALL" until an audit drove a cross-site navigation through it (200, a
+	// file and one row, while the hours export answered 403). So it carries the same
+	// mintGate (fetchsite.go, backlog T19). It is not a section (it has no tab) but it
+	// reads the same month the billing section does, so it must inherit the same chain,
+	// and putting it inside this function makes that structural. The two POSTs that
+	// FREEZE a month are in mountWriting, because both need the Origin check AHEAD of
+	// the resolver and neither can get it here.
+	r.Group(func(r chi.Router) {
+		r.Use(a.mintGate(armsAlways))
+		r.Get(billingCSVHref, a.billingExport)
+	})
 	// THE SWITCH PAGE (M14-10): the person's businesses, each with its switch form. A read --
 	// it lists and mints the form's token, it writes nothing -- mounted only while
 	// TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8); its POST is in mountWriting's sibling group.

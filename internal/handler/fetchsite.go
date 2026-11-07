@@ -12,8 +12,9 @@ import (
 // Five panel acts are confirmed with a value minted on a GET (deactivateconfirm.go):
 // deactivating an employee (?confirm=deactivate on the roster), removing a venue or a
 // department (?confirm=remove), and replacing or taking down a plaque (?plaque=<uid>,
-// ?confirm=unmount). The hours export (reportsCSVHref) writes an append-only
-// report.exported row (§4.3: it can never be taken back). None of them is a POST, so
+// ?confirm=unmount). The two exports -- hours (reportsCSVHref) and invoice
+// (billingCSVHref) -- each write an append-only row, report.exported and
+// billing.exported (§4.3: never taken back). None of them is a POST, so
 // none of them is behind sameOriginGate, and a page on another site could drive a
 // signed-in manager's tab there with one top-level navigation: SameSite=Lax sends the
 // panel cookie on exactly that. What it bought before this gate: a "Remove X?" warning
@@ -42,11 +43,14 @@ import (
 // one we did not write -- a sibling with an XSS, or a subdomain taken over -- which is
 // what GATE-1 (ADR 0028 §11) refuses on every panel write for the same reason.
 //
-// WHAT A REFUSAL DOES: the panel's problem page, 403, and nothing else -- the handler
-// does not run, so no confirmation is minted, no cookie is written, no audit row is
-// written. It sits after the Protect chain (inside mountSections' group), unlike
-// sameOriginGate: a GET's resolver read is the same cost as any allowed GET of the same
-// page, and the gate needs no identity, so the order buys nothing either way.
+// WHAT A REFUSAL DOES: the panel's problem page with 403. The handler does not run, so
+// no confirmation is minted, no confirmation cookie is written and no audit row is
+// written. It is NOT "nothing else": the gate sits after the Protect chain (Protect is
+// the group's middleware and runs first), so the refused request has already been
+// charged to floodGate's and sessionGate's budgets and the resolver has touched the
+// session's admin_sessions.last_used_at -- exactly what any panel GET does. Unlike
+// sameOriginGate it is not placed ahead of the resolver: a GET's resolver read costs
+// the same as an allowed GET of the same page, so the order buys nothing either way.
 //
 // ⚠️ IT IS NOT A WHOLE-SECTION GATE. Only a request that would mint (arms reports
 // true) is refused; a cross-site link to the plain roster, the plain locations page or
@@ -106,5 +110,5 @@ func armsLocationsConfirmation(r *http.Request) bool {
 	return q.Get("confirm") != "" || strings.TrimSpace(q.Get("plaque")) != ""
 }
 
-// armsAlways: the hours export writes its trail row on every answer it serves.
+// armsAlways: each export writes its trail row on every file it serves.
 func armsAlways(*http.Request) bool { return true }
