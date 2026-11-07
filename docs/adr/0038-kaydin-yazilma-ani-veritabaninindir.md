@@ -32,7 +32,7 @@ Bu, değeri **verilemez** kılar; kilidin tamamı değildir (bkz. "Bedel", ilk m
 
 **Sonuç kuralı (§6'ya ek):** `transactions`'a eklenen yeni sütun ya **aynı migration'da**
 `GRANT INSERT (<sütun>) ON transactions TO tappa_app` alır ya da bilinçli olarak dışlama listesine
-(`internal/db/createdatgrant_test.go`'nun `cgAllColumnsBut`'ı ve 00088'in DO bloğu) girer; tablo
+(`internal/db/createdatgrant_test.go`'nun `cgAllColumnsBut`'ı güncellenir; uygulanmış 00088 değişmez, yeni migration kendi DO kontrolünü taşır) girer; tablo
 düzeyi INSERT geri verilmez. Unutulursa tap'in INSERT'i 42501 olur — güvenli yönde ve CI'da: her checkin DB testi o sorguyu
 koşar, `internal/db/createdatgrant_test.go` listeyi "tablo eksi (`id`, `created_at`)"a tutar ve
 `db/queries`'teki her INSERT'in adlandırdığı sütunu katalogla karşılaştırır.
