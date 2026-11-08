@@ -2830,6 +2830,33 @@ M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavan�
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
   ```
 
+### T157 — `transactions`'ın iki kısmi indeksi: `00091`, `00092`
+
+`00091` (`transactions_tenant_employee_directed_idx`, yönlü ve practice olmayan satırlar) ve `00092`
+(`transactions_tenant_employee_practice_idx`, tarihî practice satırları) **ayrı birer `NO TRANSACTION`
+dosyası**, ikisi de `CREATE INDEX CONCURRENTLY` — `00070`'in kuralı: kurulum `SHARE UPDATE EXCLUSIVE` alır,
+hiçbir dokunuş ya da panel isteği onu beklemez; kendisi kendinden eski işlemleri bekler (02:30 dökümü onu
+uzatır, dokunuşu değil). `lock_timeout` yok (oturum ayarı goose'un havuzlu bağlantısında ifadeden uzun
+yaşardı). Yarıda kesilirse geride `INVALID` bir indeks kalır; dosya yeniden koşulunca önce onu düşürür, sonra
+yeniden kurar. Eski binary yeni şemada aynen çalışır (sorgu sonucu değişmez). Down ikisini de `CONCURRENTLY`
+düşürür; geri dönüş için gerekmez. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
+
+Deploy'dan sonra (salt okuma; Job log'unda iki `OK`), beklenen `92` · `2|2`:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+SELECT max(version_id) FROM goose_db_version WHERE is_applied;
+SELECT count(*), count(*) FILTER (WHERE i.indisvalid AND i.indisready)
+  FROM pg_index i
+ WHERE i.indexrelid IN (to_regclass('public.transactions_tenant_employee_directed_idx'),
+                        to_regclass('public.transactions_tenant_employee_practice_idx'));
+SQL
+```
+
+`2|1` ya da `2|0` → yarıda kalmış bir kurulum: migrate Job'ını yeniden koş (dosya `INVALID` indeksi düşürüp
+yeniden kurar).
+
 ---
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi

@@ -836,6 +836,21 @@ type Querier interface {
 	// check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
 	// M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
 	// was_maskable is bounded by the week.
+	//
+	// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED, IN EITHER STATEMENT. The next-record lookup reads
+	// migration 00091's transactions_tenant_employee_directed_idx (directed, non-practice rows alone: a
+	// refused or ignored tap after a check-in is not in it); "a practice row after it" (was_maskable here,
+	// the EXISTS below) reads 00092's transactions_tenant_employee_practice_idx (the historical practice
+	// rows alone). Through 00005's index both FILTERED every row of the person's after the check-in --
+	// once per check-in, and the EXISTS below asks it for every check-in of the window. No query text
+	// changed for this. EXPLAIN (ANALYZE, BUFFERS), 2026-11-08, a lane database (PostgreSQL 17), the load
+	// T157's close-out in docs/backlog.md describes, shared buffers of the probes, custom and generic plan
+	// alike (the host's load average ran 13-90; the milliseconds are noise):
+	//   ListOpenCheckIns, 151 probes      n 13 351 -> 605 (1 988 rows filtered per probe -> none)
+	//                                     was_maskable 3 028 -> 26 (Index Only Scan)
+	//   CountMaskedOpenCheckIns           the practice EXISTS 7 172 (a Parallel Seq Scan of the table) -> 5
+	// The outer scan of the week is unchanged (~7 000-10 000 buffers, the 300 000 rows filtered once per
+	// statement) -- backlog T244.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
 	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
 	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come
@@ -3827,7 +3842,8 @@ type Querier interface {
 	//
 	//   P  the person's directed, non-practice record just BEFORE the checkout, in (occurred_at, id)
 	//      order -- an `in` or an `out` (the LATERAL `pv`);
-	//   I  an `in` before it in that order with occurred_at >= its business day (the EXISTS);
+	//   I  an `in` before it in that order with occurred_at >= its business day -- asked as "the latest
+	//      `in` before it is inside its business day" (T157, below), which is the same question;
 	//   W  P was written after it: pv.created_at > o.created_at. created_at is the DATABASE's write
 	//      instant (DEFAULT now(), which no statement writes -- TestTransactions_NoStatementWritesCreatedAt),
 	//      never occurred_at, the client's claim: a manager's correction typed into the past is
@@ -3868,6 +3884,30 @@ type Querier interface {
 	// shared hit 1 891 / 1 669 / 1 669. The zero is M15-05's Phase A property seen on live rows: every
 	// engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
 	// cost is two index probes per checkout of the week that carries a business day.
+	//
+	// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED. P and I read migration 00091's
+	// transactions_tenant_employee_directed_idx, which holds the directed, non-practice rows alone: a
+	// refused or ignored tap (type NULL) between a checkout and its neighbour is not in it, so neither probe
+	// reads it. Through 00005's index both FILTERED those rows during the scan, once per checkout.
+	//   ⚠️ I IS ASKED AS "THE LATEST `in` BEFORE IT", NOT AS AN EXISTS OVER THE BUSINESS DAY, because only
+	//   that shape reaches the index: with the range `i.occurred_at >= o.business_day_start` in the
+	//   subquery the planner kept 00005's index and its filter (measured: 2 926 buffers for one checkout
+	//   with 100 000 directionless rows in its day; the latest-`in` shape 4). The two are one question: an
+	//   `in` before the checkout lies inside its business day exactly when the LATEST `in` before it does
+	//   (any such `in` is no later than the latest, so the latest is inside too); no `in` at all is NULL,
+	//   which COALESCE makes the EXISTS's false. TestCheckoutsWithoutCheckIn_TheListIsTheClassificationsBAndC
+	//   holds this list to the EXISTS definition over every parity chain, the one-instant I-order cells
+	//   and the directionless rows among them. The walk stops at the first `in`: what it can still read
+	//   is the person's checkouts between -- directed records, each a debounced tap or a manager's row.
+	// EXPLAIN (ANALYZE, BUFFERS), T157, 2026-11-08, a lane database (PostgreSQL 17), the load T157's
+	// close-out in docs/backlog.md describes (300 000 directionless rows of two people inside the week),
+	// row_limit 51, custom and generic plan alike; shared buffers of the probes, 125 checkouts -- buffers
+	// are the measure, the host's load average ran 13-90 and the milliseconds are noise:
+	//   before (00005's index)   pv 9 371 (2 401 rows filtered per probe)   i 6 347 (1 601 per probe)
+	//   after  (00091 + this I)  pv   501 (nothing filtered)                i   501 (nothing filtered)
+	// What is left is the OUTER scan of the week, unchanged by T157 (a Parallel Seq Scan in the custom
+	// plan, transactions_tenant_occurred_idx filtering the 300 000 rows in the generic one, ~7 000-10 000
+	// buffers): once per statement, not once per checkout -- backlog T244.
 	ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error)
 	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
 	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
