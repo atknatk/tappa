@@ -114,7 +114,9 @@ func (w *cpWorld) employee(name string) uuid.UUID {
 // historical training row (practice = true, an `in` -- ADR 0008; nothing writes one any more).
 // serverWrite leaves created_at to its DEFAULT now() -- the write instant the database gives a
 // real row, later than every row written before it (M15-06's trap: a row that comes later is
-// never written with a created_at in the past); wrote is then ignored.
+// never written with a created_at in the past); wrote is then ignored. refused is a directionless
+// tap -- its verdict ('reject' or 'ignored'), no type and no business day
+// (transactions_refusal_has_no_direction): every reader of the chain skips it (T157).
 type cpRow struct {
 	id          uuid.UUID
 	dir         string
@@ -124,6 +126,7 @@ type cpRow struct {
 	typed       bool
 	practice    bool
 	serverWrite bool
+	refused     string
 }
 
 // chain writes a person's rows, each in a transaction of its own as the owner in the tenant's
@@ -143,6 +146,10 @@ func (w *cpWorld) chain(person uuid.UUID, rows []cpRow) {
 		if r.typed {
 			channel, enteredBy = "manual", w.admin
 		}
+		verdict, dir := "ok", any(r.dir)
+		if r.refused != "" {
+			verdict, dir = r.refused, nil
+		}
 		tx, err := w.owner.Begin(w.ctx)
 		if err != nil {
 			w.t.Fatal(err)
@@ -153,13 +160,13 @@ func (w *cpWorld) chain(person uuid.UUID, rows []cpRow) {
 		if r.serverWrite {
 			_, err = tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at,
 			                                                   verdict, channel, type, business_day_start, entered_by, practice)
-			                         VALUES ($1, $2, $3, $4, $5, 'ok', $6, $7, $8, $9, $10)`,
-				id, w.tenant, person, w.venue, r.at, channel, r.dir, r.day, enteredBy, r.practice)
+			                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				id, w.tenant, person, w.venue, r.at, verdict, channel, dir, r.day, enteredBy, r.practice)
 		} else {
 			_, err = tx.Exec(w.ctx, `INSERT INTO transactions (id, tenant_id, employee_id, location_id, occurred_at, created_at,
 			                                                   verdict, channel, type, business_day_start, entered_by, practice)
-			                         VALUES ($1, $2, $3, $4, $5, $6, 'ok', $7, $8, $9, $10, $11)`,
-				id, w.tenant, person, w.venue, r.at, wrote, channel, r.dir, r.day, enteredBy, r.practice)
+			                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+				id, w.tenant, person, w.venue, r.at, wrote, verdict, channel, dir, r.day, enteredBy, r.practice)
 		}
 		if err != nil {
 			_ = tx.Rollback(w.ctx)
@@ -332,6 +339,21 @@ func (w *cpWorld) cpCases() []cpCase {
 			{id: nextA[1], dir: "in", at: mon(17, 0), day: sMon}, {id: nextA[0], dir: "out", at: mon(17, 0), day: sMon}}, []string{"closes"}},
 		{"one instant, two next records: the in's id is the smaller -- the 09:00 in stays open", []cpRow{tapped("in", mon(9, 0)),
 			{id: nextB[0], dir: "in", at: mon(17, 0), day: sMon}, {id: nextB[1], dir: "out", at: mon(17, 0), day: sMon}}, []string{"closes"}},
+		// T157: directionless taps (a refusal, an ignored repeat) sit between the records of a chain
+		// and change no class -- every reader skips them, by predicate (the definition) and by not
+		// being in 00091's index at all (the shipped lists).
+		{"closes: a refused and an ignored tap between the in and its out", []cpRow{tapped("in", mon(9, 0)),
+			{refused: "reject", at: mon(9, 30)}, {refused: "ignored", at: mon(9, 31)}, tapped("out", mon(17, 0)),
+			{refused: "ignored", at: mon(17, 1)}}, []string{"closes"}},
+		{"(c) the break with refused taps around the second checkout", []cpRow{tapped("in", mon(9, 0)), tapped("out", mon(12, 0)),
+			{refused: "reject", at: mon(13, 0)}, tapped("out", mon(17, 0)), {refused: "ignored", at: mon(17, 0)}}, []string{"closes", "orphan"}},
+		{"(e) the correction with an ignored tap before the typed checkout", []cpRow{tapped("in", mon(9, 0)), tapped("out", mon(20, 0)),
+			{refused: "ignored", at: mon(16, 0)}, {dir: "out", at: mon(17, 0), typed: true, wrote: tp(mon(21, 0))}}, []string{"closes", "extra"}},
+		// I is the LATEST `in` before the checkout, not any: Sunday's closed pair is before Monday's
+		// business day, Monday's 09:00 in is inside it -- the surplus (e), not an orphan (c).
+		{"(e) the correction after an earlier day's closed pair", []cpRow{tapped("in", w.day(-1, 10, 0)), tapped("out", w.day(-1, 16, 0)),
+			tapped("in", mon(9, 0)), tapped("out", mon(20, 0)),
+			{dir: "out", at: mon(17, 0), typed: true, wrote: tp(mon(21, 0))}}, []string{"closes", "closes", "extra"}},
 	}
 }
 

@@ -223,21 +223,29 @@ SELECT c.anchor_transaction_id,
 -- HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
 -- sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
 -- card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
--- panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER,
--- not the work: the anti-join walks the tenant's whole claim history to find undecided ones, so the cost
--- grows with every claim ever sent. Measured: 0.12-0.38 ms at 5 claims (M15-18 builder, tappa-m15-db,
--- three runs) and ~82 ms at 100 000 claims (M15-18 security lens, 2026-10-26). Negligible at a
--- realistic scale; a partial index or a counter is backlog T166. Explicit tenant on both tables.
-SELECT count(*)
-  FROM (
-        SELECT 1
-          FROM punch_claims AS c
-         WHERE c.tenant_id = @tenant_id
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM punch_claim_decisions AS d
-                WHERE d.tenant_id = @tenant_id
-                  AND d.claim_id = c.id
-           )
-         LIMIT sqlc.arg('cap')::int
-       ) AS capped;
+-- panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER.
+--
+-- 🔴 PENDING IS "CLAIMS MINUS DECISIONS", AND THAT IS AN IDENTITY OF THE SCHEMA, NOT AN ESTIMATE (T166).
+-- Every decision names exactly one claim of its own business (punch_claim_decisions_claim_fk, the
+-- composite (claim_id, tenant_id) key), a claim has at most one decision
+-- (punch_claim_decisions_one_per_claim), and neither table loses a row (00068: append-only for every
+-- role, ON DELETE RESTRICT). So the undecided claims of a business are exactly its claims less its
+-- decisions -- the anti-join this replaced counted the same set. Both counts are one statement, one
+-- snapshot, so a decision committed between them cannot be counted on one side only. RLS gives both
+-- the same tenant (the two policies are one expression); the explicit tenant on both is §4.5's belt.
+-- The capped result is the anti-join's: LEAST(n, cap) = count(*) over LIMIT cap, for the caller's cap
+-- (>= 1). The parity is a test's claim (internal/db's punch claim tests compare the two forms).
+--
+-- WHY NOT A PARTIAL INDEX (T166's first idea): "pending" is the ABSENCE of a row in another table, and a
+-- claim row never changes (append-only), so there is no column on punch_claims an index predicate
+-- could read. The count is still linear in the business's claim history, but over the two tables'
+-- tenant-led indexes alone (Index Only Scan, no heap, no hash). EXPLAIN (ANALYZE, BUFFERS), T166, a lane
+-- database, 96 432 claims of one business (3 undecided): the anti-join 2 921 shared buffers (Parallel
+-- Hash Anti Join over two Parallel Seq Scans; the generic plan a Merge Anti Join over two Index Only
+-- Scans, 1 478), this form 158 (two Index Only Scans, Heap Fetches 0). The numbers before: 0.12-0.38 ms
+-- at 5 claims (M15-18 builder) and ~82 ms at 100 000 (M15-18 security lens) -- their figures, not ours.
+SELECT LEAST(
+           (SELECT count(*) FROM punch_claims AS c WHERE c.tenant_id = @tenant_id)
+         - (SELECT count(*) FROM punch_claim_decisions AS d WHERE d.tenant_id = @tenant_id),
+           sqlc.arg('cap')::int
+       )::bigint AS count;

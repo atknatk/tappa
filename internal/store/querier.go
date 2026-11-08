@@ -836,6 +836,21 @@ type Querier interface {
 	// check-in of the window, as the anti-join did. An OLD week of a LARGE tenant is the exception the
 	// M15-05 review measured (internal/handler/anomalies.go states it): neither the lookup nor
 	// was_maskable is bounded by the week.
+	//
+	// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED, IN EITHER STATEMENT. The next-record lookup reads
+	// migration 00091's transactions_tenant_employee_directed_idx (directed, non-practice rows alone: a
+	// refused or ignored tap after a check-in is not in it); "a practice row after it" (was_maskable here,
+	// the EXISTS below) reads 00092's transactions_tenant_employee_practice_idx (the historical practice
+	// rows alone). Through 00005's index both FILTERED every row of the person's after the check-in --
+	// once per check-in, and the EXISTS below asks it for every check-in of the window. No query text
+	// changed for this. EXPLAIN (ANALYZE, BUFFERS), 2026-11-08, a lane database (PostgreSQL 17), the load
+	// T157's close-out in docs/backlog.md describes, shared buffers of the probes, custom and generic plan
+	// alike (the host's load average ran 13-90; the milliseconds are noise):
+	//   ListOpenCheckIns, 151 probes      n 13 351 -> 605 (1 988 rows filtered per probe -> none)
+	//                                     was_maskable 3 028 -> 26 (Index Only Scan)
+	//   CountMaskedOpenCheckIns           the practice EXISTS 7 172 (a Parallel Seq Scan of the table) -> 5
+	// The outer scan of the week is unchanged (~7 000-10 000 buffers, the 300 000 rows filtered once per
+	// statement) -- backlog T244.
 	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
 	// The Pass's "on the floor now" (M12-13, D3): how many PEOPLE are checked in right now, per venue.
 	// One row per venue; the big number is the sum of the rows, so the figure and its breakdown come
@@ -1027,11 +1042,27 @@ type Querier interface {
 	// HOW MANY CLAIMS WAIT FOR A DECISION, AS FAR AS IT COUNTS (M15-18 review round, user decision "Üç yerde
 	// sayı", 2026-10-26): The Spike's "Time claims · N" link, its empty state and The Pass's "On the spike"
 	// card. It rides the panel chrome's badge read (internal/domain/ledger.Pending), so it is paid on every
-	// panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER,
-	// not the work: the anti-join walks the tenant's whole claim history to find undecided ones, so the cost
-	// grows with every claim ever sent. Measured: 0.12-0.38 ms at 5 claims (M15-18 builder, tappa-m15-db,
-	// three runs) and ~82 ms at 100 000 claims (M15-18 security lens, 2026-10-26). Negligible at a
-	// realistic scale; a partial index or a counter is backlog T166. Explicit tenant on both tables.
+	// panel page. The cap (@cap; the caller asks one past it, the flagged count's shape) bounds the NUMBER.
+	//
+	// 🔴 PENDING IS "CLAIMS MINUS DECISIONS", AND THAT IS AN IDENTITY OF THE SCHEMA, NOT AN ESTIMATE (T166).
+	// Every decision names exactly one claim of its own business (punch_claim_decisions_claim_fk, the
+	// composite (claim_id, tenant_id) key), a claim has at most one decision
+	// (punch_claim_decisions_one_per_claim), and neither table loses a row (00068: append-only for every
+	// role, ON DELETE RESTRICT). So the undecided claims of a business are exactly its claims less its
+	// decisions -- the anti-join this replaced counted the same set. Both counts are one statement, one
+	// snapshot, so a decision committed between them cannot be counted on one side only. RLS gives both
+	// the same tenant (the two policies are one expression); the explicit tenant on both is §4.5's belt.
+	// The capped result is the anti-join's: LEAST(n, cap) = count(*) over LIMIT cap, for the caller's cap
+	// (>= 1). The parity is a test's claim (internal/db's punch claim tests compare the two forms).
+	//
+	// WHY NOT A PARTIAL INDEX (T166's first idea): "pending" is the ABSENCE of a row in another table, and a
+	// claim row never changes (append-only), so there is no column on punch_claims an index predicate
+	// could read. The count is still linear in the business's claim history, but over the two tables'
+	// tenant-led indexes alone (Index Only Scan, no heap, no hash). EXPLAIN (ANALYZE, BUFFERS), T166, a lane
+	// database, 96 432 claims of one business (3 undecided): the anti-join 2 921 shared buffers (Parallel
+	// Hash Anti Join over two Parallel Seq Scans; the generic plan a Merge Anti Join over two Index Only
+	// Scans, 1 478), this form 158 (two Index Only Scans, Heap Fetches 0). The numbers before: 0.12-0.38 ms
+	// at 5 claims (M15-18 builder) and ~82 ms at 100 000 (M15-18 security lens) -- their figures, not ours.
 	CountPendingPunchClaims(ctx context.Context, arg CountPendingPunchClaimsParams) (int64, error)
 	// How many TRAINING taps fall in the reporting period (M6-07 phase A).
 	//
@@ -3827,7 +3858,8 @@ type Querier interface {
 	//
 	//   P  the person's directed, non-practice record just BEFORE the checkout, in (occurred_at, id)
 	//      order -- an `in` or an `out` (the LATERAL `pv`);
-	//   I  an `in` before it in that order with occurred_at >= its business day (the EXISTS);
+	//   I  an `in` before it in that order with occurred_at >= its business day -- asked as "the latest
+	//      `in` before it is inside its business day" (T157, below), which is the same question;
 	//   W  P was written after it: pv.created_at > o.created_at. created_at is the DATABASE's write
 	//      instant (DEFAULT now(), which no statement writes -- TestTransactions_NoStatementWritesCreatedAt),
 	//      never occurred_at, the client's claim: a manager's correction typed into the past is
@@ -3868,6 +3900,39 @@ type Querier interface {
 	// shared hit 1 891 / 1 669 / 1 669. The zero is M15-05's Phase A property seen on live rows: every
 	// engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
 	// cost is two index probes per checkout of the week that carries a business day.
+	//
+	// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED, NOR A RUN OF CHECKOUTS. P reads migration 00091's
+	// transactions_tenant_employee_directed_idx (directed, non-practice rows alone: a refused or ignored tap
+	// -- type NULL -- between a checkout and its neighbour is not in it); I reads 00094's
+	// transactions_tenant_employee_checkin_idx (non-practice check-ins alone). Through 00005's index both
+	// FILTERED the rows between, once per checkout.
+	//   ⚠️ I IS ASKED AS "THE LATEST `in` BEFORE IT", NOT AS AN EXISTS OVER THE BUSINESS DAY, so that the probe
+	//   is ONE index entry. The two are one question: an `in` before the checkout lies inside its business
+	//   day exactly when the LATEST `in` before it does (any such `in` is no later than the latest, so the
+	//   latest is inside too); no `in` at all is NULL, which COALESCE makes the EXISTS's false.
+	//   TestCheckoutsWithoutCheckIn_TheListIsTheClassificationsBAndC holds this list to the EXISTS
+	//   definition over every parity chain, the one-instant I-order cells and the directionless rows among
+	//   them. With 00091 alone the same shape walked back to the latest `in` FILTERING every `out` between,
+	//   unbounded by the day (third-eye ORTA-1): an employee may choose `out` with no open check-in (ADR 0032
+	//   §B.3, MissingIn) and only the 60 s debounce limits a run of them. 00094 holds no checkout, so the run
+	//   is not read at all. (With the day as a range in the subquery the planner kept 00005's index while
+	//   only 00091 existed -- 2 926 buffers for one checkout with 100 000 directionless rows in its day.)
+	//   The price is one more index entry on every non-practice `in` written (measured in T157's close-out).
+	// EXPLAIN (ANALYZE, BUFFERS), T157, 2026-11-08, a lane database (PostgreSQL 17), the loads T157's
+	// close-out in docs/backlog.md describes, row_limit 51, custom and generic plan alike; shared buffers of
+	// the probes -- buffers are the measure, the host's load average ran 5-90 and the milliseconds are noise:
+	//   300 000 directionless rows of two people inside the week, 125 checkouts:
+	//     before (00005's index)   pv 9 371 (2 401 rows filtered per probe)   i 6 347 (1 601 per probe)
+	//     after  (00091)           pv   501 (nothing filtered)                i   501 (no checkout between
+	//                                                                          in that load; 00094 not yet built)
+	//   plus 9 900 consecutive outs in one business day and 30 000 more over the 21 days before the week,
+	//   10 032 checkouts:
+	//     00091 alone, this I      i 2 709 380 (4 905 rows filtered per probe)
+	//     00005's index, the EXISTS i 1 695 838 (custom plan; the same 4 905 per probe)
+	//     00094, this I            i    30 097 (Index Only Scan Backward, one entry per probe)
+	// What is left is the OUTER scan of the week, unchanged by T157 (a Parallel Seq Scan in the custom
+	// plan, transactions_tenant_occurred_idx filtering the 300 000 rows in the generic one, ~7 000-15 000
+	// buffers): once per statement, not once per checkout -- backlog T244.
 	ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error)
 	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
 	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)

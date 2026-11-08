@@ -850,7 +850,8 @@ type aiLaterMigration struct{ name, up, down string }
 
 // aiLaterMigrations returns every migration above 00070, oldest first: 00069's Down / Up walk runs
 // their Downs before its own and their Ups after (a later file's table keys admin_identities; its
-// grants on the link columns go with 00069's Down and come back only with its own Up).
+// grants on the link columns go with 00069's Down and come back only with its own Up). It leaves out
+// aiLaterSkips.
 func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
@@ -864,11 +865,82 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 		if !ok || err != nil || n <= 70 || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
+		if _, skip := aiLaterSkips[n]; skip {
+			continue
+		}
 		up, down := opMigrationSections(t, e.Name())
 		out = append(out, aiLaterMigration{e.Name(), up, down})
 	}
 	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })
 	return out
+}
+
+// aiLaterSkips are the files above 00070 that aiLaterMigrations leaves out, each with why. A NO
+// TRANSACTION file of CONCURRENTLY index statements cannot run inside a test's transaction (the walks
+// run every Down and Up there), and an index on a table that is not an identity table changes nothing
+// the identity tests pin. TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables holds every entry to
+// that, and holds every NO TRANSACTION file above 00070 to being an entry.
+var aiLaterSkips = map[int]string{
+	91: "transactions_tenant_employee_directed_idx (T157), CONCURRENTLY on transactions",
+	92: "transactions_tenant_employee_practice_idx (T157), CONCURRENTLY on transactions",
+	94: "transactions_tenant_employee_checkin_idx (T157), CONCURRENTLY on transactions",
+}
+
+// TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables reads each file aiLaterSkips names: it is
+// a NO TRANSACTION file whose every statement is a CONCURRENTLY index build or drop, and no statement
+// names an identity table (admin_*) or an identity function. Every other NO TRANSACTION file above
+// 00070 is an error -- the walks would meet it inside a transaction.
+func TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt := regexp.MustCompile(`(?is)^(?:DROP INDEX CONCURRENTLY IF EXISTS public\.[a-z_0-9]+|CREATE INDEX CONCURRENTLY [a-z_0-9]+\s+ON public\.([a-z_0-9]+) .*)$`)
+	identity := regexp.MustCompile(`(?i)\badmin_[a-z_]+|\bidentity_[a-z_]+|\btappa_identitydefiner\b`)
+	seen := map[int]bool{}
+	for _, e := range entries {
+		head, _, ok := strings.Cut(e.Name(), "_")
+		n, err := strconv.Atoi(head)
+		if !ok || err != nil || n <= 70 || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		noTx := strings.HasPrefix(string(b), "-- +goose NO TRANSACTION\n")
+		_, skip := aiLaterSkips[n]
+		if noTx && !skip {
+			t.Errorf("%s is a NO TRANSACTION file the identity walks would run inside a transaction -- name it in aiLaterSkips or walk it apart", e.Name())
+		}
+		if !skip {
+			continue
+		}
+		seen[n] = true
+		if !noTx {
+			t.Errorf("aiLaterSkips names %s, which is not a NO TRANSACTION file -- the walks can run it", e.Name())
+		}
+		up, down := opMigrationSections(t, e.Name())
+		body := opStatementsOnly(strings.Replace(up, "-- +goose Up", "", 1) + strings.Replace(down, "-- +goose Down", "", 1))
+		if m := identity.FindString(body); m != "" {
+			t.Errorf("%s is skipped by the identity walks but its statements name %q", e.Name(), m)
+		}
+		for _, s := range strings.Split(body, ";") {
+			if s = strings.TrimSpace(s); s == "" {
+				continue
+			}
+			if m := stmt.FindStringSubmatch(s); m == nil {
+				t.Errorf("%s: %q is not a CONCURRENTLY index statement", e.Name(), s)
+			} else if m[1] != "" && m[1] != "transactions" {
+				t.Errorf("%s: an index on %s -- check that no identity test pins its catalogue, then widen this", e.Name(), m[1])
+			}
+		}
+	}
+	for n, why := range aiLaterSkips {
+		if !seen[n] {
+			t.Errorf("aiLaterSkips names %d (%s), which is no migration above 00070", n, why)
+		}
+	}
 }
 
 // aiIdentityRolesBlock returns the IDENTITY ROLE block of scripts/db-init/01-roles.sql exactly as the
