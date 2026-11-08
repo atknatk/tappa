@@ -188,9 +188,6 @@ func TestChainLookups_ReadTheirPartialIndexes(t *testing.T) {
 					t.Fatal(err)
 				}
 				text := strings.Join(plan, "\n")
-				if run.role == "tappa_app" && !strings.Contains(text, "current_setting('app.tenant_id'") {
-					t.Fatalf("PREMISE: tappa_app's plan carries no row-security predicate:\n%s", text)
-				}
 				seen := map[string]int{}
 				for i, line := range plan {
 					m := scan.FindStringSubmatch(line)
@@ -205,15 +202,21 @@ func TestChainLookups_ReadTheirPartialIndexes(t *testing.T) {
 					if m[2] != want {
 						t.Errorf("%s reads %s with %s %s, want %s:\n%s", tc.name, m[3], m[1], m[2], want, text)
 					}
-					// No row of the chain is filtered at the scan. The policy's own predicate may sit there
-					// (it reads current_setting, never type or practice).
+					// No row of the chain is filtered at the scan: every condition is the index's. The one
+					// exception is the policy's own predicate standing alone (chainPolicyOnly).
 					for _, next := range plan[i+1:] {
 						if strings.Contains(next, "->") {
 							break
 						}
-						if strings.Contains(next, "Filter:") && (strings.Contains(next, "type") || strings.Contains(next, "practice")) {
-							t.Errorf("%s filters rows of %s on %s: %q", tc.name, m[3], m[2], strings.TrimSpace(next))
+						if f := strings.TrimSpace(next); strings.Contains(f, "Filter:") && !chainPolicyOnly(f) {
+							t.Errorf("%s/%s filters rows of %s on %s: %q", run.role, run.mode, m[3], m[2], f)
 						}
+					}
+					// As tappa_app the probe is the policy's: its predicate guards THIS scan -- on the
+					// Result that wraps it (a One-Time Filter, the shape the planner gives a tenant
+					// predicate it can prove from tenant_id = $1) or on the scan itself.
+					if run.role == "tappa_app" && !chainGuarded(plan, i) {
+						t.Errorf("PREMISE: tappa_app's scan of %s carries no row-security predicate:\n%s", m[3], text)
 					}
 				}
 				for a := range tc.lookups {
@@ -224,4 +227,77 @@ func TestChainLookups_ReadTheirPartialIndexes(t *testing.T) {
 			})
 		}
 	}
+}
+
+// chainPolicy is transactions' policy expression as EXPLAIN prints it on a scan.
+const chainPolicy = "(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid"
+
+// chainPolicyOnly reports whether a plan's filter line is the row-security predicate and nothing
+// else: a One-Time Filter (evaluated once, it filters no row of the scan) on the policy, or a Filter
+// whose whole expression is `tenant_id = <policy>` either way round. A Filter that also carries
+// anything else -- a row comparison that fell out of the Index Cond, a type or practice test -- is not.
+func chainPolicyOnly(line string) bool {
+	if rest, ok := strings.CutPrefix(line, "One-Time Filter: "); ok {
+		return strings.Contains(rest, chainPolicy) && !strings.Contains(rest, " AND ") && !strings.Contains(rest, " OR ")
+	}
+	rest, ok := strings.CutPrefix(line, "Filter: ")
+	if !ok {
+		return false
+	}
+	rest = strings.TrimSuffix(strings.TrimPrefix(rest, "("), ")")
+	return rest == "tenant_id = "+chainPolicy || rest == chainPolicy+" = tenant_id"
+}
+
+// chainGuarded reports whether the scan at plan[i] is under the COPY's row-security predicate: on
+// its own detail lines, or on the nearest node above it that carries one -- and then only if every
+// relation scanned below that node is the copy, so that employees' or locations' policy (the same
+// text once tenant_id = $1 is folded in) cannot stand in for it.
+func chainGuarded(plan []string, i int) bool {
+	for _, next := range plan[i+1:] {
+		if strings.Contains(next, "->") {
+			break
+		}
+		if strings.Contains(next, chainPolicy) {
+			return true
+		}
+	}
+	col := chainCol(plan[i])
+	for j := i - 1; j >= 0; j-- {
+		c := chainCol(plan[j])
+		if !strings.Contains(plan[j], "->") && j > 0 {
+			continue // a detail line; it is read with its node below
+		}
+		if c >= col {
+			continue // a sibling's subtree, not an ancestor
+		}
+		col = c
+		// plan[j] is an ancestor: its own line and its detail lines.
+		guarded := strings.Contains(plan[j], chainPolicy)
+		for _, d := range plan[j+1:] {
+			if strings.Contains(d, "->") {
+				break
+			}
+			guarded = guarded || strings.Contains(d, chainPolicy)
+		}
+		if !guarded {
+			continue
+		}
+		for _, d := range plan[j+1:] {
+			if strings.Contains(d, "->") && chainCol(d) <= c && j > 0 {
+				break
+			}
+			// A relation scan (a Bitmap Index Scan names an index, not a relation).
+			if strings.Contains(d, " Scan") && strings.Contains(d, " on ") && !strings.Contains(d, "Bitmap Index Scan") &&
+				!strings.Contains(d, " on "+chainCopy+" ") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// chainCol is the column a plan line's node arrow stands at (the root has none: -1).
+func chainCol(line string) int {
+	return strings.Index(line, "->")
 }
