@@ -583,7 +583,9 @@ func TestWithTenant_AResetConnectionCarriesNoAddress(t *testing.T) {
 		// fn returns nil, so the RESTORE is the write that meets the reset: its own step and class have to
 		// come out whole, not reclassed as a multi-attempt join (the orchestrator's measurement:
 		// "the connection failed (an error of type *errors.errorString; attempt 2 of 2)").
-		{"a savepoint's restore", "db: restore tenant context: the connection failed (broken pipe)", func() error {
+		// The errno is the OS's: macOS writes "broken pipe", Linux "connection reset by peer" (CI run
+		// 42498390078) -- the step and "the connection failed (" are what this row holds.
+		{"a savepoint's restore", "db: restore tenant context: the connection failed (", func() error {
 			return d.WithTenant(ctx, uuid.New(), func(ctx context.Context, tx pgx.Tx) error {
 				return WithTenantIn(ctx, tx, uuid.New(), uuid.New(), func(context.Context, pgx.Tx) error { cut(); return nil })
 			})
