@@ -20,6 +20,12 @@ package tenant
 //	  rewrite two files whose comments carry the measurements that shaped them, as a
 //	  side effect of a task about employees. That is how a settled net acquires an
 //	  unreviewed change.
+//	  ✅ DONE FOR THE LEXICAL LAYER as its own task (backlog T164 + T24, 2026-11-08):
+//	  the six copies had drifted (FILTER in three of six) and none read E-strings,
+//	  dollar quotes, block comments or odd quoted identifiers. internal/sqlbelt now
+//	  holds the lexer, the OR/AND splitters, the paren maskers and the WHERE reader;
+//	  each belt keeps its own matcher and derivation, and all six run one corpus
+//	  (TestBelt_SharedLexicalCorpus below).
 //
 // 🔴 WHAT THIS COPY CHECKS, AND WHY IT IS NOT ledger's SHAPE. It walks STATEMENT
 // BLOCKS -- the top level and every parenthesised block, each with its own nested
@@ -47,6 +53,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/internal/sqlbelt"
 )
 
 // tenantParam is the parameter every scoped query binds its scope column to.
@@ -806,66 +814,26 @@ func TestStaffBlockScan_FlagsTheShapesThatBeatTheOlderCheck(t *testing.T) {
 
 // --- the scanner ---------------------------------------------------------------
 //
-// The four functions below are ledger's, kept behaviourally identical on purpose:
-// three copies that DISAGREE would be worse than three that agree, because each one
-// passes on its own and the drift is invisible. Their reasoning is documented once,
-// in internal/domain/ledger/query_test.go, and is not repeated here -- what is
-// repeated is the code, which is the cost this file's header names.
+// The lexical layer (where a WHERE clause ends, top-level OR and AND, paren masking) is
+// internal/sqlbelt's, shared by all six belts since T164; what is this copy's own is the
+// block walk, the subject and the INSERT arms below.
 
-// whereClauses returns every top-level WHERE clause in the query text, ending each
-// at its enclosing block's closing paren or at a clause that may follow WHERE.
+// whereClauses returns every top-level WHERE clause in the query text (internal/sqlbelt's
+// WhereClauses: literals blanked, an aggregate FILTER skipped -- T24 -- and each clause ending at
+// its block's closing paren or at a clause that may follow WHERE).
+//
+// The stop list's history, kept because each token was a measured blind spot: FOR UPDATE / FOR
+// SHARE (2026-08-09, M6-06 phase B: AdvanceTagCounter's last conjunct read
+// "p.tenant_id = @tenant_id\n FOR UPDATE" and a correctly scoped locked read was flagged) and ON
+// CONFLICT (2026-10-15, M11 API-5: CreateLocationFromAPI's WHERE read "t.id = @tenant_id ON
+// CONFLICT ..."). An ON CONFLICT ... DO UPDATE ... WHERE has a WHERE of its own; in THIS copy it is
+// cut off and checked against the INSERT's target (splitDoUpdate, doUpdateFindings). The five
+// other copies carry a self-contained INSERT ... SELECT arm (their queryinsert_test.go); they have
+// no DO UPDATE arm, and none of their calls has a DO UPDATE.
 func whereClauses(body string) []string {
 	var out []string
-	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	// FOR UPDATE / FOR SHARE ADDED 2026-08-09 (M6-06 phase B), and it was a REAL
-	// blind spot rather than a tidy-up: a locking clause follows the WHERE, so
-	// without it the last conjunct of a locked read is returned as
-	// "p.tenant_id = @tenant_id\n FOR UPDATE" and the equality no longer matches --
-	// the matcher flags a query that IS correctly scoped. Measured on
-	// AdvanceTagCounter, the only locked read in db/queries and, until the
-	// file-derived net above existed, the only one no belt covered. The same three
-	// tokens are added to all three copies of this scanner: copies that DISAGREE are
-	// worse than copies that agree, and this one is a no-op for the other two (no
-	// query they cover takes a row lock -- grepped).
-	//
-	// ON CONFLICT ADDED 2026-10-15 (M11 API-5), the same kind of blind spot: an
-	// `INSERT ... SELECT ... FROM tenants t WHERE t.id = @tenant_id ON CONFLICT (...) DO
-	// NOTHING` (CreateLocationFromAPI) read its WHERE as "t.id = @tenant_id ON CONFLICT
-	// (tenant_id, external_ref) DO NOTHING" and flagged a correctly scoped statement
-	// (measured: red without the token, green with it). Added to every copy. An ON
-	// CONFLICT ... DO UPDATE ... WHERE has a WHERE of its own; in THIS copy it is cut off
-	// and checked against the INSERT's target (splitDoUpdate, doUpdateFindings) -- an
-	// earlier version of this sentence said whereRE "still finds" it, which was true and
-	// beside the point: it was then checked against a subject read off "DO UPDATE SET"
-	// (API-5 review). The five other copies carry a self-contained INSERT ... SELECT arm
-	// (their queryinsert_test.go; second round -- the first said they had none to need, and
-	// adminauth, signup and review do call INSERT ... SELECT); they have no DO UPDATE arm, and
-	// none of their calls has a DO UPDATE.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
-	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
-		rest := body[loc[1]:]
-		depth, end := 0, len(rest)
-		for i := 0; i < len(rest); i++ {
-			if rest[i] == '(' {
-				depth++
-				continue
-			}
-			if rest[i] == ')' {
-				if depth == 0 {
-					end = i
-					break
-				}
-				depth--
-			}
-		}
-		clause := rest[:end]
-		if k := stopRE.FindStringIndex(clause); k != nil {
-			clause = clause[:k[0]]
-		}
-		clause = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(clause), ";"))
-		if clause != "" {
-			out = append(out, clause)
-		}
+	for _, c := range sqlbelt.WhereClauses(body) {
+		out = append(out, c.Text)
 	}
 	return out
 }
@@ -882,6 +850,16 @@ func whereClauses(body string) []string {
 // It returns the findings and HOW MANY blocks it actually checked, because a scanner
 // that recognised nothing would otherwise report success.
 func scopeFindings(body string, scoped map[string]bool) (findings []string, checked int) {
+	// 🔴 A BODY THE LEXER CANNOT READ IS UNSCOPED, AND EVERY ARM BELOW READS THE MASKED BODY
+	// (T164). An E-string, a dollar quote, a block comment or a quoted identifier holding a quote
+	// hid a depth-0 OR from every arm (measured: sqlbelt.Planted passed); a paren or a WHERE
+	// inside a plain literal moved the block structure. Prepare refuses the first kind and blanks
+	// the second, so nothing below can be steered by text the database reads as data.
+	prepared, err := sqlbelt.Prepare(body)
+	if err != nil {
+		return []string{err.Error()}, 1
+	}
+	body = prepared
 	// 🔴 THE INSERT ARM RUNS FIRST, AND IT CLOSES A BLIND SPOT THIS SCANNER CARRIED
 	// FROM THE DAY IT WAS WRITTEN (backlog T20). Everything below walks WHERE clauses,
 	// and an `INSERT INTO t (...) VALUES (...)` has none -- so the whole statement was
@@ -1279,85 +1257,15 @@ func (s subject) qualified() string {
 // ⚠️ THIS IS NOT A CLAIM THAT LEDGER'S COPY IS WRONG. It is a claim that its matcher
 // does not cover the shape THIS package introduced, which is a different sentence.
 func scopedBySubject(where string, subj subject) bool {
-	if hasTopLevelOr(where) {
+	if sqlbelt.HasTopLevelOr(where) {
 		return false
 	}
-	for _, conjunct := range splitTopLevelAnd(where) {
+	for _, conjunct := range sqlbelt.SplitTopLevelAnd(where) {
 		if isScopeEquality(conjunct, subj) {
 			return true
 		}
 	}
 	return false
-}
-
-func splitTopLevelAnd(s string) []string {
-	var parts []string
-	depth, last := 0, 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		}
-		if depth != 0 {
-			continue
-		}
-		if strings.HasPrefix(upper[i:], "AND") && wordBoundary(upper, i, 3) {
-			parts = append(parts, s[last:i])
-			last = i + 3
-		}
-	}
-	return append(parts, s[last:])
-}
-
-// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
-// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
-// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
-// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
-// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
-// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
-// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
-// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
-// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
-// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
-// fail closed (a false alarm, never a pass).
-func hasTopLevelOr(s string) bool {
-	depth := 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch {
-		case s[i] == '\'':
-			for i++; i < len(s) && s[i] != '\''; i++ {
-			}
-			continue
-		case strings.HasPrefix(s[i:], "--"):
-			for ; i < len(s) && s[i] != '\n'; i++ {
-			}
-			continue
-		case s[i] == '(':
-			depth++
-			continue
-		case s[i] == ')':
-			depth--
-			continue
-		}
-		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
-			return true
-		}
-	}
-	return false
-}
-
-func wordBoundary(s string, i, n int) bool {
-	before := i == 0 || !isWordByte(s[i-1])
-	after := i+n >= len(s) || !isWordByte(s[i+n])
-	return before && after
-}
-
-func isWordByte(b byte) bool {
-	return b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 // statementBlocks splits a query into the statements a scope check must consider
@@ -1380,56 +1288,17 @@ func isWordByte(b byte) bool {
 // STATEMENT, so it is now checked as one.
 //
 // Masking preserves offsets and newlines so the caller can still print what it read.
+//
+// The spans and the masking are internal/sqlbelt's, and both read quotes (T164): this copy's
+// own maskParens counted a paren inside a literal, so `x <> '(' OR true AND x <> ')'` masked the
+// OR between the two quotes and the clause looked scoped.
 func statementBlocks(body string) []string {
-	blocks := []string{maskParens(body)}
-	for _, span := range parenSpans(body) {
+	blocks := []string{sqlbelt.MaskParens(body)}
+	for _, span := range sqlbelt.ParenSpans(body) {
 		inner := body[span[0]+1 : span[1]]
-		blocks = append(blocks, maskParens(inner))
+		blocks = append(blocks, sqlbelt.MaskParens(inner))
 	}
 	return blocks
-}
-
-// parenSpans returns every balanced parenthesised span, at every depth.
-func parenSpans(s string) [][2]int {
-	var out [][2]int
-	var stack []int
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			stack = append(stack, i)
-		case ')':
-			if n := len(stack); n > 0 {
-				out = append(out, [2]int{stack[n-1], i})
-				stack = stack[:n-1]
-			}
-		}
-	}
-	return out
-}
-
-// maskParens blanks out every parenthesised span, keeping length and line breaks so
-// the caller can still search the top level of a statement.
-func maskParens(s string) string {
-	out := []byte(s)
-	depth := 0
-	for i := 0; i < len(out); i++ {
-		switch out[i] {
-		case '(':
-			depth++
-			out[i] = ' '
-			continue
-		case ')':
-			if depth > 0 {
-				depth--
-			}
-			out[i] = ' '
-			continue
-		}
-		if depth > 0 && out[i] != '\n' {
-			out[i] = ' '
-		}
-	}
-	return string(out)
 }
 
 // tableRefRE finds the tables a statement reads or writes AT ITS OWN LEVEL.
@@ -1794,6 +1663,34 @@ func TestInsertSelectAndDoUpdate_TheBeltReadsThem(t *testing.T) {
 		}
 		if len(findings) > 0 {
 			t.Errorf("%s: the belt flagged a correctly scoped statement: %v", name, findings)
+		}
+	}
+}
+
+// beltFindings is the per-statement check every belt in this file applies, as one function so
+// TestBelt_SharedLexicalCorpus drives exactly what the belts drive.
+func beltFindings(t *testing.T, body string) []string {
+	t.Helper()
+	findings, checked := scopeFindings(body, tenantScopedTables(t))
+	if checked == 0 {
+		findings = append(findings, "the scan found no statement touching a tenant-scoped table")
+	}
+	return findings
+}
+
+// TestBelt_SharedLexicalCorpus runs internal/sqlbelt's one corpus through THIS belt; the five
+// sibling belts run the same corpus through theirs, so the six cannot drift apart on a lexical
+// form without one of them going red (T164). Planted: every statement scopes nothing and must be
+// flagged. Clean: every statement is scoped and must pass.
+func TestBelt_SharedLexicalCorpus(t *testing.T) {
+	for _, c := range sqlbelt.Planted {
+		if f := beltFindings(t, c.SQL); len(f) == 0 {
+			t.Errorf("planted %q passed this belt (closed by: %s):\n%s", c.Name, c.Closes, c.SQL)
+		}
+	}
+	for _, c := range sqlbelt.Clean {
+		if f := beltFindings(t, c.SQL); len(f) != 0 {
+			t.Errorf("clean %q was flagged:\n%s\n%s", c.Name, c.SQL, strings.Join(f, "\n"))
 		}
 	}
 }

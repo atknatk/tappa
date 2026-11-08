@@ -247,8 +247,8 @@ func (f *faultyResetDB) WithdrawIdentityReset(ctx context.Context, h string) (bo
 
 var errInjected = errors.New("injected failure")
 
-func (f *faultyResetDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time) (db.OpenedIdentityReset, error) {
-	o, err := f.DB.OpenIdentityReset(ctx, id, h, exp)
+func (f *faultyResetDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time, wait time.Duration) (db.OpenedIdentityReset, error) {
+	o, err := f.DB.OpenIdentityReset(ctx, id, h, exp, wait)
 	if err == nil && f.cancelAfterOpen != nil {
 		f.cancelAfterOpen()
 		return db.OpenedIdentityReset{}, ctx.Err()
@@ -344,7 +344,7 @@ func TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink(t *testing.T) 
 			newAdminRow(t, d, newTenantRow(t, d, "Orphan Two Ltd"), email, "p", "active", "owner", "Second")
 			// Per row: the address read (one tenant transaction), then the mint (one).
 			r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: c.failAt})
-			if _, _, err := r.IssueForEmail(ctx, email); !errors.Is(err, errInjected) {
+			if _, _, _, err := r.IssueForEmail(ctx, email); !errors.Is(err, errInjected) {
 				t.Fatalf("IssueForEmail = %v, want the injected failure", err)
 			}
 			owner := ownerConn(t)
@@ -355,7 +355,7 @@ func TestIssueForEmail_ASecondRowFailureWithdrawsTheFirstRowsLink(t *testing.T) 
 			if total != 1 || live != 0 {
 				t.Errorf("the first row: %d links, %d live; want its one link withdrawn", total, live)
 			}
-			grants, kept, err := cheapResets(t, d).IssueForEmail(ctx, email)
+			grants, kept, _, err := cheapResets(t, d).IssueForEmail(ctx, email)
 			if err != nil || len(grants) != 2 || len(kept) != 0 {
 				t.Fatalf("the next request: %d grants, %d kept, %v; want both rows minted", len(grants), len(kept), err)
 			}
@@ -413,7 +413,7 @@ func TestIssueForPerson_AnUnwithdrawnLinkIsHandedBack(t *testing.T) {
 		// Per row: the address read, then the mint; the second row's read (3) fails, and so does
 		// the first row's withdrawal after it (4).
 		r := cheapResets(t, &faultyResetDB{DB: d, failWithTenantAt: 3, alsoFailWithTenantAt: 4})
-		_, _, err := r.IssueForEmail(ctx, email)
+		_, _, _, err := r.IssueForEmail(ctx, email)
 		owed := OwedWithdrawals(err)
 		if !errors.Is(err, errInjected) || len(owed) != 1 {
 			t.Fatalf("IssueForEmail = %v with %d owed, want the injected failure and the first row's link", err, len(owed))

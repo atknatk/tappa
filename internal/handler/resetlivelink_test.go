@@ -220,7 +220,7 @@ func TestAdminReset_AnUndeliveredLinkIsWithdrawn(t *testing.T) {
 }
 
 // TestAdminReset_KeptRowsSpendTheAccountsBudget: a "kept" row is a request-side row and
-// goes through the per-account audit budget (recordForAdmin) — so anonymous requests
+// goes through the per-account audit budget (admitForAdmin) — so anonymous requests
 // against an account holding a live link write at most adminResetAccountLimit rows and
 // one rate_limited row, never a row per request into a named tenant's append-only
 // table (EM-5A's reason for the budget). Nothing is sent and nothing withdrawn.

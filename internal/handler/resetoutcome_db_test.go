@@ -146,8 +146,8 @@ type mintHook struct {
 	w *outcomeWorld
 }
 
-func (m *mintHook) IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
-	g, k, err := m.Resets.IssueForEmail(ctx, email)
+func (m *mintHook) IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, []adminauth.StalledReset, error) {
+	g, k, st, err := m.Resets.IssueForEmail(ctx, email)
 	if err == nil && len(g) > 0 {
 		m.w.mu.Lock()
 		m.w.minted = append(m.w.minted, g...)
@@ -156,7 +156,7 @@ func (m *mintHook) IssueForEmail(ctx context.Context, email string) ([]adminauth
 			m.w.afterMint(g)
 		}
 	}
-	return g, k, err
+	return g, k, st, err
 }
 
 // outcomeLog is a buffer two goroutines can log into, counted by sentence.

@@ -106,7 +106,7 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 		return err
 	},
 	"OpenIdentityReset": func(ctx context.Context, d *DB) error {
-		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour))
+		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), time.Second)
 		return err
 	},
 	"WithdrawIdentityReset": func(ctx context.Context, d *DB) error {
