@@ -309,7 +309,7 @@ const (
 	// names the live link (reset_id, expires_at). It exists for undelivered's reason
 	// — the requester is told nothing different, so the trail is the only place a
 	// request against this account can show (§4.6) — and it is written through the
-	// same per-account budget (recordForAdmin), so a flood of requests cannot turn it
+	// same per-account budget (admitForAdmin), so a flood of requests cannot turn it
 	// into a write primitive.
 	ActionAdminResetKept = "admin.recovery.kept"
 )
@@ -1237,8 +1237,10 @@ type adminResetDetail struct {
 	Scope string `json:"scope,omitempty"`
 }
 
-// recordForAdmin writes one REQUEST-SIDE attributable row (`requested`,
-// `undelivered`), bounded by the per-account audit budget.
+// admitForAdmin is the per-account audit budget for one REQUEST-SIDE attributable row
+// (`requested`, `undelivered`, `kept`). It used to sit behind recordForAdmin, which wrote
+// the row too; since T211 every such row is an outcome (adminresetoutcome.go) that is
+// charged here once and written on its own clocks, so the writer went and this stays.
 //
 // 🔴 IT IS NOT THE WRITER FOR EVERY ROW IN THIS FLOW ANY MORE, AND THAT NARROWING IS
 // THE FIX FOR A MEASURED §4.6 DEFECT. It used to carry `completed` and `refused` too,
@@ -1261,15 +1263,10 @@ type adminResetDetail struct {
 // address; open signup lets anybody create those), each one an account somebody
 // had to sign up (ADR 0022 EM-7C note). Rows past this budget are what a flood of
 // "kept" requests spends — the sends are not affected.
-func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
-	if row, ok := h.admitForAdmin(ctx, tenantID, adminUserID, e); ok {
-		h.record(ctx, row)
-	}
-}
-
-// admitForAdmin charges the per-account budget ONCE and answers which row, if any, that
-// charge earned: e, the one rate_limited row of the charge that crossed the line, or
-// none. A write that is tried twice (adminresetoutcome.go) is charged here once.
+//
+// IT CHARGES ONCE and answers which row, if any, that charge earned: e, the one
+// rate_limited row of the charge that crossed the line, or none. A write that is tried
+// twice (adminresetoutcome.go) is charged here once.
 func (h *AdminReset) admitForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) (audit.Event, bool) {
 	key := adminUserID.String()
 	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every
@@ -1321,7 +1318,7 @@ func (h *AdminReset) admitForAdmin(ctx context.Context, tenantID, adminUserID uu
 // the writing stops.
 func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPasswordReset, e audit.Event) {
 	key := resolved.ID.String()
-	// One locked step, for recordForAdmin's reason: replays of one link from many
+	// One locked step, for admitForAdmin's reason: replays of one link from many
 	// addresses at once must not all read "allowed" before any of them charges.
 	within, n := h.linkLimiter.TryCharge(key)
 	if !within {
