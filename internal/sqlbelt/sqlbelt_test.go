@@ -351,16 +351,31 @@ func TestWherelessSubqueries_SeesWhatTheClauseWalkCannot(t *testing.T) {
 
 // TestTenantScopedTables_DerivesFromPolicies: the derivation the belts' subquery scans stand on.
 func TestTenantScopedTables_DerivesFromPolicies(t *testing.T) {
-	got, err := TenantScopedTables(filepath.Join("..", "..", "db", "migrations"))
+	dir := filepath.Join("..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var sources []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sources = append(sources, string(raw))
+		}
+	}
+	got := TenantScopedTables(sources...)
 	for _, must := range []string{"employees", "sessions", "transactions", "admin_users", "tenants"} {
 		if !got[must] {
 			t.Errorf("%q is not among the %d derived tenant-scoped tables", must, len(got))
 		}
 	}
-	if _, err := TenantScopedTables(filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Error("a missing directory derived something")
+	if n := len(TenantScopedTables("CREATE TABLE x (id int);")); n != 0 {
+		t.Errorf("a source with no policy derived %d table(s)", n)
+	}
+	if got := TenantScopedTables("CREATE POLICY p ON public.Foo USING (true);"); !got["foo"] {
+		t.Errorf("a schema-qualified policy was not read: %v", got)
 	}
 }

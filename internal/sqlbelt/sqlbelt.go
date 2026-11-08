@@ -32,8 +32,6 @@ package sqlbelt
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -445,26 +443,18 @@ func WherelessSubqueries(body string, tables map[string]bool) []Subquery {
 // policyRE names the table a CREATE POLICY is on.
 var policyRE = regexp.MustCompile(`(?is)CREATE\s+POLICY\s+\S+\s+ON\s+(?:public\.)?([a-z_][a-z0-9_]*)`)
 
-// TenantScopedTables DERIVES the tenant-scoped tables from the migrations' CREATE POLICY lines
+// TenantScopedTables DERIVES the tenant-scoped tables from migration sources' CREATE POLICY lines
 // (CLAUDE.md §6: every tenant table is born with one), so a new table joins every scan the day it
-// lands. A caller must floor the result: an empty map makes every scan built on it vacuous.
-func TenantScopedTables(migrationsDir string) (map[string]bool, error) {
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return nil, fmt.Errorf("sqlbelt: reading migrations: %w", err)
-	}
+// lands. It takes the SQL text, not a directory: this is a non-test file, and
+// cmd/tappa's TestPackaging_NoProductionCodeReadsTheDisk refuses any non-test file that reads the
+// disk (measured: CI went red on the first version, which read the directory itself). The caller
+// reads db/migrations and must floor the result -- an empty map makes every scan built on it vacuous.
+func TenantScopedTables(migrationSources ...string) map[string]bool {
 	out := map[string]bool{}
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(migrationsDir, e.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("sqlbelt: reading %s: %w", e.Name(), err)
-		}
-		for _, m := range policyRE.FindAllStringSubmatch(string(raw), -1) {
+	for _, src := range migrationSources {
+		for _, m := range policyRE.FindAllStringSubmatch(src, -1) {
 			out[strings.ToLower(m[1])] = true
 		}
 	}
-	return out, nil
+	return out
 }

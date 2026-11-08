@@ -407,10 +407,23 @@ func storeQueryNames(t *testing.T, declared map[string]bool) []string {
 // scan vacuous.
 func tenantScopedTables(t *testing.T) map[string]bool {
 	t.Helper()
-	out, err := sqlbelt.TenantScopedTables(filepath.Join("..", "..", "db", "migrations"))
+	dir := filepath.Join("..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("reading db/migrations: %v", err)
 	}
+	var sources []string
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("reading %s: %v", e.Name(), err)
+		}
+		sources = append(sources, string(raw))
+	}
+	out := sqlbelt.TenantScopedTables(sources...)
 	for _, must := range []string{"employees", "sessions", "admin_users"} {
 		if !out[must] {
 			t.Fatalf("derived %d tenant-scoped table(s) from db/migrations and %q is not among them; "+
