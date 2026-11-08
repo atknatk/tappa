@@ -2,9 +2,14 @@ package db
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ============================================================================
@@ -62,30 +67,17 @@ func TestTags00021_KeyRefMustHaveTheEnvelopeShape(t *testing.T) {
 	}
 }
 
-// TestTags00021_KeyRefConstraintIsNotValidAndSaysSo pins the two catalog facts
-// the migration's reasoning rests on, because both of them are invisible from the
-// behaviour of a fresh database and both would go stale silently.
+// TestTags00089_KeyRefConstraintIsValidated pins the catalog facts 00021 and 00089 rest on: the
+// constraint exists, its predicate is exactly the 44-byte envelope rule, and since 00089 (T7) it is
+// VALIDATED -- every row of tags, not only those written after 00021, is known to have the shape.
+// (Until 00089 this test pinned the NOT VALID state and only logged the day the flag turned; a
+// validated flag is now the claim, so its absence is red.)
 //
-// 🔴 THE FIRST DRAFT OF THIS TEST WAS WRONG AND THE DATABASE SAID SO. It tried to
-// plant a violating row as the OWNER, on the assumption that NOT VALID exempts the
-// role that owns the table. Measured: it does not. NOT VALID skips the initial
-// table SCAN and nothing else -- the CHECK is evaluated for every new row version
-// from any role, superuser included:
-//
-//	INSERT ... decode('dead','hex') as tappa_owner
-//	  -> ERROR: new row for relation "tags" violates check constraint
-//	            "tags_aes_key_ref_is_kek_envelope"  (SQLSTATE 23514)
-//
-// So the 61 033 legacy rows cannot be reproduced by any role, and the "frozen"
-// consequence the migration names (every UPDATE of such a row is refused, because
-// the CHECK runs against the whole new row) cannot be asserted without either a
-// conditional skip on a fresh database or a DDL probe that takes ACCESS EXCLUSIVE
-// on the hottest table in the suite. Neither is worth it for a statement about
-// cost rather than about safety, so the consequence lives in 00021's comment and
-// this test pins what CAN be pinned everywhere: the constraint's existence, its
-// exact predicate, and the fact that it is still unvalidated -- which is the thing
-// a future `make db-reset` is expected to change.
-func TestTags00021_KeyRefConstraintIsNotValidAndSaysSo(t *testing.T) {
+// 🔴 00021'S LESSON STILL HOLDS: NOT VALID never exempted a new row, the owner's included, so a
+// violating row cannot be planted by an INSERT. The refusal case below therefore drops the
+// constraint inside the rolled-back transaction, plants the row, and puts 00021's NOT VALID back --
+// the state a database that still had a pre-00021 row would be in -- and runs 00089's Up over it.
+func TestTags00089_KeyRefConstraintIsValidated(t *testing.T) {
 	app := appDB(t)
 
 	var def string
@@ -96,13 +88,96 @@ func TestTags00021_KeyRefConstraintIsNotValidAndSaysSo(t *testing.T) {
 	).Scan(&def, &validated); err != nil {
 		t.Fatalf("read tags_aes_key_ref_is_kek_envelope: %v (00021 part 2 did not take?)", err)
 	}
-	if !strings.Contains(def, "octet_length(aes_key_ref) = 44") {
+	// pg_get_constraintdef appends " NOT VALID" to an unvalidated CHECK; the rule is read without it
+	// and the flag on its own, so each failure says which of the two it is.
+	if rule := strings.TrimSuffix(def, " NOT VALID"); rule != "CHECK ((octet_length(aes_key_ref) = 44))" {
 		t.Fatalf("constraint definition is %q, want the 44-byte envelope rule (ADR 0003 article 4)", def)
 	}
-	if validated {
-		t.Log("tags_aes_key_ref_is_kek_envelope is now VALIDATED -- the legacy short rows " +
-			"are gone from this database. 00021's NOT VALID note and backlog T7 can be closed.")
+	if !validated {
+		t.Fatal("tags_aes_key_ref_is_kek_envelope is NOT VALID -- 00089 did not take, or a Down left it (backlog T7)")
 	}
+}
+
+const keyEnvelopeValidateFile = "00089_validate_the_key_envelope_shape.sql"
+
+// TestTags00089_TheDownGivesBack00021AndTheUpRefusesAShortKey: both sections open with the
+// lock_timeout; the Down leaves 00021's constraint by the same text, NOT VALID, and the Up validates
+// it again. Over a planted 2-byte key the Up refuses with 23514 naming 00089 and the COUNT -- no
+// uid, no byte of a key in the message, the detail or the hint -- and leaves the constraint NOT VALID.
+func TestTags00089_TheDownGivesBack00021AndTheUpRefusesAShortKey(t *testing.T) {
+	ctx, tx := opTx(t)
+	up, down := opMigrationSections(t, keyEnvelopeValidateFile)
+	for name, section := range map[string]string{"Up": up, "Down": down} {
+		var first string
+		for _, line := range strings.Split(section, "\n")[1:] {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "--") {
+				first = line
+				break
+			}
+		}
+		if first != "SET LOCAL lock_timeout = '1s';" {
+			t.Errorf("00089's %s opens with %q, want the lock_timeout", name, first)
+		}
+	}
+	lockForDowns(t, ctx, tx, []string{"tags"})
+	state := func(q opQuerier) string {
+		t.Helper()
+		var def string
+		var validated bool
+		if err := q.QueryRow(ctx, `SELECT pg_get_constraintdef(oid), convalidated FROM pg_constraint
+		                           WHERE conrelid = 'public.tags'::regclass AND conname = 'tags_aes_key_ref_is_kek_envelope'`).Scan(&def, &validated); err != nil {
+			t.Fatalf("read the constraint: %v", err)
+		}
+		return fmt.Sprintf("%s validated=%v", def, validated)
+	}
+	const head = "CHECK ((octet_length(aes_key_ref) = 44)) validated=true"
+	const at21 = "CHECK ((octet_length(aes_key_ref) = 44)) NOT VALID validated=false"
+	if got := state(tx); got != head {
+		t.Fatalf("HEAD: %s, want %s", got, head)
+	}
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down, "00089 Down")
+		if got := state(sp); got != at21 {
+			t.Fatalf("after the Down: %s, want 00021's %s", got, at21)
+		}
+		opRunSection(t, ctx, sp, up, "00089 Up")
+		if got := state(sp); got != head {
+			t.Fatalf("Down then Up: %s, want %s", got, head)
+		}
+	})
+	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		tenant := aiTenant(t, ctx, sp)
+		uid := randUID(t)
+		for _, sql := range []string{
+			`ALTER TABLE tags DROP CONSTRAINT tags_aes_key_ref_is_kek_envelope`,
+			`INSERT INTO tags (uid, tenant_id, aes_key_ref, status) VALUES ('` + uid + `', '` + tenant.String() + `', decode('dead', 'hex'), 'unassigned')`,
+			`ALTER TABLE tags ADD CONSTRAINT tags_aes_key_ref_is_kek_envelope CHECK (octet_length(aes_key_ref) = 44) NOT VALID`,
+		} {
+			if _, err := sp.Exec(ctx, sql); err != nil {
+				t.Fatalf("plant a pre-00021 row: %s: %v", sql, err)
+			}
+		}
+		inner, err := sp.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = inner.Conn().PgConn().Exec(ctx, up).ReadAll()
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != sqlstateCheckViolation || !strings.Contains(pg.Message, "migration 00089: 1 tags rows") {
+			t.Fatalf("00089's Up over a 2-byte key answered %v, want 23514 naming 00089 and the count", err)
+		}
+		for _, text := range []string{pg.Message, pg.Detail, pg.Hint, pg.Where} {
+			if strings.Contains(strings.ToUpper(text), uid) || strings.Contains(strings.ToLower(text), "dead") {
+				t.Fatalf("the refusal names the row or its key: %q", text)
+			}
+		}
+		if err := inner.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := state(sp); got != at21 {
+			t.Fatalf("after the refusal: %s, want it left NOT VALID", got)
+		}
+	})
 }
 
 // TestTags00021_CanonicalUidConstraintIsValidated is T15's whole content: the

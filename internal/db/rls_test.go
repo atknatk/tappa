@@ -169,6 +169,10 @@ type fixture struct {
 	billingID      uuid.UUID // billing_periods (M6-12), APPEND-ONLY, one frozen month
 }
 
+// fixtureInto, as the last argument of a fixture statement, names where the statement's RETURNING
+// id goes: the statement runs through QueryRow with the other arguments and scans into id.
+type fixtureInto struct{ id *uuid.UUID }
+
 func buildFixture(t *testing.T, d *DB) fixture {
 	t.Helper()
 	fx := fixture{
@@ -179,8 +183,6 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		sessionID:      uuid.New(),
 		tokenHash:      "hash-" + uuid.NewString(),
 		tagUID:         randUID(t),
-		txReviewedID:   uuid.New(),
-		txUnreviewedID: uuid.New(),
 		reviewID:       uuid.New(),
 		reviewerID:     uuid.New(),
 		auditID:        uuid.New(),
@@ -204,6 +206,11 @@ func buildFixture(t *testing.T, d *DB) fixture {
 
 	// All inserts run inside ONE tenant-scoped transaction (WITH CHECK confirms
 	// each tenant_id matches the context). Order follows the FK chain.
+	//
+	// The two transactions rows are the exception to "every id is a fresh random UUID written by
+	// the test": since 00088 (T163) tappa_app cannot name transactions.id, so their ids are the
+	// database's, read back through RETURNING into the field a trailing fixtureInto names, and the
+	// review that cites one takes a pointer to the field so it reads the id after it was filled.
 	stmts := []struct {
 		sql  string
 		args []any
@@ -226,15 +233,15 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
 		  VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 0, 'active')`,
 			[]any{fx.tagUID, fx.tenantID, fx.locationID}},
-		{`INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
-		  VALUES ($1, $2, $3, $4, $5, now(), 'flag', 'nfc')`,
-			[]any{fx.txReviewedID, fx.tenantID, fx.employeeID, fx.locationID, fx.tagUID}},
-		{`INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
-		  VALUES ($1, $2, $3, $4, $5, now(), 'flag', 'nfc')`,
-			[]any{fx.txUnreviewedID, fx.tenantID, fx.employeeID, fx.locationID, fx.tagUID}},
+		{`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
+		  VALUES ($1, $2, $3, $4, now(), 'flag', 'nfc') RETURNING id`,
+			[]any{fx.tenantID, fx.employeeID, fx.locationID, fx.tagUID, fixtureInto{&fx.txReviewedID}}},
+		{`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
+		  VALUES ($1, $2, $3, $4, now(), 'flag', 'nfc') RETURNING id`,
+			[]any{fx.tenantID, fx.employeeID, fx.locationID, fx.tagUID, fixtureInto{&fx.txUnreviewedID}}},
 		{`INSERT INTO transaction_reviews (id, tenant_id, transaction_id, reviewer_id, outcome)
 		  VALUES ($1, $2, $3, $4, 'approved')`,
-			[]any{fx.reviewID, fx.tenantID, fx.txReviewedID, fx.reviewerID}},
+			[]any{fx.reviewID, fx.tenantID, &fx.txReviewedID, fx.reviewerID}},
 		{`INSERT INTO audit_log (id, tenant_id, action)
 		  VALUES ($1, $2, 'iso.fixture')`,
 			[]any{fx.auditID, fx.tenantID}},
@@ -288,6 +295,12 @@ func buildFixture(t *testing.T, d *DB) fixture {
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		for i, s := range stmts {
+			if into, ok := s.args[len(s.args)-1].(fixtureInto); ok {
+				if e := tx.QueryRow(ctx, s.sql, s.args[:len(s.args)-1]...).Scan(into.id); e != nil {
+					return fmt.Errorf("fixture stmt %d: %w", i, e)
+				}
+				continue
+			}
 			if _, e := tx.Exec(ctx, s.sql, s.args...); e != nil {
 				return fmt.Errorf("fixture stmt %d: %w", i, e)
 			}
@@ -505,20 +518,20 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			}},
 		{"tags", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), a.tenantID, a.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), a.tenantID, a.locationID)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), b.tenantID, b.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), b.tenantID, b.locationID)
 				return e
 			}},
 		{"transactions", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, occurred_at, verdict, channel) VALUES ($1, $2, now(), 'reject', 'nfc')`, uuid.New(), a.tenantID)
+				_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, occurred_at, verdict, channel) VALUES ($1, now(), 'reject', 'nfc')`, a.tenantID)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO transactions (id, tenant_id, occurred_at, verdict, channel) VALUES ($1, $2, now(), 'reject', 'nfc')`, uuid.New(), b.tenantID)
+				_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, occurred_at, verdict, channel) VALUES ($1, now(), 'reject', 'nfc')`, b.tenantID)
 				return e
 			}},
 		{"audit_log", blockRLS,
@@ -871,16 +884,16 @@ func TestRLS_EmployeeInvite_CompositeFKBlocksCrossTenant(t *testing.T) {
 // stays inert (see the buildFixture teardown note).
 func insertPolicyTx(t *testing.T, d *DB, fx fixture) uuid.UUID {
 	t.Helper()
-	txID := uuid.New()
+	var txID uuid.UUID // the database's (00088: tappa_app cannot name transactions.id)
 	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
+		return tx.QueryRow(ctx,
 			`INSERT INTO transactions
-			   (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel,
+			   (tenant_id, employee_id, location_id, occurred_at, verdict, channel,
 			    policy_layer, matched_sid, policy_version_id, policy_context)
-			 VALUES ($1, $2, $3, $4, now(), 'flag', 'nfc',
-			    'baseline', 'base:no-evidence-review', $5, '{"tap:gpsDistanceM":842}'::jsonb)`,
-			txID, fx.tenantID, fx.employeeID, fx.locationID, fx.policyVersID)
-		return e
+			 VALUES ($1, $2, $3, now(), 'flag', 'nfc',
+			    'baseline', 'base:no-evidence-review', $4, '{"tap:gpsDistanceM":842}'::jsonb)
+			 RETURNING id`,
+			fx.tenantID, fx.employeeID, fx.locationID, fx.policyVersID).Scan(&txID)
 	}); err != nil {
 		t.Fatalf("insertPolicyTx: %v", err)
 	}
@@ -929,10 +942,10 @@ func TestRLS_Transaction_PolicyVersionFK_BlocksCrossTenant(t *testing.T) {
 	errX := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO transactions
-			   (id, tenant_id, employee_id, occurred_at, verdict, channel,
+			   (tenant_id, employee_id, occurred_at, verdict, channel,
 			    policy_layer, matched_sid, policy_version_id)
-			 VALUES ($1, $2, $3, now(), 'flag', 'nfc', 'baseline', 'base:x', $4)`,
-			uuid.New(), a.tenantID, a.employeeID, b.policyVersID)
+			 VALUES ($1, $2, now(), 'flag', 'nfc', 'baseline', 'base:x', $3)`,
+			a.tenantID, a.employeeID, b.policyVersID)
 		return e
 	})
 	if errX == nil {
@@ -946,10 +959,10 @@ func TestRLS_Transaction_PolicyVersionFK_BlocksCrossTenant(t *testing.T) {
 	if errOwn := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO transactions
-			   (id, tenant_id, employee_id, occurred_at, verdict, channel,
+			   (tenant_id, employee_id, occurred_at, verdict, channel,
 			    policy_layer, matched_sid, policy_version_id)
-			 VALUES ($1, $2, $3, now(), 'flag', 'nfc', 'baseline', 'base:x', $4)`,
-			uuid.New(), a.tenantID, a.employeeID, a.policyVersID)
+			 VALUES ($1, $2, now(), 'flag', 'nfc', 'baseline', 'base:x', $3)`,
+			a.tenantID, a.employeeID, a.policyVersID)
 		return e
 	}); errOwn != nil {
 		t.Fatalf("positive control: A could not cite its OWN policy version: %v", errOwn)

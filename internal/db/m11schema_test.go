@@ -383,6 +383,9 @@ var m11Columns = []m11Column{
 	// SELECT on them -- holding_feed's approval path reads the decided row by its key.
 	// 00049 (M11 API-2): tappa_feedwriter reads site_tenant_id on an approval -- a site row's
 	// approval is the holding trigger's, and punch_feed returns on it.
+	// 00088 (T163, ADR 0038): the table-level INSERT these lines and 00064's / 00065's below lean on
+	// is a column list since -- every column but id and created_at -- and all of them are on it, so
+	// "SI" holds column by column (createdatgrant_test.go pins the list).
 	{"transactions", "site_tenant_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
 	{"transactions", "site_location_id", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},
 	{"transactions", "site_tag_uid", map[string]string{"tappa_app": "SI", "tappa_holdingdefiner": "S"}},

@@ -383,6 +383,12 @@ func (m *Manager) proveIdentity(ctx context.Context, email, password string) (*v
 // (its bucket); a wrong password records the identity's failure event (the sign-in's budget) and is
 // ErrBadCredentials.
 func (m *Manager) freshIdentitySession(ctx context.Context, s Resolved, password string, budget FailureBudget) (Issued, string, error) {
+	// The work gate first (workgate.go, backlog T86): before the row's address is read.
+	release, err := m.gate.enter(ctx)
+	if err != nil {
+		return Issued{}, "", err
+	}
+	defer release()
 	if !s.Linked || s.switchBucket == ([sha256.Size]byte{}) {
 		m.payOneComparison(password, "")
 		return Issued{}, "", ErrNotLinked

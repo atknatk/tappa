@@ -161,7 +161,7 @@ func (a *AdminAuth) renderLinkBusinesses(w http.ResponseWriter, r *http.Request,
 		add, err := a.admins.HasBusinessToAdd(r.Context(), id.Admin)
 		if err != nil {
 			a.log.Error("panel: could not read whether another business uses the address", "actor_id", id.Admin.AdminUserID, "err", err)
-			a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+			a.renderProblem(w, r, http.StatusInternalServerError, readFailedProblem(r))
 			return
 		}
 		if add {
@@ -199,7 +199,7 @@ func (a *AdminAuth) accountLinkRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.log.Error("panel: the link's bucket could not be read", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// THE PER-PERSON BUDGET, BEFORE ANY WORK: every request mints a link and sends an e-mail. One locked
@@ -230,7 +230,7 @@ func (a *AdminAuth) accountLinkRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		a.log.Error("panel: could not write the link", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	base := strings.TrimRight(a.inviteMail.baseURL, "/")
@@ -279,7 +279,7 @@ func (a *AdminAuth) accountLinkConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.log.Error("panel: could not add the businesses", "actor_id", id.Admin.AdminUserID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 		return
 	}
 	// A STABLE EVENT NAME and no count (ADR 0031 §5.15; R21): the number would tell this business's log

@@ -25,7 +25,7 @@ func TestRecordDB_TheOpenCheckInIsReadAtTheDeclaredInstant(t *testing.T) {
 	w := newHoldingWorld(t)
 	seed := func(employee uuid.UUID) {
 		t.Helper()
-		err := w.data.WithTenant(w.ctx, w.kf, func(ctx context.Context, tx pgx.Tx) error {
+		err := w.asOwner(w.kf, func(ctx context.Context, tx pgx.Tx) error {
 			for _, r := range []struct {
 				direction string
 				ago       string

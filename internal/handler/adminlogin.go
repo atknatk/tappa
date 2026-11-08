@@ -946,6 +946,16 @@ var (
 		Message: "We have stopped accepting sign-ins from here for a few minutes.",
 		Hint:    "Wait a little and try again.",
 	}
+	// problemAdminBusy is the answer when the process-wide password-work gate refused
+	// (adminauth.ErrBusy, backlog T86): too many password checks at once across all callers.
+	// ONE value for every gated panel act and every address typed -- it is decided before the
+	// address is read -- so it says nothing about the address; and nothing was checked, so
+	// nothing was changed.
+	problemAdminBusy = pages.ProblemView{
+		Title:   "Taptime is busy",
+		Message: "Too many passwords are being checked right now, so yours was not checked. Nothing was changed.",
+		Hint:    "Try again in a minute.",
+	}
 	problemAdminServer = pages.ProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "You were not signed in and nothing was changed.",
@@ -977,29 +987,50 @@ var (
 	// and counts rows). A security lens confirmed the same for the shipped sentence's
 	// last clause.
 	//
-	// ⚠️ IT IS USED ON internal/handler/manualentry.go's CALL SITES AND ON
-	// internal/handler/employeeemail.go's ONE (M10 EM-6 round 3), AND THE REST ARE
-	// COUNTED RATHER THAN CONVERTED — by a test, not by this comment. Converting them
-	// is a mechanical edit across five files owned by M6-04/05/06 and belongs to
-	// whoever owns those screens; the pattern is here, ready. A call site that adopts
-	// this page adopts its two claims, so it brings its own measurement of them: the
-	// address change's is TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce
-	// (the manual entry's is the test named above).
+	// ✅ SINCE BACKLOG T21 EVERY PANEL WRITE ROUTE ANSWERS A DATABASE FAILURE WITH THIS
+	// PAGE, OR WITH problemPanelWriteUnfinished BELOW -- never with the reader's page. The
+	// call sites were classified one by one: a read before the write (nothing reached
+	// the write, so nothing was written), the write itself (one db.WithTenant
+	// transaction or one SECURITY DEFINER call: the act and its trail row roll back
+	// together, measured for the manual entry by
+	// TestManualDB_TheRecordAndItsAuditRowSHAREATransaction and for the address change by
+	// TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce, read for the
+	// rest), and the few that fail AFTER something was committed, which get the other
+	// page. A helper shared with a GET picks by method (readFailedProblem).
 	//
-	// 🔴 THE CENSUS IS DERIVED AND PRINTED BY
+	// 🔴 THE CENSUS IS DERIVED BY
 	// TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty,
 	// which parses this package and classifies every call site against the routes
-	// mountWriting registers. An integer written here would be a second representation
-	// of a set the code owns — the exact shape that drifted three times in
-	// mountWriting's own comment, and once already in the first version of this one
-	// (it said 33; the census says 32, because the earlier count had scooped up a
-	// mention inside a comment).
+	// mountWriting registers, and now fails on any write handler that names the reader's
+	// page. An integer written here would be a second representation of a set the code
+	// owns.
 	problemPanelWriteFailed = pages.ProblemView{
 		Title:   "We could not save that",
 		Message: "The panel could not reach the database, so nothing was written: no record, no change and no trail entry. What you were looking at before is unchanged.",
 		Hint:    "Try again in a minute — pressing again will not enter it twice.",
 	}
+	// problemPanelWriteUnfinished is a write that failed AFTER part of it was committed
+	// (T21): an invitation whose row committed and whose link was never shown, and an
+	// identity act whose fresh session left its trail before the act itself failed.
+	// "Nothing was written" would be false there, and "Nothing has been changed" too; what
+	// stays true is §4.6's -- nothing is deleted and no record is lost.
+	problemPanelWriteUnfinished = pages.ProblemView{
+		Title:   "We could not finish that",
+		Message: "Something failed part-way through, so part of it may already be saved. Nothing has been deleted and no record has been lost.",
+		Hint:    "Open the page again to see what was saved before you press again.",
+	}
 )
+
+// readFailedProblem is the problem page for a failed read in a helper a GET and a POST
+// share (T21): to a reader it is problemPanelUnavailable; to somebody who pressed a
+// button -- whose write was refused before the read, so nothing was written -- it is
+// problemPanelWriteFailed.
+func readFailedProblem(r *http.Request) pages.ProblemView {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return problemPanelUnavailable
+	}
+	return problemPanelWriteFailed
+}
 
 // LoginPage serves GET /admin/login: mint the synchronizer token and render the
 // form.
@@ -1067,20 +1098,28 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// THE BUDGET IS CHECKED BEFORE THE FAILURE IS COUNTED, so exactly
-	// adminAttemptLimit failures are answered normally and the next one is refused
-	// — rather than the limit-th request being the one that trips.
-	if !a.attemptLimiter.Allowed(ip) {
+	// THE BUDGET IS RESERVED BEFORE THE PASSWORD WORK AND SETTLED AFTER IT (backlog T90), so exactly
+	// adminAttemptLimit failures are answered normally and the next one is refused -- rather than the
+	// limit-th request being the one that trips. It used to be Allowed here and Charge in failLogin,
+	// two locked steps with a ~2 s sign-in between them: N simultaneous wrong passwords all read
+	// Allowed and the budget of 10 admitted N. Now the unit is taken here, in one locked step; failLogin
+	// keeps it, and every other exit (a sign-in, the picker, a 500, a busy gate) gives it back, so only a
+	// failure is counted -- the budget's meaning is unchanged. The decision reads the ADDRESS's count
+	// only, before the email is looked up, so it says nothing about the address typed.
+	attempt, within, first, _ := a.attemptLimiter.Reserve(ip)
+	if !within {
 		// The refusal itself is charged (ratelimit.go's rule: a limiter whose own
 		// refusals are free is a cheaper way to reach the thing it protects), and
 		// the log line is written once per window.
-		if n := a.attemptLimiter.Charge(ip); a.attemptLimiter.FirstOverLimit(n) {
+		if first {
 			a.log.Warn("panel sign-in rate limited", "scope", "address", "ip", ip,
 				"limit", adminAttemptLimit, "period", adminAttemptPeriod.String())
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 		return
 	}
+	// A no-op once failLogin kept it.
+	defer attempt.Refund()
 
 	// 🔴 THE WORK BUDGET, CHARGED WHATEVER THE OUTCOME. The attempt budget above is
 	// charged only by FAILURES (failLogin), which left a successful sign-in bounded
@@ -1091,15 +1130,17 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	//
 	// IT IS CHECKED HERE, BEFORE Authenticate, because the password loop is the
 	// expensive thing it exists to bound — the same position the attempt budget takes.
-	if !a.workLimiter.Allowed(ip) {
-		if n := a.workLimiter.Charge(ip); a.workLimiter.FirstOverLimit(n) {
+	//
+	// ONE LOCKED STEP (TryCharge, backlog T90): with Allowed then Charge, N simultaneous sign-ins all
+	// read "room left" before any of them charged.
+	if within, n := a.workLimiter.TryCharge(ip); !within {
+		if a.workLimiter.FirstOverLimit(n) {
 			a.log.Warn("panel sign-in rate limited", "scope", "work", "ip", ip,
 				"limit", adminLoginWorkLimit, "period", adminLoginWorkPeriod.String())
 		}
 		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 		return
 	}
-	a.workLimiter.Charge(ip)
 
 	// The email is normalised only by trimming surrounding whitespace. CASE IS NOT
 	// touched here: admin_users.email is citext and migration 00011's resolver
@@ -1115,11 +1156,15 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	// sign-in, byte for byte, while it is closed. Everything above -- the three budgets, Origin,
 	// the synchronizer token -- is the same for both.
 	if a.identityPath() {
-		a.loginAsPerson(w, r, ip, st, email, password)
+		a.loginAsPerson(w, r, ip, st, attempt, email, password)
 		return
 	}
 
 	auth, err := a.admins.Authenticate(r.Context(), email, password)
+	if errors.Is(err, adminauth.ErrBusy) {
+		a.workBusy(w, r)
+		return
+	}
 	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
 		// A database or internal failure is NOT bad credentials: saying so would
 		// tell every operator at once that their password stopped working, and would
@@ -1128,13 +1173,13 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
 		return
 	}
-	a.concludeLogin(w, r, ip, st, auth, err)
+	a.concludeLogin(w, r, ip, st, attempt, auth, err)
 }
 
 // concludeLogin is the sign-in's tail once the passwords were compared: the failure, the one
 // verified business, or the picker. auth is Authenticate's -- or, on the identity path, the legacy
 // arm's (adminauth.PersonSignIn.Legacy) -- and err is nil or adminauth.ErrBadCredentials.
-func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication, err error) {
+func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, auth adminauth.Authentication, err error) {
 	if auth.Truncated() {
 		// The one signal that keeps the lockout named at adminauth.MaxCandidates
 		// from being invisible. No email in the line (section 4.7 spirit: an address
@@ -1150,7 +1195,7 @@ func (a *AdminAuth) concludeLogin(w http.ResponseWriter, r *http.Request, ip str
 			"authenticated", err == nil)
 	}
 	if err != nil {
-		a.failLogin(w, r, ip, st, auth)
+		a.failLogin(w, r, ip, st, attempt, auth)
 		return
 	}
 
@@ -1412,8 +1457,10 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 // per-cookie rather than per-outcome; TestAdminLogin_ThreeFailuresAreByteIdentical
 // pins both readings (same cookie -> literally identical bytes; different cookies
 // -> identical after normalising the one named field).
-func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication) {
-	a.attemptLimiter.Charge(ip)
+//
+// attempt is the unit Login reserved for this request (backlog T90); a failure keeps it.
+func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, attempt *httpx.Reservation, auth adminauth.Authentication) {
+	keepOrCharge(a.attemptLimiter, attempt, ip)
 
 	// ⚠️ THE AUDIT TRAIL IS ATTRIBUTABLE ONLY WHEN THE EMAIL RESOLVED, AND THAT GAP
 	// IS REAL. The MECHANISM is directly below: with no candidates the loop does not
@@ -1433,8 +1480,13 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 	// reader to discover from an empty table.
 	for _, at := range auth.Attempts {
 		key := at.AdminUserID.String()
-		if !a.accountLimiter.Allowed(key) {
-			if n := a.accountLimiter.Charge(key); a.accountLimiter.FirstOverLimit(n) {
+		// ONE LOCKED STEP (TryCharge, backlog T90): with Allowed then Charge, simultaneous failures
+		// against one account all read "room left", wrote more than adminAccountLimit rows, and the
+		// charge that crossed the line could belong to an allowed caller -- then no rate_limited row
+		// was written at all.
+		within, n := a.accountLimiter.TryCharge(key)
+		if !within {
+			if a.accountLimiter.FirstOverLimit(n) {
 				// ONE row saying the trail is being throttled, then silence. The
 				// M5-02 lesson: an append-only table nobody can delete from must
 				// never be reachable without a budget.
@@ -1457,7 +1509,6 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 			}
 			continue
 		}
-		a.accountLimiter.Charge(key)
 		reason := "wrong password"
 		if at.PasswordMatched && !at.Active {
 			// A genuinely different security event: the CORRECT password on a
@@ -1586,10 +1637,11 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 	// refusing a request. What it no longer does is spend a budget that something else
 	// depends on. No new mechanism — the same limiter, a namespaced key.
 	key := "probe:" + verified[0].AdminUserID.String()
-	if !a.accountLimiter.Allowed(key) {
+	// One locked step (TryCharge, backlog T90). A refusal is now charged too, which moves no decision
+	// inside the window (httpx.Limiter.TryCharge).
+	if within, _ := a.accountLimiter.TryCharge(key); !within {
 		return
 	}
-	a.accountLimiter.Charge(key)
 	a.record(r.Context(), audit.Event{
 		TenantID: verified[0].TenantID,
 		ActorID:  &verified[0].AdminUserID,
@@ -1986,6 +2038,14 @@ func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, sta
 // It is still render: no shell, no logo, adminCSP's literal policy.
 func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
 	a.render(w, r, status, pages.PanelProblem(panelProblemOf(status, v, httpx.AdminOf(r).Live())))
+}
+
+// workBusy answers a request the password-work gate refused (adminauth.ErrBusy, backlog T86): 503,
+// one fixed page, no audit row (nothing was checked and no tenant is known before the gate). The
+// gate itself writes the one bounded WARN line. Retry-After is a hint, not a promise.
+func (a *AdminAuth) workBusy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "60")
+	a.renderProblem(w, r, http.StatusServiceUnavailable, problemAdminBusy)
 }
 
 // panelHomeLabel is the name of the section transactionsHref opens ("The Pass"), read

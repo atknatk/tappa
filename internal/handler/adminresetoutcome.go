@@ -41,9 +41,10 @@ import (
 // THE WORKER HAS NO RESPONSE TO HOLD, so it retries where it stands, one grant at a time.
 // A stalled database slows the queue behind it; nothing waits for the queue but mail.
 //
-// COUNTED LIMITS. Both tries failing is the old outcome: an ERROR for each write, a row
-// lost, a link live until ResetTTL, and the owner's requests answered "kept" until then.
-// The link is usually in no inbox; after an uncertain send (the relay took it and the answer
+// COUNTED LIMITS. Both tries failing is an ERROR for each write and a row lost. The link is
+// live, and the owner's requests are answered "kept", until the list of withdrawals owed makes
+// the withdrawal once the database answers (T212, adminresetrecovery.go); until ResetTTL only
+// when that list refuses it or is lost. The link is usually in no inbox; after an uncertain send (the relay took it and the answer
 // was lost) it can be live and spendable in its owner's inbox, and only theirs, with no row
 // saying so -- the real cost is the trail, and availability
 // (TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox). So is a full or
@@ -94,17 +95,22 @@ const (
 	resetRetryQueueSize = 256
 )
 
-// resetOutcomeClocks are the constants above, as fields so a test can shorten them.
+// resetOutcomeClocks are the constants above and adminresetrecovery.go's, as fields so a test can
+// shorten them.
 type resetOutcomeClocks struct {
 	fallbackBudget, fallbackStep, grace, retryPause time.Duration
+	recoveryFirst, recoveryMaxPause, recoveryPass   time.Duration
 }
 
 func shippedOutcomeClocks() resetOutcomeClocks {
 	return resetOutcomeClocks{
-		fallbackBudget: resetFallbackBudget,
-		fallbackStep:   resetFallbackStep,
-		grace:          resetOutcomeGrace,
-		retryPause:     resetRetryPause,
+		fallbackBudget:   resetFallbackBudget,
+		fallbackStep:     resetFallbackStep,
+		grace:            resetOutcomeGrace,
+		retryPause:       resetRetryPause,
+		recoveryFirst:    resetRecoveryFirst,
+		recoveryMaxPause: resetRecoveryMaxPause,
+		recoveryPass:     resetRecoveryPass,
 	}
 }
 
@@ -203,7 +209,7 @@ func (h *AdminReset) attemptOutcome(o *resetOutcome, clock outcomeClock) {
 		err := h.withdraw(ctx, o.g)
 		cancel()
 		if o.withdrawal.note(err) {
-			h.logWithdrawalLost(o)
+			h.loseWithdrawal(o, db.Transient(err))
 		} else if err != nil {
 			h.logWillRetry(o, "withdrawal", err)
 		}
@@ -325,11 +331,12 @@ func (h *AdminReset) settleOutcome(o *resetOutcome) {
 	}
 }
 
-// abandonOutcome logs whatever the outcome still owes as lost.
+// abandonOutcome logs whatever the outcome still owes as lost. An owed withdrawal was never refused
+// by the database (note would have ended it), so it goes to the list of withdrawals owed.
 func (h *AdminReset) abandonOutcome(o *resetOutcome) {
 	if o.withdrawal.owed {
 		o.withdrawal.owed = false
-		h.logWithdrawalLost(o)
+		h.loseWithdrawal(o, true)
 	}
 	if o.row.owed {
 		o.row.owed = false
@@ -376,12 +383,24 @@ func (h *AdminReset) logWillRetry(o *resetOutcome, write string, err error) {
 		append(grantIDs(o.g), "write", write, "err_type", fmt.Sprintf("%T", err))...)
 }
 
-func (h *AdminReset) logWithdrawalLost(o *resetOutcome) {
+// loseWithdrawal is a withdrawal that failed its tries: handed to the list of withdrawals owed when a
+// later try can help (adminresetrecovery.go), and logged with its fate either way.
+func (h *AdminReset) loseWithdrawal(o *resetOutcome, retryable bool) {
+	fate := recoveryNotRetried
+	if retryable {
+		fate = h.owe(o.base, o.g)
+	}
+	h.logWithdrawalLost(o.base, o.g, o.withdrawal.last, fate)
+}
+
+// logWithdrawalLost is an ERROR whatever the fate: the link is live NOW and its owner cannot ask for a
+// new one until it is withdrawn or expires. recovery says which of the two to expect (T212).
+func (h *AdminReset) logWithdrawalLost(base context.Context, g adminauth.ResetGrant, err error, fate string) {
 	msg := "panel recovery: withdrawing an undelivered link failed"
-	if o.g.IdentityID != uuid.Nil {
+	if g.IdentityID != uuid.Nil {
 		msg = "panel recovery: withdrawing an undelivered identity link failed"
 	}
-	h.log.ErrorContext(o.base, msg, append(grantIDs(o.g), "err_type", fmt.Sprintf("%T", o.withdrawal.last))...)
+	h.log.ErrorContext(base, msg, append(grantIDs(g), "err_type", fmt.Sprintf("%T", err), "recovery", fate)...)
 }
 
 // logRowLost is record's line for record's reason: a trail that cannot be written is an

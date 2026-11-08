@@ -253,6 +253,14 @@ var (
 		Message: "We have stopped accepting registrations from this connection for a few minutes.",
 		Hint:    "Wait a little and try again. If you are setting up several businesses, they can be registered a few at a time.",
 	}
+	// problemSignupBusy is the answer when the process-wide password-work gate refused
+	// (adminauth.ErrBusy, backlog T86). It is decided before the address is read, so it is the
+	// same for every address (R18); nothing was stored.
+	problemSignupBusy = pages.SignupProblemView{
+		Title:   "Taptime is busy",
+		Message: "Too many passwords are being checked right now, so this step was not saved.",
+		Hint:    "Go back and try again in a minute.",
+	}
 	problemSignupServer = pages.SignupProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "Your business was not created and nothing was saved.",
@@ -505,21 +513,27 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// THE BUDGET IS CHECKED BEFORE THE ATTEMPT IS COUNTED, so exactly
-	// signupAttemptLimit attempts are answered normally and the next one is refused —
-	// rather than the limit-th request being the one that trips. adminlogin.go uses
-	// the same two-step shape for the same reason.
+	// THE BUDGET IS RESERVED BEFORE THE ATTEMPT IS COUNTED AND SETTLED WHEN IT IS (backlog T90), so
+	// exactly signupAttemptLimit attempts are answered normally and the next one is refused -- rather
+	// than the limit-th request being the one that trips. It used to be Allowed here and Charge further
+	// down, two locked steps with a bcrypt and a write between them, so simultaneous submits all read
+	// Allowed. WHAT COUNTS IS UNCHANGED: the two bot refusals and every submit that reaches the create
+	// step keep the unit; a form re-rendered for its own errors, and a submit the create budget
+	// refuses, give it back (they were never charged here). adminlogin.go uses the same shape.
 	ip := clientIP(r)
-	if !s.attemptLimiter.Allowed(ip) {
+	attempt, within, first, _ := s.attemptLimiter.Reserve(ip)
+	if !within {
 		// The refusal itself is charged: a limiter whose own refusals are free is a
 		// cheaper way to reach the thing it protects (ratelimit.go's rule).
-		if n := s.attemptLimiter.Charge(ip); s.attemptLimiter.FirstOverLimit(n) {
+		if first {
 			s.log.Warn("signup rate limited", "scope", "attempt", "ip", ip,
 				"limit", signupAttemptLimit, "period", signupAttemptPeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupTooMany)
 		return
 	}
+	// A no-op once the attempt was kept below.
+	defer attempt.Refund()
 
 	// THE BOT DEFENCE, BOTH HALVES, BEFORE ANY EXPENSIVE WORK — see
 	// signupratelimit.go for what each catches and for the honest limit of both.
@@ -529,13 +543,13 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 	// change; the person who somehow triggered it gets a screen that says to start
 	// again, which is true and actionable.
 	if r.PostFormValue(signupHoneypotField) != "" {
-		s.attemptLimiter.Charge(ip)
+		keepOrCharge(s.attemptLimiter, attempt, ip)
 		s.log.Warn("signup refused: the honeypot field was filled in", "ip", ip)
 		s.problem(w, r, http.StatusBadRequest, problemSignupRestart)
 		return
 	}
 	if age := s.state.age(d); age.Seconds() < signupMinFillSeconds {
-		s.attemptLimiter.Charge(ip)
+		keepOrCharge(s.attemptLimiter, attempt, ip)
 		s.log.Warn("signup refused: the form was completed faster than a person can type",
 			"ip", ip, "seconds", age.Seconds(), "minimum", signupMinFillSeconds)
 		s.problem(w, r, http.StatusBadRequest, problemSignupRestart)
@@ -564,18 +578,21 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The create budget is checked BEFORE the draft is opened and charged after it is,
-	// so a refused attempt costs no row and a failed one costs no budget. Since M14-17
-	// it counts DRAFTS (ADR 0031 §5.10: signupCreateLimit + the per-recipient cap).
-	if !s.createLimiter.Allowed(ip) {
-		if n := s.createLimiter.Charge(ip); s.createLimiter.FirstOverLimit(n) {
+	// The create budget is RESERVED before the draft is opened and KEPT only once it is (backlog T90:
+	// a reservation instead of Allowed-then-Charge, so simultaneous submits cannot all read "room
+	// left" during the bcrypt), so a refused attempt costs no row and a failed one costs no budget.
+	// Since M14-17 it counts DRAFTS (ADR 0031 §5.10: signupCreateLimit + the per-recipient cap).
+	create, within, first, _ := s.createLimiter.Reserve(ip)
+	if !within {
+		if first {
 			s.log.Warn("signup rate limited", "scope", "create", "ip", ip,
 				"limit", signupCreateLimit, "period", signupCreatePeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemSignupTooMany)
 		return
 	}
-	s.attemptLimiter.Charge(ip)
+	// A no-op once the draft was opened and the unit kept.
+	defer create.Refund()
 
 	// 🔴 FROM HERE TO THE RESPONSE THE TWO ADDRESSES ARE ONE (R18): a new address and one
 	// that already has a sign-in pay the same bcrypt, the same resolver read and the same
@@ -590,7 +607,19 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grant, err := s.claims.Open(r.Context(), valid.Account.Email, string(account.Password.Reveal()), draft)
+	// The attempt counts once the request reached the draft -- unless the work gate refused it, which
+	// compared and wrote nothing (backlog T86, the 2026-11-07 audit: ten busy submits spent the attempt
+	// budget and the eleventh got 429). Kept here, after the call, so the unit is held while it runs.
+	if !errors.Is(err, adminauth.ErrBusy) {
+		keepOrCharge(s.attemptLimiter, attempt, ip)
+	}
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		// Refused before the address was read (R18 holds) and before anything was written: the create
+		// and attempt units go back with the deferred refunds.
+		w.Header().Set("Retry-After", "60")
+		s.problem(w, r, http.StatusServiceUnavailable, problemSignupBusy)
+		return
 	case errors.Is(err, pgx.ErrNoRows):
 		// The database refused the draft: an address it will not store (the ASCII address rule --
 		// the caller's bytes decide this, never server state, so the answer reveals nothing).
@@ -609,7 +638,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
 		return
 	}
-	s.createLimiter.Charge(ip)
+	keepOrCharge(s.createLimiter, create, ip)
 	// Logged BEFORE the hand-over, so the worker's line can only follow it: the two addresses' logs are
 	// the same lines in the same order (CI run 40475667781 measured the race the other order left).
 	s.log.Info("signup: a registration draft was opened", "claim_id", grant.ClaimID, "ip", ip)

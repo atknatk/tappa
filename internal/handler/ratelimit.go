@@ -85,6 +85,16 @@ func newLimiter(limit int, period time.Duration) *limiter {
 	return httpx.NewLimiter(limit, period)
 }
 
+// keepOrCharge counts one chargeable event against key: it keeps res, the reservation the request
+// took when it was admitted (httpx.Limiter.Reserve, backlog T90), or -- when there is none left to
+// keep (nil, or already kept by an earlier event of the same request) -- charges the event itself,
+// which is what every such event did before reservations existed.
+func keepOrCharge(l *limiter, res *httpx.Reservation, key string) {
+	if !res.Keep() {
+		l.Charge(key)
+	}
+}
+
 // The four budgets. Each number is defended by an arithmetic worst case rather
 // than chosen for feeling generous.
 const (

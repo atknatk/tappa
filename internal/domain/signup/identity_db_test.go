@@ -171,9 +171,9 @@ func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	proof, ok := claims.ProveWithPassword(c, string(d.Account.Password.Reveal()))
-	if !ok {
-		t.Fatal("the chosen password did not prove the draft")
+	proof, err := claims.ProveWithPassword(ctx, c, string(d.Account.Password.Reveal()))
+	if err != nil {
+		t.Fatalf("the chosen password did not prove the draft: %v", err)
 	}
 	res, err := p.Provision(ctx, proof)
 	if err != nil {

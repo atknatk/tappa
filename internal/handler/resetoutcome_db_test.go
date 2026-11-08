@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -372,8 +373,9 @@ func TestResetOutcomeDB_TheWorkerGivesEachWriteItsOwnClock(t *testing.T) {
 // TestResetOutcomeDB_BothTriesFailingStillFailClosed is the outcome that remains, on both paths: the
 // lock never goes while the writes try. Each lost write says so at ERROR, with ids and no address, no
 // row exists, the link stays live, and the owner's next request mints nothing -- the availability
-// cost EM-7C's limit 8 counts. It also pins that a lost outcome costs two tries of each write and
-// not more.
+// cost EM-7C's limit 8 counts, now only until the list of withdrawals owed makes it (T212; the later
+// try is held off here, resetrecovery_db_test.go measures it). It also pins that a lost outcome costs
+// two tries of each write and not more.
 func TestResetOutcomeDB_BothTriesFailingStillFailClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -384,7 +386,9 @@ func TestResetOutcomeDB_BothTriesFailingStillFailClosed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newOutcomeWorld(t, outcomeWorldOptions{n: 1, channel: tc.channel})
-			w.flow.clocks = resetOutcomeClocks{fallbackBudget: 200 * time.Millisecond, fallbackStep: 100 * time.Millisecond, grace: 100 * time.Millisecond, retryPause: 50 * time.Millisecond}
+			w.flow.clocks = resetOutcomeClocks{fallbackBudget: 200 * time.Millisecond, fallbackStep: 100 * time.Millisecond, grace: 100 * time.Millisecond, retryPause: 50 * time.Millisecond,
+				// The state before the list's later try (T212, resetrecovery_db_test.go).
+				recoveryFirst: time.Hour, recoveryMaxPause: time.Hour, recoveryPass: time.Second}
 			var release func()
 			w.afterMint = func([]adminauth.ResetGrant) { release = w.stall(t, true, true) }
 
@@ -561,7 +565,8 @@ func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
 // can leave. The channel took the link and answered an error, which is what a lost 250 looks like, and
 // both writes then fail on both tries: one copy in the owner's box, one live link, no row, and the link
 // SPENDS. It reaches only the owner's own inbox; what is missing is the trail. This is the limit counted
-// in ADR 0022's T197 note, not a behaviour wanted: a retried withdrawal that succeeds closes it.
+// in ADR 0022's T197 note, not a behaviour wanted: since T212 the list's later withdrawal closes it, so
+// the window is until that try (held off here), or ResetTTL when the list is lost.
 //
 // ⚠️ It pays one shipped-cost bcrypt (the Consume), like TestPanelRecoveryDB_EndToEnd.
 func TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox(t *testing.T) {
@@ -569,6 +574,7 @@ func TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox(t *t
 	w := newOutcomeWorld(t, outcomeWorldOptions{n: 1, channel: mail})
 	w.flow.clocks.grace = 100 * time.Millisecond
 	w.flow.clocks.retryPause = 50 * time.Millisecond
+	w.flow.clocks.recoveryFirst = time.Hour // the window before the list's later try (T212)
 	var release func()
 	w.afterMint = func([]adminauth.ResetGrant) { release = w.stall(t, true, true) }
 
@@ -687,12 +693,20 @@ func TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain(t *testing.T) {
 type identityStallHook struct {
 	panelResets
 	afterMint func(adminauth.PersonResets)
-	// down makes WithdrawIdentity answer what a database out of reach answers.
-	down bool
+	// down makes WithdrawIdentity answer what a database out of reach answers. applied does the real
+	// withdrawal and THEN answers the same (T197's audit: a one-statement autocommit that took effect
+	// though the client saw an error). Atomic: the worker reads them while a test flips them.
+	down, applied atomic.Bool
 }
 
 func (h *identityStallHook) WithdrawIdentity(ctx context.Context, t adminauth.ResetToken) error {
-	if h.down {
+	if h.down.Load() {
+		return fmt.Errorf("adminauth: withdraw identity reset: %w", context.DeadlineExceeded)
+	}
+	if h.applied.Load() {
+		if err := h.panelResets.WithdrawIdentity(ctx, t); err != nil {
+			return err
+		}
 		return fmt.Errorf("adminauth: withdraw identity reset: %w", context.DeadlineExceeded)
 	}
 	return h.panelResets.WithdrawIdentity(ctx, t)
@@ -815,8 +829,10 @@ func TestPanelIdentityReset_AStalledWithdrawalIsTriedOnceMore(t *testing.T) {
 // fail, the one ERROR line is written with ids only, and the person's next request is "kept" -- no
 // link in ANY of their businesses until ResetTTL (M14-14's audit). The link is usually in no inbox;
 // after an uncertain send it can be live and spendable in the owner's inbox
-// (TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox). This test is what would
-// have to change if the lockout is ever shortened.
+// (TestResetOutcomeDB_AnUncertainSendCanLeaveASpendableLinkInTheOwnersBox). Since T212 this is the
+// state until the list of withdrawals owed makes the withdrawal (held off here;
+// TestPanelIdentityReset_ALateWithdrawalUnlocksThePerson measures the end of it), and until ResetTTL
+// only when the list is lost (full, closing, the process dead).
 //
 // THE FAILURE IS THE HOOK'S, NOT A LOCK'S: a lock made this test flaky. identity_withdraw_reset is one
 // autocommitted statement, and with the lock released right after the ERROR line the link was found
@@ -827,7 +843,8 @@ func TestPanelIdentityReset_BothTriesFailingLockThePersonOut(t *testing.T) {
 	mail := &recordingChannel{err: errSendFailed}
 	p, owner, ident, hook, logged := identityOutcomeHarness(t, mail)
 	p.reset.clocks.retryPause = 50 * time.Millisecond
-	hook.down = true
+	p.reset.clocks.recoveryFirst = time.Hour // the state before the list's later try (resetrecovery_db_test.go)
+	hook.down.Store(true)
 
 	p.askReset(t, p.email)
 	waitUntil(t, 20*time.Second, "the lost-withdrawal line", func() bool { return logged.count(lineIdentityLost) == 1 })

@@ -705,6 +705,9 @@ func TestComposeFileDeclaresTheProjectName(t *testing.T) {
 // day and ACTUAL by the other on another; a predicate edited in only one of them makes
 // every restore fail (false RED) or, worse, makes both sides blind to the same column
 // in different ways. So the block is compared verbatim, not "both contain X".
+//
+// Since T215 CI also runs the two against each other on a real dump (scripts/restore-chain-check.sh,
+// `make restore-check`); this test names a one-sided edit in a second and without docker.
 func TestBackupAndRestoreVerify_ShareTheInventory(t *testing.T) {
 	t.Parallel()
 	const open, closing = "# >>> T45 INVENTORY", "# <<< T45 INVENTORY <<<"
@@ -840,6 +843,10 @@ func TestPgBackup_ManifestCarriesTheDumpsFeedCounters(t *testing.T) {
 //   - no header (a pg-backup.sh older than M11 API-2): FAIL, naming deploy/README.md's manual way;
 //   - a header that does not count its lines, or two headers: FAIL, nothing compared;
 //   - the header and its lines: the SQL runs and its answer decides.
+//
+// What this does not run is the chain itself, a real dump restored the way the runbook says: that is
+// scripts/restore-chain-check.sh (`make restore-check`, a CI step since T215), whose manifest
+// always has the header and its lines; the old and broken manifests are this test's alone.
 func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 	src := readScript(t, "pg-restore-verify.sh")
 	i := strings.Index(src, "FEED_RESTORE_GAP=1000000")
@@ -897,6 +904,12 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 //   - THE FLOOR: dump and database agree and none is off, but a source that had lost a row guard or
 //     the counter trigger still FAILs, naming what is missing;
 //   - a catalog query that fails: no verdict (die), never a pass.
+//
+// What this does not run is the chain itself, a real dump restored the way the runbook says: that is
+// scripts/restore-chain-check.sh (`make restore-check`, a CI step since T215), whose one healthy run
+// every check here must pass. This test keeps the states that run never produces (T215 measured the chain
+// red on a source with transactions_no_mutation disabled; the 'R', lost and foreign-function states
+// are this test's alone).
 func TestRestoreVerify_TriggerGate(t *testing.T) {
 	src := readScript(t, "pg-restore-verify.sh")
 	i := strings.Index(src, "TRIGGERS_OFF_SQL=\"")

@@ -1028,6 +1028,26 @@ beklenen sonucu vermezse **sonrakine geçme**: (d4) boş ya da yarım bir verita
 doğrular, (d5) konteyneri siler. Döküm repo içine değil, `mktemp -d`'nin verdiği
 dizine iner.
 
+🔴 **Bu bloklar CI'da HER KOŞUDA koşulur (T215, `make restore-check`).**
+`scripts/restore-chain-check.sh` kendi kaynak konteynerini kurar (`scripts/db-init` + goose +
+seed + `test/fixtures/restore-chain.sql`), gerçek `scripts/pg-backup.sh`'ı CronJob'ın konteyner
+biçiminde koşar, sonra `(d2)`, `(d3)`, `(d3b)`, `(d4)` ve `(d5)`'i **bu dosyadan keser ve
+yazıldığı gibi** tek bir kabukta koşar (`set -euo pipefail`; değişen tek şey `tappa-drill`
+adı, koşu başına ayrı); `pg-restore-verify.sh` `exit 0` vermezse CI kırmızıdır. `(d1)`
+koşmaz: R2'den indirmenin yerine `pg-backup.sh`'ın kendi dosyası geçer, sha256'yı araç
+denetler. Bu yüzden: **(1)** blok başlıkları satır başında `(dN) ` olarak kalmalı, her birinin
+altındaki ilk `bash` bloğu koşulan bloktur; başlık değişirse betik adıyla durur. **(2)** B YOLU
+B2/B3/B4 blokları ile `(d3)`/`(d3b)`'nin here-doc SQL'i ve `sh -c` satırları **bayt bayt aynı**
+olmalı, ve `(d2)` B1'in iki init dosyasını kurmalı; değilse betik konteyner açmadan reddeder
+(*"9(d) is what this check runs; B YOLU is what an operator runs in a disaster"*). **(3)**
+`(d2)`–`(d5)` içinde `kubectl`, `rclone`, `$HOME` ya da `$CONF` geçerse betik konteyner açmadan
+reddeder, ve bloklar boşaltılmış bir ortamda koşar (`env -i`: yalnız `PATH`, geçici bir `HOME`,
+`KUBECONFIG=/dev/null`, `DOCKER_HOST`); B3'ü olduğu gibi `(d3)`'e kopyalayan bir düzenleme
+geliştiricinin kümesine ulaşamaz. Doğrulama aracı da daraltmayı **dökümden bağımsız** denetler
+(bölüm 5a: `tappa_owner`'ın `public` tabloları için varsayılanı `tappa_app`'e `SELECT`,
+`INSERT`'ten fazlasını vermemeli). Yani bir runbook düzeltmesi — sayaç adımı, daraltma, SQL'in
+iki kopyası — yazıldığı gün sınanır.
+
 (d1) Geri al ve bütünlüğü doğrula. `STAMP` en yeni damgayı seçer; başka bir damga
 isteniyorsa listeden elle yazılır. (Bloklarda bilerek **hiç yorum yok**: zsh'in
 etkileşimli kabuğunda `interactive_comments` kapalıdır ve yapıştırılan bir `#` satırı
@@ -5539,7 +5559,25 @@ kubectl -n tappa exec -i statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTG
 
 gzip -dc "$RESTORE/tappa-<damga>.sql.gz" | kubectl -n tappa exec -i statefulset/tappa-postgres -- \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -U tappa_owner -d tappa_restore'
+
+kubectl -n tappa exec -i statefulset/tappa-postgres -- \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa_restore' <<'SQL'
+ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
+  REVOKE UPDATE, DELETE ON TABLES FROM tappa_app;
+SQL
 ```
+
+🔴 **Bloğun son komutu varsayılanı daraltıyor** — dump onu az önce genişletti (7. adımın
+altındaki not). B YOLU'nun B3'ü gibi **geri yüklemeyle aynı blokta**, ve 6. adımın aracı
+**doğrulamadan önce** yapıldığını denetler (T215: araç `tappa_owner`'ın `public` tabloları için
+varsayılanının `tappa_app`'e `SELECT`, `INSERT`'ten fazlasını vermesini reddeder).
+`pg_default_acl` veritabanı başına bir katalogdur, 7. adımın `RENAME`'i onu taşır.
+**Canlıda okundu (orkestratör, 2026-11-07, salt okunur):** `pg_default_acl` yalnız
+`tappa_owner|public|r|{tappa_app=arwd}` ve `tappa_owner|public|S|{tappa_app=rU}`, global satır
+yok; `tags.aes_key_ref` ve `tags.app_key_ref` üzerinde UPDATE, `tags` üzerinde DELETE ve on
+append-only tablonun hiçbirinde UPDATE ya da DELETE yok. Yani bugünkü bir yedeğin geri
+yüklemesi 5a'da yalnız daraltma atlanırsa FAIL verir; o `arwd` satırı tam olarak bu adımın
+daralttığıdır.
 
 > 🔴 **NEDEN AYNI INSTANCE'TA YENİ BİR VERİTABANI VE NEDEN TAZE BİR POD DEĞİL —
 > ÖLÇÜLDÜ, VE SONUÇ SEZGİYE TERS.** Taze bir Postgres pod'una geri yüklemek
@@ -5556,7 +5594,8 @@ gzip -dc "$RESTORE/tappa-<damga>.sql.gz" | kubectl -n tappa exec -i statefulset/
 > (`GRANT SELECT,INSERT,DELETE,UPDATE`), yani geri yükleme bittiğinde hedefteki
 > varsayılan **yine `arwd`**. Var olan tabloları etkilemiyor (ölçüldü: 45 yetki,
 > `tags` UPDATE/DELETE hâlâ false); etkilediği şey **sonraki DDL**'dir. Bu yüzden
-> her iki yolun da **son adımı** varsayılanı yeniden daraltıyor.
+> her iki yol da geri yüklemeyle aynı blokta varsayılanı yeniden daraltıyor (A YOLU 4,
+> B YOLU B3) ve doğrulama aracı bunu denetliyor.
 > Sayılarla: kaynak **45** tablo yetkisi · yeni veritabanına geri yükleme **45**
 > (fazla 0, eksik 0) · taze pod'a geri yükleme **76**.
 >
@@ -5722,23 +5761,18 @@ ALTER DATABASE tappa_restore RENAME TO tappa;
 SQL
 ```
 
-🔴 VE VARSAYILANI YENIDEN DARALT — dump onu az önce genişletti (aşağıdaki not).
+Varsayılan 4. adımda, geri yüklemeyle aynı blokta daraltıldı (aşağıdaki not); 6. adımın aracı
+bunu denetledi.
 
 - `curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz`: 200 bekleniyor
 
 ```bash
-kubectl -n tappa exec -i statefulset/tappa-postgres -- \
-  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
-ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
-  REVOKE UPDATE, DELETE ON TABLES FROM tappa_app;
-SQL
-
 kubectl -n tappa scale deployment/tappa --replicas=1
 kubectl -n tappa rollout status deployment/tappa
 curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz
 ```
 
-> 🔴 **O SON `ALTER DEFAULT PRIVILEGES` NEDEN VAR — VE NEDEN `REVOKE UPDATE, DELETE`,
+> 🔴 **4. ADIMIN SON `ALTER DEFAULT PRIVILEGES`'I NEDEN VAR — VE NEDEN `REVOKE UPDATE, DELETE`,
 > dördü birden değil.** Dump'ın **kendi son satırları** varsayılanı yeniden
 > genişletiyor (`GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO tappa_app`), yani geri
 > yükleme biter bitmez hedefteki varsayılan **`arwd`** olur. Ölçüldü, dört adımda:
@@ -5876,7 +5910,10 @@ PGPASSWORD=<owner> TAPPA_APP_PASSWORD=<app> \
 603 sütun yetkisini dump'ın ilan ettiğiyle, 35 fonksiyonun sahibini /
 `SECURITY DEFINER`'ını / `search_path`'ini / `EXECUTE`'unu ve 5 rolün niteliklerini
 kaynağın manifest'iyle karşılaştırıyor ve `42501`'i assert ediyor; B2 atlanmışsa
-**fazlaları adıyla** listeler. (2026-08-16'daki goose 20 sayısı 45 + 454 idi.)
+**fazlaları adıyla** listeler. (2026-08-16'daki goose 20 sayısı 45 + 454 idi; goose 87'de,
+T215'in otomatik provasında 43 tablo + 1150 sütun yetkisi, 99 fonksiyon, 9 rol, 43
+tetikleyici.) **Son tam PASS provası artık her CI koşusudur** (T215, `make restore-check`,
+aşağıda *"Provanın kendisi"*); elle son prova T45, 2026-10-09, goose 34.
 Doğrulama geçtikten sonra indirilen döküm silinir: `rm -rf "$RESTORE"` (B3'te
 `mktemp -d` ile, repo dışında yaratıldı; çalışanların mesai kaydıdır).
 
@@ -5905,6 +5942,34 @@ yok (operatör adımı 9). Yedeksiz koşan bir kurtarma, bir sonraki arızada ay
 durur.
 
 ### Provanın kendisi — bu prosedür ölçüldü, tarif edilmedi
+
+**Otomatik prova (T215, 2026-11-07'den beri her CI koşusunda — `make restore-check`).**
+Operatör adımı 9(d)'nin `(d2)`–`(d5)` blokları runbook'tan kesilip koşulur (9(d)'nin başındaki
+not), yani B YOLU'nun B1 init'i, B2, B3 ve daraltması, B4'ün sayaç adımı ve doğrulama aracı.
+Kaynak, CI'ın ve geliştirmenin kurduğu biçimde ayrı bir konteynerdir (`arwd` varsayılanı dahil),
+`make up`'ın veritabanına dokunulmaz. **Ölçüldü (yerel, goose 87, 2026-11-07):** 42 tablo, 179
+satır (seed + `test/fixtures/restore-chain.sql`; on bir append-only tablonun her birinde satır,
+4 tenant'ın sayacı), 32 politika, 41 `FORCE`, 43 tablo + 1150 sütun yetkisi, 99 fonksiyon, 9 rol,
+43 tetikleyici; `pg-restore-verify: PASS`, exit 0; 79 sn (goose soğuk), 30–52 sn (sıcak).
+Negatif kanıtlar (her biri geri alındı, yalnız zincirin kendi konteynerlerinde):
+
+| Bozulma | Sonuç |
+|---|---|
+| doğrulama aracından T214'ün sistem sütunu kolu çıkarıldı (goose 74–87 arası araç) | **exit 1**: `- admin_users tappa_identitydefiner xmin SELECT`, `- tenants …` |
+| geri yükleme `tenants` üzerindeki `SELECT (xmin)`'i düşürdü (B3 ve `(d3)` ikisi de) | **exit 1**: `- tenants tappa_identitydefiner xmin SELECT` |
+| kaynakta `transactions_no_mutation` `D` (döküm `DISABLE`'ı taşır) | **exit 1**: tetikleyici `tgenabled=D` ve taban *"Row guards missing: transactions"* |
+| sayaç adımı runbook'un iki kopyasından da çıkarıldı | **exit 1**: *"4 counters stand less than 1000000 past …"* |
+| sayaç adımı yalnız `(d3b)`'den çıkarıldı | betik konteyner açmadan reddetti: B YOLU ile 9(d) ayrışmış |
+| kaynakta `SELECT (xmin)` yetkisi dökümden **önce** düşürüldü | ⚠️ **exit 0** — beklenen küme dökümün kendisidir; kaynağın zaten kaybettiği bir yetkiyi hiçbir karşılaştırma görmez (sınır, T224) |
+| B3 ve `(d3)`'ün daraltması `REVOKE UPDATE ON TABLES`'a zayıflatıldı | **exit 1** (bölüm 5a): *"default for new tables: DELETE"* — 2. turdan önce PASS'ti (denetimde) |
+| kaynakta `GRANT UPDATE (aes_key_ref) ON tags TO tappa_app` (döküm de taşır) | **exit 1** (5a): *"tags.aes_key_ref UPDATE"* |
+| kaynakta `GRANT UPDATE ON audit_log TO tappa_app` (döküm de taşır) | **exit 1** (5a): *"audit_log UPDATE"* |
+| `(d3)`'e `kubectl` önekli bir satır eklendi | betik konteyner açmadan reddetti |
+
+Kalıntı yok: dört kırmızı ve bir yeşil koşuda `docker volume ls -q | wc -l` önce ve sonra **61**
+(ölçüldü; ilk turda kaynak konteyner `-v`'siz silindiği için her koşuda bir anonim volume
+kalıyordu — denetimde 9 koşu 12 volume).
+
 
 M8-02'nin kriteri *"geri yükleme **denenmiş**"* diyor. 2026-08-16'da bu reponun kendi
 seed'lenmiş veritabanından alınan gerçek bir yedekle, üç kontrollü koşu yapıldı:
@@ -9005,9 +9070,11 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     yüklenmiş veritabanı **geniş** — yani **doğrulama ortamı üretimden katıydı** ve ayrım
     kusuru **gizler** yönde. *(M11 API-1'den beri dev ve CI taze hacimde üretimin `arwd`'iyle
     kurulur: `scripts/db-init/03-dev-production-default-acl.sql`, ADR 0028 §1.)* `REVOKE` satırını unutan bir migration yerelde hiçbir fark
-    üretmez, üretimde sessizce `arwd` verir. `pg-restore-verify.sh` bunu **göremez**:
-    referansı dump'ın kendisi, ve dump geniş varsayılanı **ilan ediyor**.
-    ✅ **Geri yükleme yolunda KAPATILDI:** A YOLU 7. adım ve B YOLU B3, dump'tan sonra
+    üretmez, üretimde sessizce `arwd` verir. `pg-restore-verify.sh` yeni bir tablodaki
+    unutulmuş `REVOKE`'u **göremez**: referansı dump'ın kendisi, ve dump geniş varsayılanı
+    **ilan ediyor**. Varsayılanın kendisini T215'ten beri görür (bölüm 5a: geri yüklenmiş
+    veritabanında `SELECT, INSERT`'ten fazlası FAIL).
+    ✅ **Geri yükleme yolunda KAPATILDI:** A YOLU 4. adım ve B YOLU B3, dump'tan sonra
     varsayılanı tek ifadeyle geri daraltıyor (`REVOKE UPDATE, DELETE ON TABLES`),
     var olan tablolara dokunmadan — ölçüldü, `ar` geri geliyor ve yeni bir tablo
     `ar` alıyor.

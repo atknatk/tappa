@@ -39,7 +39,7 @@ func wantDir(d tap.Type) *tap.Type { return &d }
 // checkout of that business day has (business_day_start = dayStart).
 func (w *holdingWorld) seedOut(tenant, employee, venue uuid.UUID, uid string, at, dayStart time.Time) {
 	w.t.Helper()
-	if err := w.data.WithTenant(w.ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+	if err := w.asOwner(tenant, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, created_at,
 		                                                verdict, channel, type, sun_valid, ctr, business_day_start)
 		                      VALUES ($1, $2, $3, $4, $5, $5, 'ok', 'nfc', 'out', true, 91, $6)`, tenant, employee, venue, uid, at, dayStart)

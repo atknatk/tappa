@@ -2,9 +2,12 @@ package httpx
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/internal/adminauth"
 )
 
 // prefixes is the trusted set most cases use: an internal range and loopback.
@@ -406,5 +409,25 @@ func TestAcceptPrefixes_DropsTheSecondSpellingOfARange(t *testing.T) {
 		acceptPrefixes([]netip.Prefix{netip.MustParsePrefix("::ffff:0.0.0.0/96")}))
 	if got2.String() != "198.51.100.7" {
 		t.Fatalf("the caller chose its own address: %v", got2)
+	}
+}
+
+// TestRealIP_NamesTheWorkSourceByTheRateKey: the password-work gate's per-source rule (adminauth,
+// backlog T86) keys on exactly the bucket every abuse budget uses -- an IPv4 address, an IPv6 /64 --
+// and RealIP sets it for every request, so no handler has to.
+func TestRealIP_NamesTheWorkSourceByTheRateKey(t *testing.T) {
+	t.Parallel()
+	for _, peer := range []string{"198.51.100.7:4242", "[2001:db8:1:2:aaaa::1]:4242"} {
+		var got string
+		h := RealIP(nil)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			got = adminauth.WorkSourceOf(r.Context())
+		}))
+		r := httptest.NewRequest(http.MethodPost, "/admin/login", nil)
+		r.RemoteAddr = peer
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		want := RateKey(netip.MustParseAddrPort(peer).Addr())
+		if got == "" || got != want {
+			t.Fatalf("peer %s: work source %q, want the rate key %q", peer, got, want)
+		}
 	}
 }

@@ -124,6 +124,9 @@ func (a *AdminAuth) accountPasswordSave(w http.ResponseWriter, r *http.Request) 
 		id.TenantID(), id.Admin.AdminUserID, id.Admin.SessionID, token, current, chosen)
 	revoked := change.RevokedOtherSessions
 	switch {
+	case errors.Is(err, adminauth.ErrBusy):
+		a.workBusy(w, r)
+		return
 	case err == nil:
 		// 🔴 ONE ROW, WHICHEVER PATH RAN. A linked row's change went through
 		// identity_set_password, which wrote this business's admin.password_changed row -- the

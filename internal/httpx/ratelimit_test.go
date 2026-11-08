@@ -173,6 +173,174 @@ func TestLimiter_TryChargeIsExactUnderConcurrency(t *testing.T) {
 	}
 }
 
+// TestLimiter_ReserveDecidesAsAllowedThenChargeDid pins that a reservation is a drop-in for the
+// two-step shape it replaces (backlog T90) WHEN EVENTS ARE SEQUENTIAL: a twin limiter driven the old
+// way -- Allowed before the work, Charge on a refusal and on a chargeable outcome -- gives the same
+// decision and the same count for every event, over one window, its expiry and a second window, with
+// chargeable and free outcomes interleaved. Only concurrency tells them apart
+// (TestLimiter_ReserveIsExactUnderConcurrency).
+func TestLimiter_ReserveDecidesAsAllowedThenChargeDid(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
+	one, two := NewLimiter(3, time.Minute), NewLimiter(3, time.Minute)
+	one.now = func() time.Time { return now }
+	two.now = one.now
+	// chargeable[i]: whether event i turns out to count (a failure) or to be free (a success).
+	chargeable := []bool{true, false, true, false, false, true, true, true, false, true, true, false, true, true, true, true}
+	for i, counts := range chargeable {
+		if i == 9 {
+			now = now.Add(time.Minute) // the window rolls mid-sequence
+		}
+		res, within, first, _ := one.Reserve("k")
+		allowed := two.Allowed("k")
+		if within != allowed {
+			t.Fatalf("event %d: Reserve said within=%v, Allowed said %v", i, within, allowed)
+		}
+		switch {
+		case !within:
+			if m := two.Charge("k"); first != two.FirstOverLimit(m) {
+				t.Fatalf("event %d: Reserve said first=%v, FirstOverLimit said %v", i, first, two.FirstOverLimit(m))
+			}
+		case counts:
+			if !res.Keep() {
+				t.Fatalf("event %d: Keep found nothing to keep", i)
+			}
+			two.Charge("k")
+		default:
+			res.Refund()
+		}
+		if a, b := one.windows["k"].count, two.windows["k"].count; a != b {
+			t.Fatalf("event %d: counts %d (Reserve) and %d (Allowed+Charge)", i, a, b)
+		}
+	}
+}
+
+// TestLimiter_ReserveIsExactUnderConcurrency is the property the two-step shape lacked: 200 goroutines
+// reserving one key of a budget of 10 at once, holding the unit for a moment (the request's work) and
+// then keeping it or giving it back. At no instant are more than 10 units held; exactly one refusal is
+// told it is the first; and when every outcome is chargeable exactly 10 are inside the budget.
+// Repeated, with -race in CI's run, because a race is a probability.
+func TestLimiter_ReserveIsExactUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	for _, keepAll := range []bool{true, false} {
+		for run := 0; run < 30; run++ {
+			l := NewLimiter(10, time.Minute)
+			var (
+				mu                    sync.Mutex
+				held, maxHeld, within int
+				firsts                int
+				wg                    sync.WaitGroup
+				start                 = make(chan struct{})
+			)
+			for g := 0; g < 200; g++ {
+				wg.Add(1)
+				go func(g int) {
+					defer wg.Done()
+					<-start
+					res, ok, first, _ := l.Reserve("k")
+					mu.Lock()
+					if first {
+						firsts++
+					}
+					if ok {
+						within++
+						held++
+						if held > maxHeld {
+							maxHeld = held
+						}
+					}
+					mu.Unlock()
+					if !ok {
+						return
+					}
+					time.Sleep(time.Millisecond)
+					mu.Lock()
+					held--
+					mu.Unlock()
+					if keepAll || g%2 == 0 {
+						res.Keep()
+					} else {
+						res.Refund()
+					}
+				}(g)
+			}
+			close(start)
+			wg.Wait()
+			if maxHeld > 10 || firsts != 1 {
+				t.Fatalf("keepAll=%v run %d: %d units held at once (budget 10), %d first refusals (want 1)",
+					keepAll, run, maxHeld, firsts)
+			}
+			if keepAll && within != 10 {
+				t.Fatalf("run %d: %d within the budget, want exactly 10", run, within)
+			}
+		}
+	}
+}
+
+// TestLimiter_RefundGivesBackOnlyItsOwnUnit: a refund decrements its own window once, never a later
+// window, never below zero; Keep after a refund (or a second refund) settles nothing.
+func TestLimiter_RefundGivesBackOnlyItsOwnUnit(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
+	l := NewLimiter(2, time.Minute)
+	l.now = func() time.Time { return now }
+	a, _, _, _ := l.Reserve("k")
+	b, _, _, _ := l.Reserve("k")
+	a.Refund()
+	a.Refund()
+	if got := l.windows["k"].count; got != 1 {
+		t.Fatalf("count after one refund (twice) = %d, want 1", got)
+	}
+	if a.Keep() {
+		t.Fatal("Keep after Refund settled the reservation again")
+	}
+	now = now.Add(time.Minute) // a new window
+	c, _, _, _ := l.Reserve("k")
+	b.Refund() // b's window is gone: nothing of the new one may be given back
+	if got := l.windows["k"].count; got != 1 {
+		t.Fatalf("an old reservation's refund moved the new window: count %d, want 1", got)
+	}
+	if !c.Keep() || c.Keep() {
+		t.Fatal("Keep must settle an unsettled reservation exactly once")
+	}
+	var none *Reservation
+	none.Refund()
+	if none.Keep() {
+		t.Fatal("a nil reservation has nothing to keep")
+	}
+}
+
+// TestLimiter_ReserveReportsTheCrossingOncePerWindowAcrossRefunds pins the window flag behind Reserve's
+// `first` (the 2026-11-07 audit: a `count == limit+1` version passed every other test). 10 reserved, the
+// 11th refused and told it is the first; 5 refunded, 4 reserved again (count back at 10), one more
+// refused at count 11 again -- and told it is NOT the first.
+func TestLimiter_ReserveReportsTheCrossingOncePerWindowAcrossRefunds(t *testing.T) {
+	t.Parallel()
+	l := NewLimiter(10, time.Hour)
+	var held []*Reservation
+	for i := 0; i < 10; i++ {
+		res, within, first, _ := l.Reserve("k")
+		if !within || first {
+			t.Fatalf("reservation %d: within=%v first=%v", i, within, first)
+		}
+		held = append(held, res)
+	}
+	if _, within, first, n := l.Reserve("k"); within || !first || n != 11 {
+		t.Fatalf("11th: within=%v first=%v count=%d, want a refusal that is the first, at 11", within, first, n)
+	}
+	for _, res := range held[:5] {
+		res.Refund()
+	}
+	for i := 0; i < 4; i++ {
+		if _, within, _, _ := l.Reserve("k"); !within {
+			t.Fatalf("re-reservation %d after the refunds was refused", i)
+		}
+	}
+	if _, within, first, n := l.Reserve("k"); within || first || n != 11 {
+		t.Fatalf("second crossing: within=%v first=%v count=%d, want a refusal at 11 that is NOT the first", within, first, n)
+	}
+}
+
 // ---------------------------------------------------------------- tap limiter --
 
 func tapProbe() (http.Handler, *int) {

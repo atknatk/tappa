@@ -292,7 +292,8 @@ func (f *plaqueFixture) auditDetail(t *testing.T, action, target string) string 
 // seedTap writes one transaction for a plaque so "last seen" has something to find.
 func (f *plaqueFixture) seedTap(t *testing.T, uid string, ago time.Duration) {
 	t.Helper()
-	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+	// As the owner: the row is aged, and since 00088 tappa_app cannot name created_at.
+	err := ownerTenantTx(t, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		// THE COLUMN SET IS checkin_db_test.go's seedAgedRecord, not one invented here:
 		// `transactions` carries transactions_ok_has_direction and
 		// transactions_policy_decision_consistent, so a hand-built row is refused unless

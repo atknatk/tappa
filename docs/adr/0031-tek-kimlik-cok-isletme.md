@@ -1001,6 +1001,8 @@ işletmeleri hakkında bilgi taşıyan her alan kimlik yolunda **kalkar** (R21):
   demeyen bir 500 döner (`abandonedLogin`, `adminloginidentity.go:132-156`). Bu dal geçersizleşme
   denetiminden **önce** gelir (`:73-77`), yani açılıştan sonraki bir `40P01` da 500'dür.
 
+**Süreç geneli bcrypt kapısı (2026-11-07, T86):** her parola işi tek bir semafordan geçer ve kapı, adres okunmadan önce girilir; bekleme ve ret yalnız yüke bağlıdır, beş durumun düzlüğü korunur. Ayrıntı, kaynak başına kural ve kabul edilen risk: ADR 0039.
+
 ### 5.7 Birleştirme
 
 **Kural: iki satır yalnız kişi her ikisinin kimlik bilgisini kanıtlarsa birleşir** (K-2). "Aynı

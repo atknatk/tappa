@@ -197,7 +197,8 @@ import (
 // completeness claim.
 //
 // COUNTED LIMITS: a process that DIES (SIGKILL, OOM, a panic outside a grant)
-// loses the outbox (and its retry queue, adminresetoutcome.go): up to resetOutboxSize
+// loses the outbox (and its retry queue, adminresetoutcome.go, and its list of withdrawals
+// owed, adminresetrecovery.go): up to resetOutboxSize
 // grants plus the one in flight end with NO
 // row (ADR 0022 counted limit 1 — the link may already be in a mailbox) and, since
 // M10 EM-7C, with no withdrawal either, so each of those accounts keeps a live link no
@@ -311,9 +312,15 @@ type resetOutbox struct {
 	retries chan *resetOutcome
 
 	// mu guards closed and the close of both channels, so an offer can never send on
-	// a closed channel.
+	// a closed channel, and the list of withdrawals owed (adminresetrecovery.go).
 	mu     sync.Mutex
 	closed bool
+
+	// owed is the withdrawals still owed, oldest first, at most resetRecoverySize; owedPause the
+	// wait after the next failing pass; owedKick wakes the worker when an entry arrives.
+	owed      []*owedWithdrawal
+	owedPause time.Duration
+	owedKick  chan struct{}
 
 	// sendsStopped is done when the drain's send phase is over: an in-flight send
 	// is cancelled, and every grant after it is recorded without a send.
@@ -331,9 +338,10 @@ type resetOutbox struct {
 
 func newResetOutbox(size int) *resetOutbox {
 	q := &resetOutbox{
-		jobs:    make(chan resetJob, size),
-		retries: make(chan *resetOutcome, resetRetryQueueSize),
-		done:    make(chan struct{}),
+		jobs:     make(chan resetJob, size),
+		retries:  make(chan *resetOutcome, resetRetryQueueSize),
+		owedKick: make(chan struct{}, 1),
+		done:     make(chan struct{}),
 	}
 	q.sendsStopped, q.stopSending = context.WithCancel(context.Background())
 	q.budgetSpent, q.spendBudget = context.WithCancel(context.Background())
@@ -357,16 +365,19 @@ func (q *resetOutbox) offer(j resetJob) (accepted, closing bool) {
 	}
 }
 
-// close stops accepting. Idempotent: a second Drain must not panic on a closed
-// channel.
-func (q *resetOutbox) close() {
+// close stops accepting, and drops the withdrawals still owed, answering how many (only the
+// closing call counts them). Idempotent: a second Drain must not panic on a closed channel.
+func (q *resetOutbox) close() (owed int) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if !q.closed {
 		q.closed = true
 		close(q.jobs)
 		close(q.retries)
+		owed = len(q.owed)
+		q.owed = nil
 	}
+	return owed
 }
 
 // sendContext bounds one grant's send by resetSendGrace and ends it the moment the
@@ -442,14 +453,39 @@ func (h *AdminReset) dispatch(r *http.Request, fallbackUntil time.Time, ip strin
 	h.recordFallback(base, fallbackUntil, g, reason)
 }
 
-// work is the one worker goroutine: it sends what is queued and finishes what requests
-// could not (adminresetoutcome.go). It returns when the outbox is closed AND both
-// channels are empty.
+// work is the one worker goroutine: it sends what is queued, finishes what requests
+// could not (adminresetoutcome.go) and makes the withdrawals still owed when they fall
+// due (adminresetrecovery.go). It returns when the outbox is closed AND both channels
+// are empty.
 func (h *AdminReset) work() {
-	defer close(h.outbox.done)
-	jobs, retries := h.outbox.jobs, h.outbox.retries
+	q := h.outbox
+	defer close(q.done)
+	jobs, retries := q.jobs, q.retries
+	wake := time.NewTimer(time.Hour)
+	wake.Stop()
+	defer wake.Stop()
+	var due <-chan time.Time
+	// arm sets the wake for the list's next due entry. Never once the sends stop: what is
+	// left of the drain's budget is for the outbox's rows, and Drain counts the list.
+	arm := func() {
+		due = nil
+		if q.sendsStopped.Err() != nil {
+			return
+		}
+		if at, ok := q.nextRecovery(); ok {
+			wake.Reset(time.Until(at))
+			due = wake.C
+		}
+	}
 	for jobs != nil || retries != nil {
 		select {
+		case <-q.owedKick:
+			arm()
+		case <-due:
+			if q.sendsStopped.Err() == nil {
+				h.recoverWithdrawals()
+			}
+			arm()
 		case j, ok := <-jobs:
 			if !ok {
 				jobs = nil
@@ -531,7 +567,11 @@ func (h *AdminReset) Drain(ctx context.Context) error {
 	if q == nil {
 		return nil
 	}
-	q.close()
+	if owed := q.close(); owed > 0 {
+		// Said once, here: the list is in memory and the process is about to go.
+		h.log.ErrorContext(ctx, "panel recovery: the process is stopping with withdrawals still owed; their links stay live until they expire",
+			"owed_withdrawals", owed)
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		// A deadline nearer than the reserve stops the sends at once (AfterFunc runs
 		// a non-positive duration immediately).

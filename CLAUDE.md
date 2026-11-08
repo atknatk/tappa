@@ -40,6 +40,7 @@ make check         # fmt + lint + test (CI'nin çalıştırdığı)
 make audit         # govulncheck + kırmızı çizgi + marka (B1: kullanıcı metninde `Tappa`) taraması
 make build-sandbox # sandbox sunucusu (-tags sandbox; Dockerfile hedefi app-sandbox)
 make check-sandbox # -tags sandbox ile vet + staticcheck + etiketin değiştirdiği paketlerin testi
+make restore-check # yedek → geri yükleme → doğrulama zinciri (docker; dev DB'ye dokunmaz)
 ```
 
 `.templ` veya `db/queries/*.sql` düzenledikten sonra `make gen` çalıştırmadan

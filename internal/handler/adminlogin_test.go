@@ -1354,6 +1354,11 @@ type fakeInviter struct {
 	// recipient is put in the Delivery it hands the channel — what internal/invite
 	// would have read in the minting transaction (M10 EM-7B).
 	recipient invite.Recipient
+	// afterCommit, when set, is a failure AFTER the row committed: the invite (with its
+	// id) and this error, nothing delivered -- internal/invite's delivery-failure shape.
+	// undelivered returns the invite and no error without calling the channel (T21).
+	afterCommit error
+	undelivered bool
 }
 
 const fakeActivationLink = "https://panel.example/activate?code=FAKE-CODE-VALUE"
@@ -1363,6 +1368,7 @@ func (f *fakeInviter) IssueAndDeliver(ctx context.Context, p invite.IssueParams,
 	f.issued = append(f.issued, p)
 	f.channels = append(f.channels, ch)
 	err, link, to := f.err, f.link, f.recipient
+	afterCommit, undelivered := f.afterCommit, f.undelivered
 	f.mu.Unlock()
 	if err != nil {
 		return invite.Invite{}, err
@@ -1374,6 +1380,12 @@ func (f *fakeInviter) IssueAndDeliver(ctx context.Context, p invite.IssueParams,
 	inv := invite.Invite{
 		ID: uuid.New(), TenantID: p.TenantID, EmployeeID: p.EmployeeID,
 		CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
+	}
+	if afterCommit != nil {
+		return inv, afterCommit
+	}
+	if undelivered {
+		return inv, nil
 	}
 	if err := ch.DeliverInvite(ctx, invite.Delivery{Invite: inv, ActivationURL: link, Recipient: to}); err != nil {
 		return inv, err
@@ -1532,6 +1544,8 @@ type browser struct {
 	unbound bool
 	// raw keeps the binding in the recorded page (learnBinding).
 	raw bool
+	// fetchSite is the Sec-Fetch-Site a GET carries; "" sends none (backlog T14).
+	fetchSite string
 }
 
 // boundFormAction lifts a tenant binding out of a rendered form action.
@@ -1603,6 +1617,9 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 	req.RemoteAddr = b.ip
 	if method == http.MethodPost && b.origin != "" {
 		req.Header.Set("Origin", b.origin)
+	}
+	if method == http.MethodGet && b.fetchSite != "" {
+		req.Header.Set("Sec-Fetch-Site", b.fetchSite)
 	}
 	for name, value := range b.cookies {
 		req.AddCookie(&http.Cookie{Name: name, Value: value})
