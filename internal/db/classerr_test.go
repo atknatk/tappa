@@ -287,7 +287,9 @@ func TestPoolStatements_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 	p.stop()
 	d.pool.Reset()
 
-	canaries := []string{"user=", "database=", u.User.Username(), strings.TrimPrefix(u.Path, "/") + "`", port, "dial"}
+	// The port with its colon: bare digits turn up inside a pointer that %d prints in decimal (the
+	// third-eye audit measured `{362775551563040}` against port 63040, about 1 run in 100).
+	canaries := []string{"user=", "database=", u.User.Username(), strings.TrimPrefix(u.Path, "/") + "`", ":" + port, "dial"}
 	conn, rawErr := pgx.Connect(ctx, u.String())
 	if rawErr == nil {
 		_ = conn.Close(ctx)
@@ -595,7 +597,7 @@ func TestWithTenant_AResetConnectionCarriesNoAddress(t *testing.T) {
 				t.Errorf("error is %q, want the prefix %q", err, tc.prefix)
 			}
 			for i, text := range renderEverywhere(err) {
-				for _, c := range []string{port, "127.0.0.1", "write tcp", "->"} {
+				for _, c := range []string{":" + port, "127.0.0.1", "write tcp", "->"} {
 					if strings.Contains(text, c) {
 						t.Fatalf("rendering #%d carries %q: %s", i, c, text)
 					}
