@@ -124,7 +124,7 @@ func TestTenantOverviewScreen_IsTheFactsTheCountsAndTheTwoWriteCards(t *testing.
 	all := screens(t)
 	const id = "10000000-0000-4000-8000-000000000001"
 	path := "/operator/tenants/" + id
-	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	name, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", "Kebab Factory Ltd")
 	if err != nil {
 		t.Fatal(err)
 	}
