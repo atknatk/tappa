@@ -88,7 +88,7 @@ func (f *fakeSignupClaims) Open(_ context.Context, email, password string, draft
 	if err != nil {
 		return adminauth.ClaimGrant{}, err
 	}
-	d.Account.Email, d.Account.Password = email, config.NewKey([]byte(password))
+	d.Account.Email, d.Account.Password = signup.NewAddress(email), config.NewKey([]byte(password))
 	if f.onOpen != nil {
 		f.onOpen(d)
 	}

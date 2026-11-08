@@ -92,10 +92,11 @@ func (v IssuedVerification) Link(base string) string {
 }
 
 // rowFacts is what a test's rowFn hands the account acts for the session row (production reads the
-// address alone -- rowEmail). digest and status are the shape the comparison-count tests were written
-// in; nothing reads them since M14-22 removed the reverse link.
+// address alone -- rowEmail). status is the shape the comparison-count tests were written in; nothing
+// reads it since M14-22 removed the reverse link. Its digest went with backlog T209: a bcrypt digest in
+// a plain string nothing read.
 type rowFacts struct {
-	email, digest, status string
+	email, status string
 }
 
 // rowEmail is the session row's own address: the key every identity lookup below starts from. ""

@@ -94,6 +94,12 @@ func TestNew_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 				"target_session_attrs=read-only on a primary", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&target_session_attrs=read-only",
 				"the server is not in the wanted session state", []string{"read only"},
 			},
+			// backlog T209: the read-write check's own text, against a server that reports read-only for this
+			// session (the startup parameter makes transaction_read_only on).
+			row{
+				"target_session_attrs=read-write on a read-only session", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&default_transaction_read_only=on&target_session_attrs=read-write",
+				"the server is not in the wanted session state", []string{"read only connection"},
+			},
 			row{
 				"target_session_attrs=standby on a primary", "postgres://" + u.User.String() + "@" + u.Host + u.Path + "?sslmode=disable&target_session_attrs=standby",
 				"the server is not in the wanted session state", []string{"hot standby"},

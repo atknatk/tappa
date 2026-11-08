@@ -85,7 +85,7 @@ func TestSignupClaims_WrongIdentityPasswordsSpendTheIdentitysBudgetAcrossLinks(t
 	if after := w.int(`SELECT count(*) FROM admin_identity_events WHERE identity_id = $1`, w.ident); after != before {
 		t.Fatal("the refused right password wrote an event row")
 	}
-	if p, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, newCountingBudget(3)); err != nil || p.hash == "" {
+	if p, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, newCountingBudget(3)); err != nil || p.hash.reveal() == "" {
 		t.Fatalf("CONTROL: the right password with an unspent budget: %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestSignupClaims_SignInFailuresNeverPauseTheBranch(t *testing.T) {
 	if n := w.events("login_failed"); n != 4 {
 		t.Fatalf("%d login_failed rows, want the branch's fourth on the shared trail", n)
 	}
-	if p, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, budget); err != nil || p.hash == "" {
+	if p, err := s.ProveWithIdentityPassword(ctx, link(), w.pw, budget); err != nil || p.hash.reveal() == "" {
 		t.Fatalf("the right password after failed sign-ins: %v, want a proof", err)
 	}
 }

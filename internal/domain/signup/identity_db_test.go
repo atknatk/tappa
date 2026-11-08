@@ -85,7 +85,7 @@ func TestSignupProvision_ANewAddressBirthsItsIdentity(t *testing.T) {
 	}
 	var n int
 	if err := owner.QueryRow(context.Background(), `SELECT count(*) FROM admin_identities WHERE email = $1`,
-		strings.ToUpper(d.Account.Email)).Scan(&n); err != nil || n != 1 {
+		strings.ToUpper(d.Account.Email.Reveal())).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d identities for the address (%v), want exactly 1", n, err)
 	}
 }
@@ -110,7 +110,7 @@ func TestSignupProvision_AKnownAddressIsClaimedOnlyByItsPerson(t *testing.T) {
 	}
 
 	again := draftFor(t, StructureSingle, "Back door")
-	again.Account.Email = strings.ToUpper(known.Account.Email)
+	again.Account.Email = NewAddress(strings.ToUpper(known.Account.Email.Reveal()))
 	c := openClaim(t, data, again)
 	if _, err := p.Provision(ctx, c); !errors.Is(err, ErrClaimRefused) {
 		t.Fatalf("a known address confirmed without its person's session: %v, want ErrClaimRefused", err)
@@ -159,7 +159,7 @@ func TestSignupProvision_TheRealProofsReachTheClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := claims.Open(ctx, d.Account.Email, string(d.Account.Password.Reveal()), draft)
+	grant, err := claims.Open(ctx, d.Account.Email.Reveal(), string(d.Account.Password.Reveal()), draft)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -206,7 +206,7 @@ func legacyRegistration(ctx context.Context, d Draft) (bool, error) {
 			BusinessType: d.Business.BusinessType, Structure: d.Business.Structure, Timezone: DefaultTimezone}); e != nil {
 			return e
 		}
-		email := d.Account.Email
+		email := d.Account.Email.Reveal()
 		row, e := q.CreateAdminUser(ctx, store.CreateAdminUserParams{TenantID: tenantID, FullName: d.Account.FullName, Email: &email,
 			PasswordHash: fixtureDigest, Role: "owner"})
 		if e != nil {
@@ -247,7 +247,7 @@ func TestSignupProvision_ConcurrentBirthsOfOneNewAddress(t *testing.T) {
 	drafts := make([]Draft, claimsN+1)
 	for i := range drafts {
 		drafts[i] = draftFor(t, StructureSingle, "Front door")
-		drafts[i].Account.Email = email
+		drafts[i].Account.Email = NewAddress(email)
 	}
 	claimsOf := make([]testClaim, claimsN)
 	for i := range claimsN {
@@ -361,7 +361,7 @@ func TestSignupProvision_TheClaimWaitsOnTheAddressLock(t *testing.T) {
 	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
 	d := draftFor(t, StructureSingle, "Front door")
-	d.Account.Email = "Lock-" + uuid.NewString() + "@Signup.Example"
+	d.Account.Email = NewAddress("Lock-" + uuid.NewString() + "@Signup.Example")
 	c := openClaim(t, data, d)
 
 	holder, err := owner.Begin(ctx)
@@ -386,7 +386,7 @@ func TestSignupProvision_TheClaimWaitsOnTheAddressLock(t *testing.T) {
 	}
 	defer release(false)
 	var key int64
-	if err := holder.QueryRow(ctx, `SELECT hashtextextended('admin-identity-email:' || lower($1), 0)`, d.Account.Email).Scan(&key); err != nil {
+	if err := holder.QueryRow(ctx, `SELECT hashtextextended('admin-identity-email:' || lower($1), 0)`, d.Account.Email.Reveal()).Scan(&key); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := holder.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
@@ -428,7 +428,7 @@ func TestSignupProvision_TheClaimWaitsOnTheAddressLock(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if _, err := holder.Exec(ctx, `INSERT INTO admin_identities (email, password_hash) VALUES ($1, $2)`,
-		strings.ToLower(d.Account.Email), "$2a$04$"+strings.Repeat("f", 53)); err != nil {
+		strings.ToLower(d.Account.Email.Reveal()), "$2a$04$"+strings.Repeat("f", 53)); err != nil {
 		t.Fatal(err)
 	}
 	release(true)

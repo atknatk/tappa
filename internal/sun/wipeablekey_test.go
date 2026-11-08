@@ -248,32 +248,71 @@ func TestParams_PrintsNoCMAC(t *testing.T) {
 
 // TestUnwrapAny_EveryAttemptGoesThroughTheHelper: what TestUnwrapAndWipe_WipesOnEveryPath proves holds only
 // if UnwrapAny calls it. A Key hands out a fresh copy on each Reveal, so no run can see a copy that was left
-// behind; this reads the source.
+// behind; this reads the source. It holds the ARGUMENT too (backlog T209): the helper wipes what it is
+// given, so its first argument has to be the range variable's Reveal() itself -- a copy of it, or a
+// Reveal stored first and handed on in another buffer, leaves the revealed KEK unwiped -- and UnwrapAny
+// reveals nothing else.
 //
-// MUTANT (measured, 2026-11-06, reverted): `Unwrap(k.Reveal(), uid, ref)` in UnwrapAny -- green in every
-// behavioural test, red here.
+// MUTANTS (measured, reverted): `Unwrap(k.Reveal(), uid, ref)` in UnwrapAny (2026-11-06) -- green in every
+// behavioural test, red here. 2026-11-08, the ones the count alone let through (the old test green on the first, measured):
+// `unwrapAndWipe(append([]byte(nil), k.Reveal()...), uid, ref)`; `r := k.Reveal()` then `unwrapAndWipe(append([]byte(nil), r...), uid, ref)`; a
+// second `keks[0].Reveal()` before the loop -- red here on each.
 func TestUnwrapAny_EveryAttemptGoesThroughTheHelper(t *testing.T) {
 	f, err := parser.ParseFile(token.NewFileSet(), "keys.go", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	calls := map[string]int{}
+	reveals, revealedArgs, seen := 0, 0, false
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Name.Name != "UnwrapAny" {
 			continue
 		}
+		seen = true
+		var rangeVar string
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			if c, ok := n.(*ast.CallExpr); ok {
-				if id, ok := c.Fun.(*ast.Ident); ok {
-					calls[id.Name]++
+			switch x := n.(type) {
+			case *ast.RangeStmt:
+				if v, ok := x.Value.(*ast.Ident); ok {
+					rangeVar = v.Name
+				}
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "Reveal" {
+					reveals++
+				}
+			case *ast.CallExpr:
+				id, ok := x.Fun.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				calls[id.Name]++
+				if id.Name != "unwrapAndWipe" || len(x.Args) != 3 {
+					return true
+				}
+				arg, ok := x.Args[0].(*ast.CallExpr)
+				if !ok || len(arg.Args) != 0 {
+					return true
+				}
+				if sel, ok := arg.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Reveal" {
+					if recv, ok := sel.X.(*ast.Ident); ok && rangeVar != "" && recv.Name == rangeVar {
+						revealedArgs++
+					}
 				}
 			}
 			return true
 		})
 	}
+	if !seen {
+		t.Fatal("CONTROL: keys.go has no UnwrapAny")
+	}
 	if calls["unwrapAndWipe"] != 1 || calls["Unwrap"] != 0 {
 		t.Fatalf("UnwrapAny calls unwrapAndWipe %d time(s) and Unwrap %d: a revealed KEK copy would outlive its attempt",
 			calls["unwrapAndWipe"], calls["Unwrap"])
+	}
+	if revealedArgs != 1 || reveals != 1 {
+		t.Fatalf("unwrapAndWipe's first argument is the range variable's Reveal() %d time(s), and UnwrapAny reveals %d "+
+			"time(s); want 1 and 1: the helper wipes the buffer it is handed, so anything else leaves a KEK copy unwiped",
+			revealedArgs, reveals)
 	}
 }

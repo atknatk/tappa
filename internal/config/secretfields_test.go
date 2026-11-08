@@ -26,14 +26,23 @@ import (
 // and atomic.Pointer[[]byte] all print what they hold, and this file cannot see inside them.
 // foreignNoTextTypes is the short list of the ones that hold no text.
 //
-// WHAT IT CANNOT SEE, stated: it goes by the field's NAME, and `hash` and `digest` are not key names
-// (backlog T209). A key in a field called `b` is green. An embedded field has no name to read. A local
-// variable, a closure's capture and an `any` or other interface are not looked inside.
+// WHAT IT CANNOT SEE, stated: it goes by the field's NAME. A key in a field called `b` is green. An
+// embedded field has no name to read. A local variable, a closure's capture and an `any` or other
+// interface are not looked inside. `hash` and `digest` are key names since backlog T209 (a token's keyed
+// hash is the proof a definer takes, a bcrypt digest is a password's stand-in); a channel is not looked
+// into because fmt prints a channel as its address (measured, 2026-11-08: a `keys chan []byte` holding a
+// canary, 0 of 32 renderings, slog's text handler neither, encoding/json refuses the type).
 //
 // MUTANTS (measured, 2026-11-06, reverted, all red here): a new `kek2 []byte` field on sun.Verifier; a
 // new `Password string` on a tenant struct; a sqlc-shaped `store.Tag.AesKey []byte`; Format removed from
 // config.Key; config.Key over a plain string; a stale row in keyFieldExemptions; a new field of each
 // of json.RawMessage, ed25519.PrivateKey, []struct{kek []byte}, atomic.Pointer[[]byte], sql.NullString.
+// T209 (measured, 2026-11-08, reverted, all red): `hash|digest` dropped from keyAnywhere (the shape rows
+// and the now stale RequestHash row); apikey.Checked dropped from redactingTypes; the RequestHash row
+// deleted; a new `ProbeHash string` on apikey.WriteRequest; signup.Address over a plain string; the
+// map case dropped from anonymousStruct. Before the widening the pattern found, once added, six plain
+// fields: adminauth ClaimProof.hash, SignupClaim.hash, proofSession.hash, rowFacts.digest, and
+// apikey Checked.hash, WriteRequest.RequestHash.
 func TestInternal_EveryKeyFieldIsARedactingType(t *testing.T) {
 	tree := readInternalTree(t, "..")
 	report := tree.keyFieldProblems()
@@ -84,6 +93,10 @@ func TestKeyFieldGate_SeesTheShapes(t *testing.T) {
 		{"a foreign nullable string, a numbered name", "seed2 sql.NullString", true},
 		{"a local generic over bytes", "key wrapper[[]byte]", true},
 		{"key between capitals", "AESKeyRef []byte", true},
+		{"a token's hash", "tokenHash string", true},
+		{"a digest", "digest string", true},
+		{"a hash in capitals", "RequestHASH []byte", true},
+		{"a map of anonymous structs", "box map[string]struct{ kek []byte }", true},
 		{"a redacting type", "kek config.Key", false},
 		{"a slice of a redacting type", "keks []config.Key", false},
 		{"a redacting type of its package", "token ok", false},
@@ -95,6 +108,8 @@ func TestKeyFieldGate_SeesTheShapes(t *testing.T) {
 		{"a word that only contains the letters", "monkey []byte", false},
 		{"machine is not mac", "machine string", false},
 		{"a listed foreign type", "key uuid.UUID", false},
+		{"a redacted hash", "hash ok", false},
+		{"a channel prints its address", "keys chan []byte", false},
 		{"a listed foreign duration", "keyPeriod time.Duration", false},
 		{"a local generic over nothing", "key wrapper[int]", false},
 	} {
@@ -150,7 +165,9 @@ var redactingTypes = []string{
 	"operatorauth.Key", "operatorauth.Secret", "operatorauth.SessionToken",
 	"adminauth.Token", "adminauth.ResetToken", "adminauth.InviteToken",
 	"session.Token",
-	"apikey.Token",
+	"apikey.Token", "apikey.Checked",
+	"adminauth.proofHash",
+	"domain/signup.Address",
 	"webhook.SigningKey",
 	"db.PasswordHash",
 	"sun.WipeableKey",
@@ -174,11 +191,14 @@ var keyFieldExemptions = map[string]string{
 	"policy.Anomaly.Key":                 "a closed-set context name",
 	"policy.Context.Keys":                "context names to values, no secret in the closed set",
 	"mail.mailbox.key":                   "an HMAC digest of an address (RecipientCap's map key), not a key",
+	// A comparison value, not a proof: no definer takes it to find a row by.
+	"apikey.WriteRequest.RequestHash": "SHA-256 of the request's method, route and body, the idempotency ledger's comparison value " +
+		"(a replay with another body is refused by it); it opens nothing",
 	// Sealed under a KEK: printing it gives ciphertext the database row already holds.
 	"db.ResolvedTag.AESKeyRef": "AES-256-GCM envelope under TAPPA_TAG_KEK; the plaque key is not recoverable from it",
 	// A proof or a MAC, not a key.
 	"adminauth.Proof.mac": "a MAC over a password digest, a value type compared with ==, printing redacted through its own methods; " +
-		"a holder's unexported field still reaches it, see backlog T209",
+		"a holder's unexported field still reaches it, see backlog T253",
 	// A signed value that travels to the browser anyway.
 	"handler.claimStep.token": "the signed moment in a confirmation form's hidden field; it is sent to the browser by design",
 }
@@ -192,7 +212,7 @@ var storeKeyFieldShape = regexp.MustCompile(`(Hash|Sealed|Ref|KeyID|KeyName|Idem
 // because they are spelled in capitals inside longer names (TOTPKEK, TokenHMACKey). key and mac only as a
 // whole camelCase word, or monkey and machine would count.
 var (
-	keyAnywhere  = regexp.MustCompile(`(?i)kek|hmac|secret|passw|pwd|token|credential|cmac|apikey|dsn|pepper`)
+	keyAnywhere  = regexp.MustCompile(`(?i)kek|hmac|secret|passw|pwd|token|credential|cmac|apikey|dsn|pepper|hash|digest`)
 	keyWholeWord = regexp.MustCompile(`^(?i:keys?|macs?|deks?|seeds?|salts?)\d*$`)
 )
 
@@ -461,7 +481,9 @@ func (tr *internalTree) walkFields(f treeFile, owner string, st *ast.StructType,
 	}
 }
 
-// anonymousStruct is the struct literal a field's type holds through pointers, slices and arrays, nil if none.
+// anonymousStruct is the struct literal a field's type holds through pointers, slices, arrays and a map's
+// value, nil if none. The map's value was missing (backlog T209: `box map[string]struct{kek []byte}` was
+// green, and fmt prints a map's values).
 func anonymousStruct(e ast.Expr) *ast.StructType {
 	for {
 		switch t := e.(type) {
@@ -471,6 +493,8 @@ func anonymousStruct(e ast.Expr) *ast.StructType {
 			e = t.X
 		case *ast.ArrayType:
 			e = t.Elt
+		case *ast.MapType:
+			e = t.Value
 		default:
 			return nil
 		}
