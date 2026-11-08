@@ -95,9 +95,18 @@ type ResetGrant struct {
 	IdentityID uuid.UUID
 }
 
-// ResetMintLockWait is everything ONE request's mints may spend waiting for locks (T219): every mint
-// transaction of IssueForEmail or IssueForPerson takes the time left of it as its lock_timeout
-// (db.BoundLockWaits), so the waits of a whole ResetWindow share it rather than each having its own.
+// ResetMintLockWait is everything ONE request's mints may spend waiting for locks (T219), shared by
+// every mint of IssueForEmail or IssueForPerson rather than one each.
+//
+// 🔴 IT IS SPENT PER WAIT, AND A STATEMENT CAN WAIT MORE THAN ONCE. lock_timeout bounds each wait,
+// not the statement (db.BoundLockWaits), and the first version set it once per transaction: the
+// issuing lock and then the INSERT's foreign-key check each got the whole remainder (a security audit
+// measured 302/296/299 ms against this 150 ms). So the remainder is set again before EVERY statement
+// that can wait, divided by how many waits that statement can make (lockWaitFor): the issuing lock
+// one, CreatePasswordReset two (the key-share locks of its two foreign keys, on the business and the
+// administrator; the rows it retires are none on this path -- the read under the issuing lock found no
+// live link), identity_open_reset two (its advisory lock and its INSERT's key share on the identity).
+// The statements in between wait only behind DDL (a table lock), and then under the last bound set.
 //
 // 🔴 WHY THERE IS A BOUND: the mint is the one step of a request only a REGISTERED address reaches,
 // and without one a lock held elsewhere -- the administrator's issuing lock, or a row lock on the
@@ -107,8 +116,10 @@ type ResetGrant struct {
 // 250 ms. The status and the clock both told the two apart.
 //
 // 🔴 WHY THIS NUMBER: a stalled mint must finish inside internal/handler's resetRequestFloor (250 ms)
-// for the answer's clock to stay flat, with room for the resolver and the other accounts' mints
-// (a full window, about 60 ms). It costs nothing in the healthy case: lock_timeout only runs while a
+// for the answer's clock to stay flat, with room for the rest of the request: a full window's
+// healthy request had a median of 60-64 ms in resetRequestFloor's own probe (internal/handler/
+// adminresetlimits.go), and TestResetMintLockWait_FitsUnderTheFloor holds the sum under the floor.
+// It costs nothing in the healthy case: lock_timeout only runs while a
 // statement WAITS, and the issuing lock is held by another request for three statements. What it can
 // refuse is a queue of simultaneous requests for one account longer than this -- which mint nothing
 // anyway (the first one minted), and are reported stalled instead of kept.
@@ -138,14 +149,23 @@ func (r *Resets) withMintClock(ctx context.Context) context.Context {
 	return context.WithValue(ctx, mintClockKey{}, time.Now().Add(r.mintLockWait))
 }
 
-// lockWait is what is left of the request's budget, at least a millisecond: a mint past the budget is
-// still TRIED, so an account nobody holds a lock on still gets its link; only a held lock stalls it.
-func (r *Resets) lockWait(ctx context.Context) time.Duration {
-	until, ok := ctx.Value(mintClockKey{}).(time.Time)
-	if !ok {
-		return r.mintLockWait
+// The most lock waits one statement of a mint can make (ResetMintLockWait's comment counts them).
+const (
+	issuingLockWaits       = 1
+	createResetWaits       = 2
+	openIdentityResetWaits = 2
+)
+
+// lockWaitFor is the bound for each wait of a statement that can wait `waits` times: what is left of
+// the request's budget, divided among them, so the statement cannot spend more than the remainder. At
+// least a millisecond: a mint past the budget is still TRIED, so an account nobody holds a lock on
+// still gets its link; only a held lock stalls it.
+func (r *Resets) lockWaitFor(ctx context.Context, waits int) time.Duration {
+	left := r.mintLockWait
+	if until, ok := ctx.Value(mintClockKey{}).(time.Time); ok {
+		left = time.Until(until)
 	}
-	if d := time.Until(until); d > time.Millisecond {
+	if d := left / time.Duration(waits); d > time.Millisecond {
 		return d
 	}
 	return time.Millisecond
@@ -322,10 +342,10 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 // and retires nothing on this path, because the read just above found nothing live
 // under a lock every other issuer on this path takes too.
 //
-// EVERY LOCK WAIT IN IT IS BOUNDED by what is left of the request's ResetMintLockWait, set as the
-// transaction's first statement: the issuing lock, and the key-share locks the INSERT's foreign keys
-// take on the business and the administrator. A wait past it fails the transaction with
-// db.LockWaitExpired before anything commits.
+// EVERY LOCK WAIT IN IT IS BOUNDED by what is left of the request's ResetMintLockWait, set again
+// before each statement that can wait (lockWaitFor): the issuing lock, and the key-share locks the
+// INSERT's foreign keys take on the business and the administrator. A wait past it fails the
+// transaction with db.LockWaitExpired before anything commits.
 func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid.UUID) (IssuedReset, *Reset, error) {
 	t, h, err := r.newHashedToken()
 	if err != nil {
@@ -336,7 +356,7 @@ func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid
 		live *Reset
 	)
 	err = r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if e := db.BoundLockWaits(ctx, tx, r.lockWait(ctx)); e != nil {
+		if e := db.BoundLockWaits(ctx, tx, r.lockWaitFor(ctx, issuingLockWaits)); e != nil {
 			return e
 		}
 		q := store.New(tx)
@@ -363,6 +383,10 @@ func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid
 				ExpiresAt:   rows[0].ExpiresAt,
 			}
 			return nil
+		}
+		// The wait for the issuing lock spent part of the budget: the INSERT gets what is left.
+		if e := db.BoundLockWaits(ctx, tx, r.lockWaitFor(ctx, createResetWaits)); e != nil {
+			return e
 		}
 		row, e = r.create(ctx, q, tenantID, adminUserID, h)
 		return e

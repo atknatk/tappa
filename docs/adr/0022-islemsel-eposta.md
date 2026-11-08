@@ -3472,11 +3472,23 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    geçici hatada bir kez daha denenir. Önce yedek yazımların 1 sn bütçesi denendi: 0,55/1,14/1,18 sn, hesap sayısından
    bağımsız ama kayıtlı adresi ayırıyor. `kept` sık koldur ve INSERT sağlıklı durumda tabana sığar, bu yüzden taban seçildi.
    Yedek yazımların 1 sn'si değişmedi (nadir kol, yukarıdaki gerekçe). İşçide yazılan satırın `created_at`'i yazım anıdır.
+   **Kuyruk payı (güvenlik denetimi):** `kept` satırları `retries` kuyruğunun (256) en çok yarısını tutar
+   (`resetRetryKeptShare`, 128). Öbür yarı `undelivered` sonuçlarınındır; 256 `kept` olmadan ölçülmüştü. Yeniden
+   ölçüldü: 3 sn'lik duruş, önce 24 tam pencere `kept` (192 satır), sonra 16 tam pencere `undelivered`: `kept`'in 63'ü
+   payın dışında ERROR ile kayboldu, `undelivered` kaybı 0, 128 satır, canlı link 0.
    **(b) mint (T219):** mint transaction'larının her kilit beklemesi istek başına tek bir bütçeyle sınırlı:
-   `adminauth.ResetMintLockWait` = 150 ms, her transaction'da kalanı yerel `lock_timeout` olur. Bütçe tabanın içinde kalacak
-   biçimde seçildi. Bekleme dolarsa transaction beklemede geri alınır: link yok, geri çekme yok. Hesap *duran* olarak döner,
+   `adminauth.ResetMintLockWait` = 150 ms. **`lock_timeout` ifadeyi değil her beklemeyi sınırlar:** ilk sürüm kalanı
+   transaction başında bir kez koyuyordu. Bu yüzden düzenleyici kilit ve INSERT'in yabancı anahtar beklemesi kalanın
+   tamamını ayrı ayrı alıyordu (güvenlik denetimi ölçtü: 302/296/299 ms). Artık kalan, bekleyebilen her ifadeden önce
+   yeniden konur ve o ifadenin bekleyebileceği sayıya bölünür: düzenleyici kilit 1, `CreatePasswordReset` 2 (iki yabancı
+   anahtar), `identity_open_reset` 2 (advisory kilit + kimlik satırının key share'i). Ölçüldü: kilit 250 ms tutulup
+   işletme satırı kilitliyken, 400 ms bütçeyle 344,6 ms. Arada kalan ifadeler yalnız DDL'in tablo kilidinde bekler, son
+   konan sınırla. Bütçe, tam pencerenin sağlıklı medyanıyla (60–64 ms, `resetRequestFloor`'un ölçümü) tabanın altında
+   kalacak biçimde seçildi; `TestResetMintLockWait_FitsUnderTheFloor` bunu sabitler. Bekleme dolarsa transaction beklemede geri alınır: link yok, geri çekme yok. Hesap *duran* olarak döner,
    yanıt kayıtsız adresinkidir. İşletme satırı istekten önce kilitli: **500 / 6,000 sn → 200 / 252,6 ms**. Kimliğin advisory
-   kilidi tutulu: **500 / 6,02 sn → 200 / 253,3 ms**. Kayıtsız adres 251 ms. Duran mint yeniden denenmez, kişi yeniden ister
+   kilidi tutulu: **500 / 6,02 sn → 200 / 253,3 ms**. Kayıtsız adres 251 ms. Tam pencere (8 hesap, hepsinin işletme satırı
+   kilitli), HTTP üzerinden, 5 turun en hızlısı: 250,3 ms. Duruş testleri tabanın bandını
+   (taban + 50 ms, en hızlı tur) tutar. Denetimde bütçe 900 ms'ye çıkarılınca hepsi kırmızı oldu. Duran mint yeniden denenmez, kişi yeniden ister
    (kilit gidince hemen basılır, ölçüldü). İzi id'li, bütçeli bir ERROR satırıdır, audit satırı yok.
    **Kalan (T236):** kilit dışı duruşlar (havuz, G/Ç) sınırlı değildir ve eskisi gibi isteğin süresine dek bekler. Kalan
    kuyruk ve ölüm kayıpları T197'ninkilerdir.

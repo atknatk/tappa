@@ -16,8 +16,11 @@ import (
 // next user (set_config's third argument, BoundStatements' rule). A wait past it is SQLSTATE 55P03
 // and the transaction is aborted: nothing it wrote commits (LockWaitExpired).
 //
-// IT BOUNDS EACH WAIT, NOT THE TRANSACTION: a statement that waits for two locks may wait d for each.
-// A caller that needs one budget across several transactions passes the time left of it here.
+// IT BOUNDS EACH WAIT, NOT THE STATEMENT OR THE TRANSACTION: a statement that waits for two locks may
+// wait d for each, and the bound stays until it is set again. A caller with one budget therefore sets
+// it again before every statement that can wait, with the time left divided by how many waits that
+// statement can make (internal/adminauth's lockWaitFor; a security review measured the first version,
+// set once per transaction, spending a 150 ms budget twice).
 //
 // d must be at least a millisecond: lock_timeout 0 is not "do not wait", it is "wait forever".
 func BoundLockWaits(ctx context.Context, tx pgx.Tx, d time.Duration) error {

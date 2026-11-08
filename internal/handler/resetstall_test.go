@@ -202,3 +202,48 @@ func TestAdminReset_AKeptRowWaitsNoLongerThanTheFloor(t *testing.T) {
 		}
 	}
 }
+
+// resetFullWindowMedian is the slowest median a full adminauth.ResetWindow's healthy request had in
+// resetRequestFloor's own probe (60.4 / 62.8 / 63.5 ms over three runs; adminresetlimits.go): the
+// rest of a request a stalled mint must share the floor with.
+const resetFullWindowMedian = 64 * time.Millisecond
+
+// TestResetMintLockWait_FitsUnderTheFloor (T219's third eye): a stalled mint spends at most
+// adminauth.ResetMintLockWait waiting, on top of the request's other work, and the answer is flat only
+// while the two together end before the floor does. The stall tests time it; this pins the constant so
+// raising it cannot pass by luck on a quiet machine.
+//
+// MUTATION: ResetMintLockWait 900 ms (an audit's) -> red here, and over the band in the stall tests.
+func TestResetMintLockWait_FitsUnderTheFloor(t *testing.T) {
+	if sum := adminauth.ResetMintLockWait + resetFullWindowMedian; sum >= resetRequestFloor {
+		t.Errorf("ResetMintLockWait (%v) + a full window's median (%v) = %v, not under resetRequestFloor (%v): "+
+			"a stalled mint would answer a registered address later than an unknown one",
+			adminauth.ResetMintLockWait, resetFullWindowMedian, sum, resetRequestFloor)
+	}
+}
+
+// TestResetOutbox_KeptRowsStopAtTheirShare (T211's security review): kept rows may hold at most
+// resetRetryKeptShare of the retry queue, so an undelivered outcome -- a link to withdraw -- always
+// finds the rest free, however many kept rows a stall makes. Deterministic: no worker takes from it.
+//
+// MUTATION: no share -> kept rows fill the queue and the undelivered outcomes are refused -> red.
+func TestResetOutbox_KeptRowsStopAtTheirShare(t *testing.T) {
+	q := newResetOutbox(resetOutboxSize)
+	keptTaken := 0
+	for i := 0; i < resetRetryQueueSize; i++ {
+		if q.offerRetry(&resetOutcome{action: ActionAdminResetKept}) {
+			keptTaken++
+		}
+	}
+	if keptTaken != resetRetryKeptShare {
+		t.Fatalf("%d kept row(s) taken, want the share %d", keptTaken, resetRetryKeptShare)
+	}
+	for i := 0; i < resetRetryQueueSize-resetRetryKeptShare; i++ {
+		if !q.offerRetry(&resetOutcome{action: ActionAdminResetUndelivered}) {
+			t.Fatalf("undelivered outcome %d refused with %d kept row(s) queued: kept rows crowded it out", i+1, keptTaken)
+		}
+	}
+	if q.offerRetry(&resetOutcome{action: ActionAdminResetUndelivered}) {
+		t.Error("CONTROL: the queue took more than resetRetryQueueSize")
+	}
+}

@@ -99,6 +99,16 @@ const (
 	// write (TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain). Past it each owed write
 	// is abandoned with its ERROR.
 	resetRetryQueueSize = 256
+
+	// resetRetryKeptShare is how much of that queue kept rows may hold (T211's security review).
+	// Kept rows joined the queue after 256 was measured, and a stall on a busy deployment makes
+	// many of them -- one per account per request while a link lives -- so without a share they
+	// could fill it and push a later undelivered outcome out: a row lost and a withdrawal sent to
+	// the slower list. The other half is the undelivered outcomes' alone, which is the 128 a 3 s
+	// stall of 16 full windows needed (above), so that measurement still fits whatever the kept
+	// rows do (TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome). A kept row past its
+	// share is abandoned with its ERROR: the trail of a request that changed nothing, not of a link.
+	resetRetryKeptShare = resetRetryQueueSize / 2
 )
 
 // resetOutcomeClocks are the constants above and adminresetrecovery.go's, as fields so a test can
@@ -393,6 +403,11 @@ func (q *resetOutbox) offerRetry(o *resetOutcome) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
+		return false
+	}
+	// Under q.mu, so no other offer moves len between the check and the send; the worker only
+	// takes, which can make the check stricter than it needs to be, never looser.
+	if o.action == ActionAdminResetKept && len(q.retries) >= resetRetryKeptShare {
 		return false
 	}
 	select {

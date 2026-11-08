@@ -845,8 +845,9 @@ func (h *AdminReset) logStalledMint(ctx context.Context, ip string, st adminauth
 		}
 		return
 	}
+	// Keys from ADR 0031's M14-14 closed list only: ip and the id.
 	h.log.ErrorContext(ctx, "panel recovery: minting a link waited too long for a lock, so none was made",
-		append(append([]any{"ip", ip}, ids...), "budget", adminauth.ResetMintLockWait.String())...)
+		append([]any{"ip", ip}, ids...)...)
 }
 
 // identityResetBudgetKey namespaces an identity's bucket in the per-account budget it shares with

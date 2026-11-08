@@ -348,9 +348,10 @@ type OpenedIdentityReset struct {
 // EM-7C): tokenHash is the hash of the token the caller just drew. pgx.ErrNoRows: no such identity.
 // The hash never reaches an error.
 //
-// lockWait bounds each lock wait inside the call (BoundLockWaits; T219): identity_open_reset takes the
-// identity's advisory lock and its INSERT takes the identity row's key-share lock, and with no bound a
-// lock held elsewhere kept the request until its own deadline. Past it the call fails with
+// lockWait bounds EACH lock wait inside the call (BoundLockWaits; T219): identity_open_reset takes the
+// identity's advisory lock and its INSERT takes the identity row's key-share lock -- two waits, so the
+// caller passes half of what it may spend -- and with no bound a lock held elsewhere kept the request
+// until its own deadline. Past it the call fails with
 // LockWaitExpired and the transaction is rolled back, so nothing was opened. The function sets no
 // lock_timeout of its own (00072), so the transaction's applies inside its body.
 func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (o OpenedIdentityReset, err error) {

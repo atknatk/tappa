@@ -245,7 +245,7 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
 	}
 	expires := r.now().Add(r.ttl)
-	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, r.lockWait(ctx))
+	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, r.lockWaitFor(ctx, openIdentityResetWaits))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil
 	}
