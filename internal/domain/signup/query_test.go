@@ -52,6 +52,7 @@ package signup
 // predicate is not where a reader of the INSERT would look first.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -61,6 +62,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/internal/sqlbelt"
 )
 
 // query_test.go -- the §4.5 BELT over the three queries this package calls
@@ -127,65 +130,108 @@ func TestSignupQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 				"so either it was renamed or this scan cannot see it", name)
 			continue
 		}
-		for _, f := range insertSelectWrites(body) {
+		for _, f := range beltFindings(t, body) {
+			if f == noWhereFinding && name == "CreateTenant" {
+				createTenantExemption(t, body)
+				continue
+			}
 			t.Errorf("%s (%s) %s", name, file, f)
 		}
-		// A subquery that reads a tenant table must have a WHERE AT ALL, checked
-		// before the predicate check because a block with no WHERE is invisible to it.
-		for _, sub := range unscopedSubqueries(t, body) {
-			t.Errorf("%s (%s) contains a subquery that reads the tenant-scoped table %q "+
-				"and has NO WHERE clause at all, so nothing in it is scoped to the "+
-				"caller's tenant.\n\nsubquery read:\n%s", name, file, sub.table, sub.text)
-		}
-		blocks := whereBlocks(body)
-		if len(blocks) == 0 {
-			// 🔴 EXACTLY ONE QUERY IN THIS PRODUCT CANNOT CARRY A PREDICATE, AND IT IS
-			// NAMED HERE RATHER THAN WAIVED BY A FLAG. CreateTenant writes the `tenants`
-			// row ITSELF: there is no earlier row to join to, so there is nothing for a
-			// WHERE to constrain — the statement's own scope key is the `id` it inserts.
-			// What stands in for the belt is the RLS WITH CHECK on `tenants` (migration
-			// 00001 scopes that policy on `id`), which refuses any id other than the
-			// transaction's context, and the fact that the id is minted from crypto/rand
-			// inside Provision and reaches it from no request field.
-			//
-			// THE EXEMPTION IS PROVED, NOT ASSERTED: the two properties are checked right
-			// here, so a future edit that dropped either turns this red.
-			if name == "CreateTenant" {
-				if !strings.Contains(body, "@id") {
-					t.Errorf("CreateTenant no longer inserts a caller-supplied @id, so the "+
-						"tenants WITH CHECK has nothing to compare and the exemption below "+
-						"is void.\n%s", body)
-				}
-				mig := migrationSource(t, "00001_create_tenants.sql")
-				if !strings.Contains(mig, "WITH CHECK (id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)") {
-					t.Error("migration 00001's tenants policy no longer carries the WITH CHECK " +
-						"that scopes an INSERT on `id`; CreateTenant is then scoped by nothing")
-				}
-				src := repoFile(t, "internal", "domain", "signup", "signup.go")
-				if !strings.Contains(src, "uuid.NewRandom()") {
-					t.Error("Provision no longer mints the tenant id from crypto/rand, so the " +
-						"value the WITH CHECK compares could come from somewhere a caller " +
-						"controls")
-				}
-				continue
-			}
-			t.Errorf("%s (%s) has no WHERE clause at all, so it is scoped by RLS alone.\n"+
-				"§4.5 asks for belt AND braces.", name, file)
+	}
+}
+
+// 🔴 EXACTLY ONE QUERY IN THIS PRODUCT CANNOT CARRY A PREDICATE, AND IT IS
+// NAMED HERE RATHER THAN WAIVED BY A FLAG. CreateTenant writes the `tenants`
+// row ITSELF: there is no earlier row to join to, so there is nothing for a
+// WHERE to constrain — the statement's own scope key is the `id` it inserts.
+// What stands in for the belt is the RLS WITH CHECK on `tenants` (migration
+// 00001 scopes that policy on `id`), which refuses any id other than the
+// transaction's context, and the fact that the id is minted from crypto/rand
+// inside Provision and reaches it from no request field.
+//
+// THE EXEMPTION IS PROVED, NOT ASSERTED: createTenantExemption checks the properties
+// every time the belt meets CreateTenant's missing WHERE, so a future edit that dropped
+// either turns the belt red.
+func createTenantExemption(t *testing.T, body string) {
+	t.Helper()
+	if !strings.Contains(body, "@id") {
+		t.Errorf("CreateTenant no longer inserts a caller-supplied @id, so the "+
+			"tenants WITH CHECK has nothing to compare and the exemption below "+
+			"is void.\n%s", body)
+	}
+	mig := migrationSource(t, "00001_create_tenants.sql")
+	if !strings.Contains(mig, "WITH CHECK (id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)") {
+		t.Error("migration 00001's tenants policy no longer carries the WITH CHECK " +
+			"that scopes an INSERT on `id`; CreateTenant is then scoped by nothing")
+	}
+	src := repoFile(t, "internal", "domain", "signup", "signup.go")
+	if !strings.Contains(src, "uuid.NewRandom()") {
+		t.Error("Provision no longer mints the tenant id from crypto/rand, so the " +
+			"value the WITH CHECK compares could come from somewhere a caller " +
+			"controls")
+	}
+}
+
+// beltFindings is the per-statement check, as one function so TestBelt_SharedLexicalCorpus
+// drives exactly what the belt drives.
+func beltFindings(t *testing.T, body string) []string {
+	t.Helper()
+	// 🔴 A BODY THE LEXER CANNOT READ IS UNSCOPED, AND EVERYTHING BELOW READS THE MASKED BODY
+	// (T164): internal/sqlbelt's Prepare refuses an E-string, a dollar quote, a block comment and
+	// a quoted identifier holding anything but a name, and blanks plain literals and line
+	// comments, so a paren, an OR or a WHERE the database reads as data cannot move the
+	// structure read here -- including the subquery scan's own "has a WHERE" test.
+	prepared, err := sqlbelt.Prepare(body)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	body = prepared
+	out := insertSelectWrites(body)
+	// A subquery that reads a tenant table must have a WHERE AT ALL, checked
+	// before the predicate check because a block with no WHERE is invisible to it.
+	for _, sub := range unscopedSubqueries(t, body) {
+		out = append(out, fmt.Sprintf("contains a subquery that reads the tenant-scoped table %q "+
+			"and has NO WHERE clause at all, so nothing in it is scoped to the "+
+			"caller's tenant.\n\nsubquery read:\n%s", sub.table, sub.text))
+	}
+	blocks := whereBlocks(body)
+	if len(blocks) == 0 {
+		return append(out, noWhereFinding)
+	}
+	for _, blk := range blocks {
+		if scopedByTenant(blk.where, blk.column) {
 			continue
 		}
-		for _, blk := range blocks {
-			if scopedByTenant(blk.where, blk.column) {
-				continue
-			}
-			t.Errorf("%s (%s) has a WHERE clause that does not bind %s to %s as a "+
-				"TOP-LEVEL CONJUNCT.\n"+
-				"§4.5 asks for belt AND braces: RLS scopes the transaction, and the query "+
-				"says the same thing again. Without it, TestBillingDB_PeriodsAreTenantIsolated "+
-				"still passes -- RLS alone blocks the rows -- so this is the only place the "+
-				"second defence is visible.\n\n"+
-				"A predicate inside an OR, or moved into a JOIN ... ON, does NOT count. A "+
-				"CTE or subquery reading a tenant table needs its OWN predicate.\n\n"+
-				"WHERE clause read:\n%s", name, file, blk.column, tenantParam, blk.where)
+		out = append(out, fmt.Sprintf("has a WHERE clause that does not bind %s to %s as a "+
+			"TOP-LEVEL CONJUNCT.\n"+
+			"§4.5 asks for belt AND braces: RLS scopes the transaction, and the query "+
+			"says the same thing again. Without it, TestBillingDB_PeriodsAreTenantIsolated "+
+			"still passes -- RLS alone blocks the rows -- so this is the only place the "+
+			"second defence is visible.\n\n"+
+			"A predicate inside an OR, or moved into a JOIN ... ON, does NOT count. A "+
+			"CTE or subquery reading a tenant table needs its OWN predicate.\n\n"+
+			"WHERE clause read:\n%s", blk.column, tenantParam, blk.where))
+	}
+	return out
+}
+
+// noWhereFinding is the finding for a statement with no WHERE clause at all.
+const noWhereFinding = "has no WHERE clause at all, so it is scoped by RLS alone.\n" +
+	"§4.5 asks for belt AND braces."
+
+// TestBelt_SharedLexicalCorpus runs internal/sqlbelt's one corpus through THIS belt; the five
+// sibling belts run the same corpus through theirs, so the six cannot drift apart on a lexical
+// form without one of them going red (T164). Planted: every statement scopes nothing and must be
+// flagged. Clean: every statement is scoped and must pass.
+func TestBelt_SharedLexicalCorpus(t *testing.T) {
+	for _, c := range sqlbelt.Planted {
+		if f := beltFindings(t, c.SQL); len(f) == 0 {
+			t.Errorf("planted %q passed this belt (closed by: %s):\n%s", c.Name, c.Closes, c.SQL)
+		}
+	}
+	for _, c := range sqlbelt.Clean {
+		if f := beltFindings(t, c.SQL); len(f) != 0 {
+			t.Errorf("clean %q was flagged:\n%s\n%s", c.Name, c.SQL, strings.Join(f, "\n"))
 		}
 	}
 }
@@ -230,7 +276,8 @@ func TestSignupQueries_TheScopeCheckIsNotVacuous(t *testing.T) {
 }
 
 // TestSignupWhereBlocks_SkipsAggregateFilterAndStillSeesTheRealClause pins the narrowing in
-// BOTH directions -- the property ledger's copy names and the two sibling copies lack.
+// BOTH directions -- the property ledger's copy named first and, since T24, all six belts share
+// (internal/sqlbelt's WhereClauses; TestBelt_SharedLexicalCorpus).
 //
 // An aggregate's FILTER (WHERE ...) chooses which rows of an ALREADY-SCOPED result an
 // aggregate sees. It scopes nothing and it can scope nothing, so demanding a tenant
@@ -325,42 +372,14 @@ func unscopedSubqueries(t *testing.T, body string) []subqueryRead {
 // maskNested blanks the contents of every nested parenthesis with SPACES, so a
 // nested subquery's WHERE cannot satisfy its parent. Spaces rather than deletion:
 // removing text can join two tokens and invent a keyword that is not there.
-func maskNested(s string) string {
-	out := []byte(s)
-	depth := 0
-	for i := 0; i < len(out); i++ {
-		switch out[i] {
-		case '(':
-			depth++
-			continue
-		case ')':
-			if depth > 0 {
-				depth--
-			}
-			continue
-		}
-		if depth > 0 {
-			out[i] = ' '
-		}
-	}
-	return string(out)
-}
+func maskNested(s string) string { return sqlbelt.MaskNested(s) }
 
 var fromOrJoinRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-z_][a-z0-9_]*)`)
 
 func parenSpans(s string) []string {
 	var out []string
-	var stack []int
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			stack = append(stack, i)
-		case ')':
-			if n := len(stack); n > 0 {
-				out = append(out, s[stack[n-1]+1:i])
-				stack = stack[:n-1]
-			}
-		}
+	for _, sp := range sqlbelt.ParenSpans(s) {
+		out = append(out, s[sp[0]+1:sp[1]])
 	}
 	return out
 }
@@ -423,42 +442,8 @@ type whereBlock struct {
 // the addressee's name, and that join is NOT what scopes them.
 func whereBlocks(body string) []whereBlock {
 	var out []whereBlock
-	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	// The lookbehind for an aggregate FILTER. Go's regexp has no lookbehind, so the
-	// preceding text is matched with its own anchored pattern instead.
-	filterRE := regexp.MustCompile(`(?is)\bFILTER\s*\(\s*$`)
-	// RETURNING is in the stop list here (as in review's and tenant's copies, and
-	// unlike ledger's): CloseBillingPeriod ends in one, and without the stop its
-	// RETURNING list is read as part of its WHERE clause.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
-	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
-		if filterRE.MatchString(body[:loc[0]]) {
-			continue
-		}
-		rest := body[loc[1]:]
-		depth, end := 0, len(rest)
-		for i := 0; i < len(rest); i++ {
-			if rest[i] == '(' {
-				depth++
-				continue
-			}
-			if rest[i] == ')' {
-				if depth == 0 {
-					end = i
-					break
-				}
-				depth--
-			}
-		}
-		clause := rest[:end]
-		if k := stopRE.FindStringIndex(clause); k != nil {
-			clause = clause[:k[0]]
-		}
-		clause = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(clause), ";"))
-		if clause == "" {
-			continue
-		}
-		out = append(out, whereBlock{where: clause, column: scopeColumnFor(body[:loc[0]])})
+	for _, c := range sqlbelt.WhereClauses(body) {
+		out = append(out, whereBlock{where: c.Text, column: scopeColumnFor(body[:c.At])})
 	}
 	return out
 }
@@ -467,86 +452,15 @@ func whereBlocks(body string) []whereBlock {
 // scope column and the tenant parameter. Top-level is the whole point:
 // `(a = @tenant_id OR TRUE)` scopes nothing.
 func scopedByTenant(where, column string) bool {
-	if hasTopLevelOr(where) {
+	if sqlbelt.HasTopLevelOr(where) {
 		return false
 	}
-	for _, conjunct := range splitTopLevelAnd(where) {
+	for _, conjunct := range sqlbelt.SplitTopLevelAnd(where) {
 		if isScopeEquality(conjunct, column) {
 			return true
 		}
 	}
 	return false
-}
-
-func splitTopLevelAnd(s string) []string {
-	var parts []string
-	depth, last := 0, 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		}
-		if depth != 0 {
-			continue
-		}
-		if strings.HasPrefix(upper[i:], "AND") && wordBoundary(upper, i, 3) {
-			parts = append(parts, s[last:i])
-			last = i + 3
-		}
-	}
-	return append(parts, s[last:])
-}
-
-// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
-// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
-// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
-// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
-// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
-// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
-// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
-// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
-// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
-// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
-// fail closed (a false alarm, never a pass).
-func hasTopLevelOr(s string) bool {
-	depth := 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch {
-		case s[i] == '\'':
-			for i++; i < len(s) && s[i] != '\''; i++ {
-			}
-			continue
-		case strings.HasPrefix(s[i:], "--"):
-			for ; i < len(s) && s[i] != '\n'; i++ {
-			}
-			continue
-		case s[i] == '(':
-			depth++
-			continue
-		case s[i] == ')':
-			depth--
-			continue
-		}
-		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
-			return true
-		}
-	}
-	return false
-}
-
-func wordBoundary(s string, i, n int) bool {
-	if i > 0 && isWordByte(s[i-1]) {
-		return false
-	}
-	return i+n >= len(s) || !isWordByte(s[i+n])
-}
-
-func isWordByte(b byte) bool {
-	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func isScopeEquality(conjunct, column string) bool {
