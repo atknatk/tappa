@@ -833,29 +833,34 @@ var transactionStepFuncs = map[string]string{
 	"OpenIdentityReset": "identity.go", "BoundLockWaits": "lockwait.go",
 }
 
-// TestTransactionSteps_EveryWrapGoesThroughQuietErr (the orchestrator's audit of the m14-identity merge):
-// in a transaction step function an error leaves only through quietErr or inTransaction. It is the source
-// half of TestTransactionSteps_AResetConnectionCarriesNoAddress, for the wraps a reset cannot be timed
-// into (OpenIdentityReset's COMMIT). The rules, each for a shape that got past the first version:
-//   - a %w wrap's last argument is quietErr(...);
-//   - an err-named identifier (err, ...Err, ...err) handed to ANY call is red unless the call is quietErr,
-//     inTransaction, errors.Is, errors.As, LockWaitExpired or Transient -- %v, errors.Join and a second %w
-//     all hand the raw error to a call;
-//   - an assignment from a bare err-named identifier (an alias the other rules would not follow) is red;
-//   - a return of a bare err, and a bare `return` in a function with named results, are red.
+// TestTransactionSteps_EveryWrapGoesThroughQuietErr (the orchestrator's audit of the m14-identity merge)
+// reads the transaction step functions' source. It is the source half of
+// TestTransactionSteps_AResetConnectionCarriesNoAddress, for the wraps a reset cannot be timed into
+// (OpenIdentityReset's COMMIT). It is NOT a proof that every error leaves through quietErr; it catches
+// exactly these shapes:
+//   - an fmt.Errorf with %w whose last argument is not a quietErr(...) call;
+//   - an err-named identifier (err, ...Err, ...err) given as an argument to any call other than quietErr,
+//     inTransaction, errors.Is, errors.As, LockWaitExpired or Transient (a %v, errors.Join, a second %w);
+//   - an assignment whose right side is a bare err-named identifier (an alias);
+//   - a return of a bare err-named identifier, and a bare `return` in a function with named results.
 //
 // ONE NAMED EXCEPTION: inside a DEFERRED func literal the named result `err` itself may be handed on
-// (WithTenantIn joins its rollback's failure to it): every value it can hold has already left through one
-// of the returns the rules above check. Any other err-named identifier there (the rollback's rbErr) is
-// held to the rules.
+// (WithTenantIn joins its rollback's failure to it). Other err-named identifiers there are checked.
+//
+// KNOWN LIMITS, DELIBERATE (the third-eye audit of ece4e271, 2026-11-08; backlog T254) -- these pass:
+// in WithTenantIn's defer `err = errors.Join(err, sp.Rollback(context.Background()))` and
+// `err = fmt.Errorf("...: %v: %v", err, rbErr.Error())`; `return o, tx.Commit(ctx)`; a step's result
+// held in a name that is not err-named (`if e := tx.Commit(ctx); e != nil { ... fmt.Errorf("...: %v", e)
+// }`, `if cause := tx.Commit(ctx); cause != nil { return ..., cause }`); and
+// `fmt.Errorf("db: open identity reset: commit: %s", err.Error())`.
 //
 // MUTANTS (measured, 2026-11-08, reverted, all red here): quietErr removed from OpenIdentityReset's
 // COMMIT (green in every behavioural test); a bare `return OpenedIdentityReset{}, err` after its Scan;
-// WithTenant's `return inTransaction(err)` as `return err`; and the third-eye audit's five on the COMMIT
-// line, green against the first version: `fmt.Errorf("db: open identity reset: commit: %v", err)`;
-// `errors.Join(errors.New("db: open identity reset: commit"), err)`; `fmt.Errorf("...: %w: %w", err,
-// quietErr(err))`; a bare `return`; `cerr := err; return OpenedIdentityReset{}, cerr`. The exception's
-// bound: WithTenantIn's deferred `fmt.Errorf("db: roll back savepoint: %w", rbErr)` -- red.
+// WithTenant's `return inTransaction(err)` as `return err`; on the COMMIT line
+// `fmt.Errorf("db: open identity reset: commit: %v", err)`, `errors.Join(errors.New("db: open identity
+// reset: commit"), err)`, `fmt.Errorf("...: %w: %w", err, quietErr(err))`, a bare `return`,
+// `cerr := err; return OpenedIdentityReset{}, cerr`; and WithTenantIn's deferred
+// `fmt.Errorf("db: roll back savepoint: %w", rbErr)`.
 func TestTransactionSteps_EveryWrapGoesThroughQuietErr(t *testing.T) {
 	fset := token.NewFileSet()
 	seen := map[string]bool{}
