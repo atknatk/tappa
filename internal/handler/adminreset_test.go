@@ -41,6 +41,8 @@ type fakeResets struct {
 	// keptFor is the live links an address's accounts already hold (M10 EM-7C): the
 	// accounts IssueForEmail mints nothing for.
 	keptFor map[string][]adminauth.Reset
+	// stalledFor is the accounts whose mint gave up waiting for a lock (T219).
+	stalledFor map[string][]adminauth.StalledReset
 	// withdrawn is every link Withdraw was asked to retire, and withdrawErr its answer.
 	withdrawn   []uuid.UUID
 	withdrawErr error
@@ -83,19 +85,19 @@ func (f *fakeResets) NoticeRecipient(_ context.Context, _, adminUserID uuid.UUID
 	return f.recipients[adminUserID], nil
 }
 
-func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
+func (f *fakeResets) IssueForEmail(_ context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, []adminauth.StalledReset, error) {
 	f.mu.Lock()
 	f.issueCalls++
 	f.issuedFor = append(f.issuedFor, email)
-	delay, err, grants, kept := f.issueDelay, f.issueErr, f.grantsFor[email], f.keptFor[email]
+	delay, err, grants, kept, stalled := f.issueDelay, f.issueErr, f.grantsFor[email], f.keptFor[email], f.stalledFor[email]
 	f.mu.Unlock()
 	if delay > 0 {
 		time.Sleep(delay)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return grants, kept, nil
+	return grants, kept, stalled, nil
 }
 
 func (f *fakeResets) IssueForPerson(_ context.Context, email string) (adminauth.PersonResets, error) {

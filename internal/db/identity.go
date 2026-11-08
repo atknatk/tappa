@@ -347,10 +347,31 @@ type OpenedIdentityReset struct {
 // OpenIdentityReset opens a reset link for an identity, unless it holds a live one (ADR 0031 §5.9,
 // EM-7C): tokenHash is the hash of the token the caller just drew. pgx.ErrNoRows: no such identity.
 // The hash never reaches an error.
-func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time) (OpenedIdentityReset, error) {
-	var o OpenedIdentityReset
-	if err := d.pool.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
+//
+// lockWait bounds each lock wait inside the call (BoundLockWaits; T219): identity_open_reset takes the
+// identity's advisory lock and its INSERT takes the identity row's key-share lock, and with no bound a
+// lock held elsewhere kept the request until its own deadline. Past it the call fails with
+// LockWaitExpired and the transaction is rolled back, so nothing was opened. The function sets no
+// lock_timeout of its own (00072), so the transaction's applies inside its body.
+func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (o OpenedIdentityReset, err error) {
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: begin: %w", err)
+	}
+	// WithTenant's rule: a rollback on a background context, so a cancelled ctx does not skip it.
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	if err = BoundLockWaits(ctx, tx, lockWait); err != nil {
 		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", err)
+	}
+	if err = tx.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: commit: %w", err)
 	}
 	return o, nil
 }

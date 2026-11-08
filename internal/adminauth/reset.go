@@ -301,7 +301,8 @@ type ResetDatabase interface {
 	// registered address; OpenIdentityReset is keyed by the id that resolution returned (not a
 	// secret -- the caller's type binds it to the address); the other three are keyed by a link's hash.
 	ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error)
-	OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time) (db.OpenedIdentityReset, error)
+	// lockWait bounds each lock wait inside the call (T219; ResetMintLockWait).
+	OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (db.OpenedIdentityReset, error)
 	WithdrawIdentityReset(ctx context.Context, tokenHash string) (bool, error)
 	ConsumeIdentityReset(ctx context.Context, resetHash, newDigest string) (db.ConsumedIdentityReset, error)
 	GetIdentityResetByTokenHash(ctx context.Context, tokenHash string) (db.ResolvedIdentityReset, error)
@@ -341,6 +342,10 @@ type Resets struct {
 	digest func(password string) (string, error)
 	// gate is the process-wide ceiling on password work (workgate.go, backlog T86).
 	gate *WorkGate
+	// mintLockWait is ResetMintLockWait, a field so a test whose subject is a long lock wait
+	// (TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept) can lengthen it. Production
+	// always gets the constant from NewResets.
+	mintLockWait time.Duration
 }
 
 // NewResets builds a Resets. It refuses a wrong-sized HMAC key rather than degrading:
@@ -357,7 +362,8 @@ func NewResets(data ResetDatabase, cfg *config.Config, opts ...Option) (*Resets,
 	if err != nil {
 		return nil, err
 	}
-	return &Resets{data: data, hmacKey: config.NewKey(key), ttl: ResetTTL, now: time.Now, digest: Hash, gate: gateOf(opts)}, nil
+	return &Resets{data: data, hmacKey: config.NewKey(key), ttl: ResetTTL, now: time.Now, digest: Hash, gate: gateOf(opts),
+		mintLockWait: ResetMintLockWait}, nil
 }
 
 // Reset is the stored record of one reset request. It carries no token and no hash --

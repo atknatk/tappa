@@ -3444,7 +3444,7 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    (SIGKILL/OOM) kalanı orkestratörce kabul edildi (4. tur).**
 9. **İstek yolunda senkron yazımlar, tabandan önce** (EM-5A sınır 14, EM-7A sınır 10 ikizi), yalnız kayıtlı
    adreslerde: (a) `kept` satırı — canlı linkli hesap başına bir, istek başına en çok `ResetWindow`; sahte izle
-   ölçüldü, gerçek Postgres'le tam pencerede ölçülmedi; (b) **yedek yolun geri çekmesi** (4. tur, denetçi bulgusu):
+   ölçüldü, gerçek Postgres'le tam pencerede ölçülmedi (duruşta ölçüldü ve sınırlandı: aşağıdaki T211/T219 notu); (b) **yedek yolun geri çekmesi** (4. tur, denetçi bulgusu):
    kesici reddinde, kuyruk dolu ya da kapanırken her grant'ın `undelivered` satırından önce bir `Withdraw` transaction'ı
    — grant başına +1 DB transaction'ı, tam pencerede 8 + 8. Gerçek Postgres'le (gerçek `Withdraw` ve denetim yazıcısı,
    tam pencere, kesici reddi) ölçüldü: yanıt **250,27–251,99 ms**, [taban, taban + 50 ms] içinde
@@ -3464,6 +3464,22 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    Bütçe tabanın altına çekilmedi: 200/100 ms denetimde çalıştı, ama bu kollar açıkken tek başına değmez ve yavaş bir günde
    satırı yanıttan sonraya kaydırır.
    Sağlıklı yolda davranış aynı: yazımlar sığar, satır yanıt dönerken vardır, zamanlama tabanı ve bant değişmedi.
+   **T211/T219 notu (2026-11-08, dal `m14-resetclock`; migration yok) — öteki iki kol.** Yukarıdaki iki kol kapandı;
+   ölçüldü (gerçek Postgres, başka oturumda kilit, eski kod → yeni kod, istek süresi testte 6 sn, tek koşu, paylaşımlı makine).
+   **(a) `kept` (T211):** işletme satırı kilitliyken 1/2/8 hesap **5,01/10,01/40,05 sn, 0 satır → 250,97/250,95/250,70 ms,
+   boşaltmadan sonra 1/2/8 satır**. `kept` satırı artık bir sonuçtur (`keptOutcome`, geri çekmesiz tek yazım). Hesap bütçesini
+   istekte bir kez harcar; yazımın saati **tabanın bitişiyle** biter; sığmayan INSERT `retries` kuyruğundan işçiye gider ve
+   geçici hatada bir kez daha denenir. Önce yedek yazımların 1 sn bütçesi denendi: 0,55/1,14/1,18 sn, hesap sayısından
+   bağımsız ama kayıtlı adresi ayırıyor. `kept` sık koldur ve INSERT sağlıklı durumda tabana sığar, bu yüzden taban seçildi.
+   Yedek yazımların 1 sn'si değişmedi (nadir kol, yukarıdaki gerekçe). İşçide yazılan satırın `created_at`'i yazım anıdır.
+   **(b) mint (T219):** mint transaction'larının her kilit beklemesi istek başına tek bir bütçeyle sınırlı:
+   `adminauth.ResetMintLockWait` = 150 ms, her transaction'da kalanı yerel `lock_timeout` olur. Bütçe tabanın içinde kalacak
+   biçimde seçildi. Bekleme dolarsa transaction beklemede geri alınır: link yok, geri çekme yok. Hesap *duran* olarak döner,
+   yanıt kayıtsız adresinkidir. İşletme satırı istekten önce kilitli: **500 / 6,000 sn → 200 / 252,6 ms**. Kimliğin advisory
+   kilidi tutulu: **500 / 6,02 sn → 200 / 253,3 ms**. Kayıtsız adres 251 ms. Duran mint yeniden denenmez, kişi yeniden ister
+   (kilit gidince hemen basılır, ölçüldü). İzi id'li, bütçeli bir ERROR satırıdır, audit satırı yok.
+   **Kalan (T236):** kilit dışı duruşlar (havuz, G/Ç) sınırlı değildir ve eskisi gibi isteğin süresine dek bekler. Kalan
+   kuyruk ve ölüm kayıpları T197'ninkilerdir.
 10. **`kept` satırları hesap bütçesini harcar:** anonim istekler bir hesabın sonraki `requested`/`undelivered`
     satırlarını bütçenin dışına itebilir (EM-5A'nın *"satırları sınırlar, gönderimleri değil"* sınırı) — gönderim
     etkilenmez.
@@ -3509,7 +3525,8 @@ ERROR satırı kimlik linkinde fazla söyleyebilir: `identity_withdraw_reset` te
 Neden kilidin `pgconn.asyncClose` iptalinden önce açılması (okundu). Yön güvenli; satır bağlı linkin `Withdraw`'ı işlem içindedir, istemci kaydetmez (3 koşuda canlı kaldı).
 `retries` kuyruğu doluysa ya da süreç kapanıyorsa aynı sonuç; süreç ölürse kuyruk da gider
 (sınır 1). İşçi tektir, yani veritabanı durunca arkasındaki gönderimler de yavaşlar (grant başına en çok ~22 sn). `kept` satırı
-(sınır 9(a)) bu kuralın dışındadır: tek yazım, yeniden deneme yok, istek başına hesap sayısı kadar 5 sn tutabilir (T211).
+(sınır 9(a)) **2026-11-08'e dek** bu kuralın dışındaydı: tek yazım, yeniden deneme yok, istek başına hesap sayısı kadar 5 sn
+tutabiliyordu (T211). Şimdi aynı kurala tabidir, saati tabanla biter (sınır 9'un T211/T219 notu).
 **Kilitlenmeyi kısaltma (T212) bu hâliyle uygulanmaz:** `delivered_at` önerisinde `resetSendGrace` (15 sn) kuyruk beklemesini saymaz, sıradaki
 link başkasının isteğiyle ölür ve ADR 0015 (a) geri döner; `delivered_at` yazımı da düşebilir. Eşik gönderimin başladığı ana bağlıdır, ayrı denetim
 ister. Küçük seçenek: işçi düşen geri çekmeleri sınırlı bellek listesinde yeniden dener; başarırsa belirsiz gönderim sınıfını da kapatır.
