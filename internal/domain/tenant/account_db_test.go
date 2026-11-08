@@ -254,7 +254,7 @@ func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 
 	// A name from before the rule can no longer be on file: since migration 00093 the table refuses
 	// it -- tenants_name_keeps_its_isolate, for tappa_app as for anyone -- and the migration does not
-	// land over one. Save's tolerance for an unchanged name (refuseHiddenName) therefore no longer
+	// land over one. Save's tolerance for an unchanged name (its inline check, for refuseHiddenName's reason) therefore no longer
 	// meets a stored one; it stays for a schema a Down left without the CHECK.
 	const legacy = "Rusty\u202eBar"
 	err := f.data.WithTenant(ctx, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {

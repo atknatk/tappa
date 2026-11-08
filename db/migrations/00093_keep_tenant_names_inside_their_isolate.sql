@@ -10,13 +10,16 @@
 -- internal/db's tenantname_test.go evaluates the stored predicate over every code point and holds it
 -- equal to the Go rule, and drives the table itself on each of the set's runes.
 --
--- WHAT IT ALSO CLOSES: the operator's tenant search (op_read_tenants, 00063) matches the STORED name
--- while the screens print shownName's -- the set dropped. Once every stored name is outside the set
--- the two are the same text, so a name the operator reads on the screen is the name the search
--- finds; op_read_tenants is not redefined.
+-- WHAT IT ALSO CLOSES, AND ONLY THAT: the operator's tenant search (op_read_tenants, 00063) matches
+-- the STORED name while the screens print shownName's -- the set dropped. Once every stored name is
+-- outside the set, shownName drops nothing, so a name stored as "Rusty" RLO "Bar" can no longer show
+-- as RustyBar and be missed by that search; op_read_tenants is not redefined. Runes OUTSIDE the set
+-- that render as nothing (U+200B, U+00AD, the joiners and implicit marks) and white space a browser
+-- collapses still make the shown and the stored text differ -- the writers accept them on purpose
+-- (backlog T250).
 --
 -- WHAT THE UP DOES ON A DATABASE THAT STILL HAS ONE (a name stored before T97 reached the writers, or
--- written by hand). Accounts.Save keeps an UNCHANGED name on purpose (refuseHiddenName), so such a
+-- written by hand). Accounts.Save keeps an UNCHANGED name on purpose (its inline check, for refuseHiddenName's reason), so such a
 -- row can exist; a CHECK, though, binds every row version an UPDATE writes, whatever column changed
 -- -- that tenant could no longer move its time zone or be suspended. So the constraint is never left
 -- behind on data it does not hold: the DO block counts those names and refuses with the number
@@ -33,6 +36,10 @@
 -- a table every tap reads): behind an open transaction on tenants the ADD gives up with 55P03
 -- instead of queueing every later reader behind its ACCESS EXCLUSIVE, and the Job's retry runs the
 -- whole file again.
+--
+-- THE COUNT AND RLS. tenants is FORCE ROW LEVEL SECURITY, so a role without BYPASSRLS would count 0;
+-- VALIDATE scans regardless of RLS and would still refuse (PG's own 23514, which names no row), so
+-- the count shapes the message and not the safety. The migration role is a superuser (deploy/README).
 --
 -- THE OLD BINARY ON THIS SCHEMA. main's NameBreaksIsolation is this set (read, b0a885e0), so the
 -- two writers refuse every name the CHECK refuses before they reach it; the one name they let
