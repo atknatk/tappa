@@ -834,20 +834,55 @@ var transactionStepFuncs = map[string]string{
 }
 
 // TestTransactionSteps_EveryWrapGoesThroughQuietErr (the orchestrator's audit of the m14-identity merge):
-// in a transaction step function every %w wrap's last argument is quietErr(...) and no return hands back
-// a bare err -- fn's error leaves through inTransaction. It is the source half of
-// TestTransactionSteps_AResetConnectionCarriesNoAddress, for the wraps a reset cannot be timed into
-// (OpenIdentityReset's COMMIT).
+// in a transaction step function an error leaves only through quietErr or inTransaction. It is the source
+// half of TestTransactionSteps_AResetConnectionCarriesNoAddress, for the wraps a reset cannot be timed
+// into (OpenIdentityReset's COMMIT). The rules, each for a shape that got past the first version:
+//   - a %w wrap's last argument is quietErr(...);
+//   - an err-named identifier (err, ...Err, ...err) handed to ANY call is red unless the call is quietErr,
+//     inTransaction, errors.Is, errors.As, LockWaitExpired or Transient -- %v, errors.Join and a second %w
+//     all hand the raw error to a call;
+//   - an assignment from a bare err-named identifier (an alias the other rules would not follow) is red;
+//   - a return of a bare err, and a bare `return` in a function with named results, are red.
 //
-// MUTANTS (measured, 2026-11-08, reverted): quietErr removed from OpenIdentityReset's COMMIT -- red here
-// (green in every behavioural test); a bare `return OpenedIdentityReset{}, err` after its Scan -- red;
-// WithTenant's `return inTransaction(err)` as `return err` -- red.
+// ONE NAMED EXCEPTION: inside a DEFERRED func literal the named result `err` itself may be handed on
+// (WithTenantIn joins its rollback's failure to it): every value it can hold has already left through one
+// of the returns the rules above check. Any other err-named identifier there (the rollback's rbErr) is
+// held to the rules.
+//
+// MUTANTS (measured, 2026-11-08, reverted, all red here): quietErr removed from OpenIdentityReset's
+// COMMIT (green in every behavioural test); a bare `return OpenedIdentityReset{}, err` after its Scan;
+// WithTenant's `return inTransaction(err)` as `return err`; and the third-eye audit's five on the COMMIT
+// line, green against the first version: `fmt.Errorf("db: open identity reset: commit: %v", err)`;
+// `errors.Join(errors.New("db: open identity reset: commit"), err)`; `fmt.Errorf("...: %w: %w", err,
+// quietErr(err))`; a bare `return`; `cerr := err; return OpenedIdentityReset{}, cerr`. The exception's
+// bound: WithTenantIn's deferred `fmt.Errorf("db: roll back savepoint: %w", rbErr)` -- red.
 func TestTransactionSteps_EveryWrapGoesThroughQuietErr(t *testing.T) {
 	fset := token.NewFileSet()
 	seen := map[string]bool{}
 	files := map[string]bool{}
 	for _, f := range transactionStepFuncs {
 		files[f] = true
+	}
+	errNamed := func(e ast.Expr) (string, bool) {
+		id, ok := e.(*ast.Ident)
+		if !ok {
+			return "", false
+		}
+		return id.Name, id.Name == "err" || strings.HasSuffix(id.Name, "Err") || strings.HasSuffix(id.Name, "err")
+	}
+	reads := func(call *ast.CallExpr) bool {
+		switch f := call.Fun.(type) {
+		case *ast.Ident:
+			switch f.Name {
+			case "quietErr", "inTransaction", "LockWaitExpired", "Transient":
+				return true
+			}
+		case *ast.SelectorExpr:
+			if x, ok := f.X.(*ast.Ident); ok && x.Name == "errors" && (f.Sel.Name == "Is" || f.Sel.Name == "As") {
+				return true
+			}
+		}
+		return false
 	}
 	for file := range files {
 		f, err := parser.ParseFile(fset, file, nil, 0)
@@ -860,35 +895,66 @@ func TestTransactionSteps_EveryWrapGoesThroughQuietErr(t *testing.T) {
 				continue
 			}
 			seen[fn.Name.Name] = true
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.ReturnStmt:
-					for _, r := range x.Results {
-						if id, ok := r.(*ast.Ident); ok && id.Name == "err" {
-							t.Errorf("%s: %s returns a bare err: a reset connection's text would leave with it",
-								fset.Position(x.Pos()), fn.Name.Name)
+			named := fn.Type.Results != nil && len(fn.Type.Results.List) > 0 && len(fn.Type.Results.List[0].Names) > 0
+			bad := func(n ast.Node, what string) {
+				t.Errorf("%s: %s %s: a reset connection's text would leave with it (backlog T208)",
+					fset.Position(n.Pos()), fn.Name.Name, what)
+			}
+			var walk func(body ast.Node, deferred, literal bool)
+			walk = func(body ast.Node, deferred, literal bool) {
+				ast.Inspect(body, func(n ast.Node) bool {
+					switch x := n.(type) {
+					case *ast.DeferStmt:
+						if lit, ok := x.Call.Fun.(*ast.FuncLit); ok {
+							walk(lit.Body, true, true)
+							return false
+						}
+					case *ast.FuncLit:
+						walk(x.Body, deferred, true)
+						return false
+					case *ast.ReturnStmt:
+						if len(x.Results) == 0 && named && !literal {
+							bad(x, "returns its named results bare")
+						}
+						for _, r := range x.Results {
+							if name, ok := errNamed(r); ok {
+								bad(x, "returns a bare "+name)
+							}
+						}
+					case *ast.AssignStmt:
+						for _, r := range x.Rhs {
+							if name, ok := errNamed(r); ok {
+								bad(x, "copies a bare "+name)
+							}
+						}
+					case *ast.CallExpr:
+						if !reads(x) {
+							for _, a := range x.Args {
+								if name, ok := errNamed(a); ok && !(deferred && name == "err") {
+									bad(x, "hands a bare "+name+" to a call")
+								}
+							}
+						}
+						sel, ok := x.Fun.(*ast.SelectorExpr)
+						if !ok || sel.Sel.Name != "Errorf" || len(x.Args) < 2 {
+							return true
+						}
+						lit, ok := x.Args[0].(*ast.BasicLit)
+						if !ok || !strings.Contains(lit.Value, "%w") {
+							return true
+						}
+						var wrapper *ast.Ident
+						if last, ok := x.Args[len(x.Args)-1].(*ast.CallExpr); ok {
+							wrapper, _ = last.Fun.(*ast.Ident)
+						}
+						if wrapper == nil || wrapper.Name != "quietErr" {
+							bad(x, "wraps an error with %w that did not go through quietErr")
 						}
 					}
-				case *ast.CallExpr:
-					sel, ok := x.Fun.(*ast.SelectorExpr)
-					if !ok || sel.Sel.Name != "Errorf" || len(x.Args) < 2 {
-						return true
-					}
-					lit, ok := x.Args[0].(*ast.BasicLit)
-					if !ok || !strings.Contains(lit.Value, "%w") {
-						return true
-					}
-					var wrapper *ast.Ident
-					if last, ok := x.Args[len(x.Args)-1].(*ast.CallExpr); ok {
-						wrapper, _ = last.Fun.(*ast.Ident)
-					}
-					if wrapper == nil || wrapper.Name != "quietErr" {
-						t.Errorf("%s: %s wraps an error with %%w that did not go through quietErr (backlog T208)",
-							fset.Position(x.Pos()), fn.Name.Name)
-					}
-				}
-				return true
-			})
+					return true
+				})
+			}
+			walk(fn.Body, false, false)
 		}
 	}
 	for name := range transactionStepFuncs {
