@@ -352,7 +352,7 @@ func tenantTabs(tenant uuid.UUID) operatorpages.TenantTabs {
 // read returned.
 func tenantBanner(id uuid.UUID, name string) (operatorpages.TenantName, error) {
 	if shown := shownName(name); shown != "" {
-		return operatorpages.NewTenantName(shown)
+		return operatorpages.NewTenantName(id.String(), shown)
 	}
 	return operatorpages.UnnamedTenant(id.String())
 }

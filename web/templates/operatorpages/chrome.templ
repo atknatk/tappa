@@ -63,8 +63,10 @@ templ bar(signedIn bool) {
 // (M13-01). In this package's source today its caller is tenantScreen, whose caller is
 // TenantScreen, which refuses the zero name and an incomplete sub-nav (read, not
 // pinned). A tenant named by its id (UnnamedTenant) shows the placeholder's words and
-// the id, mono. The name is isolated for bidirectional text: a tenant chose it, and a
-// direction override inside it must not turn the banner's other words around.
+// the id, mono; a named one shows the name and, under it, mono, its id's first eight
+// digits (T216: two tenants may carry names the screen prints alike). The name is isolated
+// for bidirectional text: a tenant chose it, and a direction override inside it must not
+// turn the banner's other words around.
 templ tenantBanner(name TenantName, tabs TenantTabs, current TenantTab) {
 	<section class="op-tenant" aria-label="Tenant">
 		<div class="w-full max-w-[960px] px-4 pt-4 md:px-6 md:pt-5 desk:px-10 desk:pt-6">
@@ -74,6 +76,7 @@ templ tenantBanner(name TenantName, tabs TenantTabs, current TenantTab) {
 				<p class="break-all font-mono text-sm">{ name.v }</p>
 			} else {
 				<p class="font-display text-xl font-bold tracking-tight"><bdi>{ name.v }</bdi></p>
+				<p class="font-mono text-sm">ID { name.short }</p>
 			}
 			@opSubNav(tabs, current)
 		</div>

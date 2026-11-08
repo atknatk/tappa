@@ -48,18 +48,51 @@ type TenantName struct {
 	// byID marks the placeholder: v is the tenant's id, and the banner says "Unnamed
 	// tenant" above it.
 	byID bool
+	// short is a named tenant's id as the banner prints it beside the name: its first eight
+	// hex digits (T216). tenants.name is not unique, and two names the screens print alike --
+	// the same words, or words that differ only in what shownName drops -- would otherwise
+	// give two tenants one banner.
+	short string
 }
 
 // ErrNoTenantName is NewTenantName's and TenantScreen's refusal.
 var ErrNoTenantName = errors.New("operatorpages: a tenant screen needs the tenant's name")
 
-// NewTenantName wraps a tenant's name. A name that is empty or white space alone is
-// refused: it would render a heading that names nobody.
-func NewTenantName(name string) (TenantName, error) {
+// ErrNoTenantID is NewTenantName's refusal of an id that is not a tenant's: the banner would
+// print a name with nothing to tell it from another tenant of the same name.
+var ErrNoTenantID = errors.New("operatorpages: a tenant's banner needs the tenant's id")
+
+// NewTenantName wraps a tenant's id and name. A name that is empty or white space alone is
+// refused: it would render a heading that names nobody. The id must be a uuid as uuid.String
+// spells it (36 characters, lower-case hex); the banner prints its first eight digits.
+func NewTenantName(id, name string) (TenantName, error) {
 	if strings.TrimSpace(name) == "" {
 		return TenantName{}, ErrNoTenantName
 	}
-	return TenantName{v: name}, nil
+	short, ok := tenantIDPrefix(id)
+	if !ok {
+		return TenantName{}, ErrNoTenantID
+	}
+	return TenantName{v: name, short: short}, nil
+}
+
+// tenantIDPrefix is the first eight hex digits of a canonical uuid, or false. Tenant ids are
+// gen_random_uuid()'s and uuid.New's -- version 4, random from the first digit -- so the prefix
+// tells tenants apart as well as 32 random bits do; a time-ordered id would not.
+func tenantIDPrefix(id string) (string, bool) {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return "", false
+	}
+	for i := 0; i < 36; i++ {
+		c := id[i]
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", false
+		}
+	}
+	return id[:8], true
 }
 
 // UnnamedTenant is the banner name of a tenant whose stored name shows nothing: the

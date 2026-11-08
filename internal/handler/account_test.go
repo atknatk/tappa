@@ -744,6 +744,17 @@ func TestAccountSave_SaysANewNameCarriesAHiddenCharacter(t *testing.T) {
 	}
 }
 
+// TestAccountNameSentence_NamesWhatTheRuleRefuses (T216): the sentence beside the name field names
+// each class tenant.NameBreaksIsolation refuses -- a tab, a line break, a direction override, the
+// other controls -- so a name refused for a tab is not told it has a line break.
+func TestAccountNameSentence_NamesWhatTheRuleRefuses(t *testing.T) {
+	for _, class := range []string{"a tab", "a line break", "a direction override", "another control character"} {
+		if !strings.Contains(accountNameSentence, class) {
+			t.Errorf("the sentence %q does not name %q", accountNameSentence, class)
+		}
+	}
+}
+
 // TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList — the <select> is drawn from
 // the schema's own vocabulary, and a value that did not come from it is refused.
 func TestAccountSave_RefusesABusinessTypeOutsideTheSchemasList(t *testing.T) {

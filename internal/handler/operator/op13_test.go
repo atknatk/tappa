@@ -817,7 +817,7 @@ func TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes(t *testing.T) {
 // mustName is a tenant's name for a render, or the test's end.
 func mustName(t *testing.T, s string) operatorpages.TenantName {
 	t.Helper()
-	n, err := operatorpages.NewTenantName(s)
+	n, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", s)
 	if err != nil {
 		t.Fatal(err)
 	}
