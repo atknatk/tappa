@@ -73,11 +73,14 @@ type PersonResets struct {
 	Kept []Reset
 	// IdentityKept is set when the identity already held a live link.
 	IdentityKept *IdentityResetKept
+	// Stalled: the unlinked rows, and the identity (IdentityID set), whose mint waited out
+	// ResetMintLockWait. Nothing was made for them (StalledReset).
+	Stalled []StalledReset
 }
 
 // Empty reports whether the request resolved to nothing at all -- the trail's "unknown address".
 func (p PersonResets) Empty() bool {
-	return len(p.Grants) == 0 && len(p.Kept) == 0 && p.IdentityKept == nil
+	return len(p.Grants) == 0 && len(p.Kept) == 0 && p.IdentityKept == nil && len(p.Stalled) == 0
 }
 
 // IssueForPerson is the per-identity request (this file's header): the address's identity gets at most
@@ -93,6 +96,8 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 	if email == "" || !isLookupableEmail(email) {
 		return PersonResets{}, nil
 	}
+	// One lock-wait budget for the per-row mints and the identity's (ResetMintLockWait).
+	ctx = r.withMintClock(ctx)
 
 	// THE READS FIRST, THE IDENTITY'S MINT LAST (M14-14's security audit, measured). Every statement
 	// that can fail -- the two resolvers, the per-row mints -- runs before identity_open_reset, so no
@@ -120,13 +125,19 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 	if len(unlinked) > ResetWindow {
 		unlinked = unlinked[:ResetWindow]
 	}
-	grants, kept, err := r.issueForRows(ctx, unlinked)
+	grants, kept, stalled, err := r.issueForRows(ctx, unlinked)
 	if err != nil {
 		return PersonResets{}, err
 	}
-	out := PersonResets{Grants: grants, Kept: kept}
+	out := PersonResets{Grants: grants, Kept: kept, Stalled: stalled}
 	if hasIdentity && ident.HasActiveMembership {
 		grant, identityKept, err := r.openForIdentity(ctx, recipientOf(ident))
+		if db.LockWaitExpired(err) {
+			// A stall, not a failure (ResetMintLockWait): the opening was rolled back at the wait, so the
+			// identity holds nothing new, and the per-row grants above stay good to send.
+			out.Stalled = append(out.Stalled, StalledReset{IdentityID: ident.ID})
+			return out, nil
+		}
 		if err != nil {
 			return PersonResets{}, r.withdrawAfterFailure(ctx, err, grants)
 		}
@@ -234,9 +245,15 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
 	}
 	expires := r.now().Add(r.ttl)
-	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires)
+	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, r.lockWaitFor(ctx, openIdentityResetWaits))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil
+	}
+	if db.LockWaitExpired(err) {
+		// The one error after which nothing can have been written: the wait failed inside the call's
+		// transaction, which was rolled back, and no COMMIT was sent. So there is nothing to withdraw,
+		// and no withdrawal is owed for it. The caller reports it stalled.
+		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
 	}
 	if err != nil {
 		// THE CALL MAY HAVE COMMITTED: an error here can arrive after the server wrote the link (a

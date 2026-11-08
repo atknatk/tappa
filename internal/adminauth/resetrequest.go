@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
@@ -94,11 +95,88 @@ type ResetGrant struct {
 	IdentityID uuid.UUID
 }
 
+// ResetMintLockWait is everything ONE request's mints may spend waiting for locks (T219), shared by
+// every mint of IssueForEmail or IssueForPerson rather than one each.
+//
+// 🔴 IT IS SPENT PER WAIT, AND A STATEMENT CAN WAIT MORE THAN ONCE. lock_timeout bounds each wait,
+// not the statement (db.BoundLockWaits), and the first version set it once per transaction: the
+// issuing lock and then the INSERT's foreign-key check each got the whole remainder (a security audit
+// measured 302/296/299 ms against this 150 ms). So the remainder is set again before EVERY statement
+// that can wait, divided by how many waits that statement can make (lockWaitFor): the issuing lock
+// one, CreatePasswordReset two (the key-share locks of its two foreign keys, on the business and the
+// administrator; the rows it retires are none on this path -- the read under the issuing lock found no
+// live link), identity_open_reset two (its advisory lock and its INSERT's key share on the identity).
+// The statements in between wait only behind DDL (a table lock), and then under the last bound set.
+//
+// 🔴 WHY THERE IS A BOUND: the mint is the one step of a request only a REGISTERED address reaches,
+// and without one a lock held elsewhere -- the administrator's issuing lock, or a row lock on the
+// business or the identity that the INSERT's foreign key waits for -- held the request until its own
+// deadline. Measured with a real lock from another session: 500 after the request deadline (6 s in
+// the test, httpx.RequestTimeout's 30 s in production) where an unregistered address answers 200 in
+// 250 ms. The status and the clock both told the two apart.
+//
+// 🔴 WHY THIS NUMBER: a stalled mint must finish inside internal/handler's resetRequestFloor (250 ms)
+// for the answer's clock to stay flat, with room for the rest of the request: a full window's
+// healthy request had a median of 60-64 ms in resetRequestFloor's own probe (internal/handler/
+// adminresetlimits.go), and TestResetMintLockWait_FitsUnderTheFloor holds the sum under the floor.
+// It costs nothing in the healthy case: lock_timeout only runs while a
+// statement WAITS, and the issuing lock is held by another request for three statements. What it can
+// refuse is a queue of simultaneous requests for one account longer than this -- which mint nothing
+// anyway (the first one minted), and are reported stalled instead of kept.
+//
+// A wait that runs out is a STALL, not an error: the transaction is rolled back at the wait, so
+// nothing was minted and nothing has to be withdrawn, and the account is returned in Stalled. Once the
+// lock is gone the owner's next request mints at once (no live link was left behind).
+const ResetMintLockWait = 150 * time.Millisecond
+
+// StalledReset is an account -- or, with IdentityID set, an identity -- whose mint gave up waiting
+// for a lock (ResetMintLockWait): no link was made, so none is sent and none has to be withdrawn. It
+// carries ids only; the caller logs it (this package does not log on a request's behalf) and answers
+// exactly what it answers for an address that resolved to nothing.
+type StalledReset struct {
+	TenantID    uuid.UUID
+	AdminUserID uuid.UUID
+	IdentityID  uuid.UUID
+}
+
+// mintClockKey carries one request's ResetMintLockWait deadline from IssueForEmail or IssueForPerson
+// to each of its mints, openForIdentity included (whose parameters are pinned to a context and its
+// recipient: TestIdentityRecipient_IsOneResolverRow). It holds a time and nothing else.
+type mintClockKey struct{}
+
+// withMintClock starts the request's one lock-wait budget.
+func (r *Resets) withMintClock(ctx context.Context) context.Context {
+	return context.WithValue(ctx, mintClockKey{}, time.Now().Add(r.mintLockWait))
+}
+
+// The most lock waits one statement of a mint can make (ResetMintLockWait's comment counts them).
+const (
+	issuingLockWaits       = 1
+	createResetWaits       = 2
+	openIdentityResetWaits = 2
+)
+
+// lockWaitFor is the bound for each wait of a statement that can wait `waits` times: what is left of
+// the request's budget, divided among them, so the statement cannot spend more than the remainder. At
+// least a millisecond: a mint past the budget is still TRIED, so an account nobody holds a lock on
+// still gets its link; only a held lock stalls it.
+func (r *Resets) lockWaitFor(ctx context.Context, waits int) time.Duration {
+	left := r.mintLockWait
+	if until, ok := ctx.Value(mintClockKey{}).(time.Time); ok {
+		left = time.Until(until)
+	}
+	if d := left / time.Duration(waits); d > time.Millisecond {
+		return d
+	}
+	return time.Millisecond
+}
+
 // IssueForEmail mints a reset link for every administrator an address resolves to
 // INSIDE the reset window WHO DOES NOT ALREADY HOLD A LIVE ONE, and returns each new
 // link with the address on that administrator's own row (grants) — and, for every
 // administrator who does hold one, that live link's record (kept), so the caller can
-// write the trail of a request that minted nothing.
+// write the trail of a request that minted nothing — and, for every administrator whose mint waited
+// out ResetMintLockWait, its ids (stalled; no link was made).
 //
 // 🔴 ONE LIVE LINK PER ACCOUNT (M10 EM-7C, ADR 0022's EM-7C note). While an
 // administrator holds a link that could be spent RIGHT NOW — not consumed, not
@@ -163,36 +241,39 @@ type ResetGrant struct {
 // slot exactly as they do in Authenticate's comparison loop — dropping them before
 // the cap would make the window's CONTENTS depend on how many disabled rows an
 // address has, which is a fact about the database answered by how many links arrive.
-func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant, []Reset, error) {
+func (r *Resets) IssueForEmail(ctx context.Context, email string) ([]ResetGrant, []Reset, []StalledReset, error) {
 	// The same three refusals Authenticate makes, in the same place and for the same
 	// reasons: an address that cannot be a lookup key never reaches the driver, where
 	// a NUL byte or invalid UTF-8 would come back as a DATABASE ERROR and turn an
 	// unauthenticated form into a 500.
 	email = strings.TrimSpace(email)
 	if email == "" || !isLookupableEmail(email) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	candidates, err := r.data.GetAdminByEmail(ctx, email)
 	if err != nil {
 		// A database failure is NOT "unknown address". Collapsing them would hide an
 		// outage behind a screen saying a link is on its way.
-		return nil, nil, fmt.Errorf("adminauth: issue reset for address: %w", err)
+		return nil, nil, nil, fmt.Errorf("adminauth: issue reset for address: %w", err)
 	}
 	if len(candidates) > ResetWindow {
 		candidates = candidates[:ResetWindow]
 	}
 
-	return r.issueForRows(ctx, candidates)
+	return r.issueForRows(r.withMintClock(ctx), candidates)
 }
 
 // issueForRows is the per-row half of a request: for each resolved administrator row (the caller has
 // already cut the window), a link unless the row holds a live one. Shared by IssueForEmail and, for
 // the rows not linked to an identity, IssueForPerson (identityreset.go), so the two cannot mint
-// per-row links differently.
-func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin) ([]ResetGrant, []Reset, error) {
+// per-row links differently. ctx carries the request's lock-wait budget (withMintClock).
+func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin) ([]ResetGrant, []Reset, []StalledReset, error) {
 	grants := make([]ResetGrant, 0, len(candidates))
-	var kept []Reset
+	var (
+		kept    []Reset
+		stalled []StalledReset
+	)
 	for _, c := range candidates {
 		// ⚠️ THIS TEST IS THE THIRD OF THREE AND IT IS MEASURED NOT TO BE LOAD-BEARING,
 		// which is written down rather than left for somebody to discover by deleting
@@ -218,7 +299,7 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		// for identities the resolver already returned.
 		to, err := r.recipient(ctx, c.TenantID, c.ID)
 		if err != nil {
-			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
+			return nil, nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if to == "" {
 			// Disabled or gone between the resolver and this read. Skipped in silence
@@ -230,9 +311,15 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 			if errors.Is(err, ErrNoSuchAdmin) {
 				continue
 			}
+			if db.LockWaitExpired(err) {
+				// A stall, not a failure (ResetMintLockWait): rolled back at the wait, so nothing of
+				// this account's was written, and the links minted before it stay good to send.
+				stalled = append(stalled, StalledReset{TenantID: c.TenantID, AdminUserID: c.ID})
+				continue
+			}
 			// The rows minted before this one are withdrawn (M14-14's audit): an error answers the
 			// whole request, so none of its grants is ever delivered.
-			return nil, nil, r.withdrawAfterFailure(ctx, err, grants)
+			return nil, nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
 		if live != nil {
 			kept = append(kept, *live)
@@ -240,7 +327,7 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		}
 		grants = append(grants, ResetGrant{Issued: issued, Recipient: to})
 	}
-	return grants, kept, nil
+	return grants, kept, stalled, nil
 }
 
 // issueUnlessLive is IssueForEmail's per-account step: under the administrator's
@@ -254,6 +341,11 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 // The mint is CreatePasswordReset, unchanged, so its fused retirement still runs —
 // and retires nothing on this path, because the read just above found nothing live
 // under a lock every other issuer on this path takes too.
+//
+// EVERY LOCK WAIT IN IT IS BOUNDED by what is left of the request's ResetMintLockWait, set again
+// before each statement that can wait (lockWaitFor): the issuing lock, and the key-share locks the
+// INSERT's foreign keys take on the business and the administrator. A wait past it fails the
+// transaction with db.LockWaitExpired before anything commits.
 func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid.UUID) (IssuedReset, *Reset, error) {
 	t, h, err := r.newHashedToken()
 	if err != nil {
@@ -264,6 +356,9 @@ func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid
 		live *Reset
 	)
 	err = r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if e := db.BoundLockWaits(ctx, tx, r.lockWaitFor(ctx, issuingLockWaits)); e != nil {
+			return e
+		}
 		q := store.New(tx)
 		if e := q.LockAdminForResetIssue(ctx, store.LockAdminForResetIssueParams{
 			AdminUserID: adminUserID, TenantID: tenantID,
@@ -288,6 +383,10 @@ func (r *Resets) issueUnlessLive(ctx context.Context, tenantID, adminUserID uuid
 				ExpiresAt:   rows[0].ExpiresAt,
 			}
 			return nil
+		}
+		// The wait for the issuing lock spent part of the budget: the INSERT gets what is left.
+		if e := db.BoundLockWaits(ctx, tx, r.lockWaitFor(ctx, createResetWaits)); e != nil {
+			return e
 		}
 		row, e = r.create(ctx, q, tenantID, adminUserID, h)
 		return e

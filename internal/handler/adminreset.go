@@ -210,8 +210,10 @@ type AdminReset struct {
 type panelResets interface {
 	// IssueForEmail returns the links minted now (grants) and, for every account
 	// that already held a live link, that link's record (kept) — M10 EM-7C's one live
-	// link per account. Neither changes the answer; both change the trail.
-	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, error)
+	// link per account. Neither changes the answer; both change the trail. Stalled (T219) are the
+	// accounts whose mint gave up waiting for a lock: nothing was minted, and the answer does not
+	// change either.
+	IssueForEmail(ctx context.Context, email string) ([]adminauth.ResetGrant, []adminauth.Reset, []adminauth.StalledReset, error)
 	// Withdraw retires a link recorded undelivered, so the account's one live link
 	// is never one no inbox holds (attemptOutcome).
 	Withdraw(ctx context.Context, tenantID, resetID uuid.UUID) error
@@ -307,7 +309,7 @@ const (
 	// names the live link (reset_id, expires_at). It exists for undelivered's reason
 	// — the requester is told nothing different, so the trail is the only place a
 	// request against this account can show (§4.6) — and it is written through the
-	// same per-account budget (recordForAdmin), so a flood of requests cannot turn it
+	// same per-account budget (admitForAdmin), so a flood of requests cannot turn it
 	// into a write primitive.
 	ActionAdminResetKept = "admin.recovery.kept"
 )
@@ -569,8 +571,11 @@ func (h *AdminReset) RequestPage(w http.ResponseWriter, r *http.Request) {
 //	                  process-wide breaker would refuse is recorded undelivered here
 //	                  instead (dispatch) — the answer below does not change. An
 //	                  account that already holds a live link gets no grant at all
-//	                  (M10 EM-7C) and its "kept" row is written here (recordKept) —
-//	                  the answer does not change either.
+//	                  (M10 EM-7C) and its "kept" row is written here (recordKept) until
+//	                  the floor ends, the rest by the worker (T211) — the answer does not
+//	                  change either. Neither does a mint that gave up waiting for a
+//	                  lock (adminauth.ResetMintLockWait, T219): nothing was minted, the
+//	                  account is logged stalled, and the visitor gets this same page.
 //	floor             applied on EVERY exit below the budget check, including the
 //	                  ones that did nothing.
 func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
@@ -595,7 +600,7 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	// purpose: a refused request must not be slower than a served one, and holding a
 	// goroutine for a request we already decided not to do is the opposite of what a
 	// limiter is for.
-	done := h.floor()
+	done, floorEnds := h.floor()
 
 	if !h.canDeliver() {
 		// Address-independent, and NOTHING has been resolved: no resolver read, no
@@ -620,15 +625,16 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	var (
 		grants       []adminauth.ResetGrant
 		kept         []adminauth.Reset
+		stalled      []adminauth.StalledReset
 		identityKept *adminauth.IdentityResetKept
 		err          error
 	)
 	if h.identityGate.Open(adminauth.SurfaceResetPerIdentity) {
 		var p adminauth.PersonResets
 		p, err = h.resets.IssueForPerson(r.Context(), email)
-		grants, kept, identityKept = p.Grants, p.Kept, p.IdentityKept
+		grants, kept, identityKept, stalled = p.Grants, p.Kept, p.IdentityKept, p.Stalled
 	} else {
-		grants, kept, err = h.resets.IssueForEmail(r.Context(), email)
+		grants, kept, stalled, err = h.resets.IssueForEmail(r.Context(), email)
 	}
 	if err != nil {
 		// A database failure is NOT "unknown address", and it must not be reported as
@@ -650,13 +656,21 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	for _, g := range grants {
 		h.dispatch(r, fallbackUntil, ip, g)
 	}
+	// The kept rows' clock ends with the floor (T211; recordKept says why it is not the one above).
+	keptUntil := fallbackUntil
+	if floorEnds.Before(keptUntil) {
+		keptUntil = floorEnds
+	}
 	for _, k := range kept {
-		h.recordKept(r, k)
+		h.recordKept(context.WithoutCancel(r.Context()), keptUntil, k)
 	}
 	if identityKept != nil {
 		h.recordIdentityKept(r, *identityKept)
 	}
-	if len(grants) == 0 && len(kept) == 0 && identityKept == nil {
+	for _, st := range stalled {
+		h.logStalledMint(r.Context(), ip, st)
+	}
+	if len(grants) == 0 && len(kept) == 0 && identityKept == nil && len(stalled) == 0 {
 		// Unattributable: nothing resolved, so there is no tenant and audit_log's
 		// tenant_id is NOT NULL with an FK (00005). Logged WITHOUT the address, and
 		// bounded, so a flood of guesses cannot write a list of guessed addresses into
@@ -766,29 +780,32 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 }
 
 // recordKept writes the "kept" row of an account whose live link made a new one
-// unnecessary (M10 EM-7C), on the request's own row context — the context dispatch's
-// fallback row uses, for the same reason — bounded by resetAuditGrace, through the
-// per-account budget.
+// unnecessary (M10 EM-7C), through the per-account budget -- T197's outcome machinery
+// (adminresetoutcome.go), with no withdrawal: the live link is the owner's and stays.
 //
-// ⚠️ IT IS A SYNCHRONOUS INSERT PAID BEFORE THE FLOOR ENDS, ON REGISTERED ADDRESSES
-// ONLY — the shape of the fallback row (ADR 0022 EM-5A note, limit 14): invisible in
-// the answer while it stays under resetRequestFloor (at most adminauth.ResetWindow
-// rows), and measured against the fake trail, not against Postgres.
-func (h *AdminReset) recordKept(r *http.Request, k adminauth.Reset) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resetAuditGrace)
-	defer cancel()
-	h.recordForAdmin(ctx, k.TenantID, k.AdminUserID, audit.Event{
-		TenantID: k.TenantID,
-		ActorID:  ptr(k.AdminUserID),
-		Action:   ActionAdminResetKept,
-		Target:   k.AdminUserID.String(),
-		Detail: adminResetDetail{
-			Outcome:   "kept",
-			Reason:    resetReasonLiveLink,
-			ResetID:   k.ID.String(),
-			ExpiresAt: k.ExpiresAt.UTC().Format(time.RFC3339),
-		},
-	})
+// 🔴 IT RUNS ON A CLOCK THAT ENDS WITH THE FLOOR (until), AND WHAT DOES NOT FIT GOES TO THE
+// WORKER (T211). It had a resetAuditGrace of its own per account, was not retried, and was paid
+// before the floor ends, on registered addresses only: measured with the business row locked from
+// another session, 1/2/8 accounts held the answer 5.01/10.01/40.05 s and every row was lost.
+// Now a request spends on all its kept rows at most what is left of resetRequestFloor, however
+// many accounts there are, so a stall answers at the floor like an unregistered address; a
+// transient failure is tried once more by the worker (resetOutcomeTries), whose row has its own id
+// (audit.Event.ID), so a lost COMMIT answer does not double it.
+//
+// WHY THE FLOOR AND NOT resetFallbackBudget, which the undelivered rows spend: that one buys the row
+// on the response on a slow day for a rare arm (a refused breaker, a full outbox), at the price of a
+// ~1 s tail in a stall. Kept is the COMMON arm of a registered address -- every request while its
+// link lives -- and a kept INSERT is a few milliseconds against the floor's 250 (the slowest arm's
+// median is 60 ms), so it fits in the healthy case and only a stall moves it to the worker. Measured
+// with the shared budget first: 1/2/8 accounts 0.55/1.14/1.18 s, 1/2/8 rows; the clock still told a
+// registered address apart.
+//
+// THE BUDGET IS CHARGED HERE, ON THE REQUEST, whichever goroutine writes the row: the per-account
+// limiter keeps the order of the requests. What moves to the worker is only the INSERT, so a row
+// written late carries the time it was written (audit_log.created_at), not the request's; its
+// detail names the live link (reset_id, expires_at) either way.
+func (h *AdminReset) recordKept(base context.Context, until time.Time, k adminauth.Reset) {
+	h.finishOnRequest(h.keptOutcome(base, k), until)
 }
 
 // resetReasonLiveLink is the kept row's reason.
@@ -806,6 +823,31 @@ func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityRes
 	}
 	h.log.InfoContext(r.Context(), "panel recovery: identity link kept",
 		"identity_id", k.IdentityID, "reset_id", k.ResetID, "outcome", "kept", "reason", resetReasonLiveLink)
+}
+
+// logStalledMint is the trail of an account -- or an identity -- whose mint gave up waiting for a
+// lock (adminauth.ResetMintLockWait, T219). Nothing was minted, so nothing is sent and nothing is owed;
+// the visitor got the page every address gets, and the owner's next request mints once the lock is
+// gone. It is NOT retried later: a mint on the worker would hold the address in memory for a send the
+// person no longer waits for, and asking again is what the page already tells them to do.
+//
+// AN ERROR, because somebody asked for a link and got none without being told -- one line, ids only
+// (never the address), through the per-account budget recordIdentityKept spends, so a flood of
+// requests during a stall cannot turn it into a write primitive on the log.
+func (h *AdminReset) logStalledMint(ctx context.Context, ip string, st adminauth.StalledReset) {
+	key, scope, ids := st.AdminUserID.String(), "account", []any{"admin_user_id", st.AdminUserID}
+	if st.IdentityID != uuid.Nil {
+		key, scope, ids = identityResetBudgetKey(st.IdentityID), "identity", []any{"identity_id", st.IdentityID}
+	}
+	if within, n := h.accountLimiter.TryCharge(key); !within {
+		if h.accountLimiter.FirstOverLimit(n) {
+			h.log.WarnContext(ctx, "panel recovery rate limited", append([]any{"scope", scope}, ids...)...)
+		}
+		return
+	}
+	// Keys from ADR 0031's M14-14 closed list only: ip and the id.
+	h.log.ErrorContext(ctx, "panel recovery: minting a link waited too long for a lock, so none was made",
+		append([]any{"ip", ip}, ids...)...)
 }
 
 // identityResetBudgetKey namespaces an identity's bucket in the per-account budget it shares with
@@ -1196,8 +1238,10 @@ type adminResetDetail struct {
 	Scope string `json:"scope,omitempty"`
 }
 
-// recordForAdmin writes one REQUEST-SIDE attributable row (`requested`,
-// `undelivered`), bounded by the per-account audit budget.
+// admitForAdmin is the per-account audit budget for one REQUEST-SIDE attributable row
+// (`requested`, `undelivered`, `kept`). It used to sit behind recordForAdmin, which wrote
+// the row too; since T211 every such row is an outcome (adminresetoutcome.go) that is
+// charged here once and written on its own clocks, so the writer went and this stays.
 //
 // 🔴 IT IS NOT THE WRITER FOR EVERY ROW IN THIS FLOW ANY MORE, AND THAT NARROWING IS
 // THE FIX FOR A MEASURED §4.6 DEFECT. It used to carry `completed` and `refused` too,
@@ -1220,15 +1264,10 @@ type adminResetDetail struct {
 // address; open signup lets anybody create those), each one an account somebody
 // had to sign up (ADR 0022 EM-7C note). Rows past this budget are what a flood of
 // "kept" requests spends — the sends are not affected.
-func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
-	if row, ok := h.admitForAdmin(ctx, tenantID, adminUserID, e); ok {
-		h.record(ctx, row)
-	}
-}
-
-// admitForAdmin charges the per-account budget ONCE and answers which row, if any, that
-// charge earned: e, the one rate_limited row of the charge that crossed the line, or
-// none. A write that is tried twice (adminresetoutcome.go) is charged here once.
+//
+// IT CHARGES ONCE and answers which row, if any, that charge earned: e, the one
+// rate_limited row of the charge that crossed the line, or none. A write that is tried
+// twice (adminresetoutcome.go) is charged here once.
 func (h *AdminReset) admitForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) (audit.Event, bool) {
 	key := adminUserID.String()
 	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every
@@ -1280,7 +1319,7 @@ func (h *AdminReset) admitForAdmin(ctx context.Context, tenantID, adminUserID uu
 // the writing stops.
 func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPasswordReset, e audit.Event) {
 	key := resolved.ID.String()
-	// One locked step, for recordForAdmin's reason: replays of one link from many
+	// One locked step, for admitForAdmin's reason: replays of one link from many
 	// addresses at once must not all read "allowed" before any of them charges.
 	within, n := h.linkLimiter.TryCharge(key)
 	if !within {
@@ -1567,8 +1606,9 @@ func checkNewPassword(chosen, confirm string) string {
 }
 
 // floor returns the function that holds this response until resetRequestFloor has
-// elapsed. See that constant for what the floor buys and what it does not.
-func (h *AdminReset) floor() func() {
+// elapsed, and the instant it ends. See that constant for what the floor buys and what
+// it does not.
+func (h *AdminReset) floor() (done func(), ends time.Time) {
 	started := time.Now()
 	return func() {
 		rest := resetRequestFloor - time.Since(started)
@@ -1580,7 +1620,7 @@ func (h *AdminReset) floor() func() {
 			return
 		}
 		time.Sleep(rest)
-	}
+	}, started.Add(resetRequestFloor)
 }
 
 // sameOrigin checks the Origin header against this deployment's own, STRICTLY: an
