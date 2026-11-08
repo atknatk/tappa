@@ -1749,7 +1749,9 @@ func (readTicket) MarshalText() ([]byte, error) { return []byte(ticketRedacted),
 // the call and the code -- NOT wrapping the *pgconn.PgError, whose Detail, Where and
 // ConstraintName are exactly what 00026 took pains to keep off the wire. Errors that
 // are not PostgreSQL's (a cancelled context, a broken connection) carry no row value
-// and are wrapped so errors.Is(context.Canceled) still works.
+// and are wrapped so errors.Is(context.Canceled) still works -- through quietErr, because a
+// connection the pool has to open after it started fails as pgconn's ConnectError, whose
+// text names the role, the database and the address (backlog T208, classerr.go).
 func operatorErr(what string, err error) error {
 	if err == nil {
 		return nil
@@ -1761,7 +1763,7 @@ func operatorErr(what string, err error) error {
 		}
 		return fmt.Errorf("db: %s: database error (SQLSTATE %s)", what, pg.Code)
 	}
-	return fmt.Errorf("db: %s: %w", what, err)
+	return fmt.Errorf("db: %s: %w", what, quietErr(err))
 }
 
 // SealedSecret is platform_admins.totp_secret_sealed in transit: the AES-256-GCM

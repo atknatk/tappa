@@ -57,7 +57,7 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 		return fmt.Errorf("db: WithTenant: refusing to scope to the nil tenant")
 	}
 
-	tx, err := d.pool.Begin(ctx)
+	tx, err := d.quiet().Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("db: begin tx: %w", err)
 	}
