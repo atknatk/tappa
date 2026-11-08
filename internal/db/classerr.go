@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/jackc/pgx/v5"
@@ -41,10 +42,24 @@ func (e *classOnlyError) Unwrap() error { return e.err }
 // quietErr is the pool boundary's one rule: an error that carries a connection attempt -- a
 // *pgconn.ConnectError, or a *net.OpError, whose text names the local and the remote address -- leaves
 // as a classOnlyError; every other error is returned AS IT IS, the same value, so a sentinel compared
-// with == and a statement's own PgError are untouched. Measured after the connection was up (the
-// proxy cut it in flight, between statements and before COMMIT): pgx says "conn closed" or
-// "unexpected EOF", no address, and those pass through.
+// with == and a statement's own PgError are untouched.
+//
+// THE *net.OpError CASE IS THE OPEN TRANSACTION'S (both auditors of T208 measured it, 2026-11-08): a
+// connection the peer closes in order (FIN) fails the next statement with "conn closed" or "unexpected
+// EOF", no address; one that is RESET (a failover, a NAT or load balancer timeout) fails it with
+// "write failed: write tcp 10.0.0.5:49152->10.0.0.9:5432: write: broken pipe" -- pgconn wraps the
+// socket's *net.OpError as it is. So WithTenant and WithTenantIn pass their transaction's errors through
+// here too (tenant.go), not only the pool's.
 func quietErr(err error) error {
+	if c := reclassified(err); c != nil {
+		return c
+	}
+	return err
+}
+
+// reclassified is the classOnlyError err becomes, nil when err is not a connection failure. WithTenant
+// needs the answer without comparing errors: an error of an uncomparable type panics under ==.
+func reclassified(err error) *classOnlyError {
 	var connect *pgconn.ConnectError
 	var op *net.OpError
 	switch {
@@ -54,6 +69,17 @@ func quietErr(err error) error {
 		return &classOnlyError{class: "cannot connect (" + connectFailure(err).reason + ")", err: err}
 	case errors.As(err, &op):
 		return &classOnlyError{class: "the connection failed (" + connectFailure(err).reason + ")", err: err}
+	}
+	return nil
+}
+
+// inTransaction is fn's error as WithTenant and WithTenantIn return it: VERBATIM, so callers can
+// errors.Is/As it and compare sentinels, unless it carries a connection failure -- then the step and the
+// class, with the chain kept. fn's own words go in that case (they wrap the driver's text, which cannot
+// be cut out of them); "db: tenant transaction" says where it failed.
+func inTransaction(err error) error {
+	if c := reclassified(err); c != nil {
+		return fmt.Errorf("db: tenant transaction: %w", c)
 	}
 	return err
 }

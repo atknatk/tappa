@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -224,6 +225,20 @@ func startStoppableProxy(t *testing.T, target string) *stoppableProxy {
 	return p
 }
 
+// reset aborts every connection the proxy carries with a TCP RST (SO_LINGER 0), the way a failover or
+// a NAT timeout ends one, and keeps listening.
+func (p *stoppableProxy) reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, c := range p.conns {
+		if tc, ok := c.(*net.TCPConn); ok {
+			_ = tc.SetLinger(0)
+		}
+		_ = c.Close()
+	}
+	p.conns = nil
+}
+
 func (p *stoppableProxy) stop() {
 	_ = p.ln.Close()
 	p.mu.Lock()
@@ -329,7 +344,8 @@ func TestPoolStatements_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 //
 // MUTANTS (measured, 2026-11-08, reverted): GetTagByUID back on d.pool.QueryRow -- red (a raw read
 // outside the list, and GetTagByUID missing from the callers); the "KeepAll" row deleted from
-// poolStatementCalls -- red.
+// poolStatementCalls -- red; a package-level `var zzLeak = func(ctx context.Context, d *DB) error {...
+// d.pool.QueryRow ...}` -- red (green before the GenDecl scan, the third-eye audit's mutant).
 func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -347,19 +363,24 @@ func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			recv := ""
-			if fn.Recv != nil && len(fn.Recv.List) == 1 {
-				if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-					if id, ok := star.X.(*ast.Ident); ok {
-						recv = id.Name
+			// A package-level declaration (a func literal in a var) is scanned too, under a name no list
+			// allows (the third-eye audit's mutant: `var leak = func(...) { d.pool.QueryRow(...) }` was green).
+			name, recv := "<package level>", ""
+			var body ast.Node = decl
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				if fn.Body == nil {
+					continue
+				}
+				name, body = fn.Name.Name, fn.Body
+				if fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+						if id, ok := star.X.(*ast.Ident); ok {
+							recv = id.Name
+						}
 					}
 				}
 			}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
+			ast.Inspect(body, func(n ast.Node) bool {
 				sel, ok := n.(*ast.SelectorExpr)
 				if !ok {
 					return true
@@ -369,14 +390,14 @@ func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 					if recv == "OperatorDB" {
 						return true
 					}
-					if _, ok := rawPoolReaders[fn.Name.Name]; ok && recv == "DB" {
-						rawSeen[fn.Name.Name] = true
+					if _, ok := rawPoolReaders[name]; ok && recv == "DB" {
+						rawSeen[name] = true
 						return true
 					}
 					t.Errorf("%s: %s reads the pool field outside quiet(): a connection failure there renders pgx's "+
-						"text, the role, the database and the address (backlog T208)", fset.Position(sel.Pos()), fn.Name.Name)
+						"text, the role, the database and the address (backlog T208)", fset.Position(sel.Pos()), name)
 				case "quiet":
-					callers[fn.Name.Name] = true
+					callers[name] = true
 				}
 				return true
 			})
@@ -500,5 +521,124 @@ func TestOperatorErr_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 				t.Fatalf("rendering #%d carries %q: %s", i, c, text)
 			}
 		}
+	}
+}
+
+// TestWithTenant_AResetConnectionCarriesNoAddress (backlog T208, both auditors' finding): a connection
+// RESET inside the transaction -- a failover, a NAT timeout -- fails the next write with pgconn's wrap of
+// the socket's *net.OpError, "write failed: write tcp <local>-><remote>: write: broken pipe" (measured by
+// the auditors and by this test's control). WithTenant's fn error, its COMMIT and WithTenantIn's fn error
+// now carry the class with the chain kept.
+//
+// MUTANTS (measured, 2026-11-08, reverted): WithTenant returning fn's error as it is -- red on "a statement";
+// Commit's quietErr removed -- red on "the commit"; WithTenantIn returning fn's error as it is -- red on
+// "a savepoint's statement".
+func TestWithTenant_AResetConnectionCarriesNoAddress(t *testing.T) {
+	raw := os.Getenv("DATABASE_URL")
+	if raw == "" {
+		t.Skip("DATABASE_URL not set; skipping (real Postgres required -- CLAUDE.md §8)")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("DATABASE_URL (%d chars) is not a URL", len(raw))
+	}
+	p := startStoppableProxy(t, u.Host)
+	u.Host = p.ln.Addr().String()
+	_, port, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(u.String())})
+	if err != nil {
+		t.Fatalf("New through the proxy: %v", err)
+	}
+	defer d.Close()
+	cut := func() { p.reset(); time.Sleep(100 * time.Millisecond) }
+	statement := func(ctx context.Context, tx pgx.Tx) error {
+		cut()
+		_, err := tx.Exec(ctx, "SELECT 1")
+		return err
+	}
+	for _, tc := range []struct {
+		name, prefix string
+		run          func() error
+	}{
+		{"a statement", "db: tenant transaction: the connection failed (", func() error {
+			return d.WithTenant(ctx, uuid.New(), statement)
+		}},
+		{"the commit", "db: commit tx: the connection failed (", func() error {
+			return d.WithTenant(ctx, uuid.New(), func(context.Context, pgx.Tx) error { cut(); return nil })
+		}},
+		{"a savepoint's statement", "db: tenant transaction: the connection failed (", func() error {
+			tx, err := d.pool.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = tx.Rollback(context.Background()) }()
+			return WithTenantIn(ctx, tx, uuid.New(), uuid.New(), statement)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d.pool.Reset()
+			err := tc.run()
+			var op *net.OpError
+			if !errors.As(err, &op) {
+				t.Fatalf("CONTROL: no *net.OpError on the chain; the reset measured nothing: %v", err)
+			}
+			if !Transient(err) {
+				t.Errorf("Transient no longer sees a reset connection: %v", err)
+			}
+			t.Logf("after the reset: %s", err)
+			if !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Errorf("error is %q, want the prefix %q", err, tc.prefix)
+			}
+			for i, text := range renderEverywhere(err) {
+				for _, c := range []string{port, "127.0.0.1", "write tcp", "->"} {
+					if strings.Contains(text, c) {
+						t.Fatalf("rendering #%d carries %q: %s", i, c, text)
+					}
+				}
+			}
+		})
+	}
+}
+
+// failingRows is a result set whose failure arrives after Query returned: through Err, as pgx.CollectRows
+// reads it last, or through Scan.
+type failingRows struct {
+	pgx.Rows
+	err error
+}
+
+func (r failingRows) Err() error                    { return r.err }
+func (r failingRows) Scan(...any) error             { return r.err }
+func (r failingRows) Next() bool                    { return false }
+func (r failingRows) Close()                        {}
+func (r failingRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+
+type failingRow struct{ err error }
+
+func (r failingRow) Scan(...any) error { return r.err }
+
+// TestQuietRows_ALateFailureCarriesOnlyItsClass (the third-eye audit's gap): quietRows' Err and Scan and
+// quietRow's Scan, which no stopped proxy reaches (a refused connection fails at Query).
+//
+// MUTANTS (measured, 2026-11-08, reverted): quietRows.Err returning r.Rows.Err() -- red; quietRows.Scan
+// the same -- red.
+func TestQuietRows_ALateFailureCarriesOnlyItsClass(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 7), Port: 6543}
+	late := fmt.Errorf("write failed: %w", &net.OpError{Op: "write", Net: "tcp", Source: addr, Addr: addr, Err: syscall.EPIPE})
+	rows := quietRows{Rows: failingRows{err: late}}
+	for name, got := range map[string]error{
+		"rows.Err": rows.Err(), "rows.Scan": rows.Scan(), "row.Scan": quietRow{r: failingRow{err: late}}.Scan(),
+	} {
+		if got == nil || got.Error() != "the connection failed (broken pipe)" || !errors.Is(got, syscall.EPIPE) {
+			t.Errorf("%s = %v, want the class with the chain kept", name, got)
+		}
+	}
+	if err := (quietRows{Rows: failingRows{}}).Err(); err != nil {
+		t.Errorf("a clean result set's Err = %v", err)
 	}
 }
