@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 
@@ -59,16 +58,40 @@ func quietErr(err error) error {
 
 // reclassified is the classOnlyError err becomes, nil when err is not a connection failure. WithTenant
 // needs the answer without comparing errors: an error of an uncomparable type panics under ==.
+//
+// THE CLASS IS THE FAILED NODE'S, NOT THE WHOLE CHAIN'S (the orchestrator's audit, measured): a joined
+// error -- WithTenantIn's restore beside its rollback -- read through connectFailure(err) looked like a
+// multi-host DSN's attempts and said "an error of type *errors.errorString; attempt 2 of 2". A
+// ConnectError is classed on its own node (its own joins ARE a DSN's attempts); a *net.OpError by
+// classifyAttempt on that node. A chain whose every connection node is already under a classOnlyError
+// is not classed again: its words (the inner step, "db: restore tenant context: ...") are already safe.
 func reclassified(err error) *classOnlyError {
-	var connect *pgconn.ConnectError
-	var op *net.OpError
-	switch {
-	case err == nil:
+	switch n := rawConnectionNode(err).(type) {
+	case *pgconn.ConnectError:
+		return &classOnlyError{class: "cannot connect (" + connectFailure(n).reason + ")", err: err}
+	case *net.OpError:
+		return &classOnlyError{class: "the connection failed (" + classifyAttempt(n).reason + ")", err: err}
+	}
+	return nil
+}
+
+// rawConnectionNode is the first *pgconn.ConnectError or *net.OpError on err's tree, depth first, that
+// no classOnlyError covers; nil when there is none.
+func rawConnectionNode(err error) error {
+	switch e := err.(type) {
+	case nil, *classOnlyError:
 		return nil
-	case errors.As(err, &connect):
-		return &classOnlyError{class: "cannot connect (" + connectFailure(err).reason + ")", err: err}
-	case errors.As(err, &op):
-		return &classOnlyError{class: "the connection failed (" + connectFailure(err).reason + ")", err: err}
+	case *pgconn.ConnectError, *net.OpError:
+		return err
+	case interface{ Unwrap() []error }:
+		for _, c := range e.Unwrap() {
+			if n := rawConnectionNode(c); n != nil {
+				return n
+			}
+		}
+		return nil
+	case interface{ Unwrap() error }:
+		return rawConnectionNode(e.Unwrap())
 	}
 	return nil
 }

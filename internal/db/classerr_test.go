@@ -347,7 +347,8 @@ func TestPoolStatements_AConnectFailureCarriesOnlyItsClass(t *testing.T) {
 // MUTANTS (measured, 2026-11-08, reverted): GetTagByUID back on d.pool.QueryRow -- red (a raw read
 // outside the list, and GetTagByUID missing from the callers); the "KeepAll" row deleted from
 // poolStatementCalls -- red; a package-level `var zzLeak = func(ctx context.Context, d *DB) error {...
-// d.pool.QueryRow ...}` -- red (green before the GenDecl scan, the third-eye audit's mutant).
+// d.pool.QueryRow ...}` -- red (green before the GenDecl scan, the third-eye audit's mutant); a method
+// `func (o *OperatorDB) zz(d *DB) { d.pool.Close() }` -- red (green before the receiver check).
 func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -367,7 +368,7 @@ func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 		for _, decl := range f.Decls {
 			// A package-level declaration (a func literal in a var) is scanned too, under a name no list
 			// allows (the third-eye audit's mutant: `var leak = func(...) { d.pool.QueryRow(...) }` was green).
-			name, recv := "<package level>", ""
+			name, recv, recvName := "<package level>", "", ""
 			var body ast.Node = decl
 			if fn, ok := decl.(*ast.FuncDecl); ok {
 				if fn.Body == nil {
@@ -375,6 +376,9 @@ func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 				}
 				name, body = fn.Name.Name, fn.Body
 				if fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if names := fn.Recv.List[0].Names; len(names) == 1 {
+						recvName = names[0].Name
+					}
 					if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
 						if id, ok := star.X.(*ast.Ident); ok {
 							recv = id.Name
@@ -389,7 +393,10 @@ func TestPoolStatements_GoThroughQuiet(t *testing.T) {
 				}
 				switch sel.Sel.Name {
 				case "pool":
-					if recv == "OperatorDB" {
+					// The operator pool's methods read their OWN pool (operatorErr classes it); a *DB they
+					// were handed is the customer pool and is held to the rule (the orchestrator's mutant:
+					// `func (o *OperatorDB) x(d *DB) { d.pool... }` was green).
+					if x, ok := sel.X.(*ast.Ident); ok && recv == "OperatorDB" && recvName != "" && x.Name == recvName {
 						return true
 					}
 					if _, ok := rawPoolReaders[name]; ok && recv == "DB" {
@@ -573,6 +580,14 @@ func TestWithTenant_AResetConnectionCarriesNoAddress(t *testing.T) {
 		{"the commit", "db: commit tx: the connection failed (", func() error {
 			return d.WithTenant(ctx, uuid.New(), func(context.Context, pgx.Tx) error { cut(); return nil })
 		}},
+		// fn returns nil, so the RESTORE is the write that meets the reset: its own step and class have to
+		// come out whole, not reclassed as a multi-attempt join (the orchestrator's measurement:
+		// "the connection failed (an error of type *errors.errorString; attempt 2 of 2)").
+		{"a savepoint's restore", "db: restore tenant context: the connection failed (broken pipe)", func() error {
+			return d.WithTenant(ctx, uuid.New(), func(ctx context.Context, tx pgx.Tx) error {
+				return WithTenantIn(ctx, tx, uuid.New(), uuid.New(), func(context.Context, pgx.Tx) error { cut(); return nil })
+			})
+		}},
 		{"a savepoint's statement", "db: tenant transaction: the connection failed (", func() error {
 			tx, err := d.pool.Begin(ctx)
 			if err != nil {
@@ -642,5 +657,45 @@ func TestQuietRows_ALateFailureCarriesOnlyItsClass(t *testing.T) {
 	}
 	if err := (quietRows{Rows: failingRows{}}).Err(); err != nil {
 		t.Errorf("a clean result set's Err = %v", err)
+	}
+}
+
+// TestInTransaction_ClassesTheFailedNode (the orchestrator's audit): the class comes from the connection
+// node that failed, not from the whole chain read as a DSN's attempts, and a chain already classed keeps
+// its words.
+//
+// MUTANTS (measured, 2026-11-08, reverted): reclassified's *net.OpError case classing connectFailure(err)
+// -- red on "a join of a network failure and another error"; rawConnectionNode descending into a
+// classOnlyError -- red on "an already classed join".
+func TestInTransaction_ClassesTheFailedNode(t *testing.T) {
+	addr := &net.TCPAddr{IP: net.IPv4(192, 0, 2, 7), Port: 6543}
+	op := func() error {
+		return fmt.Errorf("write failed: %w", &net.OpError{Op: "write", Net: "tcp", Source: addr, Addr: addr, Err: syscall.EPIPE})
+	}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"a join of a network failure and another error", errors.Join(fmt.Errorf("step: %w", op()), errors.New("other")),
+			"db: tenant transaction: the connection failed (broken pipe)"},
+		{"an already classed join", errors.Join(fmt.Errorf("db: restore tenant context: %w", quietErr(op())),
+			fmt.Errorf("db: roll back savepoint: %w", quietErr(op()))),
+			"db: restore tenant context: the connection failed (broken pipe)\ndb: roll back savepoint: the connection failed (broken pipe)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := inTransaction(tc.err)
+			if got.Error() != tc.want {
+				t.Errorf("inTransaction = %q, want %q", got, tc.want)
+			}
+			if !errors.Is(got, syscall.EPIPE) {
+				t.Error("the chain lost the socket's errno")
+			}
+			for i, text := range renderEverywhere(got) {
+				if strings.Contains(text, "192.0.2.7") || strings.Contains(text, ":6543") {
+					t.Fatalf("rendering #%d carries the address: %s", i, text)
+				}
+			}
+		})
 	}
 }
