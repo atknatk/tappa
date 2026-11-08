@@ -47,7 +47,7 @@ type IdentityVerification struct {
 // not linked, or the address is already verified.
 func (d *DB) RequestIdentityVerification(ctx context.Context, sessionHash, tokenHash string) (IdentityVerification, error) {
 	var v IdentityVerification
-	if err := d.pool.QueryRow(ctx, requestIdentityVerificationSQL, sessionHash, tokenHash).Scan(&v.ID, &v.ExpiresAt); err != nil {
+	if err := d.quiet().QueryRow(ctx, requestIdentityVerificationSQL, sessionHash, tokenHash).Scan(&v.ID, &v.ExpiresAt); err != nil {
 		return IdentityVerification{}, fmt.Errorf("db: request identity verification: %w", err)
 	}
 	return v, nil
@@ -59,7 +59,7 @@ func (d *DB) RequestIdentityVerification(ctx context.Context, sessionHash, token
 // link is unknown, spent or expired, or the session is not one of the link's identity.
 func (d *DB) VerifyIdentityEmail(ctx context.Context, verificationHash, sessionHash string) (bool, error) {
 	var first bool
-	if err := d.pool.QueryRow(ctx, verifyIdentityEmailSQL, verificationHash, sessionHash).Scan(&first); err != nil {
+	if err := d.quiet().QueryRow(ctx, verifyIdentityEmailSQL, verificationHash, sessionHash).Scan(&first); err != nil {
 		return false, fmt.Errorf("db: verify identity email: %w", err)
 	}
 	return first, nil
@@ -83,7 +83,7 @@ type ConfirmWindowRow struct {
 // (not an error) when the session is not live or its row is not linked -- an unlinked row has no
 // window. It writes nothing.
 func (d *DB) ConfirmWindow(ctx context.Context, sessionHash string) ([]ConfirmWindowRow, error) {
-	rows, err := d.pool.Query(ctx, confirmWindowSQL, sessionHash)
+	rows, err := d.quiet().Query(ctx, confirmWindowSQL, sessionHash)
 	if err != nil {
 		return nil, fmt.Errorf("db: confirm window: %w", err)
 	}
@@ -103,7 +103,7 @@ func (d *DB) ConfirmWindow(ctx context.Context, sessionHash string) ([]ConfirmWi
 // pgx.ErrNoRows: no live linked session, or no open window.
 func (d *DB) KeepAll(ctx context.Context, sessionHash string) error {
 	var kept bool
-	if err := d.pool.QueryRow(ctx, keepAllSQL, sessionHash).Scan(&kept); err != nil {
+	if err := d.quiet().QueryRow(ctx, keepAllSQL, sessionHash).Scan(&kept); err != nil {
 		return fmt.Errorf("db: keep all: %w", err)
 	}
 	if !kept {
@@ -127,7 +127,7 @@ func (d *DB) UnlinkMembership(ctx context.Context, freshSessionHash string, tena
 		u UnlinkedMembership
 		n int32
 	)
-	if err := d.pool.QueryRow(ctx, unlinkMembershipSQL, freshSessionHash, tenant).Scan(&u.AdminUserID, &n); err != nil {
+	if err := d.quiet().QueryRow(ctx, unlinkMembershipSQL, freshSessionHash, tenant).Scan(&u.AdminUserID, &n); err != nil {
 		return UnlinkedMembership{}, fmt.Errorf("db: unlink membership: %w", err)
 	}
 	u.RevokedSessions = int(n)
@@ -138,7 +138,7 @@ func (d *DB) UnlinkMembership(ctx context.Context, freshSessionHash string, tena
 // required. pgx.ErrNoRows: stale or dead session, closed window, or no such refused row.
 func (d *DB) RelinkMembership(ctx context.Context, freshSessionHash string, tenant uuid.UUID) (uuid.UUID, error) {
 	var id uuid.UUID
-	err := d.pool.QueryRow(ctx, relinkMembershipSQL, freshSessionHash, tenant).Scan(&id)
+	err := d.quiet().QueryRow(ctx, relinkMembershipSQL, freshSessionHash, tenant).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, fmt.Errorf("db: relink membership: %w", pgx.ErrNoRows)
 	}
@@ -162,7 +162,7 @@ FROM identity_link_by_email($1, $2)`
 // linked.
 func (d *DB) RequestIdentityLink(ctx context.Context, sessionHash, tokenHash string) (IdentityVerification, error) {
 	var v IdentityVerification
-	if err := d.pool.QueryRow(ctx, requestIdentityLinkSQL, sessionHash, tokenHash).Scan(&v.ID, &v.ExpiresAt); err != nil {
+	if err := d.quiet().QueryRow(ctx, requestIdentityLinkSQL, sessionHash, tokenHash).Scan(&v.ID, &v.ExpiresAt); err != nil {
 		return IdentityVerification{}, fmt.Errorf("db: request identity link: %w", err)
 	}
 	return v, nil
@@ -186,7 +186,7 @@ func (d *DB) LinkByEmail(ctx context.Context, linkHash, sessionHash string) (Lin
 		l LinkedByEmail
 		n int32
 	)
-	if err := d.pool.QueryRow(ctx, linkByEmailSQL, sessionHash, linkHash).Scan(&n, &l.FirstVerification, &l.Email); err != nil {
+	if err := d.quiet().QueryRow(ctx, linkByEmailSQL, sessionHash, linkHash).Scan(&n, &l.FirstVerification, &l.Email); err != nil {
 		return LinkedByEmail{}, fmt.Errorf("db: link by email: %w", err)
 	}
 	l.Linked = int(n)

@@ -289,7 +289,7 @@ func (m *Manager) signInAsIdentity(ctx context.Context, v verifiedIdentity, want
 	}
 	linked := 0
 	for i, p := range proofs {
-		_, err := m.data.LinkLegacySession(ctx, identityHash, p.hash)
+		_, err := m.data.LinkLegacySession(ctx, identityHash, p.hash.reveal())
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Refused (identity_link_legacy wrote the identity its link_refused event) and the
 			// legacy session left live: revoked here, so no proof session outlives the sign-in.
@@ -312,7 +312,7 @@ func (m *Manager) signInAsIdentity(ctx context.Context, v verifiedIdentity, want
 // verified.
 type proofSession struct {
 	tenant, id uuid.UUID
-	hash       string
+	hash       proofHash
 }
 
 // openIdentitySession is the ONE caller of Database.OpenIdentitySession, and it takes a
@@ -367,7 +367,7 @@ func (m *Manager) openLegacyProofSession(ctx context.Context, admin, tenant uuid
 	if err != nil {
 		return proofSession{}, err
 	}
-	return proofSession{tenant: tenant, id: row.SessionID, hash: h}, nil
+	return proofSession{tenant: tenant, id: row.SessionID, hash: newProofHash(h)}, nil
 }
 
 // revokeProofs revokes proof sessions that no link consumed. Every one is attempted; the failures

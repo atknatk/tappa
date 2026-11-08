@@ -210,7 +210,7 @@ func (s *SignupClaims) identityOf(ctx context.Context, email string) (db.Resolve
 
 // SignupClaim is a draft its link resolved to. Only the link's holder ever sees one.
 type SignupClaim struct {
-	hash   string
+	hash   proofHash
 	digest db.PasswordHash
 	// identityDigest is the address's identity's digest -- set only when IdentityPassword (M14-17b); the
 	// zero value proves nothing (its "" matches no password). identityID is that identity's id, the key
@@ -255,7 +255,7 @@ func (s *SignupClaims) Resolve(ctx context.Context, t ResetToken) (SignupClaim, 
 	if err != nil {
 		return SignupClaim{}, fmt.Errorf("adminauth: resolve signup claim: %w", err)
 	}
-	c := SignupClaim{hash: h, digest: r.PasswordHash, ID: r.ID, Email: r.Email, Draft: r.Draft,
+	c := SignupClaim{hash: newProofHash(h), digest: r.PasswordHash, ID: r.ID, Email: r.Email, Draft: r.Draft,
 		ExpiresAt: r.ExpiresAt, UsedAt: r.UsedAt, KnownAddress: known}
 	if known && !ident.HasActiveMembership {
 		c.IdentityPassword, c.identityDigest, c.identityID = true, ident.PasswordHash, ident.ID
@@ -270,7 +270,7 @@ func (s *SignupClaims) Now() time.Time { return s.now() }
 // a matched password of the draft (nothing else), a panel session's hash, or the identity's digest a
 // matched password was compared with (verified). Its zero value claims nothing.
 type ClaimProof struct {
-	hash     string
+	hash     proofHash
 	session  *string
 	verified db.PasswordHash
 	draft    []byte
@@ -286,10 +286,10 @@ var errNoProof = errors.New("adminauth: claim signup: no proof")
 // context -- the business this transaction just created) and returns the owner row. pgx.ErrNoRows (wrapped)
 // is identity_claim_signup's refusal; the caller rolls back.
 func (p ClaimProof) Claim(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (uuid.UUID, error) {
-	if p.hash == "" {
+	if p.hash.reveal() == "" {
 		return uuid.Nil, errNoProof
 	}
-	return db.ClaimSignup(ctx, tx, p.hash, tenantID, p.session, p.verified)
+	return db.ClaimSignup(ctx, tx, p.hash.reveal(), tenantID, p.session, p.verified)
 }
 
 // ProveWithPassword is the new address's proof: the re-entered password against the draft's digest
@@ -302,7 +302,7 @@ func (s *SignupClaims) ProveWithPassword(ctx context.Context, c SignupClaim, pas
 	}
 	matched := s.compare(c.digest.RevealForPasswordComparison(), password)
 	release()
-	if !matched || c.hash == "" {
+	if !matched || c.hash.reveal() == "" {
 		return ClaimProof{}, ErrBadCredentials
 	}
 	return ClaimProof{hash: c.hash, draft: c.Draft}, nil
@@ -313,7 +313,7 @@ func (s *SignupClaims) ProveWithPassword(ctx context.Context, c SignupClaim, pas
 // draft's address (R18); a malformed cookie proves nothing.
 func (s *SignupClaims) ProveWithSession(c SignupClaim, session Token) (ClaimProof, bool) {
 	h, err := session.hash(s.sessionKey.Reveal())
-	if err != nil || c.hash == "" {
+	if err != nil || c.hash.reveal() == "" {
 		return ClaimProof{}, false
 	}
 	return ClaimProof{hash: c.hash, session: &h, draft: c.Draft}, true
@@ -364,7 +364,7 @@ func (s *SignupClaims) ProveWithIdentityPassword(ctx context.Context, c SignupCl
 		return ClaimProof{}, err
 	}
 	defer release()
-	ours := c.IdentityPassword && c.hash != "" && c.identityID != uuid.Nil
+	ours := c.IdentityPassword && c.hash.reveal() != "" && c.identityID != uuid.Nil
 	if ours {
 		if within, count := budget.TryCharge(claimBudgetKey(c.identityID)); !within {
 			target, event := uuid.Nil, db.IdentityEventLoginFailed

@@ -425,7 +425,7 @@ func classifyAttempt(err error) connectOutcome {
 // their words, so a type alone said only "*errors.errorString" (measured for sslmode=require, verify-full
 // and target_session_attrs=read-only). The whole text has to match and the class is what is printed, so a
 // value can no more reach a message through here than through the default branch. pgconn/pgconn.go:555
-// and pgconn/config.go:1013-1073 at pgx 5.10; TestNew_AConnectFailureCarriesOnlyItsClass measures three
+// and pgconn/config.go:1013-1073 at pgx 5.10; TestNew_AConnectFailureCarriesOnlyItsClass measures four
 // of the five against pgx itself, so a release that rewords those falls back to the type and goes red.
 var pgxFixedFailures = map[string]string{
 	"server refused TLS connection":     "the server declined TLS",

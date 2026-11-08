@@ -23,7 +23,7 @@ func accountShape(t *testing.T, d *shapeDB, linkedTo *uuid.UUID) (*Manager, *int
 		s.switchBucket = m.switchBucketOf(linkedTo)
 	}
 	m.rowFn = func(Resolved) (rowFacts, error) {
-		return rowFacts{email: "person@example.test", digest: "digest:rowpw", status: "active"}, nil
+		return rowFacts{email: "person@example.test", status: "active"}, nil
 	}
 	return m, n, s
 }

@@ -195,7 +195,7 @@ func openClaim(t *testing.T, data *db.DB, d Draft) testClaim {
 		t.Fatal(err)
 	}
 	c := testClaim{hash: hex.EncodeToString(h), draft: rawDraft(t, d)}
-	if _, err := data.OpenSignupClaim(context.Background(), c.hash, d.Account.Email, c.draft, fixtureDigest, time.Now().Add(time.Hour)); err != nil {
+	if _, err := data.OpenSignupClaim(context.Background(), c.hash, d.Account.Email.Reveal(), c.draft, fixtureDigest, time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("open the draft: %v", err)
 	}
 	return c
@@ -251,7 +251,7 @@ func draftFor(t *testing.T, structure string, venues ...string) Draft {
 		Venues: vs,
 		Account: Account{
 			FullName: "Probe Owner",
-			Email:    "probe-" + uuid.NewString() + "@signup.example",
+			Email:    NewAddress("probe-" + uuid.NewString() + "@signup.example"),
 			Password: testPassword("a passphrase nobody guesses"),
 		},
 	}
@@ -538,7 +538,7 @@ func TestSignupProvision_TwoPendingDraftsWithOneVATNumber(t *testing.T) {
 		t.Errorf("the refused confirmation left locations=%d, and the first business holds %d operator(s) (want 0 and 1)", locations, admins)
 	}
 	var identities, spent int
-	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, second.Account.Email).Scan(&identities); err != nil {
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, second.Account.Email.Reveal()).Scan(&identities); err != nil {
 		t.Fatal(err)
 	}
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_signup_claims WHERE token_hash = $1 AND used_at IS NOT NULL`, c2.hash).Scan(&spent); err != nil {
@@ -640,7 +640,7 @@ func TestSignupProvision_AnAddressWithManyAccountsGetsOneIdentity(t *testing.T) 
 			t.Fatal(err)
 		}
 		if _, err := owner.Exec(ctx, `INSERT INTO admin_users (tenant_id, full_name, email, password_hash, role, created_at)
-		                              VALUES ($1, 'Crowd', $2, $3, 'owner', now() - interval '400 days')`, tenantID, d.Account.Email,
+		                              VALUES ($1, 'Crowd', $2, $3, 'owner', now() - interval '400 days')`, tenantID, d.Account.Email.Reveal(),
 			"$2a$04$"+strings.Repeat("c", 53)); err != nil {
 			t.Fatal(err)
 		}
@@ -649,7 +649,7 @@ func TestSignupProvision_AnAddressWithManyAccountsGetsOneIdentity(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
-	ident, err := data.ResolveIdentityByEmail(ctx, d.Account.Email)
+	ident, err := data.ResolveIdentityByEmail(ctx, d.Account.Email.Reveal())
 	if err != nil {
 		t.Fatalf("the address resolves to no identity: %v", err)
 	}

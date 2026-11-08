@@ -59,7 +59,7 @@ func plantSignInless(t *testing.T, owner *pgx.Conn, email string) uuid.UUID {
 func signInlessClaim(t *testing.T, data *db.DB, d Draft) testClaim {
 	t.Helper()
 	c := openClaim(t, data, d)
-	r, err := data.ResolveIdentityByEmail(context.Background(), d.Account.Email)
+	r, err := data.ResolveIdentityByEmail(context.Background(), d.Account.Email.Reveal())
 	if err != nil || r.HasActiveMembership {
 		t.Fatalf("PREMISE: the address's identity (%v), active membership %v", err, r.HasActiveMembership)
 	}
@@ -90,7 +90,7 @@ func TestSignupProvision_ASignInlessIdentityClaimsWithItsPassword(t *testing.T) 
 	p, data, owner := newProvisionerFixtureWithOwner(t)
 	ctx := context.Background()
 	d := draftFor(t, StructureSingle, "Front door")
-	identity := plantSignInless(t, owner, strings.ToLower(d.Account.Email))
+	identity := plantSignInless(t, owner, strings.ToLower(d.Account.Email.Reveal()))
 	claims, err := adminauth.NewSignupClaims(data, &config.Config{SessionHMACKey: config.NewKey([]byte(strings.Repeat("k", 32)))})
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestSignupProvision_ASignInlessIdentityClaimsWithItsPassword(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := claims.Open(ctx, d.Account.Email, "the draft's own password", draft)
+	grant, err := claims.Open(ctx, d.Account.Email.Reveal(), "the draft's own password", draft)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestSignupProvision_ASignInlessIdentityClaimsWithItsPassword(t *testing.T) 
 		t.Fatalf("the owner row: identity %v via %v verified %v, want the planted identity via claim, verified, its digest", l.identity, l.via, l.verified)
 	}
 	var n int
-	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, d.Account.Email).Scan(&n); err != nil || n != 1 {
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM admin_identities WHERE email = $1`, d.Account.Email.Reveal()).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d identities for the address (%v), want 1", n, err)
 	}
 }
@@ -154,7 +154,7 @@ func TestSignupProvision_AResetWhileThePasswordClaimWaitsRefusesIt(t *testing.T)
 	run := func(t *testing.T, reset bool) error {
 		t.Helper()
 		d := draftFor(t, StructureSingle, "Front door")
-		identity := plantSignInless(t, owner, strings.ToLower(d.Account.Email))
+		identity := plantSignInless(t, owner, strings.ToLower(d.Account.Email.Reveal()))
 		c := signInlessClaim(t, data, d)
 		holder, err := owner.Begin(ctx)
 		if err != nil {
@@ -239,8 +239,8 @@ func TestSignupProvision_ThePasswordClaimWaitsOnTheAddressLock(t *testing.T) {
 	ctx := context.Background()
 	probe := probeConn(t)
 	d := draftFor(t, StructureSingle, "Front door")
-	d.Account.Email = "PwLock-" + uuid.NewString() + "@Signup.Example"
-	plantSignInless(t, owner, strings.ToLower(d.Account.Email))
+	d.Account.Email = NewAddress("PwLock-" + uuid.NewString() + "@Signup.Example")
+	plantSignInless(t, owner, strings.ToLower(d.Account.Email.Reveal()))
 	c := signInlessClaim(t, data, d)
 
 	holder, err := owner.Begin(ctx)
@@ -254,7 +254,7 @@ func TestSignupProvision_ThePasswordClaimWaitsOnTheAddressLock(t *testing.T) {
 		}
 	}()
 	var key int64
-	if err := holder.QueryRow(ctx, `SELECT hashtextextended('admin-identity-email:' || lower($1), 0)`, d.Account.Email).Scan(&key); err != nil {
+	if err := holder.QueryRow(ctx, `SELECT hashtextextended('admin-identity-email:' || lower($1), 0)`, d.Account.Email.Reveal()).Scan(&key); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := holder.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
@@ -311,7 +311,7 @@ func TestSignupProvision_ConcurrentPasswordClaimsOfOneIdentity(t *testing.T) {
 	claimsOf := make([]testClaim, n)
 	for i := range drafts {
 		drafts[i] = draftFor(t, StructureSingle, "Front door")
-		drafts[i].Account.Email = email
+		drafts[i].Account.Email = NewAddress(email)
 		claimsOf[i] = signInlessClaim(t, data, drafts[i])
 	}
 	barrier, err := owner.Begin(ctx)

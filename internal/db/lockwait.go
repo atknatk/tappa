@@ -29,7 +29,7 @@ func BoundLockWaits(ctx context.Context, tx pgx.Tx, d time.Duration) error {
 	}
 	ms := (d + time.Millisecond - 1) / time.Millisecond
 	if _, err := tx.Exec(ctx, "SELECT set_config('lock_timeout', $1, true)", strconv.FormatInt(int64(ms), 10)); err != nil {
-		return fmt.Errorf("db: bound lock waits: %w", err)
+		return fmt.Errorf("db: bound lock waits: %w", quietErr(err))
 	}
 	return nil
 }

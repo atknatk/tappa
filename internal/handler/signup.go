@@ -558,7 +558,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 
 	typed := signup.Account{
 		FullName: r.PostFormValue("full_name"),
-		Email:    r.PostFormValue("email"),
+		Email:    signup.NewAddress(r.PostFormValue("email")),
 		Password: config.NewKey([]byte(r.PostFormValue("password"))),
 	}
 	account, errs := signup.ValidateAccount(typed)
@@ -572,7 +572,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 			Venues:        d.Venues,
 			HoneypotField: signupHoneypotField,
 			FullName:      echoSafe(account.FullName),
-			Email:         echoSafe(account.Email),
+			Email:         echoSafe(account.Email.Reveal()),
 			Errors:        map[string]string(errs),
 		}))
 		return
@@ -606,7 +606,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
 		return
 	}
-	grant, err := s.claims.Open(r.Context(), valid.Account.Email, string(account.Password.Reveal()), draft)
+	grant, err := s.claims.Open(r.Context(), valid.Account.Email.Reveal(), string(account.Password.Reveal()), draft)
 	// The attempt counts once the request reached the draft -- unless the work gate refused it, which
 	// compared and wrote nothing (backlog T86, the 2026-11-07 audit: ten busy submits spent the attempt
 	// budget and the eleventh got 429). Kept here, after the call, so the unit is held while it runs.
@@ -629,7 +629,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 			Venues:        d.Venues,
 			HoneypotField: signupHoneypotField,
 			FullName:      echoSafe(account.FullName),
-			Email:         echoSafe(account.Email),
+			Email:         echoSafe(account.Email.Reveal()),
 			Errors:        map[string]string{"email": "We cannot send email to that address. Use one written in plain letters, without accents."},
 		}))
 		return

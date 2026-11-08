@@ -57,9 +57,9 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 		return fmt.Errorf("db: WithTenant: refusing to scope to the nil tenant")
 	}
 
-	tx, err := d.pool.Begin(ctx)
+	tx, err := d.quiet().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("db: begin tx: %w", err)
+		return fmt.Errorf("db: begin tx: %w", quietErr(err)) // already classed by quiet(); the uniform rule
 	}
 
 	// Any early return or panic past this point must roll back so the
@@ -77,17 +77,18 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 	}()
 
 	if _, err = tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenantID.String()); err != nil {
-		return fmt.Errorf("db: set tenant context: %w", err)
+		return fmt.Errorf("db: set tenant context: %w", quietErr(err))
 	}
 
 	if err = fn(ctx, tx); err != nil {
-		// Return fn's error verbatim so callers can errors.Is/As it; the
+		// Return fn's error verbatim so callers can errors.Is/As it -- unless a reset
+		// connection put its addresses in it (inTransaction, backlog T208); the
 		// deferred rollback undoes the transaction.
-		return err
+		return inTransaction(err)
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("db: commit tx: %w", err)
+		return fmt.Errorf("db: commit tx: %w", quietErr(err))
 	}
 	return nil
 }
@@ -118,7 +119,7 @@ func WithTenantIn(ctx context.Context, tx pgx.Tx, outer, tenantID uuid.UUID, fn 
 	}
 	sp, err := tx.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("db: savepoint: %w", err)
+		return fmt.Errorf("db: savepoint: %w", quietErr(err))
 	}
 	defer func() {
 		if p := recover(); p != nil {
@@ -129,21 +130,21 @@ func WithTenantIn(ctx context.Context, tx pgx.Tx, outer, tenantID uuid.UUID, fn 
 		}
 		if err != nil {
 			if rbErr := sp.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
-				err = errors.Join(err, fmt.Errorf("db: roll back savepoint: %w", rbErr))
+				err = errors.Join(err, fmt.Errorf("db: roll back savepoint: %w", quietErr(rbErr)))
 			}
 		}
 	}()
 	if _, err = sp.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenantID.String()); err != nil {
-		return fmt.Errorf("db: set tenant context: %w", err)
+		return fmt.Errorf("db: set tenant context: %w", quietErr(err))
 	}
 	if err = fn(ctx, sp); err != nil {
-		return err
+		return inTransaction(err)
 	}
 	if _, err = sp.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", outer.String()); err != nil {
-		return fmt.Errorf("db: restore tenant context: %w", err)
+		return fmt.Errorf("db: restore tenant context: %w", quietErr(err))
 	}
 	if err = sp.Commit(ctx); err != nil {
-		return fmt.Errorf("db: release savepoint: %w", err)
+		return fmt.Errorf("db: release savepoint: %w", quietErr(err))
 	}
 	return nil
 }
@@ -165,7 +166,7 @@ func BoundStatements(ctx context.Context, tx pgx.Tx, d time.Duration) error {
 	}
 	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true), set_config('jit', 'off', true)",
 		strconv.FormatInt(d.Milliseconds(), 10)); err != nil {
-		return fmt.Errorf("db: bound statements: %w", err)
+		return fmt.Errorf("db: bound statements: %w", quietErr(err))
 	}
 	return nil
 }
