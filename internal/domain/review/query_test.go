@@ -42,6 +42,7 @@ package review
 // having; what it may not do is claim to be absolute.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -50,6 +51,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/atknatk/tappa/internal/sqlbelt"
 )
 
 const tenantParam = "@tenant_id"
@@ -79,63 +82,82 @@ func TestReviewQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			t.Errorf("no query named %q anywhere in db/queries -- this package calls it", name)
 			continue
 		}
-		for _, f := range insertSelectWrites(body) {
+		for _, f := range beltFindings(t, body) {
 			t.Errorf("%s (%s) %s", name, file, f)
-		}
-		clauses := whereClauses(body)
-		if len(clauses) == 0 {
-			t.Errorf("%s (%s) has no WHERE clause at all, so it is scoped by RLS alone.\n"+
-				"§4.5 asks for belt AND braces.", name, file)
-			continue
-		}
-		for _, c := range clauses {
-			if scopedByTenant(c) {
-				continue
-			}
-			t.Errorf("%s (%s) has a WHERE clause that does not bind tenant_id to %s as a "+
-				"TOP-LEVEL CONJUNCT.\n"+
-				"A predicate inside an OR does not count. Without it, a behavioural "+
-				"isolation test still passes -- RLS alone blocks the rows -- so this is "+
-				"the only place the second defence is visible.\n\nWHERE clause read:\n%s",
-				name, file, tenantParam, c)
 		}
 	}
 }
 
-// whereClauses returns every top-level WHERE clause in the query text, ending each
-// at its enclosing block's closing paren or at a clause that may follow WHERE.
+// beltFindings is the per-statement check, as one function so TestBelt_SharedLexicalCorpus
+// drives exactly what the belt drives.
+//
+// 🔴 A BODY THE LEXER CANNOT READ IS UNSCOPED, AND EVERYTHING BELOW READS THE MASKED BODY
+// (T164): internal/sqlbelt's Prepare refuses an E-string, a dollar quote, a block comment and a
+// quoted identifier holding anything but a name, and blanks plain literals and line comments, so
+// a paren, an OR or a WHERE the database reads as data cannot move the structure read here.
+func beltFindings(t *testing.T, body string) []string {
+	t.Helper()
+	prepared, err := sqlbelt.Prepare(body)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	body = prepared
+	out := insertSelectWrites(body)
+	// A SUBQUERY THAT READS A TENANT TABLE MUST HAVE A WHERE AT ALL (third-eye audit of 86689718:
+	// this belt passed `(SELECT count(*) FROM sessions)` in a select list and `EXISTS (SELECT 1 FROM
+	// sessions s)` in a WHERE, before and after T164 -- a block with no WHERE is invisible to the
+	// clause walk below). internal/sqlbelt's WherelessSubqueries, the scan ledger's copy carried.
+	for _, sub := range sqlbelt.WherelessSubqueries(body, tenantScopedTables(t)) {
+		out = append(out, fmt.Sprintf("contains a subquery that reads the tenant-scoped table %q "+
+			"and has NO WHERE clause at all, so nothing in it is scoped to the caller's tenant.\n\n"+
+			"subquery read:\n%s", sub.Table, sub.Text))
+	}
+	clauses := whereClauses(body)
+	if len(clauses) == 0 {
+		return append(out, "has no WHERE clause at all, so it is scoped by RLS alone.\n"+
+			"§4.5 asks for belt AND braces.")
+	}
+	for _, c := range clauses {
+		if scopedByTenant(c) {
+			continue
+		}
+		out = append(out, fmt.Sprintf("has a WHERE clause that does not bind tenant_id to %s as a "+
+			"TOP-LEVEL CONJUNCT.\n"+
+			"A predicate inside an OR does not count. Without it, a behavioural "+
+			"isolation test still passes -- RLS alone blocks the rows -- so this is "+
+			"the only place the second defence is visible.\n\nWHERE clause read:\n%s",
+			tenantParam, c))
+	}
+	return out
+}
+
+// TestBelt_SharedLexicalCorpus runs internal/sqlbelt's one corpus through THIS belt; the five
+// sibling belts run the same corpus through theirs, so the six cannot drift apart on a lexical
+// form without one of them going red (T164). Planted: every statement scopes nothing and must be
+// flagged. Clean: every statement is scoped and must pass -- including an aggregate FILTER with
+// an OR beside a scoped WHERE, which this copy flagged before T24 carried the narrowing here.
+func TestBelt_SharedLexicalCorpus(t *testing.T) {
+	for _, c := range sqlbelt.Planted {
+		if f := beltFindings(t, c.SQL); len(f) == 0 {
+			t.Errorf("planted %q passed this belt (closed by: %s):\n%s", c.Name, c.Closes, c.SQL)
+		}
+	}
+	for _, c := range sqlbelt.Clean {
+		if f := beltFindings(t, c.SQL); len(f) != 0 {
+			t.Errorf("clean %q was flagged:\n%s\n%s", c.Name, c.SQL, strings.Join(f, "\n"))
+		}
+	}
+}
+
+// whereClauses returns every top-level WHERE clause in the query text: internal/sqlbelt's
+// WhereClauses (since T164/T24), which blanks literals, skips an aggregate's FILTER (WHERE ...)
+// -- a row filter over an already-scoped result, not a scope -- and ends each clause at its
+// block's closing paren or at a clause that may follow WHERE (ORDER BY, GROUP BY, LIMIT, HAVING,
+// RETURNING, FOR UPDATE/SHARE, ON CONFLICT).
 func whereClauses(body string) []string {
 	var out []string
-	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	// FOR UPDATE / FOR SHARE added 2026-08-09 (M6-06 phase B) to keep the three
-	// copies identical; the measurement is recorded in internal/domain/tenant's
-	// copy. It is a no-op for the queries this package covers (none takes a row
-	// lock) and stops the matcher mis-reading one that does.
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE|ON\s+CONFLICT)\b`)
-	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
-		rest := body[loc[1]:]
-		depth, end := 0, len(rest)
-		for i := 0; i < len(rest); i++ {
-			if rest[i] == '(' {
-				depth++
-				continue
-			}
-			if rest[i] == ')' {
-				if depth == 0 {
-					end = i
-					break
-				}
-				depth--
-			}
-		}
-		clause := rest[:end]
-		if k := stopRE.FindStringIndex(clause); k != nil {
-			clause = clause[:k[0]]
-		}
-		clause = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(clause), ";"))
-		if clause != "" {
-			out = append(out, clause)
-		}
+	for _, c := range sqlbelt.WhereClauses(body) {
+		out = append(out, c.Text)
 	}
 	return out
 }
@@ -144,85 +166,15 @@ func whereClauses(body string) []string {
 // tenant_id and the caller's parameter. Top-level is the point: `a = @tenant_id AND
 // b` scopes the query and `(a = @tenant_id OR TRUE)` does not.
 func scopedByTenant(where string) bool {
-	if hasTopLevelOr(where) {
+	if sqlbelt.HasTopLevelOr(where) {
 		return false
 	}
-	for _, conjunct := range splitTopLevelAnd(where) {
+	for _, conjunct := range sqlbelt.SplitTopLevelAnd(where) {
 		if isScopeEquality(conjunct) {
 			return true
 		}
 	}
 	return false
-}
-
-func splitTopLevelAnd(s string) []string {
-	var parts []string
-	depth, last := 0, 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-		}
-		if depth != 0 {
-			continue
-		}
-		if strings.HasPrefix(upper[i:], "AND") && wordBoundary(upper, i, 3) {
-			parts = append(parts, s[last:i])
-			last = i + 3
-		}
-	}
-	return append(parts, s[last:])
-}
-
-// hasTopLevelOr reports whether s has an OR outside every parenthesis, string literal and SQL
-// comment (M15-16 review, security ORTA, measured). Splitting on AND alone let
-// `x.tenant_id = @tenant_id AND a OR b` through: one conjunct IS the scope equality, but the
-// clause is (scope AND a) OR b -- every row whenever b holds. A WHERE with an OR at depth zero
-// therefore scopes nothing, whatever its conjuncts look like. A parenthesised OR (`AND (a OR b)`)
-// is depth one and stays a filter. An aggregate's `FILTER (WHERE ...)` is no row scope: ledger's
-// reader skips it, the other copies' readers would hand its OR here. Measured 2026-10-25 over
-// every statement in db/queries with tenant's reader and ledger's: the one depth-zero OR is
-// ListAnomalyVenues' `FILTER (WHERE t.ip_match IS NOT NULL OR t.gps_match IS NOT NULL)`, which
-// only ledger's belt reads -- so no shipped statement turns red, and a copy that met it would
-// fail closed (a false alarm, never a pass).
-func hasTopLevelOr(s string) bool {
-	depth := 0
-	upper := strings.ToUpper(s)
-	for i := 0; i < len(s); i++ {
-		switch {
-		case s[i] == '\'':
-			for i++; i < len(s) && s[i] != '\''; i++ {
-			}
-			continue
-		case strings.HasPrefix(s[i:], "--"):
-			for ; i < len(s) && s[i] != '\n'; i++ {
-			}
-			continue
-		case s[i] == '(':
-			depth++
-			continue
-		case s[i] == ')':
-			depth--
-			continue
-		}
-		if depth == 0 && strings.HasPrefix(upper[i:], "OR") && wordBoundary(upper, i, 2) {
-			return true
-		}
-	}
-	return false
-}
-
-func wordBoundary(s string, i, n int) bool {
-	before := i == 0 || !isWordByte(s[i-1])
-	after := i+n >= len(s) || !isWordByte(s[i+n])
-	return before && after
-}
-
-func isWordByte(b byte) bool {
-	return b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 // isScopeEquality accepts either operand order, an optional alias and any cast --
@@ -534,6 +486,38 @@ func storeQueryNames(t *testing.T, declared map[string]bool) []string {
 	}
 	if files == 0 {
 		t.Fatal("no non-test Go file in this package -- the derivation is reading nothing")
+	}
+	return out
+}
+
+// tenantScopedTables DERIVES the tenant-scoped tables from the migrations' CREATE POLICY lines
+// (internal/sqlbelt's TenantScopedTables), floored so an empty derivation cannot make the subquery
+// scan vacuous.
+func tenantScopedTables(t *testing.T) map[string]bool {
+	t.Helper()
+	dir := filepath.Join("..", "..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading db/migrations: %v", err)
+	}
+	var sources []string
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("reading %s: %v", e.Name(), err)
+		}
+		sources = append(sources, string(raw))
+	}
+	out := sqlbelt.TenantScopedTables(sources...)
+	for _, must := range []string{"employees", "sessions", "admin_users"} {
+		if !out[must] {
+			t.Fatalf("derived %d tenant-scoped table(s) from db/migrations and %q is not among them; "+
+				"the derivation is reading the wrong thing and the subquery scan would pass vacuously",
+				len(out), must)
+		}
 	}
 	return out
 }
