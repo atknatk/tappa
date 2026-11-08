@@ -103,6 +103,15 @@ func beltFindings(t *testing.T, body string) []string {
 	}
 	body = prepared
 	out := insertSelectWrites(body)
+	// A SUBQUERY THAT READS A TENANT TABLE MUST HAVE A WHERE AT ALL (third-eye audit of 86689718:
+	// this belt passed `(SELECT count(*) FROM sessions)` in a select list and `EXISTS (SELECT 1 FROM
+	// sessions s)` in a WHERE, before and after T164 -- a block with no WHERE is invisible to the
+	// clause walk below). internal/sqlbelt's WherelessSubqueries, the scan ledger's copy carried.
+	for _, sub := range sqlbelt.WherelessSubqueries(body, tenantScopedTables(t)) {
+		out = append(out, fmt.Sprintf("contains a subquery that reads the tenant-scoped table %q "+
+			"and has NO WHERE clause at all, so nothing in it is scoped to the caller's tenant.\n\n"+
+			"subquery read:\n%s", sub.Table, sub.Text))
+	}
 	clauses := whereClauses(body)
 	if len(clauses) == 0 {
 		return append(out, "has no WHERE clause at all, so it is scoped by RLS alone.\n"+
@@ -477,6 +486,25 @@ func storeQueryNames(t *testing.T, declared map[string]bool) []string {
 	}
 	if files == 0 {
 		t.Fatal("no non-test Go file in this package -- the derivation is reading nothing")
+	}
+	return out
+}
+
+// tenantScopedTables DERIVES the tenant-scoped tables from the migrations' CREATE POLICY lines
+// (internal/sqlbelt's TenantScopedTables), floored so an empty derivation cannot make the subquery
+// scan vacuous.
+func tenantScopedTables(t *testing.T) map[string]bool {
+	t.Helper()
+	out, err := sqlbelt.TenantScopedTables(filepath.Join("..", "..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, must := range []string{"employees", "sessions", "admin_users"} {
+		if !out[must] {
+			t.Fatalf("derived %d tenant-scoped table(s) from db/migrations and %q is not among them; "+
+				"the derivation is reading the wrong thing and the subquery scan would pass vacuously",
+				len(out), must)
+		}
 	}
 	return out
 }

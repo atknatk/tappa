@@ -86,6 +86,44 @@ var Planted = []Case{
 		Closes: "literal blanking (lex)",
 	},
 	{
+		Name: "a WHERE-less EXISTS subquery inside an aggregate FILTER",
+		SQL: `SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM employees x)) AS n
+		      FROM employees e WHERE e.tenant_id = @tenant_id`,
+		Closes: "WhereClauses reads a FILTER whose parenthesis holds a SELECT (third-eye audit of 86689718, YUKSEK 1)",
+	},
+	{
+		Name: "a WHERE-less IN subquery inside an aggregate FILTER",
+		SQL: `SELECT count(*) FILTER (WHERE e.id IN (SELECT x.id FROM employees x)) AS n
+		      FROM employees e WHERE e.tenant_id = @tenant_id`,
+		Closes: "WhereClauses reads a FILTER whose parenthesis holds a SELECT (third-eye audit of 86689718, YUKSEK 1)",
+	},
+	{
+		Name: "an inner subquery's ORDER BY and LIMIT cut the outer clause before its OR",
+		SQL: `SELECT e.id FROM employees e
+		      WHERE e.tenant_id = @tenant_id
+		        AND e.id IN (SELECT x.id FROM employees x WHERE x.tenant_id = @tenant_id ORDER BY x.id LIMIT 1) OR true`,
+		Closes: "WhereClauses searches its stop words at the clause's own depth (third-eye audit of 86689718, ORTA 2)",
+	},
+	{
+		Name: "an inner subquery's GROUP BY cuts the outer clause before its OR",
+		SQL: `SELECT e.id FROM employees e
+		      WHERE e.tenant_id = @tenant_id
+		        AND e.location_id IN (SELECT x.location_id FROM employees x WHERE x.tenant_id = @tenant_id GROUP BY x.location_id) OR true`,
+		Closes: "WhereClauses searches its stop words at the clause's own depth (third-eye audit of 86689718, ORTA 2)",
+	},
+	{
+		Name: "a WHERE-less scalar subquery in the select list",
+		SQL: `SELECT e.id, (SELECT count(*) FROM sessions) AS n
+		      FROM employees e WHERE e.tenant_id = @tenant_id`,
+		Closes: "WherelessSubqueries, now in all six belts (third-eye audit of 86689718: adminauth and review passed it before and after T164)",
+	},
+	{
+		Name: "a WHERE-less EXISTS in the WHERE",
+		SQL: `SELECT e.id FROM employees e
+		      WHERE e.tenant_id = @tenant_id AND EXISTS (SELECT 1 FROM sessions s)`,
+		Closes: "WherelessSubqueries, now in all six belts (third-eye audit of 86689718: adminauth and review passed it before and after T164)",
+	},
+	{
 		Name: "the only tenant predicate sits inside an aggregate FILTER",
 		SQL: `SELECT count(*) FILTER (WHERE e.tenant_id = @tenant_id) AS n
 		      FROM employees e WHERE e.id = @id`,

@@ -290,34 +290,9 @@ type subqueryRead struct {
 // contributes no block.
 func unscopedSubqueries(t *testing.T, body string) []subqueryRead {
 	t.Helper()
-	tables := tenantScopedTables(t)
 	var out []subqueryRead
-	for _, span := range parenSpans(body) {
-		own := maskNested(span)
-		if strings.Contains(strings.ToUpper(own), "WHERE") {
-			continue
-		}
-		for _, m := range fromOrJoinRE.FindAllStringSubmatch(own, -1) {
-			if tables[strings.ToLower(m[1])] {
-				out = append(out, subqueryRead{table: strings.ToLower(m[1]), text: strings.TrimSpace(span)})
-				break
-			}
-		}
-	}
-	return out
-}
-
-// maskNested blanks the contents of every nested parenthesis with SPACES, so a
-// nested subquery's WHERE cannot satisfy its parent. Spaces rather than deletion:
-// removing text can join two tokens and invent a keyword that is not there.
-func maskNested(s string) string { return sqlbelt.MaskNested(s) }
-
-var fromOrJoinRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-z_][a-z0-9_]*)`)
-
-func parenSpans(s string) []string {
-	var out []string
-	for _, sp := range sqlbelt.ParenSpans(s) {
-		out = append(out, s[sp[0]+1:sp[1]])
+	for _, sub := range sqlbelt.WherelessSubqueries(body, tenantScopedTables(t)) {
+		out = append(out, subqueryRead{table: sub.Table, text: sub.Text})
 	}
 	return out
 }

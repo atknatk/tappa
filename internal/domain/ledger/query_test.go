@@ -289,48 +289,9 @@ type subqueryRead struct {
 // nobody has to rediscover them.
 func unscopedSubqueries(t *testing.T, body string) []subqueryRead {
 	t.Helper()
-	tables := tenantScopedTables(t)
 	var out []subqueryRead
-	for _, span := range parenSpans(body) {
-		// 🔴 AT THIS SPAN'S OWN DEPTH ONLY, and that was the fourth escape rather
-		// than a refinement. The first version asked whether the span CONTAINED the
-		// word WHERE, and a nested subquery's WHERE satisfied it: measured, a
-		// LATERAL reading `sessions` with no predicate of its own passed because it
-		// had `ORDER BY (SELECT count(*) FROM locations WHERE tenant_id = @tenant_id)`
-		// inside it. Blanking the nested spans is what makes "its OWN predicate" mean
-		// what the error message says.
-		own := maskNested(span)
-		if strings.Contains(strings.ToUpper(own), "WHERE") {
-			continue
-		}
-		for _, m := range fromOrJoinRE.FindAllStringSubmatch(own, -1) {
-			if tables[strings.ToLower(m[1])] {
-				out = append(out, subqueryRead{table: strings.ToLower(m[1]), text: strings.TrimSpace(span)})
-				break
-			}
-		}
-	}
-	return out
-}
-
-// maskNested replaces the contents of every nested parenthesis with spaces, leaving
-// the span's own text in place and at its own offsets.
-//
-// SPACES RATHER THAN DELETION, which is the same rule scripts/redline-check.sh's
-// lexer follows: removing text can join two tokens that were never adjacent and
-// invent a keyword that is not there.
-func maskNested(s string) string { return sqlbelt.MaskNested(s) }
-
-// fromOrJoinRE names the table a FROM or JOIN reads. LATERAL is optional and is
-// skipped rather than captured, which is the form this package's own query uses.
-var fromOrJoinRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-z_][a-z0-9_]*)`)
-
-// parenSpans returns the contents of every parenthesised span in the text,
-// innermost first. A subquery is always inside one.
-func parenSpans(s string) []string {
-	var out []string
-	for _, sp := range sqlbelt.ParenSpans(s) {
-		out = append(out, s[sp[0]+1:sp[1]])
+	for _, sub := range sqlbelt.WherelessSubqueries(body, tenantScopedTables(t)) {
+		out = append(out, subqueryRead{table: sub.Table, text: sub.Text})
 	}
 	return out
 }

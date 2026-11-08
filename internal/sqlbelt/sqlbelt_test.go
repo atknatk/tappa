@@ -199,6 +199,18 @@ func TestWhereClauses_FilterLiteralsAndStops(t *testing.T) {
 		{"RETURNING ends it",
 			"UPDATE t SET x = 1 WHERE id = @id RETURNING tenant_id = @tenant_id",
 			[]string{"id = @id"}},
+		{"a FILTER holding a subquery is read, its subquery too",
+			"SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM u)) FROM t WHERE t.tenant_id = @tenant_id",
+			[]string{"EXISTS (SELECT 1 FROM u)", "t.tenant_id = @tenant_id"}},
+		{"a FILTER holding an IN subquery is read",
+			"SELECT count(*) FILTER (WHERE t.id IN (SELECT u.id FROM u WHERE u.n = 1)) FROM t WHERE t.tenant_id = @tenant_id",
+			[]string{"t.id IN (SELECT u.id FROM u WHERE u.n = 1)", "u.n = 1", "t.tenant_id = @tenant_id"}},
+		{"a nested ORDER BY / LIMIT does not end the outer clause",
+			"SELECT 1 FROM t WHERE t.tenant_id = @tenant_id AND t.id IN (SELECT u.id FROM u ORDER BY u.id LIMIT 1) OR true",
+			[]string{"t.tenant_id = @tenant_id AND t.id IN (SELECT u.id FROM u ORDER BY u.id LIMIT 1) OR true"}},
+		{"the outer clause still stops at its own ORDER BY",
+			"SELECT 1 FROM t WHERE t.id IN (SELECT u.id FROM u GROUP BY u.id) ORDER BY t.id",
+			[]string{"t.id IN (SELECT u.id FROM u GROUP BY u.id)"}},
 		{"a subquery's clause ends at its paren",
 			"SELECT 1 FROM t WHERE t.id IN (SELECT u.id FROM u WHERE u.tenant_id = @tenant_id) AND t.tenant_id = @tenant_id",
 			[]string{"t.id IN (SELECT u.id FROM u WHERE u.tenant_id = @tenant_id) AND t.tenant_id = @tenant_id", "u.tenant_id = @tenant_id"}},
@@ -222,7 +234,7 @@ func TestWhereClauses_FilterLiteralsAndStops(t *testing.T) {
 // TestCorpus_IsNotVacuous: the six belts drive Planted and Clean; an emptied corpus would make
 // all six corpus tests pass over nothing.
 func TestCorpus_IsNotVacuous(t *testing.T) {
-	if len(Planted) < 10 || len(Clean) < 6 {
+	if len(Planted) < 18 || len(Clean) < 7 {
 		t.Fatalf("corpus shrank: %d planted, %d clean", len(Planted), len(Clean))
 	}
 	seen := map[string]bool{}
@@ -302,5 +314,53 @@ func TestNoProductionImport(t *testing.T) {
 	}
 	if files < 100 {
 		t.Fatalf("parsed %d non-test Go file(s); the walk is reading the wrong directory", files)
+	}
+}
+
+// TestWherelessSubqueries_SeesWhatTheClauseWalkCannot: a parenthesised read of a tenant table with
+// no WHERE at its own depth is reported; one with its own WHERE, a nested WHERE standing in for
+// it, a WHERE inside a literal, and a table outside the set are not -- in that order of strictness.
+func TestWherelessSubqueries_SeesWhatTheClauseWalkCannot(t *testing.T) {
+	tables := map[string]bool{"sessions": true, "employees": true}
+	tests := []struct {
+		name string
+		body string
+		want []string // tables reported
+	}{
+		{"scalar subquery in a select list", "SELECT (SELECT count(*) FROM sessions) FROM employees e WHERE e.tenant_id = @tenant_id", []string{"sessions"}},
+		{"EXISTS in a WHERE", "SELECT 1 FROM employees e WHERE e.tenant_id = @tenant_id AND EXISTS (SELECT 1 FROM sessions s)", []string{"sessions"}},
+		{"inside an aggregate FILTER", "SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM employees x)) FROM employees e WHERE e.tenant_id = @tenant_id", []string{"employees"}},
+		{"a LATERAL", "SELECT 1 FROM employees e LEFT JOIN LATERAL (SELECT 1 FROM sessions s2 LIMIT 1) s ON TRUE WHERE e.tenant_id = @tenant_id", []string{"sessions"}},
+		{"a nested WHERE does not count for its parent", "SELECT (SELECT max(x) FROM sessions s ORDER BY (SELECT 1 FROM employees e WHERE e.tenant_id = @tenant_id)) FROM employees e WHERE e.tenant_id = @tenant_id", []string{"sessions"}},
+		{"a WHERE in a literal does not count", "SELECT (SELECT 'WHERE' FROM sessions s) FROM employees e WHERE e.tenant_id = @tenant_id", []string{"sessions"}},
+		{"its own WHERE", "SELECT (SELECT count(*) FROM sessions s WHERE s.tenant_id = @tenant_id) FROM employees e WHERE e.tenant_id = @tenant_id", nil},
+		{"a table outside the set", "SELECT (SELECT count(*) FROM pg_class) FROM employees e WHERE e.tenant_id = @tenant_id", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, s := range WherelessSubqueries(tt.body, tables) {
+				got = append(got, s.Table)
+			}
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("WherelessSubqueries = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTenantScopedTables_DerivesFromPolicies: the derivation the belts' subquery scans stand on.
+func TestTenantScopedTables_DerivesFromPolicies(t *testing.T) {
+	got, err := TenantScopedTables(filepath.Join("..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, must := range []string{"employees", "sessions", "transactions", "admin_users", "tenants"} {
+		if !got[must] {
+			t.Errorf("%q is not among the %d derived tenant-scoped tables", must, len(got))
+		}
+	}
+	if _, err := TenantScopedTables(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("a missing directory derived something")
 	}
 }

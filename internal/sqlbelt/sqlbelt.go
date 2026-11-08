@@ -32,6 +32,8 @@ package sqlbelt
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -318,17 +320,34 @@ var (
 // carried it to every belt). It chooses which rows of an ALREADY-SCOPED result an aggregate sees
 // -- `count(*) FILTER (WHERE practice)` -- and can scope nothing, so demanding a tenant predicate
 // in it is demanding one in the wrong place: the anomalies section is ten such counts in one
-// statement. It is NARROWED, not weakened: only a WHERE right after `FILTER (` is skipped; the
-// statement's own WHERE, every CTE's and every subquery's are still read, so a query whose only
-// tenant predicate sits inside a FILTER is still refused.
+// statement. It is NARROWED, not weakened: only a WHERE right after `FILTER (` is skipped, and
+// only when that FILTER's own parenthesis holds no SELECT. The statement's own WHERE and every
+// CTE's are still read, so a query whose only tenant predicate sits inside a FILTER is still
+// refused.
+//
+// 🔴 "ONLY WHEN IT HOLDS NO SELECT" IS A CORRECTION, NOT A REFINEMENT (third-eye audit of
+// 86689718, measured). The first shared version skipped every FILTER's WHERE, and with it the
+// clause of a subquery written inside the FILTER: `FILTER (WHERE EXISTS (SELECT 1 FROM employees
+// x))` -- a read of a tenant table with no predicate at all -- went from flagged to passing in
+// adminauth and review, the two belts with no WHERE-less-subquery scan of their own. A FILTER that
+// holds a SELECT is now read like any WHERE: its clause has no tenant predicate, so it fails CLOSED
+// (a false alarm, never a pass). The auditor counted the 48 `FILTER (WHERE ...)` in db/queries:
+// none holds a subquery, so no shipped statement changes verdict.
 //
 // Literals and line comments are blanked first, so a WHERE, a paren or a stop word inside one is
 // not structure (T164: `<> ')' OR true` ended the clause at the quoted paren and dropped the OR).
+//
+// 🔴 A STOP WORD COUNTS ONLY AT THE CLAUSE'S OWN DEPTH (same audit, ORTA 2; pre-existing in all
+// six copies). The stop list was searched over the whole clause, nested parentheses included, so
+// a subquery's own ORDER BY / GROUP BY / LIMIT ended the OUTER clause: `... AND e.id IN (SELECT
+// ... ORDER BY x.id LIMIT 1) OR true` was read as "... AND e.id IN (SELECT ..." and the depth-0
+// OR after the subquery was never seen (passed five belts; tenant's block walk masked the nest).
+// The search now runs over MaskNested(clause), whose offsets are the clause's own.
 func WhereClauses(body string) []Clause {
 	m := Mask(body)
 	var out []Clause
 	for _, loc := range whereRE.FindAllStringIndex(m, -1) {
-		if filterRE.MatchString(m[:loc[0]]) {
+		if filterRE.MatchString(m[:loc[0]]) && !filterHoldsSelect(m, loc[0]) {
 			continue
 		}
 		rest := m[loc[1]:]
@@ -347,7 +366,7 @@ func WhereClauses(body string) []Clause {
 			}
 		}
 		clause := rest[:end]
-		if k := stopRE.FindStringIndex(clause); k != nil {
+		if k := stopRE.FindStringIndex(MaskNested(clause)); k != nil {
 			clause = clause[:k[0]]
 		}
 		clause = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(clause), ";"))
@@ -357,4 +376,95 @@ func WhereClauses(body string) []Clause {
 		out = append(out, Clause{Text: clause, At: loc[0]})
 	}
 	return out
+}
+
+// selectRE is a SELECT keyword: what makes a parenthesis a subquery.
+var selectRE = regexp.MustCompile(`(?i)\bSELECT\b`)
+
+// filterHoldsSelect reports whether the aggregate FILTER whose WHERE starts at where (in the masked
+// text m) holds a SELECT anywhere inside its own parenthesis. An unbalanced parenthesis answers
+// true: the FILTER is then read like any WHERE, which fails closed.
+func filterHoldsSelect(m string, where int) bool {
+	open := strings.LastIndexByte(m[:where], '(')
+	if open < 0 {
+		return true
+	}
+	depth := 0
+	for i := open; i < len(m); i++ {
+		switch m[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return selectRE.MatchString(m[open:i])
+			}
+		}
+	}
+	return true
+}
+
+// Subquery is a parenthesised block that reads a tenant-scoped table and has no WHERE of its own.
+type Subquery struct {
+	Table string
+	Text  string
+}
+
+// fromOrJoinRE names the table a FROM or JOIN reads; LATERAL is skipped rather than captured.
+var fromOrJoinRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-z_][a-z0-9_]*)`)
+
+// WherelessSubqueries finds every parenthesised block of body that reads one of tables and has NO
+// WHERE at its own depth (a nested subquery's WHERE does not count for its parent). A WHERE-walking
+// belt cannot see such a block -- it contributes no clause -- so it is not merely unscoped, it is
+// invisible (internal/domain/ledger's copy records the measurement: a WHERE-less LATERAL reading
+// `sessions` passed). It was ledger's, billing's and signup's alone until the third-eye audit of
+// 86689718 measured adminauth and review passing `(SELECT count(*) FROM sessions)` in a select list
+// and `EXISTS (SELECT 1 FROM sessions s)` in a WHERE, old and new; all six call this one now.
+//
+// ⚠️ ITS LIMITS ARE ledger's, unchanged and named there: a UNION branch outside parentheses, a
+// condition in a top-level JOIN ... ON, `FROM public.t` / `FROM ONLY t` (the captured name is not
+// the table) and a comma join are not seen. RLS still stops the rows in all of them.
+func WherelessSubqueries(body string, tables map[string]bool) []Subquery {
+	m := Mask(body)
+	var out []Subquery
+	for _, sp := range ParenSpans(m) {
+		own := MaskNested(m[sp[0]+1 : sp[1]])
+		if whereRE.MatchString(own) {
+			continue
+		}
+		for _, f := range fromOrJoinRE.FindAllStringSubmatch(own, -1) {
+			if t := strings.ToLower(f[1]); tables[t] {
+				out = append(out, Subquery{Table: t, Text: strings.TrimSpace(body[sp[0]+1 : sp[1]])})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// policyRE names the table a CREATE POLICY is on.
+var policyRE = regexp.MustCompile(`(?is)CREATE\s+POLICY\s+\S+\s+ON\s+(?:public\.)?([a-z_][a-z0-9_]*)`)
+
+// TenantScopedTables DERIVES the tenant-scoped tables from the migrations' CREATE POLICY lines
+// (CLAUDE.md §6: every tenant table is born with one), so a new table joins every scan the day it
+// lands. A caller must floor the result: an empty map makes every scan built on it vacuous.
+func TenantScopedTables(migrationsDir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return nil, fmt.Errorf("sqlbelt: reading migrations: %w", err)
+	}
+	out := map[string]bool{}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(migrationsDir, e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("sqlbelt: reading %s: %w", e.Name(), err)
+		}
+		for _, m := range policyRE.FindAllStringSubmatch(string(raw), -1) {
+			out[strings.ToLower(m[1])] = true
+		}
+	}
+	return out, nil
 }
