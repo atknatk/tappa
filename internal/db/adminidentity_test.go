@@ -883,6 +883,7 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 var aiLaterSkips = map[int]string{
 	91: "transactions_tenant_employee_directed_idx (T157), CONCURRENTLY on transactions",
 	92: "transactions_tenant_employee_practice_idx (T157), CONCURRENTLY on transactions",
+	94: "transactions_tenant_employee_checkin_idx (T157), CONCURRENTLY on transactions",
 }
 
 // TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables reads each file aiLaterSkips names: it is

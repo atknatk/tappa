@@ -1060,32 +1060,41 @@ type ListCheckoutsWithoutCheckInRow struct {
 // engine checkout is 'closes' or 'extra'. One observation on a small table, not a property: the
 // cost is two index probes per checkout of the week that carries a business day.
 //
-// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED. P and I read migration 00091's
-// transactions_tenant_employee_directed_idx, which holds the directed, non-practice rows alone: a
-// refused or ignored tap (type NULL) between a checkout and its neighbour is not in it, so neither probe
-// reads it. Through 00005's index both FILTERED those rows during the scan, once per checkout.
+// T157 -- A PERSON'S DIRECTIONLESS TAPS ARE NOT WALKED, NOR A RUN OF CHECKOUTS. P reads migration 00091's
+// transactions_tenant_employee_directed_idx (directed, non-practice rows alone: a refused or ignored tap
+// -- type NULL -- between a checkout and its neighbour is not in it); I reads 00094's
+// transactions_tenant_employee_checkin_idx (non-practice check-ins alone). Through 00005's index both
+// FILTERED the rows between, once per checkout.
 //
-//	⚠️ I IS ASKED AS "THE LATEST `in` BEFORE IT", NOT AS AN EXISTS OVER THE BUSINESS DAY, because only
-//	that shape reaches the index: with the range `i.occurred_at >= o.business_day_start` in the
-//	subquery the planner kept 00005's index and its filter (measured: 2 926 buffers for one checkout
-//	with 100 000 directionless rows in its day; the latest-`in` shape 4). The two are one question: an
-//	`in` before the checkout lies inside its business day exactly when the LATEST `in` before it does
-//	(any such `in` is no later than the latest, so the latest is inside too); no `in` at all is NULL,
-//	which COALESCE makes the EXISTS's false. TestCheckoutsWithoutCheckIn_TheListIsTheClassificationsBAndC
-//	holds this list to the EXISTS definition over every parity chain, the one-instant I-order cells
-//	and the directionless rows among them. The walk stops at the first `in`: what it can still read
-//	is the person's checkouts between -- directed records, each a debounced tap or a manager's row.
+//	⚠️ I IS ASKED AS "THE LATEST `in` BEFORE IT", NOT AS AN EXISTS OVER THE BUSINESS DAY, so that the probe
+//	is ONE index entry. The two are one question: an `in` before the checkout lies inside its business
+//	day exactly when the LATEST `in` before it does (any such `in` is no later than the latest, so the
+//	latest is inside too); no `in` at all is NULL, which COALESCE makes the EXISTS's false.
+//	TestCheckoutsWithoutCheckIn_TheListIsTheClassificationsBAndC holds this list to the EXISTS
+//	definition over every parity chain, the one-instant I-order cells and the directionless rows among
+//	them. With 00091 alone the same shape walked back to the latest `in` FILTERING every `out` between,
+//	unbounded by the day (third-eye ORTA-1): an employee may choose `out` with no open check-in (ADR 0032
+//	§B.3, MissingIn) and only the 60 s debounce limits a run of them. 00094 holds no checkout, so the run
+//	is not read at all. (With the day as a range in the subquery the planner kept 00005's index while
+//	only 00091 existed -- 2 926 buffers for one checkout with 100 000 directionless rows in its day.)
+//	The price is one more index entry on every non-practice `in` written (measured in T157's close-out).
 //
-// EXPLAIN (ANALYZE, BUFFERS), T157, 2026-11-08, a lane database (PostgreSQL 17), the load T157's
-// close-out in docs/backlog.md describes (300 000 directionless rows of two people inside the week),
-// row_limit 51, custom and generic plan alike; shared buffers of the probes, 125 checkouts -- buffers
-// are the measure, the host's load average ran 13-90 and the milliseconds are noise:
+// EXPLAIN (ANALYZE, BUFFERS), T157, 2026-11-08, a lane database (PostgreSQL 17), the loads T157's
+// close-out in docs/backlog.md describes, row_limit 51, custom and generic plan alike; shared buffers of
+// the probes -- buffers are the measure, the host's load average ran 5-90 and the milliseconds are noise:
 //
-//	before (00005's index)   pv 9 371 (2 401 rows filtered per probe)   i 6 347 (1 601 per probe)
-//	after  (00091 + this I)  pv   501 (nothing filtered)                i   501 (nothing filtered)
+//	300 000 directionless rows of two people inside the week, 125 checkouts:
+//	  before (00005's index)   pv 9 371 (2 401 rows filtered per probe)   i 6 347 (1 601 per probe)
+//	  after  (00091)           pv   501 (nothing filtered)                i   501 (no checkout between
+//	                                                                       in that load; 00094 not yet built)
+//	plus 9 900 consecutive outs in one business day and 30 000 more over the 21 days before the week,
+//	10 032 checkouts:
+//	  00091 alone, this I      i 2 709 380 (4 905 rows filtered per probe)
+//	  00005's index, the EXISTS i 1 695 838 (custom plan; the same 4 905 per probe)
+//	  00094, this I            i    30 097 (Index Only Scan Backward, one entry per probe)
 //
 // What is left is the OUTER scan of the week, unchanged by T157 (a Parallel Seq Scan in the custom
-// plan, transactions_tenant_occurred_idx filtering the 300 000 rows in the generic one, ~7 000-10 000
+// plan, transactions_tenant_occurred_idx filtering the 300 000 rows in the generic one, ~7 000-15 000
 // buffers): once per statement, not once per checkout -- backlog T244.
 func (q *Queries) ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error) {
 	rows, err := q.db.Query(ctx, listCheckoutsWithoutCheckIn,

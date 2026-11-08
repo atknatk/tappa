@@ -2830,18 +2830,27 @@ M14-10a notu 1; onları Origin, oturum, oturum bütçesi, askı ve encode tavan�
   kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --since=10m | grep -c 'tb='
   ```
 
-### T157 — `transactions`'ın iki kısmi indeksi: `00091`, `00092`
+### T157 — `transactions`'ın üç kısmi indeksi: `00091`, `00092`, `00094`
 
-`00091` (`transactions_tenant_employee_directed_idx`, yönlü ve practice olmayan satırlar) ve `00092`
-(`transactions_tenant_employee_practice_idx`, tarihî practice satırları) **ayrı birer `NO TRANSACTION`
-dosyası**, ikisi de `CREATE INDEX CONCURRENTLY` — `00070`'in kuralı: kurulum `SHARE UPDATE EXCLUSIVE` alır,
+`00091` (`transactions_tenant_employee_directed_idx`, yönlü ve practice olmayan satırlar), `00092`
+(`transactions_tenant_employee_practice_idx`, tarihî practice satırları) ve `00094`
+(`transactions_tenant_employee_checkin_idx`, practice olmayan girişler) **ayrı birer `NO TRANSACTION`
+dosyası**, üçü de `CREATE INDEX CONCURRENTLY` — `00070`'in kuralı: kurulum `SHARE UPDATE EXCLUSIVE` alır,
 hiçbir dokunuş ya da panel isteği onu beklemez; kendisi kendinden eski işlemleri bekler (02:30 dökümü onu
 uzatır, dokunuşu değil). `lock_timeout` yok (oturum ayarı goose'un havuzlu bağlantısında ifadeden uzun
 yaşardı). Yarıda kesilirse geride `INVALID` bir indeks kalır; dosya yeniden koşulunca önce onu düşürür, sonra
-yeniden kurar. Eski binary yeni şemada aynen çalışır (sorgu sonucu değişmez). Down ikisini de `CONCURRENTLY`
-düşürür; geri dönüş için gerekmez. **Deploy saati:** 02:30 yedeğinin penceresinden uzak.
+yeniden kurar. Eski binary yeni şemada aynen çalışır (sorgu sonucu değişmez). Down üçünü de `CONCURRENTLY`
+düşürür; geri dönüş için gerekmez. **Deploy saati:** 02:30 yedeğinin penceresinden uzak. **Bedel:** `00094`
+practice olmayan her `in` yazımına bir indeks girdisi ekler (ölçü T157'nin kapanış notunda).
 
-Deploy'dan sonra (salt okuma; Job log'unda iki `OK`), beklenen `92` · `2|2`:
+🔴 **`m14-indexes` ile `m14-opname` AYNI deploy'da çıkar.** `00093` `m14-opname`'in; `00091`, `00092`,
+`00094` bu dalın. migrate Job'ı düz `goose up` koşar (`Dockerfile`'ın `CMD ["up"]`'ı, `-allow-missing` yok) ve
+goose v3, uygulanmış en yüksek sürümün altında uygulanmamış bir dosya bulunca **reddeder** (*"found N missing
+migrations before current version"* — okundu, goose v3.24.1 `up.go`). Yani `m14-opname` önce tek başına çıkarsa
+şema `93`'te kalır ve sonraki deploy'da `91`/`92` eksik sayılır: Job `Failed`, rollout yok. İki dal birlikte
+birleşince goose `91, 92, 93, 94`'ü sırayla uygular.
+
+Deploy'dan sonra (salt okuma; Job log'unda bu dalın üç `OK`'u ve `00093`'ünki), beklenen `94` · `3|3`:
 
 ```bash
 kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
@@ -2850,12 +2859,13 @@ SELECT max(version_id) FROM goose_db_version WHERE is_applied;
 SELECT count(*), count(*) FILTER (WHERE i.indisvalid AND i.indisready)
   FROM pg_index i
  WHERE i.indexrelid IN (to_regclass('public.transactions_tenant_employee_directed_idx'),
-                        to_regclass('public.transactions_tenant_employee_practice_idx'));
+                        to_regclass('public.transactions_tenant_employee_practice_idx'),
+                        to_regclass('public.transactions_tenant_employee_checkin_idx'));
 SQL
 ```
 
-`2|1` ya da `2|0` → yarıda kalmış bir kurulum: migrate Job'ını yeniden koş (dosya `INVALID` indeksi düşürüp
-yeniden kurar).
+İkinci sayı birinciden küçükse (`3|2` gibi) → yarıda kalmış bir kurulum: migrate Job'ını yeniden koş (dosya
+`INVALID` indeksi düşürüp yeniden kurar).
 
 ---
 

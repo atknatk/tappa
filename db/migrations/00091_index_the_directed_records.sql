@@ -3,14 +3,14 @@
 -- in (occurred_at, id) order.
 --
 -- WHAT READS IT. The chain lookups of db/queries/anomalies.sql: ListOpenCheckIns' and
--- CountMaskedOpenCheckIns' next-record LATERAL (`n`), ListCheckoutsWithoutCheckIn's previous-record
--- LATERAL (`pv`) and its "the latest `in` before it" subquery (`i`, asked in that shape since T157 --
--- anomalies.sql says why). Each asks for the person's next / previous record with
+-- CountMaskedOpenCheckIns' next-record LATERAL (`n`) and ListCheckoutsWithoutCheckIn's previous-record
+-- LATERAL (`pv`). Each asks for the person's next / previous record with
 -- `type IS NOT NULL AND NOT practice` in (occurred_at, id) order. The predicate below is those
--- clauses word for word, so the planner proves it (`i`'s `type = 'in'` implies `type IS NOT NULL`: a
--- strict operator is never true on a NULL); the key ends in id, so the row comparison
+-- clauses word for word, so the planner proves it; the key ends in id, so the row comparison
 -- `(occurred_at, id) > (t.occurred_at, t.id)` is the index condition and the ORDER BY is the index
--- order -- no sort, and no directionless row read.
+-- order -- no sort, and no directionless row read. (ListCheckoutsWithoutCheckIn's "latest `in` before
+-- it", `i`, could read this index too, but would filter every checkout on the way back -- 00094 is its
+-- index; the third-eye round measured why.)
 --
 -- WHY. Through transactions_tenant_employee_occurred_idx (00005) the lookup FILTERED the two clauses
 -- during the scan, so every directionless row of the person's (a refused or an ignored tap -- type

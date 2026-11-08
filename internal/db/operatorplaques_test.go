@@ -181,6 +181,8 @@ var opAtVersionSkips = map[int]string{
 		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 	92: "transactions_tenant_employee_practice_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
 		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	94: "transactions_tenant_employee_checkin_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
+		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
