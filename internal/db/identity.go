@@ -357,7 +357,7 @@ type OpenedIdentityReset struct {
 func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (o OpenedIdentityReset, err error) {
 	tx, err := d.quiet().Begin(ctx)
 	if err != nil {
-		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: begin: %w", err)
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: begin: %w", quietErr(err))
 	}
 	// WithTenant's rule: a rollback on a background context, so a cancelled ctx does not skip it.
 	defer func() {
@@ -366,7 +366,7 @@ func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenH
 		}
 	}()
 	if err = BoundLockWaits(ctx, tx, lockWait); err != nil {
-		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", err)
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", quietErr(err))
 	}
 	// The transaction's own errors through quietErr (backlog T208): a reset connection names both ends'
 	// addresses; a lock_timeout's 55P03 is not a connection failure and passes as the same value, so

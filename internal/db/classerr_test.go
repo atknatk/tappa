@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -194,6 +195,44 @@ type stoppableProxy struct {
 	ln    net.Listener
 	mu    sync.Mutex
 	conns []net.Conn
+	// trigger, when set, is a fault injector: the first client-to-server chunk that contains it is not
+	// forwarded, and every connection is reset instead -- so a test can fail ONE named statement of a
+	// call (its text travels in the Parse or Query message of a connection that has not cached it).
+	trigger []byte
+}
+
+// resetOn arms the injector; "" disarms it.
+func (p *stoppableProxy) resetOn(text string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.trigger = []byte(text)
+}
+
+// forward copies the client's bytes to the server until the trigger shows up.
+func (p *stoppableProxy) forward(dst, src net.Conn) {
+	defer func() { _ = dst.Close() }()
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			p.mu.Lock()
+			hit := len(p.trigger) > 0 && bytes.Contains(buf[:n], p.trigger)
+			if hit {
+				p.trigger = nil
+			}
+			p.mu.Unlock()
+			if hit {
+				p.reset()
+				return
+			}
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func startStoppableProxy(t *testing.T, target string) *stoppableProxy {
@@ -218,7 +257,7 @@ func startStoppableProxy(t *testing.T, target string) *stoppableProxy {
 			p.mu.Lock()
 			p.conns = append(p.conns, c, s)
 			p.mu.Unlock()
-			go func() { _, _ = io.Copy(s, c); _ = s.Close() }()
+			go p.forward(s, c)
 			go func() { _, _ = io.Copy(c, s); _ = c.Close() }()
 		}
 	}()
@@ -699,5 +738,162 @@ func TestInTransaction_ClassesTheFailedNode(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTransactionSteps_AResetConnectionCarriesNoAddress pins the wraps no stopped proxy and no timed cut
+// reaches (the orchestrator's audit of the m14-identity merge: removing quietErr from OpenIdentityReset's
+// Scan left every test green and leaked `db: open identity reset: read tcp 127.0.0.1:59686->
+// 127.0.0.1:59685: read: connection reset by peer`). The proxy resets the connection on the one statement
+// named: T219's lock budget and its definer call; WithTenant's tenant context; BoundStatements.
+// OpenIdentityReset's COMMIT is not a row: a reset that meets the commit's bytes reads back as
+// "conn closed" (measured, 2026-11-08, no address), and the write-side failure that carries one needs the
+// reset BETWEEN the statement and the commit, where this function has no seam --
+// TestTransactionSteps_EveryWrapGoesThroughQuietErr holds that wrap in the source.
+// The pool holds ONE connection, opened before the trigger is armed, because the startup message names
+// lock_timeout too (the stuck-writer pins).
+//
+// MUTANTS (measured, 2026-11-08, reverted): quietErr removed from BoundLockWaits' set_config, from
+// OpenIdentityReset's Scan, from WithTenant's set_config, from BoundStatements -- each red on its own row.
+func TestTransactionSteps_AResetConnectionCarriesNoAddress(t *testing.T) {
+	raw := os.Getenv("DATABASE_URL")
+	if raw == "" {
+		t.Skip("DATABASE_URL not set; skipping (real Postgres required -- CLAUDE.md §8)")
+	}
+	u, err := url.Parse(pinToOneConn(t, raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := startStoppableProxy(t, u.Host)
+	u.Host = p.ln.Addr().String()
+	_, port, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	d, err := New(ctx, &config.Config{DatabaseURL: config.NewDSN(u.String())})
+	if err != nil {
+		t.Fatalf("New through the proxy: %v", err)
+	}
+	defer d.Close()
+	openReset := func() error {
+		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), time.Second)
+		return err
+	}
+	for _, tc := range []struct {
+		name, trigger, prefix string
+		run                   func() error
+	}{
+		{"OpenIdentityReset's lock budget", "lock_timeout", "db: open identity reset: db: bound lock waits: the connection failed (", openReset},
+		{"OpenIdentityReset's statement", "identity_open_reset", "db: open identity reset: the connection failed (", openReset},
+		{"WithTenant's tenant context", "app.tenant_id", "db: set tenant context: the connection failed (", func() error {
+			return d.WithTenant(ctx, uuid.New(), func(context.Context, pgx.Tx) error { return nil })
+		}},
+		{"BoundStatements", "statement_timeout", "db: bound statements: the connection failed (", func() error {
+			return d.WithTenant(ctx, uuid.New(), func(ctx context.Context, tx pgx.Tx) error {
+				return BoundStatements(ctx, tx, time.Second)
+			})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d.pool.Reset()
+			if _, err := d.pool.Exec(ctx, "SELECT 1"); err != nil {
+				t.Fatalf("warming the one connection: %v", err)
+			}
+			p.resetOn(tc.trigger)
+			defer p.resetOn("")
+			err := tc.run()
+			t.Logf("after the reset: %v", err)
+			var op *net.OpError
+			if !errors.As(err, &op) {
+				t.Fatalf("CONTROL: no *net.OpError on the chain; the trigger did not fire on this step: %v", err)
+			}
+			if LockWaitExpired(err) {
+				t.Errorf("a reset reads as an expired lock wait: %v", err)
+			}
+			if !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Errorf("error is %q, want the prefix %q", err, tc.prefix)
+			}
+			for i, text := range renderEverywhere(err) {
+				for _, c := range []string{":" + port, "127.0.0.1", "write tcp", "read tcp", "->"} {
+					if strings.Contains(text, c) {
+						t.Fatalf("rendering #%d carries %q: %s", i, c, text)
+					}
+				}
+			}
+		})
+	}
+}
+
+// transactionStepFuncs are the functions that run a transaction's own steps -- begin, the context, the
+// statement, the commit, the savepoint's -- rather than handing fn its tx.
+var transactionStepFuncs = map[string]string{
+	"WithTenant": "tenant.go", "WithTenantIn": "tenant.go", "BoundStatements": "tenant.go",
+	"OpenIdentityReset": "identity.go", "BoundLockWaits": "lockwait.go",
+}
+
+// TestTransactionSteps_EveryWrapGoesThroughQuietErr (the orchestrator's audit of the m14-identity merge):
+// in a transaction step function every %w wrap's last argument is quietErr(...) and no return hands back
+// a bare err -- fn's error leaves through inTransaction. It is the source half of
+// TestTransactionSteps_AResetConnectionCarriesNoAddress, for the wraps a reset cannot be timed into
+// (OpenIdentityReset's COMMIT).
+//
+// MUTANTS (measured, 2026-11-08, reverted): quietErr removed from OpenIdentityReset's COMMIT -- red here
+// (green in every behavioural test); a bare `return OpenedIdentityReset{}, err` after its Scan -- red;
+// WithTenant's `return inTransaction(err)` as `return err` -- red.
+func TestTransactionSteps_EveryWrapGoesThroughQuietErr(t *testing.T) {
+	fset := token.NewFileSet()
+	seen := map[string]bool{}
+	files := map[string]bool{}
+	for _, f := range transactionStepFuncs {
+		files[f] = true
+	}
+	for file := range files {
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || transactionStepFuncs[fn.Name.Name] != file {
+				continue
+			}
+			seen[fn.Name.Name] = true
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.ReturnStmt:
+					for _, r := range x.Results {
+						if id, ok := r.(*ast.Ident); ok && id.Name == "err" {
+							t.Errorf("%s: %s returns a bare err: a reset connection's text would leave with it",
+								fset.Position(x.Pos()), fn.Name.Name)
+						}
+					}
+				case *ast.CallExpr:
+					sel, ok := x.Fun.(*ast.SelectorExpr)
+					if !ok || sel.Sel.Name != "Errorf" || len(x.Args) < 2 {
+						return true
+					}
+					lit, ok := x.Args[0].(*ast.BasicLit)
+					if !ok || !strings.Contains(lit.Value, "%w") {
+						return true
+					}
+					var wrapper *ast.Ident
+					if last, ok := x.Args[len(x.Args)-1].(*ast.CallExpr); ok {
+						wrapper, _ = last.Fun.(*ast.Ident)
+					}
+					if wrapper == nil || wrapper.Name != "quietErr" {
+						t.Errorf("%s: %s wraps an error with %%w that did not go through quietErr (backlog T208)",
+							fset.Position(x.Pos()), fn.Name.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+	for name := range transactionStepFuncs {
+		if !seen[name] {
+			t.Errorf("CONTROL: %s is not in %s any more; the scan reads nothing for it", name, transactionStepFuncs[name])
+		}
 	}
 }

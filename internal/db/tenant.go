@@ -59,7 +59,7 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID, fn TxFunc) (err
 
 	tx, err := d.quiet().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("db: begin tx: %w", err)
+		return fmt.Errorf("db: begin tx: %w", quietErr(err)) // already classed by quiet(); the uniform rule
 	}
 
 	// Any early return or panic past this point must roll back so the
