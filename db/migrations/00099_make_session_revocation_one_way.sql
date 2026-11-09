@@ -26,6 +26,25 @@
 -- SECURITY INVOKER, EXECUTE in its owner alone (ADR 0028 §1's rule; 00061 for the reason), its body
 -- asserting where it is bound (00051's api_keys_revocation_is_one_way: a copy bound elsewhere refuses).
 --
+-- 🔴 AND tappa_app's UPDATE ON sessions NARROWS TO (last_used_at, revoked_at) -- 00011's admin_sessions
+-- pattern (security re-check of this file, ORTA-2's second half). The trigger alone guarded one
+-- column of a table tappa_app could update whole: measured on a lane database as tappa_app, a revoked
+-- row's token_hash could be parked (`SET token_hash = 'parked'`) and the stolen cookie's hash written
+-- into a live row (UPDATE 1) or a new one (INSERT 0 1), and the stolen cookie resolved as live again.
+-- After this file token_hash, employee_id, tenant_id, id, device_info and created_at are not
+-- updatable by tappa_app at all (42501). The product's three UPDATEs write only the two kept columns:
+-- TouchSession sets last_used_at, RevokeSession and RevokeSessionsForEmployee set revoked_at (read,
+-- db/queries/sessions.sql); their WHERE and RETURNING clauses need SELECT, which is unchanged.
+--
+-- INSERT IS LEFT TABLE-LEVEL, and what that leaves is stated rather than claimed away. CreateSession
+-- (the activation path) names four columns -- tenant_id, employee_id, token_hash, device_info -- so a
+-- column list would be possible, but it would not stop the one INSERT that matters: re-inserting a
+-- stolen cookie's hash names exactly those four. What stops it is sessions_token_hash_key (00003's
+-- global UNIQUE on token_hash) while the revoked row exists -- 23505 -- and the revoked row cannot be
+-- moved out of the way any more: tappa_app has no DELETE on sessions (00003) and, after this file, no
+-- UPDATE of token_hash, so parking it is impossible. (Many test fixtures insert sessions with an id,
+-- which a four-column grant would refuse for no gain.)
+--
 -- 🔴 lock_timeout 1 s, the FIRST statement of the Up and of the Down (00054's rule, 00037's wording):
 -- CREATE/DROP TRIGGER take SHARE ROW EXCLUSIVE on sessions, which every tap's TouchSession writes.
 -- Behind a long reader the file gives up with 55P03 instead of queueing every tap behind its lock.
@@ -66,7 +85,14 @@ CREATE TRIGGER sessions_revocation_one_way
     WHEN (NEW.revoked_at IS DISTINCT FROM OLD.revoked_at)
     EXECUTE FUNCTION public.sessions_revocation_is_one_way();
 
+-- GRANT and REVOKE take no relation lock (measured, holdingtap_test's note).
+REVOKE UPDATE ON public.sessions FROM tappa_app;
+GRANT UPDATE (last_used_at, revoked_at) ON public.sessions TO tappa_app;
+
 -- +goose Down
 SET LOCAL lock_timeout = '1s';
+-- 00003's grant back: table-level UPDATE (a table REVOKE also takes the column grant away).
+REVOKE UPDATE ON public.sessions FROM tappa_app;
+GRANT UPDATE ON public.sessions TO tappa_app;
 DROP TRIGGER IF EXISTS sessions_revocation_one_way ON public.sessions;
 DROP FUNCTION IF EXISTS public.sessions_revocation_is_one_way();

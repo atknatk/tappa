@@ -231,5 +231,10 @@ ve en az bir oturum iptal edildiyse `employee.phones_signed_out` audit satırın
 - **İptal veritabanında da tek yönlü (2026-11-09, migration 00099, güvenlik denetimi ORTA-2):**
   `sessions_revocation_one_way` tetikleyicisi damgalanmış `revoked_at`'in değişmesini (NULL'a dönüş
   dahil) ve ilk damganın geriye ya da ileriye tarihlenmesini 23001 ile reddeder; önceden tappa_app'in
-  tablo düzeyindeki UPDATE'i iptal edilmiş bir oturumu canlandırabiliyordu (şeritte ölçüldü).
+  tablo düzeyindeki UPDATE'i iptal edilmiş bir oturumu canlandırabiliyordu (şeritte ölçüldü). Aynı
+  migration tappa_app'in UPDATE'ini `(last_used_at, revoked_at)`'e daraltır (00011'in admin_sessions
+  deseni): `token_hash` artık yazılamaz, yani çalınmış çerezin hash'i iptal edilmiş satırdan çekilip
+  canlı bir satıra konamaz (42501). INSERT tablo düzeyinde kalır; çalınmış hash'in yeniden eklenmesini
+  iptal edilmiş satır durdukça `sessions_token_hash_key` (UNIQUE) durdurur (23505), ve o satır artık
+  yerinden oynatılamaz (DELETE 00003'ten beri yok, `token_hash` UPDATE'i yok).
 - **Askıda açık (2026-11-09, kullanıcı kararı):** ADR 0025 §3'ün istisna listesinde, ADR 0025'in T59 notu.

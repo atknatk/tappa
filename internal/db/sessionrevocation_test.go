@@ -42,15 +42,21 @@ func sessionRevocationFixture(t *testing.T, d *DB) (tenantID, employee, first, s
 // refusedAs23001 runs one statement in a savepoint and reports whether the trigger refused it.
 func refusedAs23001(t *testing.T, ctx context.Context, tx pgx.Tx, sql string, args ...any) bool {
 	t.Helper()
+	return refusedAs(t, ctx, tx, "23001", sql, args...)
+}
+
+// refusedAs runs one statement in a savepoint and reports whether it failed with code.
+func refusedAs(t *testing.T, ctx context.Context, tx pgx.Tx, code, sql string, args ...any) bool {
+	t.Helper()
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		t.Fatalf("savepoint: %v", err)
 	}
 	_, err = sp.Exec(ctx, sql, args...)
 	var pg *pgconn.PgError
-	refused := errors.As(err, &pg) && pg.Code == "23001"
+	refused := errors.As(err, &pg) && pg.Code == code
 	if err != nil && !refused {
-		t.Errorf("%s: %v, want 23001 or success", sql, err)
+		t.Errorf("%s: %v, want %s or success", sql, err, code)
 	}
 	if rbErr := sp.Rollback(ctx); rbErr != nil {
 		t.Fatalf("rollback savepoint: %v", rbErr)
@@ -64,7 +70,13 @@ func refusedAs23001(t *testing.T, ctx context.Context, tx pgx.Tx, sql string, ar
 // product's own three statements still work: the bulk revoke, the idempotent single revoke (same
 // stamp back) and the last-use refresh.
 //
-// MUTANT (measured): 00099's Down applied -> the un-revoke succeeds, red.
+// AND THE STOLEN HASH CANNOT BE BROUGHT BACK (security re-check, ORTA-2's second half): parking the
+// revoked row's token_hash, or writing it into a live row, is refused for the privilege (42501 --
+// tappa_app updates last_used_at and revoked_at alone), and re-inserting it is refused by
+// sessions_token_hash_key while the revoked row exists (23505).
+//
+// MUTANT (measured): 00099's Down applied -> the un-revoke succeeds, red; table-level UPDATE granted
+// back -> the park and the swap succeed, red.
 func TestSessions_RevocationIsOneWayForTheApp(t *testing.T) {
 	d := appDB(t)
 	tenantID, employee, first, second := sessionRevocationFixture(t, d)
@@ -95,6 +107,30 @@ func TestSessions_RevocationIsOneWayForTheApp(t *testing.T) {
 			if !refusedAs23001(t, ctx, tx, tc.sql, first) {
 				t.Errorf("%s on a revoked session was accepted", tc.name)
 			}
+		}
+		var stolen string
+		if err := tx.QueryRow(ctx, `SELECT token_hash FROM sessions WHERE id = $1`, first).Scan(&stolen); err != nil {
+			return err
+		}
+		fresh := uuid.New()
+		if _, err := tx.Exec(ctx, `INSERT INTO sessions (id, tenant_id, employee_id, token_hash) VALUES ($1, $2, $3, $4)`,
+			fresh, tenantID, employee, opRandHex(t)); err != nil {
+			return err
+		}
+		if !refusedAs(t, ctx, tx, "42501", `UPDATE sessions SET token_hash = 'parked' WHERE id = $1`, first) {
+			t.Error("parking a revoked row's token_hash was accepted")
+		}
+		if !refusedAs(t, ctx, tx, "42501", `UPDATE sessions SET token_hash = $2 WHERE id = $1`, fresh, stolen) {
+			t.Error("writing the stolen hash into a live row was accepted")
+		}
+		for _, col := range []string{"employee_id = employee_id", "tenant_id = tenant_id", "id = id", "device_info = 'x'", "created_at = now()"} {
+			if !refusedAs(t, ctx, tx, "42501", `UPDATE sessions SET `+col+` WHERE id = $1`, fresh) {
+				t.Errorf("tappa_app could UPDATE sessions SET %s", col)
+			}
+		}
+		if !refusedAs(t, ctx, tx, "23505", `INSERT INTO sessions (tenant_id, employee_id, token_hash) VALUES ($1, $2, $3)`,
+			tenantID, employee, stolen) {
+			t.Error("re-inserting the revoked row's hash was accepted")
 		}
 		// The idempotent single revoke writes the same stamp back and does not fire the trigger.
 		row, err := q.RevokeSession(ctx, store.RevokeSessionParams{ID: first, TenantID: tenantID})
@@ -142,7 +178,15 @@ func TestSessions00099_DownTakesTheTriggerAndUpPutsItBack(t *testing.T) {
 	                           AND NOT prosecdef AND proacl::text = '{tappa_owner=X/tappa_owner}'`); n != 1 {
 		t.Fatalf("the function is not an INVOKER function with EXECUTE in its owner alone (%d)", n)
 	}
+	upd := `SELECT has_table_privilege('tappa_app', 'public.sessions', 'UPDATE')::int`
+	if opInt(t, ctx, tx, upd) != 0 || opColumns(t, ctx, tx, "tappa_app", "sessions", "UPDATE") != "last_used_at,revoked_at" {
+		t.Fatalf("tappa_app updates sessions beyond (last_used_at, revoked_at): table %d, columns %q",
+			opInt(t, ctx, tx, upd), opColumns(t, ctx, tx, "tappa_app", "sessions", "UPDATE"))
+	}
 	opRunSection(t, ctx, tx, down, "00099 Down")
+	if opInt(t, ctx, tx, upd) != 1 {
+		t.Fatal("after the Down tappa_app does not hold 00003's table-level UPDATE on sessions")
+	}
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_trigger WHERE tgname = 'sessions_revocation_one_way'`) +
 		opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc WHERE proname = 'sessions_revocation_is_one_way'`); n != 0 {
 		t.Fatalf("after the Down %d trigger/function object(s) remain", n)
@@ -150,5 +194,8 @@ func TestSessions00099_DownTakesTheTriggerAndUpPutsItBack(t *testing.T) {
 	opRunSection(t, ctx, tx, up, "00099 Up again")
 	if err := tx.QueryRow(ctx, def).Scan(&got); err != nil || got != want {
 		t.Fatalf("after the Up the trigger is %q (%v)", got, err)
+	}
+	if opInt(t, ctx, tx, upd) != 0 || opColumns(t, ctx, tx, "tappa_app", "sessions", "UPDATE") != "last_used_at,revoked_at" {
+		t.Fatal("after the Up tappa_app's UPDATE on sessions is not (last_used_at, revoked_at)")
 	}
 }
