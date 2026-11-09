@@ -689,6 +689,12 @@ type fakeStaff struct {
 	// change asked.
 	refErr     error
 	refChanges []tenant.ExternalRefCommand
+
+	// The sign-out (T59): signOutErr refuses, signOutCount is the revoked count answered,
+	// signOuts records every command asked.
+	signOutErr   error
+	signOutCount int
+	signOuts     []tenant.SignOutCommand
 }
 
 // ChangeExternalRef records the command and answers the configured refusal, or the
@@ -816,6 +822,29 @@ func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (t
 		return tenant.Person{}, f.deactivateErr
 	}
 	return tenant.Person{ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusDeactivated}, nil
+}
+
+// SignOutPhones records the command (T59) and answers the configured refusal, or
+// signOutCount sessions revoked (1 when unset).
+func (f *fakeStaff) SignOutPhones(_ context.Context, c tenant.SignOutCommand) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signOuts = append(f.signOuts, c)
+	if f.signOutErr != nil {
+		return 0, f.signOutErr
+	}
+	if f.signOutCount == 0 {
+		return 1, nil
+	}
+	return f.signOutCount, nil
+}
+
+func (f *fakeStaff) signOutCommands() []tenant.SignOutCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.SignOutCommand, len(f.signOuts))
+	copy(out, f.signOuts)
+	return out
 }
 
 func (f *fakeStaff) Move(_ context.Context, c tenant.MoveCommand) (tenant.Person, error) {

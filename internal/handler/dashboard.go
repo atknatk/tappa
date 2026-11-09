@@ -202,6 +202,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (Adding a person and re-inviting one are in the sibling group at the end of
 		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
+		// T59: signing a person's phones out. Beside deactivation, on the main group: the
+		// suspension exception list (ADR 0025 §3) is not widened for it.
+		r.Post(employeeSignOutHref, a.employeeSignOutPhones)
 		r.Post(employeeMoveHref, a.employeeMove)
 		// 🔴 THE ADDRESS CHANGE (M10 EM-6). Here for the ordinary reason — the Origin
 		// check must run AHEAD of the resolver — and owner-only inside the handler.

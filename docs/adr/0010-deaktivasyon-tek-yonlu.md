@@ -200,3 +200,25 @@ M11'in etkisi ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md)):
 - **Kabul edilen risk 4** (guardrail sırasına bağlılık): M11 sıraya `sys:cross-tenant-qr-site-ip`'i
   (#9) ekler ([ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md) notu); `sys:employee-deactivated`
   (#5) önde kalır, ölçen test aynen geçerli.
+
+## T59 notu (2026-11-09) — panelden "Sign out their phones"
+
+Kararın iki parçası değişmez. `revoked_at`'in **kayıp/çalıntı telefon** işi (yukarıda §1) artık
+panelden yapılabiliyor (kullanıcı kararı, 2026-11-08): kişinin kartındaki *"Signed in"* hücresinde
+*"Sign out their phones"* → uyarı (sayıyla) → *"Yes, sign them out"*. `tenant.Staff.SignOutPhones`
+tek işlemde kişiyi okur, `RevokeSessionsForEmployee`'yi (tek UPDATE, `revoked_at IS NULL`) çalıştırır
+ve en az bir oturum iptal edildiyse `employee.phones_signed_out` audit satırını yazar (actor + yalnız
+`sessions_revoked` sayısı; oturum kimliği, token ya da hash yok). Onay deaktivasyonun kapısıdır
+(`confirmActionSignOutPhones`); yetki deaktivasyonunki (owner ve manager).
+
+- **Deaktive kişi REDDEDİLİR** (`tenant.ErrSignOutDeactivated`) — bu ADR'nin §1'i yüzünden:
+  deaktive kişinin oturumu, denemesi §5 satır 4'te **kaydedilsin** diye canlı tutulur; iptal onu
+  kayıt yazmayan satır 3'e taşırdı. Kart düğmeyi o kişiye göstermez, sunucu ayrıca reddeder.
+  *"Önce çıkış, sonra deaktivasyon"* sırası reddedilmez: telefon artık tanımlı değildir, kayıtsız
+  satır 3 doğru sonuçtur.
+- **Sonraki dokunuş:** iptal edilmiş oturum `GET /t` ve `POST /api/checkin`'de
+  `/activate?from=signedout`'a gider, `transactions` satırı yazılmaz, sayaç harcanmaz (ölçüldü:
+  `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing`). Geri dönüş yeni aktivasyon
+  linkidir; onay bandı bunu söyler ve kartın davet bölümünü gösterir.
+- **İkinci savunma sunucuda:** yeniden basılan onay çerezi bir şey iptal etmez, audit satırı yazmaz,
+  `problem=no-phones` döner (ölçüldü: `TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount`).
