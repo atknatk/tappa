@@ -2894,21 +2894,33 @@ yok). T71'i taşıyan ilk deploy'da 40'ın apply'ından 43'ünkine kadar canlı 
 eski yönlendirmeyi (path'siz) verir, kesinti olmaz. Pinler:
 `TestPackaging_TheDeployAppliesEveryIngressFile`, `TestPackaging_TheRedirectIngressRoutesExactlyTheRedirectHosts`.
 
-**Geri dönüş.** T71'den önceki bir commit'in deploy'u kendi 40'ını uygular; o dosya aynı adlı
-nesneyi `permanent-redirect` ile taşır, yani ingress yönlendirmesi kendiliğinden geri gelir.
+**Geri dönüş.** T71'den önceki bir commit'in **deploy'u** (`deploy.yml`) kendi 40'ını uygular; o
+dosya aynı adlı nesneyi `permanent-redirect` ile taşır, yani ingress yönlendirmesi kendiliğinden geri
+gelir. ⚠️ Küçük bir pencere kalır: o deploy 20-app'i 40'tan önce uygular, 40'ın apply'ı düşerse
+rollout başlamış olur ve iki host yönlendirmesiz pod'lara gider.
+🔴 **Elle geri dönüş (`kubectl set image` / `kubectl rollout undo`, *"Elle deploy / rollback"*)
+40'ı uygulamaz.** T71 öncesi bir imaja dönülürse 43 canlı kalır ve iki host, müşteri ürününü her
+host'ta sunan pod'lara gider: 40'ın *"exactly one host serves the app"* değişmezi sessizce bozulur.
+Hedef imaj T71 öncesiyse (`git merge-base --is-ancestor 7047d4a2 <hedef-sha>` başarısız), imajdan
+**ÖNCE**, repo kökünden:
 
-**Doğrulama (deploy'dan sonra, salt-okur, küme yetkisi gerekmez).** Beklenen her satırda path ve
-query korunmuş bir `location` ve 301 (POST için 308); `cf-ray` **yok**:
+```bash
+git show 2476818e:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -
+```
+
+Bu, `tappa-redirects`'e `permanent-redirect`'i geri koyar (40'ın öteki iki nesnesi o commit'te bugünküyle
+aynı spec'i taşır). İleri dönüşte sıradan deploy 43'ü yeniden uygular.
+
+**Doğrulama (deploy'dan sonra, salt-okur, küme yetkisi gerekmez).** Hiçbir satırda `cf-ray` **yok**;
+beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` · `HTTP/2 301` +
+`location: https://taptime.mt/t?p=AB&c=1` · `HTTP/2 308` + `location: https://taptime.mt/admin/login` ·
+`location: https://taptime.mt/evil.example/x`:
 
 ```bash
 curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|cf-ray'
-#   HTTP/2 301 · location: https://taptime.mt/activate?x=1
 curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|cf-ray'
-#   HTTP/2 301 · location: https://taptime.mt/t?p=AB&c=1
 curl -sS -o /dev/null -D - -X POST 'https://www.taptime.mt/admin/login' | grep -i '^HTTP\|^location'
-#   HTTP/2 308 · location: https://taptime.mt/admin/login
 curl -sS -o /dev/null -D - 'https://www.taptime.mt//evil.example/x' | grep -i '^location'
-#   location: https://taptime.mt/evil.example/x
 ```
 
 Sertifikalar değişmez (`tappa-tls`, `taptime-www-tls`); HTTP-01 yenilemesi artık öteki host'larla
@@ -5347,6 +5359,13 @@ OPS-2 öncesi bir imaja dönüyorsan docker.io/atknatk/tappa.
 `kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı BİREBİR
 `<registry>/atknatk/tappa:sha-<12hex>`; istemci tarafında imaj referansının doğrulaması YOKTUR. Yani
 yanlış yazılmış bir etiket buradan geçer ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
+
+> 🔴 **T71 ÖNCESİ BİR İMAJA DÖNÜLÜYORSA (aşağıdaki iki komut da), İMAJDAN ÖNCE ESKİ 40'I UYGULA.**
+> Bu iki yol Ingress'lere dokunmaz; `43-redirect-ingress.yaml` canlı kalır ve `tappa.everva.com.tr` ile
+> `www.taptime.mt` yönlendirme middleware'i olmayan pod'lara gider. Hedef T71 öncesiyse
+> (`git merge-base --is-ancestor 7047d4a2 <hedef-sha>` başarısız): önce
+> `git show 2476818e:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -`, sonra imaj
+> (*"T71 — eski domainin derin linkleri"*, *Geri dönüş*).
 
 ```bash
 kubectl -n tappa set image deployment/tappa tappa=<image>:sha-<12hex>

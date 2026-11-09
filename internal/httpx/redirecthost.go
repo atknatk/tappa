@@ -24,12 +24,18 @@ import (
 //     ("GET http:@evil.example HTTP/1.1", which net/http accepts) RequestURI returns the opaque
 //     part, "@evil.example", and the base URL plus that string is
 //     "https://taptime.mt@evil.example": a user part and a foreign host. EscapedPath is empty
-//     there, and an empty path or one that does not start with "/" (OPTIONS "*", CONNECT)
-//     becomes "/".
+//     there, and an empty path or one that does not start with "/" (CONNECT) becomes "/". (OPTIONS
+//     "*" never gets here on a real server: net/http answers it itself, 200 with no Location.)
 //   - LEADING SLASHES ARE CUT TO ONE. "//evil.example/x" after an absolute base URL is not
 //     scheme-relative (the Location keeps its own host), but a path that starts with "//" is
-//     exactly what a relative redirect further on would turn into another host, so it never
-//     leaves here. A backslash cannot stand in for the slash: EscapedPath writes it as %5C.
+//     what a relative redirect further on would turn into another host, so the Location's path
+//     never STARTS with "//". Dot segments are passed as sent: "/../..//evil.example" is resolved
+//     by the browser to the path "//evil.example" -- on the base URL's host, where anyone can type
+//     that path directly. A backslash cannot stand in for the slash: EscapedPath writes it as %5C.
+//   - A PATH AND QUERY LONGER THAN redirectTargetMax BECOME "/". The Location is a response header,
+//     and the ingress controller in front reads upstream headers into a buffer of a few KiB; a
+//     longer one would turn the redirect into the controller's 502. No link Taptime ever minted
+//     comes near the bound (a plaque URL is under 100 bytes).
 //   - THE QUERY IS KEPT AS SENT (r.URL.RawQuery; "?" alone kept too). net/http has already
 //     refused control bytes in the request target, so neither half can split the header, and
 //     http.Redirect escapes what is not ASCII.
@@ -59,6 +65,9 @@ func redirectHosts(baseURL string, hosts []string) func(http.Handler) http.Handl
 	}
 }
 
+// redirectTargetMax bounds the path and query a redirect keeps (redirectHosts' doc).
+const redirectTargetMax = 2048
+
 // redirectTarget is the path and query a redirect host keeps (redirectHosts' doc).
 func redirectTarget(r *http.Request) string {
 	p := r.URL.EscapedPath()
@@ -68,6 +77,9 @@ func redirectTarget(r *http.Request) string {
 	p = "/" + strings.TrimLeft(p, "/")
 	if r.URL.RawQuery != "" || r.URL.ForceQuery {
 		p += "?" + r.URL.RawQuery
+	}
+	if len(p) > redirectTargetMax {
+		return "/"
 	}
 	return p
 }

@@ -34,9 +34,10 @@
 # THE OBJECT KEEPS ITS NAME (tappa-redirects), ON PURPOSE. The deploy's apply patches the live
 # object (created by kubectl apply from 40, so its last-applied annotation holds permanent-redirect
 # and the three-way merge removes it); no delete is needed, which the deploy identity cannot do
-# (01-rbac.yaml). A deploy of a commit from before T71 applies its own 40, which carries this name
-# with permanent-redirect, and so puts the ingress-level redirect back: a rollback restores the old
-# behaviour without a cluster step.
+# (01-rbac.yaml). A DEPLOY of a commit from before T71 applies its own 40, which carries this name
+# with permanent-redirect, and so puts the ingress-level redirect back. A MANUAL rollback
+# (kubectl set image / rollout undo) touches no Ingress: before going back to a pre-T71 image, apply
+# the old 40 first (deploy/README.md, "T71", Geri dönüş) or both hosts reach pods without the redirect.
 #
 # Between 40's apply and this file's, in the deploy that first carries T71, the live object is still
 # the old one: the hosts keep the old redirect (path dropped) until this apply, never an outage.

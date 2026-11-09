@@ -2,6 +2,7 @@ package httpx_test
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/atknatk/tappa/internal/config"
@@ -23,7 +24,8 @@ func redirectCfg() *config.Config {
 // MUTANTS (measured): r.URL.RequestURI() in place of the escaped path -> the opaque-form row's
 // Location is https://taptime.mt@evil.example (red); the leading-slash cut removed -> the
 // double-slash rows red; 301 for every method -> the POST/PUT rows red; the query dropped -> the
-// query rows red; the middleware not mounted -> every redirect row red.
+// query rows red; the middleware not mounted -> every redirect row red; the length bound removed ->
+// the past-the-bound row red.
 func TestRedirectHosts_KeepPathAndQueryAndNeverLeaveTheBaseURL(t *testing.T) {
 	h := httpx.NewRouter(redirectCfg(), nil, stubFeatures{})
 	for _, tc := range []struct {
@@ -67,9 +69,16 @@ func TestRedirectHosts_KeepPathAndQueryAndNeverLeaveTheBaseURL(t *testing.T) {
 		{"an opaque request target", "GET http:@evil.example HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n", 301, "https://taptime.mt/"},
 		{"an opaque target with a query", "GET http:@evil.example?q=1 HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
 			301, "https://taptime.mt/?q=1"},
+		// A real server answers OPTIONS * itself (net/http's globalOptionsHandler); the row drives the
+		// handler directly, which is the shape a different server in front could produce.
 		{"OPTIONS *", "OPTIONS * HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n", 308, "https://taptime.mt/"},
 		{"a query that names another host", "GET /?next=https://evil.example HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
 			301, "https://taptime.mt/?next=https://evil.example"},
+		// The bound: 2048 bytes of path and query are kept, one more is not.
+		{"a target at the bound", "GET /" + strings.Repeat("a", 2047) + " HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
+			301, "https://taptime.mt/" + strings.Repeat("a", 2047)},
+		{"a target past the bound", "GET /?" + strings.Repeat("a", 2047) + " HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
+			301, "https://taptime.mt/"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := rawServe(t, h, tc.raw)
