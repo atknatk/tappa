@@ -1786,18 +1786,19 @@ func shownOfOpenLine(shown, total int) string {
 	return "Showing the " + itoa(shown) + " oldest of " + itoa(total) + " open check-ins."
 }
 
-// startedEarlierLine names the seam between two reports rather than leaving a reader
-// to wonder why the transactions list holds a checkout this week has no hours for.
 // shiftFromTodayLine names the arrivals whose late minutes use TODAY's shift times (ADR 0042):
 // their record carries no shift snapshot, so editing a shift moves them, and every other
-// arrival on this screen is measured against the shift recorded with it.
+// arrival on this screen is measured against the shift recorded with it. An arrival whose venue
+// has no shift TODAY is counted too: its "not measured" is today's answer as well.
 func shiftFromTodayLine(n int) string {
 	if n == 1 {
-		return "Late minutes for 1 arrival use the current shift times — it was typed by a manager, or recorded before Taptime saved the shift with each record."
+		return "Late minutes for 1 arrival use the current shift times, or it is not measured — it was typed by a manager, or recorded before Taptime saved the shift with each record."
 	}
-	return "Late minutes for " + itoa(n) + " arrivals use the current shift times — they were typed by a manager, or recorded before Taptime saved the shift with each record."
+	return "Late minutes for " + itoa(n) + " arrivals use the current shift times, or they are not measured — they were typed by a manager, or recorded before Taptime saved the shift with each record."
 }
 
+// startedEarlierLine names the seam between two reports rather than leaving a reader
+// to wonder why the transactions list holds a checkout this week has no hours for.
 func startedEarlierLine(n int) string {
 	if n == 1 {
 		return "1 checkout belongs to a shift that began before this week; its hours are in the previous report."
@@ -1957,7 +1958,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 		var templ_7745c5c3_Var74 string
 		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(p.Who)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 769, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 770, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 		if templ_7745c5c3_Err != nil {
@@ -1970,7 +1971,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(p.At)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 770, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 771, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 		if templ_7745c5c3_Err != nil {
@@ -1983,7 +1984,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(p.Venue)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 773, Col: 12}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 774, Col: 12}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -2001,7 +2002,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 			var templ_7745c5c3_Var77 string
 			templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(p.Employer)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 775, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 776, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 			if templ_7745c5c3_Err != nil {
@@ -2020,7 +2021,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 			var templ_7745c5c3_Var78 string
 			templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(p.Ref)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 778, Col: 14}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 779, Col: 14}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 			if templ_7745c5c3_Err != nil {
@@ -2039,7 +2040,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 			var templ_7745c5c3_Var79 string
 			templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(p.Direction)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 783, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 784, Col: 84}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 			if templ_7745c5c3_Err != nil {
@@ -2075,7 +2076,7 @@ func reportPartnerDocket(p ReportPartnerView) templ.Component {
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(p.Outcome)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 785, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/reports.templ`, Line: 786, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 		if templ_7745c5c3_Err != nil {

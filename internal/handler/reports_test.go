@@ -1054,8 +1054,8 @@ func TestReportsSection_SaysWhichArrivalsAreMeasuredAgainstTodaysShift(t *testin
 		n    int
 		want string
 	}{
-		{1, "Late minutes for 1 arrival use the current shift times — it was typed by a manager, or recorded before Taptime saved the shift with each record."},
-		{3, "Late minutes for 3 arrivals use the current shift times — they were typed by a manager, or recorded before Taptime saved the shift with each record."},
+		{1, "Late minutes for 1 arrival use the current shift times, or it is not measured — it was typed by a manager, or recorded before Taptime saved the shift with each record."},
+		{3, "Late minutes for 3 arrivals use the current shift times, or they are not measured — they were typed by a manager, or recorded before Taptime saved the shift with each record."},
 	} {
 		records := newFakeLedger()
 		records.hours = reportWith(func(r *ledger.Report) {

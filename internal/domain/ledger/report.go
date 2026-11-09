@@ -375,8 +375,8 @@ type Totals struct {
 	// because a manager APPROVED a flag: at least one end has verdict 'flag' and review
 	// 'approved' (endpointState's second case).
 	Approved int
-	// ShiftFromToday counts the period's attributed check-ins whose lateness (or "not
-	// measured") was read against TODAY's shift settings because their record carries no
+	// ShiftFromToday counts the period's attributed check-ins whose lateness -- or "not
+	// measured", when no shift is set today -- was read against TODAY's shift settings because their record carries no
 	// shift snapshot (reportEvent.ShiftFromToday): written before 00095, or typed by a manager
 	// (ADR 0042). Every other arrival is measured against the shift recorded with it, so
 	// editing a shift does not move it. The screen and the file say so beside the figures.

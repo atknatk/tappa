@@ -210,3 +210,18 @@ func TestRecordDB_OnlyADirectedTapRecordsAShift(t *testing.T) {
 		t.Errorf("a manual record recorded a shift: %s %+v", str(s.source), s)
 	}
 }
+
+// TestRecordDB_AQRCheckInOnTheDSTEndRecordsTheWallClockShift: on Sunday 2026-10-25 Malta falls
+// back (03:00 CEST -> 02:00 CET), so the day is 25 hours long. A QR check-in at 09:12 local against
+// the venue's 09:00 shift records the WALL clock 09:00 and the zone, and the snapshot measures the
+// 12 minutes the engine measured -- not 72, which a start built as midnight + 9 h would give.
+func TestRecordDB_AQRCheckInOnTheDSTEndRecordsTheWallClockShift(t *testing.T) {
+	w := newHoldingWorld(t)
+	venue, tag := w.branch(w.kf, "", "09:00", "17:00", false)
+	emp := w.employeeOnTheHierarchy(w.kf, &venue)
+	res := recordAt(t, w.svc, w.ctx, maltaWall(t, 25, 9, 12), w.qr(w.kf, emp, tag, w.kf, w.kfOnNet))
+	if direction(res) != "in" || res.Decision.MinutesLate == nil || *res.Decision.MinutesLate != 12 {
+		t.Fatalf("PREMISE: a 09:12 QR check-in on the DST end, 12 minutes late; got %s late %v (%s)", direction(res), deref(res.Decision.MinutesLate), res.Decision.MatchedSid)
+	}
+	wantSnapshot(t, w, res, tap.ShiftSourceLocation, 9*time.Hour, 17*time.Hour, false, "Europe/Malta")
+}
