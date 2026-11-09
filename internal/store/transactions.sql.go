@@ -331,12 +331,12 @@ func (q *Queries) CountRecordsAtPartnerVenues(ctx context.Context, arg CountReco
 const existingManualRecord = `-- name: ExistingManualRecord :one
 SELECT id, occurred_at
 FROM transactions
-WHERE tenant_id   = $1
+WHERE tenant_id = $1
   AND employee_id = $2::uuid
-  AND channel     = 'manual'
-  AND type        = $3::text
+  AND channel = 'manual'
+  AND type = $3::text
   AND occurred_at = $4
-  AND entered_by  = $5::uuid
+  AND entered_by = $5::uuid
 ORDER BY created_at, id
 LIMIT 1
 `

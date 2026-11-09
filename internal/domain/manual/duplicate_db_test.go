@@ -13,22 +13,37 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce: N presses of the same confirmed entry
+// TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce: four presses of the same confirmed entry
 // at once -- they all meet before the person's lock (beforeLock is the barrier) -- write exactly one
 // row and one trail row; the others answer ErrAlreadyRecorded with that row's id. A record that
 // differs in instant, direction or author is still written.
 func TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce(t *testing.T) {
-	const presses = 8
+	// FOUR: pgxpool's default ceiling is max(4, NumCPU) connections and every press holds one while
+	// it waits at the barrier, so more presses than connections wait for each other. With 8 the CI
+	// run timed out at 30 min, its trace showing four presses at the barrier and four without a
+	// connection. The barrier is also bounded.
+	const presses = 4
 	w := newRaceWorld(t)
 	at := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
 	entry := Entry{TenantID: w.tenant, EmployeeID: w.who, EnteredBy: w.admin, Direction: Out, At: at, Note: "phone was flat"}
 
-	var ready sync.WaitGroup
-	ready.Add(presses)
+	// The barrier lets every press reach the lock together, and it is bounded so that a smaller
+	// pool can never turn it into a hang.
+	var mu sync.Mutex
+	arrived, all := 0, make(chan struct{})
 	w.rec.beforeLock = func(attempt int) {
-		if attempt == 0 {
-			ready.Done()
-			ready.Wait()
+		if attempt != 0 {
+			return
+		}
+		mu.Lock()
+		arrived++
+		if arrived == presses {
+			close(all)
+		}
+		mu.Unlock()
+		select {
+		case <-all:
+		case <-time.After(5 * time.Second):
 		}
 	}
 	type result struct {

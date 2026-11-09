@@ -377,12 +377,12 @@ RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
 -- instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
 SELECT id, occurred_at
 FROM transactions
-WHERE tenant_id   = sqlc.arg(tenant_id)
-  AND employee_id = sqlc.arg(employee_id)::uuid
-  AND channel     = 'manual'
-  AND type        = sqlc.arg(type)::text
-  AND occurred_at = sqlc.arg(occurred_at)
-  AND entered_by  = sqlc.arg(entered_by)::uuid
+WHERE tenant_id = @tenant_id
+  AND employee_id = @employee_id::uuid
+  AND channel = 'manual'
+  AND type = @type::text
+  AND occurred_at = @occurred_at
+  AND entered_by = @entered_by::uuid
 ORDER BY created_at, id
 LIMIT 1;
 

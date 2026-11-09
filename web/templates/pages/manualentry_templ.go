@@ -120,7 +120,7 @@ func AdminManualEntry(v ManualEntryView) templ.Component {
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>Pressing the button again did not enter it twice. <a class=\"font-bold text-ink underline underline-offset-4\" href=\"")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>Pressing the button again did not enter it twice. <a class=\"hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green\" href=\"")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

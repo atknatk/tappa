@@ -152,8 +152,8 @@ bu ADR'nin konusu olan değişmez tablo onu iki satır olarak saklıyordu. Kulla
   (*"See it on The Pass"*).
 - Okuma ve INSERT aynı işlemde ve aynı kilidin arkasındadır: iki basış ikisi de "yok" göremez.
   İkincisi birincinin kilidini bekler, kilidin yarış denetimi onu birincinin commit'inden sonra
-  yeniden başlatır ve satırı görür. Ölçüldü (yerel şerit DB'si, `-race`): aynı kaydın 8 eşzamanlı
-  basışı 1 satır ve 1 audit satırı yazar, 7'si reddedilir
+  yeniden başlatır ve satırı görür. Ölçüldü (yerel şerit DB'si, `-race`): aynı kaydın 4 eşzamanlı
+  basışı 1 satır ve 1 audit satırı yazar, 3'ü reddedilir
   (`TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce`). Denetim kaldırılınca ya da kilidin
   dışında ayrı bir işlemde koşturulunca aynı test birden çok satır görür (iki mutasyon, ikisi de
   kırmızı).

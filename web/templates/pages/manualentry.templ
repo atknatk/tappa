@@ -59,7 +59,7 @@ templ AdminManualEntry(v ManualEntryView) {
 				@components.PanelNotice(components.ToneOK, "That record was already saved.") {
 					<p>
 						Pressing the button again did not enter it twice.
-						<a class="font-bold text-ink underline underline-offset-4" href={ templ.URL(v.SavedHref) }>See it on The Pass</a>
+						<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(v.SavedHref) }>See it on The Pass</a>
 					</p>
 				}
 			} else if v.Problem != "" {
