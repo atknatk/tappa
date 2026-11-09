@@ -79,11 +79,11 @@ func TestRulesScreen_TheSummaryDoesNotCountAPlannedGuaranteeAsAGuarantee(t *test
 	if total < 2 {
 		t.Fatalf("%d guarantee(s) in the fixture", total)
 	}
-	want := fmt.Sprintf("%s%d guarantees · 1 planned · ", line, total-1)
+	want := fmt.Sprintf("%s%d guardrails · 1 planned · ", line, total-1)
 	if body := policyStatePage(t, policyPageState{screen: screen}); !strings.Contains(body, want) {
 		t.Errorf("the page does not open with %q", want)
 	}
-	control := fmt.Sprintf("%s%d guarantees · %d baseline", line, total, len(policyScreenFixture().Baseline))
+	control := fmt.Sprintf("%s%d guardrails · %d baseline", line, total, len(policyScreenFixture().Baseline))
 	if body := policyStatePage(t, policyPageState{screen: policyScreenFixture()}); !strings.Contains(body, control) {
 		t.Errorf("with nothing planned the page does not open with %q", control)
 	}
