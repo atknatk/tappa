@@ -281,11 +281,16 @@ func (f *fakeAdmins) lastChange(t *testing.T) changePasswordArgs {
 type fakeTrail struct {
 	mu     sync.Mutex
 	events []audit.Event
+	// fail, when set, makes every Record fail with it and write nothing (T18's refusal).
+	fail error
 }
 
 func (f *fakeTrail) Record(_ context.Context, e audit.Event) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.fail != nil {
+		return uuid.Nil, f.fail
+	}
 	f.events = append(f.events, e)
 	return uuid.New(), nil
 }
