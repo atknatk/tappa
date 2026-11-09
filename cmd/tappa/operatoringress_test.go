@@ -39,6 +39,8 @@ const (
 	customerIngressFile = "40-ingress.yaml"
 	// apiIngressFile is the integration API's host (M11 API-13a).
 	apiIngressFile = "42-api-ingress.yaml"
+	// redirectIngressFile carries the two redirect hosts (backlog T71).
+	redirectIngressFile = "43-redirect-ingress.yaml"
 )
 
 // ------------------------------------------------------------ a YAML subset parser --
@@ -396,9 +398,9 @@ func TestYAMLSubset_RefusesWhatItDoesNotRead(t *testing.T) {
 // TestPackaging_TheIngressFilesParseAsWritten bounds the comment stripper's naivety for
 // the two Ingress files (no '#' inside a quoted string, the shape the other manifest tests
 // check for 20-app.yaml and 05-config.yaml) and is the CONTROL that the parse sees what a
-// reader sees: 40's three hosts and 41's one.
+// reader sees: 40's one host (twice), 41's one, 42's one and 43's two.
 func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
-	for _, f := range []string{customerIngressFile, operatorIngressFile, apiIngressFile} {
+	for _, f := range []string{customerIngressFile, operatorIngressFile, apiIngressFile, redirectIngressFile} {
 		for i, line := range strings.Split(readK8s(t, f), "\n") {
 			if h := strings.Index(line, "#"); h >= 0 && (strings.Count(line[:h], `"`)%2 == 1 || strings.Count(line[:h], `'`)%2 == 1) {
 				t.Errorf("%s:%d has a '#' inside a quoted string; the comment stripper would truncate it", f, i+1)
@@ -415,8 +417,9 @@ func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	// taptime.mt twice since M14-10a: `tappa` and the panel's own `tappa-panel` (no access log).
-	if got := hosts(customerIngressFile); strings.Join(got, ",") != "tappa.everva.com.tr,taptime.mt,taptime.mt,www.taptime.mt" {
+	// taptime.mt twice since M14-10a: `tappa` and the panel's own `tappa-panel` (no access log). The
+	// two redirect hosts moved to 43 with T71.
+	if got := hosts(customerIngressFile); strings.Join(got, ",") != "taptime.mt,taptime.mt" {
 		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", customerIngressFile, got)
 	}
 	if got := hosts(operatorIngressFile); strings.Join(got, ",") != "ops.taptime.mt,ops.taptime.mt" {
@@ -424,6 +427,9 @@ func TestPackaging_TheIngressFilesParseAsWritten(t *testing.T) {
 	}
 	if got := hosts(apiIngressFile); strings.Join(got, ",") != "api.taptime.mt" {
 		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", apiIngressFile, got)
+	}
+	if got := hosts(redirectIngressFile); strings.Join(got, ",") != "tappa.everva.com.tr,www.taptime.mt" {
+		t.Errorf("CONTROL FAILED: %s parsed to hosts %v", redirectIngressFile, got)
 	}
 }
 
@@ -887,8 +893,8 @@ func TestPackaging_EveryIngressHostIsRoutedByOneFile(t *testing.T) {
 			}
 		}
 	}
-	if ingressFiles != 3 || len(hostFiles) < 5 {
-		t.Fatalf("CONTROL FAILED: %d Ingress files and %d hosts found, want 3 files and at least 5 hosts", ingressFiles,
+	if ingressFiles != 4 || len(hostFiles) < 5 {
+		t.Fatalf("CONTROL FAILED: %d Ingress files and %d hosts found, want 4 files and at least 5 hosts", ingressFiles,
 			len(hostFiles))
 	}
 	for h, files := range hostFiles {
@@ -961,8 +967,10 @@ const hostRouteStep = "Route the operator and API hosts"
 // existing or a new object (get, create, patch) — and no delete, which is why closing the
 // surface is the operator's (41's header).
 //
+// T71: 43 (the redirect hosts) the same way as 42 -- hostRouteStep, after the wait, outside the case.
+//
 // MUTANT (measured, OPS-1 fix round): 42's apply moved back into "Roll out the server" -> red;
-// 41's case moved back into it -> red.
+// 41's case moved back into it -> red. (T71) 43's apply moved into "Roll out the server" -> red.
 func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "deploy.yml"))
 	if err != nil {
@@ -970,7 +978,7 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	}
 	code := codeLinesOf(string(b))
 	applied := map[string]int{}
-	step, line40, line41, line42, rollout := "", -1, -1, -1, -1
+	step, line40, line41, line42, line43, rollout := "", -1, -1, -1, -1, -1
 	caseOpen, caseClose := -1, -1
 	for i, l := range code {
 		if s, ok := strings.CutPrefix(strings.TrimSpace(l), "- name: "); ok {
@@ -985,6 +993,8 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 				line41 = i
 			case step == hostRouteStep && m[1] == apiIngressFile:
 				line42 = i
+			case step == hostRouteStep && m[1] == redirectIngressFile:
+				line43 = i
 			}
 		}
 		if step == "Roll out the server" && strings.Contains(l, "rollout status deployment/tappa") {
@@ -1013,8 +1023,8 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 				"in the cluster (T112)", file, applied[file])
 		}
 	}
-	if ingressFiles != 3 {
-		t.Errorf("CONTROL FAILED: %d Ingress files found, want 3 (40, 41 and 42)", ingressFiles)
+	if ingressFiles != 4 {
+		t.Errorf("CONTROL FAILED: %d Ingress files found, want 4 (40, 41, 42 and 43)", ingressFiles)
 	}
 	if line40 < 0 || rollout < 0 || line40 > rollout {
 		t.Errorf("in \"Roll out the server\": 40 at %d, rollout wait at %d; want 40 before the wait", line40, rollout)
@@ -1031,6 +1041,12 @@ func TestPackaging_TheDeployAppliesEveryIngressFile(t *testing.T) {
 	if caseOpen < 0 || caseClose < caseOpen || line41 < caseOpen || line41 > caseClose || (line42 > caseOpen && line42 < caseClose) {
 		t.Errorf("in %q: the operator surface's case spans %d..%d, 41 at %d, 42 at %d; want 41 "+
 			"inside it and 42 outside", hostRouteStep, caseOpen, caseClose, line41, line42)
+	}
+	// T71: 43 in hostRouteStep, after the wait (a pod older than T71 serves the customer product on the
+	// redirect hosts) and outside the operator surface's case (the redirect does not depend on it).
+	if line43 < 0 || line43 < rollout || (line43 > caseOpen && line43 < caseClose) {
+		t.Errorf("43 at %d in %q, the rollout wait at %d, the case %d..%d; want it there, after the wait and "+
+			"outside the case", line43, hostRouteStep, rollout, caseOpen, caseClose)
 	}
 
 	rbac := stripYAMLComments(readK8s(t, "01-rbac.yaml"))

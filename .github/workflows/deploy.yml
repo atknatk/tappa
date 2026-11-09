@@ -980,6 +980,11 @@ jobs:
           # which serve the customer product on any host (42-api-ingress.yaml's header). The same
           # identity and verbs as 40 (01-rbac.yaml: ingresses get, list, create, patch).
           kubectl apply -f deploy/k8s/42-api-ingress.yaml
+          # The two redirect hosts (backlog T71). OUTSIDE the case, like 42, and AFTER the rollout wait
+          # for the same reason: a pod older than T71 has no redirect middleware and serves the customer
+          # product on any host (43-redirect-ingress.yaml's header). The object keeps its name, so this
+          # apply patches the one 40 created; the same identity and verbs as 40.
+          kubectl apply -f deploy/k8s/43-redirect-ingress.yaml
 
       # 🔴 THE END STATE, MEASURED FROM OUTSIDE (T119). The preflight decided from the
       # Secret's key sizes; this asks ops.taptime.mt itself whether it serves the customer

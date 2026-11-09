@@ -124,6 +124,14 @@ type Config struct {
 	// it and /v1 off every other host. Configuration, not a secret.
 	APIHost string
 
+	// RedirectHosts are the hosts the application answers with nothing but a permanent redirect to
+	// BaseURL, path and query kept (backlog T71: internal/httpx's redirectHosts). Load sets it to
+	// the CLOSED list redirectHostList -- no variable sets it, because a host on it reaches the
+	// product's origin with every request, and adding one is a code change in review. Load refuses
+	// a list that names BaseURL's host (the redirect would answer itself), the operator host or the
+	// API host (either surface would be redirected away instead of served).
+	RedirectHosts []string
+
 	// ResetDelivery names the transport that carries an admin password-reset link
 	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY):
 	// ResetDeliveryNone or ResetDeliveryEmail. Since M10 EM-9 the same value decides
@@ -422,6 +430,10 @@ func Load() (*Config, error) {
 	push(keysSeparation(c))
 	// After the operator surface: the API host must differ from the operator host too.
 	if c.APIHost, err = apiHost(os.Getenv(envAPIHost), c.BaseURL, c.OperatorHost); err != nil {
+		push(err)
+	}
+	// After both hosts: the redirect list must name neither, nor BaseURL's host.
+	if c.RedirectHosts, err = redirectHosts(redirectHostList, c.BaseURL, c.OperatorHost, c.APIHost); err != nil {
 		push(err)
 	}
 	// RetentionYears is required (no default): see the field comment.
@@ -1014,9 +1026,9 @@ func loadOperatorSurface(c *Config) []error {
 // host (its `__Host-` cookie, its same-origin check); the base URL's host in this
 // variable would put it on the customer product's canonical host. The comparison
 // ignores case because the base URL's host is not normalised anywhere.
-// ⚠️ THAT IS THE ONLY HOST THIS CHECK KNOWS. The ingress serves the customer product on
-// other hosts as well (deploy/k8s/40-ingress.yaml: www.taptime.mt, tappa.everva.com.tr),
-// and an operator host equal to one of those is accepted here; keeping the operator
+// ⚠️ THAT IS THE ONLY HOST THIS CHECK KNOWS. Since T71 the two redirect hosts
+// (redirectHostList: www.taptime.mt, tappa.everva.com.tr) are refused too, by
+// redirectHosts after this; any other host is accepted here, and keeping the operator
 // surface off the customer hosts is the two-way host gate's job (OP-8: httpx's
 // operatorHostOnly and internal/handler/operator's hostGate). What an operator host equal
 // to a customer host does is measured and counted there (m10-platform.md, OP-8 card
@@ -1086,6 +1098,40 @@ func apiHost(v, baseURL, operator string) (string, error) {
 			"surface each live on a host of their own (ADR 0020 §4, ADR 0028 §13)")
 	}
 	return v, nil
+}
+
+// redirectHostList is the CLOSED list of hosts that answer only a permanent redirect to BaseURL
+// (backlog T71, user decision 2026-11-08): the deploy target through M8, and www, which is kept
+// redirect-only on purpose (deploy/k8s/43-redirect-ingress.yaml's header). Both reach the
+// application through that Ingress and nothing else.
+var redirectHostList = []string{"tappa.everva.com.tr", "www.taptime.mt"}
+
+// redirectHosts returns a copy of list after refusing a host that is also BaseURL's, the operator
+// host or the API host. A redirect host equal to BaseURL's host would answer every request on the
+// canonical origin with a redirect to itself; equal to the operator or API host it would send that
+// surface's every request away before the surface's own gate ran. An error names the host, which
+// comes from the list in this file and not from the environment.
+func redirectHosts(list []string, baseURL, operator, api string) ([]string, error) {
+	base := ""
+	if u, err := url.Parse(baseURL); err == nil {
+		base = u.Hostname()
+	}
+	for _, h := range list {
+		switch {
+		case !isDNSHostName(h):
+			return nil, errors.New("redirect host " + strconv.Quote(h) + ": not a lower-case DNS host name")
+		case strings.EqualFold(h, base):
+			return nil, errors.New("TAPPA_BASE_URL: its host is the redirect host " + h + ", which answers only a " +
+				"redirect to TAPPA_BASE_URL (backlog T71)")
+		case operator != "" && strings.EqualFold(h, operator):
+			return nil, errors.New("TAPPA_OPERATOR_HOST: must not be the redirect host " + h + ", which answers only a " +
+				"redirect to TAPPA_BASE_URL (backlog T71)")
+		case api != "" && strings.EqualFold(h, api):
+			return nil, errors.New("TAPPA_API_HOST: must not be the redirect host " + h + ", which answers only a " +
+				"redirect to TAPPA_BASE_URL (backlog T71)")
+		}
+	}
+	return slices.Clone(list), nil
 }
 
 // The integration API's two key variables (M11 API-3, ADR 0028 §3).

@@ -119,17 +119,20 @@ func mountedPath(v string) bool {
 		tenantAPIPath.MatchString(p) || tenantAPIClosePath.MatchString(p) || tenantSuspensionPath.MatchString(p)
 }
 
-// ingressHosts reads the hosts deploy/k8s/40-ingress.yaml routes to this Service -- the
-// customer hosts today; a host added there is in this list without editing the test.
+// ingressHosts reads the hosts deploy/k8s/40-ingress.yaml and 43-redirect-ingress.yaml route to
+// this Service -- the customer host and, since T71, the two redirect hosts; a host added to either
+// is in this list without editing the test.
 func ingressHosts(t *testing.T) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "k8s", "40-ingress.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	var hosts []string
-	for _, m := range regexp.MustCompile(`(?m)^\s*-\s*host:\s*(\S+)\s*$`).FindAllStringSubmatch(string(b), -1) {
-		hosts = append(hosts, m[1])
+	for _, f := range []string{"40-ingress.yaml", "43-redirect-ingress.yaml"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "k8s", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`(?m)^\s*-\s*host:\s*(\S+)\s*$`).FindAllStringSubmatch(string(b), -1) {
+			hosts = append(hosts, m[1])
+		}
 	}
 	if len(hosts) < 3 {
 		t.Fatalf("PREMISE: read %d host(s) from the ingress (%v); it routes three today", len(hosts), hosts)
@@ -1517,14 +1520,13 @@ func TestFormValue_PrintsNoValue(t *testing.T) {
 	}
 }
 
-// TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator measures what
-// config.Load does NOT refuse (it compares the operator host with TAPPA_BASE_URL's): an operator host
-// set to another host the ingress serves for customers (www.taptime.mt). In-process the
-// operator side wins on that host -- the operator surface answers there and the customer
-// route driven (/admin) is the router's 404; the cost is that host's customer pages. The
-// canonical customer host keeps /admin. (At the ingress today both other customer hosts
-// are permanent redirects to taptime.mt -- read from deploy/k8s/40-ingress.yaml, not
-// measured against the cluster.)
+// TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator measures, in-process and
+// with a hand-built Config, an operator host set to another host the ingress routes to this
+// Service (www.taptime.mt). In-process the operator side wins on that host -- the operator
+// surface answers there and the customer route driven (/admin) is the router's 404; the cost is
+// that host's customer pages. The canonical customer host keeps /admin. (Since T71 config.Load
+// refuses this operator host -- www.taptime.mt is a redirect host -- and a Config built by Load
+// carries RedirectHosts, which this one does not: the row measures the two-way gate alone.)
 func TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator(t *testing.T) {
 	const collide = "www.taptime.mt"
 	if !slices.Contains(ingressHosts(t), collide) {

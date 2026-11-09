@@ -1,0 +1,95 @@
+# Tappa — the two redirect hosts, tappa.everva.com.tr and www.taptime.mt (backlog T71; user
+# decision 2026-11-08). Until T71 this object lived in 40-ingress.yaml and answered both hosts with
+# ingress-nginx's permanent-redirect.
+#
+# 🔴 BOTH HOSTS NOW REACH THE APPLICATION, AND THE APPLICATION ANSWERS THEM WITH NOTHING BUT A
+# REDIRECT. internal/httpx/redirecthost.go answers every request on either host -- before any route
+# or host gate runs -- with a permanent redirect to TAPPA_BASE_URL (https://taptime.mt) that keeps
+# the path and the query: 301 for GET and HEAD, 308 for every other method. The hosts are a closed
+# list in internal/config (redirectHostList); config.Load refuses a TAPPA_BASE_URL, operator host or
+# API host equal to one of them. The redirect's scheme and host are the configuration's, never the
+# request's, and the path is reduced so that it cannot name another host (redirecthost.go's doc,
+# TestRedirectHosts_KeepPathAndQueryAndNeverLeaveTheBaseURL).
+#
+# WHY NOT THE INGRESS. permanent-redirect emits `return 301 https://taptime.mt;` without the request
+# URI; a literal "$request_uri" in the value is refused by the admission webhook ("permanent-redirect
+# contains invalid value", a URL-injection guard -- that is what failed the first cutover deploy),
+# and configuration-snippets are disabled cluster-wide (ingress-nginx >= 1.9). Measured 2026-09-05:
+# curl .../activate?x=1 -> Location: https://taptime.mt. A snippet would change a SHARED controller's
+# configuration (40's header weighs the same trade for the client address), so the redirect moved
+# into the application.
+#
+# 🔴 "EXACTLY ONE HOST SERVES THE APP" STILL HOLDS (40's header), FOR A NEW REASON. A request on
+# either host can no longer process a tap, open a session or render a page because the application
+# answers it with a redirect first, not because nginx stops it. A proxied www would therefore still
+# only mis-redirect, never mis-attribute a tap: the redirect reads no client address.
+#
+# 🔴 APPLIED AFTER THE ROLLOUT WAIT, NOT WITH 40 (.github/workflows/deploy.yml, "Route the operator
+# and API hosts"; 42's header gives the same order for the same reason). A pod older than T71 has no
+# redirect middleware and serves the whole customer product on any host. Applied before the wait,
+# the first deploy of this file would route both hosts to those pods for the length of the rollout,
+# and a rollout that failed would leave them routed there. After the wait, every pod the hosts can
+# reach started with the binary that redirects them.
+#
+# THE OBJECT KEEPS ITS NAME (tappa-redirects), ON PURPOSE. The deploy's apply patches the live
+# object (created by kubectl apply from 40, so its last-applied annotation holds permanent-redirect
+# and the three-way merge removes it); no delete is needed, which the deploy identity cannot do
+# (01-rbac.yaml). A deploy of a commit from before T71 applies its own 40, which carries this name
+# with permanent-redirect, and so puts the ingress-level redirect back: a rollback restores the old
+# behaviour without a cluster step.
+#
+# Between 40's apply and this file's, in the deploy that first carries T71, the live object is still
+# the old one: the hosts keep the old redirect (path dropped) until this apply, never an outage.
+#
+# The two hosts keep their SEPARATE certificates, so neither can hold the other hostage:
+# tappa.everva.com.tr keeps `tappa-tls`, www.taptime.mt keeps `taptime-www-tls`, isolated from the
+# apex's `taptime-tls`. cert-manager's HTTP-01 solver adds its own, more specific
+# /.well-known/acme-challenge/<token> path while it solves, as on every other host here.
+#
+# 🔴 tappa.everva.com.tr MUST STAY DNS-ONLY (40's header: everva.com.tr has a PROXIED WILDCARD, and a
+# DNS-only record overrides it). Proxied, cert-manager's HTTP-01 challenge would meet Cloudflare first.
+#
+# ⚠️ TO VERIFY AFTER THE FIRST DEPLOY THAT CARRIES THIS FILE (deploy/README.md, "T71"):
+#   curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^location'
+#   -> location: https://taptime.mt/activate?x=1
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-redirects
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - tappa.everva.com.tr
+      secretName: tappa-tls
+    - hosts:
+        - www.taptime.mt
+      secretName: taptime-www-tls
+  rules:
+    - host: tappa.everva.com.tr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+    - host: www.taptime.mt
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
