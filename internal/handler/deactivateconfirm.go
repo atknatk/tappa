@@ -87,9 +87,9 @@ import (
 // table or a nonce — with its own retention and its own failure modes. What makes it
 // survivable is each gate's SECOND defence on the write itself, and those are kept in one
 // place: confirmGates in confirminventory_test.go classifies every action below with its
-// defence and the tests that measure it, and goes red on a gate it does not know. One gate
-// has none: record.manual's replay writes a second identical manual record (counted there
-// and in backlog T258).
+// defence and the tests that measure it, and goes red on a gate it does not know. Since
+// backlog T258 (2026-11-09) that includes record.manual: the domain writes the same manual
+// record once, under the person's tap lock.
 //
 // 🔴 PART 12 WAS ADDED AFTER AN AUDIT SPENT ONE GATE'S VALUE AT ANOTHER'S. Until
 // version 2 the payload named a SUBJECT and a SESSION but not the ACT, so a
@@ -237,9 +237,8 @@ const (
 	// A mis-pressed close is a permanent, uncorrectable statement about what somebody
 	// was charged.
 	//
-	// ⚠️ THE ONE-SHOT ARGUMENT HOLDS HERE TOO, AND FOR A DIFFERENT REASON. (Not for
-	// every gate before it: record.manual's write has no second defence -- confirmGates.)
-	// A re-printed cookie can spend one mint repeatedly; what makes that harmless at the
+	// ⚠️ THE ONE-SHOT ARGUMENT HOLDS HERE TOO, AND FOR A DIFFERENT REASON. (Each gate's
+	// own reason is in confirmGates.) A re-printed cookie can spend one mint repeatedly; what makes that harmless at the
 	// deactivation is a predicate on the write (DeactivateEmployee's `status <>
 	// 'deactivated'`), and here it is the UNIQUE constraint: the second
 	// close of the same month raises 23505 and the caller reports "already closed". So

@@ -32,10 +32,10 @@ const (
 	// signed-in operator, who could mint a fresh value with one request of their own session
 	// (the review page; a POST at most gates), so this re-arms nothing they could not already do.
 	replayWritesAfterAnUndo
-	// replayWritesASecondRecord: the write has no second defence of its own. Counted in
-	// ADR 0005 and backlog T258; only record.manual may carry it.
-	replayWritesASecondRecord
 )
+
+// There is no class for "a replay writes a second record": since backlog T258 (2026-11-09) every
+// gate has a second defence, and a new gate without one is a user decision, not an entry here.
 
 type confirmGate struct {
 	replay confirmReplay
@@ -62,9 +62,9 @@ var confirmGates = map[string]confirmGate{
 	"confirmActionUnmountPlaque": {replayWritesAfterAnUndo,
 		"UnmountTagFromWall carries `status = 'active'` (db/queries/tags.sql); an ungated mount of the same plaque re-arms it",
 		[]string{"TestPlaquesDB_TenConcurrentUnmountsProduceExactlyONEWinner"}},
-	"confirmActionRecordManual": {replayWritesASecondRecord,
-		"none on the row: InsertManualTransaction has no duplicate check and transactions carries no UNIQUE by design (00005). The cookie is cleared before the write, so Back or a reload cannot spend it twice, but a double press can (\"Record it\" is a plain submit and the panel runs no script, so both posts leave with the cookie), and so can a re-printed cookie: either writes a second visible manual record by the same author",
-		[]string{"TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord"}},
+	"confirmActionRecordManual": {replayWritesNothing,
+		"manual.Record reads ExistingManualRecord under the person's tap lock (LockEmployeeForTap, Within's first statement) and writes nothing when this author already has a manual row for this person, direction and instant: ErrAlreadyRecorded, the panel says the record was already saved (T258)",
+		[]string{"TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce", "TestManualEntryRecord_AReplayedConfirmationIsAnsweredAlreadySaved"}},
 	"confirmActionPolicyEdit": {replayWritesAfterAnUndo,
 		"on an existing rule the subject carries a digest of what the review page showed (policyChangeSubject), so a write makes the value stale; Bind and Unbind refuse a repeat (ErrAlreadyBound, ErrNotBound); a NEW rule shows no rule to digest, and there the defence is the UNIQUE name (00015): ErrNameTaken; an undo (or a rename) re-arms it",
 		[]string{"TestPolicyConfirmation_IsBoundToWhatThePageShowed", "TestRuleWriterDB_BindingsAreWrittenAndRemovedWithATrail", "TestRuleWriterDB_AnEditIsAlwaysANewVersion"}},
@@ -109,9 +109,8 @@ func confirmActionNamesFromSource(t *testing.T) []string {
 }
 
 // TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence fails when a confirmation
-// action exists that the inventory does not classify (or the other way round), when an entry
-// names no defence or a test that does not exist, and when a gate other than record.manual is
-// classified as writing a second record.
+// action exists that the inventory does not classify (or the other way round), and when an entry
+// names no replay class, no defence or a test that does not exist.
 func TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence(t *testing.T) {
 	names := confirmActionNamesFromSource(t)
 	if len(names) < 11 {
@@ -133,7 +132,7 @@ func TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence(t *testing.
 		if !inSource[name] {
 			t.Errorf("the inventory classifies %s, which deactivateconfirm.go no longer declares", name)
 		}
-		if g.replay < replayWritesNothing || g.replay > replayWritesASecondRecord || strings.TrimSpace(g.defence) == "" {
+		if g.replay < replayWritesNothing || g.replay > replayWritesAfterAnUndo || strings.TrimSpace(g.defence) == "" {
 			t.Errorf("%s: no replay class or no second defence", name)
 		}
 		if len(g.proofs) == 0 {
@@ -143,10 +142,6 @@ func TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence(t *testing.
 			if !tests[p] {
 				t.Errorf("%s names %s, which is not a test in this repository", name, p)
 			}
-		}
-		if g.replay == replayWritesASecondRecord && name != "confirmActionRecordManual" {
-			t.Errorf("%s is classified as writing a second record on a replay. Only record.manual "+
-				"is accepted that way (ADR 0005, T258); another one is a user decision", name)
 		}
 	}
 }
@@ -256,12 +251,13 @@ func allTestFuncs(t *testing.T) map[string]bool {
 	return out
 }
 
-// TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord measures the one gate whose
-// write has no second defence (T12's accepted limit, T258). The handler clears the cookie before
-// the write, so a re-post after the answer (Back, a reload) is refused. A post that left with the
-// cookie still in the jar -- the second press of a double click, or a re-printed cookie, which is
-// the same request -- reaches Record again.
-func TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord(t *testing.T) {
+// TestManualEntryRecord_AReplayedConfirmationIsAnsweredAlreadySaved is the panel's half of T258: a
+// post that left with the confirmation cookie still in the jar -- the second press of a double
+// click, or a re-printed cookie, which is the same request -- reaches Record again, and the answer
+// to the domain's ErrAlreadyRecorded is the done notice with the way to the record, not a second
+// record and not an error. (The fake recorder models the domain's rule; the rule itself is
+// measured under the real lock in internal/domain/manual.)
+func TestManualEntryRecord_AReplayedConfirmationIsAnsweredAlreadySaved(t *testing.T) {
 	rec := &fakeRecorder{}
 	b := panelBrowserWithRecorder(t, rec)
 	form := confirmedEntry(t, b, "out", "2026-08-05", "17:00", "phone was flat")
@@ -269,27 +265,30 @@ func TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord(t *testing.T
 	if minted == "" {
 		t.Fatal("the review step minted no confirmation cookie; nothing below is measured")
 	}
-
-	if res := b.do(http.MethodPost, manualRecordHref, form); res.Code != http.StatusSeeOther {
-		t.Fatalf("the confirmed write answered %d, want 303", res.Code)
+	first := b.do(http.MethodPost, manualRecordHref, form)
+	if first.Code != http.StatusSeeOther {
+		t.Fatalf("the confirmed write answered %d, want 303", first.Code)
 	}
-	if n := len(rec.entries()); n != 1 {
-		t.Fatalf("the confirmed write produced %d record(s), want 1", n)
-	}
+	saved := first.Header().Get("Location")
 
-	// AN ORDINARY BROWSER: the cookie was cleared, so the same form is refused.
-	b.do(http.MethodPost, manualRecordHref, form)
-	if n := len(rec.entries()); n != 1 {
-		t.Fatalf("re-posting without the cookie produced %d record(s), want still 1", n)
-	}
-
-	// THE REPLAY: the same value printed back.
+	// THE SECOND PRESS: the same value printed back.
 	b.cookies[adminConfirmCookieName] = minted
-	if res := b.do(http.MethodPost, manualRecordHref, form); res.Code != http.StatusSeeOther {
-		t.Fatalf("the replay answered %d, want 303 (the counted limit)", res.Code)
+	second := b.do(http.MethodPost, manualRecordHref, form)
+	if second.Code != http.StatusOK {
+		t.Fatalf("the second press answered %d, want 200 with the notice", second.Code)
 	}
-	if n := len(rec.entries()); n != 2 {
-		t.Fatalf("the replay produced %d record(s) in all, want 2. If a second defence now refuses "+
-			"it, reclassify confirmActionRecordManual in confirmGates and close T258", n)
+	if n := len(rec.entries()); n != 1 {
+		t.Fatalf("%d record(s) after two presses, want 1", n)
+	}
+	page := htmlOf(t, second)
+	for _, want := range []string{htmlText("That record was already saved."),
+		htmlText("Pressing the button again did not enter it twice."),
+		`href="` + htmlText(saved) + `"`, ">See it on The Pass</a>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the second press's page does not carry %q", want)
+		}
+	}
+	if strings.Contains(page, htmlText("Nothing was recorded")) {
+		t.Error("the second press is drawn as a refusal; the record exists")
 	}
 }

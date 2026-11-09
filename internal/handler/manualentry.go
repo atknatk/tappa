@@ -339,15 +339,11 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	// THE COOKIE IS CLEARED BEFORE THE WRITE IS ATTEMPTED, so a re-post after the answer
 	// (Back, a reload) cannot ride the same confirmation twice, and a failed write leaves no
-	// reusable value behind either. A double press can: both posts leave with the cookie
-	// (T12 accepted in ADR 0005; T258). It is a REQUEST to the client rather than a ledger — a
-	// client that re-prints it spends the same mint until it expires, which is measured
-	// and counted at deactivateconfirm.go. What bounds the damage here is different
-	// from the deactivation's `status <> 'deactivated'` predicate and weaker: a second
-	// spend writes a SECOND identical record. It is visible (both rows are in the day's
-	// manual list, both name the author) and it is the shape the report reads as one
-	// interval plus one stranded row rather than as doubled hours — see
-	// manual.CorrectionsOnlyShorten.
+	// reusable value behind either. A double press still reaches Record twice -- both posts
+	// leave with the cookie -- and so does a client that re-prints it (T12, ADR 0005). What
+	// stops the second record is the domain (T258): manual.Record reads for the same person,
+	// direction, instant and author under the person's tap lock and answers ErrAlreadyRecorded,
+	// which this handler draws as "already saved" below.
 	a.short.clear(w, adminConfirmCookieName)
 
 	rec, err := a.entries.Record(r.Context(), manual.Entry{
@@ -369,6 +365,13 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		a.redirect(w, manualRecordReturn(rec, subject.Zone))
+	case errors.Is(err, manual.ErrAlreadyRecorded):
+		// T258: a double press (or a replayed confirmation) reached Record a second time and the
+		// domain found the record the first press wrote, under the person's lock. Nothing was
+		// written; the manager is told so and shown the way to the record.
+		v := a.manualFormView(r, subject, f, pages.ManualAlreadySaved)
+		v.SavedHref = manualRecordReturn(rec, subject.Zone)
+		a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 	case errors.Is(err, manual.ErrUnknownEmployee):
 		a.log.Warn("panel manual entry refused: no such employee in this tenant")
 		a.redirect(w, employeesHref+"?problem=unknown")
@@ -764,6 +767,12 @@ func manualPreview(s manual.Subject, v pages.ManualEntryView, at time.Time, zone
 // renderManualForm re-renders the form after a refusal, keeping what the manager
 // typed so they can fix one field rather than start again.
 func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s manual.Subject, f manualForm, problem string) {
+	v := a.manualFormView(r, s, f, problem)
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
+}
+
+// manualFormView is the form step refilled from the posted form, with one notice.
+func (a *AdminAuth) manualFormView(r *http.Request, s manual.Subject, f manualForm, problem string) pages.ManualEntryView {
 	v := a.manualView(r, s, f.employeeID)
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
@@ -772,7 +781,7 @@ func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s m
 		v.SiteID = f.siteID.String()
 	}
 	v.Problem = problem
-	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
+	return v
 }
 
 // manualVenueOptions is the picker's contents for a person with no home venue, empty

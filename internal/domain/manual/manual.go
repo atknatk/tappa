@@ -247,6 +247,9 @@ var (
 	// "none chosen" and "not ours", ErrUnknownEmployee's collapse: both are the same
 	// instruction to the manager.
 	ErrVenue = errors.New("manual: this person has no home venue; choose the venue the shift was worked at")
+	// ErrAlreadyRecorded: this author has already entered this person's record for this direction
+	// at this instant (backlog T258). Record returns the record that exists beside it.
+	ErrAlreadyRecorded = errors.New("manual: that record was already entered")
 )
 
 // Database is the slice of the store this package needs, declared HERE at the
@@ -595,19 +598,52 @@ func (r *Recorder) Backdated(at time.Time) bool {
 // -- so section 4.5's belt is the SELECT's own tenant predicate and the braces are
 // the composite foreign key (employee_id, tenant_id). Nothing here compares tenants
 // in Go.
+//
+// 🔴 THE SAME RECORD TWICE IS WRITTEN ONCE (backlog T258, user decision 2026-11-09). The panel
+// confirmation is not single-use (T12, ADR 0005): a double press of "Record it" sends the same
+// confirmed entry twice, and before this both became permanent rows. So under the person's tap lock
+// -- Within's first statement, the lock the tap path and every manual write already take -- Record
+// reads for a manual row with the same person, direction, instant and author, and if one exists it
+// writes nothing and answers ErrAlreadyRecorded with that row. The read and the INSERT are in one
+// transaction behind one lock, so two presses cannot both see "none" (the second waits for the
+// first, then sees its row: the lock's race check starts it again after the first commits).
+//
+// §4.6 ("a record is never lost") holds: what is refused is not a fact the database lacks -- the
+// row already states that this author recorded this person's check-in or checkout at this instant,
+// with its own trail row. A second row would add no attendance and only a duplicate the report reads
+// as a stranded record. A record that differs in person, direction or instant is written as before;
+// so is a different author's (each administrator's statement is their own). Claim approvals (Within
+// via internal/domain/claim) are not read here: their own defence is the decided claim.
 func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	if err := r.validate(e); err != nil {
 		return Recorded{}, err
 	}
 	var out Recorded
 	err := r.Within(ctx, e.TenantID, e.EmployeeID, func(ctx context.Context, tx pgx.Tx, write Write) error {
-		var err error
+		prior, err := store.New(tx).ExistingManualRecord(ctx, store.ExistingManualRecordParams{
+			TenantID:   e.TenantID,
+			EmployeeID: e.EmployeeID,
+			Type:       string(e.Direction),
+			OccurredAt: e.At.UTC(),
+			EnteredBy:  e.EnteredBy,
+		})
+		switch {
+		case err == nil:
+			out = Recorded{ID: prior.ID, At: prior.OccurredAt, Direction: e.Direction, EmployeeID: e.EmployeeID}
+			return ErrAlreadyRecorded
+		case !errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("read for the same record: %w", err)
+		}
 		out, err = write(e)
 		return err
 	})
 	switch {
 	case err == nil:
 		return out, nil
+	case errors.Is(err, ErrAlreadyRecorded):
+		r.log.Info("manual record not written: the same record was already entered",
+			"record_id", out.ID, "employee_id", e.EmployeeID, "entered_by", e.EnteredBy)
+		return out, ErrAlreadyRecorded
 	case errors.Is(err, ErrVenue), errors.Is(err, ErrUnknownEmployee):
 		return Recorded{}, err
 	default:

@@ -53,7 +53,16 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminManualEntry(v ManualEntryView) {
 	@PanelActions(manualSteps(v.Confirming)) {
 		@PanelShell(v.PanelChrome) {
-			if v.Problem != "" {
+			if v.Problem == ManualAlreadySaved {
+				// THE SAME RECORD PRESSED TWICE (T258): the first press wrote it, this one wrote
+				// nothing. Said as done, with the way to the record.
+				@components.PanelNotice(components.ToneOK, "That record was already saved.") {
+					<p>
+						Pressing the button again did not enter it twice.
+						<a class="font-bold text-ink underline underline-offset-4" href={ templ.URL(v.SavedHref) }>See it on The Pass</a>
+					</p>
+				}
+			} else if v.Problem != "" {
 				// A REFUSAL IS AN ALERT: something the manager asked for was not done, and
 				// the label the notice opens with says exactly that before the heading says
 				// why.

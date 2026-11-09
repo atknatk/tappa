@@ -135,3 +135,37 @@ etmek zorunda kalacak: bugün o listede birbirinden ayırt edilemeyen **üç** �
 gerçekten unutulmuş bir çıkış, ADR 0008 öncesi maskelenmiş bir giriş, ve **bu ADR'nin
 bıraktığı kapatılamaz kayıt**. M6-11 ya üçüncüsünü işaretlemeli ya da neden
 işaretlemediğini yazmalı.
+
+## Ek — aynı kayıt bir kez yazılır (2026-11-09, backlog T258, kullanıcı kararı)
+
+Panelin onay değeri tek kullanımlık değil ([ADR 0005](0005-kabul-edilen-riskler.md), T12):
+*"Record it"*'e çift tıklama (ya da yeniden basılmış çerez) aynı onaylı kaydı iki kez gönderir ve
+bu ADR'nin konusu olan değişmez tablo onu iki satır olarak saklıyordu. Kullanıcı kararı
+*"refuse the duplicate"*:
+
+- `manual.Record`, `Within`'in ilk ifadesi olan kişinin tap kilidinin (`LockEmployeeForTap`, tap yolu
+  ve her elle yazım aynı kilidi alır; yeni kilit yok) altında, yazmadan önce
+  `ExistingManualRecord`'u okur: aynı tenant, aynı kişi, `channel = 'manual'`, aynı yön, aynı
+  `occurred_at` ve aynı `entered_by`. Satır varsa hiçbir şey yazılmaz (kayıt yok, audit satırı yok)
+  ve `ErrAlreadyRecorded` o satırla döner; panel *"That record was already saved."* /
+  *"Pressing the button again did not enter it twice."* der ve kayda bağlantı verir
+  (*"See it on The Pass"*).
+- Okuma ve INSERT aynı işlemde ve aynı kilidin arkasındadır: iki basış ikisi de "yok" göremez.
+  İkincisi birincinin kilidini bekler, kilidin yarış denetimi onu birincinin commit'inden sonra
+  yeniden başlatır ve satırı görür. Ölçüldü (yerel şerit DB'si, `-race`): aynı kaydın 8 eşzamanlı
+  basışı 1 satır ve 1 audit satırı yazar, 7'si reddedilir
+  (`TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce`). Denetim kaldırılınca ya da kilidin
+  dışında ayrı bir işlemde koşturulunca aynı test birden çok satır görür (iki mutasyon, ikisi de
+  kırmızı).
+- **§4.6 korunur**: reddedilen şey veritabanında eksik olan bir olgu değildir. Var olan satır aynı
+  yazarın bu kişinin bu andaki girişini ya da çıkışını zaten söyler, kendi audit satırıyla. İkinci
+  satır hiçbir mesai eklemez; yalnızca raporun sahipsiz kayıt olarak okuduğu bir kopya ekler ve
+  §4.3 gereği silinemez. Kişi, yön ya da an farklıysa kayıt eskisi gibi yazılır. Başka bir yazarın
+  aynı kaydı da yazılır, çünkü her yöneticinin beyanı kendisinindir. Not ve mekân anahtarda yok:
+  bir kişi aynı anda iki kez giriş yapamaz.
+- **§4.3 korunur**: hiçbir satır güncellenmez ya da silinmez; yalnız ikinci INSERT yapılmaz.
+- Talep onayı (`internal/domain/claim`, `Within` üzerinden) bu okumayı yapmaz; onun ikinci savunması
+  karar verilmiş taleptir (`ErrAlreadyDecided`, UNIQUE `(tenant_id, claim_id)`).
+- **İstemci tarafı yapılmadı:** düğmeyi ilk basışta devre dışı bırakmak betik ister. Panelin
+  ekranları betik yüklemez ve CSP'leri (`adminCSP`) bunu bilerek dışarıda tutar; betik eklemek o
+  politikanın genişletilmesidir. Sunucu kuralı çift basışı zaten tek kayda indirir.

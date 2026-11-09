@@ -366,6 +366,26 @@ RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           site_tenant_id, site_location_id, site_tag_uid, business_day_start,
           direction_source;
 
+-- name: ExistingManualRecord :one
+-- THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
+-- confirmation is not single-use (T12, ADR 0005), so a double press of "Record it" sends the same
+-- confirmed entry twice; this is the read manual.Record makes UNDER THE PERSON'S TAP LOCK before it
+-- writes, and a row here means the second press writes nothing. The key is the statement the
+-- manager made: the person, the direction, the instant and the author. Venue and note are not in it
+-- -- one person cannot check in twice at one instant, so a second row with another venue or another
+-- note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
+-- instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+SELECT id, occurred_at
+FROM transactions
+WHERE tenant_id   = sqlc.arg(tenant_id)
+  AND employee_id = sqlc.arg(employee_id)::uuid
+  AND channel     = 'manual'
+  AND type        = sqlc.arg(type)::text
+  AND occurred_at = sqlc.arg(occurred_at)
+  AND entered_by  = sqlc.arg(entered_by)::uuid
+ORDER BY created_at, id
+LIMIT 1;
+
 -- name: InsertManualTransaction :one
 -- THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an
 -- entry was left open and nobody tapped out (Q18: the system produces NO checkout of

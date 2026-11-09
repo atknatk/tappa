@@ -110,6 +110,9 @@ type ManualEntryView struct {
 	// parameter is a value somebody can put anything in, and the answer is not to
 	// escape it more carefully but to have nothing to escape.
 	Problem string
+	// SavedHref is where the record that already exists is shown (The Pass on its day), set only
+	// with Problem == ManualAlreadySaved.
+	SavedHref string
 
 	// --- the second step -----------------------------------------------------------
 	//
@@ -186,6 +189,11 @@ func directionLabel(v ManualEntryView) string {
 	}
 	return ""
 }
+
+// ManualAlreadySaved is the Problem of a press that found its record already written (backlog
+// T258): not a refusal of anything the manager lacks, so it is drawn as a done notice rather than
+// an alert. It is NOT in the handler's query-string vocabulary -- only the write renders it.
+const ManualAlreadySaved = "already"
 
 // manualProblemHeading is the sentence for each refusal.
 //

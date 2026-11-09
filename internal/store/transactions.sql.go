@@ -328,6 +328,53 @@ func (q *Queries) CountRecordsAtPartnerVenues(ctx context.Context, arg CountReco
 	return records, err
 }
 
+const existingManualRecord = `-- name: ExistingManualRecord :one
+SELECT id, occurred_at
+FROM transactions
+WHERE tenant_id   = $1
+  AND employee_id = $2::uuid
+  AND channel     = 'manual'
+  AND type        = $3::text
+  AND occurred_at = $4
+  AND entered_by  = $5::uuid
+ORDER BY created_at, id
+LIMIT 1
+`
+
+type ExistingManualRecordParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	Type       string
+	OccurredAt time.Time
+	EnteredBy  uuid.UUID
+}
+
+type ExistingManualRecordRow struct {
+	ID         uuid.UUID
+	OccurredAt time.Time
+}
+
+// THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
+// confirmation is not single-use (T12, ADR 0005), so a double press of "Record it" sends the same
+// confirmed entry twice; this is the read manual.Record makes UNDER THE PERSON'S TAP LOCK before it
+// writes, and a row here means the second press writes nothing. The key is the statement the
+// manager made: the person, the direction, the instant and the author. Venue and note are not in it
+// -- one person cannot check in twice at one instant, so a second row with another venue or another
+// note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
+// instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+func (q *Queries) ExistingManualRecord(ctx context.Context, arg ExistingManualRecordParams) (ExistingManualRecordRow, error) {
+	row := q.db.QueryRow(ctx, existingManualRecord,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.Type,
+		arg.OccurredAt,
+		arg.EnteredBy,
+	)
+	var i ExistingManualRecordRow
+	err := row.Scan(&i.ID, &i.OccurredAt)
+	return i, err
+}
+
 const getLastOpenTransaction = `-- name: GetLastOpenTransaction :one
 
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,

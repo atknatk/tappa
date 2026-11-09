@@ -346,7 +346,10 @@ var storeSurface = map[string]string{
 	"GetTransactionReview": "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
 	// M11 API-11: the sandbox simulation's read of the tap it recorded -- the decision's columns, no
 	// source address, no coordinate, no policy context.
-	"GetTapOutcome":           "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
+	"GetTapOutcome": "(context.Context, GetTapOutcomeParams{TenantID uuid.UUID; ID uuid.UUID}) (GetTapOutcomeRow{ID uuid.UUID; EmployeeID *uuid.UUID; Verdict string; Type *string; Trust *int16; Channel string; OccurredAt time.Time; MatchedSid *string; Practice bool; LocationID *uuid.UUID; SiteLocationID *uuid.UUID; TagUid *string; SiteTagUid *string}, error)",
+	// T258: the manual record already written for this person, direction, instant and author -- an
+	// id and an instant, nothing else.
+	"ExistingManualRecord":    "(context.Context, ExistingManualRecordParams{TenantID uuid.UUID; EmployeeID uuid.UUID; Type string; OccurredAt time.Time; EnteredBy uuid.UUID}) (ExistingManualRecordRow{ID uuid.UUID; OccurredAt time.Time}, error)",
 	"InsertManualTransaction": "(context.Context, InsertManualTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; LocationID *uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	// M15-15 (00068): the claim's INSERT, built from the anchor row -- ids, a kind and two moments
 	// in; the new row's id and the database's created_at out. No evidence, no e-mail.

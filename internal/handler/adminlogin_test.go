@@ -1124,6 +1124,7 @@ type fakeRecorder struct {
 	// driven without a database.
 	recordErr error
 	recorded  []manual.Entry
+	results   []manual.Recorded
 	// boundsErr is what Bounds answers. It is SEPARATE from recordErr because the two
 	// are checked at different moments — the review step and the write — and a test
 	// that could not tell them apart could not see the gate at all.
@@ -1170,8 +1171,15 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 	if f.recordErr != nil {
 		return manual.Recorded{}, f.recordErr
 	}
-	f.recorded = append(f.recorded, e)
-	return manual.Recorded{
+	// THE DOMAIN'S T258 RULE, MODELLED: the same person, direction, instant and author is written
+	// once; the second answers ErrAlreadyRecorded with the first (internal/domain/manual measures
+	// the real one under the lock).
+	for i, prior := range f.recorded {
+		if prior.EmployeeID == e.EmployeeID && prior.Direction == e.Direction && prior.At.Equal(e.At) && prior.EnteredBy == e.EnteredBy {
+			return f.results[i], manual.ErrAlreadyRecorded
+		}
+	}
+	out := manual.Recorded{
 		ID:         uuid.New(),
 		At:         e.At,
 		CreatedAt:  time.Now().UTC(),
@@ -1179,7 +1187,10 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 		Verdict:    "ok",
 		Channel:    "manual",
 		EmployeeID: e.EmployeeID,
-	}, nil
+	}
+	f.recorded = append(f.recorded, e)
+	f.results = append(f.results, out)
+	return out, nil
 }
 
 func (f *fakeRecorder) entries() []manual.Entry {
