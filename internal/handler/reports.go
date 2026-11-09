@@ -197,6 +197,7 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 	v.PracticeTaps = s.PracticeTaps
 	v.StartedEarlier = s.StartedEarlier
 	v.Unattributable = s.Unattributable
+	v.ShiftFromToday = s.Totals.ShiftFromToday
 
 	v.WeekValue = p.FirstDay.String()
 	days := p.DayLabels(zone)

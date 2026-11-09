@@ -825,6 +825,11 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 		"Their shift started before this week, so their hours are in the previous report.")
 	d.row("Records naming no employee", strconv.Itoa(s.Unattributable), "",
 		"Direction-carrying records with nobody on them, so no hours could be attributed. Still on The Pass.")
+	// T152 (ADR 0042): the arrivals whose late minutes a shift edit would move. A payroll
+	// process reads rows, so the file carries the screen's sentence as a figure. It sits in this
+	// block for its note and excludes no hours -- the note says so first.
+	d.row("Arrivals measured against the current shift", strconv.Itoa(s.Totals.ShiftFromToday), "",
+		"Their hours are counted; only their late minutes use today's shift times, or they are not measured when no shift is set today. They were typed by a manager, or recorded before Taptime saved the shift with each record. Every other arrival is measured against the shift in force when it was recorded.")
 
 	if len(s.People) == 0 {
 		// The file's twin of the screen's empty state, and it says the same careful

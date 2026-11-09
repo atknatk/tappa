@@ -433,7 +433,8 @@ func dsRead(t *testing.T, ctx context.Context, q opQuerier) dsSurface {
 // first, and ends with 00067's Up. Since T163 it starts one file higher, with 00088's Down, and ends
 // with 00088's Up: 00088 turned tappa_app's INSERT on transactions into a column list, and a column
 // that 00065's Down drops and its Up adds again is not on a list -- in goose's own order 00088's Down
-// has given the table-level INSERT back by then. The walk runs in this test's transaction (rolled back), with the
+// has given the table-level INSERT back by then. Since T152 it starts with 00095's Down (every shift
+// snapshot set aside first) and ends with 00095's Up, for the same reason one file higher. The walk runs in this test's transaction (rolled back), with the
 // tables the Downs name locked first (lockForDowns), and the Downs may take no strong lock outside
 // them.
 func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *testing.T) {
@@ -452,6 +453,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 	to66 := func(sp pgx.Tx) {
 		t.Helper()
 		feedSetAsideDirectionSources(t, ctx, sp)
+		ssDown(t, ctx, sp)
 		opRunSection(t, ctx, sp, down88, "00088 Down")
 		opRunSection(t, ctx, sp, down67, "00067 Down")
 	}
@@ -603,6 +605,7 @@ func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *
 			}
 			opRunSection(t, ctx, sp, up67, "00067 Up again")
 			opRunSection(t, ctx, sp, up88, "00088 Up again")
+			ssUp(t, ctx, sp)
 			if again := dsRead(t, ctx, sp); again != head {
 				t.Errorf("after 00088's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
 			}

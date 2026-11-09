@@ -869,6 +869,12 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			continue
 		}
 		up, down := opMigrationSections(t, e.Name())
+		if n == shiftSnapshotMigration {
+			// T152: 00095's Down refuses while a row carries a shift snapshot, and the tap path
+			// writes one on every directed nfc/qr row other packages' tests commit. The walk sets
+			// them aside first, inside the same rolled-back transaction (ssSetAside's statements).
+			down = ssSetAsideSQL + "\n" + down
+		}
 		out = append(out, aiLaterMigration{e.Name(), up, down})
 	}
 	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })

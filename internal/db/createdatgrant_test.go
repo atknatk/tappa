@@ -182,6 +182,10 @@ func TestTransactions00088_EveryShippedInsertNamesOnlyGrantedColumns(t *testing.
 // the lock_timeout and name no table lock; the Down leaves tappa_app 00005's table-level INSERT and no
 // column grant (a table REVOKE clears them), under which a back-dated created_at lands again; the Up
 // takes it back to HEAD.
+//
+// Since T152 the walk is wrapped in 00095's Down and Up, goose's own order (ADR 0038 "Bedel"): 00095
+// adds five columns 00088's list does not name, so 00088's Up at HEAD would refuse them -- its own
+// DO block, the guard working. transactions is locked first for 00095's Down (lockForDowns).
 func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, createdAtGrantFile)
@@ -200,6 +204,7 @@ func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t 
 	if tables := downTables(up + down); len(tables) > 0 {
 		t.Fatalf("00088 names a table lock: %v", tables)
 	}
+	lockForDowns(t, ctx, tx, []string{"transactions"})
 	head := cgString(t, tx, cgAppInsertColumns)
 	tenant := aiTenant(t, ctx, tx)
 	backDated := func(q pgx.Tx) error {
@@ -210,6 +215,7 @@ func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t 
 		})
 	}
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		ssDown(t, ctx, sp)
 		opRunSection(t, ctx, sp, down, "00088 Down")
 		if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = 'public.transactions'::regclass AND has_table_privilege('tappa_app', oid, 'INSERT')`) != 1 {
 			t.Fatal("after the Down tappa_app holds no table-level INSERT on transactions; want 00005's")
@@ -221,6 +227,7 @@ func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t 
 			t.Fatalf("after the Down a back-dated created_at as tappa_app: %v, want it to land (00005's shape)", err)
 		}
 		opRunSection(t, ctx, sp, up, "00088 Up")
+		ssUp(t, ctx, sp)
 		if got := cgString(t, sp, cgAppInsertColumns); got != head {
 			t.Fatalf("Down then Up: tappa_app INSERTs %s, want HEAD's %s", got, head)
 		}

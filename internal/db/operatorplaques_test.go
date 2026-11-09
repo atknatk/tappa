@@ -183,6 +183,8 @@ var opAtVersionSkips = map[int]string{
 		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 	94: "transactions_tenant_employee_checkin_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
 		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	95: "transactions' five shift_* columns, their NOT VALID CHECK and tappa_app's INSERT on them (T152) -- no operator " +
+		"object; its Down takes ACCESS EXCLUSIVE on transactions and refuses while a row carries a shift snapshot",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
