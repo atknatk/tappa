@@ -23,15 +23,15 @@ Bugün `tenants.plan`'ı yazan bir ürün yolu yok. Hiçbir migration bir role `
 
 **Saat dilimi seçimi.** Ay, tenant'ın kendi diliminde çözülür; UTC takvim ayı kullanılmaz. Faturalanan ay zaten yerel aydır (00016). UTC ayı, yönettiği aydan 14 saate kadar sapardı. Ölçüldü: Malta'da `2026-02-28T23:30Z` Mart'tır, UTC'de Şubat'tır. `TestPlanInForce_AMonthIsGovernedByThePlanAtItsStart` bu farkı ayırt eder.
 
-**Neden ticari bir karar sayılmadı, ve seçenekler.** Plan bugün **fiyatı** belirlemez; fiyat ayrı sütundur, `price_per_employee_month`. Plan yalnız bir ayın ücretsiz olup olmadığını belirler: founding, kayıt ayı + 2 ay ücretsizdir. Yani ay içinde bölme ya da oranlama (proration) diye bir seçenek yoktur, her ay tek bir boolean'dır. Tek-plan-tek-ay için üç okuma var:
+**Ticari karar; kullanıcı (A)'yı onayladı, 2026-11-09.** Plan bugün **fiyatı** belirlemez; fiyat ayrı sütundur, `price_per_employee_month`. Plan yalnız bir ayın ücretsiz olup olmadığını belirler: founding'de kayıt ayı ve sonraki iki ay ücretsizdir. Her ay tek bir boolean'dır, oranlama (proration) yoktur. Ama ay içindeki bir değişikliğin o ayı mı yoksa bir sonrakini mi yöneteceği, kimin ne ödeyeceğini değiştirir. Bu yüzden ticari bir karardır. Bu ADR'nin ilk taslağı aksini söylüyordu; denetim haklı olarak çürüttü. Ayda tek plan veren okumalar:
 
-| Seçenek | Anlamı | Sonuç |
+| Seçenek | Anlamı | T27 ile ilişkisi |
 |---|---|---|
-| **(A) ayın başındaki plan** — seçilen | değişim sonraki aydan geçerli | Başlamış ay korunur. Ana akımın karşılığı: Stripe subscription schedule'ın faz sınırı, Chargebee'nin "end of term" değişimi. |
-| (B) ayın sonundaki / kapanış anındaki plan | değişim içinde bulunduğu ayı da yönetir | Bugünkü davranıştır. Bitmiş ama kapatılmamış ay, sonraki bir değişimle hâlâ oynar. T27'nin ta kendisi. |
-| (C) ay içinde müşteri lehine olan | founding ile standard arasında hangisi ücretsizse | Kural tek yönlüdür. Operatörün standard'a geçirişini bir ay geciktirir. (A)'nın davranışı zaten budur, "yükseltme hemen" istisnasına gerek kalmaz. |
+| **(A) ayın başındaki plan** — seçilen, kullanıcı onayı 2026-11-09 | M içindeki bir değişiklik M+1'den geçerli | Başlamış ay korunur. Ana akımın karşılığı: Stripe subscription schedule'ın faz sınırı, Chargebee'nin "end of term" değişimi. |
+| (B) ayın sonundaki plan | M içindeki bir değişiklik M'yi de yönetir (`tappa_plan_in_force`'a `period_to` verilir) | T27'yi yeniden **açmaz**: M bittikten sonraki bir değişiklik M'ye dokunamaz. Bedeli, M sürerken önizlemenin ay sonuna kadar oynamasıdır. |
+| (B′) kapanış anındaki plan | ay, kapatıldığı andaki planla dondurulur | 00097'den önceki davranış. Bitmiş ama kapatılmamış ay sonraki bir değişimi izler. **T27'nin ta kendisi.** |
 
-"Yükseltme hemen geçerli olsun" istisnası burada bir şeye karşılık gelmez. İki plan arasında fiyat farkı yok. founding→standard müşteri için bir kayıptır (ücretsiz ayları gider). standard→founding bir hediyedir. İkisi de (A) ile sonraki aydan başlar. Kullanıcının 2026-11-08 cümlesi ("ay kapanışı o ay yürürlükte olan planı okur") ayda tek plan der. Tek planı veren ve T27'yi yeniden açmayan okuma yalnız (A)'dır. Kullanıcı OP-17'de "hemen geçerli" (B) isterse değişen tek şey okuyucunun karşılaştırması olur: `tappa_plan_in_force`'a `period_to` verilir. Şema aynı kalır.
+"Yükseltme hemen geçerli" istisnasının karşılığı yok: iki plan arasında fiyat farkı yok. founding→standard müşteri için bir kayıptır (ücretsiz ayları gider), standard→founding bir hediyedir. (A) ile ikisi de sonraki aydan başlar. (B) seçilseydi değişen tek şey okuyucunun karşılaştırma anı olurdu (`period_from` yerine `period_to`); şema aynı kalırdı.
 
 ## 3. Geri doldurma (backfill)
 
@@ -45,15 +45,22 @@ Bugün `tenants.plan`'ı yazan bir ürün yolu yok. Hiçbir migration bir role `
   ```
 
   Sıfır değilse geri doldurma o tenant'lar için "en iyi bilgi"dir. Doğrusu için 00097'nin yorumundaki yol izlenir: plan geri alınır, migrate edilir, sonra yeniden değiştirilir.
+- **Tetiği atlamak yanlış bir geçmiş bırakır.** Sahip ya da süper kullanıcı tetiği atlayabilir: `SET session_replication_role = replica`, `ALTER TABLE tenants DISABLE TRIGGER`, ya da tetikleri kapalı bırakılmış bir geri yükleme. Bu durumda yapılan plan değişikliği hiçbir satır yazmaz. Geçmişi olan bir tenant'ta son satır artık başka bir planı adlandırır ve sonraki her ay eski planla fiyatlanır. Geçmişi olmayan bir tenant'ta iz kalmaz, ama sonraki gerçek değişiklik ilk satırı `OLD`'dan, yani atlanmış plandan yazar. Bu **yanlış bir ilk satırdır**: atlanmış plan kayıttan beri yürürlükteymiş gibi görünür. Değişmez olan ve izlenen kontrol: her tenant için `tappa_plan_in_force(id, clock_timestamp(), plan) = plan`. `scripts/pg-restore-verify.sh` bölüm 7 bunu her geri yüklemede sınar ve bozuksa reddeder (`TestRestoreVerify_PlanHistoryQuery`). Neden orada: geri yükleme, veritabanının servise girmeden önce bütünüyle sahip olarak okunduğu rutin andır. Bölüm 5a'nın kuralı da geçerlidir: kaynağın zaten taşıdığı bir kusur sadakatle kopyalanır ve o da servise girmemelidir. Canlı veritabanı için aynı sorgu elle koşulur:
+
+  ```sql
+  SELECT count(*) FROM tenants t WHERE tappa_plan_in_force(t.id, clock_timestamp(), t.plan) IS DISTINCT FROM t.plan;
+  ```
+
+  Kontrolün sınırı yazılıdır: geçmişi olmayan bir tenant'taki atlanmış değişiklik burada görünmez (okuyucu `tenants.plan`'a düşer).
 - **00097'den sonra doğan tenant'ın satırı yoktur**, ilk plan değişikliğine kadar. Kayıt yolu buraya bir şey yazmaz, bu yüzden `tappa_app`'in tabloda yazma yetkisi yoktur. İlk değişiklikte tetik önce `OLD`'dan ilk satırı yazar (kayıttan beri sahip olduğu plan), sonra değişikliği. Satırı olmayan tenant'ı okuyucu `tenants.plan`'la yönetir, çünkü plan hiç değişmemiştir.
 
 ## 4. Yazıcı — tetik, ve "kim"
 
-`tenants` üzerinde `AFTER UPDATE OF plan … WHEN (OLD.plan IS DISTINCT FROM NEW.plan)` vardır. Fonksiyon `tappa_record_plan_change()`'tir, SECURITY INVOKER: satır, planı değiştirenin yetkisiyle yazılır. Bugün bu sahiptir; yarın OP-17'nin tanımlayıcısı olur. `tenant_plan_history`'de INSERT yetkisi olmayan bir rol planı değiştirirse UPDATE'in tamamı 42501 ile düşer. Plan, geçmişi olmadan değişemez. `effective_from` hiçbir zaman çağıranın değildir: duvar saatidir (`clock_timestamp()`). Ürün yolu geriye tarih atamaz.
+`tenants` üzerinde `AFTER UPDATE … WHEN (OLD.plan IS DISTINCT FROM NEW.plan)` vardır. `UPDATE OF plan` **değildir** (güvenlik denetimi, DÜŞÜK, 2026-11-09). Sütuna özgü bir tetik yalnız ifadenin SET listesi `plan`'ı adlandırdığında çalışır. Bu durumda başka bir sütunun UPDATE'inde `NEW.plan`'ı değiştiren bir BEFORE tetiği planı geçmişsiz taşırdı. AFTER tetiğinin WHEN'i ise satırı saklandığı haliyle, bütün BEFORE tetiklerinden sonra okur (`TestTenantPlanHistory_ABeforeTriggerThatMovesThePlanStillLeavesItsRow`; mutasyonla ölçüldü). Fonksiyon `tappa_record_plan_change()`'tir, SECURITY INVOKER: satır, planı değiştirenin yetkisiyle yazılır. Bugün bu sahiptir; yarın OP-17'nin tanımlayıcısı olur. `tenant_plan_history`'de INSERT yetkisi olmayan bir rol planı değiştirirse UPDATE'in tamamı 42501 ile düşer. Plan, geçmişi olmadan değişemez. `effective_from` hiçbir zaman çağıranın değildir: duvar saatidir (`clock_timestamp()`). Ürün yolu geriye tarih atamaz.
 
 **Kim:** `changed_by` sütunu `platform_admins(id)`'ye anahtarlıdır (00098). Değeri transaction-yerel `tappa.plan_changed_by` ayarından okunur. Uuid olmayan bir değer 22P02 ile, operatör adlandırmayan bir değer 23503 ile UPDATE'i reddeder (ölçüldü). Bu kimlik doğrulama değil, **atıftır**. Satırı ancak `tenants.plan`'ı yazabilen bir rol üretebilir. NULL, operatör yüzeyinden gelmediği anlamına gelir: geri doldurma, ilk satır ya da elle yazılmış bir UPDATE.
 
-**OP-17'ye kalan (bu ADR inşa etmez):** `op_*` plan yazıcısı. Sahibi `tappa_opdefiner`, SECURITY DEFINER, `SET search_path`, `REVOKE ALL … FROM PUBLIC`, açık `GRANT EXECUTE … TO tappa_operator`. Aynı gövdede sırayla: oturum yüklemi, `set_config('tappa.plan_changed_by', v_admin, true)`, `UPDATE public.tenants … WHERE t.id = p_tenant_id`, `operator_audit_log` satırı. Tanımlayıcıya `UPDATE (plan) ON tenants` ve `INSERT (tenant_id, plan, effective_from, changed_by) ON tenant_plan_history` verilir. İleri tarihli bir değişiklik ("Ocak'tan itibaren standard") bu şemada yoktur. Gerekirse kendi kararıyla gelir.
+**OP-17'ye kalan (bu ADR inşa etmez):** `op_*` plan yazıcısı. Sahibi `tappa_opdefiner`, SECURITY DEFINER, `SET search_path`, `REVOKE ALL … FROM PUBLIC`, açık `GRANT EXECUTE … TO tappa_operator`. Aynı gövdede sırayla: oturum yüklemi, `set_config('tappa.plan_changed_by', v_admin, true)` (**yalnız transaction-yerel ve UPDATE'ten hemen önce**), `UPDATE public.tenants … WHERE t.id = p_tenant_id`, `operator_audit_log` satırı. **Oturum düzeyinde `SET tappa.plan_changed_by` yasaktır.** Tetik oturum düzeyindeki bir değeri de okur, ve havuzdan dönen bir bağlantıda kalan değer, sonraki elle yapılmış bir değişikliği yanlış operatöre atfederdi (CLAUDE.md §6'nın `SET LOCAL` kuralıyla aynı gerekçe). Tanımlayıcıya `UPDATE (plan) ON tenants` ve `INSERT (tenant_id, plan, effective_from, changed_by) ON tenant_plan_history` verilir. İleri tarihli bir değişiklik ("Ocak'tan itibaren standard") bu şemada yoktur. Gerekirse kendi kararıyla gelir.
 
 ## 5. Okuyucu
 

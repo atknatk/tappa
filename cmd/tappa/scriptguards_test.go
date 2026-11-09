@@ -65,6 +65,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -850,7 +851,8 @@ func TestPgBackup_ManifestCarriesTheDumpsFeedCounters(t *testing.T) {
 func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 	src := readScript(t, "pg-restore-verify.sh")
 	i := strings.Index(src, "FEED_RESTORE_GAP=1000000")
-	j := strings.Index(src, "\necho\nif [ \"$fails\" -eq 0 ]; then")
+	// Section 6 ends where section 7 (the plan history, 00097) begins.
+	j := strings.Index(src, "# =================================================================================\n# 7. THE PLAN HISTORY")
 	if i < 0 || j < i {
 		t.Fatal("scripts/pg-restore-verify.sh section 6 is not where this test cuts it")
 	}
@@ -885,6 +887,47 @@ func TestRestoreVerify_FeedManifestGate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: section 6: %v\n%s", c.what, err, out)
 		}
+		passed := strings.Contains(string(out), "fails=0")
+		if passed != c.pass || !strings.Contains(string(out), c.say) {
+			t.Errorf("%s: pass %v, want %v, saying %q:\n%s", c.what, passed, c.pass, c.say, out)
+		}
+	}
+}
+
+// TestRestoreVerify_PlanHistoryGate runs scripts/pg-restore-verify.sh section 7's shell (T27, ADR
+// 0043 §3) with the database stubbed: a dump without the plan history is noted and passes; a count of
+// 0 passes; a count above 0 fails naming the trigger bypass; either query failing is "no verdict"
+// (die), never a pass. internal/db's TestRestoreVerify_PlanHistoryQuery runs the query itself.
+func TestRestoreVerify_PlanHistoryGate(t *testing.T) {
+	src := readScript(t, "pg-restore-verify.sh")
+	i := strings.Index(src, "PLAN_HISTORY_SQL=\"")
+	j := strings.Index(src, "\necho\nif [ \"$fails\" -eq 0 ]; then")
+	if i < 0 || j < i {
+		t.Fatal("scripts/pg-restore-verify.sh section 7 is not where this test cuts it")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "psql")
+	for _, c := range []struct {
+		what, present, count string
+		code                 int
+		pass                 bool
+		say                  string
+	}{
+		{"an older dump", "f", "", 0, true, "no plan history in this database"},
+		{"every plan in force is the current one", "t", "0", 0, true, "every tenant's plan in force now is its current plan"},
+		{"two stale histories", "t", "2", 0, false, "2 tenants' latest plan history row"},
+		{"the presence query fails", "", "", 3, false, "die: a catalog query failed"},
+		{"the count fails", "t", "", 4, false, "die: the plan history query failed"},
+	} {
+		body := "#!/bin/sh\ncase \"$2\" in\n*to_regclass*) [ " + strconv.Itoa(c.code) + " = 3 ] && exit 3; echo " + c.present +
+			" ;;\n*) [ " + strconv.Itoa(c.code) + " = 4 ] && exit 4; echo " + c.count + " ;;\nesac\n"
+		if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		script := "set -eu\nfails=0\nbad()  { echo \"  FAIL  $*\" >&2; fails=$((fails + 1)); }\nok()   { echo \"  ok    $*\"; }\n" +
+			"note() { echo \"  --    $*\"; }\ndie()  { echo \"die: $*\" >&2; exit 2; }\n" +
+			"OWNER_PSQL=" + stub + "\nPGDATABASE=x\n" + src[i:j] + "\necho \"fails=$fails\"\n"
+		out, _ := exec.Command("sh", "-c", script).CombinedOutput()
 		passed := strings.Contains(string(out), "fails=0")
 		if passed != c.pass || !strings.Contains(string(out), c.say) {
 			t.Errorf("%s: pass %v, want %v, saying %q:\n%s", c.what, passed, c.pass, c.say, out)

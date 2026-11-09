@@ -511,3 +511,84 @@ func TestPlanHistory00097_BackfillsOneRowPerTenantAndTheDownRefusesARecordedChan
 		t.Errorf("after 00098's Up the key is missing")
 	}
 }
+
+// TestTenantPlanHistory_ABeforeTriggerThatMovesThePlanStillLeavesItsRow is the security review's
+// DÜŞÜK (2026-11-09): the tenants trigger is AFTER UPDATE with a WHEN on the stored plan, not
+// `UPDATE OF plan`. A BEFORE trigger (created here, in the rolled-back transaction) that sets
+// NEW.plan on an UPDATE naming only the timezone still leaves the change's history row.
+// CONTROL: the same UPDATE with the trigger redefined as `UPDATE OF plan` (in a savepoint) moves
+// the plan and writes no row -- so the row above is the definition's doing.
+func TestTenantPlanHistory_ABeforeTriggerThatMovesThePlanStillLeavesItsRow(t *testing.T) {
+	ctx, tx := opTx(t)
+	if _, err := tx.Exec(ctx, `
+		CREATE FUNCTION public.zz_t27_move_plan() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN NEW.plan := 'standard'; RETURN NEW; END $$;
+		CREATE TRIGGER zz_t27_move_plan BEFORE UPDATE ON public.tenants
+		    FOR EACH ROW WHEN (current_setting('tappa.zz_t27', true) = 'on') EXECUTE FUNCTION public.zz_t27_move_plan();
+		SELECT set_config('tappa.zz_t27', 'on', true)`); err != nil {
+		t.Fatalf("the plan-moving BEFORE trigger: %v", err)
+	}
+	moved := func(f opBillingFixture) (plan string, rows int) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, `UPDATE tenants SET timezone = 'Europe/Rome' WHERE id = $1`, f.id); err != nil {
+			t.Fatalf("UPDATE the timezone: %v", err)
+		}
+		if err := tx.QueryRow(ctx, `SELECT plan FROM tenants WHERE id = $1`, f.id).Scan(&plan); err != nil {
+			t.Fatal(err)
+		}
+		return plan, len(phRows(t, ctx, tx, f.id))
+	}
+	f := phTenant(t, ctx, tx, "founding", phSignup)
+	if plan, rows := moved(f); plan != "standard" || rows != 2 {
+		t.Errorf("a BEFORE trigger moved the plan to %s on a timezone UPDATE and the history holds %d rows (%v); want standard and two (the first plan and the change)",
+			plan, rows, phRows(t, ctx, tx, f.id))
+	}
+
+	g := phTenant(t, ctx, tx, "founding", phSignup)
+	if _, err := tx.Exec(ctx, `SAVEPOINT of_plan;
+		CREATE OR REPLACE TRIGGER tenants_plan_history AFTER UPDATE OF plan ON public.tenants FOR EACH ROW
+		    WHEN (OLD.plan IS DISTINCT FROM NEW.plan) EXECUTE FUNCTION public.tappa_record_plan_change()`); err != nil {
+		t.Fatal(err)
+	}
+	plan, rows := moved(g)
+	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT of_plan`); err != nil {
+		t.Fatal(err)
+	}
+	if plan != "standard" || rows != 0 {
+		t.Fatalf("CONTROL: with `UPDATE OF plan` the timezone UPDATE left plan %s and %d history rows; want standard and none -- the test would not tell the definitions apart", plan, rows)
+	}
+}
+
+// TestRestoreVerify_PlanHistoryQuery runs scripts/pg-restore-verify.sh section 7's PLAN_HISTORY_SQL,
+// cut from the script, in a rolled-back transaction: a plan change through the trigger adds no
+// count; a change made with the trigger bypassed (session_replication_role = replica, the owner's
+// way past it -- ADR 0043 §3) on a tenant that has a history adds exactly one. The count before is
+// taken as the baseline: other tests' committed tenants are in the database.
+func TestRestoreVerify_PlanHistoryQuery(t *testing.T) {
+	q := restoreTriggerSQL(t, "PLAN_HISTORY_SQL")
+	ctx, tx := opTx(t)
+	count := func() int64 { t.Helper(); return opInt(t, ctx, tx, q) }
+	base := count()
+	f := phTenant(t, ctx, tx, "founding", phSignup)
+	if _, err := tx.Exec(ctx, `UPDATE tenants SET plan = 'standard' WHERE id = $1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != base {
+		t.Fatalf("a change through the trigger moved the count %d -> %d; want no change", base, n)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE tenants SET plan = 'founding' WHERE id = $1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = origin`); err != nil {
+		t.Fatal(err)
+	}
+	if got := phRows(t, ctx, tx, f.id); len(got) != 2 {
+		t.Fatalf("PREMISE: the bypassed change wrote history (%v); replica should have skipped the trigger", got)
+	}
+	if n := count(); n != base+1 {
+		t.Errorf("a change that bypassed the trigger moved the count %d -> %d; want exactly one more", base, n)
+	}
+}

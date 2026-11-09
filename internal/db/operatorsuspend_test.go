@@ -562,13 +562,13 @@ func TestOperator00063_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		"CREATE TRIGGER tenants_feed_counter AFTER INSERT ON public.tenants FOR EACH ROW EXECUTE FUNCTION feed_open_counter()",
 		"CREATE TRIGGER tenants_holding_timezone_lock BEFORE UPDATE ON public.tenants FOR EACH ROW " +
 			"WHEN ((old.timezone IS DISTINCT FROM new.timezone)) EXECUTE FUNCTION holding_timezone_lock()",
-		// 00097 (T27): column-specific (UPDATE OF plan) and WHEN the plan changes -- the suspension's
-		// UPDATE sets neither, so it does not fire there either.
-		"CREATE TRIGGER tenants_plan_history AFTER UPDATE OF plan ON public.tenants FOR EACH ROW " +
+		// 00097 (T27): WHEN the stored plan changed -- the suspension's UPDATE leaves the plan as it
+		// is, so the WHEN is false and the function is not called there either.
+		"CREATE TRIGGER tenants_plan_history AFTER UPDATE ON public.tenants FOR EACH ROW " +
 			"WHEN ((old.plan IS DISTINCT FROM new.plan)) EXECUTE FUNCTION tappa_record_plan_change()",
 	}; !slices.Equal(triggers, want) {
 		t.Errorf("tenants' triggers are %q,\n want exactly 00048's AFTER INSERT, 00041's BEFORE UPDATE WHEN the timezone changes "+
-			"and 00097's AFTER UPDATE OF plan WHEN the plan changes (none fires on the suspension's UPDATE)", triggers)
+			"and 00097's AFTER UPDATE WHEN the plan changes (none fires on the suspension's UPDATE)", triggers)
 	}
 
 	// The scans.

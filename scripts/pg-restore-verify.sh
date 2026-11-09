@@ -864,6 +864,41 @@ else
   fi
 fi
 
+# =================================================================================
+# 7. THE PLAN HISTORY AGREES WITH THE PLAN (T27, migrations 00097/00098, ADR 0043 §3)
+#
+# A month is billed under tappa_plan_in_force, read from tenant_plan_history; tenants.plan is the
+# plan TODAY. The tenants trigger keeps the two in step on every plan change -- unless something
+# bypassed it: the owner with session_replication_role = replica, ALTER TABLE ... DISABLE TRIGGER,
+# or a restore left with triggers off (section 5b's 'D'). Then the history's latest row names
+# another plan than tenants.plan, every month from then on is billed under the stale one, and the
+# next real change writes from there. So, whatever the dump says: for every tenant the plan in
+# force NOW is its current plan. A tenant with no history row passes by construction (the reader
+# falls back to tenants.plan) -- and that is the written limit: a bypassed change on such a tenant
+# leaves no trace here, and its next change dates the bypassed plan from signup (ADR 0043 §3).
+#
+# WHY HERE: a restore is the one routine moment the whole database is read as the owner before it
+# goes into service, and section 5a's rule applies -- a flaw the SOURCE already had is copied
+# faithfully and must not be put into service either. A live check is the same query
+# (ADR 0043 §3). A dump older than 00097 has no history: noted, passes.
+# internal/db's TestRestoreVerify_PlanHistoryQuery runs PLAN_HISTORY_SQL, cut from this file.
+# =================================================================================
+PLAN_HISTORY_SQL="SELECT count(*) FROM public.tenants t
+  WHERE public.tappa_plan_in_force(t.id, clock_timestamp(), t.plan) IS DISTINCT FROM t.plan;"
+plan_present="$($OWNER_PSQL -c "SELECT to_regclass('public.tenant_plan_history') IS NOT NULL AND to_regprocedure('public.tappa_plan_in_force(uuid, timestamptz, text)') IS NOT NULL;")" \
+  || die "a catalog query failed against $PGDATABASE; no verdict is issued"
+if [ "$plan_present" != "t" ]; then
+  note "no plan history in this database (a dump older than migration 00097): nothing to compare"
+else
+  plan_stale="$($OWNER_PSQL -c "$PLAN_HISTORY_SQL")" \
+    || die "the plan history query failed against $PGDATABASE; no verdict is issued"
+  if [ "$plan_stale" = "0" ]; then
+    ok "plan history: every tenant's plan in force now is its current plan"
+  else
+    bad "plan history: $plan_stale tenants' latest plan history row names another plan than tenants.plan, so their months would be billed under a plan they no longer have. A plan change bypassed the tenants_plan_history trigger (session_replication_role = replica, DISABLE TRIGGER) in the source or here; decide each tenant's history by hand (ADR 0043 §3) before this database goes into service."
+  fi
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
   # THE SENTENCE CLAIMS WHAT WAS MEASURED AND NOT ONE WORD MORE. Section 4 sees the
@@ -872,7 +907,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether they would fire. None of them executes a TRUNCATE or
   # fires a trigger, so "the guards are present and would fire" is the claim, not
   # "TRUNCATE was tried and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the twelve append-only tables, every trigger the dump declares with its definition and enabled, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the twelve append-only tables, every trigger the dump declares with its definition and enabled, where the database carries the punch feed, a counter for every tenant moved past its last restored event, and, where it carries the plan history, every tenant's plan in force agreeing with its current plan."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

@@ -27,7 +27,7 @@
 --   1. tenant_plan_history: the five (tenant_id NOT NULL, its index, ENABLE + FORCE RLS, USING +
 --      WITH CHECK), append-only for every role (tappa_forbid_mutation, row + TRUNCATE);
 --   2. the backfill: one row per tenant, its current plan, effective from its created_at;
---   3. tappa_record_plan_change() and its AFTER UPDATE OF plan trigger on tenants;
+--   3. tappa_record_plan_change() and its AFTER UPDATE trigger on tenants, WHEN the plan changed;
 --   4. tappa_plan_in_force(): the one definition of "the plan in force at an instant";
 --   5. tappa_app: SELECT on three columns and EXECUTE on the reader, nothing else;
 --   6. the postcondition.
@@ -129,7 +129,7 @@ INSERT INTO tenant_plan_history (tenant_id, plan, effective_from)
 SELECT t.id, t.plan, t.created_at FROM tenants AS t;
 
 -- ---------------------------------------------------------------------------
--- 3. THE WRITER -- AFTER UPDATE OF plan ON tenants
+-- 3. THE WRITER -- AFTER UPDATE ON tenants, WHEN the plan changed
 -- ---------------------------------------------------------------------------
 -- SECURITY INVOKER, on purpose: the row is written with the privilege of whoever changed the plan.
 -- The owner may; OP-17's definer is to be granted INSERT here with its UPDATE on plan; any role
@@ -141,6 +141,13 @@ SELECT t.id, t.plan, t.created_at FROM tenants AS t;
 -- tappa_app needs no write privilege on the table -- gets its FIRST row now, from OLD: the plan it
 -- had since created_at. Then the change, from the wall clock. The UPDATE holds the tenant row's
 -- lock, so two changes to one tenant are serialised and the EXISTS cannot race.
+--
+-- NOT `UPDATE OF plan` (security review, DÜŞÜK, 2026-11-09): a column-specific trigger fires only
+-- when the statement's SET list names the column, so a BEFORE trigger that changed NEW.plan on an
+-- UPDATE of another column would move the plan with no history row. An AFTER trigger's WHEN reads
+-- the row as stored -- after every BEFORE trigger -- so this one fires whenever the stored plan
+-- differs, whatever the statement named (TestTenantPlanHistory_ABeforeTriggerThatMovesThePlanStillLeavesItsRow).
+-- The WHEN costs every other UPDATE of tenants one comparison and no function call.
 -- +goose StatementBegin
 CREATE FUNCTION public.tappa_record_plan_change()
     RETURNS trigger
@@ -176,7 +183,7 @@ $$;
 REVOKE ALL ON FUNCTION public.tappa_record_plan_change() FROM PUBLIC;
 
 CREATE TRIGGER tenants_plan_history
-    AFTER UPDATE OF plan ON tenants
+    AFTER UPDATE ON tenants
     FOR EACH ROW
     WHEN (OLD.plan IS DISTINCT FROM NEW.plan)
     EXECUTE FUNCTION public.tappa_record_plan_change();

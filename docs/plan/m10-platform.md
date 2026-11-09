@@ -5447,7 +5447,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 | OP-14 | Operatör audit görüntüleyici | S | — |
 | OP-15 | Askıya alma / yeniden etkinleştirme (ADR 0025) | L | router'dan türetilen HER yazma rotası 403 + audit; GET/CSV 200; askıdaki tenant'ın NFC/QR tap'i askısız ile AYNI karar + trust (tablo testi, §4.6); tappa_app `suspended_at` UPDATE edemiyor; iki audit satırı aynı tx (rollback testi); reinstate yazmaları açıyor |
 | OP-16 | VAT yeniden doğrulama | M | tappa_app `vat_*` hâlâ UPDATE edemiyor; tenant audit önce/sonra; VIES kesintisinde yazma yok, cümle gösteriliyor |
-| OP-17 | Plan/fiyat | M–L | **T37 kararına bloke** (T27 ✅ 2026-11-09, ADR 0043: plan geçmişi 00097/00098; plan yazıcısının protokolü ADR 0043 §4; fiyat T268) |
+| OP-17 | Plan/fiyat | M–L | **T37 kararına bloke** (T27 ✅ 2026-11-09, ADR 0043: plan geçmişi 00097/00098. **Kural karara bağlandı:** ay, başladığı andaki planla fiyatlanır, değişiklik sonraki aydan geçerli; kullanıcı onayı 2026-11-09. Plan yazıcısının protokolü ADR 0043 §4'te; fiyat T268) |
 | OP-18 | Operatör encode'u + tenant tarafı encode'u kapatma (ADR 0017 md.12 kapanır; A-2, A-7) | L | Android uygulaması operatör host'una giriş yapar; önce operatörün hedef tenant'a yazabilmesi |
 | OP-19 | Süreç ayrımı (aynı imaj, ayrı Deployment) | — | K9: pilot sonrası yeniden bak |
 
