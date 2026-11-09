@@ -29,8 +29,8 @@ const (
 	replayWritesNothing confirmReplay = iota + 1
 	// replayWritesAfterAnUndo: nothing straight after the first spend; once another route has
 	// undone the act inside the TTL, the same value can do it again. The holder is the same
-	// signed-in operator, who could mint a fresh value with one GET, so this re-arms nothing
-	// they could not already do.
+	// signed-in operator, who could mint a fresh value with one request of their own session
+	// (the review page; a POST at most gates), so this re-arms nothing they could not already do.
 	replayWritesAfterAnUndo
 	// replayWritesASecondRecord: the write has no second defence of its own. Counted in
 	// ADR 0005 and backlog T258; only record.manual may carry it.
@@ -63,11 +63,11 @@ var confirmGates = map[string]confirmGate{
 		"UnmountTagFromWall carries `status = 'active'` (db/queries/tags.sql); an ungated mount of the same plaque re-arms it",
 		[]string{"TestPlaquesDB_TenConcurrentUnmountsProduceExactlyONEWinner"}},
 	"confirmActionRecordManual": {replayWritesASecondRecord,
-		"none on the row: InsertManualTransaction has no duplicate check and transactions carries no UNIQUE by design (00005). The cookie is cleared before the write, so an ordinary browser does not spend it twice; a re-printed cookie, or two posts already in flight, write a second visible manual record by the same author",
+		"none on the row: InsertManualTransaction has no duplicate check and transactions carries no UNIQUE by design (00005). The cookie is cleared before the write, so Back or a reload cannot spend it twice, but a double press can (\"Record it\" is a plain submit and the panel runs no script, so both posts leave with the cookie), and so can a re-printed cookie: either writes a second visible manual record by the same author",
 		[]string{"TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord"}},
 	"confirmActionPolicyEdit": {replayWritesAfterAnUndo,
-		"the subject carries a digest of what the review page showed (policyChangeSubject), so a write makes the value stale; Bind and Unbind refuse a repeat (ErrAlreadyBound, ErrNotBound); an undo restores the digest",
-		[]string{"TestPolicyConfirmation_IsBoundToWhatThePageShowed", "TestRuleWriterDB_BindingsAreWrittenAndRemovedWithATrail"}},
+		"on an existing rule the subject carries a digest of what the review page showed (policyChangeSubject), so a write makes the value stale; Bind and Unbind refuse a repeat (ErrAlreadyBound, ErrNotBound); a NEW rule shows no rule to digest, and there the defence is the UNIQUE name (00015): ErrNameTaken; an undo (or a rename) re-arms it",
+		[]string{"TestPolicyConfirmation_IsBoundToWhatThePageShowed", "TestRuleWriterDB_BindingsAreWrittenAndRemovedWithATrail", "TestRuleWriterDB_AnEditIsAlwaysANewVersion"}},
 	"confirmActionCloseBillingPeriod": {replayWritesNothing,
 		"UNIQUE (tenant_id, period_month) on billing_periods (00016): the second close is ErrAlreadyClosed",
 		[]string{"TestBillingClose_ASecondFreezeOfTheSameMonthChangesNothing", "TestBillingDB_ClosingRefusesWhatItMust"}},
@@ -151,6 +151,70 @@ func TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence(t *testing.
 	}
 }
 
+// TestConfirmationGates_EverySpendSiteNamesAClassifiedGate closes the inventory's blind spot:
+// a gate is where a value is SPENT, and a spend that passed a bare string or another variable
+// would be a gate confirmGates never sees. Every confirmationRefusalFor call, and every
+// a.confirm.parse call outside that helper, must name a confirmAction* constant the inventory
+// classifies. (Mint sites may pass the action through a variable -- removalView, plaqueCard --
+// because a value minted for an unclassified action can only be spent at a spend site.)
+func TestConfirmationGates_EverySpendSiteNamesAClassifiedGate(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parsing the package: %v", err)
+	}
+	spends := 0
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					isRefusal := sel.Sel.Name == "confirmationRefusalFor"
+					isParse := false
+					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "confirm" && sel.Sel.Name == "parse" {
+						isParse = fn.Name.Name != "confirmationRefusalFor"
+					}
+					if !isRefusal && !isParse {
+						return true
+					}
+					spends++
+					at := fset.Position(call.Pos())
+					if len(call.Args) < 2 {
+						t.Errorf("%s: a confirmation spend with %d argument(s)", at, len(call.Args))
+						return true
+					}
+					id, ok := call.Args[1].(*ast.Ident)
+					if !ok || !strings.HasPrefix(id.Name, "confirmAction") {
+						t.Errorf("%s: a confirmation is spent for an action that is not a confirmAction* "+
+							"constant, so confirmGates cannot classify the gate", at)
+						return true
+					}
+					if _, ok := confirmGates[id.Name]; !ok {
+						t.Errorf("%s spends %s, which confirmGates does not classify", at, id.Name)
+					}
+					return true
+				})
+			}
+		}
+	}
+	if spends < 11 {
+		t.Fatalf("found %d confirmation spend site(s), want at least one per gate (11); the walk is not seeing them", spends)
+	}
+}
+
 // allTestFuncs is every `func TestXxx(` in the repository's _test.go files.
 func allTestFuncs(t *testing.T) map[string]bool {
 	t.Helper()
@@ -193,10 +257,10 @@ func allTestFuncs(t *testing.T) map[string]bool {
 }
 
 // TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord measures the one gate whose
-// write has no second defence (T12's accepted limit, T258). An ordinary browser cannot spend the
-// value twice: the handler clears the cookie before the write, and a re-post is refused. A
-// client that prints the same cookie again -- or two posts already in flight with it -- reaches
-// Record twice.
+// write has no second defence (T12's accepted limit, T258). The handler clears the cookie before
+// the write, so a re-post after the answer (Back, a reload) is refused. A post that left with the
+// cookie still in the jar -- the second press of a double click, or a re-printed cookie, which is
+// the same request -- reaches Record again.
 func TestManualEntryRecord_AReplayedConfirmationWritesASecondRecord(t *testing.T) {
 	rec := &fakeRecorder{}
 	b := panelBrowserWithRecorder(t, rec)

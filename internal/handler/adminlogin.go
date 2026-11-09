@@ -1945,13 +1945,19 @@ func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 // record keeps its own contract for every other caller, where the trail sits beside an
 // outcome that has already happened.
 //
-// The ERROR line carries the class and the address-free cause only (readinessFailure):
-// the driver's sentence can name the database's host, port and role (health.go measured
-// it), and this line is written on a path any signed-in manager can drive.
+// The line carries the class and the address-free cause only (readinessFailure), never the
+// error's text: T208 already reduces a connection failure to its class, but this line is on a
+// path any signed-in manager can drive, so it does not depend on every wrap below being right.
+// A request the client itself abandoned (class "canceled") is a WARN: nothing failed on our
+// side, and a manager cancelling a download must not be able to write ERROR lines.
 func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		class, cause := readinessFailure(err)
-		a.log.Error("audit write failed; the act it records was refused", "action", e.Action,
+		level := slog.LevelError
+		if class == errClassCanceled {
+			level = slog.LevelWarn
+		}
+		a.log.Log(ctx, level, "audit write failed; the act it records was refused", "action", e.Action,
 			LogErrClassKey, class, LogErrCauseKey, cause)
 		return err
 	}

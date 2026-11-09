@@ -1502,8 +1502,6 @@ func TestVenues_ConfirmRemovalDoesNotMatchSystemOrTargetlessRows(t *testing.T) {
 	}
 }
 
-// TestVenues_ConfirmRemovalWorksForDepartmentsToo — the two gates follow one rule, and
-// the symmetry a manager reads off the screen has to be real underneath it.
 // TestVenues_ASecondRemovalOfTheSameRowWritesNothing is the second defence of the two removal
 // gates (T12, ADR 0005): the panel confirmation is not single-use, so a replayed one reaches
 // DeleteVenue / DeleteDepartment again -- which matches no row, answers the unknown-row error and
@@ -1552,6 +1550,8 @@ func TestVenues_ASecondRemovalOfTheSameRowWritesNothing(t *testing.T) {
 	}
 }
 
+// TestVenues_ConfirmRemovalWorksForDepartmentsToo — the two gates follow one rule, and
+// the symmetry a manager reads off the screen has to be real underneath it.
 func TestVenues_ConfirmRemovalWorksForDepartmentsToo(t *testing.T) {
 	f := newVenueFixture(t)
 	ctx := context.Background()

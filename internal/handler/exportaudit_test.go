@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -154,6 +155,20 @@ func TestRecordFirst_ReturnsTheFailure(t *testing.T) {
 	if err := h.recordFirst(t.Context(), e); err == nil {
 		t.Fatal("recordFirst swallowed a failed write")
 	}
+	if line := logged.String(); !strings.Contains(line, "level=ERROR") {
+		t.Errorf("a failed write is not an ERROR line:\n%s", line)
+	}
+
+	// A request the client abandoned is refused the same way, at WARN.
+	logged.Reset()
+	trail.fail = fmt.Errorf("audit: record: %w", context.Canceled)
+	if err := h.recordFirst(t.Context(), e); err == nil {
+		t.Fatal("recordFirst swallowed a cancelled write")
+	}
+	if line := logged.String(); !strings.Contains(line, "level=WARN") || !strings.Contains(line, LogErrClassKey+"=canceled") {
+		t.Errorf("a cancelled write is not a WARN with its class:\n%s", line)
+	}
+
 	trail.fail = nil
 	if err := h.recordFirst(t.Context(), e); err != nil {
 		t.Fatalf("recordFirst on a working trail: %v", err)
