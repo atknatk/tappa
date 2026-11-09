@@ -1494,7 +1494,8 @@ func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Reques
 		switch {
 		case err == nil:
 			if sh := shiftOf(dept.ShiftStart, dept.ShiftEnd, dept.Overnight, emp.TenantTimezone); sh != nil {
-				f.shift, f.shiftSource = sh, tap.ShiftSourceDepartment
+				f.shift = sh
+				f.shiftSource = tap.ShiftSourceDepartment
 			}
 		case errors.Is(err, pgx.ErrNoRows):
 			// No department row visible: keep the location shift.
