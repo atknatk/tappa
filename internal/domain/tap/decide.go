@@ -57,7 +57,8 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 //     BusinessDayStart and LeftOpen come with it. The person's request (§B.3,
 //     Input.RequestedDirection) replaces it where it differs — DirectionSource says
 //     who chose, MissingIn names a chosen checkout that closes nothing.
-//   - MinutesLate (M4-05): lateness against the resolved shift; report only.
+//   - MinutesLate (M4-05): lateness against the resolved shift; report only. The
+//     record keeps the shift itself (00095, ADR 0042), not this number.
 //   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
 //   - Practice: ALWAYS false since ADR 0026 — the activating NFC tap replaced the
 //     M4-06 training tap. Input still carries no client practice flag, so nothing
@@ -379,7 +380,10 @@ func occurredAtFacts(in Input) (skewSeconds float64, queued bool) {
 // (policy.CtxTimeMinutesLate is declared and never set, so no rule can read it).
 // Until M6-07 the value existed only inside a Decision that nothing persisted, so
 // there was no stored figure for a corrected one to contradict — which §4.3 would
-// have forbidden fixing by back-filling.
+// have forbidden fixing by back-filling. Since 00095 (T152, ADR 0042) the record
+// keeps the SHIFT this was measured against (never the number), so a change here
+// moves no stored figure either: the report recomputes from the snapshot through
+// MinutesLate.
 func lateness(in Input, dir *Type) *int {
 	if in.Shift == nil || dir == nil || *dir != TypeIn {
 		return nil
@@ -408,7 +412,8 @@ func tapInstant(in Input) time.Time {
 // 🔴 IT IS EXPORTED FOR THE REPORTS SECTION (M6-07) AND THAT IS WHAT KEEPS THE
 // PRODUCT TO ONE ANSWER. There is no minutes_late column and §4.3 forbids adding
 // one retrospectively, so the panel has to RECOMPUTE lateness from occurred_at and
-// the resolved shift. Recomputing it with a second implementation is the "second
+// the resolved shift — since 00095 (T152, ADR 0042) the shift frozen on the record
+// when it has one, today's settings for an older or manual row. Recomputing it with a second implementation is the "second
 // representation" shape this repository has paid for repeatedly — and here the two
 // copies would drift over DST, which is precisely the arithmetic
 // shiftStartInstant exists to get right. internal/domain/ledger calls this one.

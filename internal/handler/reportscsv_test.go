@@ -720,6 +720,7 @@ func TestReportCSV_NamesEveryQuantityTheHoursExclude(t *testing.T) {
 		r.PracticeTaps = 4
 		r.StartedEarlier = 2
 		r.Unattributable = 1
+		r.Totals.ShiftFromToday = 6
 		r.Open = []ledger.OpenEntry{
 			{EmployeeName: "Maria Borg", LocationName: "KF St Julians", At: weekOfUTC().From.Add(34 * time.Hour), Stale: true},
 			{EmployeeName: "Antoine Vella", LocationName: "Rusty Bar", At: weekOfUTC().From.Add(140 * time.Hour)},
@@ -739,6 +740,9 @@ func TestReportCSV_NamesEveryQuantityTheHoursExclude(t *testing.T) {
 		{"Training taps", "4"},
 		{"Checkouts that began earlier", "2"},
 		{"Records naming no employee", "1"},
+		// T152 (ADR 0042): not an exclusion but the caveat beside the late figures -- the arrivals
+		// whose late minutes use today's shift times.
+		{"Arrivals measured against the current shift", "6"},
 	} {
 		row := rowStartingWith(rows, c.key)
 		if row == nil {

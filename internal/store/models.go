@@ -526,6 +526,11 @@ type Transaction struct {
 	SiteTagUid       *string
 	BusinessDayStart *time.Time
 	DirectionSource  *string
+	ShiftSource      *string
+	ShiftStart       pgtype.Time
+	ShiftEnd         pgtype.Time
+	ShiftOvernight   *bool
+	ShiftTimezone    *string
 }
 
 type TransactionReview struct {

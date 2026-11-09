@@ -275,6 +275,24 @@ type Shift struct {
 	Timezone string
 }
 
+// ShiftSource says where the shift a directed tap was judged against came from — the value
+// of transactions.shift_source (migration 00095, ADR 0042). The caller resolves the shift
+// (department over the TAPPED venue, §5/Q17) and records the answer with the row, so the report
+// measures a past week against the shift that applied then, not against today's settings.
+// ShiftSourceNone is a recorded answer too: the tap was judged against no shift. A row whose
+// column is NULL recorded nothing (written before 00095, or manual) — that is not "none".
+type ShiftSource string
+
+// The three values migration 00095's CHECK admits.
+const (
+	ShiftSourceDepartment ShiftSource = "department"
+	ShiftSourceLocation   ShiftSource = "location"
+	ShiftSourceNone       ShiftSource = "none"
+)
+
+// ShiftSources is the closed list, in the CHECK's order (internal/db pins the two together).
+var ShiftSources = []ShiftSource{ShiftSourceDepartment, ShiftSourceLocation, ShiftSourceNone}
+
 // DayCutoff is the person's RESOLVED business-day cutoff (ADR 0032 §A.2, §A.3): the
 // wall-clock time of day a business day starts at, and the zone that wall clock is
 // read in. The hierarchy (person > department > profile branch > business) is
@@ -676,6 +694,15 @@ type Decision struct {
 	// changes the verdict (§5, M4-05): a late tap is still ok. Minutes, not float
 	// hours, so no float touches a time figure (§6); a pointer so "not computed" is
 	// unambiguously distinct from "0 minutes late".
+	//
+	// IT IS NOT PERSISTED, AND THAT IS DECIDED, NOT FORGOTTEN (T152, ADR 0042). The
+	// record carries the SHIFT this was computed from (transactions.shift_*, migration
+	// 00095 — written from Input.Shift by the caller), and the report recomputes the
+	// figure from that snapshot and occurred_at with the same MinutesLate function, so
+	// a stored minutes_late would only be a second copy of what the row determines.
+	// This field is the engine's answer the report has to reproduce: internal/domain/
+	// checkin's shift snapshot DB test holds the two equal for a tap written through
+	// the real path.
 	MinutesLate *int
 	// BusinessDayStart is S(at): the UTC instant the business day this tap falls in
 	// started (ADR 0032 §A.3, §A.5), or nil. Set ONLY on a directed decision (ok,
