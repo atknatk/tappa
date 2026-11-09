@@ -95,7 +95,7 @@ func noticesOn(t *testing.T, name, body string) []noticeOf {
 // reader announces the box is a browser's, not measured here -- no completeness claim.
 func TestOperatorNotice_EveryCallerKeepsItsToneAndHeadingInTheOperatorsOwnBox(t *testing.T) {
 	renders := screens(t)
-	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	name, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", "Kebab Factory Ltd")
 	if err != nil {
 		t.Fatal(err)
 	}

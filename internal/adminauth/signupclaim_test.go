@@ -234,7 +234,7 @@ func TestSignupClaims_OpenHashesAtTheShippedCost(t *testing.T) {
 	if _, err := s.ProveWithPassword(context.Background(), c, "not it"); !errors.Is(err, ErrBadCredentials) {
 		t.Fatal("a wrong password proved the draft")
 	}
-	if p, err := s.ProveWithPassword(context.Background(), c, "a passphrase nobody guesses"); err != nil || p.hash == "" || p.session != nil {
+	if p, err := s.ProveWithPassword(context.Background(), c, "a passphrase nobody guesses"); err != nil || p.hash.reveal() == "" || p.session != nil {
 		t.Fatal("the chosen password did not prove the draft as a new address")
 	}
 	if _, err := s.Resolve(context.Background(), ParseSignupClaimToken("short")); err != ErrNoSuchClaim {
@@ -366,7 +366,7 @@ func TestSignupClaims_ASignInlessIdentityProvesWithItsOwnPassword(t *testing.T) 
 		t.Error("a wrong password proved the draft")
 	}
 	p, err := s.ProveWithIdentityPassword(context.Background(), lapsed, "the identity's password", budget)
-	if err != nil || p.hash == "" || p.session != nil || p.verified.RevealForPasswordComparison() != identityDigest {
+	if err != nil || p.hash.reveal() == "" || p.session != nil || p.verified.RevealForPasswordComparison() != identityDigest {
 		t.Fatal("the identity's password did not prove the draft, or the proof does not carry the identity's digest")
 	}
 	t.Run("a known address that can sign in", func(t *testing.T) {

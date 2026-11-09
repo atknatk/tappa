@@ -40,7 +40,7 @@ func TestIssueForEmail_AnswersTheSameShapeWhateverItFinds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, kept, err := r.IssueForEmail(ctx, tc.email)
+			got, kept, _, err := r.IssueForEmail(ctx, tc.email)
 			if err != nil {
 				t.Fatalf("IssueForEmail: %v -- every arm has to answer the same way, and an "+
 					"error is a difference a caller can branch on", err)
@@ -77,7 +77,7 @@ func TestIssueForEmail_DeliversToTheAddressOnTheRow(t *testing.T) {
 	}
 	newAdminRow(t, d, tenantID, stored, "p", "active", "owner", "Spelling")
 
-	grants, _, err := r.IssueForEmail(ctx, typed)
+	grants, _, _, err := r.IssueForEmail(ctx, typed)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestIssueForEmail_MintsForTheSignInWindowAndNoWider(t *testing.T) {
 		tenants = append(tenants, tid)
 	}
 
-	grants, _, err := r.IssueForEmail(ctx, shared)
+	grants, _, _, err := r.IssueForEmail(ctx, shared)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestIssueForEmail_SkipsDisabledIdentitiesWithoutFreeingTheirSlot(t *testing
 		active = append(active, tid)
 	}
 
-	grants, _, err := r.IssueForEmail(ctx, shared)
+	grants, _, _, err := r.IssueForEmail(ctx, shared)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing(t *testing.T) {
 	email := randEmail(t)
 	victim := newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Victim")
 
-	first, kept, err := r.IssueForEmail(ctx, email)
+	first, kept, _, err := r.IssueForEmail(ctx, email)
 	if err != nil || len(first) != 1 || len(kept) != 0 {
 		t.Fatalf("first IssueForEmail: %v, %d link(s), %d kept", err, len(first), len(kept))
 	}
@@ -215,7 +215,7 @@ func TestIssueForEmail_KeepsTheLiveLinkAndRetiresNothing(t *testing.T) {
 	}
 
 	for i := 0; i < 25; i++ {
-		again, kept, err := r.IssueForEmail(ctx, email)
+		again, kept, _, err := r.IssueForEmail(ctx, email)
 		if err != nil {
 			t.Fatalf("request %d: %v", i+2, err)
 		}

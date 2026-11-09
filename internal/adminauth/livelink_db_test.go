@@ -101,7 +101,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 	late.now = func() time.Time { return time.Now().Add(-(ResetTTL - left)) }
 
 	// 0. The seeded account's own link, live for the whole hour.
-	g0, _, err := attacker.IssueForEmail(ctx, seeded)
+	g0, _, _, err := attacker.IssueForEmail(ctx, seeded)
 	if err != nil || !mintedFor(g0, seededAdmin) {
 		t.Fatalf("seeding: %v, %d grant(s)", err, len(g0))
 	}
@@ -109,7 +109,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 	// 1. The owner asks and gets a link, although another account's link is live in
 	//    the same mailbox. A rule keyed by the MAILBOX refuses here — and the owner
 	//    then holds nothing for an hour and cannot ask.
-	g1, _, err := late.IssueForEmail(ctx, owner)
+	g1, _, _, err := late.IssueForEmail(ctx, owner)
 	if err != nil {
 		t.Fatalf("owner's request: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 
 	// 2. While it lives, nobody's request touches it.
 	for i := 0; i < 25; i++ {
-		g, kept, err := attacker.IssueForEmail(ctx, owner)
+		g, kept, _, err := attacker.IssueForEmail(ctx, owner)
 		if err != nil {
 			t.Fatalf("attacker request %d: %v", i+1, err)
 		}
@@ -141,7 +141,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 				i+1, ids, l1.Issued.Reset.ID)
 		}
 	}
-	if g, _, err := attacker.IssueForEmail(ctx, seeded); err != nil || len(g) != 0 {
+	if g, _, _, err := attacker.IssueForEmail(ctx, seeded); err != nil || len(g) != 0 {
 		t.Fatalf("a second request for the seeded address: %v, %d grant(s) -- its own live "+
 			"link must keep it too", err, len(g))
 	}
@@ -158,7 +158,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 	// 4. The very next request — the attacker's — mints a fresh link for the OWNER,
 	//    to the address on the owner's row: the owner holds a valid link without
 	//    having asked, and the attacker cannot keep the account linkless.
-	g4, _, err := attacker.IssueForEmail(ctx, owner)
+	g4, _, _, err := attacker.IssueForEmail(ctx, owner)
 	if err != nil {
 		t.Fatalf("the first request after the expiry: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestIssueForEmail_NeverLeavesAWindowWithoutALiveLinkOrAWayToGetOne(t *testi
 	}
 
 	// 5. The owner's own request now keeps that link, and the link works.
-	g5, kept, err := late.IssueForEmail(ctx, owner)
+	g5, kept, _, err := late.IssueForEmail(ctx, owner)
 	if err != nil || len(g5) != 0 || len(kept) != 1 || kept[0].ID != l2.Issued.Reset.ID {
 		t.Fatalf("the owner's request after the fresh link: %v, %d grant(s), kept %+v", err, len(g5), kept)
 	}
@@ -201,7 +201,7 @@ func TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing(t *testing.T
 	ownerAdmin := newAdminRow(t, d, ownerTenant, owner, "p", "active", "owner", "Owner")
 
 	// The owner's live link first.
-	g, _, err := r.IssueForEmail(ctx, owner)
+	g, _, _, err := r.IssueForEmail(ctx, owner)
 	if err != nil || len(g) != 1 {
 		t.Fatalf("owner: %v, %d grant(s)", err, len(g))
 	}
@@ -211,7 +211,7 @@ func TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing(t *testing.T
 	tagTenant := newTenantRow(t, d, "Mailbox Tag Ltd")
 	tagAdmin := newAdminRow(t, d, tagTenant, plusTagged(owner, "seed"), "p", "active", "owner", "Tag")
 	for i := 0; i < 3; i++ {
-		g, kept, err := r.IssueForEmail(ctx, plusTagged(owner, "seed"))
+		g, kept, _, err := r.IssueForEmail(ctx, plusTagged(owner, "seed"))
 		if err != nil {
 			t.Fatalf("tag request %d: %v", i+1, err)
 		}
@@ -232,7 +232,7 @@ func TestIssueForEmail_AnotherAccountInTheSameMailboxChangesNothing(t *testing.T
 	// request for the owner's address mints for it and keeps the owner's.
 	sameTenant := newTenantRow(t, d, "Mailbox Same Ltd")
 	sameAdmin := newAdminRow(t, d, sameTenant, strings.ToUpper(owner), "p", "active", "owner", "Same")
-	g, kept, err := r.IssueForEmail(ctx, owner)
+	g, kept, _, err := r.IssueForEmail(ctx, owner)
 	if err != nil {
 		t.Fatalf("owner again: %v", err)
 	}
@@ -282,13 +282,13 @@ func TestIssueForEmail_MintsAgainOnceTheLinkCannotBeSpent(t *testing.T) {
 				dead.ttl = -time.Hour // already expired; no sleeping
 				issuer = dead
 			}
-			g, _, err := issuer.IssueForEmail(ctx, email)
+			g, _, _, err := issuer.IssueForEmail(ctx, email)
 			if err != nil || len(g) != 1 {
 				t.Fatalf("first: %v, %d grant(s)", err, len(g))
 			}
 			if tc.kill != nil {
 				// CONTROL: while it lives, it is kept.
-				if again, kept, err := r.IssueForEmail(ctx, email); err != nil || len(again) != 0 || len(kept) != 1 {
+				if again, kept, _, err := r.IssueForEmail(ctx, email); err != nil || len(again) != 0 || len(kept) != 1 {
 					t.Fatalf("CONTROL FAILED: a live link was not kept: %v, %d grant(s), %d kept", err, len(again), len(kept))
 				}
 				tc.kill(t, g[0])
@@ -296,7 +296,7 @@ func TestIssueForEmail_MintsAgainOnceTheLinkCannotBeSpent(t *testing.T) {
 			if ids := liveLinkIDs(t, d, tenantID, admin); len(ids) != 0 {
 				t.Fatalf("the %s link is still live: %v", tc.name, ids)
 			}
-			next, kept, err := r.IssueForEmail(ctx, email)
+			next, kept, _, err := r.IssueForEmail(ctx, email)
 			if err != nil || len(next) != 1 || len(kept) != 0 {
 				t.Fatalf("after the link was %s: %v, %d grant(s), %d kept -- want a fresh link at once",
 					tc.name, err, len(next), len(kept))
@@ -388,14 +388,14 @@ func TestIssueForEmail_DecidesPerAccount(t *testing.T) {
 	a := newAdminRow(t, d, ta, shared, "p", "active", "owner", "A")
 	b := newAdminRow(t, d, tb, shared, "p", "active", "owner", "B")
 
-	g, kept, err := r.IssueForEmail(ctx, shared)
+	g, kept, _, err := r.IssueForEmail(ctx, shared)
 	if err != nil || len(g) != 2 || len(kept) != 0 {
 		t.Fatalf("first: %v, %d grant(s), %d kept", err, len(g), len(kept))
 	}
 	if _, _, err := r.Consume(ctx, grantFor(t, g, a).Issued.Token, "a-new-password"); err != nil {
 		t.Fatalf("Consume(A): %v", err)
 	}
-	g, kept, err = r.IssueForEmail(ctx, shared)
+	g, kept, _, err = r.IssueForEmail(ctx, shared)
 	if err != nil {
 		t.Fatalf("second: %v", err)
 	}
@@ -429,8 +429,10 @@ func bigPoolDB(t *testing.T) *db.DB {
 }
 
 // TestIssueForEmail_ExactlyOneLinkUnderConcurrency: N requests for one account at the
-// same instant mint EXACTLY one link; every other one keeps it. Without the
-// per-administrator lock they all read "no live link" before any commits.
+// same instant mint EXACTLY one link; every other one keeps it -- or, since T219, gives
+// up waiting in the queue for the per-administrator lock (ResetMintLockWait) and reports
+// the account stalled, which mints nothing either. Without the lock they all read "no
+// live link" before any commits.
 func TestIssueForEmail_ExactlyOneLinkUnderConcurrency(t *testing.T) {
 	d := bigPoolDB(t)
 	ctx := context.Background()
@@ -442,19 +444,20 @@ func TestIssueForEmail_ExactlyOneLinkUnderConcurrency(t *testing.T) {
 		admin := newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Concurrent")
 
 		var (
-			wg      sync.WaitGroup
-			start   = make(chan struct{})
-			mu      sync.Mutex
-			minted  int
-			keptN   int
-			callErr error
+			wg       sync.WaitGroup
+			start    = make(chan struct{})
+			mu       sync.Mutex
+			minted   int
+			keptN    int
+			stalledN int
+			callErr  error
 		)
 		for i := 0; i < callers; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				<-start
-				g, k, err := r.IssueForEmail(ctx, email)
+				g, k, st, err := r.IssueForEmail(ctx, email)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil {
@@ -462,6 +465,7 @@ func TestIssueForEmail_ExactlyOneLinkUnderConcurrency(t *testing.T) {
 				}
 				minted += len(g)
 				keptN += len(k)
+				stalledN += len(st)
 			}()
 		}
 		close(start)
@@ -469,10 +473,13 @@ func TestIssueForEmail_ExactlyOneLinkUnderConcurrency(t *testing.T) {
 		if callErr != nil {
 			t.Fatalf("round %d: %v", round, callErr)
 		}
-		if minted != 1 || keptN != callers-1 {
-			t.Fatalf("round %d: %d link(s) minted and %d kept by %d simultaneous requests; want 1 "+
-				"and %d -- each extra mint retired the one before it and sent one more e-mail",
-				round, minted, keptN, callers, callers-1)
+		if minted != 1 || keptN+stalledN != callers-1 {
+			t.Fatalf("round %d: %d link(s) minted, %d kept and %d stalled by %d simultaneous requests; want 1 "+
+				"and %d kept or stalled -- each extra mint retired the one before it and sent one more e-mail",
+				round, minted, keptN, stalledN, callers, callers-1)
+		}
+		if stalledN > 0 {
+			t.Logf("round %d: %d of %d requests gave up waiting for the lock (ResetMintLockWait)", round, stalledN, callers)
 		}
 		if ids := liveLinkIDs(t, d, tenantID, admin); len(ids) != 1 {
 			t.Fatalf("round %d: %d live link(s), want 1", round, len(ids))
@@ -501,7 +508,7 @@ func TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL(t *testing.T) {
 	email := randEmail(t)
 	newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Ceiling")
 
-	g, _, err := r.IssueForEmail(ctx, email)
+	g, _, _, err := r.IssueForEmail(ctx, email)
 	if err != nil || len(g) != 1 {
 		t.Fatalf("first: %v, %d grant(s)", err, len(g))
 	}
@@ -511,7 +518,7 @@ func TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL(t *testing.T) {
 	if span < ResetTTL-5*time.Second || span > ResetTTL+5*time.Second {
 		t.Fatalf("the link lives %v, want ResetTTL (%v)", span, ResetTTL)
 	}
-	_, kept, err := r.IssueForEmail(ctx, email)
+	_, kept, _, err := r.IssueForEmail(ctx, email)
 	if err != nil || len(kept) != 1 || !kept[0].ExpiresAt.Equal(g[0].Issued.Reset.ExpiresAt) {
 		t.Fatalf("second: %v, kept %+v -- the next mint must wait for this link's expiry", err, kept)
 	}
@@ -530,6 +537,11 @@ func TestIssueForEmail_TheCeilingIsOneLinkPerResetTTL(t *testing.T) {
 // minted, nothing sent, the owner holding a link the consume statement refuses. With
 // statement_timestamp() it mints a fresh link — and retires nothing, because the
 // minting statement judges "live" on the same clock.
+//
+// THE REQUEST'S LOCK WAIT IS LENGTHENED PAST THE HOLD (T219): the shipped
+// ResetMintLockWait gives up long before 2.5 s and reports the account stalled, which
+// TestIssueForEmail_AHeldLockStallsTheMintAndLeavesNothing measures. This test's subject
+// is which clock judges liveness after a long wait, so the wait must be allowed to end.
 func TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
@@ -540,7 +552,7 @@ func TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept(t *testing.T) 
 	late := cheapResets(t, d)
 	const left, held = 1500 * time.Millisecond, 2500 * time.Millisecond
 	late.now = func() time.Time { return time.Now().Add(-(ResetTTL - left)) }
-	g, _, err := late.IssueForEmail(ctx, email)
+	g, _, _, err := late.IssueForEmail(ctx, email)
 	if err != nil || len(g) != 1 {
 		t.Fatalf("minting the dying link: %v, %d grant(s)", err, len(g))
 	}
@@ -570,9 +582,13 @@ func TestIssueForEmail_ALinkThatExpiresDuringTheLockWaitIsNotKept(t *testing.T) 
 	}
 
 	r := cheapResets(t, d)
-	grants, kept, err := r.IssueForEmail(ctx, email)
+	r.mintLockWait = held + 5*time.Second
+	grants, kept, stalled, err := r.IssueForEmail(ctx, email)
 	if err != nil {
 		t.Fatalf("IssueForEmail: %v", err)
+	}
+	if len(stalled) != 0 {
+		t.Fatalf("CONTROL FAILED: the request gave up waiting (%+v); the wait proves nothing", stalled)
 	}
 	if err := <-holderDone; err != nil {
 		t.Fatalf("the lock holder: %v", err)

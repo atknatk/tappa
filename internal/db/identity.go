@@ -112,7 +112,7 @@ func (d *DB) ResolveIdentityByEmail(ctx context.Context, email string) (Resolved
 		r      ResolvedIdentity
 		digest string
 	)
-	err := d.pool.QueryRow(ctx, resolveIdentityByEmailSQL, email).Scan(&r.ID, &digest, &r.EmailVerifiedAt, &r.HasActiveMembership, &r.Email)
+	err := d.quiet().QueryRow(ctx, resolveIdentityByEmailSQL, email).Scan(&r.ID, &digest, &r.EmailVerifiedAt, &r.HasActiveMembership, &r.Email)
 	if err != nil {
 		return ResolvedIdentity{}, fmt.Errorf("db: resolve identity by email: %w", err)
 	}
@@ -135,7 +135,7 @@ func (d *DB) OpenIdentitySession(ctx context.Context, identityID, tenant uuid.UU
 		want = &tenant
 	}
 	var s IdentitySession
-	if err := d.pool.QueryRow(ctx, openIdentitySessionSQL, identityID, want, sessionHash, verified.RevealForPasswordComparison()).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
+	if err := d.quiet().QueryRow(ctx, openIdentitySessionSQL, identityID, want, sessionHash, verified.RevealForPasswordComparison()).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
 		return IdentitySession{}, fmt.Errorf("db: open identity session: %w", err)
 	}
 	return s, nil
@@ -146,7 +146,7 @@ func (d *DB) OpenIdentitySession(ctx context.Context, identityID, tenant uuid.UU
 // error) when the session is not live: the caller's per-request gate has already refused such a
 // session, and a list is never the authority for anything.
 func (d *DB) IdentityMemberships(ctx context.Context, sessionHash string) ([]IdentityMembership, error) {
-	rows, err := d.pool.Query(ctx, identityMembershipsSQL, sessionHash)
+	rows, err := d.quiet().Query(ctx, identityMembershipsSQL, sessionHash)
 	if err != nil {
 		return nil, fmt.Errorf("db: identity memberships: %w", err)
 	}
@@ -168,7 +168,7 @@ func (d *DB) IdentityMemberships(ctx context.Context, sessionHash string) ([]Ide
 // concurrent switches of one session exactly one succeeds; the rest get pgx.ErrNoRows.
 func (d *DB) SwitchIdentitySession(ctx context.Context, sessionHash string, target uuid.UUID, newSessionHash string) (IdentitySession, error) {
 	var s IdentitySession
-	if err := d.pool.QueryRow(ctx, switchIdentitySessionSQL, sessionHash, target, newSessionHash).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
+	if err := d.quiet().QueryRow(ctx, switchIdentitySessionSQL, sessionHash, target, newSessionHash).Scan(&s.SessionID, &s.TenantID, &s.AdminUserID); err != nil {
 		return IdentitySession{}, fmt.Errorf("db: switch identity session: %w", err)
 	}
 	return s, nil
@@ -180,7 +180,7 @@ func (d *DB) SwitchIdentitySession(ctx context.Context, sessionHash string, targ
 // live or its membership is not linked -- the caller then revokes that one admin's sessions as today.
 func (d *DB) RevokeIdentitySessions(ctx context.Context, sessionHash string, keepCurrent bool) (int, error) {
 	var n int32
-	if err := d.pool.QueryRow(ctx, revokeIdentitySessionsSQL, sessionHash, keepCurrent).Scan(&n); err != nil {
+	if err := d.quiet().QueryRow(ctx, revokeIdentitySessionsSQL, sessionHash, keepCurrent).Scan(&n); err != nil {
 		return 0, fmt.Errorf("db: revoke identity sessions: %w", err)
 	}
 	return int(n), nil
@@ -201,7 +201,7 @@ type LinkedMembership struct {
 // the legacy session live, and the caller revokes it.
 func (d *DB) LinkLegacySession(ctx context.Context, identitySessionHash, legacySessionHash string) (LinkedMembership, error) {
 	var m LinkedMembership
-	if err := d.pool.QueryRow(ctx, linkLegacySessionSQL, identitySessionHash, legacySessionHash).Scan(&m.AdminUserID, &m.TenantID); err != nil {
+	if err := d.quiet().QueryRow(ctx, linkLegacySessionSQL, identitySessionHash, legacySessionHash).Scan(&m.AdminUserID, &m.TenantID); err != nil {
 		return LinkedMembership{}, fmt.Errorf("db: link legacy session: %w", err)
 	}
 	return m, nil
@@ -221,7 +221,7 @@ const (
 // identity carries writes nothing and is not an error (the sign-in's padding call relies on that).
 func (d *DB) RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID, event string) (bool, error) {
 	var recorded bool
-	err := d.pool.QueryRow(ctx, recordFailedIdentityLoginSQL, identityID, event).Scan(&recorded)
+	err := d.quiet().QueryRow(ctx, recordFailedIdentityLoginSQL, identityID, event).Scan(&recorded)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -238,7 +238,7 @@ func (d *DB) RecordFailedIdentityLogin(ctx context.Context, identityID uuid.UUID
 // nothing.
 func (d *DB) IdentitySessionDecoy(ctx context.Context) error {
 	var xid string
-	if err := d.pool.QueryRow(ctx, identitySessionDecoySQL).Scan(&xid); err != nil {
+	if err := d.quiet().QueryRow(ctx, identitySessionDecoySQL).Scan(&xid); err != nil {
 		return fmt.Errorf("db: identity session decoy: %w", err)
 	}
 	return nil
@@ -271,7 +271,7 @@ FROM identity_consume_row_reset($1, $2)`
 // not linked: the caller then compares with the row's own digest, as before M14.
 func (d *DB) IdentityPasswordForSession(ctx context.Context, sessionHash string) (PasswordHash, error) {
 	var digest string
-	if err := d.pool.QueryRow(ctx, identityPasswordForSessionSQL, sessionHash).Scan(&digest); err != nil {
+	if err := d.quiet().QueryRow(ctx, identityPasswordForSessionSQL, sessionHash).Scan(&digest); err != nil {
 		return PasswordHash{}, fmt.Errorf("db: identity digest for session: %w", err)
 	}
 	return NewPasswordHash(digest), nil
@@ -285,7 +285,7 @@ func (d *DB) IdentityPasswordForSession(ctx context.Context, sessionHash string)
 // lock. newDigest never reaches an error.
 func (d *DB) SetIdentityPassword(ctx context.Context, sessionHash, newDigest string) (int, error) {
 	var n int32
-	if err := d.pool.QueryRow(ctx, setIdentityPasswordSQL, sessionHash, newDigest).Scan(&n); err != nil {
+	if err := d.quiet().QueryRow(ctx, setIdentityPasswordSQL, sessionHash, newDigest).Scan(&n); err != nil {
 		return 0, fmt.Errorf("db: set identity credential: %w", err)
 	}
 	return int(n), nil
@@ -311,7 +311,7 @@ func (d *DB) ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest s
 		c ConsumedIdentityRowReset
 		n int32
 	)
-	if err := d.pool.QueryRow(ctx, consumeIdentityRowResetSQL, resetHash, newDigest).Scan(&c.AdminUserID, &c.TenantID, &c.ResetID, &n); err != nil {
+	if err := d.quiet().QueryRow(ctx, consumeIdentityRowResetSQL, resetHash, newDigest).Scan(&c.AdminUserID, &c.TenantID, &c.ResetID, &n); err != nil {
 		return ConsumedIdentityRowReset{}, fmt.Errorf("db: consume identity row reset: %w", err)
 	}
 	c.RevokedSessions = int(n)
@@ -347,10 +347,35 @@ type OpenedIdentityReset struct {
 // OpenIdentityReset opens a reset link for an identity, unless it holds a live one (ADR 0031 §5.9,
 // EM-7C): tokenHash is the hash of the token the caller just drew. pgx.ErrNoRows: no such identity.
 // The hash never reaches an error.
-func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time) (OpenedIdentityReset, error) {
-	var o OpenedIdentityReset
-	if err := d.pool.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
-		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", err)
+//
+// lockWait bounds EACH lock wait inside the call (BoundLockWaits; T219): identity_open_reset takes the
+// identity's advisory lock and its INSERT takes the identity row's key-share lock -- two waits, so the
+// caller passes half of what it may spend -- and with no bound a lock held elsewhere kept the request
+// until its own deadline. Past it the call fails with
+// LockWaitExpired and the transaction is rolled back, so nothing was opened. The function sets no
+// lock_timeout of its own (00072), so the transaction's applies inside its body.
+func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (o OpenedIdentityReset, err error) {
+	tx, err := d.quiet().Begin(ctx)
+	if err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: begin: %w", quietErr(err))
+	}
+	// WithTenant's rule: a rollback on a background context, so a cancelled ctx does not skip it.
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(context.Background())
+		}
+	}()
+	if err = BoundLockWaits(ctx, tx, lockWait); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", quietErr(err))
+	}
+	// The transaction's own errors through quietErr (backlog T208): a reset connection names both ends'
+	// addresses; a lock_timeout's 55P03 is not a connection failure and passes as the same value, so
+	// LockWaitExpired reads it.
+	if err = tx.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", quietErr(err))
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: commit: %w", quietErr(err))
 	}
 	return o, nil
 }
@@ -359,7 +384,7 @@ func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenH
 // whether a link was retired; a link already spent, cancelled or unknown is false, not an error.
 func (d *DB) WithdrawIdentityReset(ctx context.Context, tokenHash string) (bool, error) {
 	var withdrawn bool
-	if err := d.pool.QueryRow(ctx, withdrawIdentityResetSQL, tokenHash).Scan(&withdrawn); err != nil {
+	if err := d.quiet().QueryRow(ctx, withdrawIdentityResetSQL, tokenHash).Scan(&withdrawn); err != nil {
 		return false, fmt.Errorf("db: withdraw identity reset: %w", err)
 	}
 	return withdrawn, nil
@@ -383,7 +408,7 @@ func (d *DB) ConsumeIdentityReset(ctx context.Context, resetHash, newDigest stri
 		c ConsumedIdentityReset
 		n int32
 	)
-	if err := d.pool.QueryRow(ctx, consumeIdentityResetSQL, resetHash, newDigest).Scan(&c.IdentityID, &n, &c.Email); err != nil {
+	if err := d.quiet().QueryRow(ctx, consumeIdentityResetSQL, resetHash, newDigest).Scan(&c.IdentityID, &n, &c.Email); err != nil {
 		return ConsumedIdentityReset{}, fmt.Errorf("db: consume identity reset: %w", err)
 	}
 	c.RevokedSessions = int(n)
@@ -404,7 +429,7 @@ type ResolvedIdentityReset struct {
 // when no identity link carries it.
 func (d *DB) GetIdentityResetByTokenHash(ctx context.Context, tokenHash string) (ResolvedIdentityReset, error) {
 	var r ResolvedIdentityReset
-	if err := d.pool.QueryRow(ctx, resolveIdentityResetSQL, tokenHash).Scan(&r.ID, &r.IdentityID, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
+	if err := d.quiet().QueryRow(ctx, resolveIdentityResetSQL, tokenHash).Scan(&r.ID, &r.IdentityID, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
 		return ResolvedIdentityReset{}, fmt.Errorf("db: resolve identity reset: %w", err)
 	}
 	return r, nil
@@ -434,7 +459,7 @@ const sweepSignupClaimsSQL = `SELECT identity_sweep_signup_claims()`
 // take, or an address that is not printable ASCII) -- nothing was written. No argument reaches an error.
 func (d *DB) OpenSignupClaim(ctx context.Context, tokenHash, email string, draft []byte, digest string, expiresAt time.Time) (uuid.UUID, error) {
 	var id *uuid.UUID
-	if err := d.pool.QueryRow(ctx, openSignupClaimSQL, tokenHash, email, string(draft), digest, expiresAt).Scan(&id); err != nil {
+	if err := d.quiet().QueryRow(ctx, openSignupClaimSQL, tokenHash, email, string(draft), digest, expiresAt).Scan(&id); err != nil {
 		return uuid.Nil, fmt.Errorf("db: open signup claim: %w", err)
 	}
 	if id == nil {
@@ -464,7 +489,7 @@ func (d *DB) GetSignupClaimByTokenHash(ctx context.Context, tokenHash string) (R
 		r      ResolvedSignupClaim
 		digest string
 	)
-	if err := d.pool.QueryRow(ctx, resolveSignupClaimSQL, tokenHash).Scan(&r.ID, &r.Email, &digest, &r.ExpiresAt, &r.UsedAt, &r.Draft); err != nil {
+	if err := d.quiet().QueryRow(ctx, resolveSignupClaimSQL, tokenHash).Scan(&r.ID, &r.Email, &digest, &r.ExpiresAt, &r.UsedAt, &r.Draft); err != nil {
 		return ResolvedSignupClaim{}, fmt.Errorf("db: resolve signup claim: %w", err)
 	}
 	r.PasswordHash = NewPasswordHash(digest)
@@ -504,7 +529,7 @@ func ClaimSignup(ctx context.Context, tx pgx.Tx, claimHash string, tenantID uuid
 // (ADR 0031 §5.1, R17) -- and returns how many went.
 func (d *DB) SweepSignupClaims(ctx context.Context) (int, error) {
 	var n int32
-	if err := d.pool.QueryRow(ctx, sweepSignupClaimsSQL).Scan(&n); err != nil {
+	if err := d.quiet().QueryRow(ctx, sweepSignupClaimsSQL).Scan(&n); err != nil {
 		return 0, fmt.Errorf("db: sweep signup claims: %w", err)
 	}
 	return int(n), nil
@@ -548,7 +573,7 @@ type AcceptedAdminInvite struct {
 // nothing). pgx.ErrNoRows when no invitation carries it.
 func (d *DB) GetAdminInviteByTokenHash(ctx context.Context, tokenHash string) (ResolvedAdminInvite, error) {
 	var r ResolvedAdminInvite
-	if err := d.pool.QueryRow(ctx, resolveAdminInviteSQL, tokenHash).Scan(&r.ID, &r.TenantID, &r.Role, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
+	if err := d.quiet().QueryRow(ctx, resolveAdminInviteSQL, tokenHash).Scan(&r.ID, &r.TenantID, &r.Role, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt); err != nil {
 		return ResolvedAdminInvite{}, fmt.Errorf("db: resolve admin invite: %w", err)
 	}
 	return r, nil
@@ -561,7 +586,7 @@ func (d *DB) GetAdminInviteByTokenHash(ctx context.Context, tokenHash string) (R
 // business.
 func (d *DB) AcceptAdminInvite(ctx context.Context, inviteHash, sessionHash string) (AcceptedAdminInvite, error) {
 	var a AcceptedAdminInvite
-	if err := d.pool.QueryRow(ctx, acceptAdminInviteSQL, inviteHash, sessionHash).Scan(&a.AdminUserID, &a.TenantID); err != nil {
+	if err := d.quiet().QueryRow(ctx, acceptAdminInviteSQL, inviteHash, sessionHash).Scan(&a.AdminUserID, &a.TenantID); err != nil {
 		return AcceptedAdminInvite{}, fmt.Errorf("db: accept admin invite: %w", err)
 	}
 	return a, nil
@@ -573,7 +598,7 @@ func (d *DB) AcceptAdminInvite(ctx context.Context, inviteHash, sessionHash stri
 // already in that business, or the digest is not a bcrypt digest.
 func (d *DB) AcceptAdminInviteNew(ctx context.Context, inviteHash, newDigest string) (AcceptedAdminInvite, error) {
 	var a AcceptedAdminInvite
-	if err := d.pool.QueryRow(ctx, acceptAdminInviteNewSQL, inviteHash, newDigest).Scan(&a.AdminUserID, &a.TenantID); err != nil {
+	if err := d.quiet().QueryRow(ctx, acceptAdminInviteNewSQL, inviteHash, newDigest).Scan(&a.AdminUserID, &a.TenantID); err != nil {
 		return AcceptedAdminInvite{}, fmt.Errorf("db: accept admin invite (new sign-in): %w", err)
 	}
 	return a, nil

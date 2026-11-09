@@ -488,7 +488,9 @@ anahtarlardır**, başka hiçbir şey: id'ler ADR 0022 §10'un kapalı kümesind
 `outcome` (`ok` | `undelivered` | `kept` | `sent`), `reason` (`internal/handler`'ın sabit cümleleri),
 `via` (`recovery`), `scope` (`identity` | `link`), reddin üç olgusu `already_used` / `superseded` /
 `expired` (boolean) ve tamamlanmanın `revoked_sessions` sayısı. Adres, link, token, hash ve bunlardan
-türeyen hiçbir değer yoktur (CLAUDE.md §7). **Tüketimin işletme satırının biçimi** (M14-14 güvenlik
+türeyen hiçbir değer yoktur (CLAUDE.md §7). *(2026-11-08, T219:* kilit bekleyişinde vazgeçen açılışın satırı
+(*"minting a link waited too long for a lock, so none was made"*) yalnız `ip` ve `identity_id` taşır; yeni anahtar
+yoktur.*)* **Tüketimin işletme satırının biçimi** (M14-14 güvenlik
 denetimi): `identity_consume_reset` her işletmeye 00074'ün `identity_consume_row_reset`'in linkin kendi
 işletmesi **olmayan** işletmelere yazdığı detail'i yazar — `outcome`, ve yalnız sıfır değilse
 `revoked_sessions` (00072 onu hep yazıyordu; bir 0, satırı "kimlik başına link" diye ele verirdi);

@@ -177,6 +177,12 @@ var opAtVersionSkips = map[int]string{
 	84: "the link by e-mail (M14-22): the verification table's purpose, linked_via's 'email', the request's purpose " +
 		"argument and identity_link_by_email -- no operator object; its Down takes ACCESS EXCLUSIVE on admin_users and " +
 		"admin_identity_verifications, and refuses while a business is linked by e-mail or a link e-mail is live",
+	91: "transactions_tenant_employee_directed_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
+		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	92: "transactions_tenant_employee_practice_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
+		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
+	94: "transactions_tenant_employee_checkin_idx (T157) -- no operator object; a NO TRANSACTION file whose Up and " +
+		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

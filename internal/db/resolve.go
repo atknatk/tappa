@@ -342,7 +342,7 @@ func (d *DB) GetTagByUID(ctx context.Context, uid string) (ResolvedTag, error) {
 	if err := d.AdmitTagUID(uid); err != nil {
 		return ResolvedTag{}, fmt.Errorf("db: resolve tag by uid: %w", err)
 	}
-	return scanResolvedTag(d.pool.QueryRow(ctx, getTagByUIDSQL, uid))
+	return scanResolvedTag(d.quiet().QueryRow(ctx, getTagByUIDSQL, uid))
 }
 
 // GetTagByUIDOn is GetTagByUID on a transaction the caller already holds -- the same door first
@@ -377,7 +377,7 @@ func scanResolvedTag(row pgx.Row) (ResolvedTag, error) {
 // when the hash is unknown (the caller shows the activation page, writes nothing).
 func (d *DB) GetEmployeeBySessionHash(ctx context.Context, tokenHash string) (ResolvedSession, error) {
 	var s ResolvedSession
-	err := d.pool.QueryRow(ctx, getEmployeeBySessionHashSQL, tokenHash).Scan(
+	err := d.quiet().QueryRow(ctx, getEmployeeBySessionHashSQL, tokenHash).Scan(
 		&s.ID, &s.TenantID, &s.EmployeeID, &s.RevokedAt,
 	)
 	if err != nil {
@@ -399,7 +399,7 @@ func (d *DB) GetEmployeeBySessionHash(ctx context.Context, tokenHash string) (Re
 // that may conclude the code was still usable (section 4.4 shape).
 func (d *DB) GetInviteByCodeHash(ctx context.Context, codeHash string) (ResolvedInvite, error) {
 	var i ResolvedInvite
-	err := d.pool.QueryRow(ctx, getInviteByCodeHashSQL, codeHash).Scan(
+	err := d.quiet().QueryRow(ctx, getInviteByCodeHashSQL, codeHash).Scan(
 		&i.ID, &i.TenantID, &i.EmployeeID, &i.ExpiresAt, &i.UsedAt, &i.CancelledAt,
 	)
 	if err != nil {
@@ -482,7 +482,7 @@ func (d *DB) GetInviteByCodeHash(ctx context.Context, codeHash string) (Resolved
 //
 // The email is not logged here and is not interpolated into any error.
 func (d *DB) GetAdminByEmail(ctx context.Context, email string) ([]ResolvedAdmin, error) {
-	rows, err := d.pool.Query(ctx, getAdminByEmailSQL, email)
+	rows, err := d.quiet().Query(ctx, getAdminByEmailSQL, email)
 	if err != nil {
 		return nil, fmt.Errorf("db: resolve admin by email: %w", err)
 	}
@@ -537,7 +537,7 @@ func (d *DB) GetAdminByEmail(ctx context.Context, email string) ([]ResolvedAdmin
 // cookie can never reach the panel.
 func (d *DB) GetAdminSessionByTokenHash(ctx context.Context, tokenHash string) (ResolvedAdminSession, error) {
 	var s ResolvedAdminSession
-	err := d.pool.QueryRow(ctx, getAdminSessionByTokenHashSQL, tokenHash).Scan(
+	err := d.quiet().QueryRow(ctx, getAdminSessionByTokenHashSQL, tokenHash).Scan(
 		&s.ID, &s.TenantID, &s.AdminUserID, &s.RevokedAt,
 	)
 	if err != nil {
@@ -566,7 +566,7 @@ func (d *DB) GetAdminSessionByTokenHash(ctx context.Context, tokenHash string) (
 // TestResetAndSessionHashes_Differ pins that.
 func (d *DB) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (ResolvedPasswordReset, error) {
 	var r ResolvedPasswordReset
-	err := d.pool.QueryRow(ctx, getPasswordResetByTokenHashSQL, tokenHash).Scan(
+	err := d.quiet().QueryRow(ctx, getPasswordResetByTokenHashSQL, tokenHash).Scan(
 		&r.ID, &r.TenantID, &r.AdminUserID, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt,
 	)
 	if err != nil {
@@ -593,7 +593,7 @@ func (d *DB) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) 
 // internal/apikey.Authenticator.Resolve decides that from the result.
 func (d *DB) GetAPIKeyByHash(ctx context.Context, tokenHash string) (ResolvedAPIKey, error) {
 	var k ResolvedAPIKey
-	err := d.pool.QueryRow(ctx, getAPIKeyByHashSQL, tokenHash).Scan(
+	err := d.quiet().QueryRow(ctx, getAPIKeyByHashSQL, tokenHash).Scan(
 		&k.TenantID, &k.KeyID, &k.RevokedAt, &k.APIEnabledAt,
 	)
 	if err != nil {

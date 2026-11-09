@@ -53,8 +53,12 @@ import (
 // bounded by its clocks: on the worker resetOutcomeGrace + resetRetryPause + resetOutcomeGrace,
 // about 12 s, for a write the request never tried; for one it tried, resetFallbackStep +
 // resetRetryPause + resetOutcomeGrace, about 7.5 s (an 8 s black hole lost one in an audit).
-// It was 5 s for both writes. recordKept's row is not here: it shares no clock with anything,
-// it is not retried, and it still holds its request up to resetAuditGrace per account (T211).
+// It was 5 s for both writes.
+//
+// THE KEPT ROW IS HERE TOO (T211, recordKept): an outcome with no withdrawal and one row, on a
+// request clock that ends with the floor, the rest on the worker. It had a resetAuditGrace of its
+// own per account and no second try: 1/2/8 accounts held the answer 5.01/10.01/40.05 s with the
+// row stalled, and every row was lost.
 
 const (
 	// resetFallbackBudget is everything ONE REQUEST may spend on its fallback writes,
@@ -62,8 +66,10 @@ const (
 	// on record for CI (540 ms, floor included: backlog T127), so the row keeps existing when
 	// the response returns. It is deliberately not tied to resetRequestFloor: a budget under
 	// it (200 ms and 100 ms worked in an audit) would move the row off the response on any slow
-	// day, and alone it is not worth that, since the mint and kept arms split the answer in a
-	// stall by other means (T219, T211).
+	// day. It is the one tail a stall can still add to a registered address's answer, and only
+	// on this rare arm, whatever the number of accounts: the kept rows stop at the floor
+	// (recordKept, T211) and the mint's lock waits are bounded inside it
+	// (adminauth.ResetMintLockWait, T219).
 	resetFallbackBudget = 1 * time.Second
 
 	// resetFallbackStep is one write's share of it: half, so a stalled withdrawal leaves
@@ -93,6 +99,16 @@ const (
 	// write (TestResetOutboxDB_AFullRetryQueueIsAccountedForAtTheDrain). Past it each owed write
 	// is abandoned with its ERROR.
 	resetRetryQueueSize = 256
+
+	// resetRetryKeptShare is how much of that queue kept rows may hold (T211's security review).
+	// Kept rows joined the queue after 256 was measured, and a stall on a busy deployment makes
+	// many of them -- one per account per request while a link lives -- so without a share they
+	// could fill it and push a later undelivered outcome out: a row lost and a withdrawal sent to
+	// the slower list. The other half is the undelivered outcomes' alone, which is the 128 a 3 s
+	// stall of 16 full windows needed (above), so that measurement still fits whatever the kept
+	// rows do (TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome). A kept row past its
+	// share is abandoned with its ERROR: the trail of a request that changed nothing, not of a link.
+	resetRetryKeptShare = resetRetryQueueSize / 2
 )
 
 // resetOutcomeClocks are the constants above and adminresetrecovery.go's, as fields so a test can
@@ -288,10 +304,47 @@ func (h *AdminReset) admitOutcome(o *resetOutcome) {
 	}
 }
 
+// keptOutcome is the kept row of an account whose live link made a new one unnecessary (T211,
+// recordKept), charged now. The live link travels as a grant with no token and no address, because
+// a grant is what the log lines read their ids from (grantIDs) -- and nothing else is read: a kept
+// outcome owes no withdrawal (newResetOutcome sets one only for an undelivered link), so the owner's
+// live link is never touched (TestResetOutcome_AKeptRowRetriedLaterLeavesTheLiveLinkAlone).
+func (h *AdminReset) keptOutcome(base context.Context, k adminauth.Reset) *resetOutcome {
+	o := &resetOutcome{
+		base:   base,
+		g:      adminauth.ResetGrant{Issued: adminauth.IssuedReset{Reset: k}},
+		action: ActionAdminResetKept, outcome: "kept", reason: resetReasonLiveLink,
+		admitted: true,
+	}
+	e, ok := h.admitForAdmin(base, k.TenantID, k.AdminUserID, audit.Event{
+		TenantID: k.TenantID,
+		ActorID:  ptr(k.AdminUserID),
+		Action:   ActionAdminResetKept,
+		Target:   k.AdminUserID.String(),
+		Detail: adminResetDetail{
+			Outcome:   "kept",
+			Reason:    resetReasonLiveLink,
+			ResetID:   k.ID.String(),
+			ExpiresAt: k.ExpiresAt.UTC().Format(time.RFC3339),
+		},
+	})
+	if ok {
+		// admitOutcome's rule: the id is ours, so both tries are one row.
+		e.ID = uuid.New()
+		o.event, o.row.owed = e, true
+	}
+	return o
+}
+
 // recordFallback finishes as much of a request-kept grant's outcome as its clock allows,
 // and leaves the rest to the worker (this file's header).
 func (h *AdminReset) recordFallback(base context.Context, until time.Time, g adminauth.ResetGrant, reason string) {
-	o := newResetOutcome(base, g, ActionAdminResetUndelivered, "undelivered", reason)
+	h.finishOnRequest(newResetOutcome(base, g, ActionAdminResetUndelivered, "undelivered", reason), until)
+}
+
+// finishOnRequest tries what o owes on the request's clock (until) and hands the rest to the worker
+// without waiting for it; what the worker will not take is logged lost.
+func (h *AdminReset) finishOnRequest(o *resetOutcome, until time.Time) {
 	h.attemptOutcome(o, h.fallbackClock(until))
 	if !o.owed() {
 		return
@@ -350,6 +403,11 @@ func (q *resetOutbox) offerRetry(o *resetOutcome) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.closed {
+		return false
+	}
+	// Under q.mu, so no other offer moves len between the check and the send; the worker only
+	// takes, which can make the check stricter than it needs to be, never looser.
+	if o.action == ActionAdminResetKept && len(q.retries) >= resetRetryKeptShare {
 		return false
 	}
 	select {

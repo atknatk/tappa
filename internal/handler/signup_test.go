@@ -316,7 +316,7 @@ func TestSignup_TheWholeWizardReachesAnApprovedStamp(t *testing.T) {
 	if len(got.Venues) != 2 || got.Venues[0].Name != "St Julians" || got.Venues[1].Name != "Sliema" {
 		t.Errorf("the venues reached the domain as %+v, in the wrong order or count", got.Venues)
 	}
-	if got.Account.Email != "maria@kebabfactory.com.mt" || got.Account.Password.Len() == 0 {
+	if got.Account.Email.Reveal() != "maria@kebabfactory.com.mt" || got.Account.Password.Len() == 0 {
 		t.Errorf("the account reached the domain without its email or its password")
 	}
 

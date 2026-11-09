@@ -272,7 +272,8 @@ type Venue struct {
 // administrator is an invitation (M7-04) rather than a sign-up field.
 type Account struct {
 	FullName string
-	Email    string
+	// Email is an Address because a %+v of a Draft printed it (backlog T209; CLAUDE.md §7).
+	Email Address
 	// Password is the only §4.7-adjacent value in this package. It exists for the
 	// length of one request: Provision hands it to adminauth.Hash and never stores,
 	// logs or returns it. It is deliberately NOT carried in the wizard's signed
@@ -462,18 +463,19 @@ func ValidateAccount(a Account) (Account, Errors) {
 		errs.add("full_name", "That name contains a character we cannot store. Retype it.")
 	}
 
-	a.Email = strings.TrimSpace(a.Email)
+	email := strings.TrimSpace(a.Email.Reveal())
+	a.Email = NewAddress(email)
 	switch {
-	case a.Email == "":
+	case email == "":
 		errs.add("email", "We need an address to sign you in with.")
-	case utf8.RuneCountInString(a.Email) > MaxEmailRunes:
+	case utf8.RuneCountInString(email) > MaxEmailRunes:
 		errs.add("email", "That address is too long.")
-	case !deliverableShape(a.Email):
+	case !deliverableShape(email):
 		errs.add("email", "That does not look like an email address.")
-	case !asciiOnly(a.Email):
+	case !asciiOnly(email):
 		errs.add("email", "That address has a letter we cannot send mail to — an accent or "+
 			"a non-Latin character. Type it with plain a–z letters.")
-	case !mail.ValidRecipient(a.Email):
+	case !mail.ValidRecipient(email):
 		errs.add("email", "That does not look like an email address we can send mail to.")
 	}
 

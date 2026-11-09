@@ -36,6 +36,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
@@ -205,9 +206,8 @@ func TestAccountDB_SavesTheThreeFieldsAndLeavesTheRestAlone(t *testing.T) {
 //     paragraph separator is refused -- ErrAccountName and ErrNameHiddenCharacter -- and the row
 //     keeps its name;
 //   - right-to-left names, a joiner inside a word and the implicit marks are saved as typed;
-//   - a name ALREADY on file with a control (written here by the fixture's own statement, the way
-//     a row from before the rule is) stays editable: saved unchanged it is not refused and the other
-//     field moves; changed to another name with a control it is refused.
+//   - a name with a control written straight to the row is refused by the table (migration 00093,
+//     tenants_name_keeps_its_isolate), so no name from before the rule can be on file any more.
 func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 	f := newAccountFixture(t)
 	ctx := context.Background()
@@ -252,22 +252,21 @@ func TestAccountDB_ANewNameMayNotCarryABidiControl(t *testing.T) {
 		}
 	}
 
+	// A name from before the rule can no longer be on file: since migration 00093 the table refuses
+	// it -- tenants_name_keeps_its_isolate, for tappa_app as for anyone -- and the migration does not
+	// land over one. Save's tolerance for an unchanged name (its inline check, for refuseHiddenName's reason) therefore no longer
+	// meets a stored one; it stays for a schema a Down left without the CHECK.
 	const legacy = "Rusty\u202eBar"
 	err := f.data.WithTenant(ctx, f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `UPDATE tenants SET name = $1 WHERE id = $2`, legacy, f.tenantID)
 		return e
 	})
-	if err != nil {
-		t.Fatalf("PREMISE: put a name from before the rule on file: %v", err)
-	}
-	if err := save(legacy, "Europe/Rome"); err != nil {
-		t.Errorf("the name on file, unchanged: Save = %v, want accepted", err)
-	}
-	if got, _, _, _, zone, _, _ := f.row(t, f.tenantID); got != legacy || zone != "Europe/Rome" {
-		t.Errorf("after the unchanged save the row reads (%q, %s), want the name kept and the zone moved", got, zone)
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "23514" || pg.ConstraintName != "tenants_name_keeps_its_isolate" {
+		t.Errorf("a name with a control written straight to the row: %v, want 23514 on tenants_name_keeps_its_isolate", err)
 	}
 	if err := save("Rusty\u202eBaz", "Europe/Rome"); !errors.Is(err, ErrNameHiddenCharacter) {
-		t.Errorf("the name on file, changed but still with a control: Save = %v, want it refused", err)
+		t.Errorf("a changed name with a control: Save = %v, want it refused before the table sees it", err)
 	}
 }
 

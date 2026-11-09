@@ -560,7 +560,7 @@ func TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend(t *testing.T) {
 // of its view's URI (ADR 0020 §3, QR note).
 func screens(t *testing.T) map[string]string {
 	t.Helper()
-	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	name, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", "Kebab Factory Ltd")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1179,7 +1179,7 @@ func TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand(t *testing.T) {
 // the surface's render answers a plain 500 with no page. CONTROL: the full sub-nav with
 // each of the four current tabs renders.
 func TestTenantScreen_RefusesToRenderWithoutItsTabs(t *testing.T) {
-	name, err := operatorpages.NewTenantName("Kebab Factory Ltd")
+	name, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", "Kebab Factory Ltd")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1222,7 +1222,7 @@ func TestTenantScreen_RefusesToRenderWithoutItsTabs(t *testing.T) {
 // tenant's screen carries the name, escaped, in the banner and in the document title.
 func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	for _, blank := range []string{"", " ", "\t\n"} {
-		if _, err := operatorpages.NewTenantName(blank); err == nil {
+		if _, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", blank); err == nil {
 			t.Errorf("NewTenantName(%q) was accepted", blank)
 		}
 	}
@@ -1231,7 +1231,7 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	if err == nil || b.Len() != 0 {
 		t.Fatalf("the zero TenantName rendered (err %v, %d bytes)", err, b.Len())
 	}
-	name, err := operatorpages.NewTenantName(`Rusty <Bar> & "Grill"`)
+	name, err := operatorpages.NewTenantName("10000000-0000-4000-8000-000000000001", `Rusty <Bar> & "Grill"`)
 	if err != nil {
 		t.Fatal(err)
 	}

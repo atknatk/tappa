@@ -704,13 +704,13 @@ type freshResets struct {
 	minted []adminauth.ResetGrant
 }
 
-func (f *freshResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
+func (f *freshResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, []adminauth.StalledReset, error) {
 	g := grantsFor(f.base.Recipient, 1)[0]
 	g.Issued.Reset.TenantID, g.Issued.Reset.AdminUserID = f.base.Issued.Reset.TenantID, f.base.Issued.Reset.AdminUserID
 	f.mu.Lock()
 	f.minted = append(f.minted, g)
 	f.mu.Unlock()
-	return []adminauth.ResetGrant{g}, nil, nil
+	return []adminauth.ResetGrant{g}, nil, nil, nil
 }
 
 // Withdraw: the undelivered links' retirement is not what these tests count.
@@ -1154,9 +1154,9 @@ type cancellingResets struct {
 	cancel context.CancelFunc
 }
 
-func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, error) {
+func (f *cancellingResets) IssueForEmail(context.Context, string) ([]adminauth.ResetGrant, []adminauth.Reset, []adminauth.StalledReset, error) {
 	f.cancel()
-	return f.grants, nil, nil
+	return f.grants, nil, nil, nil
 }
 
 // Withdraw: the undelivered links' retirement is not what this test counts.

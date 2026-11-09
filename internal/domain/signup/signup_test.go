@@ -175,7 +175,7 @@ func TestValidateVenues_StructureDecidesTheShape(t *testing.T) {
 
 func TestValidateAccount_ServerSide(t *testing.T) {
 	t.Parallel()
-	ok := Account{FullName: "Maria Borg", Email: "maria@kebabfactory.com.mt", Password: testPassword("correct horse battery")}
+	ok := Account{FullName: "Maria Borg", Email: NewAddress("maria@kebabfactory.com.mt"), Password: testPassword("correct horse battery")}
 	tests := []struct {
 		name  string
 		in    Account
@@ -236,7 +236,7 @@ func TestValidateAccount_ServerSide(t *testing.T) {
 // on the sentence check); both removed -> every refusal row is red.
 func TestValidateAccount_RefusesAnAddressMailCannotReach(t *testing.T) {
 	t.Parallel()
-	ok := Account{FullName: "Maria Borg", Email: "maria@kebabfactory.com.mt", Password: testPassword("correct horse battery")}
+	ok := Account{FullName: "Maria Borg", Email: NewAddress("maria@kebabfactory.com.mt"), Password: testPassword("correct horse battery")}
 	for _, tc := range []struct {
 		name, email string
 		nonASCII    bool
@@ -283,8 +283,8 @@ func TestValidateAccount_NeverReturnsThePassword(t *testing.T) {
 	t.Parallel()
 	const secret = "hunter2-hunter2-hunter2"
 	for _, in := range []Account{
-		{FullName: "", Email: "not-an-email", Password: testPassword(secret)},
-		{FullName: "Maria", Email: "maria@example.mt", Password: testPassword(strings.Repeat(secret, 10))},
+		{FullName: "", Email: NewAddress("not-an-email"), Password: testPassword(secret)},
+		{FullName: "Maria", Email: NewAddress("maria@example.mt"), Password: testPassword(strings.Repeat(secret, 10))},
 	} {
 		_, errs := ValidateAccount(in)
 		for field, msg := range errs {
@@ -467,7 +467,7 @@ func withType(b Business, v string) Business      { b.BusinessType = v; return b
 func withStructure(b Business, v string) Business { b.Structure = v; return b }
 
 func withFullName(a Account, v string) Account { a.FullName = v; return a }
-func withEmail(a Account, v string) Account    { a.Email = v; return a }
+func withEmail(a Account, v string) Account    { a.Email = NewAddress(v); return a }
 func withPassword(a Account, v string) Account { a.Password = testPassword(v); return a }
 
 // testPassword is a password in the type the form's value takes.
@@ -527,7 +527,7 @@ func TestValidate_RefusesTheBytesPostgresRefuses(t *testing.T) {
 		})
 		t.Run("operator name", func(t *testing.T) {
 			_, errs := ValidateAccount(Account{
-				FullName: bad, Email: "m@example.mt", Password: testPassword("a passphrase here"),
+				FullName: bad, Email: NewAddress("m@example.mt"), Password: testPassword("a passphrase here"),
 			})
 			if _, ok := errs["full_name"]; !ok {
 				t.Errorf("an operator name carrying an unstorable byte validated: %v",
