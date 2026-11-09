@@ -1054,6 +1054,11 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		"holding_members:SELECT": "holding_id,member_tenant_id,joined_at,left_at",
 		"holding_members:INSERT": "holding_id,member_tenant_id",
 		"holding_members:UPDATE": "left_at",
+		// 00098 (T27): op_read_tenant_billing prices a live month under the plan in force for it,
+		// through tappa_plan_in_force, which runs as its caller -- the three columns that reader
+		// names, NOT id, changed_by (which operator) or recorded_at. SELECT only: the table is
+		// append-only and the definer changes no plan (OP-17's writer is not built).
+		"tenant_plan_history:SELECT": "tenant_id,plan,effective_from",
 	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},
@@ -1168,6 +1173,12 @@ func TestOperator00026_AppHoldsNothingUnderTheProductionDefaultACL(t *testing.T)
 		t.Fatalf("the widened default did not reach a new table (select=%v insert=%v update=%v delete=%v); this test proves nothing", s, i, u, d)
 	}
 
+	// 00098 (T27) keys tenant_plan_history.changed_by to platform_admins, so 00026's Down -- run here
+	// at HEAD, not walked to -- would meet a dependent object (2BP01). The key goes first, inside the
+	// rolled-back transaction, as 00098's own Down drops it.
+	if _, err := tx.Exec(ctx, `ALTER TABLE tenant_plan_history DROP CONSTRAINT IF EXISTS tenant_plan_history_changed_by_fkey`); err != nil {
+		t.Fatalf("drop 00098's key to platform_admins inside the transaction: %v", err)
+	}
 	if _, err := tx.Conn().PgConn().Exec(ctx, down).ReadAll(); err != nil {
 		t.Fatalf("run 00026 Down inside the transaction: %v", err)
 	}

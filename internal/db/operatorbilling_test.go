@@ -1029,7 +1029,7 @@ func TestOperator00032_DownGivesBack00031AndUpTakesItAgain(t *testing.T) {
 			       has_function_privilege('tappa_app', 'public.op_begin_read(text, text, jsonb)', 'EXECUTE'),
 			       has_function_privilege('tappa_operator', 'public.op_begin_read(text, text, jsonb)', 'EXECUTE'),
 			       has_function_privilege('tappa_operator', 'public.op_read_audit(text, text, text, integer, integer)', 'EXECUTE')`,
-			opDefinerForeignExecAllowed).
+			opBillingHelpers00032).
 			Scan(&s.reads, &s.begin, &s.audit, &s.definerACL, &s.definerExec, &s.appExec, &s.appBegin, &s.opBegin, &s.opReadAudit); err != nil {
 			t.Fatalf("read the state: %v", err)
 		}
@@ -1548,6 +1548,10 @@ func TestOpBeginRead_TheBillingKindBindsTheTenantAndAPage(t *testing.T) {
 //     to 1.30: the frozen months must not move, the live ones must;
 //   - a STANDARD tenant at 1.10 that signed up fourteen months ago, read on pages 1 and 2 (the
 //     second reaches back before its signup);
+//   - (T27, 00097/00098) a PLAN-CHANGE tenant that signed up five local months ago on founding and
+//     moved to standard ten days into its second month: both paths must price each month under the
+//     plan in force at its start -- the signup month and the second free, the third and fourth
+//     chargeable (asserted by month, beside the field-by-field agreement);
 //   - in each FAR zone, an EDGE tenant that signed up three local months ago at an instant whose
 //     month in UTC is not its month in the zone: Etc/GMT-14 on the 1st at 00:30 local (still the
 //     previous month in UTC), Etc/GMT+12 on the last day at 23:30 local (already the next month
@@ -1599,6 +1603,7 @@ func TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure(t *testing.T) {
 	var reads []read
 	boundary := map[uuid.UUID]time.Time{}
 	frozenCharge := map[uuid.UUID]time.Time{}
+	planChanged := map[uuid.UUID]opBillingFixture{}
 	for _, zone := range []string{opZoneMalta, opZoneEast, opZoneWest} {
 		f := opBillingTenant(t, ctx, tx, "op12 founding "+zone+" "+opToken(t), zone, "founding", "1.10", 5)
 		from1, to1 := opMonthBounds(t, ctx, tx, f.month(1), zone)
@@ -1632,6 +1637,23 @@ func TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure(t *testing.T) {
 		opHire(t, ctx, tx, s, "left a microsecond later", "deactivated", &in, &after6)
 		opHire(t, ctx, tx, s, "status without its stamp", "deactivated", &in, nil)
 		reads = append(reads, read{s, 1}, read{s, 2})
+
+		// T27 (00097/00098): a PLAN CHANGE. Founding from signup, standard from ten days into its
+		// second month -- tenants.plan says standard today. Under the plan in force at each month's
+		// start, the signup month and the second are free (founding governs both: the change lands
+		// inside the second), the third is chargeable (standard governs it, though founding's window
+		// would have reached it) -- and a read that took tenants.plan would bill all three.
+		c := opBillingTenant(t, ctx, tx, "op12 plan change "+zone+" "+opToken(t), zone, "standard", "1.10", 5)
+		from4, _ := opMonthBounds(t, ctx, tx, c.month(4), zone)
+		if _, err := tx.Exec(ctx, `INSERT INTO tenant_plan_history (tenant_id, plan, effective_from)
+		                           VALUES ($1, 'founding', $2), ($1, 'standard', $3)`,
+			c.id, c.created, from4.Add(10*24*time.Hour)); err != nil {
+			t.Fatalf("the plan change's history: %v", err)
+		}
+		cin := c.created.Add(time.Hour)
+		opHire(t, ctx, tx, c, "all along", "active", &cin, nil)
+		planChanged[c.id] = c
+		reads = append(reads, read{c, 1})
 	}
 	// The edge tenants: a signup instant whose month in UTC is not its month in the zone.
 	edges := map[uuid.UUID]opBillingFixture{}
@@ -1719,6 +1741,17 @@ func TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure(t *testing.T) {
 						label, m.Frozen, p.get.EmployeeCount, p.preview.EmployeeCount, opNumericText(p.get.UnitPrice), opNumericText(p.preview.UnitPrice))
 				}
 			}
+			if c, ok := planChanged[r.f.id]; ok {
+				for k, want := range map[int]struct {
+					plan string
+					free bool
+				}{5: {"founding", true}, 4: {"founding", true}, 3: {"standard", false}, 2: {"standard", false}} {
+					if m.Month.Time.Equal(c.month(k)) && (m.Plan == nil || *m.Plan != want.plan || !opBoolEq(m.Free, want.free) || m.Frozen) {
+						t.Errorf("%s: plan %s, free %s, frozen %v; the plan in force at the month's start is %s, so want free=%v, live",
+							label, opDeref(m.Plan), opDeref(m.Free), m.Frozen, want.plan, want.free)
+					}
+				}
+			}
 			if e, ok := edges[r.f.id]; ok {
 				if want := !m.Month.Time.Before(e.signup); m.AfterSignup != want || p.preview.PeriodIsAfterSignup != want {
 					t.Errorf("%s: after_signup %v, the tenant's path %v; the local signup month is %s, so want %v",
@@ -1732,8 +1765,9 @@ func TestOpReadTenantBilling_EveryMonthIsTheTenantsOwnFigure(t *testing.T) {
 			t.Errorf("anti-vacuity, %s: %+v; every kind of month must occur", zone, *k)
 		}
 	}
-	if want := (3*3 + len(edges)) * TenantBillingMonthsPerPage; len(edges) != 2 || compared != want {
-		t.Errorf("anti-vacuity: %d months compared over %d edge tenants, want %d over 2", compared, len(edges), want)
+	if want := (3*4 + len(edges)) * TenantBillingMonthsPerPage; len(edges) != 2 || len(planChanged) != 3 || compared != want {
+		t.Errorf("anti-vacuity: %d months compared over %d edge and %d plan-change tenants, want %d over 2 and 3",
+			compared, len(edges), len(planChanged), want)
 	}
 }
 

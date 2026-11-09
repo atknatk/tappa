@@ -446,8 +446,8 @@ func TestPgRestoreVerify_KeepsTheTruncateGuardPredicates(t *testing.T) {
 		}
 	}
 
-	// THE ELEVEN TABLES ARE THE ONES MIGRATIONS 00021, 00026, 00046, 00048 AND 00068 GUARD. A list
-	// that shrank would make the script's PASS sentence ("all 11 tables") false while it still
+	// THE TWELVE TABLES ARE THE ONES MIGRATIONS 00021, 00026, 00046, 00048, 00068 AND 00097 GUARD. A
+	// list that shrank would make the script's PASS sentence ("all 12 tables") false while it still
 	// printed. ⚠️ strings.Contains cannot tell "audit_log" from "operator_audit_log";
 	// TestAppendOnlyTablesAreNamedByBothScripts parses the list exactly and derives it
 	// from db/migrations.
@@ -455,7 +455,7 @@ func TestPgRestoreVerify_KeepsTheTruncateGuardPredicates(t *testing.T) {
 		"transactions", "audit_log", "transaction_reviews",
 		"billing_periods", "policy_versions", "legal_documents",
 		"operator_audit_log", "site_punches", "punch_events",
-		"punch_claims", "punch_claim_decisions",
+		"punch_claims", "punch_claim_decisions", "tenant_plan_history",
 	} {
 		if !strings.Contains(text, table) {
 			t.Errorf("scripts/pg-restore-verify.sh no longer names the append-only table %q; "+

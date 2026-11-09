@@ -511,9 +511,10 @@ fi
 # table. 00021 added six BEFORE TRUNCATE ... FOR EACH STATEMENT triggers, 00026 a
 # seventh (operator_audit_log, the platform operator's append-only trail), 00046 an
 # eighth (site_punches, a holding site's projection -- M11 API-1c), 00048 a ninth
-# (punch_events, the integrators' punch feed -- M11 API-2) and 00068 a tenth and an
+# (punch_events, the integrators' punch feed -- M11 API-2), 00068 a tenth and an
 # eleventh (punch_claims and punch_claim_decisions, an employee's claim of a missing
-# half and the manager's decision -- M15-15); a restore
+# half and the manager's decision -- M15-15) and 00097 a twelfth (tenant_plan_history,
+# the plan each billing month is priced under -- T27); a restore
 # that lost them would pass every check above. The list below is not free text:
 # cmd/tappa/scriptguards_test.go derives the append-only tables from db/migrations
 # (every table bound to tappa_forbid_mutation) and fails if one is missing here.
@@ -564,7 +565,7 @@ fi
 # turns a FAILED CHECK into "no verdict", which is the wrong answer to "is the
 # guard there". A join simply matches nothing, and nothing is reported as missing.
 # =================================================================================
-trunc_tables="transactions audit_log transaction_reviews billing_periods policy_versions legal_documents operator_audit_log site_punches punch_events punch_claims punch_claim_decisions"
+trunc_tables="transactions audit_log transaction_reviews billing_periods policy_versions legal_documents operator_audit_log site_punches punch_events punch_claims punch_claim_decisions tenant_plan_history"
 psql_to "$TMP/have.truncguards" "SELECT c.relname
   FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -589,7 +590,7 @@ for t in $trunc_tables; do
   grep -qx "$t" "$TMP/have.truncguards" || missing="$missing $t"
 done
 if [ -z "$missing" ]; then
-  ok "append-only: all 11 tables carry an ENABLED BEFORE TRUNCATE guard bound to tappa_forbid_mutation"
+  ok "append-only: all 12 tables carry an ENABLED BEFORE TRUNCATE guard bound to tappa_forbid_mutation"
 else
   bad "these append-only tables have NO BEFORE TRUNCATE guard THAT WOULD FIRE, so tappa_owner can empty them (and reach the others by CASCADE):$missing
         every BEFORE TRUNCATE trigger this database does have, with its state: $(tr '\n' ' ' < "$TMP/have.truncstate")
@@ -597,7 +598,7 @@ else
 fi
 
 # The privilege belt for the same statement. tappa_app must not hold TRUNCATE on
-# any of the eleven; db-init grants SELECT+INSERT and a restore is what re-widens
+# any of the twelve; db-init grants SELECT+INSERT and a restore is what re-widens
 # privileges, which is the whole subject of section 3.
 psql_to "$TMP/have.truncpriv" "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind = 'r'
@@ -627,7 +628,8 @@ fi
 #     nor DELETE a tags row: a deleted plaque row takes its key with it and the chip is locked
 #     for good (no migration grants it; live, 2026-11-07, read by the orchestrator: false);
 #   tappa_app may neither UPDATE any column of nor DELETE from any append-only table but
-#     transactions, which section 4 probes (measured at goose 87: false on all eleven).
+#     transactions, which section 4 probes (measured at goose 87: false on all eleven; 00097's twelfth,
+#     tenant_plan_history, false at goose 98).
 # Missing tables and columns (an older dump) match nothing rather than raise: to_regclass and
 # pg_attribute, not a cast.
 # =================================================================================
@@ -656,7 +658,7 @@ PRIV_FLOOR_SQL="SELECT 'default for new tables: ' || x.privilege_type
       OR (v.p = 'DELETE' AND has_table_privilege('tappa_app', s.r, 'DELETE')));"
 psql_to "$TMP/have.privfloor" "$PRIV_FLOOR_SQL"
 if [ ! -s "$TMP/have.privfloor" ]; then
-  ok "privileges, whatever the dump says: the default for new tables gives tappa_app SELECT, INSERT at most; tappa_app may not UPDATE tags' key columns, DELETE a tags row or UPDATE/DELETE the other ten append-only tables"
+  ok "privileges, whatever the dump says: the default for new tables gives tappa_app SELECT, INSERT at most; tappa_app may not UPDATE tags' key columns, DELETE a tags row or UPDATE/DELETE the other eleven append-only tables"
 else
   bad "tappa_app holds, whatever the dump says: $(tr '\n' ';' < "$TMP/have.privfloor")
         'default for new tables' means the runbook's narrowing (A YOLU 4 / B YOLU B3: ALTER DEFAULT PRIVILEGES ... REVOKE UPDATE, DELETE ON TABLES FROM tappa_app) did not run or was weakened; anything else is a privilege the SOURCE already had -- this restore copied it faithfully, and it must not be in service either."
@@ -665,7 +667,7 @@ fi
 # =================================================================================
 # 5b. EVERY TRIGGER, NOT ONLY THE TRUNCATE GUARDS (T100)
 #
-# Section 5 reads the eleven BEFORE TRUNCATE guards and nothing else, and section 4's
+# Section 5 reads the twelve BEFORE TRUNCATE guards and nothing else, and section 4's
 # probes never fire a trigger (`WHERE false`, by design). So a restore that left a ROW
 # trigger disabled passed: transactions_no_mutation, audit_log_no_mutation,
 # tags_counter_monotonic, 00033's operator_audit_log_at_is_the_wall_clock (a row's `at`
@@ -870,7 +872,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether they would fire. None of them executes a TRUNCATE or
   # fires a trigger, so "the guards are present and would fire" is the claim, not
   # "TRUNCATE was tried and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the eleven append-only tables, every trigger the dump declares with its definition and enabled, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the twelve append-only tables, every trigger the dump declares with its definition and enabled, and, where the database carries the punch feed, a counter for every tenant moved past its last restored event."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

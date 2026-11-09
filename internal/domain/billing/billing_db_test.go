@@ -114,6 +114,15 @@ func newFixture(t *testing.T, signedUp time.Time, zone, plan string) *fixture {
 	}
 	// The operator's half: the plan and the signup instant every founding-window
 	// assertion depends on. See ownerExec.
+	//
+	// The history row comes FIRST (00097, T27): a month is billed under the plan in
+	// force at its start, read from tenant_plan_history, and this fixture means "signed
+	// up at signedUp on plan" -- the row a business that really signed up then would
+	// have. Without it the UPDATE below is a plan CHANGE made today (the trigger records
+	// the default founding plan from the old created_at, then the new plan from the wall
+	// clock), and every month before today would be billed as founding.
+	ownerExec(t, `INSERT INTO tenant_plan_history (tenant_id, plan, effective_from) VALUES ($1, $2, $3)`,
+		f.tenantID, plan, signedUp)
 	ownerExec(t, `UPDATE tenants SET plan = $2, created_at = $3 WHERE id = $1`,
 		f.tenantID, plan, signedUp)
 	return f

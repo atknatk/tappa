@@ -79,7 +79,7 @@ import (
 // TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector.
 // ============================================================================
 
-// truncateTargets are the append-only tables -- 00021's six and 00068's two -- and the statement
+// truncateTargets are the append-only tables -- 00021's six, 00068's two and 00097's one -- and the statement
 // that empties each. Three of them are written with CASCADE because a FK child would otherwise
 // refuse the statement before any trigger could fire (transaction_reviews under
 // transactions; transactions under policy_versions; punch_claim_decisions under punch_claims --
@@ -100,6 +100,8 @@ var truncateTargets = []struct {
 	// punch_claims_no_truncate dropped, the refusal names punch_claim_decisions).
 	{"punch_claims", "TRUNCATE punch_claims CASCADE"},
 	{"punch_claim_decisions", "TRUNCATE punch_claim_decisions"},
+	// 00097 (T27): the plan each billing month is priced under. No table references it.
+	{"tenant_plan_history", "TRUNCATE tenant_plan_history"},
 }
 
 // SQLSTATEs the retry loop classifies on, named rather than matched on message

@@ -298,9 +298,12 @@ func stampViolation(s billingFactSources) string {
 var (
 	firstChargeableRE = regexp.MustCompile(`SELECT \(date_trunc\('month', p_created_at AT TIME ZONE p_timezone\)\s*` +
 		`\+ CASE WHEN p_plan = 'founding' THEN interval '(\d+) months'\s*ELSE interval '0' END\)::date;`)
-	freePeriodRE  = regexp.MustCompile(`\(b\.month < b\.first_chargeable\) AS free_period`)
-	planDefaultRE = regexp.MustCompile(`(?m)^\s*plan\s+text NOT NULL DEFAULT 'founding'`)
-	planChangeRE  = regexp.MustCompile(`(?i)ALTER\s+COLUMN\s+plan\b|ALTER\s+TABLE\s+(?:public\.)?tenants\s+(?:ADD|DROP)\s+COLUMN\s+plan\b`)
+	freePeriodRE = regexp.MustCompile(`\(b\.month < b\.first_chargeable\) AS free_period`)
+	// 00097's reader: its last arm is the business's own plan (p_current_plan, tenants.plan).
+	planFallbackRE      = regexp.MustCompile(`(?s)SELECT coalesce\(.*,\s*p_current_plan\);\s*\$\$;$`)
+	planHistoryInsertRE = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+(?:public\.)?tenant_plan_history\b`)
+	planDefaultRE       = regexp.MustCompile(`(?m)^\s*plan\s+text NOT NULL DEFAULT 'founding'`)
+	planChangeRE        = regexp.MustCompile(`(?i)ALTER\s+COLUMN\s+plan\b|ALTER\s+TABLE\s+(?:public\.)?tenants\s+(?:ADD|DROP)\s+COLUMN\s+plan\b`)
 	// A statement that writes tenants.plan, and a grant that would let one.
 	planUpdateRE = regexp.MustCompile(`(?is)\bUPDATE\s+(?:public\.)?tenants\b(?:\s+(?:AS\s+)?\w+)?\s+SET\b([^;]*)`)
 	planSetRE    = regexp.MustCompile(`(?i)(?:^|[\s,.])plan\s*=`)
@@ -356,10 +359,33 @@ func freeMonthsViolation(s billingFactSources) string {
 	if file := redefinedLater(s.Later, "tappa_first_chargeable_month"); file != "" {
 		return file + " redefines tappa_first_chargeable_month after 00016; re-read the rule there"
 	}
+	// Since 00097 (T27) the plan a month is priced under is the plan IN FORCE at its start, and a
+	// new business has no history row until its plan first changes -- so its months are priced
+	// under tenants.plan, the founding default below, exactly as before: the statements must ask
+	// the reader, the reader must fall back to the business's own plan, and no migration but 00097
+	// may write a history row (a row written at signup could put a new business on another plan).
 	for _, q := range []string{"PreviewBillingPeriod", "CloseBillingPeriod"} {
 		block := queryBlock(s.Queries, q)
-		if !strings.Contains(block, "tappa_first_chargeable_month(s.plan, s.created_at, s.timezone)") || !freePeriodRE.MatchString(block) {
+		if !strings.Contains(block, "tappa_plan_in_force(@tenant_id, tappa_local_month_start(s.month, s.timezone), s.plan) AS plan") ||
+			!strings.Contains(block, "tappa_first_chargeable_month(g.plan, g.created_at, g.timezone)") || !freePeriodRE.MatchString(block) {
 			return q + " no longer calls a month free exactly when it comes before the first charged month"
+		}
+	}
+	reader, readerFile := "", ""
+	for file, src := range s.Later {
+		if body := sqlFunctionBody(gooseUp(src), "public.tappa_plan_in_force"); body != "" {
+			reader, readerFile = body, file
+		}
+	}
+	if !planFallbackRE.MatchString(reader) {
+		return "tappa_plan_in_force no longer prices a business with no plan history under its own plan"
+	}
+	if file := redefinedLater(s.Later, "tappa_plan_in_force"); file != "" {
+		return file + " redefines tappa_plan_in_force after 00097; re-read the rule there"
+	}
+	for file, src := range s.Later {
+		if file != readerFile && planHistoryInsertRE.MatchString(sqlLineCommentRE.ReplaceAllString(gooseUp(src), "")) {
+			return file + " writes a plan history row, which could put a new business on another plan than the founding default"
 		}
 	}
 	if !planDefaultRE.MatchString(s.Mig01) {
@@ -593,6 +619,18 @@ func TestPricingFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			s.Queries = within(s.Queries, queryBlock(s.Queries, "CloseBillingPeriod"), "(b.month < b.first_chargeable)", "(b.month <= b.first_chargeable)")
 		}},
 		{"a later migration redefines the window", freeMonthsViolation, later("CREATE OR REPLACE FUNCTION public.tappa_first_chargeable_month(text, timestamptz, text) RETURNS date")},
+		{"the statements stop asking the plan in force", freeMonthsViolation, func(s *billingFactSources) {
+			s.Queries = within(s.Queries, queryBlock(s.Queries, "PreviewBillingPeriod"),
+				"tappa_first_chargeable_month(g.plan, g.created_at, g.timezone)", "tappa_first_chargeable_month('standard', g.created_at, g.timezone)")
+		}},
+		{"the reader stops falling back to the business's plan", freeMonthsViolation, func(s *billingFactSources) {
+			s.Later = maps.Clone(s.Later)
+			for file, src := range s.Later {
+				s.Later[file] = strings.Replace(src, "        p_current_plan);\n$$;", "        'standard');\n$$;", 1)
+			}
+		}},
+		{"a later migration redefines the reader", freeMonthsViolation, later("CREATE OR REPLACE FUNCTION public.tappa_plan_in_force(uuid, timestamptz, text) RETURNS text")},
+		{"a later migration writes a plan row at signup", freeMonthsViolation, later("INSERT INTO tenant_plan_history (tenant_id, plan, effective_from) SELECT id, 'standard', created_at FROM tenants;")},
 		{"a new business is on the standard plan", freeMonthsViolation, func(s *billingFactSources) {
 			s.Mig01 = strings.Replace(s.Mig01, "DEFAULT 'founding'", "DEFAULT 'standard'", 1)
 		}},

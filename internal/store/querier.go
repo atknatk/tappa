@@ -5887,20 +5887,27 @@ type Querier interface {
 	// 🔴 THE CALLER SUPPLIES A TENANT, A MONTH AND AN AUTHOR -- NEVER A NUMBER. Every
 	// figure that lands on a frozen row is computed by the statement that writes it:
 	// the headcount from `employees`, the price from `tenants`, the month's UTC
-	// boundaries from the tenant's own zone, the free-period decision from the plan and
-	// the signup date, and the total from a GENERATED column. An HTTP handler cannot
-	// post an invoice amount, because there is no parameter to post it into. That
-	// matters more here than anywhere else in this repository, because migration 0016
-	// makes the table APPEND-ONLY: a wrong row is permanent.
+	// boundaries from the tenant's own zone, the free-period decision from the plan IN
+	// FORCE for the month and the signup date, and the total from a GENERATED column.
+	// An HTTP handler cannot post an invoice amount, because there is no parameter to
+	// post it into. That matters more here than anywhere else in this repository,
+	// because migration 0016 makes the table APPEND-ONLY: a wrong row is permanent.
+	//
+	// THE PLAN IN FORCE (T27, migration 00097, ADR 0043): a month is governed by the plan
+	// the tenant had at the month's first instant (from_at) -- tappa_plan_in_force over
+	// tenant_plan_history -- not by tenants.plan as it is when the month is read. A plan
+	// change therefore takes effect from the next month that STARTS after it, and cannot
+	// move a month that has already begun, closed or not.
 	//
 	// 🔴 THE ARITHMETIC IS NOT WRITTEN TWICE. Preview and Close must agree exactly --
 	// the number a manager saw before pressing the button has to be the number that
 	// freezes -- so the two statements are the SAME three CTEs (scope / bounds /
-	// counted) over the same five functions from migration 0016, and differ only in what
-	// they do with the result. The list this file must keep true, and the command that
-	// produces it:
+	// counted) over the same five functions from migration 0016 and 00097's
+	// tappa_plan_in_force, and differ only in what they do with the result (00097 added a
+	// governed CTE between bounds and counted to both). The list this file must keep true,
+	// and the command that produces it:
 	//
-	//	rg -c 'tappa_employee_is_billable|tappa_employee_lifecycle_status|tappa_local_month_start|tappa_first_chargeable_month|tappa_billing_amount_due' db/queries/billing.sql
+	//	rg -c 'tappa_employee_is_billable|tappa_employee_lifecycle_status|tappa_local_month_start|tappa_first_chargeable_month|tappa_billing_amount_due|tappa_plan_in_force' db/queries/billing.sql
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every statement here
 	// carries an explicit tenant_id predicate AND runs inside db.(*DB).WithTenant. The
