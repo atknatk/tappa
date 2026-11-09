@@ -135,6 +135,12 @@ type ReportsView struct {
 	StartedEarlier int
 	Unattributable int
 
+	// ShiftFromToday counts the week's arrivals measured against TODAY's shift times because
+	// their record carries no shift snapshot (ledger.Totals.ShiftFromToday, ADR 0042): typed by
+	// a manager, or recorded before 00095. Printed so a late count that moves when a shift is
+	// edited never passes for one that cannot.
+	ShiftFromToday int
+
 	// Partners are the week's records of a partner business's staff at this business's
 	// venues (M11 API-1c, ADR 0027 §9), PartnerManual the ones their employer typed for one of
 	// these venues; PartnersMore is true when the week held more than were listed. All three

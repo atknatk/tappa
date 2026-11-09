@@ -375,6 +375,12 @@ type Totals struct {
 	// because a manager APPROVED a flag: at least one end has verdict 'flag' and review
 	// 'approved' (endpointState's second case).
 	Approved int
+	// ShiftFromToday counts the period's attributed check-ins whose lateness (or "not
+	// measured") was read against TODAY's shift settings because their record carries no
+	// shift snapshot (reportEvent.ShiftFromToday): written before 00095, or typed by a manager
+	// (ADR 0042). Every other arrival is measured against the shift recorded with it, so
+	// editing a shift does not move it. The screen and the file say so beside the figures.
+	ShiftFromToday int
 }
 
 // HomesRead is the tri-state of the roster read behind PersonHours.Role/HomeLocationID/
@@ -678,7 +684,16 @@ type reportEvent struct {
 	// Shift is the shift this tap is judged against, already resolved: the
 	// DEPARTMENT's when it has one, otherwise the TAPPED location's (§5, Q17). nil
 	// means lateness is not computed here, which is a different answer from "on time".
+	//
+	// It is the shift FROZEN ON THE RECORD when the record has one (00095, ADR 0042) and
+	// today's settings otherwise; ShiftFromToday says which.
 	Shift *tap.Shift
+	// ShiftFromToday is true when Shift (or its absence) was read from TODAY's locations /
+	// departments / peer venue rows because the record carries no snapshot: every row written
+	// before 00095 and every manual row. Such an arrival's late minutes move when a shift is
+	// edited, so it is counted (Totals.ShiftFromToday) and the report says so. false for a
+	// snapshotted row -- and the zero value, so an event built by hand claims nothing.
+	ShiftFromToday bool
 }
 
 // events maps store rows onto the arithmetic's input.
@@ -711,7 +726,11 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string, sites siteVe
 			LocationName: deref(row.LocationName),
 			CreatedAt:    row.CreatedAt,
 			DayStart:     row.BusinessDayStart,
-			Shift:        resolveShift(row, zoneName, sites),
+		}
+		if sh, ok := recordedShift(row); ok {
+			e.Shift = sh
+		} else {
+			e.Shift, e.ShiftFromToday = resolveShift(row, zoneName, sites), true
 		}
 		switch {
 		case row.LocationID != nil:
@@ -727,8 +746,44 @@ func events(rows []store.ListWorkedShiftEventsRow, zoneName string, sites siteVe
 	return out, unattributable
 }
 
+// recordedShift is the shift frozen on the record (transactions.shift_*, migration 00095, ADR
+// 0042): the one the tap path resolved and the engine judged the tap against. ok is false when
+// the record carries no snapshot -- shift_source NULL: written before 00095, or manual -- and the
+// caller then falls back to today's settings (resolveShift) and counts the arrival as such.
+//
+// 'none' is a RECORDED answer -- the tap was judged against no shift -- so it is (nil, true):
+// not measured, and NOT re-measured against a shift somebody set up later. The zone is the
+// recorded one, not today's tenant zone: a wall clock is read in the zone it was set in.
+//
+// A source outside the CHECK's list, or a department/location row missing a value, cannot be
+// written (00095's transactions_shift_snapshot_shape); should one ever be read it is treated as
+// no snapshot -- measured against today's and counted as such -- rather than guessed at.
+func recordedShift(row store.ListWorkedShiftEventsRow) (*tap.Shift, bool) {
+	if row.ShiftSource == nil {
+		return nil, false
+	}
+	switch tap.ShiftSource(*row.ShiftSource) {
+	case tap.ShiftSourceNone:
+		return nil, true
+	case tap.ShiftSourceDepartment, tap.ShiftSourceLocation:
+		if !row.ShiftStart.Valid || !row.ShiftEnd.Valid || row.ShiftOvernight == nil || row.ShiftTimezone == nil {
+			return nil, false
+		}
+		return &tap.Shift{
+			Start:     time.Duration(row.ShiftStart.Microseconds) * time.Microsecond,
+			End:       time.Duration(row.ShiftEnd.Microseconds) * time.Microsecond,
+			Overnight: *row.ShiftOvernight,
+			Timezone:  *row.ShiftTimezone,
+		}, true
+	}
+	return nil, false
+}
+
 // resolveShift picks the shift a tap is judged against: the DEPARTMENT's when it has
 // one, otherwise the TAPPED location's.
+//
+// IT READS TODAY'S SETTINGS, so since 00095 it is the fallback for a record without a snapshot
+// only (recordedShift): every row before 00095 and every manual row (ADR 0042).
 //
 // 🔴 THE TAPPED LOCATION, NEVER THE PERSON'S HOME ONE (§5, Q17). Moving down the chain
 // is normal -- somebody covering a shift at another venue works THAT venue's hours --
@@ -988,6 +1043,9 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			if d := dayIndex(e.At, p, zone); d >= 0 && d < len(ph.Marks) {
 				ph.Marks[d].Manual = true
 			}
+		}
+		if e.ShiftFromToday {
+			out.Totals.ShiftFromToday++
 		}
 		if e.Shift == nil {
 			ph.Unmeasured++

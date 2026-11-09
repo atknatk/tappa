@@ -1044,3 +1044,31 @@ func TestReportsSection_NamesASingleCheckoutWithNoOpenCheckInInTheSingular(t *te
 		t.Error("\"1 checkouts\" is printed")
 	}
 }
+
+// TestReportsSection_SaysWhichArrivalsAreMeasuredAgainstTodaysShift is T152's screen half (ADR
+// 0042): arrivals whose record carries no shift snapshot -- typed by a manager, or written before
+// 00095 -- are measured against TODAY's shift times, so their late minutes move when a shift is
+// edited. The page says how many, in the receipt's notes, and says nothing when there are none.
+func TestReportsSection_SaysWhichArrivalsAreMeasuredAgainstTodaysShift(t *testing.T) {
+	for _, c := range []struct {
+		n    int
+		want string
+	}{
+		{1, "Late minutes for 1 arrival use the current shift times — it was typed by a manager, or recorded before Taptime saved the shift with each record."},
+		{3, "Late minutes for 3 arrivals use the current shift times — they were typed by a manager, or recorded before Taptime saved the shift with each record."},
+	} {
+		records := newFakeLedger()
+		records.hours = reportWith(func(r *ledger.Report) {
+			r.Totals = ledger.Totals{Worked: 8 * time.Hour, Shifts: 1, ShiftFromToday: c.n}
+		})
+		body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
+		if !strings.Contains(body, c.want) {
+			t.Errorf("with %d arrival(s) measured against today's shift the page never says %q", c.n, c.want)
+		}
+	}
+	records := newFakeLedger()
+	records.hours = reportWith(func(r *ledger.Report) { r.Totals = ledger.Totals{Worked: 8 * time.Hour, Shifts: 1} })
+	if body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String(); strings.Contains(body, "use the current shift times") {
+		t.Error("with every arrival measured against its recorded shift the page still says some use the current shift times")
+	}
+}

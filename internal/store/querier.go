@@ -2588,11 +2588,12 @@ type Querier interface {
 	// the entry stays open in the list. It takes a hand-written POST that hits the
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
-	// business_day_start and direction_source (00065, M15-09) are in the list because
-	// this query returns the whole store Transaction (a row type without them would be a
-	// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
-	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
-	// the classification while the cutoff stays fixed.
+	// business_day_start, direction_source (00065, M15-09) and the five shift_* columns
+	// (00095, T152) are in the list because this query returns the whole store Transaction
+	// (a row type without them would be a second model); nothing here filters on any of
+	// them. Whether this entry is still in the tap's business day is the engine's question
+	// (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
+	// while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
 	// Debounce basis (CLAUDE.md section 5, row 5): the person's single most recent
 	// tap. Debounce is PER-PERSON, not per-tag, so a queue of different people can
@@ -3493,6 +3494,15 @@ type Querier interface {
 	// place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
 	// validated by 00066) are the second safety. Neither manual statement has the
 	// parameter, and the column has no default, so their rows are NULL.
+	//
+	// THE SHIFT SNAPSHOT (T152, migration 00095, ADR 0042): shift_source and the four
+	// shift_* values are the shift this tap was judged against -- the department's when it
+	// has one, otherwise the TAPPED venue's (section 5, Q17) -- frozen so that editing a
+	// venue's hours later does not rewrite a past week's late count. 'none' = judged
+	// against no shift. Written on a DIRECTED nfc/qr decision only (insertParams forces
+	// NULL for the rest, by the business day's rule); NULL on every row before 00095 and
+	// on manual rows, which the report measures against today's shift and says so.
+	// 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -5448,6 +5458,13 @@ type Querier interface {
 	// tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
 	// three runs each: the same plan before and after the two columns, shared hit 162 both, the row
 	// width estimate 149 -> 165 bytes.
+	//
+	// 🔴 T152 (00095, ADR 0042): t.shift_* IS THE SHIFT THE TAP WAS JUDGED AGAINST, frozen on the
+	// row. The report measures lateness against it when shift_source is set; the joined l.shift_* /
+	// d.shift_* (and the peer venue's, from holding_site_locations) are TODAY's shift and are read
+	// only for a row without a snapshot -- every row before 00095 and every manual row -- which the
+	// report counts and names on the screen. Still no minutes_late: the snapshot is an input the
+	// record carries, not a total, and the one lateness function (tap.MinutesLate) computes from it.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent

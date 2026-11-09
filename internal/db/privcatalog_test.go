@@ -227,7 +227,8 @@ SELECT line FROM (
 // panel session is born only in a definer), so tappa_app's admin_sessions lines are its UPDATE and its
 // table-level SELECT, and granted nothing; 00088 -- T163, ADR 0038 -- replaced tappa_app's table-level
 // INSERT on transactions with a column INSERT on every column but id and created_at (both the
-// database's), so its transactions lines are that column line and its table-level SELECT -- and READ
+// database's), so its transactions lines are that column line and its table-level SELECT; 00095 --
+// T152, ADR 0042 -- added the five shift_* columns to that INSERT line (ADR 0038's rule) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -372,7 +373,7 @@ column tenants tappa_identitydefiner SELECT id,name,vat_number,created_at,suspen
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_resolver SELECT id,api_enabled_at
-column transactions tappa_app INSERT tenant_id,employee_id,location_id,department_id,tag_uid,ctr,type,occurred_at,source_ip,ip_match,gps_lat,gps_lng,gps_match,sun_valid,trust,verdict,note,channel,entered_by,practice,queued,policy_version_id,matched_sid,policy_layer,policy_context,site_tenant_id,site_location_id,site_tag_uid,business_day_start,direction_source
+column transactions tappa_app INSERT tenant_id,employee_id,location_id,department_id,tag_uid,ctr,type,occurred_at,source_ip,ip_match,gps_lat,gps_lng,gps_match,sun_valid,trust,verdict,note,channel,entered_by,practice,queued,policy_version_id,matched_sid,policy_layer,policy_context,site_tenant_id,site_location_id,site_tag_uid,business_day_start,direction_source,shift_source,shift_start,shift_end,shift_overnight,shift_timezone
 column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source
 column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source
 column webhook_deliveries tappa_app SELECT tenant_id,id,endpoint_id,punch_event_seq,attempt,next_attempt_at,lease_until,state,last_status,last_error_class,created_at,delivered_at,settled_at

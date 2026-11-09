@@ -1303,6 +1303,10 @@ type tapFacts struct {
 	businessType string
 	departmentID *uuid.UUID
 	shift        *tap.Shift
+	// shiftSource says which row shift came from (department or the tapped venue); it is
+	// meaningful only while shift is non-nil and goes to transactions.shift_source with
+	// it (00095, ADR 0042 — shiftColumns).
+	shiftSource tap.ShiftSource
 	// dayCutoff is the PERSON's resolved business-day cutoff in the employer's zone, or nil
 	// while the business-day switch is off (tap.SwitchedDayCutoff, ADR 0032 §A.8).
 	dayCutoff     *tap.DayCutoff
@@ -1448,6 +1452,7 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 					zone = emp.TenantTimezone
 				}
 				f.shift = shiftOf(site.ShiftStart, site.ShiftEnd, site.Overnight, zone)
+				f.shiftSource = tap.ShiftSourceLocation
 			}
 			return s.gatherPerson(ctx, q, req, emp, at, &f)
 		}
@@ -1461,6 +1466,7 @@ func (s *Service) gatherWith(ctx context.Context, tx pgx.Tx, req Request, tapped
 			f.locationName = loc.Name
 			f.locationGPS = point(loc.GpsLat, loc.GpsLng)
 			f.shift = shiftOf(loc.ShiftStart, loc.ShiftEnd, loc.Overnight, emp.TenantTimezone)
+			f.shiftSource = tap.ShiftSourceLocation
 		case errors.Is(err, pgx.ErrNoRows):
 			// Another tenant's plaque, or a location this tenant cannot see. No IP
 			// range, no coordinate, no shift: there is no evidence to judge against,
@@ -1488,7 +1494,7 @@ func (s *Service) gatherPerson(ctx context.Context, q *store.Queries, req Reques
 		switch {
 		case err == nil:
 			if sh := shiftOf(dept.ShiftStart, dept.ShiftEnd, dept.Overnight, emp.TenantTimezone); sh != nil {
-				f.shift = sh
+				f.shift, f.shiftSource = sh, tap.ShiftSourceDepartment
 			}
 		case errors.Is(err, pgx.ErrNoRows):
 			// No department row visible: keep the location shift.
@@ -1755,6 +1761,10 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		v := string(*src)
 		p.DirectionSource = &v
 	}
+	// THE SHIFT THIS TAP WAS JUDGED AGAINST (T152, migration 00095, ADR 0042), frozen so a
+	// later edit of the venue's or department's hours does not rewrite this week's late count.
+	// Same rule as the two columns above: a DIRECTED nfc/qr decision only.
+	shiftColumns(&p, req.Channel, dec, f)
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was
 	// judged — false on a QR arrival is the M5-08 criterion and a fact, not an
@@ -1833,6 +1843,45 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		p.GpsLat, p.GpsLng = lat, lng
 	}
 	return p, nil
+}
+
+// shiftColumns writes transactions.shift_* (migration 00095, ADR 0042): the shift the engine
+// was handed (f.shift — the department's when it has one, otherwise the TAPPED venue's, §5/Q17)
+// and where it came from, on a DIRECTED nfc/qr decision:
+//
+//	a shift was resolved          its source, start, end, overnight and zone
+//	no shift was resolved         shift_source 'none', the four values NULL — "judged against
+//	                              no shift", which the report keeps as not measured
+//	undirected (reject, ignored)  all NULL: nothing was judged for lateness
+//	manual                        all NULL: a manager's row declares an occurred_at that may
+//	                              precede the last edit of the shift, so the shift in force when
+//	                              it is TYPED is not evidence of the one in force when it happened;
+//	                              the report measures it against today's and says so
+//
+// The shape is forced here; 00095's CHECK (transactions_shift_snapshot_shape) is the second
+// safety, and a slip that reached it would lose the record with 23514 (§4.6). So a source this
+// function does not know is written as no snapshot at all rather than risked.
+//
+// What is copied is exactly Input.Shift, so the stored snapshot and the engine's own
+// Decision.MinutesLate are computed from the same value (the report reproduces it).
+func shiftColumns(p *store.InsertTransactionParams, channel tap.Channel, dec tap.Decision, f tapFacts) {
+	if dec.Type == nil || (channel != tap.ChannelNFC && channel != tap.ChannelQR) {
+		return
+	}
+	if f.shift == nil {
+		none := string(tap.ShiftSourceNone)
+		p.ShiftSource = &none
+		return
+	}
+	switch f.shiftSource {
+	case tap.ShiftSourceDepartment, tap.ShiftSourceLocation:
+	default:
+		return
+	}
+	src, overnight, zone := string(f.shiftSource), f.shift.Overnight, f.shift.Timezone
+	p.ShiftSource, p.ShiftOvernight, p.ShiftTimezone = &src, &overnight, &zone
+	p.ShiftStart = pgtype.Time{Microseconds: f.shift.Start.Microseconds(), Valid: true}
+	p.ShiftEnd = pgtype.Time{Microseconds: f.shift.End.Microseconds(), Valid: true}
 }
 
 // directionSourceColumn is transactions.direction_source for a decision (ADR 0032 §B.4):

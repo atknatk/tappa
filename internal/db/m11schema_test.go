@@ -409,6 +409,15 @@ var m11Columns = []m11Column{
 	// and holding_feed read the approved row by its key (an ok tap's arm reads NEW, which needs no
 	// privilege); nothing else of theirs on it.
 	{"transactions", "direction_source", map[string]string{"tappa_app": "SI", "tappa_feedwriter": "S", "tappa_holdingdefiner": "S"}},
+	// 00095 (T152, ADR 0042): the shift a tap was judged against. tappa_app reads them through its
+	// table-level SELECT (00005) and inserts them by name (00095's column GRANT -- ADR 0038's rule),
+	// never updates them (§4.3). Neither feed writer reads them: the punch event and the site
+	// projection carry no shift.
+	{"transactions", "shift_source", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_start", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_end", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_overnight", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_timezone", map[string]string{"tappa_app": "SI"}},
 	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
 	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
 	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it
