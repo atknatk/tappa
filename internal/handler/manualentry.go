@@ -337,9 +337,10 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 		a.renderManualForm(w, r, subject, f, why)
 		return
 	}
-	// THE COOKIE IS CLEARED BEFORE THE WRITE IS ATTEMPTED, so an ordinary browser
-	// cannot ride the same confirmation twice, and a failed write leaves no reusable
-	// value behind either. It is a REQUEST to the client rather than a ledger — a
+	// THE COOKIE IS CLEARED BEFORE THE WRITE IS ATTEMPTED, so a re-post after the answer
+	// (Back, a reload) cannot ride the same confirmation twice, and a failed write leaves no
+	// reusable value behind either. A double press can: both posts leave with the cookie
+	// (T12 accepted in ADR 0005; T258). It is a REQUEST to the client rather than a ledger — a
 	// client that re-prints it spends the same mint until it expires, which is measured
 	// and counted at deactivateconfirm.go. What bounds the damage here is different
 	// from the deactivation's `status <> 'deactivated'` predicate and weaker: a second
