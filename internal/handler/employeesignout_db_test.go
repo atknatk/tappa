@@ -16,10 +16,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 
@@ -227,6 +229,7 @@ func TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing(t *testing.T) {
 	}
 
 	records, ctr := h.countFor(t, emp), h.lastCtr(t, h.tagUID)
+	logs := h.captureTapLog(t)
 	for _, target := range []string{nfcPage(t, h.tagUID, h.lastCtr(t, h.tagUID)), qrURLFor(h.tagUID)} {
 		w := h.get(t, target, cookie)
 		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != activationSignedOut {
@@ -252,5 +255,35 @@ func TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing(t *testing.T) {
 	}
 	if got := h.auditCount(t, tenant.ActionEmployeePhonesSignedOut); got != 1 {
 		t.Errorf("%d sign-out trail row(s), want 1", got)
+	}
+
+	// NOT NO TRACE (T59 security review, DÜŞÜK-1): one WARN per signed-out tap, carrying the tenant,
+	// the employee and the channel and nothing else -- no plaque uid, GPS, cookie or hash.
+	var channels []string
+	for _, line := range logLines(t, logs) {
+		msg, _ := line["msg"].(string)
+		if !strings.Contains(msg, "a signed-out phone tapped") {
+			continue
+		}
+		keys := make([]string, 0, len(line))
+		for k := range line {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		if strings.Join(keys, ",") != "channel,employee_id,level,msg,tenant_id,time" {
+			t.Errorf("the signed-out tap's log line carries %v, want exactly tenant_id, employee_id and channel", keys)
+		}
+		if line["level"] != "WARN" || line["tenant_id"] != h.tenantID.String() || line["employee_id"] != emp.String() {
+			t.Errorf("the signed-out tap's log line is %v", line)
+		}
+		channels = append(channels, fmt.Sprint(line["channel"]))
+	}
+	if strings.Join(channels, ",") != "nfc,qr,unverified" {
+		t.Errorf("signed-out tap log lines name the channels %v, want nfc, qr, unverified (GET NFC, GET QR, POST)", channels)
+	}
+	for _, never := range []string{h.tagUID, cookie.Value, held} {
+		if strings.Contains(logs.String(), never) {
+			t.Error("the tap log carries the plaque uid, the cookie or the signed context")
+		}
 	}
 }

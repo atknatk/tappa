@@ -1405,3 +1405,14 @@ farkıyla taşındı; taban kaymasının değiştirdiği sayılar ve yerler ADR 
     yönlendirme, çizim — hiçbir şey harcanmaz).
 - **Operatör değişmez** (K-12, ADR 0031 §5.12): ileride gelecek `op_disable_tenant_admins` (§7) yalnız
   üyelik `status`'una dokunabilir, kimliğe asla.
+
+## T59 notu (2026-11-09) — "Sign out their phones" istisna listesinde (kullanıcı kararı)
+
+Müdürün *"Sign out their phones"* basışı (`POST
+/admin/employees/sign-out`, bir kişinin tap oturumlarını iptal eder) kapalı istisna listesine girer,
+kardeş grupta — K-26'nın gerekçesi tap oturumlarına uygulanmış: hiçbir mesai kaydı yazmaz ve kimin
+dokunabileceğini **daraltır**; askıdaki (özellikle `security_hold`) bir işletmenin çalınmış bir
+telefonu kesememesi askının amacının tersidir. Kendi onay kapısı handler'da aynen çalışır, audit
+satırını yazar. Liste **bayrak `off` iken on iki, `on` iken yirmi üç rotadır**;
+`TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` ve `cmd/tappa`'nın
+`TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.

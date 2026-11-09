@@ -650,7 +650,8 @@ func (a *AdminAuth) employeeDeactivate(w http.ResponseWriter, r *http.Request) {
 // IT IS deactivation's GATE, PART FOR PART: the confirmation screen mints a value bound to this
 // act, this person and this panel session (confirmActionSignOutPhones); a POST without it writes
 // nothing; the cookie is cleared on the way in. The second defence is on the SERVER: the revoke
-// matches only live sessions, so a replayed value revokes nothing, writes no trail row and is
+// matches only live sessions, so a replayed value revokes nothing (unless a new session appeared
+// within the TTL -- then that one), writes no trail row for nothing and is
 // answered "no-phones".
 //
 // THE PERMISSION IS deactivation's: any admin of the business, owner or manager -- the act is

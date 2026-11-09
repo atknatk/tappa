@@ -217,8 +217,19 @@ ve en az bir oturum iptal edildiyse `employee.phones_signed_out` audit satırın
   *"Önce çıkış, sonra deaktivasyon"* sırası reddedilmez: telefon artık tanımlı değildir, kayıtsız
   satır 3 doğru sonuçtur.
 - **Sonraki dokunuş:** iptal edilmiş oturum `GET /t` ve `POST /api/checkin`'de
-  `/activate?from=signedout`'a gider, `transactions` satırı yazılmaz, sayaç harcanmaz (ölçüldü:
-  `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing`). Geri dönüş yeni aktivasyon
-  linkidir; onay bandı bunu söyler ve kartın davet bölümünü gösterir.
-- **İkinci savunma sunucuda:** yeniden basılan onay çerezi bir şey iptal etmez, audit satırı yazmaz,
-  `problem=no-phones` döner (ölçüldü: `TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount`).
+  `/activate?from=signedout`'a gider, `transactions` satırı yazılmaz, audit satırı yazılmaz, sayaç
+  harcanmaz; iz olarak tek bir WARN log satırı kalır (`tenant_id`, `employee_id`, `channel`; plaket
+  uid'i, GPS, çerez, hash yok — 2026-11-09, güvenlik denetimi DÜŞÜK-1) (ölçüldü:
+  `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing`). İniş sayfası iki sebebi (ikinci
+  aktivasyon ve müdürün çıkışı) ayırmaz: *"This phone is no longer signed in to Taptime, so it can't
+  record time."* / *"Ask your manager for a new activation link."* (kullanıcı kararı, 2026-11-09, §9).
+  Geri dönüş yeni aktivasyon linkidir; onay bandı bunu söyler ve kartın davet bölümünü gösterir.
+- **İkinci savunma sunucuda:** yeniden basılan onay çerezi, onaydan sonra (TTL içinde) yeni bir oturum
+  açılmadıysa hiçbir şey iptal etmez, audit satırı yazmaz, `problem=no-phones` döner (ölçüldü:
+  `TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount`). TTL içinde yeni bir oturum
+  açıldıysa onu da iptal eder — aynı kişi, aynı yönetici, kendi audit satırıyla.
+- **İptal veritabanında da tek yönlü (2026-11-09, migration 00099, güvenlik denetimi ORTA-2):**
+  `sessions_revocation_one_way` tetikleyicisi damgalanmış `revoked_at`'in değişmesini (NULL'a dönüş
+  dahil) ve ilk damganın geriye ya da ileriye tarihlenmesini 23001 ile reddeder; önceden tappa_app'in
+  tablo düzeyindeki UPDATE'i iptal edilmiş bir oturumu canlandırabiliyordu (şeritte ölçüldü).
+- **Askıda açık (2026-11-09, kullanıcı kararı):** ADR 0025 §3'ün istisna listesinde, ADR 0025'in T59 notu.

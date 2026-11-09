@@ -145,6 +145,14 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// a session-less visitor, so the button is never rendered for them. Stated
 		// as a LIMIT, not claimed as a design: the schema allows a record this flow
 		// cannot produce.
+		if id.State == httpx.SessionRevoked {
+			// A tap page opened before the phone was signed out, pressed after (T59 security
+			// review, DÜŞÜK-1): the same three keys GET /t logs. The channel is inside the
+			// signed context, which this branch does not read -- verifying it would mean
+			// trusting a revoked session's key -- so it is "unverified".
+			t.log.WarnContext(ctx, "checkin: a signed-out phone tapped",
+				"tenant_id", id.Session.TenantID, "employee_id", id.Session.EmployeeID, "channel", "unverified")
+		}
 		t.redirectToActivation(w, r)
 		return
 

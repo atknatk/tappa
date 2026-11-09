@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 )
@@ -195,6 +196,36 @@ func TestEmployeeSignOut_AManagerMayDoItAsTheyMayDeactivate(t *testing.T) {
 	}
 }
 
+// A suspended business -- every reason, security_hold included -- can still sign a stolen phone out
+// (ADR 0025 §3, user decision 2026-11-09): the act narrows who can tap and records nothing. A
+// manager's press is the case: the gate runs before any role check, so it is the stricter one.
+func TestEmployeeSignOut_ASuspendedBusinessesManagerCanStillSignPhonesOut(t *testing.T) {
+	for _, code := range db.SuspensionReasons() {
+		t.Run(string(code), func(t *testing.T) {
+			staff := signedInStaff(1)
+			trail := &fakeTrail{}
+			admins := suspendedIdentityAs("manager", panelTestTenant, panelTestAdmin, panelTestSession, codePtr(code))
+			b := newBrowser(t, newAdminRouterWithActions(t, admins, trail, newFakeLedger(), &fakeReviewer{}, staff, &fakeInviter{}))
+			b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			rec := b.do(http.MethodPost, employeeSignOutHref, signOutConfirmed(t, b, uuid.New()))
+			if loc := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther || !strings.Contains(loc, "done=signed-out") {
+				t.Fatalf("a suspended (%s) business's sign-out answered %d %q, want 303 done=signed-out", code, rec.Code, loc)
+			}
+			if n := len(staff.signOutCommands()); n != 1 {
+				t.Errorf("the domain saw %d sign-out(s), want 1", n)
+			}
+			if n := len(refusalEvents(trail)); n != 0 {
+				t.Errorf("%d suspension refusal row(s) for a listed exception", n)
+			}
+			// CONTROL: the same suspended identity is refused a gated write -- deactivation.
+			rec = b.do(http.MethodPost, employeeDeactivateHref, deactivateConfirmed(t, b, uuid.New(), nil))
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("the control: a suspended business's deactivation answered %d, want 403", rec.Code)
+			}
+		})
+	}
+}
+
 func TestEmployeeSignOut_EveryRefusalIsASentence(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -309,7 +340,8 @@ func noticeOf(t *testing.T, body string) string {
 var confirmValueRE = regexp.MustCompile(`(name="` + confirmField + `" value=")[^"]*(")`)
 
 // TestEmployeeSignOut_TheScreensAreTheGolden pins the new screens byte for byte: the card's two
-// steps, the banner and the three refusals. These are NEW screens, so the goldens were written
+// steps, the banner, the three refusals and the activation page a signed-out phone lands on. The
+// panel screens are new; the landing's text changed with them (2026-11-09). Each golden was written
 // from this render. TAPPA_WRITE_SIGNOUT_GOLDEN=1 writes only files that do not exist and then
 // fails: replacing a golden means deleting it first. The confirmation value carries its mint time,
 // so it is masked and its presence asserted.
@@ -334,6 +366,14 @@ func TestEmployeeSignOut_TheScreensAreTheGolden(t *testing.T) {
 		screens["notice-"+word] = noticeOf(t, htmlOf(t, zero.do(http.MethodGet,
 			managedRosterHref(employeeID)+"&problem="+word, nil)))
 	}
+
+	// The page a signed-out phone lands on (§5 row 3): one text for a second activation and a
+	// manager's sign-out (user decision, 2026-11-09).
+	landing := get(t, newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}), activationSignedOut)
+	if landing.Code != http.StatusOK {
+		t.Fatalf("the signed-out landing answered %d", landing.Code)
+	}
+	screens["activate-signed-out"] = landing.Body.String()
 
 	// ONE TAG PER LINE: a golden is still the render byte for byte, split at every "><". On one
 	// line the masked confirmation field sat beside the card's ids, which is the shape the

@@ -475,6 +475,7 @@ function resolve_password_reset_by_token_hash(text) owner=tappa_resolver definer
 function resolve_signup_claim_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function sessions_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function tappa_audit_at_is_the_wall_clock() owner=tappa_owner definer=false execute=-
 function tappa_billing_amount_due(boolean,numeric,integer) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_check_punch_claim() owner=tappa_owner definer=false execute=-

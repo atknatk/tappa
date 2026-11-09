@@ -11,9 +11,11 @@ package tenant
 // caller.
 //
 // WHAT HAPPENS TO THE NEXT TAP. A revoked session resolves as httpx.SessionRevoked, and both GET /t
-// and POST /api/checkin send it to the activation page with NO record (CLAUDE.md §5 row 3). That
-// is right here: the phone was signed out, so nobody is identified, and the remedy is a new
-// activation link -- which the screen says.
+// and POST /api/checkin send it to /activate?from=signedout with NO record (CLAUDE.md §5 row 3).
+// That is right here: the phone was signed out, so nobody is identified, and the remedy is a new
+// activation link. The landing names no cause -- a second activation revokes too -- and says
+// "This phone is no longer signed in to Taptime, so it can't record time." with "Ask your manager
+// for a new activation link." (user decision, 2026-11-09).
 //
 // 🔴 A DEACTIVATED PERSON IS REFUSED, AND THAT IS THE 2026-08-07 DECISION KEPT, NOT A NEW ONE.
 // Deactivation deliberately leaves sessions live so that every later attempt by that person reaches
@@ -47,7 +49,8 @@ const ActionEmployeePhonesSignedOut = "employee.phones_signed_out"
 
 var (
 	// ErrNoLiveSessions: nothing was signed in as this person, so nothing was revoked and no
-	// trail row was written. A second press, or a replayed confirmation, lands here.
+	// trail row was written. A second press, or a replayed confirmation with no session signed in
+	// since, lands here.
 	ErrNoLiveSessions = errors.New("tenant: no phone is signed in as this employee")
 	// ErrSignOutDeactivated: the person is deactivated, whose sessions stay live so their
 	// attempts are recorded (§5 row 4). Nothing was written.

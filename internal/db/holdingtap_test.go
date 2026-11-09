@@ -1752,6 +1752,8 @@ var holdingDownTables = []string{
 	// 00079 (M14-18): its Down gives admin_identity_events' event CHECK back (an ALTER TABLE) before
 	// 00072's Down drops the table.
 	"admin_identity_events",
+	// 00099 (T59): its Down drops sessions' one-way revocation trigger (DROP TRIGGER).
+	"sessions",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of
