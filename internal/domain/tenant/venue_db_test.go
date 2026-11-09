@@ -1504,6 +1504,54 @@ func TestVenues_ConfirmRemovalDoesNotMatchSystemOrTargetlessRows(t *testing.T) {
 
 // TestVenues_ConfirmRemovalWorksForDepartmentsToo — the two gates follow one rule, and
 // the symmetry a manager reads off the screen has to be real underneath it.
+// TestVenues_ASecondRemovalOfTheSameRowWritesNothing is the second defence of the two removal
+// gates (T12, ADR 0005): the panel confirmation is not single-use, so a replayed one reaches
+// DeleteVenue / DeleteDepartment again -- which matches no row, answers the unknown-row error and
+// writes no second audit row.
+func TestVenues_ASecondRemovalOfTheSameRowWritesNothing(t *testing.T) {
+	f := newVenueFixture(t)
+	ctx := context.Background()
+
+	v, err := f.venues.SaveVenue(ctx, VenueCommand{TenantID: f.tenantID, ActorID: f.actorID, Name: "Twice"})
+	if err != nil {
+		t.Fatalf("SaveVenue: %v", err)
+	}
+	d, err := f.venues.SaveDepartment(ctx, DepartmentCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, LocationID: f.locationID, Name: "Twice",
+	})
+	if err != nil {
+		t.Fatalf("SaveDepartment: %v", err)
+	}
+	cases := []struct {
+		name    string
+		id      string
+		remove  func() error
+		unknown error
+	}{
+		{"venue", v.ID.String(), func() error {
+			return f.venues.DeleteVenue(ctx, DeleteCommand{TenantID: f.tenantID, ID: v.ID, ActorID: f.actorID})
+		}, ErrUnknownVenue},
+		{"department", d.ID.String(), func() error {
+			return f.venues.DeleteDepartment(ctx, DeleteCommand{TenantID: f.tenantID, ID: d.ID, ActorID: f.actorID})
+		}, ErrUnknownDepartment},
+	}
+	for _, c := range cases {
+		if err := c.remove(); err != nil {
+			t.Fatalf("%s: the first removal: %v", c.name, err)
+		}
+		before, _ := f.trailFor(t, f.tenantID, c.id)
+		if before != 2 {
+			t.Fatalf("%s: %d trail row(s) after create and delete, want 2", c.name, before)
+		}
+		if err := c.remove(); !errors.Is(err, c.unknown) {
+			t.Errorf("%s: the second removal answered %v, want %v", c.name, err, c.unknown)
+		}
+		if after, _ := f.trailFor(t, f.tenantID, c.id); after != before {
+			t.Errorf("%s: the second removal left %d trail row(s), want the first's %d", c.name, after, before)
+		}
+	}
+}
+
 func TestVenues_ConfirmRemovalWorksForDepartmentsToo(t *testing.T) {
 	f := newVenueFixture(t)
 	ctx := context.Background()
