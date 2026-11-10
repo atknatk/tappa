@@ -75,6 +75,11 @@ var evidenceReaders = map[string]evidenceReaderClass{
 		"the writer (manual, answering a punch claim at its anchor's local venue -- M15-16); it reads the anchor's location_id only, " +
 			"and a peer's-venue anchor is filed by InsertManualSiteTransaction instead"},
 	"InsertTransactionReview": {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
+	"ExistingManualRecord": {"excluded", "t.channel = 'manual'", 1,
+		"T258 (2026-11-09/10): the manual row a press found for the same person, direction, minute and author. Its predicate " +
+			"keeps tap rows out, so the note it reads is the manager's own (a claim's approval writes ClaimApprovedNote), never " +
+			"a tap's evidence note; a row at a peer's venue is named by its site id from the person's partner list -- no address, " +
+			"no coordinate, no verdict"},
 	"GetTapOutcome": {"go-blank", "site_location_id", 0,
 		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
 }
