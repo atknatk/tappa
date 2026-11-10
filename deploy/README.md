@@ -2901,8 +2901,9 @@ rollout başlamış olur ve iki host yönlendirmesiz pod'lara gider.
 🔴 **Elle geri dönüş (`kubectl set image` / `kubectl rollout undo`, *"Elle deploy / rollback"*)
 40'ı uygulamaz.** T71 öncesi bir imaja dönülürse 43 canlı kalır ve iki host, müşteri ürününü her
 host'ta sunan pod'lara gider: 40'ın *"exactly one host serves the app"* değişmezi sessizce bozulur.
-Hedef imaj T71 öncesiyse (`git merge-base --is-ancestor 7047d4a2 <hedef-sha>` başarısız), imajdan
-**ÖNCE**, repo kökünden:
+Hedef imaj T71 öncesiyse (`git cat-file -e <hedef-sha>:deploy/k8s/43-redirect-ingress.yaml` başarısız:
+o commit'in ağacında 43 yok; geçmişin biçiminden — merge, squash, rebase — bağımsız), imajdan **ÖNCE**,
+repo kökünden:
 
 ```bash
 git show 2476818e:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -
@@ -5363,7 +5364,7 @@ yanlış yazılmış bir etiket buradan geçer ve arızayı ancak kubelet bildir
 > 🔴 **T71 ÖNCESİ BİR İMAJA DÖNÜLÜYORSA (aşağıdaki iki komut da), İMAJDAN ÖNCE ESKİ 40'I UYGULA.**
 > Bu iki yol Ingress'lere dokunmaz; `43-redirect-ingress.yaml` canlı kalır ve `tappa.everva.com.tr` ile
 > `www.taptime.mt` yönlendirme middleware'i olmayan pod'lara gider. Hedef T71 öncesiyse
-> (`git merge-base --is-ancestor 7047d4a2 <hedef-sha>` başarısız): önce
+> (`git cat-file -e <hedef-sha>:deploy/k8s/43-redirect-ingress.yaml` başarısız): önce
 > `git show 2476818e:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -`, sonra imaj
 > (*"T71 — eski domainin derin linkleri"*, *Geri dönüş*).
 

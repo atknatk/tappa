@@ -25,7 +25,7 @@ func redirectCfg() *config.Config {
 // Location is https://taptime.mt@evil.example (red); the leading-slash cut removed -> the
 // double-slash rows red; 301 for every method -> the POST/PUT rows red; the query dropped -> the
 // query rows red; the middleware not mounted -> every redirect row red; the length bound removed ->
-// the past-the-bound row red.
+// the past-the-bound row red; the query measured before escaping -> the raw non-ASCII row red.
 func TestRedirectHosts_KeepPathAndQueryAndNeverLeaveTheBaseURL(t *testing.T) {
 	h := httpx.NewRouter(redirectCfg(), nil, stubFeatures{})
 	for _, tc := range []struct {
@@ -79,6 +79,11 @@ func TestRedirectHosts_KeepPathAndQueryAndNeverLeaveTheBaseURL(t *testing.T) {
 			301, "https://taptime.mt/" + strings.Repeat("a", 2047)},
 		{"a target past the bound", "GET /?" + strings.Repeat("a", 2047) + " HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
 			301, "https://taptime.mt/"},
+		// The bound is the Location as sent: a raw non-ASCII byte in the query is three bytes there.
+		{"raw non-ASCII bytes are measured escaped", "GET /?" + strings.Repeat("\xff", 700) + " HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
+			301, "https://taptime.mt/"},
+		{"a raw non-ASCII query byte is escaped", "GET /t?n=\xc3\xa7 HTTP/1.1\r\nHost: www.taptime.mt\r\n\r\n",
+			301, "https://taptime.mt/t?n=%C3%A7"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := rawServe(t, h, tc.raw)

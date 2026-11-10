@@ -37,8 +37,11 @@ import (
 //     longer one would turn the redirect into the controller's 502. No link Taptime ever minted
 //     comes near the bound (a plaque URL is under 100 bytes).
 //   - THE QUERY IS KEPT AS SENT (r.URL.RawQuery; "?" alone kept too). net/http has already
-//     refused control bytes in the request target, so neither half can split the header, and
-//     http.Redirect escapes what is not ASCII.
+//     refused control bytes in the request target, so neither half can split the header. A byte
+//     that is not ASCII is percent-escaped HERE (the path already is; the raw query may carry
+//     one), so the string measured below is the Location as sent and http.Redirect's own
+//     escaping has nothing left to do: measured on the raw query, 2046 bytes of 0xFF were a
+//     6158-byte Location.
 //
 // 301 FOR GET AND HEAD, 308 FOR EVERY OTHER METHOD. A 301 lets a client re-send a POST as a
 // GET -- browsers do, and the body is dropped without a word. 308 says the same thing ("moved
@@ -65,7 +68,7 @@ func redirectHosts(baseURL string, hosts []string) func(http.Handler) http.Handl
 	}
 }
 
-// redirectTargetMax bounds the path and query a redirect keeps (redirectHosts' doc).
+// redirectTargetMax bounds the path and query a redirect keeps, as sent (redirectHosts' doc).
 const redirectTargetMax = 2048
 
 // redirectTarget is the path and query a redirect host keeps (redirectHosts' doc).
@@ -76,10 +79,27 @@ func redirectTarget(r *http.Request) string {
 	}
 	p = "/" + strings.TrimLeft(p, "/")
 	if r.URL.RawQuery != "" || r.URL.ForceQuery {
-		p += "?" + r.URL.RawQuery
+		p += "?" + escapeNonASCII(r.URL.RawQuery)
 	}
 	if len(p) > redirectTargetMax {
 		return "/"
 	}
 	return p
+}
+
+// escapeNonASCII percent-escapes every byte of s that is not ASCII, the bytes http.Redirect would
+// escape, so the length redirectTarget measures is the length that is sent.
+func escapeNonASCII(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 0x80 {
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0xF])
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
