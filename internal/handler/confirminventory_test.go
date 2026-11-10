@@ -82,6 +82,12 @@ var confirmGates = map[string]confirmGate{
 	"confirmActionMoveAcrossCutoff": {replayWritesAfterAnUndo,
 		"Move refuses ErrSamePlacement while the person is still where the first spend put them; a move back re-arms it",
 		[]string{"TestStaffDB_MovingToTheSamePlaceWritesNothing"}},
+	// T59. AFTER AN UNDO, not "nothing": a replay revokes nothing and writes no audit row while no
+	// session has appeared since, but a new session inside the TTL (the person re-activated -- the
+	// route that undoes a sign-out) is revoked by the same value, with its own trail row.
+	"confirmActionSignOutPhones": {replayWritesAfterAnUndo,
+		"RevokeSessionsForEmployee carries `revoked_at IS NULL` (db/queries/sessions.sql) and SignOutPhones writes its trail row only when a session was revoked: a second spend is ErrNoLiveSessions (problem=no-phones) with no audit row; a session issued since (a re-activation) re-arms it",
+		[]string{"TestStaffDB_ASecondSignOutWritesNothing", "TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount", "TestStaffDB_ConcurrentSignOutsRevokeEachSessionOnce"}},
 	"confirmActionApproveClaim": {replayWritesNothing,
 		"a decided claim is ErrAlreadyDecided before the manual write (internal/domain/claim decide.go), and punch_claim_decisions carries UNIQUE (tenant_id, claim_id) (00068)",
 		[]string{"TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows"}},
