@@ -1755,6 +1755,8 @@ var holdingDownTables = []string{
 	// 00098 (T27): its Down drops tenant_plan_history's key to platform_admins -- ACCESS EXCLUSIVE on
 	// both (measured). 00097 itself is not walked (opAtVersionSkips).
 	"tenant_plan_history", "platform_admins",
+	// 00099 (T59): its Down drops sessions' one-way revocation trigger (DROP TRIGGER).
+	"sessions",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

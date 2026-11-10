@@ -250,13 +250,15 @@ var (
 		Hint: "If you still have the link your workplace sent you, open it in this browser and go through the " +
 			"steps here, then tap the plaque again. Otherwise, ask your manager for a new link.",
 	}
-	// problemSignedOut answers a tap from a phone whose session was REVOKED —
-	// almost always because the account was set up on another phone since (audit
-	// round 2, C). "Your link still works" would be false here.
+	// problemSignedOut answers a tap from a phone whose session was REVOKED. Two
+	// things revoke one: the account being set up on another phone (audit round 2,
+	// C), and a manager's "Sign out their phones" (backlog T59). The page cannot tell
+	// which, so ONE text covers both (user decision, 2026-11-09, §9): it names the
+	// state and the remedy, never a cause. "Your link still works" would be false.
 	problemSignedOut = pages.ProblemView{
 		Title:   "This phone was signed out",
-		Message: "Your account has been set up on another phone, so this one no longer works.",
-		Hint:    "If that wasn't you, tell your manager.",
+		Message: "This phone is no longer signed in to Taptime, so it can't record time.",
+		Hint:    "Ask your manager for a new activation link.",
 	}
 
 	// The activating tap's refusals (ADR 0026). None of them activates anything

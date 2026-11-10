@@ -1,0 +1,16 @@
+<div role="status" class="flex items-start gap-3.5 rounded-[14px] border border-saffron bg-saffron-lite px-[18px] py-4 text-ink">
+<span class="inline-flex size-8 flex-none items-center justify-center rounded-[9px] bg-saffron text-ink" aria-hidden="true">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+<path d="M12 7v6">
+</path> <circle cx="12" cy="17" r="0.6">
+</circle>
+</svg>
+</span>
+<div class="flex min-w-0 flex-col gap-1">
+<p class="lbl text-ink">Heads up</p>
+<p class="font-display text-base font-bold tracking-tight">Nothing to sign out</p>
+<div class="text-sm leading-normal">
+<p>No phone was signed in as them, so nothing was signed out and nothing was recorded.</p>
+</div>
+</div>
+</div>

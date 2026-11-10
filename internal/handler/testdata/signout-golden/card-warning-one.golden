@@ -1,0 +1,89 @@
+<section class="flex flex-col gap-5 rounded-[18px] border border-line bg-paper p-5 md:p-6" aria-label="Actions for Maria Borg">
+<a class="btn btn--line self-start md:hidden" href="/admin/employees">Back to People</a>
+<div class="flex items-center gap-3.5">
+<span aria-hidden="true" class="inline-flex size-14 flex-none items-center justify-center rounded-[14px] border border-ink bg-paper font-mono text-lg font-bold">MB</span>
+<div class="flex min-w-0 flex-col gap-1">
+<p class="lbl">Managing</p>
+<h2 class="break-words font-display text-[26px] font-bold leading-tight tracking-tight text-ink">Maria Borg</h2>
+<p class="font-mono text-xs text-ink/70">KF St Julians</p>
+</div>
+</div>
+<div class="flex flex-wrap items-center gap-2.5">
+<span class="pill pill--active flex-none">ACTIVE</span>
+</div>
+<div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 desk:grid-cols-1">
+<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
+<p class="lbl">Signed in</p>
+<p class="text-sm text-ink">1 signed in · since 3 Sep 2026 · not used yet</p>   <p class="text-sm text-ink">This signs out the phone Maria Borg is signed in on. A tap on a signed-out phone records nothing and opens the activation page instead.</p>
+<p class="text-sm text-ink">To record time again they need a new activation link. Their records stay as they are.</p>
+<div class="flex flex-wrap items-center gap-3">
+<form method="post" action="/admin/employees/sign-out">
+<input type="hidden" name="id" value="6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">
+<input type="hidden" name="confirm_token" value="MASKED"> <button type="submit" class="btn btn--danger">Yes, sign them out</button>
+</form>
+<a class="btn btn--quiet rounded-xl" href="/admin/employees">Cancel</a>
+</div>
+</div>
+<section class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4" aria-label="Invitation">
+<h3 class="font-display text-base font-bold tracking-tight text-ink">Invitation</h3>
+<form method="post" action="/admin/employees/invite">
+<input type="hidden" name="id" value="6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">
+<button type="submit" class="btn btn--line">Re-invite</button>
+</form>
+<p class="text-xs text-ink/70">The link is shown once, on the next screen. Taptime keeps no copy of it.</p>
+<p class="text-xs text-ink/70">A new invitation retires every earlier link for Maria Borg.</p>
+</section>
+<div class="flex min-w-0 flex-col gap-2.5 border-t border-dashed border-line pt-4">
+<p class="lbl">Email on file</p>
+<p class="text-sm text-ink">No address on file.</p>
+<form method="post" action="/admin/employees/email" class="flex flex-col gap-2.5">
+<input type="hidden" name="id" value="6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">
+<div class="field-stack">
+<label class="lbl" for="change-email">New address</label> <input class="field-input field-input--mono" id="change-email" type="email" name="email" value="" maxlength="254" autocomplete="off" spellcheck="false" aria-describedby="change-email-help">
+<p id="change-email-help" class="field-help">Leave it empty to remove the address. Saving a different address stops every activation link for Maria Borg that has not been used yet.</p>
+</div>
+<button type="submit" class="btn btn--line self-start">Save address</button>
+</form>
+</div>
+<div class="flex min-w-0 flex-col gap-2.5 border-t border-dashed border-line pt-4">
+<p class="lbl">External ref</p>
+<p class="text-sm text-ink">Not linked to an HR or ERP record.</p>
+<form method="post" action="/admin/employees/external-ref" class="flex flex-col gap-2.5">
+<input type="hidden" name="id" value="6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">
+<div class="field-stack">
+<label class="lbl" for="change-external-ref">External ref</label> <input class="field-input field-input--mono" id="change-external-ref" type="text" name="external_ref" value="" maxlength="64" autocomplete="off" spellcheck="false" aria-describedby="change-external-ref-help">
+<p id="change-external-ref-help" class="field-help">The identifier your HR or ERP system uses for Maria Borg: letters, digits and . _ ~ - only, up to 64 characters. Leave it empty to unlink.</p>
+</div>
+<button type="submit" class="btn btn--line self-start">Save external ref</button>
+</form>
+</div>
+<form method="post" action="/admin/employees/move" class="flex min-w-0 flex-col gap-3 border-t border-dashed border-line pt-4" aria-label="Where">
+<h3 class="font-display text-base font-bold tracking-tight text-ink">Where</h3>
+<input type="hidden" name="id" value="6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">
+<div class="grid grid-cols-1 gap-3.5 md:grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+<div class="field-stack min-w-0">
+<label class="lbl" for="move-location">Venue</label> <select class="field-input" id="move-location" name="to_location">
+<option value="9f1c0a2e-0000-4000-8000-000000000004" selected>KF St Julians </option>
+</select>
+</div>
+<div class="field-stack min-w-0">
+<label class="lbl" for="move-department">Department</label> <select class="field-input" id="move-department" name="to_department">
+<option value="" selected>No department</option> </select>
+</div>
+</div>
+<div class="flex flex-wrap items-center gap-3">
+<button type="submit" class="btn btn--line">Save placement</button> <a class="btn btn--quiet rounded-xl" href="/admin/employees">Close</a>
+</div>
+</form>
+<section class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4" aria-label="A missed tap?">
+<h3 class="font-display text-base font-bold tracking-tight text-ink">A missed tap?</h3>
+<p class="text-xs text-ink/70">For somebody with no phone, or a shift nobody tapped out of. It adds a new record, marked as entered by a manager.</p>
+<a class="btn btn--line self-start" href="/admin/records/new?id=6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b">Enter a record by hand</a>
+</section>
+<section class="flex flex-col gap-2.5 rounded-xl border border-tomato p-3.5" aria-label="Deactivate">
+<h3 class="font-display text-base font-bold tracking-tight text-ink">Deactivate</h3>  <p class="text-sm text-ink">Their own taps are refused from now on. Every record they made stays, and still counts.</p>
+<a class="btn btn--danger self-start" href="/admin/employees?manage=6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b&amp;confirm=deactivate">Deactivate</a>
+<p class="text-xs text-ink/70">Asks first. It cannot be undone afterwards.</p>
+</section>
+</div>
+</section>

@@ -81,6 +81,8 @@ type panelStaff interface {
 	Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.PersonSummary, error)
 	Add(ctx context.Context, c tenant.AddCommand) (tenant.Person, error)
 	Deactivate(ctx context.Context, c tenant.DeactivateCommand) (tenant.Person, error)
+	// SignOutPhones revokes the person's live tap sessions and answers how many (T59).
+	SignOutPhones(ctx context.Context, c tenant.SignOutCommand) (int, error)
 	Move(ctx context.Context, c tenant.MoveCommand) (tenant.Person, error)
 	// The address on file (M10 EM-6, employeeemail.go): the card reads it, the
 	// owner's form changes it.
@@ -111,8 +113,10 @@ var (
 	employeeAddHref        = employeesHref + "/add"
 	employeeInviteHref     = employeesHref + "/invite"
 	employeeDeactivateHref = employeesHref + "/deactivate"
-	employeeMoveHref       = employeesHref + "/move"
-	employeeEmailHref      = employeesHref + "/email"
+	// T59: sign a person's phones out (employeeSignOutPhones).
+	employeeSignOutHref = employeesHref + "/sign-out"
+	employeeMoveHref    = employeesHref + "/move"
+	employeeEmailHref   = employeesHref + "/email"
 	// M11 API-1: the integration identity (employeeexternalref.go).
 	employeeExternalRefHref = employeesHref + "/external-ref"
 )
@@ -144,7 +148,11 @@ var (
 	//
 	// "external-ref" (M11 API-1) is in the same class: the notice states the ref the
 	// SAME request read back.
-	rosterDoneWords = []string{"added", "deactivated", "moved", "email", "external-ref"}
+	//
+	// "signed-out" (T59) is in the "deactivated" class: its banner is shown only when the card
+	// the SAME request read says nobody is signed in as the person (confirmedRosterAction), so a
+	// replayed URL beside a phone that signed in again says nothing.
+	rosterDoneWords = []string{"added", "deactivated", "moved", "email", "external-ref", "signed-out"}
 	// 🔴 M6-13 ADDED FIVE WORDS HERE AND THEY WERE DELETED IN THE SAME MILESTONE,
 	// BECAUSE NO CODE PATH COULD PRODUCE ONE. `bad-name`, `bad-email`, `bad-role`,
 	// `email-taken` and `no-venue` arrived with sentences and headings on the roster
@@ -181,6 +189,10 @@ var (
 		// each produced by a branch of employeeExternalRef.
 		"bad-external-ref", "external-ref-taken", "same-external-ref",
 		"external-ref-required", "external-ref-not-permitted",
+		// The sign-out's three refusals (T59, employeeSignOutPhones), each produced by a branch
+		// there and driven by a test. A confirmation minted for another person is the shared
+		// "confirm-stale" above, whose sentence names no act.
+		"signout-confirm-required", "no-phones", "signout-deactivated",
 	}
 )
 
@@ -628,6 +640,67 @@ func (a *AdminAuth) employeeDeactivate(w http.ResponseWriter, r *http.Request) {
 		// would tell a manager the person's taps are being refused when nothing was
 		// written — and would hide an outage behind a plausible sentence.
 		a.log.Error("panel: could not deactivate the employee", "err", err, "employee_id", employeeID)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
+	}
+}
+
+// employeeSignOutPhones ends every live tap session of one person (backlog T59): the panel's
+// "sign out of all devices", for a lost or stolen phone.
+//
+// IT IS deactivation's GATE, PART FOR PART: the confirmation screen mints a value bound to this
+// act, this person and this panel session (confirmActionSignOutPhones); a POST without it writes
+// nothing; the cookie is cleared on the way in. The second defence is on the SERVER: the revoke
+// matches only live sessions, so a replayed value revokes nothing (unless a new session appeared
+// within the TTL -- then that one), writes no trail row for nothing and is
+// answered "no-phones".
+//
+// THE PERMISSION IS deactivation's: any admin of the business, owner or manager -- the act is
+// smaller than a deactivation and is undone by a new activation link, which a manager may send.
+// The tenant and the actor come from the session (httpx.AdminOf); the domain refuses an id that is
+// not on this roster (tenant.ErrUnknownEmployee) and a deactivated person
+// (tenant.ErrSignOutDeactivated -- their sessions stay live so their attempts are recorded).
+//
+// 🔴 NO SESSION ID, TOKEN OR HASH IS LOGGED OR TRAILED. The domain returns a count; that is all
+// this handler holds.
+func (a *AdminAuth) employeeSignOutPhones(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	f, employeeID, ok := a.readAction(w, r)
+	if !ok {
+		return
+	}
+	if why := a.confirmationRefusalFor(r, confirmActionSignOutPhones, employeeID.String()); why != "" {
+		if why == "confirm-required" {
+			// The shared word's sentence is about deactivating; this act has its own.
+			why = "signout-confirm-required"
+		}
+		a.log.Warn("panel sign-out refused: the confirmation step was not completed",
+			"employee_id", employeeID, "reason", why)
+		a.redirect(w, rosterReturn(f, employeeID, "", why))
+		return
+	}
+	a.short.clear(w, adminConfirmCookieName)
+
+	n, err := a.staff.SignOutPhones(r.Context(), tenant.SignOutCommand{
+		TenantID:   id.TenantID(),
+		EmployeeID: employeeID,
+		ActorID:    id.Admin.AdminUserID,
+	})
+	switch {
+	case err == nil:
+		a.log.Info("panel: signed an employee's phones out", "employee_id", employeeID, "sessions_revoked", n)
+		a.redirect(w, rosterReturn(f, employeeID, "signed-out", ""))
+	case errors.Is(err, tenant.ErrUnknownEmployee):
+		a.log.Warn("panel sign-out refused: no such employee in this tenant")
+		a.redirect(w, rosterReturn(f, uuid.Nil, "", "unknown"))
+	case errors.Is(err, tenant.ErrSignOutDeactivated):
+		a.log.Info("panel sign-out refused: the employee is deactivated", "employee_id", employeeID)
+		a.redirect(w, rosterReturn(f, employeeID, "", "signout-deactivated"))
+	case errors.Is(err, tenant.ErrNoLiveSessions):
+		// §4.6: a second press is answered, not swallowed -- nothing was revoked or recorded.
+		a.log.Info("panel sign-out: no phone was signed in", "employee_id", employeeID)
+		a.redirect(w, rosterReturn(f, employeeID, "", "no-phones"))
+	default:
+		a.log.Error("panel: could not sign the employee's phones out", "err", err, "employee_id", employeeID)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelWriteFailed)
 	}
 }

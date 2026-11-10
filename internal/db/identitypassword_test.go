@@ -2146,6 +2146,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"transactions":        "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152)",
 		"tenant_plan_history": "00098's Down drops its key to platform_admins and 00097's drops the table",
 		"platform_admins":     "00098's Down: tenant_plan_history's key to platform_admins",
+		"sessions":            "00099's Down drops sessions_revocation_one_way (DROP TRIGGER ON sessions)",
 	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	for _, w := range walked {

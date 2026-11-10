@@ -1,0 +1,16 @@
+<div role="status" class="flex items-start gap-3.5 rounded-[14px] border border-saffron bg-saffron-lite px-[18px] py-4 text-ink">
+<span class="inline-flex size-8 flex-none items-center justify-center rounded-[9px] bg-saffron text-ink" aria-hidden="true">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+<path d="M12 7v6">
+</path> <circle cx="12" cy="17" r="0.6">
+</circle>
+</svg>
+</span>
+<div class="flex min-w-0 flex-col gap-1">
+<p class="lbl text-ink">Heads up</p>
+<p class="font-display text-base font-bold tracking-tight">That sign-out was not confirmed</p>
+<div class="text-sm leading-normal"> <p>Nothing was changed. Signing somebody's phones out needs the warning screen first, and this one either was not used or was left open too long.</p>
+<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
+</div>
+</div>
+</div>

@@ -1,5 +1,7 @@
 package components
 
+import "strconv"
+
 // The ROSTER ROW and its filter bar (M6-05 phase A).
 //
 // SAME PLACEMENT RULE AS docketview.go, and for the same mechanical reason: pages
@@ -104,6 +106,17 @@ type RosterRowView struct {
 type FormField struct {
 	Name  string
 	Value string
+}
+
+// signOutWarning is the sign-out's first sentence (T59): the count the card read, and what a
+// tap on a signed-out phone does -- §5 row 3, the activation page and no record.
+func signOutWarning(name string, n int) string {
+	phones := "the phone " + name + " is signed in on"
+	if n != 1 {
+		phones = "all " + strconv.Itoa(n) + " phones " + name + " is signed in on"
+	}
+	return "This signs out " + phones + ". A tap on a signed-out phone records nothing and " +
+		"opens the activation page instead."
 }
 
 // RosterActionsView is the action card for ONE person (M6-05 phase B): the four
@@ -222,6 +235,19 @@ type RosterActionsView struct {
 	ConfirmToken     string
 	ConfirmField     string
 	DeactivateAction string
+
+	// THE SIGN-OUT (backlog T59): "Sign out their phones", for a lost or stolen phone.
+	// CanSignOut is true only for somebody not deactivated with a MEASURED count of live
+	// sessions above zero -- a deactivated person's sessions stay live on purpose, so their
+	// attempts are recorded (§5 row 4). SigningOut is the second step (SignOutHref is the
+	// first, a link like ConfirmHref); SignOutToken is the value that step minted, posted
+	// under ConfirmField to SignOutAction. The count shown is LiveDevices -- a number, never a
+	// device's label.
+	CanSignOut    bool
+	SigningOut    bool
+	SignOutToken  string
+	SignOutHref   string
+	SignOutAction string
 
 	// The move form. LocationID and DepartmentID are the person's CURRENT placement,
 	// pre-selected, so the form opens saying where they are rather than proposing a

@@ -357,6 +357,7 @@ column punch_claims tappa_app SELECT id,tenant_id,employee_id,anchor_transaction
 column punch_events tappa_app SELECT tenant_id,seq,punch_id,punch_tenant_id,roles,version,status,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,created_at,direction_source
 column punch_events tappa_feedwriter INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source
 column punch_events tappa_holdingdefiner INSERT tenant_id,seq,punch_id,punch_tenant_id,roles,punch_time,recorded_at,channel,direction,employee_id,employee_ref,employee_code,employee_company,location_id,location_ref,location_name,location_company,tag_uid,direction_source
+column sessions tappa_app UPDATE last_used_at,revoked_at
 column sessions tappa_resolver SELECT id,tenant_id,employee_id,token_hash,revoked_at
 column site_punches tappa_app SELECT tenant_id,id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code,employee_name,site_location_id,site_tag_uid,ctr,bucket_hour,occurred_at,channel,type,outcome,ctr_gap,created_at
 column site_punches tappa_holdingdefiner INSERT tenant_id,transaction_id,employer_tenant_id,employer_api_code,employee_id,employee_ref,employee_code,employee_name,site_location_id,site_tag_uid,ctr,sun_valid,bucket_hour,occurred_at,channel,type,outcome,ctr_gap
@@ -483,6 +484,7 @@ function resolve_password_reset_by_token_hash(text) owner=tappa_resolver definer
 function resolve_signup_claim_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function sessions_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function tappa_audit_at_is_the_wall_clock() owner=tappa_owner definer=false execute=-
 function tappa_billing_amount_due(boolean,numeric,integer) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_check_punch_claim() owner=tappa_owner definer=false execute=-
@@ -573,7 +575,7 @@ table password_resets tappa_app SELECT
 table policies tappa_app SELECT,INSERT,UPDATE
 table policy_attachments tappa_app SELECT,INSERT,UPDATE,DELETE
 table policy_versions tappa_app SELECT,INSERT
-table sessions tappa_app SELECT,INSERT,UPDATE
+table sessions tappa_app SELECT,INSERT
 table tags tappa_app INSERT
 table tenant_branding tappa_app SELECT
 table tenants tappa_app SELECT

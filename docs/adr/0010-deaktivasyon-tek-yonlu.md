@@ -200,3 +200,41 @@ M11'in etkisi ([ADR 0028](0028-dis-api-anahtar-akis-webhook.md)):
 - **Kabul edilen risk 4** (guardrail sırasına bağlılık): M11 sıraya `sys:cross-tenant-qr-site-ip`'i
   (#9) ekler ([ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md) notu); `sys:employee-deactivated`
   (#5) önde kalır, ölçen test aynen geçerli.
+
+## T59 notu (2026-11-09) — panelden "Sign out their phones"
+
+Kararın iki parçası değişmez. `revoked_at`'in **kayıp/çalıntı telefon** işi (yukarıda §1) artık
+panelden yapılabiliyor (kullanıcı kararı, 2026-11-08): kişinin kartındaki *"Signed in"* hücresinde
+*"Sign out their phones"* → uyarı (sayıyla) → *"Yes, sign them out"*. `tenant.Staff.SignOutPhones`
+tek işlemde kişiyi okur, `RevokeSessionsForEmployee`'yi (tek UPDATE, `revoked_at IS NULL`) çalıştırır
+ve en az bir oturum iptal edildiyse `employee.phones_signed_out` audit satırını yazar (actor + yalnız
+`sessions_revoked` sayısı; oturum kimliği, token ya da hash yok). Onay deaktivasyonun kapısıdır
+(`confirmActionSignOutPhones`); yetki deaktivasyonunki (owner ve manager).
+
+- **Deaktive kişi REDDEDİLİR** (`tenant.ErrSignOutDeactivated`) — bu ADR'nin §1'i yüzünden:
+  deaktive kişinin oturumu, denemesi §5 satır 4'te **kaydedilsin** diye canlı tutulur; iptal onu
+  kayıt yazmayan satır 3'e taşırdı. Kart düğmeyi o kişiye göstermez, sunucu ayrıca reddeder.
+  *"Önce çıkış, sonra deaktivasyon"* sırası reddedilmez: telefon artık tanımlı değildir, kayıtsız
+  satır 3 doğru sonuçtur.
+- **Sonraki dokunuş:** iptal edilmiş oturum `GET /t` ve `POST /api/checkin`'de
+  `/activate?from=signedout`'a gider, `transactions` satırı yazılmaz, audit satırı yazılmaz, sayaç
+  harcanmaz; iz olarak tek bir WARN log satırı kalır (`tenant_id`, `employee_id`, `channel`; plaket
+  uid'i, GPS, çerez, hash yok — 2026-11-09, güvenlik denetimi DÜŞÜK-1) (ölçüldü:
+  `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing`). İniş sayfası iki sebebi (ikinci
+  aktivasyon ve müdürün çıkışı) ayırmaz: *"This phone is no longer signed in to Taptime, so it can't
+  record time."* / *"Ask your manager for a new activation link."* (kullanıcı kararı, 2026-11-09, §9).
+  Geri dönüş yeni aktivasyon linkidir; onay bandı bunu söyler ve kartın davet bölümünü gösterir.
+- **İkinci savunma sunucuda:** yeniden basılan onay çerezi, onaydan sonra (TTL içinde) yeni bir oturum
+  açılmadıysa hiçbir şey iptal etmez, audit satırı yazmaz, `problem=no-phones` döner (ölçüldü:
+  `TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount`). TTL içinde yeni bir oturum
+  açıldıysa onu da iptal eder — aynı kişi, aynı yönetici, kendi audit satırıyla.
+- **İptal veritabanında da tek yönlü (2026-11-09, migration 00099, güvenlik denetimi ORTA-2):**
+  `sessions_revocation_one_way` tetikleyicisi damgalanmış `revoked_at`'in değişmesini (NULL'a dönüş
+  dahil) ve ilk damganın geriye ya da ileriye tarihlenmesini 23001 ile reddeder; önceden tappa_app'in
+  tablo düzeyindeki UPDATE'i iptal edilmiş bir oturumu canlandırabiliyordu (şeritte ölçüldü). Aynı
+  migration tappa_app'in UPDATE'ini `(last_used_at, revoked_at)`'e daraltır (00011'in admin_sessions
+  deseni): `token_hash` artık yazılamaz, yani çalınmış çerezin hash'i iptal edilmiş satırdan çekilip
+  canlı bir satıra konamaz (42501). INSERT tablo düzeyinde kalır; çalınmış hash'in yeniden eklenmesini
+  iptal edilmiş satır durdukça `sessions_token_hash_key` (UNIQUE) durdurur (23505), ve o satır artık
+  yerinden oynatılamaz (DELETE 00003'ten beri yok, `token_hash` UPDATE'i yok).
+- **Askıda açık (2026-11-09, kullanıcı kararı):** ADR 0025 §3'ün istisna listesinde, ADR 0025'in T59 notu.

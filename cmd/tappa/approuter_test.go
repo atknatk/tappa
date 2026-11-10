@@ -405,6 +405,8 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /admin/employees/invite": true, "POST /admin/records/new": true, "POST /admin/records": true,
 		"POST /admin/api-keys/revoke": true, "POST /admin/api-keys/revoke-all": true,
 		"POST /admin/api-keys/webhook/disable": true,
+		// T59 (ADR 0025 §3, user decision 2026-11-09): signing a person's phones out, a defence.
+		"POST /admin/employees/sign-out": true,
 	}
 	outsidePanel := map[string]string{
 		"POST /activate":        "activation",

@@ -270,6 +270,16 @@ const (
 	// of its own assessment under the lock. A first press that merely says "confirmed", a moment posted
 	// without this value, or a value minted for another moment or shift, writes nothing.
 	confirmActionApproveClaim = "claim.approve_outside_band"
+	// 🔴 SIGNING A PERSON'S PHONES OUT (backlog T59). Gated because the act cannot be taken back
+	// from the panel: a revoked session never comes back to life (sessions.sql keeps revoked_at
+	// one-way), so the person is off the tap screen until a new activation link is spent. The
+	// warning says that, and the count, before the button. Its subject is the employee id.
+	// A replayed value is bounded the way deactivation's is, NOT made harmless: the revoke matches
+	// only `revoked_at IS NULL`, so a second spend revokes nothing and writes no trail row UNLESS a
+	// new session appeared within the TTL -- then it revokes that one too (the same act on the
+	// same person, by the admin who confirmed it, with its own trail row). It cannot reach anybody
+	// else: the value is bound to this person and this panel session.
+	confirmActionSignOutPhones = "employee.sign_out_phones"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.

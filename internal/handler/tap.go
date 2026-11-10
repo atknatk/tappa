@@ -452,6 +452,13 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// row 4 and gets RECORDED) — they fall through to the page, press the
 		// button, and sys:employee-deactivated writes the rejected attempt.
 		// Turning either of those into the other would lose a record (§4.6).
+		if id.State == httpx.SessionRevoked {
+			// A SIGNED-OUT PHONE TOUCHED A PLAQUE (T59 security review, DÜŞÜK-1): still no
+			// record, no audit row and no counter spent, but no longer no trace. Three keys and
+			// nothing else -- no plaque uid, no GPS, no cookie, no hash (§7).
+			t.log.WarnContext(ctx, "tap page: a signed-out phone tapped",
+				"tenant_id", id.Session.TenantID, "employee_id", id.Session.EmployeeID, "channel", string(p.Channel))
+		}
 		t.redirectToActivation(w, r)
 		return
 
