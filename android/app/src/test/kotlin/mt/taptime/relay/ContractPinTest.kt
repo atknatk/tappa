@@ -63,6 +63,26 @@ class ContractPinTest {
         assertEquals(goStringConst(src, "plaqueEncodeAbortHref"), HttpRelayServer.ABORT_PATH)
     }
 
+    /**
+     * The business read (2026-11-10): its path, that the server registers it as a GET, the
+     * three json tags of its body, and the switch screen the app opens. RED IF any of them
+     * drifts on either side.
+     */
+    @Test
+    fun theBusinessReadAndTheSwitchScreen_matchTheServer() {
+        val src = goSource(PLAQUEENCODE_GO)
+        assertEquals(goStringConst(src, "plaqueEncodeBusinessHref"), HttpRelayServer.BUSINESS_PATH)
+        assertTrue(
+            "the business read is no longer registered as a GET in adminlogin.go's Mount",
+            goSource(ADMINLOGIN_GO).contains("r.Get(plaqueEncodeBusinessHref, a.plaqueEncodeBusiness)"),
+        )
+        val type = src.substringAfter("type encodeBusiness struct {", "").substringBefore("\n}")
+        assertTrue("no encodeBusiness struct in plaqueencode.go", type.isNotEmpty())
+        val tags = Regex("""json:"([a-z_]+)"""").findAll(type).map { it.groupValues[1] }.toList()
+        assertEquals(listOf(BusinessReply.FIELD_BUSINESS, BusinessReply.FIELD_SWITCH, BusinessReply.FIELD_SUSPENDED), tags)
+        assertEquals(goStringConst(goSource(ADMINSWITCH_GO), "adminSwitchHref"), HttpRelayServer.SWITCH_PATH)
+    }
+
     @Test
     fun theFaultVocabulary_matchesPlaqueencodeGo() {
         val src = goSource(PLAQUEENCODE_GO)
@@ -138,9 +158,10 @@ class ContractPinTest {
         const val COOKIE_GO = "internal/adminauth/cookie.go"
         const val ADMINLOGIN_GO = "internal/handler/adminlogin.go"
         const val CONFIG_YAML = "deploy/k8s/05-config.yaml"
+        const val ADMINSWITCH_GO = "internal/handler/adminswitch.go"
 
         /** Every server file this test may read. Mirrored, path for path, in app/build.gradle.kts. */
-        val PINNED_SOURCES = listOf(PLAQUEENCODE_GO, DRIVER_GO, COOKIE_GO, ADMINLOGIN_GO, CONFIG_YAML)
+        val PINNED_SOURCES = listOf(PLAQUEENCODE_GO, DRIVER_GO, COOKIE_GO, ADMINLOGIN_GO, CONFIG_YAML, ADMINSWITCH_GO)
 
         /**
          * Drops whole-line `//` comments and `/* */` blocks so that prose in the Go

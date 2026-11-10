@@ -644,7 +644,9 @@ func TestPlaqueEncode_EveryReplyCallSitePassesTheDriversOwnValues(t *testing.T) 
 func TestPlaqueEncode_NothingOnThisSurfaceSerialisesACallerSuppliedValue(t *testing.T) {
 	fset, files := parsePackageSource(t, ".")
 
-	declared := map[string]bool{"encodeReply": true, "encodeFault": true}
+	// encodeBusiness joined on 2026-11-10: the business read's body (plaqueEncodeBusiness),
+	// three scalars built inside writeEncodeBusiness -- the same discipline, one more type.
+	declared := map[string]bool{"encodeReply": true, "encodeFault": true, "encodeBusiness": true}
 	encodes := 0
 	for name, f := range files {
 		for _, decl := range f.Decls {
@@ -675,19 +677,19 @@ func TestPlaqueEncode_NothingOnThisSurfaceSerialisesACallerSuppliedValue(t *test
 				}
 				id, ok := lit.Type.(*ast.Ident)
 				if !ok || !declared[id.Name] {
-					t.Errorf("%s: %s serialises a literal of type %s, want encodeReply or "+
-						"encodeFault", name, fd.Name.Name, exprText(t, fset, lit.Type))
+					t.Errorf("%s: %s serialises a literal of type %s, want encodeReply, "+
+						"encodeFault or encodeBusiness", name, fd.Name.Name, exprText(t, fset, lit.Type))
 				}
 				return true
 			})
 		}
 	}
-	if encodes != 2 {
-		t.Fatalf("found %d JSON Encode call(s) on the encode surface, want 2 (one per reply "+
+	if encodes != 3 {
+		t.Fatalf("found %d JSON Encode call(s) on the encode surface, want 3 (one per reply "+
 			"function). Fewer means the scan has gone blind; more means a third place composes "+
 			"a body", encodes)
 	}
-	t.Logf("encode-surface JSON writes: %d, both composite literals of the two declared types", encodes)
+	t.Logf("encode-surface JSON writes: %d, each a composite literal of one of the three declared types", encodes)
 }
 
 // encodeSurfaceFunc reports whether fd belongs to the plaque encode HTTP surface.
@@ -716,6 +718,9 @@ func encodeSurfaceFunc(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) bool
 		"plaqueEncodeHref":      true,
 		"plaqueEncodeStepHref":  true,
 		"plaqueEncodeAbortHref": true,
+		// The business read (2026-11-10): its writer and its route.
+		"writeEncodeBusiness":      true,
+		"plaqueEncodeBusinessHref": true,
 	}
 	found := false
 	ast.Inspect(fd, func(n ast.Node) bool {
@@ -764,6 +769,7 @@ func TestPlaqueEncode_NoHandlerTouchesTheResponseWriterExceptThroughOneWriter(t 
 	sinks := map[string]bool{
 		"writeEncodeReply":      true, // the one success body; EXEMPT, it writes
 		"writeEncodeFault":      true, // the one failure body; EXEMPT, it writes
+		"writeEncodeBusiness":   true, // the business read's one body (2026-11-10); EXEMPT, it writes
 		"writeEncodeStoreFault": true, // the closed error mapping; calls writeEncodeFault
 		"encodeResponseHeaders": true, // the shared header block; EXEMPT, it writes
 		"http.MaxBytesReader":   true, // bounds the request body; writes nothing
@@ -771,14 +777,18 @@ func TestPlaqueEncode_NoHandlerTouchesTheResponseWriterExceptThroughOneWriter(t 
 	}
 	used := map[string]bool{}
 
-	// 🔴 THE EXEMPT FUNCTIONS ARE NAMED AND THERE ARE EXACTLY THREE. Everything else
+	// 🔴 THE EXEMPT FUNCTIONS ARE NAMED AND THERE ARE EXACTLY FOUR (three until 2026-11-10). Everything else
 	// may only HAND the writer on; these three may call methods on it. They went from
 	// one to three when writeEncodeJSON was deleted: the two reply functions now own
 	// their own literal and share only a header block, which is the change that removed
 	// the body parameter an auditor drove a leak through.
+	//
+	// FOUR SINCE 2026-11-10: writeEncodeBusiness, the business read's body, owns its own
+	// literal exactly as the two reply functions do and shares only the header block.
 	exempt := map[string]bool{
 		"writeEncodeReply":      true,
 		"writeEncodeFault":      true,
+		"writeEncodeBusiness":   true,
 		"encodeResponseHeaders": true,
 	}
 	inspected := 0

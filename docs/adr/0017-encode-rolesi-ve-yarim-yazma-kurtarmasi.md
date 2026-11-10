@@ -1229,6 +1229,56 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     geçiren başka bir yönetici turu sürebilir (ama tur yine **açanın** tenant'ına
     yazar; handle 128-bit rastgeledir ve yalnız kendi yanıt gövdesinde geçer).
     (c) §2.2'nin *"kontrollü ortam"*ının **cihaz** ve **ağ** yarısı hâlâ temennidir.
+
+    🔵 **NOT (2026-11-10, dal m14-encodebiz; kullanıcı kararı) — "oturumun tenant'ı"
+    artık turdan ÖNCE ekranda.** Md. 10'un cevabı doğru kaldı, ama bir boşluğu vardı:
+    oturumun **hangi** tenant olduğunu telefon kimseye söylemiyordu. `TAPPA_ADMIN_IDENTITY`
+    açıkken kimlik girişi seçici göstermeden son kullanılan işletmeye iner (ADR 0031
+    K-4), işletme değiştirmek panelin `/admin/switch`'idir (§5.4), ve uygulama ilk panel
+    sayfasında WebView'i kapatıyordu (`onPageFinished`) — yani kişi ne işletmeyi
+    görebiliyor ne değiştirebiliyordu. Orkestratörün üretim okumasına göre (salt okuma,
+    aktarılıyor) sahibin kimliği iki işletmede ve son kullanılan Kebab Factory: bir
+    encode bugün **sessizce** oraya giderdi. Tur geri alınamaz (md. 12: satır uid'i
+    kalıcı işgal eder, silinmez; çip ikinci kez encode edilemez — T77).
+
+    **Karar.** (1) Sunucu: `GET /admin/plaques/encode/business`
+    (`plaqueencode.go`, `plaqueEncodeBusiness`). Zinciri kendi grubudur
+    (`AdminAuth.Mount`): `floodGate` → `sameOriginGate` → `requireAdmin` →
+    `sessionGate` — round rotalarının ilk dört halkası, aynı sırada. **`encodeGate`
+    yok** (bir ad okuması tur isteği değildir; oturum başına plaket bütçesi turun kendi
+    istek sayısından türetilir ve bükülmesin), **form bağlama yok** (uygulama sayfa
+    çizmez; formbinding.go'nun röle istisnasıyla aynı gerekçe), **askı halkası yok**
+    (o halka her rette bir `tenant.write_refused` satırı yazar; bu bir okumadır ve ADR
+    0025 §4 okumayı askıda açık tutar). Gövde üç skaler: `business` (kabuğun kaynağı,
+    `panelBusiness(id).Name` = `adminauth.Resolved.TenantName`; burada DB okuması yok),
+    `switch` (`/admin/switch` bu dağıtımda **var mı** — `SurfaceShellSwitchLink`; her
+    oturum için aynı, üyelik sayısı **değil**; üyelik listesi hiç sorulmaz), `suspended`
+    (panelin askı bandının ve halkasının okuduğu değer). Kodlayıcı yoksa round
+    rotalarının sözcüğü: 503 `encode-unavailable`. Ad loglanmaz. (2) Uygulama: giriş →
+    *"Checking which business…"* → **onay ekranı** (*"Encoding for: {ad}"*, *"Start
+    encoding"*, panelde switch varsa *"Change business"*) → *"Hold the plaque"* ekranında
+    ad yeniden. Okuyucu **yalnız** `EncodeTarget.arm` ile kurulur ve o yalnız **aynı
+    panel oturum çerezi** altında okunmuş bir ada cevap verir — switch yeni bir çerez
+    verdiği için (§5.4) eski ad yeni oturumda okuyucu kuramaz. WebView açılınca ad
+    unutulur; `/admin/switch` (ret sayfaları dahil, aynı adreste) giriş akışı gibi
+    WebView'i açık tutar; ziyaret başka bir panel sayfasında biter ve ad yeniden okunur.
+    Askıdaki işletme adıyla gösterilir, tur başlatılmaz (round rotalarının `suspended`
+    sözcüğündeki davranışla aynı); yine de başlatılan bir tur halkaya çarpar.
+
+    **Tek işletmeli hesap:** eylem `switch` açıkken gösterilir — panelin M14-12'deki
+    ölçülmüş seçimi (oturum başına üyelik sayısının şemasız yeri yok, bayatlar; switch
+    sayfası tek işletmeyi kendisi söyler). Bir sayım uygulamaya başka üyelikler hakkında
+    bilgi taşırdı.
+
+    ⚠️ **NE KAPANMADI, adıyla:** (a) onay bir **savunmadır, kanıt değil** — kişi yanlış
+    adı onaylayabilir. (b) **Eski APK** bu akışı bilmez ve sessizce encode etmeye devam
+    eder; sunucu eski APK'yı tanıyamaz (sürüm başlığı yok) — T271. (c) Cihazda (Galaxy
+    A15, debug APK) **sahte bir panele** karşı ölçüldü: GET'te `Origin` gidiyor,
+    `Sec-Fetch-Site` gitmiyor; onay ekranı adı gösteriyor; WebView switch ekranında
+    açık kalıyor; switch'ten sonra yeni çerezle yeniden okunan ad ekrana geliyor; okuyucu
+    yalnız *"Start encoding"*ten sonra açılıyor (`android/README.md`, *"Which business"*).
+    Gerçek Go sunucusuna, kodlayıcıyla ve iki işletmeli bir kimlikle **ölçülmedi**
+    (yerel http sunucusunun kodlayıcısı yok, üretime karşı tur yasak) — T270.
 11. **Q08 hâlâ açık** ve bu ADR onu açmıyor: SUN URL'si domaini taşır, domain
     alınmadı, **yanlış host'la encode edilmiş plaket = sahada plaket değişimi**.
     Kural değişmedi: *Q08 kapanmadan üretim plaketi encode edilmez.*

@@ -8,4 +8,5 @@
     <string name="check">Check server</string>
     <string name="sign_in">Sign in</string>
     <string name="sign_out">Sign out</string>
+    <string name="change_business">Change business</string>
 </resources>

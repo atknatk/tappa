@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   One screen. The panel is the operator tool; the WebView sits on top of it only
-  while signing in. tappa-brand: porcelain ground, ink text, paper card with one
+  while signing in or changing business. tappa-brand: porcelain ground, ink text, paper card with one
   `line` border. No decoration.
 
   TYPOGRAPHY DEVIATION, NAMED: the brand asks for Space Grotesk (display) and IBM
@@ -139,6 +139,22 @@
                 android:letterSpacing="-0.02"
                 android:fontFamily="sans-serif" />
 
+            <!--
+              Which business a plaque goes to (2026-11-10). Shown on every signed-in
+              screen from the confirmation on: a round cannot be moved or undone, so the
+              name stays in view until the plaque is done.
+            -->
+            <TextView
+                android:id="@+id/business"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/ink"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/message"
                 android:layout_width="match_parent"
@@ -166,6 +182,15 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:text="@string/sign_in" />
+
+        <Button
+            android:id="@+id/switchButton"
+            style="@style/Button.Quiet"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:text="@string/change_business"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/signOutButton"

@@ -15,7 +15,7 @@ import java.net.URLDecoder
  * inject a fault, a refusal, a malformed body or a never-ending round.
  */
 class FakePanel : AutoCloseable {
-    class Seen(val path: String, val headers: Map<String, List<String>>, val form: Map<String, String>)
+    class Seen(val path: String, val headers: Map<String, List<String>>, val form: Map<String, String>, val method: String = "POST")
     class Answer(val status: Int, val contentType: String?, val body: String)
 
     val seen = mutableListOf<Seen>()
@@ -39,6 +39,17 @@ class FakePanel : AutoCloseable {
     fun begins(): List<Seen> = seen.filter { it.path == HttpRelayServer.ENCODE_PATH }
     fun steps(): List<Seen> = seen.filter { it.path == HttpRelayServer.STEP_PATH }
     fun aborts(): List<Seen> = seen.filter { it.path == HttpRelayServer.ABORT_PATH }
+    fun businessReads(): List<Seen> = seen.filter { it.path == HttpRelayServer.BUSINESS_PATH }
+
+    /**
+     * The business read's answer, looked up by the panel session VALUE the request carried — a
+     * stand-in for the server's "the session is bound to one business". A session not in the
+     * map is a dead one: 303, like requireAdmin.
+     */
+    val businesses = mutableMapOf<String, Answer>()
+
+    fun business(name: String, canSwitch: Boolean = true, suspended: Boolean = false): Answer =
+        json(200, """{"business":${org.json.JSONObject.quote(name)},"switch":$canSwitch,"suspended":$suspended}""")
 
     fun progress(command: ByteArray, step: String, done: Boolean = false, extra: String = ""): Answer =
         json(200, """{"session":"$handle","command":"${Hex.encode(command)}","step":"$step","done":$done$extra}""")
@@ -66,6 +77,10 @@ class FakePanel : AutoCloseable {
             }
         }
         HttpRelayServer.ABORT_PATH -> json(200, """{"session":"","command":"","step":"abort","done":false}""")
+        HttpRelayServer.BUSINESS_PATH -> {
+            val session = PanelCookie.sessionOf(s.headers["cookie"]?.firstOrNull())
+            businesses[session] ?: html(303)
+        }
         else -> html(404)
     }
 
@@ -76,7 +91,7 @@ class FakePanel : AutoCloseable {
             URLDecoder.decode(k, "UTF-8") to URLDecoder.decode(v, "UTF-8")
         }
         val headers = ex.requestHeaders.entries.associate { (name, values) -> name.lowercase() to values.toList() }
-        val s = Seen(ex.requestURI.path, headers, form)
+        val s = Seen(ex.requestURI.path, headers, form, ex.requestMethod)
         synchronized(seen) { seen += s }
         val a = script(s)
         val bytes = a.body.toByteArray(Charsets.UTF_8)
