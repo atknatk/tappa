@@ -10,10 +10,13 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 
 > **Domain cutover (2026-09-02):** birincil host artık `taptime.mt`. Eski
 > `tappa.everva.com.tr` M8 boyunca deploy hedefiydi; artık yalnızca `taptime.mt`'ye
-> **kalıcı 301 redirect** yapıyor (`deploy/k8s/40-ingress.yaml`, Ingress
-> `tappa-redirects`, `$request_uri` korunur), böylece cutover'dan önce basılmış
-> linkler ve plaketler 404 vermez. `www.taptime.mt` de aynı Ingress'ten apex'e
-> 301'lenir — redirect-only, hiçbir zaman tap işlemez.
+> **kalıcı redirect** yapıyor, böylece cutover'dan önce basılmış linkler ve plaketler
+> 404 vermez. `www.taptime.mt` de aynı şekilde apex'e yönlenir — redirect-only, hiçbir
+> zaman tap işlemez. ⚠️ T71'e kadar bu yönlendirmeyi ingress yapıyordu ve **path'i
+> düşürüyordu** (`permanent-redirect` istek URI'sini eklemez; burada bir tur *"`$request_uri`
+> korunur"* yazıyordu, yanlıştı — 2026-09-05 ölçümü `Location: https://taptime.mt`). T71'den
+> beri iki host uygulamaya gelir (`deploy/k8s/43-redirect-ingress.yaml`, Ingress
+> `tappa-redirects`) ve uygulama path + query'yi koruyarak yönlendirir — aşağıda *"T71"*.
 
 ---
 
@@ -31,9 +34,10 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/10-postgres.yaml` | StatefulSet + PVC (`local-path`) + headless Service | `deploy.yml` |
 | `k8s/20-app.yaml` | Deployment + Service | `deploy.yml` |
 | `k8s/30-migrate-job.yaml` | goose Job (`tappa_owner`) | `deploy.yml` |
-| `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) | `deploy.yml` |
+| `k8s/40-ingress.yaml` | Ingress (`nginx`, `letsencrypt-prod`) — `taptime.mt` (`tappa`, `tappa-panel`) | `deploy.yml` |
 | `k8s/41-operator-ingress.yaml` | operatör host'u `ops.taptime.mt`'nin iki Ingress'i (`/` 24k, `/operator/legal` Exact 320k; K4: IP kısıtı **yok** — karar 2026-10-14) — T112 | `deploy.yml`, **yalnız yüzey yapılandırılmışken** (`tappa-secrets`'ta `TAPPA_OPERATOR_HOST` 0 bayttan büyükken; değeri okunmaz) ve rollout beklendikten **sonra** — T119 (silmek **operatör**: deploy kimliğinde `delete` yok; yüzey kapanırken — *"Geri alma — yüzeyi kapat"*) |
 | `k8s/42-api-ingress.yaml` | entegrasyon API'sinin host'u `api.taptime.mt`'nin Ingress'i (yalnız `/v1`, 80k, kendi sertifikası `api-taptime-tls`) — M11 API-13a; `05-config.yaml`'ın `TAPPA_API_HOST`'u ile **aynı değişiklikte** | `deploy.yml` (rollout beklemesinden **sonra**) |
+| `k8s/43-redirect-ingress.yaml` | iki yönlendirme host'u `tappa.everva.com.tr` ve `www.taptime.mt` — Ingress `tappa-redirects` (T71'e kadar 40'taydı); uygulama ikisini de path + query'yi koruyarak `taptime.mt`'ye yönlendirir (`internal/httpx/redirecthost.go`) | `deploy.yml` (rollout beklemesinden **sonra**; *"T71"*) |
 | `k8s/50-backup.yaml` | 🔴 **gecelik yedek CronJob'ı** (02:30 Malta) | **operatör** (bir kez; deploy'un `batch/cronjobs` yetkisi **yok** ve bilerek yok) |
 | `k8s/55-heartbeat.yaml` | 🔴 **uptime heartbeat CronJob'ı** (her 5 dk; healthchecks.io'ya *"yaşıyor"* ya da `/fail` — T116) | **operatör** (bir kez; aynı gerekçe — adım 10) |
 | `observability/signoz-alert-rules.json` | 🔴 **SigNoz'un uyarı kuralları** (M8-03 tablosunun her satırı için bir kural, ClickHouse-SQL; T118, 8. kural T122) — kanal yalnız **adıyla** (`tappa-healthchecks`), adres yok; küme manifesti **değildir** | **operatör** (SigNoz API'siyle, bir kez — adım 10 (f)) |
@@ -109,8 +113,8 @@ temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi P
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
 izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
 (elle) → `harbor-pull` (elle — operatör adımı 4 (c); OPS-2) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
-Job (**bekle**) → Deployment → Ingress'ler (`40`; rollout'u bekle; sonra `41` — `41` yalnız
-operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119). Tek tek `apply` etmek güvenlidir; **dizini toptan**
+Job (**bekle**) → Deployment → Ingress'ler (`40`; rollout'u bekle; sonra `41`, `42` ve `43` — `41` yalnız
+operatör yüzeyi yapılandırılmışsa; *"Uygulandı: K2"*, T119; `43` *"T71"*). Tek tek `apply` etmek güvenlidir; **dizini toptan**
 `apply` etmek değildir.
 
 ---
@@ -2869,6 +2873,61 @@ SQL
 
 ---
 
+### T71 — eski domainin derin linkleri: `43-redirect-ingress.yaml`
+
+**Ne değişti.** `tappa.everva.com.tr` ve `www.taptime.mt` artık ingress'te değil uygulamada
+yönlendirilir: iki host'un Ingress'i (`tappa-redirects`) `40-ingress.yaml`'dan
+`43-redirect-ingress.yaml`'a taşındı, `permanent-redirect` notu kalktı ve iki host `tappa`
+Service'ine gelir. Uygulama bu iki host'taki **her** isteğe, hiçbir rota çalışmadan,
+`TAPPA_BASE_URL` + path + query ile cevap verir: GET/HEAD **301**, öteki her yöntem **308**
+(yöntem ve gövde korunur; 301'de tarayıcı POST'u sessizce GET'e çevirir). Hedefin şeması ve host'u
+yapılandırmadır, istekten gelmez; path başındaki `//` teke indirilir, opak istek hedefi
+(`GET http:@evil…`) `/` olur. Host listesi kapalıdır (`internal/config` `redirectHostList`);
+`config.Load`, `TAPPA_BASE_URL`'in, operatör ya da API host'unun bu listede olmasını reddeder.
+
+**Uygulama — otomatik, elle küme adımı YOK.** `deploy.yml`'in *"Route the operator and API
+hosts"* adımı 43'ü rollout beklemesinden **sonra** uygular (42 gibi, `case`'in dışında):
+T71'den eski bir pod'da yönlendirme yoktur ve müşteri ürününü her host'ta sunar; 43 beklemeden
+önce uygulansaydı iki host rollout boyunca o pod'lara gelirdi. Nesnenin adı değişmedi, bu yüzden
+`kubectl apply` 40'ın yarattığı canlı nesneyi yamalar (silme gerekmez; deploy kimliğinde `delete`
+yok). T71'i taşıyan ilk deploy'da 40'ın apply'ından 43'ünkine kadar canlı nesne eskisidir: iki host
+eski yönlendirmeyi (path'siz) verir, kesinti olmaz. Pinler:
+`TestPackaging_TheDeployAppliesEveryIngressFile`, `TestPackaging_TheRedirectIngressRoutesExactlyTheRedirectHosts`.
+
+**Geri dönüş.** T71'den önceki bir commit'in **deploy'u** (`deploy.yml`) kendi 40'ını uygular; o
+dosya aynı adlı nesneyi `permanent-redirect` ile taşır, yani ingress yönlendirmesi kendiliğinden geri
+gelir. ⚠️ Küçük bir pencere kalır: o deploy 20-app'i 40'tan önce uygular, 40'ın apply'ı düşerse
+rollout başlamış olur ve iki host yönlendirmesiz pod'lara gider.
+🔴 **Elle geri dönüş (`kubectl set image` / `kubectl rollout undo`, *"Elle deploy / rollback"*)
+40'ı uygulamaz.** T71 öncesi bir imaja dönülürse 43 canlı kalır ve iki host, müşteri ürününü her
+host'ta sunan pod'lara gider: 40'ın *"exactly one host serves the app"* değişmezi sessizce bozulur.
+Hedef imaj T71 öncesiyse (`git cat-file -e <hedef-sha>:deploy/k8s/43-redirect-ingress.yaml` başarısız:
+o commit'in ağacında 43 yok; geçmişin biçiminden — merge, squash, rebase — bağımsız), imajdan **ÖNCE**,
+repo kökünden:
+
+```bash
+git show <hedef-sha>:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -
+```
+
+Bu, `tappa-redirects`'e `permanent-redirect`'i geri koyar; hedef commit'in kendi 40'ı uygulandığı için
+40'ın öteki iki nesnesi de dönülen imajla aynı sürümde olur (bir deploy da tam bunu yapar). İleri dönüşte sıradan deploy 43'ü yeniden uygular.
+
+**Doğrulama (deploy'dan sonra, salt-okur, küme yetkisi gerekmez).** Hiçbir satırda `cf-ray` **yok**;
+beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` · `HTTP/2 301` +
+`location: https://taptime.mt/t?p=AB&c=1` · `HTTP/2 308` + `location: https://taptime.mt/admin/login` ·
+`location: https://taptime.mt/evil.example/x`:
+
+```bash
+curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|cf-ray'
+curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|cf-ray'
+curl -sS -o /dev/null -D - -X POST 'https://www.taptime.mt/admin/login' | grep -i '^HTTP\|^location'
+curl -sS -o /dev/null -D - 'https://www.taptime.mt//evil.example/x' | grep -i '^location'
+```
+
+Sertifikalar değişmez (`tappa-tls`, `taptime-www-tls`); HTTP-01 yenilemesi artık öteki host'larla
+aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu). Bu kontrol
+deploy'un kendi kapılarında **yok** (backlog T261).
+
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 
 API-9'dan beri `TAPPA_ENV=dev` **dışında** iki değer **zorunludur**; biri yoksa `config.Load` açılışı
@@ -5301,6 +5360,13 @@ OPS-2 öncesi bir imaja dönüyorsan docker.io/atknatk/tappa.
 `kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı BİREBİR
 `<registry>/atknatk/tappa:sha-<12hex>`; istemci tarafında imaj referansının doğrulaması YOKTUR. Yani
 yanlış yazılmış bir etiket buradan geçer ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
+
+> 🔴 **T71 ÖNCESİ BİR İMAJA DÖNÜLÜYORSA (aşağıdaki iki komut da), İMAJDAN ÖNCE ESKİ 40'I UYGULA.**
+> Bu iki yol Ingress'lere dokunmaz; `43-redirect-ingress.yaml` canlı kalır ve `tappa.everva.com.tr` ile
+> `www.taptime.mt` yönlendirme middleware'i olmayan pod'lara gider. Hedef T71 öncesiyse
+> (`git cat-file -e <hedef-sha>:deploy/k8s/43-redirect-ingress.yaml` başarısız): önce
+> `git show <hedef-sha>:deploy/k8s/40-ingress.yaml | kubectl -n tappa apply -f -`, sonra imaj
+> (*"T71 — eski domainin derin linkleri"*, *Geri dönüş*).
 
 ```bash
 kubectl -n tappa set image deployment/tappa tappa=<image>:sha-<12hex>

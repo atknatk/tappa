@@ -168,7 +168,7 @@ templ policyDegraded(v PoliciesView) {
 				One of your Taptime baseline rules is stored in a form this release cannot
 				read, and the engine does not run a PART of a rulebook — a half rulebook is
 				a different rulebook, not a safer one. So every tap is currently being
-				judged by the Taptime guarantees alone: whatever one of them settles is
+				judged by Taptime's guardrails alone: whatever one of them settles is
 				settled the same way it always is, and everything else is recorded and sent
 				to The Spike instead of being approved.
 			</p>
@@ -205,7 +205,7 @@ templ policyIntro(v PoliciesView) {
 		<div class="flex flex-col gap-2">
 			<h2 class="font-display text-lg font-bold tracking-tight text-ink">How your rules are decided</h2>
 			<p class="text-sm text-ink/85">
-				Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong>
+				Every tap is judged in three layers, in this order. <strong>Taptime's guardrails</strong>
 				run first and stop everything else — they are part of the product and nobody
 				can switch them off, including us. If none of them applies, your
 				<strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed
@@ -221,7 +221,7 @@ templ policyIntro(v PoliciesView) {
 		<div class="flex flex-col gap-3 border-t border-dashed border-line pt-4">
 			<h2 class="font-display text-base font-bold tracking-tight text-ink">How a tap is judged</h2>
 			<p class="text-sm text-ink/85">
-				Every tap carries up to four kinds of evidence. The guarantees check the first two;
+				Every tap carries up to four kinds of evidence. The guardrails check the first two;
 				the baseline and your own rules weigh the last two.
 			</p>
 			<div class="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3">
@@ -393,7 +393,7 @@ templ PolicyGuarantees(v PoliciesView) {
 		<div class="ladder ladder-runon flex flex-col gap-3.5">
 			<div class="relative flex flex-col gap-1.5">
 				<span class="lock-glyph absolute -left-[46px] -top-1 md:-left-[55px]"></span>
-				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· checked in this order · the first that applies decides on its own</span></h2>
+				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime's guardrails <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· checked in this order · the first that applies decides on its own</span></h2>
 				<p class="text-sm text-ink/85">
 					They are part of the product rather than a setting: there is no control to
 					turn one off, on this page or anywhere else, because each of them is a promise
@@ -450,15 +450,15 @@ templ policyBaseline(v PoliciesView) {
 		<span class="absolute -left-[37px] top-1.5 size-4 rounded-full border-[3px] border-ink bg-porcelain md:-left-[46px]"></span>
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline <span class="font-mono text-xs font-normal tracking-normal text-ink/70">· the defaults we ship · yours to switch off or copy</span></h2>
 		<p class="text-sm text-ink/85">
-			The defaults we ship. Unlike the guarantees above, these are yours: one can be
+			The defaults we ship. Unlike the guardrails above, these are yours: one can be
 			switched off or replaced with your own version once it has been set up for your
-			business, and doing so never touches a guarantee. A rule you switch off is not
+			business, and doing so never touches a guardrail. A rule you switch off is not
 			deleted — its history stays, so a record decided under it can still explain itself
 			years later.
 		</p>
 	</div>
 	<p class="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-ink/85">
-		<strong class="text-ink">Below the guarantees there is no order to read.</strong>
+		<strong class="text-ink">Below the guardrails there is no order to read.</strong>
 		Your Taptime baseline and your own policies are weighed together: where two rules
 		disagree the <strong class="text-ink">more specific one decides</strong>, and only when
 		two rules are equally specific does the stricter answer win. A note never decides.
@@ -492,14 +492,14 @@ templ policyTenant(v PoliciesView) {
 			// worse than no reassurance.
 			if v.BaselineInForce {
 				<p>
-					Your business is running on the guarantees and the baseline above, which is
+					Your business is running on the guardrails and the baseline above, which is
 					the intended starting point rather than a gap.
 				</p>
 			} else {
 				<p>
-					Your business is running on the Taptime guarantees alone — none of the
+					Your business is running on Taptime's guardrails alone — none of the
 					baseline rules above is deciding anything yet. Taps are still recorded;
-					anything the guarantees do not settle goes to The Spike.
+					anything the guardrails do not settle goes to The Spike.
 				</p>
 			}
 		}
@@ -890,7 +890,7 @@ templ policyAuthorities(v PoliciesView) {
 			// engine is not applying today.
 			@components.PanelNotice(components.ToneAlert, "None of these grants is being applied today") {
 				<p>
-					A baseline rule cannot be read, so the engine is running on the guarantees
+					A baseline rule cannot be read, so the engine is running on the guardrails
 					alone (see the top of this page). The grants below are what your rulebook
 					SAYS; they are not what is deciding right now.
 				</p>
