@@ -375,15 +375,30 @@ RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
 -- -- one person cannot check in twice at one instant, so a second row with another venue or another
 -- note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
 -- instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
-SELECT id, occurred_at
-FROM transactions
-WHERE tenant_id = @tenant_id
-  AND employee_id = @employee_id::uuid
-  AND channel = 'manual'
-  AND type = @type::text
-  AND occurred_at = @occurred_at
-  AND entered_by = @entered_by::uuid
-ORDER BY created_at, id
+--
+-- WHAT THE ROW SAYS, SO THE SCREEN CAN BE HONEST (user decision 2026-11-10). When the venue or the
+-- note differs from what was just confirmed, nothing is written either, but the panel says so
+-- instead of "already saved": the venue (this business's own, by name; a partner venue by id, named
+-- from the person's partner list), the note, and whether the row answers a punch claim (its
+-- decision names it, punch_claim_decisions_one_per_record) -- that row was not pressed by anybody.
+SELECT t.id, t.occurred_at, t.location_id, t.site_location_id, t.note,
+       l.name AS location_name,
+       EXISTS (
+         SELECT 1 FROM punch_claim_decisions d
+         WHERE d.tenant_id = @tenant_id
+           AND d.transaction_id = t.id
+       ) AS answers_a_claim
+FROM transactions t
+LEFT JOIN locations l
+  ON l.id = t.location_id
+ AND l.tenant_id = @tenant_id
+WHERE t.tenant_id = @tenant_id
+  AND t.employee_id = @employee_id::uuid
+  AND t.channel = 'manual'
+  AND t.type = @type::text
+  AND t.occurred_at = @occurred_at
+  AND t.entered_by = @entered_by::uuid
+ORDER BY t.created_at, t.id
 LIMIT 1;
 
 -- name: InsertManualTransaction :one

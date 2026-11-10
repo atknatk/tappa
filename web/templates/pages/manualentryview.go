@@ -113,6 +113,9 @@ type ManualEntryView struct {
 	// SavedHref is where the record that already exists is shown (The Pass on its day), set only
 	// with Problem == ManualAlreadySaved.
 	SavedHref string
+	// Taken is the record that already holds this minute when this press asked for something
+	// else (Problem == ManualMinuteTaken).
+	Taken ManualTakenView
 
 	// --- the second step -----------------------------------------------------------
 	//
@@ -194,6 +197,35 @@ func directionLabel(v ManualEntryView) string {
 // T258): not a refusal of anything the manager lacks, so it is drawn as a done notice rather than
 // an alert. It is NOT in the handler's query-string vocabulary -- only the write renders it.
 const ManualAlreadySaved = "already"
+
+// ManualMinuteTaken is the Problem of a press that found this author's record for the same
+// person, direction and minute already written with another venue or note, or written by a
+// punch claim's approval (user decision 2026-11-10): nothing was written, and the notice says what
+// the minute already holds instead of "already saved".
+const ManualMinuteTaken = "minute-taken"
+
+// ManualTakenView is what the minute already holds, for the ManualMinuteTaken notice.
+type ManualTakenView struct {
+	// Direction is "check-in" or "checkout".
+	Direction string
+	// At is the business's wall clock, HH:MM.
+	At string
+	// Venue is the venue's name, "" when it cannot be named.
+	Venue string
+	// ByClaim: the record was written by approving the person's punch claim.
+	ByClaim bool
+	// VenueDiffers and NoteDiffers compare it with what was just confirmed.
+	VenueDiffers bool
+	NoteDiffers  bool
+}
+
+// VenueSuffix is " (Venue)" after the minute, or nothing when the venue cannot be named.
+func (t ManualTakenView) VenueSuffix() string {
+	if t.Venue == "" {
+		return ""
+	}
+	return " (" + t.Venue + ")"
+}
 
 // manualProblemHeading is the sentence for each refusal.
 //

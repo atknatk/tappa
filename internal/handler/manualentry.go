@@ -366,9 +366,18 @@ func (a *AdminAuth) manualEntryRecord(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		a.redirect(w, manualRecordReturn(rec, subject.Zone))
 	case errors.Is(err, manual.ErrAlreadyRecorded):
-		// T258: a double press (or a replayed confirmation) reached Record a second time and the
-		// domain found the record the first press wrote, under the person's lock. Nothing was
-		// written; the manager is told so and shown the way to the record.
+		// T258: this author's record for this person, direction and minute already exists, so
+		// nothing was written. When it is the same record (a double press, a replayed
+		// confirmation) the manager is told it is saved and shown the way to it; when the minute
+		// holds another venue or note, or a punch claim's approval, the notice says what is there
+		// (user decision 2026-11-10) -- "already saved" would claim this press's venue was kept.
+		var dup *manual.AlreadyRecordedError
+		if errors.As(err, &dup) && !dup.Existing.Same() {
+			v := a.manualFormView(r, subject, f, pages.ManualMinuteTaken)
+			v.Taken = manualTaken(subject, dup.Existing)
+			a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
+			return
+		}
 		v := a.manualFormView(r, subject, f, pages.ManualAlreadySaved)
 		v.SavedHref = manualRecordReturn(rec, subject.Zone)
 		a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
@@ -769,6 +778,27 @@ func manualPreview(s manual.Subject, v pages.ManualEntryView, at time.Time, zone
 func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s manual.Subject, f manualForm, problem string) {
 	v := a.manualFormView(r, s, f, problem)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
+}
+
+// manualTaken is the ManualMinuteTaken notice's facts: the direction in the screen's words, the
+// minute on the business's clock, and the venue by name (a partner venue from the person's
+// partner list).
+func manualTaken(s manual.Subject, x manual.Existing) pages.ManualTakenView {
+	out := pages.ManualTakenView{
+		Direction:    "checkout",
+		At:           x.At.In(manualZone(s.Zone)).Format("15:04"),
+		Venue:        x.LocationName,
+		ByClaim:      x.AnswersAClaim,
+		VenueDiffers: !x.SameVenue,
+		NoteDiffers:  !x.SameNote,
+	}
+	if x.Direction == manual.In {
+		out.Direction = "check-in"
+	}
+	if x.SiteLocationID != uuid.Nil {
+		out.Venue = s.PartnerVenueName(x.SiteLocationID)
+	}
+	return out
 }
 
 // manualFormView is the form step refilled from the posted form, with one notice.

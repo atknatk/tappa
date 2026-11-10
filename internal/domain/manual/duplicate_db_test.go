@@ -120,3 +120,47 @@ func TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce(t *testing.T) {
 		t.Errorf("%d manual records, want 4", n)
 	}
 }
+
+// TestManualRecord_AMinuteWithAnotherVenueOrNoteIsNotTheSameRecord is the user decision of
+// 2026-11-10: the rule does not change (nothing is written), but the answer says whether the row
+// already there is the same record (Same) or another venue or note for the same minute.
+func TestManualRecord_AMinuteWithAnotherVenueOrNoteIsNotTheSameRecord(t *testing.T) {
+	w := newRaceWorld(t)
+	at := time.Now().Add(-3 * time.Hour).UTC().Truncate(time.Second)
+	entry := Entry{TenantID: w.tenant, EmployeeID: w.who, EnteredBy: w.admin, Direction: In, At: at}
+	if _, err := w.rec.Record(w.ctx, entry); err != nil {
+		t.Fatal(err)
+	}
+	existing := func(e Entry) Existing {
+		t.Helper()
+		_, err := w.rec.Record(w.ctx, e)
+		var dup *AlreadyRecordedError
+		if !errors.As(err, &dup) || !errors.Is(err, ErrAlreadyRecorded) {
+			t.Fatalf("Record = %v, want an *AlreadyRecordedError", err)
+		}
+		return dup.Existing
+	}
+
+	if x := existing(entry); !x.Same() || !x.SameVenue || !x.SameNote || x.AnswersAClaim || x.LocationName != "m15-05 race venue" {
+		t.Errorf("the same record pressed again: %+v, want Same at the race venue", x)
+	}
+	withNote := entry
+	withNote.Note = "came in early"
+	if x := existing(withNote); x.Same() || !x.SameVenue || x.SameNote {
+		t.Errorf("another note: %+v, want the same venue and another note", x)
+	}
+	// ANOTHER VENUE: the person's home venue is now another one, so this press would file the
+	// record there; the row is at the first.
+	var second uuid.UUID
+	if err := w.owner.QueryRow(w.ctx, `INSERT INTO locations (tenant_id, name, static_ips, shift_start, shift_end)
+	                                   VALUES ($1, 'm15-05 second venue', '{198.51.100.0/24}', '09:00', '17:00') RETURNING id`, w.tenant).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	w.exec(`UPDATE employees SET location_id = $3 WHERE tenant_id = $1 AND id = $2`, w.tenant, w.who, second)
+	if x := existing(entry); x.Same() || x.SameVenue || !x.SameNote || x.LocationName != "m15-05 race venue" {
+		t.Errorf("another venue: %+v, want another venue and the row's own venue named", x)
+	}
+	if n := w.count(`SELECT count(*) FROM transactions WHERE tenant_id = $1 AND channel = 'manual'`, w.tenant); n != 1 {
+		t.Errorf("%d manual records, want 1: nothing is written for a taken minute", n)
+	}
+}

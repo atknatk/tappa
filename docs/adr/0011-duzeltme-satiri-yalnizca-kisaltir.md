@@ -150,6 +150,20 @@ bu ADR'nin konusu olan değişmez tablo onu iki satır olarak saklıyordu. Kulla
   ve `ErrAlreadyRecorded` o satırla döner; panel *"That record was already saved."* /
   *"Pressing the button again did not enter it twice."* der ve kayda bağlantı verir
   (*"See it on The Pass"*).
+- **Dakika başka bir beyan tutuyorsa (kullanıcı kararı 2026-11-10)** kural aynı, ama ekran başka:
+  var olan satır başka bir mekân (bu işletmeninki ya da ortak işletmeninki) veya başka bir not
+  taşıyorsa, ya da bir talep onayıyla yazıldıysa (`punch_claim_decisions.transaction_id` onu
+  adlandırır), *"already saved"* yanlış olurdu: bu basışın mekânı ya da notu saklanmadı, talep
+  satırına da kimse basmadı. Uyarı başlığı *"This minute already has a record"*, gövdesi
+  *"There's already a check-in for {ad} at {SS:DD} ({mekân}). This one wasn't saved."*
+  (çıkışta *"checkout"*; mekân adlandırılamazsa parantez yok), ardından duruma göre:
+  *"It was saved when {ad}'s punch claim was approved."* (talep satırı) ·
+  *"To correct the venue, enter the right one at a different minute."* (mekân farklı) ·
+  *"The note you typed was not saved."* (yalnız not farklı, talep satırı değil). Ölçüldü:
+  `TestManualRecord_AMinuteWithAnotherVenueOrNoteIsNotTheSameRecord`,
+  `TestDecideDB_AManualEntryAtAnApprovedClaimsMinuteIsToldTheClaimHoldsIt` (şerit DB'si),
+  `TestManualEntryRecord_AMinuteThatHoldsAnotherVenueOrNoteSaysSo`,
+  `TestManualEntryRecord_AMinuteAClaimHoldsSaysTheClaimHoldsIt`.
 - Okuma ve INSERT aynı işlemde ve aynı kilidin arkasındadır: iki basış ikisi de "yok" göremez.
   İkincisi birincinin kilidini bekler, kilidin yarış denetimi onu birincinin commit'inden sonra
   yeniden başlatır ve satırı görür. Ölçüldü (yerel şerit DB'si, `-race`): aynı kaydın 4 eşzamanlı
@@ -161,8 +175,13 @@ bu ADR'nin konusu olan değişmez tablo onu iki satır olarak saklıyordu. Kulla
   yazarın bu kişinin bu andaki girişini ya da çıkışını zaten söyler, kendi audit satırıyla. İkinci
   satır hiçbir mesai eklemez; yalnızca raporun sahipsiz kayıt olarak okuduğu bir kopya ekler ve
   §4.3 gereği silinemez. Kişi, yön ya da an farklıysa kayıt eskisi gibi yazılır. Başka bir yazarın
-  aynı kaydı da yazılır, çünkü her yöneticinin beyanı kendisinindir. Not ve mekân anahtarda yok:
-  bir kişi aynı anda iki kez giriş yapamaz.
+  aynı kaydı da yazılır, çünkü her yöneticinin beyanı kendisinindir. Not ve mekân anahtarda yok: bir kişi aynı anda iki kez giriş yapamaz. Aynı dakikaya ikinci bir
+  kayıtla mekânı düzeltmek de hiçbir zaman belirleyici çalışmadı: rapor aynı anlı satırları
+  `ORDER BY t.employee_id, t.occurred_at, t.id` ile okur ve `id` rastgele bir uuid'dir
+  (`gen_random_uuid()`), yani hangi mekânın sayılacağı şansa kalırdı (okundu,
+  `ListWorkedShiftEvents`). Ekran artık bunu söylüyor (kullanıcı kararı 2026-11-10): satır başka bir
+  mekân ya da not taşıyorsa, ya da bir talep onayıyla yazıldıysa, hiçbir şey yazılmaz ve
+  *"already saved"* yerine dakikanın ne tuttuğu söylenir (aşağıda).
 - **§4.3 korunur**: hiçbir satır güncellenmez ya da silinmez; yalnız ikinci INSERT yapılmaz.
 - Talep onayı (`internal/domain/claim`, `Within` üzerinden) bu okumayı yapmaz; onun ikinci savunması
   karar verilmiş taleptir (`ErrAlreadyDecided`, UNIQUE `(tenant_id, claim_id)`).

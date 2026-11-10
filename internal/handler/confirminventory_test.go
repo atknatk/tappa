@@ -5,12 +5,17 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/domain/manual"
 )
 
 // The panel confirmation is NOT single-use (deactivateconfirm.go): within its TTL one minted
@@ -63,7 +68,7 @@ var confirmGates = map[string]confirmGate{
 		"UnmountTagFromWall carries `status = 'active'` (db/queries/tags.sql); an ungated mount of the same plaque re-arms it",
 		[]string{"TestPlaquesDB_TenConcurrentUnmountsProduceExactlyONEWinner"}},
 	"confirmActionRecordManual": {replayWritesNothing,
-		"manual.Record reads ExistingManualRecord under the person's tap lock (LockEmployeeForTap, Within's first statement) and writes nothing when this author already has a manual row for this person, direction and instant: ErrAlreadyRecorded, the panel says the record was already saved (T258)",
+		"manual.Record reads ExistingManualRecord under the person's tap lock (LockEmployeeForTap, Within's first statement) and writes nothing when this author already has a manual row for this person, direction and instant: ErrAlreadyRecorded, and the panel says it was already saved or what the minute holds (T258)",
 		[]string{"TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce", "TestManualEntryRecord_AReplayedConfirmationIsAnsweredAlreadySaved"}},
 	"confirmActionPolicyEdit": {replayWritesAfterAnUndo,
 		"on an existing rule the subject carries a digest of what the review page showed (policyChangeSubject), so a write makes the value stale; Bind and Unbind refuse a repeat (ErrAlreadyBound, ErrNotBound); a NEW rule shows no rule to digest, and there the defence is the UNIQUE name (00015): ErrNameTaken; an undo (or a rename) re-arms it",
@@ -290,5 +295,95 @@ func TestManualEntryRecord_AReplayedConfirmationIsAnsweredAlreadySaved(t *testin
 	}
 	if strings.Contains(page, htmlText("Nothing was recorded")) {
 		t.Error("the second press is drawn as a refusal; the record exists")
+	}
+}
+
+// TestManualEntryRecord_AMinuteThatHoldsAnotherVenueOrNoteSaysSo is the user decision of
+// 2026-11-10: when this author's record for this person, direction and minute already exists with
+// another venue or another note, nothing is written (T258's rule) and the notice says what the
+// minute holds -- not "already saved", which would claim this press's venue or note was kept.
+func TestManualEntryRecord_AMinuteThatHoldsAnotherVenueOrNoteSaysSo(t *testing.T) {
+	stj, sliema := uuid.New(), uuid.New()
+	venueless := manual.Subject{NeedsVenue: true, Venues: []manual.Venue{{ID: stj, Name: "KF St Julians"}, {ID: sliema, Name: "KF Sliema"}}}
+	confirmAt := func(t *testing.T, b *browser, venue uuid.UUID, note string) url.Values {
+		t.Helper()
+		form := url.Values{"id": {entryID.String()}, "direction": {"in"}, "date": {"2026-08-05"}, "time": {"09:00"}, "location": {venue.String()}}
+		if note != "" {
+			form.Set("note", note)
+		}
+		form.Set(confirmField, confirmTokenIn(t, htmlOf(t, b.do(http.MethodPost, manualEntryHref, form))))
+		return form
+	}
+	cases := []struct {
+		name       string
+		venue      uuid.UUID
+		note       string
+		wantLast   string
+		wantAbsent string
+	}{
+		{"another venue", sliema, "", "To correct the venue, enter the right one at a different minute.", "The note you typed was not saved."},
+		{"another note", stj, "came in early", "The note you typed was not saved.", "To correct the venue"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := &fakeRecorder{subject: venueless}
+			b := panelBrowserWithRecorder(t, rec)
+			if res := b.do(http.MethodPost, manualRecordHref, confirmAt(t, b, stj, "")); res.Code != http.StatusSeeOther {
+				t.Fatalf("the first record answered %d, want 303", res.Code)
+			}
+			second := b.do(http.MethodPost, manualRecordHref, confirmAt(t, b, c.venue, c.note))
+			if second.Code != http.StatusOK {
+				t.Fatalf("the second record answered %d, want 200 with the notice", second.Code)
+			}
+			if n := len(rec.entries()); n != 1 {
+				t.Fatalf("%d record(s), want 1: the minute was already taken", n)
+			}
+			page := htmlOf(t, second)
+			for _, want := range []string{
+				htmlText("This minute already has a record"),
+				htmlText("There's already a check-in for Maria Borg at ") + `<span class="font-mono">09:00</span>` + htmlText(" (KF St Julians). This one wasn't saved."),
+				htmlText(c.wantLast),
+			} {
+				if !strings.Contains(page, want) {
+					t.Errorf("the notice does not carry %q", want)
+				}
+			}
+			for _, never := range []string{htmlText("That record was already saved."), htmlText("Pressing the button again"), htmlText(c.wantAbsent), htmlText("punch claim")} {
+				if strings.Contains(page, never) {
+					t.Errorf("the notice carries %q", never)
+				}
+			}
+		})
+	}
+}
+
+// TestManualEntryRecord_AMinuteAClaimHoldsSaysTheClaimHoldsIt: when the minute's row was written by
+// approving the person's punch claim, nothing is written and the notice names the claim -- it never
+// says the button was pressed twice, because nobody pressed it (user decision 2026-11-10).
+func TestManualEntryRecord_AMinuteAClaimHoldsSaysTheClaimHoldsIt(t *testing.T) {
+	rec := &fakeRecorder{subject: manual.Subject{LocationName: "KF St Julians"}, claimRows: true}
+	b := panelBrowserWithRecorder(t, rec)
+	if res := b.do(http.MethodPost, manualRecordHref, confirmedEntry(t, b, "out", "2026-08-05", "17:00", "")); res.Code != http.StatusSeeOther {
+		t.Fatalf("the first record answered %d, want 303", res.Code)
+	}
+	second := b.do(http.MethodPost, manualRecordHref, confirmedEntry(t, b, "out", "2026-08-05", "17:00", ""))
+	if second.Code != http.StatusOK || len(rec.entries()) != 1 {
+		t.Fatalf("the second record answered %d with %d record(s), want 200 and 1", second.Code, len(rec.entries()))
+	}
+	page := htmlOf(t, second)
+	for _, want := range []string{
+		htmlText("This minute already has a record"),
+		htmlText("There's already a checkout for Maria Borg at ") + `<span class="font-mono">17:00</span>` + htmlText(" (KF St Julians). This one wasn't saved."),
+		htmlText("It was saved when Maria Borg's punch claim was approved."),
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the notice does not carry %q", want)
+		}
+	}
+	for _, never := range []string{htmlText("That record was already saved."), htmlText("Pressing the button again"),
+		htmlText("To correct the venue"), htmlText("The note you typed")} {
+		if strings.Contains(page, never) {
+			t.Errorf("the notice carries %q", never)
+		}
 	}
 }

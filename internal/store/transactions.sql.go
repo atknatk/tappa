@@ -329,15 +329,24 @@ func (q *Queries) CountRecordsAtPartnerVenues(ctx context.Context, arg CountReco
 }
 
 const existingManualRecord = `-- name: ExistingManualRecord :one
-SELECT id, occurred_at
-FROM transactions
-WHERE tenant_id = $1
-  AND employee_id = $2::uuid
-  AND channel = 'manual'
-  AND type = $3::text
-  AND occurred_at = $4
-  AND entered_by = $5::uuid
-ORDER BY created_at, id
+SELECT t.id, t.occurred_at, t.location_id, t.site_location_id, t.note,
+       l.name AS location_name,
+       EXISTS (
+         SELECT 1 FROM punch_claim_decisions d
+         WHERE d.tenant_id = $1
+           AND d.transaction_id = t.id
+       ) AS answers_a_claim
+FROM transactions t
+LEFT JOIN locations l
+  ON l.id = t.location_id
+ AND l.tenant_id = $1
+WHERE t.tenant_id = $1
+  AND t.employee_id = $2::uuid
+  AND t.channel = 'manual'
+  AND t.type = $3::text
+  AND t.occurred_at = $4
+  AND t.entered_by = $5::uuid
+ORDER BY t.created_at, t.id
 LIMIT 1
 `
 
@@ -350,8 +359,13 @@ type ExistingManualRecordParams struct {
 }
 
 type ExistingManualRecordRow struct {
-	ID         uuid.UUID
-	OccurredAt time.Time
+	ID             uuid.UUID
+	OccurredAt     time.Time
+	LocationID     *uuid.UUID
+	SiteLocationID *uuid.UUID
+	Note           *string
+	LocationName   *string
+	AnswersAClaim  bool
 }
 
 // THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
@@ -362,6 +376,12 @@ type ExistingManualRecordRow struct {
 // -- one person cannot check in twice at one instant, so a second row with another venue or another
 // note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
 // instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+//
+// WHAT THE ROW SAYS, SO THE SCREEN CAN BE HONEST (user decision 2026-11-10). When the venue or the
+// note differs from what was just confirmed, nothing is written either, but the panel says so
+// instead of "already saved": the venue (this business's own, by name; a partner venue by id, named
+// from the person's partner list), the note, and whether the row answers a punch claim (its
+// decision names it, punch_claim_decisions_one_per_record) -- that row was not pressed by anybody.
 func (q *Queries) ExistingManualRecord(ctx context.Context, arg ExistingManualRecordParams) (ExistingManualRecordRow, error) {
 	row := q.db.QueryRow(ctx, existingManualRecord,
 		arg.TenantID,
@@ -371,7 +391,15 @@ func (q *Queries) ExistingManualRecord(ctx context.Context, arg ExistingManualRe
 		arg.EnteredBy,
 	)
 	var i ExistingManualRecordRow
-	err := row.Scan(&i.ID, &i.OccurredAt)
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.LocationID,
+		&i.SiteLocationID,
+		&i.Note,
+		&i.LocationName,
+		&i.AnswersAClaim,
+	)
 	return i, err
 }
 

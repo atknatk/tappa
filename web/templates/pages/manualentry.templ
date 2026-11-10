@@ -62,6 +62,20 @@ templ AdminManualEntry(v ManualEntryView) {
 						<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(v.SavedHref) }>See it on The Pass</a>
 					</p>
 				}
+			} else if v.Problem == ManualMinuteTaken {
+				// THE MINUTE ALREADY HOLDS ANOTHER STATEMENT OF THIS AUTHOR'S (user decision
+				// 2026-11-10): nothing was written, and the notice says what is there.
+				@components.PanelNotice(components.ToneWarn, "This minute already has a record") {
+					<p>There&#39;s already a { v.Taken.Direction } for { v.Name } at <span class="font-mono">{ v.Taken.At }</span>{ v.Taken.VenueSuffix() }. This one wasn&#39;t saved.</p>
+					if v.Taken.ByClaim {
+						<p class="mt-1">It was saved when { v.Name }&#39;s punch claim was approved.</p>
+					}
+					if v.Taken.VenueDiffers {
+						<p class="mt-1">To correct the venue, enter the right one at a different minute.</p>
+					} else if v.Taken.NoteDiffers && !v.Taken.ByClaim {
+						<p class="mt-1">The note you typed was not saved.</p>
+					}
+				}
 			} else if v.Problem != "" {
 				// A REFUSAL IS AN ALERT: something the manager asked for was not done, and
 				// the label the notice opens with says exactly that before the heading says

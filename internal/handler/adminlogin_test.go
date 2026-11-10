@@ -1125,6 +1125,8 @@ type fakeRecorder struct {
 	recordErr error
 	recorded  []manual.Entry
 	results   []manual.Recorded
+	// claimRows makes every recorded row read as written by a punch claim's approval.
+	claimRows bool
 	// boundsErr is what Bounds answers. It is SEPARATE from recordErr because the two
 	// are checked at different moments — the review step and the write — and a test
 	// that could not tell them apart could not see the gate at all.
@@ -1176,7 +1178,16 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 	// the real one under the lock).
 	for i, prior := range f.recorded {
 		if prior.EmployeeID == e.EmployeeID && prior.Direction == e.Direction && prior.At.Equal(e.At) && prior.EnteredBy == e.EnteredBy {
-			return f.results[i], manual.ErrAlreadyRecorded
+			name := f.subject.VenueName(prior.LocationID)
+			if name == "" && prior.SiteLocationID == uuid.Nil {
+				name = f.subject.LocationName
+			}
+			return f.results[i], &manual.AlreadyRecordedError{Existing: manual.Existing{
+				ID: f.results[i].ID, At: prior.At, Direction: prior.Direction,
+				LocationName: name, SiteLocationID: prior.SiteLocationID,
+				SameVenue: prior.LocationID == e.LocationID && prior.SiteLocationID == e.SiteLocationID,
+				SameNote:  prior.Note == e.Note, AnswersAClaim: f.claimRows,
+			}}
 		}
 	}
 	out := manual.Recorded{
