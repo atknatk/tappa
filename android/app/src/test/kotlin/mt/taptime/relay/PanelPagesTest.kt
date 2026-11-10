@@ -86,9 +86,46 @@ class PanelPagesTest {
         assertEquals(setOf("onResume", "becomeReady"), callers)
     }
 
+    /**
+     * The round is pinned (both audits, 2026-11-10): its client carries the cookie take()
+     * checked and the business ref the screen showed, never a fresh read of the cookie jar.
+     * A changed session is said, not ignored. RED IF: onTag uses server(), drops the ref, or
+     * swallows SessionChanged.
+     */
+    @Test
+    fun theRoundIsPinnedToTheTakenCookieAndTheShownBusiness() {
+        val onTag = body("onTag")
+        assertFalse("onTag must not build its client from the cookie jar", onTag.contains("server()"))
+        assertTrue(onTag.contains("cookie = { go.cookie }"))
+        assertTrue(onTag.contains("business = business.ref"))
+        assertTrue("RelayLoop must run on the pinned client", onTag.contains("RelayLoop(relay,"))
+        val changed = onTag.substringAfter("EncodeTarget.Take.SessionChanged ->").substringBefore("EncodeTarget.Take.NotArmed")
+        assertTrue("SessionChanged must update the screen", changed.contains("onSessionChanged()"))
+    }
+
+    /**
+     * `business-changed` (the server refused a begin naming another business): nothing was
+     * written, retrying the same screen is wrong, and the button reads the business again.
+     * RED IF: the word gets "Try again", or the FAULT button stops re-reading on it.
+     */
+    @Test
+    fun aChangedBusiness_isReadAgainNotRetried() {
+        val o = Outcome.Faulted(0, 409, "business-changed")
+        assertTrue(Wording.rechecksTheBusiness(o))
+        assertFalse(Wording.retryIsSafe(o))
+        assertEquals("Check the business", Wording.primaryLabel(o))
+        assertTrue(Wording.forOutcome(o).contains("Nothing was written to the plaque"))
+        assertTrue(body("onPrimary").contains("faultRechecks -> loadBusiness()"))
+        assertTrue(body("onTag").contains("faultRechecks = Wording.rechecksTheBusiness(outcome)"))
+    }
+
     @Test
     fun openingThePanelForgetsTheBusinessFirst() {
         val open = body("openPanelPage")
+        assertTrue("no panel page while a round is busy", open.contains("if (busy.get()) return"))
+        assertTrue("the busy check comes first", open.indexOf("busy.get()") < open.indexOf("target.forget()"))
+        assertTrue("a fresh visit clears the history on its first page", open.contains("freshVisit = true"))
+        assertTrue(body("onPageFinished").contains("clearHistory()"))
         assertTrue(open.contains("target.forget()"))
         assertTrue("forget must come before the page loads", open.indexOf("target.forget()") < open.indexOf("loadUrl("))
         assertTrue(body("openSwitch").contains("HttpRelayServer.SWITCH_PATH"))

@@ -20,6 +20,7 @@ object Wording {
         "too-many-rounds",
         "server-error",
         "suspended",
+        "business-changed",
     )
 
     fun forFault(fault: String): String = when (fault) {
@@ -51,6 +52,11 @@ object Wording {
             // holds depends on where the round stopped -- forOutcome adds that.
             "This business's Taptime account is paused, so the server is not taking changes from it right now. " +
                 "Nothing is wrong with the plaque or this phone."
+        "business-changed" ->
+            // The round's begin named the business this screen showed, and the session is in
+            // another one. Refused before anything was opened, so the plaque is untouched.
+            "The business changed after it was shown here. Nothing was written to the plaque. " +
+                "Check the business and start again."
         else ->
             "The server answered with a fault this app does not know: $fault."
     }
@@ -161,7 +167,8 @@ object Wording {
     fun retryIsSafe(o: Outcome): Boolean = when (o) {
         is Outcome.Completed -> false
         is Outcome.Faulted ->
-            o.fault != "refused" && o.fault != "unknown-session" && o.fault != "already-encoded" && o.fault != "suspended"
+            o.fault != "refused" && o.fault != "unknown-session" && o.fault != "already-encoded" && o.fault != "suspended" &&
+                o.fault != "business-changed"
         is Outcome.Refused -> true
         is Outcome.ChipLost -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
         is Outcome.ChipError -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
@@ -188,9 +195,16 @@ object Wording {
     fun primaryLabel(o: Outcome): String = when {
         o is Outcome.Completed -> "Next plaque"
         o is Outcome.Faulted && o.fault == "suspended" -> CLOSE
+        rechecksTheBusiness(o) -> CHECK_BUSINESS
         retryIsSafe(o) -> "Try again"
         else -> "Next plaque"
     }
+
+    /** The fault screen's button when the business changed under the screen: read it again. */
+    const val CHECK_BUSINESS = "Check the business"
+
+    /** Whether the FAULT screen's button reads the business again rather than re-arming the reader. */
+    fun rechecksTheBusiness(o: Outcome): Boolean = o is Outcome.Faulted && o.fault == "business-changed"
 
     /** Whether the FAULT screen's button closes the app rather than re-arming the reader. */
     fun primaryCloses(o: Outcome): Boolean = primaryLabel(o) == CLOSE

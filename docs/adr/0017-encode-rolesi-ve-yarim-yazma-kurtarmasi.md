@@ -1236,9 +1236,8 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     açıkken kimlik girişi seçici göstermeden son kullanılan işletmeye iner (ADR 0031
     K-4), işletme değiştirmek panelin `/admin/switch`'idir (§5.4), ve uygulama ilk panel
     sayfasında WebView'i kapatıyordu (`onPageFinished`) — yani kişi ne işletmeyi
-    görebiliyor ne değiştirebiliyordu. Orkestratörün üretim okumasına göre (salt okuma,
-    aktarılıyor) sahibin kimliği iki işletmede ve son kullanılan Kebab Factory: bir
-    encode bugün **sessizce** oraya giderdi. Tur geri alınamaz (md. 12: satır uid'i
+    görebiliyor ne değiştirebiliyordu. Son kullanılan işletmesi öteki olan iki işletmeli bir
+    kimlik için bir encode **sessizce** o öteki işletmeye giderdi. Tur geri alınamaz (md. 12: satır uid'i
     kalıcı işgal eder, silinmez; çip ikinci kez encode edilemez — T77).
 
     **Karar.** (1) Sunucu: `GET /admin/plaques/encode/business`
@@ -1253,7 +1252,10 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     `panelBusiness(id).Name` = `adminauth.Resolved.TenantName`; burada DB okuması yok),
     `switch` (`/admin/switch` bu dağıtımda **var mı** — `SurfaceShellSwitchLink`; her
     oturum için aynı, üyelik sayısı **değil**; üyelik listesi hiç sorulmaz), `suspended`
-    (panelin askı bandının ve halkasının okuduğu değer). Kodlayıcı yoksa round
+    (panelin askı bandının ve halkasının okuduğu değer), `ref` (oturumun tenant id'si —
+    aşağıdaki (3)'ün referansı; düz id, HMAC değil: kontrol çağıranın kim olduğunu değil
+    uygulamanın bu işletmeyi **gösterdiğini** kanıtlar, yetki yine yalnız oturum çerezidir,
+    ve id gizli değildir — panel kendi sayfalarında tenant id taşır). Kodlayıcı yoksa round
     rotalarının sözcüğü: 503 `encode-unavailable`. Ad loglanmaz. (2) Uygulama: giriş →
     *"Checking which business…"* → **onay ekranı** (*"Encoding for: {ad}"*, *"Start
     encoding"*, panelde switch varsa *"Change business"*) → *"Hold the plaque"* ekranında
@@ -1263,7 +1265,20 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     unutulur; `/admin/switch` (ret sayfaları dahil, aynı adreste) giriş akışı gibi
     WebView'i açık tutar; ziyaret başka bir panel sayfasında biter ve ad yeniden okunur.
     Askıdaki işletme adıyla gösterilir, tur başlatılmaz (round rotalarının `suspended`
-    sözcüğündeki davranışla aynı); yine de başlatılan bir tur halkaya çarpar.
+    sözcüğündeki davranışla aynı); yine de başlatılan bir tur halkaya çarpar. (3) **Tur,
+    gösterilen işletmeyi adıyla ister** (aynı gün, güvenlik denetiminin ORTA bulgusu;
+    orkestratör kararı): `POST /admin/plaques/encode` artık `business=<ref>` taşır ve
+    `plaqueEncodeBegin` onu oturumun tenant'ıyla **karşılaştırır**: yoksa / bozuksa /
+    tekrarlıysa 400 `bad-request` (uygulamanın cümlesi *"update the app"*), başka bir
+    işletmeyse 409 `business-changed` — her ikisinde de `Store.Begin` çağrılmaz, satır
+    yazılmaz. Alan **seçmez**: turun tenant'ı yine `plaqueEncodeGrantOf`'tan, oturumdan
+    gelir (md. 10'un yol pini aynen). Böylece işletmeyi göstermeyen eski APK'nın turu
+    açılmaz. (4) Uygulama turu **sabitler**: `EncodeTarget.take` okuyucuyu kapatırken
+    denetlediği Cookie başlığını döndürür ve tur baştan sona yalnız onu ve gösterilen
+    `ref`'i taşır (çerez kavanozunu tur içinde bir daha okumaz); tur sürerken panel
+    sayfası açılmaz. *"Hold the plaque"* ekranındayken çerez gitmiş ya da başka bir
+    oturumunsa dokunuş artık sessizce yutulmaz: ad düşer, ekran *"sign in again"* der ya
+    da işletmeyi yeniden okur.
 
     **Tek işletmeli hesap:** eylem `switch` açıkken gösterilir — panelin M14-12'deki
     ölçülmüş seçimi (oturum başına üyelik sayısının şemasız yeri yok, bayatlar; switch
@@ -1271,8 +1286,10 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     bilgi taşırdı.
 
     ⚠️ **NE KAPANMADI, adıyla:** (a) onay bir **savunmadır, kanıt değil** — kişi yanlış
-    adı onaylayabilir. (b) **Eski APK** bu akışı bilmez ve sessizce encode etmeye devam
-    eder; sunucu eski APK'yı tanıyamaz (sürüm başlığı yok) — T271. (c) Cihazda (Galaxy
+    adı onaylayabilir. (b) ~~Eski APK sessizce encode etmeye devam eder~~ — **kapandı**
+    (3) ile: `business` alanı olmayan tur 400 alır, hiçbir şey yazılmaz (T271). Bedeli:
+    sunucu bu değişiklikle çıktığı anda eski APK **hiç** encode edemez; encode telefonuna
+    yeni APK önce kurulur. (c) Cihazda (Galaxy
     A15, debug APK) **sahte bir panele** karşı ölçüldü: GET'te `Origin` gidiyor,
     `Sec-Fetch-Site` gitmiyor; onay ekranı adı gösteriyor; WebView switch ekranında
     açık kalıyor; switch'ten sonra yeni çerezle yeniden okunan ad ekrana geliyor; okuyucu

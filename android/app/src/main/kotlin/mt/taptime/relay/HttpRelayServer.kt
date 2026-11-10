@@ -44,6 +44,12 @@ class HttpRelayServer(
      * Defaults to FALSE so that a caller who forgets gets the strict side.
      */
     allowHttp: Boolean = false,
+    /**
+     * The business reference the round is for (BusinessReply.Known.ref), sent as `business`
+     * in the round's begin. The server opens no round without it or for another business.
+     * Null only for clients that never begin a round (the probes, the business read).
+     */
+    private val business: String? = null,
     private val connectTimeoutMs: Int = 10_000,
     private val readTimeoutMs: Int = 20_000,
 ) : RelayServer, BusinessSource {
@@ -52,7 +58,7 @@ class HttpRelayServer(
     /** The Origin header this client sends: scheme and authority of [base], nothing else. */
     val origin: String = originOf(this.base)
 
-    override fun begin(): Reply = post(ENCODE_PATH, emptyMap())
+    override fun begin(): Reply = post(ENCODE_PATH, if (business != null) mapOf("business" to business) else emptyMap())
 
     override fun step(session: String, rapdu: ByteArray): Reply =
         post(STEP_PATH, mapOf("session" to session, "rapdu" to Hex.encode(rapdu)))

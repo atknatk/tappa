@@ -79,16 +79,42 @@ class EncodeTarget(private val source: BusinessSource) {
     }
 
     /**
-     * The reader thread's question when a plaque arrives: the business this round is for, or
-     * null when the reader is not armed or the session is no longer the one the name was read
-     * under. Disarms either way, so the same plaque left on the phone cannot start a second
-     * round.
+     * The reader thread's question when a plaque arrives. Disarms whatever the answer, so the
+     * same plaque left on the phone cannot start a second round.
+     *
+     *   [Take.NotArmed]        nobody pressed "Start encoding" (or a round already took it):
+     *                          the tap is ignored, the screen is already right.
+     *   [Take.SessionChanged]  armed, but the panel cookie is gone or is another session (it
+     *                          expired on the phone, or a sign-in happened elsewhere): the name
+     *                          on the screen no longer belongs to this cookie. The name is
+     *                          dropped and the caller must say so and read again — ignoring the
+     *                          tap silently left "Hold the plaque" on screen over a dead session.
+     *   [Take.Go]              the business the screen showed, and the exact Cookie header the
+     *                          round must carry from its first request to its last.
      */
     @Synchronized
-    fun take(cookieHeader: String?): BusinessReply.Known? {
-        if (!armed) return null
+    fun take(cookieHeader: String?): Take {
+        if (!armed) return Take.NotArmed
         armed = false
-        return confirmedFor(cookieHeader)?.takeUnless { it.suspended }
+        val k = known
+        val session = PanelCookie.sessionOf(cookieHeader)
+        if (k == null || cookieHeader == null || session == null || session != readUnder) {
+            drop()
+            return Take.SessionChanged
+        }
+        if (k.suspended) return Take.NotArmed
+        return Take.Go(k, cookieHeader)
+    }
+
+    /** What [take] answers. */
+    sealed class Take {
+        object NotArmed : Take()
+        object SessionChanged : Take()
+
+        /** [cookie] is pinned for the whole round: the round never reads the cookie jar again. */
+        class Go(val business: BusinessReply.Known, val cookie: String) : Take() {
+            override fun toString(): String = "Go(business=${business.name})"
+        }
     }
 
     @Synchronized
@@ -123,9 +149,13 @@ sealed class BusinessReply {
      * shows it. [canSwitch] says whether the panel's switch screen exists in this deployment
      * — the same for every session, one business or many (the panel's own choice for its
      * "Switch business" link); it is not a membership count. [suspended]: the server refuses
-     * every round of this business, so the app starts none.
+     * every round of this business, so the app starts none. [ref] is the business's reference
+     * (the session's tenant id): the round's begin sends it back as `business`, and the server
+     * opens no round unless it is the session's own business — so a round can only go to the
+     * business this screen showed, and an app that shows nothing (an older APK) sends nothing
+     * and is refused.
      */
-    data class Known(val name: String, val canSwitch: Boolean, val suspended: Boolean) : BusinessReply()
+    data class Known(val name: String, val canSwitch: Boolean, val suspended: Boolean, val ref: String) : BusinessReply()
 
     /** A JSON `{"fault": word}` — the round routes' vocabulary (encode-unavailable, server-error …). */
     data class Fault(val status: Int, val fault: String) : BusinessReply()
@@ -145,6 +175,7 @@ sealed class BusinessReply {
         const val FIELD_BUSINESS = "business"
         const val FIELD_SWITCH = "switch"
         const val FIELD_SUSPENDED = "suspended"
+        const val FIELD_REF = "ref"
 
         fun parse(status: Int, contentType: String?, body: String): BusinessReply {
             val ct = contentType?.trim()?.lowercase()
@@ -163,10 +194,11 @@ sealed class BusinessReply {
             val name = obj.opt(FIELD_BUSINESS) as? String
             val canSwitch = obj.opt(FIELD_SWITCH) as? Boolean
             val suspended = obj.opt(FIELD_SUSPENDED) as? Boolean
-            if (name.isNullOrBlank() || canSwitch == null || suspended == null) {
-                return Malformed(status, "200 body without the three fields")
+            val ref = obj.opt(FIELD_REF) as? String
+            if (name.isNullOrBlank() || canSwitch == null || suspended == null || ref.isNullOrBlank()) {
+                return Malformed(status, "200 body without the four fields")
             }
-            return Known(name, canSwitch, suspended)
+            return Known(name, canSwitch, suspended, ref)
         }
     }
 }

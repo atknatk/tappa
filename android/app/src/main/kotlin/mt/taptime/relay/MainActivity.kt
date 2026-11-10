@@ -85,6 +85,16 @@ class MainActivity : Activity() {
 
     /** Set with each FAULT screen: whether its button closes the app (Wording.primaryCloses). */
     private var faultCloses = false
+
+    /** Set with each FAULT screen: whether its button reads the business again (Wording.rechecksTheBusiness). */
+    private var faultRechecks = false
+
+    /**
+     * A panel page was just opened from the app: the first page of the visit clears the
+     * WebView's history, so Back on it closes the visit instead of stepping back into the
+     * about:blank a previous visit ended on (or that visit's pages).
+     */
+    private var freshVisit = false
     private var base: String = DEFAULT_SERVER
     private var nfc: NfcAdapter? = null
 
@@ -296,6 +306,10 @@ class MainActivity : Activity() {
                 // UI from ever going idle. So: only while the sign-in page is showing,
                 // and only for a page on the panel's own origin.
                 if (url == null || web.visibility != View.VISIBLE) return
+                if (freshVisit && url != "about:blank") {
+                    freshVisit = false
+                    view.clearHistory()
+                }
                 if (PanelPages.endsVisit(base, url, hasSession = panelCookie() != null)) {
                     CookieManager.getInstance().flush()
                     closeWebView()
@@ -316,8 +330,13 @@ class MainActivity : Activity() {
      * before a plaque can be encoded.
      */
     private fun openPanelPage(path: String) {
+        // Never mid-round: the round carries its own pinned cookie, but a switch or a sign-in now
+        // would change the business on the screen while a plaque is still being written for the
+        // one it showed. The buttons are hidden while WRITING; this is the belt.
+        if (busy.get()) return
         target.forget()
         disableReader()
+        freshVisit = true
         web.visibility = View.VISIBLE
         panel.visibility = View.GONE
         web.loadUrl("$base$path")
@@ -411,7 +430,11 @@ class MainActivity : Activity() {
             State.SIGNED_OUT -> openWebView()
             State.BUSINESS, State.DONE -> becomeReady()
             State.UNCHECKED -> loadBusiness()
-            State.FAULT -> if (faultCloses) finish() else becomeReady()
+            State.FAULT -> when {
+                faultCloses -> finish()
+                faultRechecks -> loadBusiness()
+                else -> becomeReady()
+            }
             State.CHECKING, State.READY, State.WRITING -> Unit
         }
     }
@@ -462,18 +485,31 @@ class MainActivity : Activity() {
     private fun onTag(tag: Tag) {
         if (!busy.compareAndSet(false, true)) return
         // The business the screen showed, read under the cookie this round will carry — or no round.
-        val business = target.take(panelCookie())
-        if (business == null) {
-            busy.set(false)
-            return
+        val go = when (val t = target.take(panelCookie())) {
+            is EncodeTarget.Take.Go -> t
+            EncodeTarget.Take.SessionChanged -> {
+                busy.set(false)
+                Log.i(TAG, "round: not started, the panel session changed")
+                runOnUiThread { onSessionChanged() }
+                return
+            }
+            EncodeTarget.Take.NotArmed -> {
+                busy.set(false)
+                return
+            }
         }
+        val business = go.business
+        // The cookie and the business ref are PINNED for the whole round: every request carries the
+        // header take() checked, never a later read of the cookie jar, and the begin names the
+        // business the screen showed (the server refuses any other).
+        val relay = HttpRelayServer(base, cookie = { go.cookie }, allowHttp = BuildConfig.DEBUG, business = business.ref)
         runOnUiThread { show(State.WRITING, "Keep the plaque still.", "0/$EXPECTED_EXCHANGES · connecting", business = business) }
         Log.i(TAG, "round: tag in field, opening ISO-DEP")
 
         val outcome: Outcome = try {
             IsoDepChip.open(tag).use { chip ->
                 Log.i(TAG, "round: connected, max transceive ${chip.maxTransceiveLength} bytes, timeout ${IsoDepChip.TRANSCEIVE_TIMEOUT_MS} ms")
-                RelayLoop(server(), chip) { n, step ->
+                RelayLoop(relay, chip) { n, step ->
                     Log.i(TAG, "round: exchange $n after step $step")
                     runOnUiThread { show(State.WRITING, "Keep the plaque still.", "$n/$EXPECTED_EXCHANGES · $step", business = business) }
                 }.run()
@@ -495,9 +531,25 @@ class MainActivity : Activity() {
                 // would meet the same gate (ADR 0025 §3; OP-15B 2nd round, F4).
                 else -> {
                     faultCloses = Wording.primaryCloses(outcome)
+                    faultRechecks = Wording.rechecksTheBusiness(outcome)
+                    if (faultRechecks) target.forget()
                     show(State.FAULT, Wording.forOutcome(outcome), detailLine, primary = Wording.primaryLabel(outcome), business = business)
                 }
             }
+        }
+    }
+
+    /**
+     * A plaque was laid on "Hold the plaque" but the panel session is no longer the one the
+     * name was read under (EncodeTarget.Take.SessionChanged). Say so instead of ignoring the
+     * tap: gone → sign in again; another session → read its business.
+     */
+    private fun onSessionChanged() {
+        disableReader()
+        if (panelCookie() == null) {
+            show(State.SIGNED_OUT, "Your panel sign-in has ended, so nothing was encoded. Sign in again.", "")
+        } else {
+            loadBusiness()
         }
     }
 

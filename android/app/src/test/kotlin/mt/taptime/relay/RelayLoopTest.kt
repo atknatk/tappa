@@ -110,7 +110,7 @@ class RelayLoopTest {
         val statuses = mapOf(
             "encode-unavailable" to 503, "bad-request" to 400, "unknown-session" to 404,
             "busy" to 409, "refused" to 422, "already-encoded" to 422, "too-many-rounds" to 429,
-            "server-error" to 500, "suspended" to 403,
+            "server-error" to 500, "suspended" to 403, "business-changed" to 409,
         )
         assertEquals(Wording.FAULT_WORDS.toSet(), statuses.map { (word, _) -> word }.toSet())
         for (word in Wording.FAULT_WORDS) {

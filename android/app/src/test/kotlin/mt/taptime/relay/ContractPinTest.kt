@@ -79,7 +79,10 @@ class ContractPinTest {
         val type = src.substringAfter("type encodeBusiness struct {", "").substringBefore("\n}")
         assertTrue("no encodeBusiness struct in plaqueencode.go", type.isNotEmpty())
         val tags = Regex("""json:"([a-z_]+)"""").findAll(type).map { it.groupValues[1] }.toList()
-        assertEquals(listOf(BusinessReply.FIELD_BUSINESS, BusinessReply.FIELD_SWITCH, BusinessReply.FIELD_SUSPENDED), tags)
+        assertEquals(
+            listOf(BusinessReply.FIELD_BUSINESS, BusinessReply.FIELD_SWITCH, BusinessReply.FIELD_SUSPENDED, BusinessReply.FIELD_REF),
+            tags,
+        )
         assertEquals(goStringConst(goSource(ADMINSWITCH_GO), "adminSwitchHref"), HttpRelayServer.SWITCH_PATH)
     }
 
@@ -120,7 +123,8 @@ class ContractPinTest {
     fun theTwoFormFields_matchWhatTheHandlersRead() {
         val src = goSource(PLAQUEENCODE_GO)
         val fields = Regex("""PostFormValue\("([a-z]+)"\)""").findAll(src).map { it.groupValues[1] }.toSet()
-        assertEquals(setOf("session", "rapdu"), fields)
+        // `business` (2026-11-10): the ref the begin carries; HttpRelayServer.begin sends it.
+        assertEquals(setOf("session", "rapdu", "business"), fields)
     }
 
     @Test

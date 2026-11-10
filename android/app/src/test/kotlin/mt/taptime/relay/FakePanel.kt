@@ -48,8 +48,8 @@ class FakePanel : AutoCloseable {
      */
     val businesses = mutableMapOf<String, Answer>()
 
-    fun business(name: String, canSwitch: Boolean = true, suspended: Boolean = false): Answer =
-        json(200, """{"business":${org.json.JSONObject.quote(name)},"switch":$canSwitch,"suspended":$suspended}""")
+    fun business(name: String, ref: String, canSwitch: Boolean = true, suspended: Boolean = false): Answer =
+        json(200, """{"business":${org.json.JSONObject.quote(name)},"switch":$canSwitch,"suspended":$suspended,"ref":"$ref"}""")
 
     fun progress(command: ByteArray, step: String, done: Boolean = false, extra: String = ""): Answer =
         json(200, """{"session":"$handle","command":"${Hex.encode(command)}","step":"$step","done":$done$extra}""")

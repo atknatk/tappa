@@ -88,7 +88,8 @@ func readBusiness(h http.Handler, origin, fetchSite string, signedIn bool) *http
 	return rec
 }
 
-// wantBusinessBody is the exact body: three fields, in the struct's order, nothing else.
+// wantBusinessBody is the exact body: four fields, in the struct's order, nothing else; the ref is
+// the session's tenant (suspendedIdentity resolves panelTestTenant here).
 func wantBusinessBody(t *testing.T, canSwitch, suspended bool) string {
 	t.Helper()
 	// Its own struct, not encodeBusiness: the expectation must not move when the type does.
@@ -96,7 +97,8 @@ func wantBusinessBody(t *testing.T, canSwitch, suspended bool) string {
 		B   string `json:"business"`
 		Sw  bool   `json:"switch"`
 		Sus bool   `json:"suspended"`
-	}{businessReadName, canSwitch, suspended})
+		Ref string `json:"ref"`
+	}{businessReadName, canSwitch, suspended, panelTestTenant.String()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +106,8 @@ func wantBusinessBody(t *testing.T, canSwitch, suspended bool) string {
 }
 
 // TestPlaqueEncodeBusiness_AnswersOnlyTheSessionsOwnBusiness: the body is byte for byte the
-// session's name and the two flags -- no id, no role, no other business -- and the switch flag
+// session's name, the two flags and the session's own tenant as the ref -- no role, no other
+// business -- and the switch flag
 // is the flag row (open with TAPPA_ADMIN_IDENTITY on, for one business as for many), never a
 // membership count: the list is never asked for (businessReadAdmins fails the test if it is).
 func TestPlaqueEncodeBusiness_AnswersOnlyTheSessionsOwnBusiness(t *testing.T) {
@@ -133,17 +136,17 @@ func TestPlaqueEncodeBusiness_AnswersOnlyTheSessionsOwnBusiness(t *testing.T) {
 	}
 }
 
-// TestPlaqueEncodeBusiness_TheBodyHasExactlyThreeFields pins the type the one writer serialises,
-// as TestEncodeReply_HasExactlyTheFourFieldsTheRelayNeeds pins the round's: a fourth field is a
+// TestPlaqueEncodeBusiness_TheBodyHasExactlyFourFields pins the type the one writer serialises,
+// as TestEncodeReply_HasExactlyTheFourFieldsTheRelayNeeds pins the round's: a fifth field is a
 // decision about what leaves the process, not an edit.
-func TestPlaqueEncodeBusiness_TheBodyHasExactlyThreeFields(t *testing.T) {
+func TestPlaqueEncodeBusiness_TheBodyHasExactlyFourFields(t *testing.T) {
 	typ := reflect.TypeOf(encodeBusiness{})
 	var got []string
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
 		got = append(got, f.Name+":"+f.Type.Kind().String()+":"+f.Tag.Get("json"))
 	}
-	want := []string{"Business:string:business", "Switch:bool:switch", "Suspended:bool:suspended"}
+	want := []string{"Business:string:business", "Switch:bool:switch", "Suspended:bool:suspended", "Ref:string:ref"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("encodeBusiness is %v, want %v", got, want)
 	}
@@ -227,7 +230,7 @@ func TestPlaqueEncodeBusiness_ASuspendedBusinessIsNamedAndNoRefusalIsRecorded(t 
 
 	b := newBrowser(t, h)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
-	begin := b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+	begin := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 	if begin.Code != http.StatusForbidden || faultOf(t, begin) != faultSuspended {
 		t.Fatalf("the control: the round begin answered %d %q, want 403 %q", begin.Code, begin.Body.String(), faultSuspended)
 	}
@@ -265,7 +268,7 @@ func TestPlaqueEncodeBusiness_SpendsNoRoundBudget(t *testing.T) {
 	}
 	b := newBrowser(t, h)
 	b.cookies[adminauth.CookieName] = panelCookie().Value
-	if rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{}); rec.Code != http.StatusOK {
+	if rec := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm()); rec.Code != http.StatusOK {
 		t.Fatalf("after %d reads the round begin answered %d %q, want 200: the read spent the round budget",
 			adminEncodeLimit+1, rec.Code, rec.Body.String())
 	}
@@ -281,5 +284,77 @@ func TestPlaqueEncodeBusiness_NeverLogsTheName(t *testing.T) {
 	}
 	if strings.Contains(logged.String(), "Qim") {
 		t.Fatalf("the business name reached the log:\n%s", logged.String())
+	}
+}
+
+// --- the begin names the business the app showed (2026-11-10) ------------------------
+
+// beginWith posts the round's begin with the given form as the signed-in fixture session.
+func beginWith(t *testing.T, enc *fakeEncoder, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, nil))
+	return b.do(http.MethodPost, plaqueEncodeHref, form)
+}
+
+// TestPlaqueEncodeBegin_RefusesWithoutTheBusinessTheAppShowed: an APK from before the check sends
+// no `business`; a garbled or repeated one is no better. 400 bad-request (the app's own sentence:
+// update the app), and the store is never asked -- nothing opened, nothing written.
+func TestPlaqueEncodeBegin_RefusesWithoutTheBusinessTheAppShowed(t *testing.T) {
+	for name, form := range map[string]url.Values{
+		"missing (an old APK)": {},
+		"empty":                {"business": {""}},
+		"not a uuid":           {"business": {"Kebabs"}},
+		"the nil uuid":         {"business": {"00000000-0000-0000-0000-000000000000"}},
+		"repeated":             {"business": {panelTestTenant.String(), panelTestTenant.String()}},
+	} {
+		enc := &fakeEncoder{}
+		rec := beginWith(t, enc, form)
+		if rec.Code != http.StatusBadRequest || faultOf(t, rec) != faultBadRequest {
+			t.Errorf("%s: %d %q, want 400 %q", name, rec.Code, rec.Body.String(), faultBadRequest)
+		}
+		if n := len(enc.beganWith()); n != 0 {
+			t.Errorf("%s: the store was asked to begin %d round(s)", name, n)
+		}
+	}
+}
+
+// TestPlaqueEncodeBegin_RefusesAnotherBusiness: the app showed one business and the session is in
+// another (or the caller names a business of its choosing). 409 business-changed, nothing opened.
+func TestPlaqueEncodeBegin_RefusesAnotherBusiness(t *testing.T) {
+	enc := &fakeEncoder{}
+	rec := beginWith(t, enc, url.Values{"business": {"00000000-dead-4000-8000-00000000beef"}})
+	if rec.Code != http.StatusConflict || faultOf(t, rec) != faultBusinessChanged {
+		t.Fatalf("another business: %d %q, want 409 %q", rec.Code, rec.Body.String(), faultBusinessChanged)
+	}
+	if n := len(enc.beganWith()); n != 0 {
+		t.Fatalf("the store was asked to begin %d round(s) for a business the session is not in", n)
+	}
+}
+
+// TestPlaqueEncodeBegin_TheNameReadAndTheRoundTargetTheSameTenant: the app's sequence over one
+// session -- the business read, then the begin carrying the ref it returned -- opens the round in
+// the session's tenant, the one the name belongs to. A different spelling of the same uuid is the
+// same business.
+func TestPlaqueEncodeBegin_TheNameReadAndTheRoundTargetTheSameTenant(t *testing.T) {
+	enc := &fakeEncoder{}
+	h := businessRouter(t, businessReadAdmins(t, nil), enc, true, nil, nil)
+	read := readBusiness(h, testBaseURL, "", true)
+	var got encodeBusiness
+	if err := json.Unmarshal(read.Body.Bytes(), &got); err != nil || read.Code != http.StatusOK {
+		t.Fatalf("business read: %d %q (%v)", read.Code, read.Body.String(), err)
+	}
+	if got.Business != businessReadName || got.Ref != panelTestTenant.String() {
+		t.Fatalf("business read = %+v, want name %q and ref %s", got, businessReadName, panelTestTenant)
+	}
+	b := newBrowser(t, h)
+	b.cookies[adminauth.CookieName] = panelCookie().Value
+	for _, ref := range []string{got.Ref, strings.ToUpper(got.Ref)} {
+		if rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{"business": {ref}}); rec.Code != http.StatusOK {
+			t.Fatalf("begin with the read's ref %q: %d %q, want 200", ref, rec.Code, rec.Body.String())
+		}
+	}
+	calls := enc.beganWith()
+	if len(calls) != 2 || calls[0].tenant != panelTestTenant || calls[1].tenant != panelTestTenant {
+		t.Fatalf("the rounds opened in %v, want twice the session's tenant %s -- the business the name named", calls, panelTestTenant)
 	}
 }

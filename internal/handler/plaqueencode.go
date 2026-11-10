@@ -182,6 +182,11 @@ const (
 	// in THIS file because the client's contract test reads the vocabulary from it
 	// (ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo).
 	faultSuspended = "suspended"
+	// faultBusinessChanged: the round's begin named a business (the `business` field, the ref the
+	// business read handed the relay) that is not the session's own. The app showed one business
+	// and the session is in another, so nothing is opened and nothing is written (2026-11-10; ADR
+	// 0017 md. 10 note). 409: the request is well formed, the state it assumed is not the server's.
+	faultBusinessChanged = "business-changed"
 )
 
 // encodeFaults is the SAME LIST as a value, so a test can assert that every fault
@@ -191,7 +196,7 @@ const (
 var encodeFaults = []string{
 	faultUnavailable, faultBadRequest, faultUnknownSession,
 	faultBusy, faultRefused, faultAlreadyEncoded, faultTooMany, faultServer,
-	faultSuspended,
+	faultSuspended, faultBusinessChanged,
 }
 
 // encodeRelayRoutes are the relay's three route patterns: the ONLY routes on which the
@@ -377,7 +382,7 @@ type encodeFault struct {
 //     function reads httpx.AdminOf(r). Both facts are asserted from the AST by
 //     TestPlaqueEncodeGrant_IsBuiltOnlyFromTheResolvedAdminSession.
 //   - The three handlers read exactly two form keys, `session` and `rapdu`, asserted
-//     from the AST by TestPlaqueEncode_ReadsOnlyTheTwoFormKeysTheRelaySends. There is
+//     from the AST by TestPlaqueEncode_ReadsOnlyTheFormKeysTheRelaySends. There is
 //     no tenant key to send.
 //
 // ⚠️ WHAT IT DOES NOT DECIDE, named rather than implied: it does not ask for a ROLE.
@@ -661,6 +666,22 @@ func (a *AdminAuth) plaqueEncodeBegin(w http.ResponseWriter, r *http.Request) {
 		writeEncodeFault(w, http.StatusInternalServerError, faultServer)
 		return
 	}
+	// 🔴 THE BUSINESS THE APP SHOWED MUST BE THE SESSION'S (2026-11-10, ADR 0017 md. 10 note). The
+	// relay sends back the ref the business read gave it; a round is opened only when it names the
+	// session's own tenant. It is COMPARED, never used: the tenant handed to Begin below is still
+	// the grant's, from the session. Missing (an APK from before this check, or a malformed body) is
+	// bad-request -- the app's own sentence for it is "update the app"; another business is
+	// business-changed. Either way nothing is opened and no row is written.
+	shown, ok := readEncodeBusiness(r)
+	if !ok {
+		writeEncodeFault(w, http.StatusBadRequest, faultBadRequest)
+		return
+	}
+	if shown != g.tenantID {
+		a.log.Warn("plaque encode refused: the business the relay showed is not the session's", "actor", g.actor)
+		writeEncodeFault(w, http.StatusConflict, faultBusinessChanged)
+		return
+	}
 	id, p, err := a.encoder.Begin(r.Context(), g.tenantID, g.adminID, g.actor)
 	if err != nil {
 		a.log.Warn("plaque encode: a round could not be opened", "err", err, "actor", g.actor)
@@ -813,8 +834,8 @@ func (a *AdminAuth) plaqueEncodeAbort(w http.ResponseWriter, r *http.Request) {
 // with its name and `suspended: true` instead, and the app starts no round for it, exactly as it
 // stops on the round routes' `suspended` word; a round begun anyway still meets the ring there.
 //
-// 🔴 WHAT THE BODY CARRIES, AND WHERE EACH FIELD COMES FROM. Three scalars, all of them what the
-// panel already shows THIS session, none of them read from the database here:
+// 🔴 WHAT THE BODY CARRIES, AND WHERE EACH FIELD COMES FROM. Four scalars, all of them about THIS
+// session's own business, none of them read from the database here:
 //
 //	business   panelBusiness(id).Name: tenants.name as the statement that proved the session
 //	           returned it (adminauth.Resolved.TenantName) -- the shell's own source (M14-12).
@@ -824,8 +845,17 @@ func (a *AdminAuth) plaqueEncodeAbort(w http.ResponseWriter, r *http.Request) {
 //	           membership count, and nothing here asks for the membership list.
 //	suspended  httpx.AdminIdentity.Suspension(): the same value the panel's suspension banner and
 //	           the suspension ring read.
+//	ref        the session's tenant id, as text: the reference the app must send back in the
+//	           round's begin (`business`), which plaqueEncodeBegin refuses unless it is the
+//	           session's own tenant. The plain id rather than an HMAC of it, deliberately: the
+//	           check proves that the app SHOWED this business before the round, not who the caller
+//	           is -- the session cookie stays the only authority, and the round's tenant still
+//	           comes only from the session (plaqueEncodeGrantOf). A value that is right is exactly
+//	           what an honest app sends; a secret here would protect nothing a holder of the cookie
+//	           cannot read from this same route. The id is not secret either: the panel already
+//	           puts tenant ids in its own pages (the switch screen's forms).
 //
-// No id, no other business, no role. The name is display data for the person's own phone: it is
+// No other business, no role. The name is display data for the person's own phone: it is
 // never logged.
 
 // encodeBusiness is the business read's one body. Built only inside writeEncodeBusiness, like the
@@ -834,13 +864,14 @@ type encodeBusiness struct {
 	Business  string `json:"business"`
 	Switch    bool   `json:"switch"`
 	Suspended bool   `json:"suspended"`
+	Ref       string `json:"ref"`
 }
 
 // writeEncodeBusiness writes the business read's body. Its literal is built here from three
 // scalars; no caller can hand it a struct.
-func writeEncodeBusiness(w http.ResponseWriter, business string, canSwitch, suspended bool) {
+func writeEncodeBusiness(w http.ResponseWriter, business string, canSwitch, suspended bool, ref string) {
 	encodeResponseHeaders(w, http.StatusOK)
-	_ = json.NewEncoder(w).Encode(encodeBusiness{Business: business, Switch: canSwitch, Suspended: suspended})
+	_ = json.NewEncoder(w).Encode(encodeBusiness{Business: business, Switch: canSwitch, Suspended: suspended, Ref: ref})
 }
 
 // plaqueEncodeBusiness serves GET /admin/plaques/encode/business.
@@ -862,10 +893,26 @@ func (a *AdminAuth) plaqueEncodeBusiness(w http.ResponseWriter, r *http.Request)
 	}
 	b := a.panelBusiness(id)
 	_, suspended := id.Suspension()
-	writeEncodeBusiness(w, b.Name, b.SwitchHref != "", suspended)
+	writeEncodeBusiness(w, b.Name, b.SwitchHref != "", suspended, id.TenantID().String())
 }
 
 // --- reading the request ----------------------------------------------------------
+
+// readEncodeBusiness parses the one field a begin carries: the business ref the relay showed.
+// Absent, repeated or not a uuid is "not given".
+func readEncodeBusiness(r *http.Request) (uuid.UUID, bool) {
+	if err := r.ParseForm(); err != nil {
+		return uuid.Nil, false
+	}
+	if len(r.PostForm["business"]) != 1 {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(r.PostFormValue("business"))
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return id, true
+}
 
 // readEncodeSession parses the one field an abort carries.
 //
