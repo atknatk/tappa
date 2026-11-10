@@ -568,9 +568,25 @@ func TestPanelSuspensionDB_NoPanelReadWritesBusinessData(t *testing.T) {
 	exports := map[string]bool{billingCSVHref: true, reportsCSVHref: true}
 	for _, path := range paths {
 		from := nextXID()
-		res, _ := p.get(t, path)
-		got := written(from, nextXID())
 		bare, _, _ := strings.Cut(path, "?")
+		// The relay's business read answers only a request that declares the panel's Origin (as the
+		// app does), and refuses any other before the session is resolved; it is driven the app's
+		// way so that this census measures it rather than its refusal (2026-11-10).
+		var res *http.Response
+		var body string
+		if bare == plaqueEncodeBusinessHref {
+			res, body = p.getAsRelay(t, path)
+			// This harness wires no encoder, so the handler answers 503 encode-unavailable; with one it
+			// names the suspension. Either way the HANDLER answered (not the Origin gate's 303).
+			served := (res.StatusCode == http.StatusOK && strings.Contains(body, `"suspended":true`)) ||
+				(res.StatusCode == http.StatusServiceUnavailable && strings.Contains(body, faultUnavailable))
+			if !served {
+				t.Errorf("GET %s for a suspended business: %d %q, want the handler's answer", path, res.StatusCode, body)
+			}
+		} else {
+			res, _ = p.get(t, path)
+		}
+		got := written(from, nextXID())
 		if bare == adminLoginPath || bare == "/admin/login/choose" {
 			if len(got) != 0 {
 				t.Errorf("GET %s wrote %v", path, got)

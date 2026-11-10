@@ -23,7 +23,16 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * One screen, five states (K5): signed out → ready → writing → done / fault.
+ * One screen (K5): signed out → checking → business → ready → writing → done / fault.
+ *
+ * THE BUSINESS IS CONFIRMED BEFORE THE READER IS ARMED (user decision 2026-11-10). After a
+ * sign-in the app asks the server which business this panel session encodes for
+ * (EncodeTarget, GET /admin/plaques/encode/business) and shows it with "Start encoding"
+ * and — where the panel has a switch screen — "Change business", which opens the panel's
+ * own /admin/switch in the WebView. The reader is armed only through EncodeTarget.arm,
+ * for a name read under the very session cookie the round will carry; the name stays on
+ * the screen through the round. A person with several businesses is no longer encoding
+ * silently for whichever one they used last (ADR 0031 K-4 lands an identity sign-in there).
  *
  * Sign-in is the panel's own (K3): a WebView opens /admin/login, the operator signs
  * in exactly as in a browser — CSRF, the multi-business "choose" step, the flood
@@ -51,7 +60,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class MainActivity : Activity() {
 
-    private enum class State { SIGNED_OUT, READY, WRITING, DONE, FAULT }
+    /**
+     * CHECKING: the business read is in flight. BUSINESS: the confirmation screen (or, for a
+     * suspended business, the screen that says so). UNCHECKED: the read failed; "Try again".
+     */
+    private enum class State { SIGNED_OUT, CHECKING, BUSINESS, UNCHECKED, READY, WRITING, DONE, FAULT }
 
     private lateinit var panel: View
     private lateinit var serverRow: View
@@ -62,7 +75,9 @@ class MainActivity : Activity() {
     private lateinit var headline: TextView
     private lateinit var message: TextView
     private lateinit var detail: TextView
+    private lateinit var businessLine: TextView
     private lateinit var primaryButton: Button
+    private lateinit var switchButton: Button
     private lateinit var signOutButton: Button
     private lateinit var web: WebView
 
@@ -70,6 +85,16 @@ class MainActivity : Activity() {
 
     /** Set with each FAULT screen: whether its button closes the app (Wording.primaryCloses). */
     private var faultCloses = false
+
+    /** Set with each FAULT screen: whether its button reads the business again (Wording.rechecksTheBusiness). */
+    private var faultRechecks = false
+
+    /**
+     * A panel page was just opened from the app: the first page of the visit clears the
+     * WebView's history, so Back on it closes the visit instead of stepping back into the
+     * about:blank a previous visit ended on (or that visit's pages).
+     */
+    private var freshVisit = false
     private var base: String = DEFAULT_SERVER
     private var nfc: NfcAdapter? = null
 
@@ -79,9 +104,13 @@ class MainActivity : Activity() {
     /** A round is in flight on the reader thread; a second tag is ignored until it ends. */
     private val busy = AtomicBoolean(false)
 
-    /** The screen is waiting for a plaque. Cleared on done/fault so the SAME plaque left on the phone cannot start a second round. */
-    @Volatile
-    private var armed = false
+    /**
+     * Which business a round is for, and the ONLY way the reader gets armed: EncodeTarget.arm
+     * answers for a name read under the current session cookie, EncodeTarget.take is what the
+     * reader thread asks when a plaque arrives (and it disarms, so the SAME plaque left on the
+     * phone cannot start a second round). Rebuilt with the server address.
+     */
+    private lateinit var target: EncodeTarget
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,7 +124,9 @@ class MainActivity : Activity() {
         headline = findViewById(R.id.headline)
         message = findViewById(R.id.message)
         detail = findViewById(R.id.detail)
+        businessLine = findViewById(R.id.business)
         primaryButton = findViewById(R.id.primaryButton)
+        switchButton = findViewById(R.id.switchButton)
         signOutButton = findViewById(R.id.signOutButton)
         web = findViewById(R.id.web)
 
@@ -107,11 +138,13 @@ class MainActivity : Activity() {
             DEFAULT_SERVER
         }
         serverField.setText(base)
+        target = EncodeTarget(server())
         nfc = NfcAdapter.getDefaultAdapter(this)
 
         saveButton.setOnClickListener { saveServer() }
         checkButton.setOnClickListener { checkServer() }
         primaryButton.setOnClickListener { onPrimary() }
+        switchButton.setOnClickListener { openSwitch() }
         signOutButton.setOnClickListener { signOut() }
         setUpWebView()
         setUpBack()
@@ -122,7 +155,9 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (state != State.SIGNED_OUT) enableReader()
+        // Only where a round can follow. The business screens arm nothing; "Start encoding"
+        // switches the reader on (becomeReady) and reports a phone without NFC there.
+        if (state == State.READY || state == State.WRITING || state == State.DONE || state == State.FAULT) enableReader()
     }
 
     /**
@@ -168,12 +203,67 @@ class MainActivity : Activity() {
             show(State.SIGNED_OUT, "Sign in to the panel to start encoding plaques.", "")
             return
         }
+        // The business read doubles as the start-up sign-in probe: a 303 is a dead session.
+        loadBusiness()
+    }
+
+    /**
+     * Asks the server which business this session encodes for, and shows it. Called after a
+     * sign-in, after a visit to the switch screen, and at start-up. Whatever was known is
+     * dropped first (EncodeTarget.read), so nothing can be armed while the answer is pending.
+     */
+    private fun loadBusiness() {
+        disableReader()
+        show(State.CHECKING, "Checking which business you are signed in to…", "")
+        val cookie = panelCookie()
         Thread {
-            val ok = server().probeSignedIn()
-            runOnUiThread {
-                if (ok) becomeReady() else show(State.SIGNED_OUT, "Your panel sign-in has expired. Sign in again.", "")
-            }
+            val reply = target.read(cookie)
+            Log.i(TAG, "business read: ${reply.javaClass.simpleName}" + businessStatusForLog(reply))
+            runOnUiThread { onBusiness(reply) }
         }.start()
+    }
+
+    private fun onBusiness(reply: BusinessReply) {
+        when (reply) {
+            is BusinessReply.Known ->
+                if (reply.suspended) {
+                    show(
+                        State.BUSINESS,
+                        "This business's Taptime account is paused, so plaques cannot be encoded for it right now." +
+                            if (reply.canSwitch) " You can change to another business." else "",
+                        "",
+                        business = reply,
+                    )
+                } else {
+                    show(
+                        State.BUSINESS,
+                        "Every plaque you encode now is added to this business. It cannot be moved to another business later.",
+                        "",
+                        business = reply,
+                    )
+                }
+            BusinessReply.NoSession ->
+                show(State.SIGNED_OUT, "Sign in to the panel to start encoding plaques.", "")
+            is BusinessReply.Refused ->
+                if (reply.status == 303) {
+                    show(State.SIGNED_OUT, "Your panel sign-in has expired. Sign in again.", "")
+                } else {
+                    show(State.UNCHECKED, Wording.forStatus(reply.status), "HTTP ${reply.status}")
+                }
+            is BusinessReply.Fault -> show(State.UNCHECKED, Wording.forFault(reply.fault), "HTTP ${reply.status}")
+            is BusinessReply.Malformed ->
+                show(State.UNCHECKED, "The server's answer was not one this app understands. Update the app.", "HTTP ${reply.status}")
+            is BusinessReply.Unreachable -> show(State.UNCHECKED, "Could not reach the server (${reply.why}).", "")
+        }
+    }
+
+    /** The status and fault WORD of a business read: vocabulary, never the name. */
+    private fun businessStatusForLog(r: BusinessReply): String = when (r) {
+        is BusinessReply.Known -> " (suspended=${r.suspended} switch=${r.canSwitch})"
+        is BusinessReply.Fault -> " (HTTP ${r.status} ${r.fault})"
+        is BusinessReply.Refused -> " (HTTP ${r.status})"
+        is BusinessReply.Malformed -> " (HTTP ${r.status})"
+        else -> ""
     }
 
     private fun setUpWebView() {
@@ -200,9 +290,13 @@ class MainActivity : Activity() {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
-                // Signed in = the panel cookie exists AND the page that finished is a
-                // panel page other than the sign-in flow (the panel 303s to /admin after
-                // a good sign-in).
+                // The visit ends — signed in, or switched — when the panel cookie exists AND
+                // the page that finished is a panel page outside BOTH multi-page flows: the
+                // sign-in (/admin/login…) and the switch screen (/admin/switch, whose refusal
+                // pages answer at the same address). The panel 303s to its home after a good
+                // sign-in and after a good switch. PanelPages.endsVisit is the rule; closing
+                // on the switch screen itself would end a switch before the person picked a
+                // business (2026-11-10).
                 //
                 // MEASURED ON THE DEVICE, NOT REASONED: without the two guards below
                 // this looped. closeWebView() loads about:blank, about:blank finishes,
@@ -212,21 +306,40 @@ class MainActivity : Activity() {
                 // UI from ever going idle. So: only while the sign-in page is showing,
                 // and only for a page on the panel's own origin.
                 if (url == null || web.visibility != View.VISIBLE) return
-                if (!url.startsWith("$base/")) return
-                val onLoginFlow = url.startsWith("$base${HttpRelayServer.LOGIN_PATH}")
-                if (!onLoginFlow && panelCookie() != null) {
+                if (freshVisit && url != "about:blank") {
+                    freshVisit = false
+                    view.clearHistory()
+                }
+                if (PanelPages.endsVisit(base, url, hasSession = panelCookie() != null)) {
                     CookieManager.getInstance().flush()
                     closeWebView()
-                    becomeReady()
+                    loadBusiness()
                 }
             }
         }
     }
 
-    private fun openWebView() {
+    private fun openWebView() = openPanelPage(HttpRelayServer.LOGIN_PATH)
+
+    /** "Change business": the panel's own switch screen. The app re-reads the business when the visit ends. */
+    private fun openSwitch() = openPanelPage(HttpRelayServer.SWITCH_PATH)
+
+    /**
+     * Opens a panel page in the WebView. The business is FORGOTTEN first and the reader goes
+     * off: whatever happens in there — a sign-in, a switch, nothing — the name is read again
+     * before a plaque can be encoded.
+     */
+    private fun openPanelPage(path: String) {
+        // Never mid-round: the round carries its own pinned cookie, but a switch or a sign-in now
+        // would change the business on the screen while a plaque is still being written for the
+        // one it showed. The buttons are hidden while WRITING; this is the belt.
+        if (busy.get()) return
+        target.forget()
+        disableReader()
+        freshVisit = true
         web.visibility = View.VISIBLE
         panel.visibility = View.GONE
-        web.loadUrl("$base${HttpRelayServer.LOGIN_PATH}")
+        web.loadUrl("$base$path")
     }
 
     private fun closeWebView() {
@@ -252,23 +365,32 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Back while the sign-in page is open closes it. Returns true when it did something. */
+    /**
+     * Back while a panel page is open closes it. Returns true when it did something. Opening
+     * the WebView forgot the business, so leaving it this way re-reads it too.
+     */
     private fun onBackFromWebView(): Boolean {
         if (web.visibility != View.VISIBLE) return false
-        if (web.canGoBack()) web.goBack() else closeWebView()
+        if (web.canGoBack()) {
+            web.goBack()
+        } else {
+            closeWebView()
+            if (panelCookie() != null) loadBusiness() else show(State.SIGNED_OUT, "Sign in to the panel to start encoding plaques.", "")
+        }
         return true
     }
 
     private fun becomeReady() {
-        armed = true
-        show(State.READY, "Hold a blank plaque flat against the back of the phone and keep it still.", "")
+        // No name read under THIS session cookie → no reader. Read it (again) instead.
+        val business = target.arm(panelCookie()) ?: return loadBusiness()
+        show(State.READY, "Hold a blank plaque flat against the back of the phone and keep it still.", "", business = business)
         enableReader()
     }
 
     private fun signOut() {
         val s = server()
         show(State.SIGNED_OUT, "Signing out…", "")
-        armed = false
+        target.forget()
         disableReader()
         Thread {
             val status = s.signOut()
@@ -297,6 +419,8 @@ class MainActivity : Activity() {
             CookieManager.getInstance().flush()
         }
         base = normalised
+        target.forget()
+        target = EncodeTarget(server())
         prefs().edit().putString(PREF_SERVER, base).apply()
         show(State.SIGNED_OUT, "Server set to $base. Sign in to encode plaques.", "")
     }
@@ -304,9 +428,14 @@ class MainActivity : Activity() {
     private fun onPrimary() {
         when (state) {
             State.SIGNED_OUT -> openWebView()
-            State.DONE -> becomeReady()
-            State.FAULT -> if (faultCloses) finish() else becomeReady()
-            State.READY, State.WRITING -> Unit
+            State.BUSINESS, State.DONE -> becomeReady()
+            State.UNCHECKED -> loadBusiness()
+            State.FAULT -> when {
+                faultCloses -> finish()
+                faultRechecks -> loadBusiness()
+                else -> becomeReady()
+            }
+            State.CHECKING, State.READY, State.WRITING -> Unit
         }
     }
 
@@ -354,18 +483,35 @@ class MainActivity : Activity() {
 
     /** Runs on the NFC reader thread, never on the main thread — the whole round lives here. */
     private fun onTag(tag: Tag) {
-        if (!armed) return
         if (!busy.compareAndSet(false, true)) return
-        armed = false
-        runOnUiThread { show(State.WRITING, "Keep the plaque still.", "0/$EXPECTED_EXCHANGES · connecting") }
+        // The business the screen showed, read under the cookie this round will carry — or no round.
+        val go = when (val t = target.take(panelCookie())) {
+            is EncodeTarget.Take.Go -> t
+            EncodeTarget.Take.SessionChanged -> {
+                busy.set(false)
+                Log.i(TAG, "round: not started, the panel session changed")
+                runOnUiThread { onSessionChanged() }
+                return
+            }
+            EncodeTarget.Take.NotArmed -> {
+                busy.set(false)
+                return
+            }
+        }
+        val business = go.business
+        // The cookie and the business ref are PINNED for the whole round: every request carries the
+        // header take() checked, never a later read of the cookie jar, and the begin names the
+        // business the screen showed (the server refuses any other).
+        val relay = HttpRelayServer(base, cookie = { go.cookie }, allowHttp = BuildConfig.DEBUG, business = business.ref)
+        runOnUiThread { show(State.WRITING, "Keep the plaque still.", "0/$EXPECTED_EXCHANGES · connecting", business = business) }
         Log.i(TAG, "round: tag in field, opening ISO-DEP")
 
         val outcome: Outcome = try {
             IsoDepChip.open(tag).use { chip ->
                 Log.i(TAG, "round: connected, max transceive ${chip.maxTransceiveLength} bytes, timeout ${IsoDepChip.TRANSCEIVE_TIMEOUT_MS} ms")
-                RelayLoop(server(), chip) { n, step ->
+                RelayLoop(relay, chip) { n, step ->
                     Log.i(TAG, "round: exchange $n after step $step")
-                    runOnUiThread { show(State.WRITING, "Keep the plaque still.", "$n/$EXPECTED_EXCHANGES · $step") }
+                    runOnUiThread { show(State.WRITING, "Keep the plaque still.", "$n/$EXPECTED_EXCHANGES · $step", business = business) }
                 }.run()
             }
         } catch (e: IOException) {
@@ -378,16 +524,32 @@ class MainActivity : Activity() {
         runOnUiThread {
             val detailLine = "${outcome.exchanges}/$EXPECTED_EXCHANGES exchanges"
             when (outcome) {
-                is Outcome.Completed -> show(State.DONE, Wording.forOutcome(outcome), detailLine)
+                is Outcome.Completed -> show(State.DONE, Wording.forOutcome(outcome), detailLine, business = business)
                 // The LABEL must not say "try again" under a message that says not to
                 // (Wording.primaryLabel). The button re-arms the reader -- except on a
                 // suspended business's refusal, where it closes the app: every round
                 // would meet the same gate (ADR 0025 §3; OP-15B 2nd round, F4).
                 else -> {
                     faultCloses = Wording.primaryCloses(outcome)
-                    show(State.FAULT, Wording.forOutcome(outcome), detailLine, primary = Wording.primaryLabel(outcome))
+                    faultRechecks = Wording.rechecksTheBusiness(outcome)
+                    if (faultRechecks) target.forget()
+                    show(State.FAULT, Wording.forOutcome(outcome), detailLine, primary = Wording.primaryLabel(outcome), business = business)
                 }
             }
+        }
+    }
+
+    /**
+     * A plaque was laid on "Hold the plaque" but the panel session is no longer the one the
+     * name was read under (EncodeTarget.Take.SessionChanged). Say so instead of ignoring the
+     * tap: gone → sign in again; another session → read its business.
+     */
+    private fun onSessionChanged() {
+        disableReader()
+        if (panelCookie() == null) {
+            show(State.SIGNED_OUT, "Your panel sign-in has ended, so nothing was encoded. Sign in again.", "")
+        } else {
+            loadBusiness()
         }
     }
 
@@ -401,18 +563,50 @@ class MainActivity : Activity() {
 
     // --- rendering -----------------------------------------------------------------
 
-    private fun show(s: State, text: String, detailText: String, primary: String? = null) {
+    /**
+     * [business] is the line "Encoding for: {name}" — on the confirmation, on "Hold the
+     * plaque" and through the round, so the name is in view right up to the tap. It also
+     * decides "Change business": shown on the confirmation and on "Hold the plaque" when the
+     * panel has a switch screen, never mid-round.
+     */
+    private fun show(s: State, text: String, detailText: String, primary: String? = null, business: BusinessReply.Known? = null) {
         state = s
         message.text = text
         detail.text = detailText
         detail.visibility = if (detailText.isEmpty()) View.GONE else View.VISIBLE
         serverRow.visibility = if (s == State.SIGNED_OUT) View.VISIBLE else View.GONE
-        signOutButton.visibility = if (s == State.SIGNED_OUT || s == State.WRITING) View.GONE else View.VISIBLE
+        signOutButton.visibility = if (s == State.SIGNED_OUT || s == State.WRITING || s == State.CHECKING) View.GONE else View.VISIBLE
+        businessLine.text = if (business != null) "Encoding for: ${business.name}" else ""
+        businessLine.visibility = if (business != null) View.VISIBLE else View.GONE
+        val switchable = business != null && business.canSwitch && (s == State.BUSINESS || s == State.READY)
+        switchButton.visibility = if (switchable) View.VISIBLE else View.GONE
         when (s) {
             State.SIGNED_OUT -> {
                 stampWord("Signed out", color(R.color.line))
                 headline.text = "Not signed in"
                 primaryButton.text = "Sign in"
+                primaryButton.visibility = View.VISIBLE
+            }
+            State.CHECKING -> {
+                stampWord("Checking", color(R.color.line))
+                headline.text = "One moment"
+                primaryButton.visibility = View.GONE
+            }
+            State.BUSINESS ->
+                if (business?.suspended == true) {
+                    stampWord("Paused", color(R.color.tomato))
+                    headline.text = "Encoding paused"
+                    primaryButton.visibility = View.GONE
+                } else {
+                    stampWord("Check", color(R.color.saffron))
+                    headline.text = "Is this the right business?"
+                    primaryButton.text = "Start encoding"
+                    primaryButton.visibility = View.VISIBLE
+                }
+            State.UNCHECKED -> {
+                stampWord("Fault", color(R.color.tomato))
+                headline.text = "Business not checked"
+                primaryButton.text = "Try again"
                 primaryButton.visibility = View.VISIBLE
             }
             State.READY -> {

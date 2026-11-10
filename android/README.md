@@ -22,8 +22,19 @@ waits for the collector. ADR 0017 §2.2 tried six designs against this and close
 none; this app adds no seventh. It follows the ADR's line instead: encode in a
 controlled place, with our device, before the plaque reaches a wall.
 
-User-facing name **Taptime**, package `mt.taptime.relay` (K6). One screen, five
-states: signed out → ready → writing → done / fault.
+User-facing name **Taptime**, package `mt.taptime.relay` (K6). One screen:
+signed out → checking → **business** → ready → writing → done / fault.
+
+🔴 **Which business, before any plaque (2026-11-10, ADR 0017 §6 md. 10 note).** After
+a sign-in the app reads the session's business from the server and shows it —
+*"Is this the right business?"* / *"Encoding for: {name}"* with **Start encoding** and,
+where the panel has a switch screen, **Change business** (the panel's own
+`/admin/switch` in the WebView). The name stays on *"Hold the plaque"* and through the
+round. The reader is armed only by `EncodeTarget.arm`, which answers only for a name
+read under the very session cookie the round will carry; a switch issues a new cookie,
+so the old name cannot arm. Why: with the identity sign-in a person in several
+businesses lands on the last one used (ADR 0031 K-4), and the app used to close the
+WebView on the first panel page and arm the reader without saying which business.
 
 This directory is a separate Gradle build at the repository root, **outside the Go
 module**: `go build ./...` never sees it and `scripts/redline-check.sh`'s fixed `SRC`
@@ -79,14 +90,42 @@ Clean `assembleDebug`, 2026-09-18, round-3 source: **915 285 B** (round 2 measur
 
 ## The wire contract (the server's, not ours)
 
-Three routes, all `POST`, form-encoded in, JSON out
+Three round routes, all `POST`, form-encoded in, JSON out, and one read
 (`internal/handler/plaqueencode.go`):
 
 ```
-POST /admin/plaques/encode          (empty body — tenant and actor come from the panel session)
+POST /admin/plaques/encode          business=<ref>  (tenant and actor come from the panel session)
 POST /admin/plaques/encode/step     session=<handle>&rapdu=<hex>
 POST /admin/plaques/encode/abort    session=<handle>
+GET  /admin/plaques/encode/business (no body) -> {"business","switch","suspended","ref"}
 ```
+
+The business read (2026-11-10) has its own chain on the server — the round routes'
+first four rings (flood → Origin → identity → session budget), **not** their per-session
+encode budget, form binding or suspension ring — so it carries the same `Origin` and
+`Cookie` and is also the start-up "still signed in?" probe (a 303 is a dead session;
+it replaced a `GET /admin`). `switch` says whether `/admin/switch` exists in the
+deployment (the same for one business or many — not a membership count);
+`suspended: true` names a suspended business, and the app starts no round for it.
+A deployment without an encoder answers `encode-unavailable` 503 here too.
+
+`ref` is the session's tenant id, and the round's begin sends it back as `business`.
+The server **compares** it with the session's tenant and opens nothing on a difference:
+missing or garbled → `bad-request` 400 (an APK from before this check is refused, so
+nothing is written), another business → `business-changed` 409 (*"The business changed
+after it was shown here. Nothing was written to the plaque. Check the business and start
+again."*, button *"Check the business"*, which reads it again). The field never chooses
+the tenant — the round's tenant is still the session's. **Ship order is reversed for
+this word: the server that requires `business` refuses every older APK**, so the encode
+phone gets the new APK first.
+
+The round is **pinned**: `EncodeTarget.take` hands back the exact Cookie header it
+checked, and the round's client carries that header and the shown `ref` from the begin to
+the last step — the cookie jar is not read again mid-round, and no panel page opens while
+a round is busy. If the cookie has gone or is another session's when a plaque arrives on
+*"Hold the plaque"*, the tap is not silently ignored: the name is dropped and the screen
+says *"Your panel sign-in has ended, so nothing was encoded. Sign in again."* or reads the
+business again.
 
 Success: `{"session","command","step","done"}` — `command` is the next C-APDU as
 hex and is empty exactly when the round is over. Fault: `{"fault": <word>}` with a
@@ -110,12 +149,13 @@ writedata · changekey.sdmfileread · changefilesettings`), eleven when ADR 0017
 step 8 ships. The app takes its cue from `done`, never from a count.
 
 `ContractPinTest` reads the **Go source** two directories up and pins the three
-routes, the fault vocabulary (as a set and by its size — the README no longer
+routes, the business read (its path, its `r.Get` registration, the four json tags of
+its body), the begin's `business` field and the switch screen's path, the fault vocabulary (as a set and by its size — the README no longer
 writes the number, which went stale twice), the ten step names, the two form field names, the
 panel cookie name and path, the login path, the deployed `TAPPA_BASE_URL` and the
 two wording milestones (row written after exchange 4, secret installed after 9) against
 the Kotlin constants. A drift on the server turns the Android tests red **under one
-condition: the five server files are declared as inputs of the unit-test task**
+condition: the six server files are declared as inputs of the unit-test task**
 (`app/build.gradle.kts`, `test.inputs.files(...)`). Without that declaration the
 sentence was false on a warm tree and an audit measured it — see *Measurements*.
 `everyFileThisTestReadsIsATaskInput` requires every path the test opens to appear
@@ -279,10 +319,46 @@ The session handle is a bearer credential. It lives in one local variable of
 `RelayLoop.run()` for one round; no `Outcome` has a field for it, and
 `Reply.Progress.toString()` redacts it and the command bytes.
 `theHandleIsNeverInAnOutcomeAStringOrASentence` walks every `Outcome` field by
-reflection to say so. Six `Log.i` lines exist, all in `MainActivity`: step names,
-exchange counts, outcome class names, fault words, HTTP statuses.
+reflection to say so. Seven `Log.i` lines exist, all in `MainActivity`: step names,
+exchange counts, outcome class names, fault words, HTTP statuses, and the business
+read's reply class with its two flags — never the business name.
 
-### Mutation record (33 JVM tests; each mutation applied, suite run, source restored)
+The vocabulary grep above has two hits today that predate the business read and are
+not secrets: `changekey.appmaster`, ADR 0017 §5.1 step 8's server step name, in a
+`RelayLoop` comment and in `FakePanel.STEPS` (the grep's exemption names only
+`changekey.sdmfileread`).
+
+### Which business — on the device, against a fake panel (2026-11-10)
+
+The real debug APK on the Galaxy A15, reached through `adb reverse tcp:8090 tcp:8090`,
+against a stdlib Python stand-in for the panel: sign-in sets a session cookie; the
+business read answers per session (neutral test names, *Business One Ltd.* /
+*Business Two Ltd.*) with a `ref` and 303s without `Origin`; `/admin/switch` issues a new
+cookie; the begin checks `business` and opens no round. No chip was near the phone and
+nothing was encoded. Server log and screen, second build (with the `ref` and the pinned
+round):
+
+```
+POST /admin/login 303 -> GET /admin 200 (WebView closes)
+GET  /admin/plaques/encode/business  Origin=http://localhost:8090  Sec-Fetch-Site=(none)  session=ONE -> 200
+     screen: "Is this the right business?" / "Encoding for: Business One Ltd." / Start encoding · Change business
+Change business -> GET /admin/switch 200 — the WebView STAYED OPEN on the switch screen
+system Back on the switch screen -> the visit closed at once (no blank page) -> business read again -> same screen
+Change business -> POST /admin/switch 303 (new cookie) -> GET /admin 200 (WebView closes)
+GET  /admin/plaques/encode/business  session=TWO -> 200 -> "Encoding for: Business Two Ltd."
+Start encoding -> "Hold the plaque" / "Encoding for: Business Two Ltd."; dumpsys nfc reader_mode_change flags 385
+Sign out -> reader_mode_change flags 0
+```
+
+The first build (before the `ref`) was measured the same way, plus: "Change business" from
+*"Hold the plaque"* switches the reader off (flags 0) and "Back to the panel" re-reads and
+returns to the confirmation with the reader still off.
+
+**Not measured:** the same against the real Go server with an encoder and a
+two-business identity (a local http server has no encoder, so its business read answers
+`encode-unavailable`; a round against production is out of bounds) — backlog T270.
+
+### Mutation record (58 JVM tests since 2026-11-10; each mutation applied, suite run, source restored)
 
 | # | Mutation | Red |
 |---|---|---|
@@ -303,6 +379,30 @@ exchange counts, outcome class names, fault words, HTTP statuses.
 | F4-2 | MainActivity passes `allowHttp = true` instead of `BuildConfig.DEBUG` | `theAppPassesBuildConfigDebugAtEveryCallSite` |
 | F5 | host not lower-cased in `normaliseBase` | `origin_isTheBareLowerCaseOrigin` |
 | F5b | scheme not lower-cased | `origin_isTheBareLowerCaseOrigin` |
+| B1 | `EncodeTarget.arm` answers without a read (placeholder business) | `theReaderCannotBeArmedBeforeTheBusinessIsRead` (+3) |
+| B2 | `confirmedFor` ignores the session | `afterASwitch_theOldNameNeverArms_untilTheNewOneIsRead`, `aCookieChangeBetweenArmAndTap_startsNoRound` |
+| B3 | `take` does not re-check the session | `aCookieChangeBetweenArmAndTap_startsNoRound` |
+| B4 | `take` does not disarm | `takeDisarms_soTheSamePlaqueCannotStartASecondRound` |
+| B5 | `read` stores a late answer (no generation check) | `aReadThatFinishesAfterForget_leavesNothingKnown` |
+| B6 | a suspended business is armed | `aSuspendedBusiness_isNamedButNeverArmed` |
+| B7 | `PanelPages.endsVisit` closes on `/admin/switch` | `theSwitchScreenAndTheSignInKeepTheWebViewOpen` |
+| B8 | `onPageFinished` back to the old login-only check | `onPageFinished_closesOnlyByTheRule` |
+| B9 | `onTag` starts a round without `take()` | `theReaderIsArmedOnlyThroughEncodeTarget` |
+| B10 | `becomeReady` arms without `EncodeTarget.arm` | `theReaderIsArmedOnlyThroughEncodeTarget` |
+| B11 | opening the panel does not forget the business | `openingThePanelForgetsTheBusinessFirst` |
+| B12 | the business read drops `Origin` | `businessRead_isAGetWithOriginAndTheExactCookie` |
+| B13–B15 | Go side: the route renamed · a json tag renamed · `adminSwitchHref` changed | `theBusinessReadAndTheSwitchScreen_matchTheServer` |
+| N1 | `take` answers NotArmed for a changed session | `aCookieChangeBetweenArmAndTap_isSaidAndDropsTheName` |
+| N2 | SessionChanged keeps the name | `aCookieChangeBetweenArmAndTap_isSaidAndDropsTheName` |
+| N3 | the round's client built from the cookie jar (`server()`) | `theRoundIsPinnedToTheTakenCookieAndTheShownBusiness` |
+| N4 | the round's cookie not pinned (`{ panelCookie() }`) | `theRoundIsPinnedToTheTakenCookieAndTheShownBusiness` |
+| N5 | a panel page opens mid-round | `openingThePanelForgetsTheBusinessFirst` |
+| N6 | SessionChanged swallowed | `theRoundIsPinnedToTheTakenCookieAndTheShownBusiness` |
+| N7 | the begin does not send the ref | `theRoundCarriesTheShownBusinessAndThePinnedCookie` |
+| N8 | `business-changed` offered "Try again" | `aChangedBusiness_isReadAgainNotRetried` |
+| N9 | the FAULT button does not re-read on `business-changed` | `aChangedBusiness_isReadAgainNotRetried` |
+| N10 | no history clear on a fresh WebView visit | `openingThePanelForgetsTheBusinessFirst` |
+| N11–N12 | Go side: the begin's field renamed · the `ref` tag renamed | `theTwoFormFields_matchWhatTheHandlersRead`, `theBusinessReadAndTheSwitchScreen_matchTheServer` |
 
 ## Testing against a local server
 

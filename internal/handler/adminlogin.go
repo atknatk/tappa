@@ -664,6 +664,22 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	// the measurement that made this a separate mount rather than one more r.Use.
 	a.mountWriting(r)
 
+	// 🔴 THE ENCODE RELAY'S ONE READ (2026-11-10, plaqueencode.go → plaqueEncodeBusiness): which
+	// business the app's session encodes for, asked before a plaque is touched. A GET, so it is not
+	// in mountWriting (whose routes are the panel's writes, and whose two chains end in the form
+	// binding and, for the main group, the suspension ring -- neither fits a read the app makes
+	// without a page). It is not in the dashboard group either, because that chain has no Origin
+	// check: the round routes refuse a caller that does not declare the panel's origin BEFORE the
+	// resolver, and this read about the same session keeps that order. ProtectWriting's first four
+	// stages, in its order, and nothing else.
+	r.Group(func(r chi.Router) {
+		r.Use(a.floodGate("admin_panel"))
+		r.Use(a.sameOriginGate)
+		r.Use(a.requireAdmin())
+		r.Use(a.sessionGate)
+		r.Get(plaqueEncodeBusinessHref, a.plaqueEncodeBusiness)
+	})
+
 	// 🔴 SIGN-OUT IS A SEPARATE GROUP, AND THE REASON IS AN INVARIANT: ENDING YOUR
 	// OWN SESSION MUST NOT BE REFUSABLE BY A THIRD PARTY.
 	//
