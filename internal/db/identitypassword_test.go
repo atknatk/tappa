@@ -2117,6 +2117,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		slices.Sort(laterTables)
 		lockForDowns(t, ctx, tx, slices.Compact(laterTables))
 	}
+	aiLiftLaterDownRefusals(t, ctx, tx, later)
 	for i := len(later) - 1; i >= 0; i-- {
 		if later[i].name >= "00074" {
 			opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
@@ -2138,11 +2139,13 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 	// this list it does not already name (tenants above all: a strong tenants lock from 00072's Down
 	// would hide behind 00077's).
 	laterDownLocks := map[string]string{
-		"admin_invites": "00077's Down drops its own table",
-		"admin_users":   "00077's Down: admin_invites' composite FK to admin_users",
-		"tenants":       "00077's Down: admin_invites' FK to tenants",
-		"tags":          "00089's Down puts the key-envelope CHECK back NOT VALID and 00090's sets status's DEFAULT (ALTER TABLE tags)",
-		"transactions":  "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152)",
+		"admin_invites":       "00077's Down drops its own table",
+		"admin_users":         "00077's Down: admin_invites' composite FK to admin_users",
+		"tenants":             "00077's Down: admin_invites' FK to tenants",
+		"tags":                "00089's Down puts the key-envelope CHECK back NOT VALID and 00090's sets status's DEFAULT (ALTER TABLE tags)",
+		"transactions":        "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152)",
+		"tenant_plan_history": "00098's Down drops its key to platform_admins and 00097's drops the table",
+		"platform_admins":     "00098's Down: tenant_plan_history's key to platform_admins",
 	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	for _, w := range walked {

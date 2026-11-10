@@ -228,7 +228,12 @@ SELECT line FROM (
 // table-level SELECT, and granted nothing; 00088 -- T163, ADR 0038 -- replaced tappa_app's table-level
 // INSERT on transactions with a column INSERT on every column but id and created_at (both the
 // database's), so its transactions lines are that column line and its table-level SELECT; 00095 --
-// T152, ADR 0042 -- added the five shift_* columns to that INSERT line (ADR 0038's rule) -- and READ
+// T152, ADR 0042 -- added the five shift_* columns to that INSERT line (ADR 0038's rule); 00097 --
+// T27, ADR 0043 -- added tenant_plan_history (ENABLE + FORCE and its tenant policy; tappa_app reads
+// three columns and writes nothing), its INVOKER trigger function tappa_record_plan_change
+// (execute=-) and the reader tappa_plan_in_force (EXECUTE tappa_app); 00098 -- T27, the operator
+// half -- granted tappa_opdefiner the same three columns and EXECUTE on the reader (its line shows
+// both roles) -- and READ
 // line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -365,6 +370,8 @@ column tags tappa_resolver SELECT uid,tenant_id,location_id,aes_key_ref,last_ctr
 column tenant_branding tappa_app INSERT tenant_id,updated_by
 column tenant_branding tappa_app UPDATE accent,logo,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by
 column tenant_branding tappa_holdingdefiner SELECT tenant_id,accent,logo,logo_sha256,logo_mime,logo_width,logo_height
+column tenant_plan_history tappa_app SELECT tenant_id,plan,effective_from
+column tenant_plan_history tappa_opdefiner SELECT tenant_id,plan,effective_from
 column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at
 column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
@@ -494,6 +501,8 @@ function tappa_forbid_mutation() owner=tappa_owner definer=false execute=-
 function tappa_forbid_revocation_reset() owner=tappa_owner definer=false execute=-
 function tappa_forbid_unencoded_activation() owner=tappa_owner definer=false execute=-
 function tappa_local_month_start(date,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
+function tappa_plan_in_force(uuid,timestamp with time zone,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
+function tappa_record_plan_change() owner=tappa_owner definer=false execute=-
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
 namespace public owner=pg_database_owner
 rel admin_identities r owner=tappa_owner rls=enable,force
@@ -533,6 +542,7 @@ rel sessions r owner=tappa_owner rls=enable,force
 rel site_punches r owner=tappa_owner rls=enable,force
 rel tags r owner=tappa_owner rls=enable,force
 rel tenant_branding r owner=tappa_owner rls=enable,force
+rel tenant_plan_history r owner=tappa_owner rls=enable,force
 rel tenants r owner=tappa_owner rls=enable,force
 rel transaction_reviews r owner=tappa_owner rls=enable,force
 rel transactions r owner=tappa_owner rls=enable,force

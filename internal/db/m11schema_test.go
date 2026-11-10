@@ -312,6 +312,14 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Insert: "tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note",
 		},
 	},
+	// 00097 / 00098 (T27, ADR 0043): the plan history -- append-only, written only by the tenants
+	// trigger as whoever changes the plan (the owner today). tappa_app reads the three columns the
+	// reader names (the panel's preview and close) and writes nothing; tappa_opdefiner the same three
+	// (op_read_tenant_billing). Neither reads changed_by (which operator), id or recorded_at.
+	"tenant_plan_history": {
+		"tappa_app":       {Select: "tenant_id,plan,effective_from"},
+		"tappa_opdefiner": {Select: "tenant_id,plan,effective_from"},
+	},
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
@@ -580,6 +588,13 @@ var m11Functions = map[string]m11FunctionACL{
 	// EXECUTE that is not tappa_app's: tappa_owner alone (the migration calls it, the runbook calls it
 	// again before M14-19, contract B drops it).
 	"identity_reconcile()": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_identitydefiner,tappa_owner"},
+	// 00097 (T27, ADR 0043): the plan-change trigger function -- SECURITY INVOKER (the row is written
+	// with the privilege of whoever changed the plan), EXECUTE in its owner alone, its body asserting
+	// TG_RELID -- and the reader of the plan in force, SECURITY INVOKER over three columns of
+	// tenant_plan_history: EXECUTE to tappa_app (the panel's preview and close) and, since 00098, to
+	// tappa_opdefiner (op_read_tenant_billing).
+	"tappa_record_plan_change()":                              {owner: "tappa_owner", execute: "tappa_owner"},
+	"tappa_plan_in_force(uuid,timestamp with time zone,text)": {owner: "tappa_owner", execute: "tappa_app,tappa_opdefiner,tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

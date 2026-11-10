@@ -185,6 +185,10 @@ var opAtVersionSkips = map[int]string{
 		"Down are CONCURRENTLY (they cannot run inside a test's transaction)",
 	95: "transactions' five shift_* columns, their NOT VALID CHECK and tappa_app's INSERT on them (T152) -- no operator " +
 		"object; its Down takes ACCESS EXCLUSIVE on transactions and refuses while a row carries a shift snapshot",
+	97: "tenant_plan_history, its trigger on tenants and tappa_plan_in_force (T27) -- no operator object (00098 is " +
+		"their operator half and IS walked); its Down takes ACCESS EXCLUSIVE on tenants and refuses while a plan " +
+		"change is recorded -- rows the billing tests commit -- and the tenant's own billing statements call " +
+		"tappa_plan_in_force at every version the walk reaches",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
@@ -1003,14 +1007,25 @@ func TestOperator00030_TheDefinerCannotReadAPlaqueKey(t *testing.T) {
 // EXECUTE without owning them and without PUBLIC's EXECUTE: 00016's five billing functions,
 // granted by 00032 (OP-12) for op_read_tenant_billing -- four called by the read, the fifth
 // both by it and inside tappa_employee_is_billable, which runs as its caller. None is a
-// SECURITY DEFINER and none reads a relation. A sixth needs a migration AND a line here.
+// SECURITY DEFINER and none reads a relation. A sixth needs a migration AND a line here --
+// and 00098 (T27) is that migration: tappa_plan_in_force, the plan in force for a month, which
+// the read calls for each live month. It is SECURITY INVOKER too, and it DOES read a relation
+// (tenant_plan_history: three columns, granted to the definer by the same file, with an explicit
+// tenant filter -- the only barrier there, the definer bypassing RLS).
 var opDefinerForeignExecAllowed = []string{
 	"public.tappa_employee_lifecycle_status(timestamp with time zone, timestamp with time zone)",
 	"public.tappa_employee_is_billable(text, timestamp with time zone, timestamp with time zone, timestamp with time zone, timestamp with time zone)",
 	"public.tappa_local_month_start(date, text)",
 	"public.tappa_first_chargeable_month(text, timestamp with time zone, text)",
 	"public.tappa_billing_amount_due(boolean, numeric, integer)",
+	"public.tappa_plan_in_force(uuid, timestamp with time zone, text)",
 }
+
+// opBillingHelpers00032 are the first five of opDefinerForeignExecAllowed -- 00016's billing
+// functions, the set 00032 granted -- for the tests that hold a version at or below 00032, where
+// 00098's sixth is not the definer's (00097, which gives tappa_app the sixth, is not walked back:
+// opAtVersionSkips).
+var opBillingHelpers00032 = opDefinerForeignExecAllowed[:5]
 
 // opDefinerForeignExecFindings returns, in every schema (pg_catalog included), for the
 // functions NOT owned by tappa_opdefiner:

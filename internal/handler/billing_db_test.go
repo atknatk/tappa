@@ -71,6 +71,10 @@ func seedBillingTenant(t *testing.T, p *panelHarness, m billing.Month, plan stri
 	// argument internal/domain/billing's own ownerExec makes, and if this could be done
 	// as tappa_app that package's TestBillingDB_TheAppCannotWriteTheTerms would be
 	// asserting something untrue.
+	// The history row first (00097, T27; internal/domain/billing's newFixture says why):
+	// "signed up at signup on plan", not a plan change made today.
+	billingOwnerExec(t, `INSERT INTO tenant_plan_history (tenant_id, plan, effective_from) VALUES ($1, $2, $3)`,
+		p.tenantID, plan, signup)
 	billingOwnerExec(t, `UPDATE tenants SET timezone = 'Europe/Malta', plan = $2,
 	                            price_per_employee_month = 1.50, created_at = $3
 	                      WHERE id = $1`, p.tenantID, plan, signup)
