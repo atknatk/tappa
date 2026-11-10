@@ -144,12 +144,11 @@ func billingCSVFilename(month string) string {
 // could write inside it would make the read path a write path for a row that is not
 // conditional on the read.
 //
-// 🔴 AND A FAILED AUDIT WRITE DOES NOT REFUSE THE DOWNLOAD. Nothing is LOST when it
-// fails: §4.6 is about the attendance record, and this is an access trail beside it.
-// a.record logs the failure loudly (§7: never swallowed). The figures in this file are
-// the same ones the section renders, which writes no trail row either, so refusing the
-// download on a database blip would withhold nothing from anybody determined — it would
-// only cost an owner their invoice.
+// 🔴 AND A FAILED AUDIT WRITE REFUSES THE DOWNLOAD (backlog T18, user decision
+// 2026-11-08), as on reportsExport: the two sibling routes answer "does a bulk export
+// leave a trail?" the same way, and here the answer is now "always, or there is no
+// file". The row is written before any header, so a refusal sends no byte of the
+// document; the route reads, so nothing is changed or lost (§4.6).
 //
 // ✅ THE READ-PATH PROPERTY IS UNTOUCHED BY THIS, and it is worth saying which property
 // that is: TestBillingRead_WritesNothing pins that no GET reaches billing.Book.Close,
@@ -192,13 +191,16 @@ func (a *AdminAuth) billingExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.record(r.Context(), audit.Event{
+	if err := a.recordFirst(r.Context(), audit.Event{
 		TenantID: id.TenantID(),
 		ActorID:  ptr(id.Admin.AdminUserID),
 		Action:   ActionBillingExported,
 		Target:   d.Month.String(),
 		Detail:   billingExportDetail(d, history, capped, len(doc)),
-	})
+	}); err != nil {
+		a.refuseUnrecordedExport(w, r)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	// nosniff MATTERS MORE ON A FILE THAN ON THE PANEL'S HTML: this response is a

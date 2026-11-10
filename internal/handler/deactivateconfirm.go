@@ -82,12 +82,14 @@ import (
 // before each POST and got three deactivations from one mint. Nothing here notices,
 // because there is nothing here to notice with.
 //
-// ⚠️ THIS LIMIT IS STILL OPEN AND IS COUNTED RATHER THAN CLOSED. Closing it needs
-// server-side state — a spent-value table or a nonce — with its own retention and its
-// own failure modes, which is a different task. A counted hole is safer than one
-// claimed shut, and what makes this one survivable is stated where each gate consumes
-// it: DeactivateEmployee carries `status <> 'deactivated'`, and a removal is
-// idempotent because the second DELETE matches no row.
+// ⚠️ THIS LIMIT IS ACCEPTED, NOT CLOSED (backlog T12, user decision 2026-11-08, ADR 0005
+// "Kabul edilen backlog bulguları"). Closing it needs server-side state — a spent-value
+// table or a nonce — with its own retention and its own failure modes. What makes it
+// survivable is each gate's SECOND defence on the write itself, and those are kept in one
+// place: confirmGates in confirminventory_test.go classifies every action below with its
+// defence and the tests that measure it, and goes red on a gate it does not know. Since
+// backlog T258 (2026-11-09) that includes record.manual: the domain writes the same manual
+// record once, under the person's tap lock.
 //
 // 🔴 PART 12 WAS ADDED AFTER AN AUDIT SPENT ONE GATE'S VALUE AT ANOTHER'S. Until
 // version 2 the payload named a SUBJECT and a SESSION but not the ACT, so a
@@ -235,10 +237,10 @@ const (
 	// A mis-pressed close is a permanent, uncorrectable statement about what somebody
 	// was charged.
 	//
-	// ⚠️ THE ONE-SHOT ARGUMENT THIS FILE MAKES FOR THE OTHER SEVEN HOLDS HERE TOO, AND
-	// FOR A DIFFERENT REASON. A re-printed cookie can spend one mint repeatedly; what
-	// makes that harmless elsewhere is a predicate on the write (DeactivateEmployee's
-	// `status <> 'deactivated'`), and here it is the UNIQUE constraint: the second
+	// ⚠️ THE ONE-SHOT ARGUMENT HOLDS HERE TOO, AND FOR A DIFFERENT REASON. (Each gate's
+	// own reason is in confirmGates.) A re-printed cookie can spend one mint repeatedly; what makes that harmless at the
+	// deactivation is a predicate on the write (DeactivateEmployee's `status <>
+	// 'deactivated'`), and here it is the UNIQUE constraint: the second
 	// close of the same month raises 23505 and the caller reports "already closed". So
 	// a replay writes no billing row, no audit row and no second figure.
 	//

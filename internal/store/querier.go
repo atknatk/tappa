@@ -1995,6 +1995,21 @@ type Querier interface {
 	// updated_by are written; created_at and updated_at take their defaults and every
 	// brand field stays NULL until step 3.
 	EnsureTenantBrand(ctx context.Context, arg EnsureTenantBrandParams) error
+	// THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
+	// confirmation is not single-use (T12, ADR 0005), so a double press of "Record it" sends the same
+	// confirmed entry twice; this is the read manual.Record makes UNDER THE PERSON'S TAP LOCK before it
+	// writes, and a row here means the second press writes nothing. The key is the statement the
+	// manager made: the person, the direction, the instant and the author. Venue and note are not in it
+	// -- one person cannot check in twice at one instant, so a second row with another venue or another
+	// note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
+	// instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+	//
+	// WHAT THE ROW SAYS, SO THE SCREEN CAN BE HONEST (user decision 2026-11-10). When the venue or the
+	// note differs from what was just confirmed, nothing is written either, but the panel says so
+	// instead of "already saved": the venue (this business's own, by name; a partner venue by id, named
+	// from the person's partner list), the note, and whether the row answers a punch claim (its
+	// decision names it, punch_claim_decisions_one_per_record) -- that row was not pressed by anybody.
+	ExistingManualRecord(ctx context.Context, arg ExistingManualRecordParams) (ExistingManualRecordRow, error)
 	// A SEND FAILED (a relay refusal, a broken connection, a timeout -- not a limit, the breaker or the
 	// mailbox cap, which DeferInviteRequest delays without counting): the request stays, due again at
 	// @due, and its tries go up by one. The caller gives up at its maximum. Only under this worker's

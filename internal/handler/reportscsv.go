@@ -220,30 +220,26 @@ func (a *AdminAuth) reportsExport(w http.ResponseWriter, r *http.Request) {
 	// it would make the read path a write path — for a row that is not conditional on
 	// the read in the first place.
 	//
-	// WHY A FAILED AUDIT WRITE DOES NOT REFUSE THE DOWNLOAD, which is the sharper
-	// question — and the answer has to be stated NARROWLY, because the first version of
-	// it claimed more than is true. It said "the same numbers are already reachable
-	// without any audit row on GET reportsHref". That holds for the TOTALS and NOT for
-	// the rows: maxReportRows and maxOpenRows bound the screen's listings at a hundred
-	// each, the reports screen has no cursor at all (reports.go says so: "this page
-	// cannot page"), so the hundred-and-first person's row is reachable HERE and
-	// nowhere else in this section.
-	//
-	// SO THE ACCURATE VERSION, WITH THE NUANCE THAT SURVIVES IT: what the export adds
-	// over the screen is a bulk artefact and an ACCOUNTABILITY question, not a
-	// confidentiality one. The underlying records are readable row by row from the
-	// paginated Transactions section — which writes no audit row either — so refusing
-	// this download on a database blip would not withhold anything from anybody
-	// determined; it would only cost a manager their payroll file. And nothing is LOST
-	// when the trail write fails: §4.6 is about the attendance record, and this is an
-	// access trail beside it. a.record logs the failure loudly (§7: never swallowed).
-	a.record(r.Context(), audit.Event{
+	// 🔴 A FAILED AUDIT WRITE REFUSES THE DOWNLOAD (backlog T18, user decision
+	// 2026-11-08). The export is the one place the hundred-and-first person's row is
+	// reachable in this section: maxReportRows and maxOpenRows bound the screen's
+	// listings at a hundred each and the reports screen has no cursor (reports.go: "this
+	// page cannot page"). So the row is the accountability for a bulk artefact that has
+	// no other trail, and a file handed over without it is untraceable once it is
+	// emailed on. The row is written before any header is set, so a refusal sends no
+	// byte of the file -- no partial download -- and nothing is LOST either way: §4.6 is
+	// about the attendance record, which this route only reads. recordFirst logs the
+	// failure as an ERROR (§7: never swallowed), with its class only.
+	if err := a.recordFirst(r.Context(), audit.Event{
 		TenantID: id.TenantID(),
 		ActorID:  ptr(id.Admin.AdminUserID),
 		Action:   ActionReportExported,
 		Target:   screen.Period.FirstDay.String(),
 		Detail:   exportDetail(screen, len(doc)),
-	})
+	}); err != nil {
+		a.refuseUnrecordedExport(w, r)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	// 🔴 nosniff MATTERS MORE HERE THAN ON THE PANEL'S HTML, which is why it is set

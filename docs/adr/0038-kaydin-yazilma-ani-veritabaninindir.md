@@ -69,6 +69,8 @@ SELECT 55P03 aldı). `lock_timeout = '1s'` sıcak tablo kuralı gereği yine ilk
   30 sn'lik `idle_in_transaction_session_timeout` devreye girmiyor, ana havuzda `statement_timeout` yok.
   Etki kritik değil (aynı yetkideki saldırgan zaten `verdict='ok'` yazabiliyor); kapatmanın yolu (b′)
   `clock_timestamp()`, ayrı bir karar olarak açık — backlog **T226**; ADR 0006 bu dürüst yolu zaten yazıyor.
+  **2026-11-08:** kullanıcı kararıyla kabul edildi, (b′) alınmadı — [ADR 0005](0005-kabul-edilen-riskler.md)
+  *"Kabul edilen backlog bulguları"*, T226 satırı.
 - **Eski bir migration'ın Down/Up'ını tek başına yürüyen testler** (00008, 00043, 00064, 00065, 00067
   sınıfı) `transactions`'a bir sütunu düşürüp geri ekliyorsa, 00088'i sarmalamadan (önce Down'ı, sonda
   Up'ı) koşarsa kırılır: geri eklenen sütun sütun listesinde değildir. goose'un kendi sırasında sorun

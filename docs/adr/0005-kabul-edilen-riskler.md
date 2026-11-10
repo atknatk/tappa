@@ -121,6 +121,14 @@ bir **rapordur**.
 **Uygulandığı görev.** [M6-11](../plan/m6-dashboard.md) (anomali ve kötüye kullanım
 raporu) — eş-zamanlı tap çiftleri kesiti.
 
+> **Bilinçli onay (kullanıcı kararı, 2026-11-08, backlog T25).** Bu sinyalin canlıdaki biçimi
+> `ListTapsTakenTogether` (müdürün anomali ekranında *"Tapping together"* listesi): iki farklı kişinin
+> aynı mekândaki kayıtlarının 20 sn içinde art arda düşmesi (`ledger.TogetherWithin`; mekân `coalesce(location_id, site_location_id)`, `db/queries/anomalies.sql`), en az 2 ayrı yerel günde
+> (`ledger.TogetherMinDays`). Bu, ürünün daha önce yapmadığı bir çıkarımdır (kim kiminle geliyor);
+> kullanıcı onu olduğu gibi onayladı: *"buddy-punching detection, common in time & attendance
+> products"*. Eşikler değişmedi; liste müdürün ekranında kalır (yalnız denetim izine
+> taşınmadı). Bir ret sebebi değil, bakılacak yeri gösteren bir listedir; eşikleri ekranın kendisi basar.
+
 **Satış cevabı (çekirdek).** Müşteri "peki telefonunu arkadaşına verirse?"
 dediğinde cevap dört katmanlıdır ve hiçbiri gizlenmez:
 - **1 oturum = 1 çalışan.** Bir telefon iki kişiyi basamaz; devir için telefonun
@@ -1051,6 +1059,19 @@ testi ikisini de üretmez, taklit eder, ve taklit eden bir test kabulü **doğru
 tarafından tarif edilir, bir test tarafından değil. Bunu *"kapatıldı"* diye yazmak,
 bu görevin dört turdur tekrarlayan **"sağlanmayan garantiyi beyan etmek"** kusurunu
 bir kez daha işlemek olurdu.
+
+## Kabul edilen backlog bulguları (kullanıcı kararı, 2026-11-08)
+
+> M8-04 tablosunun sınıfından, ama ona eklenmedi: o tablonun satır sayısı ve çapası
+> `TestADR0005_TheAnchorCountsMatchTheProse` ile M8-04 FAZ B3'e bağlı. Buradakiler backlog
+> satırlarıdır; ikisi de kullanıcının 2026-11-08 kararıyla kabul edildi. Her satır bir test adına
+> bağlı (`TestEveryNamedTestExists` bu dosyayı da tarar); çapa kabulün önkoşulunu tutar, önkoşul
+> kalkarsa kabul de kalkar.
+
+| Bulgu | Ne kabul edildi | Neden kapatılmadı | Mekanik çapa (kabulü yanlışlayan) |
+|---|---|---|---|
+| **T12** panel onay değeri tek kullanımlık değil: sunucuda durum yok, aynı değer TTL içinde (10 dk + 1 dk saat kayması) yeniden harcanabilir | Tek kullanımlık yapılmadı. Değer HMAC'li ve oturuma, eyleme ve konuya bağlı; yalnız aynı panel oturumunun çerezlerini tutan harcayabilir, o kişi de kendi oturumundaki tek bir istekle (inceleme sayfası; çoğu kapıda bir POST) yeni bir değer alabilir, yani yeniden harcama ona yeni bir yetki vermez. Zararı her kapının yazmadaki ikinci savunması sınırlar. 2026-11-08 sayımında kapı 11 (backlog satırı altı diyordu, bayattı; okundu): 8'inde ikinci harcama hiçbir şey yazmaz; `plaque.unmount`, `policy.edit` ve `employee.move_cutoff` ancak arada başka bir yoldan geri alındıysa yeniden yazar. **`record.manual` 2026-11-09'a kadar istisnaydı** (yeniden harcama ikinci, aynı, silinemez bir elle kaydı yazıyordu; çift tıklama da yapabiliyordu, çünkü *"Record it"* düz bir submit düğmesi ve panelde betik yok). **T258 ile kapandı** (kullanıcı kararı 2026-11-09, *"refuse the duplicate"*): `manual.Record` kişinin tap kilidi altında aynı kişi, yön, an ve yazar için var olan elle kaydı okur ve varsa yazmaz; panel *"That record was already saved."* der. Ayrıntı [ADR 0011](0011-duzeltme-satiri-yalnizca-kisaltir.md) *"Ek — aynı kayıt bir kez yazılır"* | Tek kullanım bir harcanmış-değer tablosu ister (saklama süresi, temizlik, kendi hata durumları); kazanç, aynı operatörün kendi oturumunda tek bir istekle yapabildiğinden fazlası değil | `TestConfirmationGates_EveryGateIsClassifiedWithItsSecondDefence`: her kapıyı ikinci savunması ve onu ölçen testlerle sınıflar, sınıflanmamış yeni kapıda kırmızı; `TestManualRecord_TheSameRecordPressedNTimesIsWrittenOnce`: elle kaydın ikinci savunmasını gerçek kilit altında ölçer; `TestEmployeeDeactivate_TheOneShotDependsOnTheClient` |
+| **T226** `transactions.created_at` işlemin başlangıcıdır (`DEFAULT now()`); satırı yazan, işlemi açık tuttuğu kadar onu geri çekebilir | (b′) alınmadı: `created_at := clock_timestamp()` BEFORE INSERT tetikleyicisi ya da DEFAULT `clock_timestamp()`. Ölçüm T163 güvenlik denetiminin (2026-11-07, `tappa_app`, denetçinin ölçümü): `BEGIN; pg_sleep(62); INSERT …; ROLLBACK` → yazıldığı andaki yaş 00:01:02.31, debounce'un sunucu bacağı (`SecondsSinceLastRecordedTap`) 0 satır; `pg_sleep` *idle in transaction* sayılmıyor, ana havuzda `statement_timeout` yok | Etki kritik değil: aynı yetki (`tappa_app`'in INSERT'i) zaten `verdict='ok'` bir satır yazabiliyor, geri çekme o yazarın yapamadığı bir şeyi açmıyor. (b′)'nin bedeli: debounce'un DB-yaşı bacağının ölçtüğü değişir (kilidi bekleyen satırın yaşı bekleme kadar şişer, [ADR 0006](0006-debounce-iki-kosullu-zaman.md)) ve tek işlemdeki satırların `created_at` eşitliği bozulur (00068'in `>=` sınırı, M15 `W` sıralaması; [ADR 0038](0038-kaydin-yazilma-ani-veritabaninindir.md) (b′) satırı) | `TestTransactions00088_TheAppCannotWriteCreatedAtOrID` + `TestTransactions_NoStatementWritesCreatedAt`: kalan risk yalnız işlemin başlangıcıdır, değer verilemez; `tappa_app` `created_at`'e yazabilirse ya da bir ifade onu yazarsa kırmızı, o zaman risk bu satırın anlattığından büyüktür |
 
 ## Gerekçe
 

@@ -281,11 +281,16 @@ func (f *fakeAdmins) lastChange(t *testing.T) changePasswordArgs {
 type fakeTrail struct {
 	mu     sync.Mutex
 	events []audit.Event
+	// fail, when set, makes every Record fail with it and write nothing (T18's refusal).
+	fail error
 }
 
 func (f *fakeTrail) Record(_ context.Context, e audit.Event) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.fail != nil {
+		return uuid.Nil, f.fail
+	}
 	f.events = append(f.events, e)
 	return uuid.New(), nil
 }
@@ -1148,6 +1153,9 @@ type fakeRecorder struct {
 	// driven without a database.
 	recordErr error
 	recorded  []manual.Entry
+	results   []manual.Recorded
+	// claimRows makes every recorded row read as written by a punch claim's approval.
+	claimRows bool
 	// boundsErr is what Bounds answers. It is SEPARATE from recordErr because the two
 	// are checked at different moments — the review step and the write — and a test
 	// that could not tell them apart could not see the gate at all.
@@ -1194,8 +1202,24 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 	if f.recordErr != nil {
 		return manual.Recorded{}, f.recordErr
 	}
-	f.recorded = append(f.recorded, e)
-	return manual.Recorded{
+	// THE DOMAIN'S T258 RULE, MODELLED: the same person, direction, instant and author is written
+	// once; the second answers ErrAlreadyRecorded with the first (internal/domain/manual measures
+	// the real one under the lock).
+	for i, prior := range f.recorded {
+		if prior.EmployeeID == e.EmployeeID && prior.Direction == e.Direction && prior.At.Equal(e.At) && prior.EnteredBy == e.EnteredBy {
+			name := f.subject.VenueName(prior.LocationID)
+			if name == "" && prior.SiteLocationID == uuid.Nil {
+				name = f.subject.LocationName
+			}
+			return f.results[i], &manual.AlreadyRecordedError{Existing: manual.Existing{
+				ID: f.results[i].ID, At: prior.At, Direction: prior.Direction,
+				LocationName: name, SiteLocationID: prior.SiteLocationID,
+				SameVenue: prior.LocationID == e.LocationID && prior.SiteLocationID == e.SiteLocationID,
+				SameNote:  prior.Note == e.Note, AnswersAClaim: f.claimRows,
+			}}
+		}
+	}
+	out := manual.Recorded{
 		ID:         uuid.New(),
 		At:         e.At,
 		CreatedAt:  time.Now().UTC(),
@@ -1203,7 +1227,10 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 		Verdict:    "ok",
 		Channel:    "manual",
 		EmployeeID: e.EmployeeID,
-	}, nil
+	}
+	f.recorded = append(f.recorded, e)
+	f.results = append(f.results, out)
+	return out, nil
 }
 
 func (f *fakeRecorder) entries() []manual.Entry {
