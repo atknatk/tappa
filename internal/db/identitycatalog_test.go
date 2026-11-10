@@ -1285,6 +1285,7 @@ func identityAt00070(t *testing.T, ctx context.Context, tx pgx.Tx) {
 		slices.Sort(tables)
 		lockForDowns(t, ctx, tx, slices.Compact(tables))
 	}
+	aiLiftLaterDownRefusals(t, ctx, tx, later)
 	for i := len(later) - 1; i >= 0; i-- {
 		opRunSection(t, ctx, tx, later[i].down, later[i].name+" Down")
 	}

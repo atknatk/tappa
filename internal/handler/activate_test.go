@@ -1488,6 +1488,14 @@ func TestPage_LandingWithoutALinkSaysWhatIsTrue(t *testing.T) {
 		strings.Contains(body, "still works") {
 		t.Error("a tap from a signed-out phone must say so, not that a link still works")
 	}
+	// ONE TEXT FOR BOTH CAUSES (user decision, 2026-11-09): a second activation and a
+	// manager's sign-out (T59) land here alike, so the page names no cause.
+	if body := get(t, h, activationSignedOut).Body.String(); !strings.Contains(body,
+		"This phone is no longer signed in to Taptime, so it can&#39;t record time.") ||
+		!strings.Contains(body, "Ask your manager for a new activation link.") ||
+		strings.Contains(body, "another phone") {
+		t.Error("the signed-out landing must say the state and the remedy, and name no cause")
+	}
 	if body := get(t, h, activationFromTap).Body.String(); !strings.Contains(body, "If you still have the link") {
 		t.Error("the from=tap landing must not promise the link still works")
 	}

@@ -132,7 +132,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 // policiesKicker is the eyebrow over the section's title (M12-37). It names the order the
 // engine really keeps -- the guarantees first, then the rest weighed together -- and not
 // "first match wins", which is true of the guarantees alone (internal/policy/evaluate.go).
-const policiesKicker = "Guarantees first · then your rules, weighed together"
+const policiesKicker = "Guardrails first · then your rules, weighed together"
 
 // policyProblemSentence turns a query word into the sentence the page prints, or ""
 // when there is nothing to say.
@@ -298,7 +298,7 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 				planned++
 			}
 		}
-		v.Summary = plural(inForce, "guarantee", "guarantees") + " · "
+		v.Summary = plural(inForce, "guardrail", "guardrails") + " · "
 		if planned > 0 {
 			v.Summary += strconv.Itoa(planned) + " planned · "
 		}
@@ -762,9 +762,9 @@ func guardrailLabel(effect, qualifier, alert string) string {
 // guard (tenant.Guardrail.Guards).
 func guardrailGroupHeading(guards string) string {
 	if guards == tenant.GuardsPanel {
-		return "Guarantees on the panel itself · they guard the rules, not taps"
+		return "Guardrails on the panel itself · they guard the rules, not taps"
 	}
-	return "Guarantees on " + guards
+	return "Guardrails on " + guards
 }
 
 // defaultTapNote is the last plate's sentence for the engine's default for a tap. The
@@ -773,11 +773,11 @@ func guardrailGroupHeading(guards string) string {
 // not know.
 func defaultTapNote(effect string) string {
 	if effect == string(policy.EffectReview) {
-		return "If no guarantee settles a tap and no rule above matches it, the tap is sent " +
+		return "If no guardrail settles a tap and no rule above matches it, the tap is sent " +
 			"to The Spike rather than quietly approved. It is still recorded — nothing " +
 			"approves silently."
 	}
-	return "If no guarantee settles a tap and no rule above matches it, the engine's own " +
+	return "If no guardrail settles a tap and no rule above matches it, the engine's own " +
 		"answer applies."
 }
 

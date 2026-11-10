@@ -312,6 +312,14 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Insert: "tenant_id,claim_id,outcome,decided_by,approved_at,transaction_id,note",
 		},
 	},
+	// 00097 / 00098 (T27, ADR 0043): the plan history -- append-only, written only by the tenants
+	// trigger as whoever changes the plan (the owner today). tappa_app reads the three columns the
+	// reader names (the panel's preview and close) and writes nothing; tappa_opdefiner the same three
+	// (op_read_tenant_billing). Neither reads changed_by (which operator), id or recorded_at.
+	"tenant_plan_history": {
+		"tappa_app":       {Select: "tenant_id,plan,effective_from"},
+		"tappa_opdefiner": {Select: "tenant_id,plan,effective_from"},
+	},
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
@@ -409,6 +417,15 @@ var m11Columns = []m11Column{
 	// and holding_feed read the approved row by its key (an ok tap's arm reads NEW, which needs no
 	// privilege); nothing else of theirs on it.
 	{"transactions", "direction_source", map[string]string{"tappa_app": "SI", "tappa_feedwriter": "S", "tappa_holdingdefiner": "S"}},
+	// 00095 (T152, ADR 0042): the shift a tap was judged against. tappa_app reads them through its
+	// table-level SELECT (00005) and inserts them by name (00095's column GRANT -- ADR 0038's rule),
+	// never updates them (§4.3). Neither feed writer reads them: the punch event and the site
+	// projection carry no shift.
+	{"transactions", "shift_source", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_start", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_end", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_overnight", map[string]string{"tappa_app": "SI"}},
+	{"transactions", "shift_timezone", map[string]string{"tappa_app": "SI"}},
 	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
 	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
 	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it
@@ -515,6 +532,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// definer (its test is current_user, which a definer body would read as its owner), EXECUTE in
 	// its owner alone, its body asserting TG_RELID (adminidentity_test.go binds it elsewhere).
 	"admin_users_guard_identity_credentials()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00099 (T59 security review ORTA-2): tap sessions' one-way revocation -- SECURITY INVOKER trigger
+	// function, EXECUTE in its owner alone, body asserting TG_RELID (00051's api_keys shape).
+	"sessions_revocation_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose
@@ -571,6 +591,13 @@ var m11Functions = map[string]m11FunctionACL{
 	// EXECUTE that is not tappa_app's: tappa_owner alone (the migration calls it, the runbook calls it
 	// again before M14-19, contract B drops it).
 	"identity_reconcile()": {owner: "tappa_identitydefiner", definer: true, execute: "tappa_identitydefiner,tappa_owner"},
+	// 00097 (T27, ADR 0043): the plan-change trigger function -- SECURITY INVOKER (the row is written
+	// with the privilege of whoever changed the plan), EXECUTE in its owner alone, its body asserting
+	// TG_RELID -- and the reader of the plan in force, SECURITY INVOKER over three columns of
+	// tenant_plan_history: EXECUTE to tappa_app (the panel's preview and close) and, since 00098, to
+	// tappa_opdefiner (op_read_tenant_billing).
+	"tappa_record_plan_change()":                              {owner: "tappa_owner", execute: "tappa_owner"},
+	"tappa_plan_in_force(uuid,timestamp with time zone,text)": {owner: "tappa_owner", execute: "tappa_app,tappa_opdefiner,tappa_owner"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every

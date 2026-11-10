@@ -848,14 +848,15 @@ policy_tautology() {
 # sekizincisi `site_punches` (holding sahasinin izdusumu — M11 API-1c), 00048'in
 # dokuzuncusu `punch_events` (dis punch akisi — M11 API-2) ve 00068'in onuncusu ile
 # on birincisi `punch_claims`, `punch_claim_decisions` (eksik yari talebi ve karari —
-# M15-15). Bu liste,
+# M15-15) ve 00097'nin on ikincisi `tenant_plan_history` (her faturalama ayinin plani —
+# T27). Bu liste,
 # scripts/pg-restore-verify.sh'in `trunc_tables` listesi ve migration'lardaki
 # tappa_forbid_mutation tetikleyicileri UC temsildir; cmd/tappa/scriptguards_test.go
 # kumeyi migration'lardan TURETIP ikisini de karsilastirir, yani bir sekizincisi
 # eklenip burada unutulursa test kirmizi verir.
 # ⚠️ `operator_audit_log` asagidaki `[^ ]*` onekiyle `audit_log` alt dizgisinden de
 # yakalanirdi (tesadufen); acikca yazilir ki liste turetilmis kumeyle esit olsun.
-APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events|punch_claims|punch_claim_decisions)'
+APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents|operator_audit_log|site_punches|punch_events|punch_claims|punch_claim_decisions|tenant_plan_history)'
 
 # R5b'nin 00058 muafiyetinin dosya sekli (asagida, muafiyetin yorumunda gerekcesiyle). 0 = sekil
 # sevk edilen dosyanin sekli; baska her sey (sha256 araci yoksa dahil) 1 -- muafiyet yok, FAIL.

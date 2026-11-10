@@ -328,6 +328,81 @@ func (q *Queries) CountRecordsAtPartnerVenues(ctx context.Context, arg CountReco
 	return records, err
 }
 
+const existingManualRecord = `-- name: ExistingManualRecord :one
+SELECT t.id, t.occurred_at, t.location_id, t.site_location_id, t.note,
+       l.name AS location_name,
+       EXISTS (
+         SELECT 1 FROM punch_claim_decisions d
+         WHERE d.tenant_id = $1
+           AND d.transaction_id = t.id
+       ) AS answers_a_claim
+FROM transactions t
+LEFT JOIN locations l
+  ON l.id = t.location_id
+ AND l.tenant_id = $1
+WHERE t.tenant_id = $1
+  AND t.employee_id = $2::uuid
+  AND t.channel = 'manual'
+  AND t.type = $3::text
+  AND t.occurred_at = $4
+  AND t.entered_by = $5::uuid
+ORDER BY t.created_at, t.id
+LIMIT 1
+`
+
+type ExistingManualRecordParams struct {
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	Type       string
+	OccurredAt time.Time
+	EnteredBy  uuid.UUID
+}
+
+type ExistingManualRecordRow struct {
+	ID             uuid.UUID
+	OccurredAt     time.Time
+	LocationID     *uuid.UUID
+	SiteLocationID *uuid.UUID
+	Note           *string
+	LocationName   *string
+	AnswersAClaim  bool
+}
+
+// THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
+// confirmation is not single-use (T12, ADR 0005), so a double press of "Record it" sends the same
+// confirmed entry twice; this is the read manual.Record makes UNDER THE PERSON'S TAP LOCK before it
+// writes, and a row here means the second press writes nothing. The key is the statement the
+// manager made: the person, the direction, the instant and the author. Venue and note are not in it
+// -- one person cannot check in twice at one instant, so a second row with another venue or another
+// note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
+// instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+//
+// WHAT THE ROW SAYS, SO THE SCREEN CAN BE HONEST (user decision 2026-11-10). When the venue or the
+// note differs from what was just confirmed, nothing is written either, but the panel says so
+// instead of "already saved": the venue (this business's own, by name; a partner venue by id, named
+// from the person's partner list), the note, and whether the row answers a punch claim (its
+// decision names it, punch_claim_decisions_one_per_record) -- that row was not pressed by anybody.
+func (q *Queries) ExistingManualRecord(ctx context.Context, arg ExistingManualRecordParams) (ExistingManualRecordRow, error) {
+	row := q.db.QueryRow(ctx, existingManualRecord,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.Type,
+		arg.OccurredAt,
+		arg.EnteredBy,
+	)
+	var i ExistingManualRecordRow
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.LocationID,
+		&i.SiteLocationID,
+		&i.Note,
+		&i.LocationName,
+		&i.AnswersAClaim,
+	)
+	return i, err
+}
+
 const getLastOpenTransaction = `-- name: GetLastOpenTransaction :one
 
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
@@ -335,7 +410,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
-       direction_source
+       direction_source, shift_source, shift_start, shift_end, shift_overnight,
+       shift_timezone
 FROM transactions t
 WHERE t.tenant_id = $1
   AND t.employee_id = $2
@@ -466,11 +542,12 @@ type GetLastOpenTransactionParams struct {
 // the entry stays open in the list. It takes a hand-written POST that hits the
 // entry's microsecond, and it gains no hours: the pair counts zero time either way.
 //
-// business_day_start and direction_source (00065, M15-09) are in the list because
-// this query returns the whole store Transaction (a row type without them would be a
-// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
-// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
-// the classification while the cutoff stays fixed.
+// business_day_start, direction_source (00065, M15-09) and the five shift_* columns
+// (00095, T152) are in the list because this query returns the whole store Transaction
+// (a row type without them would be a second model); nothing here filters on any of
+// them. Whether this entry is still in the tap's business day is the engine's question
+// (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
+// while the cutoff stays fixed.
 func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, getLastOpenTransaction, arg.TenantID, arg.EmployeeID, arg.At)
 	var i Transaction
@@ -507,6 +584,11 @@ func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTra
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
 		&i.DirectionSource,
+		&i.ShiftSource,
+		&i.ShiftStart,
+		&i.ShiftEnd,
+		&i.ShiftOvernight,
+		&i.ShiftTimezone,
 	)
 	return i, err
 }
@@ -517,7 +599,8 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
-       direction_source
+       direction_source, shift_source, shift_start, shift_end, shift_overnight,
+       shift_timezone
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
@@ -570,6 +653,11 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
 		&i.DirectionSource,
+		&i.ShiftSource,
+		&i.ShiftStart,
+		&i.ShiftEnd,
+		&i.ShiftOvernight,
+		&i.ShiftTimezone,
 	)
 	return i, err
 }
@@ -982,21 +1070,24 @@ INSERT INTO transactions (
     trust, verdict, note, channel, entered_by, practice, queued,
     policy_version_id, matched_sid, policy_layer, policy_context,
     site_tenant_id, site_location_id, site_tag_uid, business_day_start,
-    direction_source
+    direction_source, shift_source, shift_start, shift_end, shift_overnight,
+    shift_timezone
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13,
     $14, $15, $16, $17, $18, $19, $20, $21,
     $22, $23, $24, $25,
     $26, $27, $28, $29,
-    $30
+    $30, $31, $32, $33, $34,
+    $35
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
           site_tenant_id, site_location_id, site_tag_uid, business_day_start,
-          direction_source
+          direction_source, shift_source, shift_start, shift_end, shift_overnight,
+          shift_timezone
 `
 
 type InsertTransactionParams struct {
@@ -1030,6 +1121,11 @@ type InsertTransactionParams struct {
 	SiteTagUid       *string
 	BusinessDayStart *time.Time
 	DirectionSource  *string
+	ShiftSource      *string
+	ShiftStart       pgtype.Time
+	ShiftEnd         pgtype.Time
+	ShiftOvernight   *bool
+	ShiftTimezone    *string
 }
 
 // THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
@@ -1091,6 +1187,15 @@ type InsertTransactionParams struct {
 // place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
 // validated by 00066) are the second safety. Neither manual statement has the
 // parameter, and the column has no default, so their rows are NULL.
+//
+// THE SHIFT SNAPSHOT (T152, migration 00095, ADR 0042): shift_source and the four
+// shift_* values are the shift this tap was judged against -- the department's when it
+// has one, otherwise the TAPPED venue's (section 5, Q17) -- frozen so that editing a
+// venue's hours later does not rewrite a past week's late count. 'none' = judged
+// against no shift. Written on a DIRECTED nfc/qr decision only (insertParams forces
+// NULL for the rest, by the business day's rule); NULL on every row before 00095 and
+// on manual rows, which the report measures against today's shift and says so.
+// 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, insertTransaction,
 		arg.TenantID,
@@ -1123,6 +1228,11 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.SiteTagUid,
 		arg.BusinessDayStart,
 		arg.DirectionSource,
+		arg.ShiftSource,
+		arg.ShiftStart,
+		arg.ShiftEnd,
+		arg.ShiftOvernight,
+		arg.ShiftTimezone,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -1158,6 +1268,11 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		&i.SiteTagUid,
 		&i.BusinessDayStart,
 		&i.DirectionSource,
+		&i.ShiftSource,
+		&i.ShiftStart,
+		&i.ShiftEnd,
+		&i.ShiftOvernight,
+		&i.ShiftTimezone,
 	)
 	return i, err
 }
@@ -1582,6 +1697,7 @@ const listWorkedShiftEvents = `-- name: ListWorkedShiftEvents :many
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
        t.site_location_id,
        t.created_at, t.business_day_start,
+       t.shift_source, t.shift_start, t.shift_end, t.shift_overnight, t.shift_timezone,
        rv.outcome AS review_outcome,
        e.full_name AS employee_name,
        l.name AS location_name,
@@ -1623,6 +1739,11 @@ type ListWorkedShiftEventsRow struct {
 	SiteLocationID       *uuid.UUID
 	CreatedAt            time.Time
 	BusinessDayStart     *time.Time
+	ShiftSource          *string
+	ShiftStart           pgtype.Time
+	ShiftEnd             pgtype.Time
+	ShiftOvernight       *bool
+	ShiftTimezone        *string
 	ReviewOutcome        *string
 	EmployeeName         *string
 	LocationName         *string
@@ -1786,6 +1907,13 @@ type ListWorkedShiftEventsRow struct {
 // tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
 // three runs each: the same plan before and after the two columns, shared hit 162 both, the row
 // width estimate 149 -> 165 bytes.
+//
+// 🔴 T152 (00095, ADR 0042): t.shift_* IS THE SHIFT THE TAP WAS JUDGED AGAINST, frozen on the
+// row. The report measures lateness against it when shift_source is set; the joined l.shift_* /
+// d.shift_* (and the peer venue's, from holding_site_locations) are TODAY's shift and are read
+// only for a row without a snapshot -- every row before 00095 and every manual row -- which the
+// report counts and names on the screen. Still no minutes_late: the snapshot is an input the
+// record carries, not a total, and the one lateness function (tap.MinutesLate) computes from it.
 func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error) {
 	rows, err := q.db.Query(ctx, listWorkedShiftEvents,
 		arg.TenantID,
@@ -1810,6 +1938,11 @@ func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShift
 			&i.SiteLocationID,
 			&i.CreatedAt,
 			&i.BusinessDayStart,
+			&i.ShiftSource,
+			&i.ShiftStart,
+			&i.ShiftEnd,
+			&i.ShiftOvernight,
+			&i.ShiftTimezone,
 			&i.ReviewOutcome,
 			&i.EmployeeName,
 			&i.LocationName,

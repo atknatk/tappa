@@ -703,8 +703,8 @@ func TestPolicySetDB_StoredSetIsAllOrNothing(t *testing.T) {
 		set := svc.StoredSet(context.Background(), tenantID)
 		if len(set.Baseline) != 0 {
 			t.Errorf("a rulebook with ONE unreadable document returned %d baseline policies. "+
-				"This is the state the panel tells a customer about (\"judged by the Tappa "+
-				"guarantees alone\") and the state in which an OWNER is refused policy:edit; "+
+				"This is the state the panel tells a customer about (\"judged by Taptime's "+
+				"guardrails alone\") and the state in which an OWNER is refused policy:edit; "+
 				"if the engine kept the other eight here, both claims would be false.",
 				len(set.Baseline))
 		}

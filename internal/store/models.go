@@ -484,6 +484,15 @@ type TenantBranding struct {
 	UpdatedBy  uuid.UUID
 }
 
+type TenantPlanHistory struct {
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	Plan          string
+	EffectiveFrom time.Time
+	ChangedBy     *uuid.UUID
+	RecordedAt    time.Time
+}
+
 type Transaction struct {
 	ID               uuid.UUID
 	TenantID         uuid.UUID
@@ -517,6 +526,11 @@ type Transaction struct {
 	SiteTagUid       *string
 	BusinessDayStart *time.Time
 	DirectionSource  *string
+	ShiftSource      *string
+	ShiftStart       pgtype.Time
+	ShiftEnd         pgtype.Time
+	ShiftOvernight   *bool
+	ShiftTimezone    *string
 }
 
 type TransactionReview struct {

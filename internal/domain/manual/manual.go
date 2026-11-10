@@ -247,7 +247,42 @@ var (
 	// "none chosen" and "not ours", ErrUnknownEmployee's collapse: both are the same
 	// instruction to the manager.
 	ErrVenue = errors.New("manual: this person has no home venue; choose the venue the shift was worked at")
+	// ErrAlreadyRecorded: this author has already entered this person's record for this direction
+	// at this instant (backlog T258). Record answers it as an *AlreadyRecordedError, which says
+	// what the existing row holds.
+	ErrAlreadyRecorded = errors.New("manual: that record was already entered")
 )
+
+// Existing is the manual row a press found already written for the same person, direction,
+// instant and author: what it holds, set against what this press would have written.
+type Existing struct {
+	ID        uuid.UUID
+	At        time.Time
+	Direction Direction
+	// LocationName is this business's venue the row is filed at, "" for none (a partner venue's
+	// row); SiteLocationID is the partner venue, uuid.Nil for none.
+	LocationName   string
+	SiteLocationID uuid.UUID
+	// AnswersAClaim: the row was written by approving the person's punch claim, not by a press.
+	AnswersAClaim bool
+	// SameVenue and SameNote compare the row with what this press would have written.
+	SameVenue bool
+	SameNote  bool
+}
+
+// Same reports whether this press asked for exactly what the row already holds -- the second
+// press of the same record. Anything else (another venue, another note, a claim's row) is a
+// different statement for a minute that already has one, and the screen says so.
+func (x Existing) Same() bool { return x.SameVenue && x.SameNote && !x.AnswersAClaim }
+
+// AlreadyRecordedError is ErrAlreadyRecorded with the row it found. Its text is the sentinel's:
+// the note is a manager's free text about a named person and never reaches an error (§7).
+type AlreadyRecordedError struct{ Existing Existing }
+
+func (e *AlreadyRecordedError) Error() string { return ErrAlreadyRecorded.Error() }
+
+// Is makes errors.Is(err, ErrAlreadyRecorded) true.
+func (e *AlreadyRecordedError) Is(target error) bool { return target == ErrAlreadyRecorded }
 
 // Database is the slice of the store this package needs, declared HERE at the
 // consumer (section 7). One method: the tenant-scoped transaction. Nothing here can
@@ -595,24 +630,92 @@ func (r *Recorder) Backdated(at time.Time) bool {
 // -- so section 4.5's belt is the SELECT's own tenant predicate and the braces are
 // the composite foreign key (employee_id, tenant_id). Nothing here compares tenants
 // in Go.
+//
+// 🔴 THE SAME RECORD TWICE IS WRITTEN ONCE (backlog T258, user decision 2026-11-09). The panel
+// confirmation is not single-use (T12, ADR 0005): a double press of "Record it" sends the same
+// confirmed entry twice, and before this both became permanent rows. So under the person's tap lock
+// -- Within's first statement, the lock the tap path and every manual write already take -- Record
+// reads for a manual row with the same person, direction, instant and author, and if one exists it
+// writes nothing and answers ErrAlreadyRecorded with that row. The read and the INSERT are in one
+// transaction behind one lock, so two presses cannot both see "none" (the second waits for the
+// first, then sees its row: the lock's race check starts it again after the first commits).
+//
+// §4.6 ("a record is never lost") holds: what is refused is not a fact the database lacks -- the
+// row already states that this author recorded this person's check-in or checkout at this instant,
+// with its own trail row. A second row would add no attendance and only a duplicate the report reads
+// as a stranded record. A record that differs in person, direction or instant is written as before;
+// so is a different author's (each administrator's statement is their own). Claim approvals (Within
+// via internal/domain/claim) are not read here: their own defence is the decided claim.
 func (r *Recorder) Record(ctx context.Context, e Entry) (Recorded, error) {
 	if err := r.validate(e); err != nil {
 		return Recorded{}, err
 	}
 	var out Recorded
 	err := r.Within(ctx, e.TenantID, e.EmployeeID, func(ctx context.Context, tx pgx.Tx, write Write) error {
-		var err error
+		q := store.New(tx)
+		prior, err := q.ExistingManualRecord(ctx, store.ExistingManualRecordParams{
+			TenantID:   e.TenantID,
+			EmployeeID: e.EmployeeID,
+			Type:       string(e.Direction),
+			OccurredAt: e.At.UTC(),
+			EnteredBy:  e.EnteredBy,
+		})
+		switch {
+		case err == nil:
+			x, err := existingOf(ctx, q, e, prior)
+			if err != nil {
+				return err
+			}
+			out = Recorded{ID: prior.ID, At: prior.OccurredAt, Direction: e.Direction, EmployeeID: e.EmployeeID}
+			return &AlreadyRecordedError{Existing: x}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return fmt.Errorf("read for the same record: %w", err)
+		}
 		out, err = write(e)
 		return err
 	})
 	switch {
 	case err == nil:
 		return out, nil
+	case errors.Is(err, ErrAlreadyRecorded):
+		var dup *AlreadyRecordedError
+		same := errors.As(err, &dup) && dup.Existing.Same()
+		r.log.Info("manual record not written: this minute already has the author's record",
+			"record_id", out.ID, "employee_id", e.EmployeeID, "entered_by", e.EnteredBy, "same", same)
+		return out, err
 	case errors.Is(err, ErrVenue), errors.Is(err, ErrUnknownEmployee):
 		return Recorded{}, err
 	default:
 		return Recorded{}, fmt.Errorf("manual: record entry: %w", err)
 	}
+}
+
+// existingOf sets the row a press found against what the press would have written: a partner
+// venue is the posted one; otherwise this business's venue is the person's home venue, or the
+// posted one for a person with none (write's rule, read again here in the same transaction).
+func existingOf(ctx context.Context, q *store.Queries, e Entry, prior store.ExistingManualRecordRow) (Existing, error) {
+	x := Existing{ID: prior.ID, At: prior.OccurredAt, Direction: e.Direction, AnswersAClaim: prior.AnswersAClaim}
+	if prior.LocationName != nil {
+		x.LocationName = *prior.LocationName
+	}
+	if prior.SiteLocationID != nil {
+		x.SiteLocationID = *prior.SiteLocationID
+	}
+	x.SameNote = deref(prior.Note) == e.Note
+	if e.SiteLocationID != uuid.Nil {
+		x.SameVenue = x.SiteLocationID == e.SiteLocationID
+		return x, nil
+	}
+	who, err := q.GetPanelEmployeeForAction(ctx, store.GetPanelEmployeeForActionParams{TenantID: e.TenantID, ID: e.EmployeeID})
+	if err != nil {
+		return Existing{}, fmt.Errorf("read the person for the same record: %w", err)
+	}
+	venue := e.LocationID
+	if who.LocationID != nil {
+		venue = *who.LocationID
+	}
+	x.SameVenue = x.SiteLocationID == uuid.Nil && prior.LocationID != nil && *prior.LocationID == venue
+	return x, nil
 }
 
 // validate is the refusals that need no database: Record makes them before any transaction

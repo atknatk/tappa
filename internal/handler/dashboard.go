@@ -202,6 +202,8 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (Adding a person and re-inviting one are in the sibling group at the end of
 		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
+		// (Signing a person's phones out, T59, is in the sibling group at the end of this
+		// function: a suspension does not stop it -- ADR 0025 §3, user decision 2026-11-09.)
 		r.Post(employeeMoveHref, a.employeeMove)
 		// 🔴 THE ADDRESS CHANGE (M10 EM-6). Here for the ordinary reason — the Origin
 		// check must run AHEAD of the resolver — and owner-only inside the handler.
@@ -368,6 +370,8 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	//	disabling a membership;   ADR 0025's M14 note (M14-16): K-26's defence applied to people --
 	//	making an owner a manager both narrow who can act for the business; mounted only while
 	//	                          TAPPA_ADMIN_IDENTITY is on
+	//	signing a person's        T59 (user decision 2026-11-09): K-26's defence applied to tap
+	//	phones out                sessions -- records nothing, narrows who can tap as somebody
 	r.Group(func(r chi.Router) {
 		r.Use(a.protectWritingThroughSuspension())
 		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
@@ -409,6 +413,11 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// employees it had no way to bring into existence.
 		r.Post(employeeAddHref, a.employeeAdd)
 		r.Post(employeeInviteHref, a.employeeInvite)
+		// 🔴 SIGNING A PERSON'S PHONES OUT (T59; ADR 0025 §3, user decision 2026-11-09). K-26's
+		// reasoning applied to tap sessions: it records nothing and NARROWS who can tap as
+		// somebody, so a suspended business -- security_hold above all -- must be able to cut off
+		// a stolen phone. Its own confirmation gate runs inside the handler as before.
+		r.Post(employeeSignOutHref, a.employeeSignOutPhones)
 		// 🔴 THE TWO MANUAL-ENTRY POSTs (M6-08), AND THE FIRST OF THEM WRITES NO ROW.
 		// It is on a writing chain anyway: it mints a confirmation and sets its twin
 		// cookie, which is state, and a POST registered in mountSections would silently

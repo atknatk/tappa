@@ -30,11 +30,13 @@
 -- revoked_at back to NULL. So the protection against un-revoking is that NO
 -- QUERY IN THIS FILE DOES IT: RevokeSession only ever COALESCEs to a non-NULL
 -- value, RevokeSessionsForEmployee only sets now(), TouchSession touches
--- last_used_at alone and additionally requires revoked_at IS NULL. That is a
--- property of this file, not an enforcement by the database. Anyone adding a
--- query here must keep it: revoked_at goes NULL -> non-NULL, never back.
--- Enforcing it structurally would need a trigger in a new migration (00003 is
--- applied and immutable, CLAUDE.md section 6).
+-- last_used_at alone and additionally requires revoked_at IS NULL. Since
+-- migration 00099 (T59) the database enforces it too: the trigger
+-- sessions_revocation_one_way refuses a stamped revoked_at changing at all (NULL
+-- included) and a first stamp before now() or after clock_timestamp(). Anyone
+-- adding a query here writes now() or COALESCE(revoked_at, now()) -- a bare
+-- SET revoked_at = now() without `revoked_at IS NULL` would hit the trigger when
+-- two revocations race (00011's BOUNDARY 2) and fail the whole transaction.
 
 -- name: CreateSession :one
 -- Issues a session row for an already-activated employee. tenant_id is supplied

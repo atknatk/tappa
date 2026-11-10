@@ -153,7 +153,8 @@ func isRead(methodRoute string) bool {
 // eight -- the three sign-in routes that were never behind the writing chain and the
 // five record paths of mountWriting's sibling group -- and K-26's three defences (ADR
 // 0025's M11 note; plan §4.7: revoking a key, revoking every key, switching the webhook
-// off); with the panel identity flag on, the identity surfaces ADR 0025's M14 note adds
+// off) and T59's one (signing a person's phones out, user decision 2026-11-09); with the panel
+// identity flag on, the identity surfaces ADR 0025's M14 note adds
 // (M14-11: signing yourself out everywhere; M14-10: switching businesses). It is written out rather than derived on
 // purpose -- deriving it from the sibling group (or from internal/webhook/endpoints'
 // table) would make a further route an exception by construction, and the point of the
@@ -171,6 +172,8 @@ func suspensionExceptions(identity bool) map[string]string {
 		"POST " + employeeInviteHref:  "re-inviting (a record path, K-B1 = (i))",
 		"POST " + manualEntryHref:     "the manual record's review step (a record path, K-B1 = (i))",
 		"POST " + manualRecordHref:    "the manual record itself (a record path, K-B1 = (i))",
+		// T59 (user decision 2026-11-09): a defence, K-26's reasoning applied to tap sessions.
+		"POST " + employeeSignOutHref: "signing a person's phones out (a defence, K-26's reasoning; T59)",
 	}
 	if identity {
 		out["POST "+accountSignOutEverywhereHref] = "signing yourself out everywhere (ADR 0025's M14 note, M14-11)"
@@ -217,8 +220,8 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 //	                            everybody would pass the first row
 //
 // and an exception, suspended, answers neither 403 nor a refusal row. Every exception
-// must be a route the router serves, and there must be exactly eleven -- thirteen with
-// the panel identity flag on, which mounts its surfaces (M14-11, M14-10); the walk runs
+// must be a route the router serves, and there must be exactly twelve -- twenty-three with
+// the panel identity flag on, which mounts its surfaces (ADR 0025's M14 note); the walk runs
 // under both.
 //
 // PART II -- what it catches: the gate taken out of ProtectWriting; the gate moved
@@ -230,10 +233,10 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	for identity, want := range map[bool]int{false: 11, true: 22} {
+	for identity, want := range map[bool]int{false: 12, true: 23} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three and, under the flag, its M14 note's eleven so far (M14-10, M14-11, M14-18's five, M14-16's two, M14-22's two)", identity, n)
+				"K-26 three, T59 one and, under the flag, its M14 note's eleven so far (M14-10, M14-11, M14-18's five, M14-16's two, M14-22's two)", identity, n)
 		}
 	}
 
@@ -904,7 +907,7 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 	sort.Strings(exempt)
 	want := []string{"Post accountKeepAll", "Post accountLinkConfirm", "Post accountLinkRequest", "Post accountPasswordSave", "Post accountSignOutEverywhere", "Post accountUndo",
 		"Post accountUnlink", "Post accountVerifyConfirm", "Post accountVerifyRequest", "Post adminSwitch", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
-		"Post employeeInvite", "Post manualEntryRecord", "Post manualEntryReview"}
+		"Post employeeInvite", "Post employeeSignOutPhones", "Post manualEntryRecord", "Post manualEntryReview"}
 	if !slices.Equal(exempt, want) {
 		t.Errorf("the exempt group registers %v, want exactly %v", exempt, want)
 	}

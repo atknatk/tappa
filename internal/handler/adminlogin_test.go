@@ -281,11 +281,16 @@ func (f *fakeAdmins) lastChange(t *testing.T) changePasswordArgs {
 type fakeTrail struct {
 	mu     sync.Mutex
 	events []audit.Event
+	// fail, when set, makes every Record fail with it and write nothing (T18's refusal).
+	fail error
 }
 
 func (f *fakeTrail) Record(_ context.Context, e audit.Event) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.fail != nil {
+		return uuid.Nil, f.fail
+	}
 	f.events = append(f.events, e)
 	return uuid.New(), nil
 }
@@ -689,6 +694,12 @@ type fakeStaff struct {
 	// change asked.
 	refErr     error
 	refChanges []tenant.ExternalRefCommand
+
+	// The sign-out (T59): signOutErr refuses, signOutCount is the revoked count answered,
+	// signOuts records every command asked.
+	signOutErr   error
+	signOutCount int
+	signOuts     []tenant.SignOutCommand
 }
 
 // ChangeExternalRef records the command and answers the configured refusal, or the
@@ -816,6 +827,29 @@ func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (t
 		return tenant.Person{}, f.deactivateErr
 	}
 	return tenant.Person{ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusDeactivated}, nil
+}
+
+// SignOutPhones records the command (T59) and answers the configured refusal, or
+// signOutCount sessions revoked (1 when unset).
+func (f *fakeStaff) SignOutPhones(_ context.Context, c tenant.SignOutCommand) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.signOuts = append(f.signOuts, c)
+	if f.signOutErr != nil {
+		return 0, f.signOutErr
+	}
+	if f.signOutCount == 0 {
+		return 1, nil
+	}
+	return f.signOutCount, nil
+}
+
+func (f *fakeStaff) signOutCommands() []tenant.SignOutCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.SignOutCommand, len(f.signOuts))
+	copy(out, f.signOuts)
+	return out
 }
 
 func (f *fakeStaff) Move(_ context.Context, c tenant.MoveCommand) (tenant.Person, error) {
@@ -1119,6 +1153,9 @@ type fakeRecorder struct {
 	// driven without a database.
 	recordErr error
 	recorded  []manual.Entry
+	results   []manual.Recorded
+	// claimRows makes every recorded row read as written by a punch claim's approval.
+	claimRows bool
 	// boundsErr is what Bounds answers. It is SEPARATE from recordErr because the two
 	// are checked at different moments — the review step and the write — and a test
 	// that could not tell them apart could not see the gate at all.
@@ -1165,8 +1202,24 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 	if f.recordErr != nil {
 		return manual.Recorded{}, f.recordErr
 	}
-	f.recorded = append(f.recorded, e)
-	return manual.Recorded{
+	// THE DOMAIN'S T258 RULE, MODELLED: the same person, direction, instant and author is written
+	// once; the second answers ErrAlreadyRecorded with the first (internal/domain/manual measures
+	// the real one under the lock).
+	for i, prior := range f.recorded {
+		if prior.EmployeeID == e.EmployeeID && prior.Direction == e.Direction && prior.At.Equal(e.At) && prior.EnteredBy == e.EnteredBy {
+			name := f.subject.VenueName(prior.LocationID)
+			if name == "" && prior.SiteLocationID == uuid.Nil {
+				name = f.subject.LocationName
+			}
+			return f.results[i], &manual.AlreadyRecordedError{Existing: manual.Existing{
+				ID: f.results[i].ID, At: prior.At, Direction: prior.Direction,
+				LocationName: name, SiteLocationID: prior.SiteLocationID,
+				SameVenue: prior.LocationID == e.LocationID && prior.SiteLocationID == e.SiteLocationID,
+				SameNote:  prior.Note == e.Note, AnswersAClaim: f.claimRows,
+			}}
+		}
+	}
+	out := manual.Recorded{
 		ID:         uuid.New(),
 		At:         e.At,
 		CreatedAt:  time.Now().UTC(),
@@ -1174,7 +1227,10 @@ func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorde
 		Verdict:    "ok",
 		Channel:    "manual",
 		EmployeeID: e.EmployeeID,
-	}, nil
+	}
+	f.recorded = append(f.recorded, e)
+	f.results = append(f.results, out)
+	return out, nil
 }
 
 func (f *fakeRecorder) entries() []manual.Entry {

@@ -1014,6 +1014,15 @@ var (
 	// identity act whose fresh session left its trail before the act itself failed.
 	// "Nothing was written" would be false there, and "Nothing has been changed" too; what
 	// stays true is §4.6's -- nothing is deleted and no record is lost.
+	// problemExportNotRecorded is a bulk export (hours or billing CSV) refused because its
+	// audit row could not be written (backlog T18). Both halves are true by construction:
+	// the row is written before any header of the file, so nothing was downloaded, and the
+	// route is a read, so nothing was changed.
+	problemExportNotRecorded = pages.ProblemView{
+		Title:   "We couldn't record this export",
+		Message: "Every export is logged before it downloads, and this time the log entry could not be saved. Nothing was downloaded and your records are unchanged.",
+		Hint:    "Try again in a minute.",
+	}
 	problemPanelWriteUnfinished = pages.ProblemView{
 		Title:   "We could not finish that",
 		Message: "Something failed part-way through, so part of it may already be saved. Nothing has been deleted and no record has been lost.",
@@ -1928,6 +1937,38 @@ func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		a.log.Error("audit write failed", "action", e.Action, "err", err)
 	}
+}
+
+// recordFirst writes an audit event whose existence is the CONDITION for what follows,
+// and returns the failure so the caller can refuse (backlog T18, user decision
+// 2026-11-08: a bulk export whose trail row cannot be written is not handed over).
+// record keeps its own contract for every other caller, where the trail sits beside an
+// outcome that has already happened.
+//
+// The line carries the class and the address-free cause only (readinessFailure), never the
+// error's text: T208 already reduces a connection failure to its class, but this line is on a
+// path any signed-in manager can drive, so it does not depend on every wrap below being right.
+// A request the client itself abandoned (class "canceled") is a WARN: nothing failed on our
+// side, and a manager cancelling a download must not be able to write ERROR lines.
+func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
+	if _, err := a.audit.Record(ctx, e); err != nil {
+		class, cause := readinessFailure(err)
+		level := slog.LevelError
+		if class == errClassCanceled {
+			level = slog.LevelWarn
+		}
+		a.log.Log(ctx, level, "audit write failed; the act it records was refused", "action", e.Action,
+			LogErrClassKey, class, LogErrCauseKey, cause)
+		return err
+	}
+	return nil
+}
+
+// refuseUnrecordedExport answers an export whose trail row could not be written: 503, the
+// panel's problem page, and no byte of the file (T18). Retry-After is a hint.
+func (a *AdminAuth) refuseUnrecordedExport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "60")
+	a.renderProblem(w, r, http.StatusServiceUnavailable, problemExportNotRecorded)
 }
 
 // ptr is the one-line helper for audit.Event.ActorID, which is a *uuid.UUID

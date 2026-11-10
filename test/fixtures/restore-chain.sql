@@ -4,7 +4,7 @@
 -- comparison of empty tables proves little: section 6 (the punch feed's counters) only has something
 -- to judge where a tenant has a counter that moved, and the row counts only bite where there are rows.
 -- test/fixtures/seed.sql is master data and writes none of the append-only tables (its header says
--- why), so this file puts at least one row into each of the eleven append-only tables
+-- why), so this file puts at least one row into each of the twelve append-only tables
 -- pg-restore-verify.sh's trunc_tables names, and moves one tenant's feed counter, the way the product
 -- writes them: transactions through the punch_feed trigger (punch_events and feed_counters are never
 -- written here by hand), a review through its validation trigger, a claim and its decision through
@@ -100,6 +100,11 @@ INSERT INTO billing_periods (tenant_id, period_month, period_from, period_to, ti
 VALUES ('c4a10000-0000-4000-8000-000000000001', date '2026-10-01', timestamptz '2026-09-30 22:00:00+00',
         timestamptz '2026-10-31 23:00:00+00', 'Europe/Malta', 'founding', true, 1, 1.50,
         'c4a10000-0000-4000-8000-000000000041');
+
+-- The plan history (00097, T27), the way the product writes it: a plan change on tenants, and the
+-- tenants_plan_history trigger writes the tenant's first row (its founding plan, since signup) and
+-- the change (from the wall clock -- after October, which stays founding).
+UPDATE tenants SET plan = 'standard' WHERE id = 'c4a10000-0000-4000-8000-000000000001';
 COMMIT;
 
 BEGIN;

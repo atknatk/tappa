@@ -533,6 +533,22 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 			confirmToken = token
 		}
 	}
+	// T59: the sign-out is offered only where it can do something -- a person who is not
+	// deactivated, with a MEASURED count above zero. A summary that failed offers nothing (the
+	// card already says it could not read the browsers), and the warning is minted only then.
+	canSignOut := !person.Deactivated() && summary.State == tenant.Measured && summary.LiveDevices > 0
+	signingOut := r.URL.Query().Get("confirm") == "signout" && canSignOut
+	signOutToken := ""
+	if signingOut {
+		token, err := a.setConfirmation(w, r, confirmActionSignOutPhones, person.ID.String())
+		if err != nil {
+			a.log.Error("panel: could not mint the sign-out confirmation", "err", err)
+			signingOut = false
+			problem = firstWord(problem, "actions-unavailable")
+		} else {
+			signOutToken = token
+		}
+	}
 
 	v := &components.RosterActionsView{
 		Name:          person.Name,
@@ -556,6 +572,11 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		// green.
 		RecordHref:       manualEntryHref + "?id=" + person.ID.String(),
 		DeactivateAction: employeeDeactivateHref,
+		CanSignOut:       canSignOut,
+		SigningOut:       signingOut,
+		SignOutToken:     signOutToken,
+		SignOutHref:      confirmSignOutHref(f, person.ID),
+		SignOutAction:    employeeSignOutHref,
 		MoveAction:       employeeMoveHref,
 		Locations:        optionViews(screen.Options.Locations),
 		Departments:      optionViews(screen.Options.Departments),
@@ -636,6 +657,13 @@ func (a *AdminAuth) confirmedRosterAction(r *http.Request, actions *components.R
 	if done == "added" && actions.Status != ledger.StatusInvited {
 		return ""
 	}
+	// T59: "signed out" is shown only beside a MEASURED zero -- the card this request read says
+	// nobody is signed in as them. A phone that signed in again, a failed summary or a
+	// deactivated person makes a replayed URL say nothing.
+	if done == "signed-out" && (actions.SignedInLine == "" || actions.LiveDevices != 0 ||
+		actions.Status == ledger.StatusDeactivated) {
+		return ""
+	}
 	return done
 }
 
@@ -692,6 +720,16 @@ func confirmDeactivateHref(f ledger.RosterFilter, employeeID uuid.UUID) string {
 		return to + "&confirm=deactivate"
 	}
 	return to + "?confirm=deactivate"
+}
+
+// confirmSignOutHref is the GET that asks before signing a person's phones out (T59) --
+// confirmDeactivateHref's shape, its own word.
+func confirmSignOutHref(f ledger.RosterFilter, employeeID uuid.UUID) string {
+	to := rosterReturn(f, employeeID, "", "")
+	if strings.Contains(to, "?") {
+		return to + "&confirm=signout"
+	}
+	return to + "?confirm=signout"
 }
 
 // firstWord keeps the FIRST problem rather than the last: the outcome of the action

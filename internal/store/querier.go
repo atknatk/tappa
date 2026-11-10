@@ -1640,11 +1640,13 @@ type Querier interface {
 	// revoked_at back to NULL. So the protection against un-revoking is that NO
 	// QUERY IN THIS FILE DOES IT: RevokeSession only ever COALESCEs to a non-NULL
 	// value, RevokeSessionsForEmployee only sets now(), TouchSession touches
-	// last_used_at alone and additionally requires revoked_at IS NULL. That is a
-	// property of this file, not an enforcement by the database. Anyone adding a
-	// query here must keep it: revoked_at goes NULL -> non-NULL, never back.
-	// Enforcing it structurally would need a trigger in a new migration (00003 is
-	// applied and immutable, CLAUDE.md section 6).
+	// last_used_at alone and additionally requires revoked_at IS NULL. Since
+	// migration 00099 (T59) the database enforces it too: the trigger
+	// sessions_revocation_one_way refuses a stamped revoked_at changing at all (NULL
+	// included) and a first stamp before now() or after clock_timestamp(). Anyone
+	// adding a query here writes now() or COALESCE(revoked_at, now()) -- a bare
+	// SET revoked_at = now() without `revoked_at IS NULL` would hit the trigger when
+	// two revocations race (00011's BOUNDARY 2) and fail the whole transaction.
 	// Issues a session row for an already-activated employee. tenant_id is supplied
 	// explicitly and the RLS WITH CHECK confirms it equals the transaction context,
 	// so a mismatched tenant is refused by the database, not merely by the caller.
@@ -1993,6 +1995,21 @@ type Querier interface {
 	// updated_by are written; created_at and updated_at take their defaults and every
 	// brand field stays NULL until step 3.
 	EnsureTenantBrand(ctx context.Context, arg EnsureTenantBrandParams) error
+	// THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel
+	// confirmation is not single-use (T12, ADR 0005), so a double press of "Record it" sends the same
+	// confirmed entry twice; this is the read manual.Record makes UNDER THE PERSON'S TAP LOCK before it
+	// writes, and a row here means the second press writes nothing. The key is the statement the
+	// manager made: the person, the direction, the instant and the author. Venue and note are not in it
+	// -- one person cannot check in twice at one instant, so a second row with another venue or another
+	// note would still be the same statement twice. Only channel 'manual' rows: a tap at the same
+	// instant is not the manager's own record. Served by transactions_tenant_employee_occurred_idx.
+	//
+	// WHAT THE ROW SAYS, SO THE SCREEN CAN BE HONEST (user decision 2026-11-10). When the venue or the
+	// note differs from what was just confirmed, nothing is written either, but the panel says so
+	// instead of "already saved": the venue (this business's own, by name; a partner venue by id, named
+	// from the person's partner list), the note, and whether the row answers a punch claim (its
+	// decision names it, punch_claim_decisions_one_per_record) -- that row was not pressed by anybody.
+	ExistingManualRecord(ctx context.Context, arg ExistingManualRecordParams) (ExistingManualRecordRow, error)
 	// A SEND FAILED (a relay refusal, a broken connection, a timeout -- not a limit, the breaker or the
 	// mailbox cap, which DeferInviteRequest delays without counting): the request stays, due again at
 	// @due, and its tries go up by one. The caller gives up at its maximum. Only under this worker's
@@ -2588,11 +2605,12 @@ type Querier interface {
 	// the entry stays open in the list. It takes a hand-written POST that hits the
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
-	// business_day_start and direction_source (00065, M15-09) are in the list because
-	// this query returns the whole store Transaction (a row type without them would be a
-	// second model); nothing here filters on either. Whether this entry is still in the tap's business day is the
-	// engine's question (M15-03), and ADR 0032 §A.6 says why this query does not need
-	// the classification while the cutoff stays fixed.
+	// business_day_start, direction_source (00065, M15-09) and the five shift_* columns
+	// (00095, T152) are in the list because this query returns the whole store Transaction
+	// (a row type without them would be a second model); nothing here filters on any of
+	// them. Whether this entry is still in the tap's business day is the engine's question
+	// (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
+	// while the cutoff stays fixed.
 	GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTransactionParams) (Transaction, error)
 	// Debounce basis (CLAUDE.md section 5, row 5): the person's single most recent
 	// tap. Debounce is PER-PERSON, not per-tag, so a queue of different people can
@@ -3493,6 +3511,15 @@ type Querier interface {
 	// place that says so is tap.RecordedDirectionSource. Two NOT VALID CHECKs (00065,
 	// validated by 00066) are the second safety. Neither manual statement has the
 	// parameter, and the column has no default, so their rows are NULL.
+	//
+	// THE SHIFT SNAPSHOT (T152, migration 00095, ADR 0042): shift_source and the four
+	// shift_* values are the shift this tap was judged against -- the department's when it
+	// has one, otherwise the TAPPED venue's (section 5, Q17) -- frozen so that editing a
+	// venue's hours later does not rewrite a past week's late count. 'none' = judged
+	// against no shift. Written on a DIRECTED nfc/qr decision only (insertParams forces
+	// NULL for the rest, by the business day's rule); NULL on every row before 00095 and
+	// on manual rows, which the report measures against today's shift and says so.
+	// 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -5448,6 +5475,13 @@ type Querier interface {
 	// tenant 10000000-...-0001, the week from Monday 2026-10-19 plus the tail (262 rows returned),
 	// three runs each: the same plan before and after the two columns, shared hit 162 both, the row
 	// width estimate 149 -> 165 bytes.
+	//
+	// 🔴 T152 (00095, ADR 0042): t.shift_* IS THE SHIFT THE TAP WAS JUDGED AGAINST, frozen on the
+	// row. The report measures lateness against it when shift_source is set; the joined l.shift_* /
+	// d.shift_* (and the peer venue's, from holding_site_locations) are TODAY's shift and are read
+	// only for a row without a snapshot -- every row before 00095 and every manual row -- which the
+	// report counts and names on the screen. Still no minutes_late: the snapshot is an input the
+	// record carries, not a total, and the one lateness function (tap.MinutesLate) computes from it.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
@@ -5887,20 +5921,27 @@ type Querier interface {
 	// 🔴 THE CALLER SUPPLIES A TENANT, A MONTH AND AN AUTHOR -- NEVER A NUMBER. Every
 	// figure that lands on a frozen row is computed by the statement that writes it:
 	// the headcount from `employees`, the price from `tenants`, the month's UTC
-	// boundaries from the tenant's own zone, the free-period decision from the plan and
-	// the signup date, and the total from a GENERATED column. An HTTP handler cannot
-	// post an invoice amount, because there is no parameter to post it into. That
-	// matters more here than anywhere else in this repository, because migration 0016
-	// makes the table APPEND-ONLY: a wrong row is permanent.
+	// boundaries from the tenant's own zone, the free-period decision from the plan IN
+	// FORCE for the month and the signup date, and the total from a GENERATED column.
+	// An HTTP handler cannot post an invoice amount, because there is no parameter to
+	// post it into. That matters more here than anywhere else in this repository,
+	// because migration 0016 makes the table APPEND-ONLY: a wrong row is permanent.
+	//
+	// THE PLAN IN FORCE (T27, migration 00097, ADR 0043): a month is governed by the plan
+	// the tenant had at the month's first instant (from_at) -- tappa_plan_in_force over
+	// tenant_plan_history -- not by tenants.plan as it is when the month is read. A plan
+	// change therefore takes effect from the next month that STARTS after it, and cannot
+	// move a month that has already begun, closed or not.
 	//
 	// 🔴 THE ARITHMETIC IS NOT WRITTEN TWICE. Preview and Close must agree exactly --
 	// the number a manager saw before pressing the button has to be the number that
 	// freezes -- so the two statements are the SAME three CTEs (scope / bounds /
-	// counted) over the same five functions from migration 0016, and differ only in what
-	// they do with the result. The list this file must keep true, and the command that
-	// produces it:
+	// counted) over the same five functions from migration 0016 and 00097's
+	// tappa_plan_in_force, and differ only in what they do with the result (00097 added a
+	// governed CTE between bounds and counted to both). The list this file must keep true,
+	// and the command that produces it:
 	//
-	//	rg -c 'tappa_employee_is_billable|tappa_employee_lifecycle_status|tappa_local_month_start|tappa_first_chargeable_month|tappa_billing_amount_due' db/queries/billing.sql
+	//	rg -c 'tappa_employee_is_billable|tappa_employee_lifecycle_status|tappa_local_month_start|tappa_first_chargeable_month|tappa_billing_amount_due|tappa_plan_in_force' db/queries/billing.sql
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every statement here
 	// carries an explicit tenant_id predicate AND runs inside db.(*DB).WithTenant. The

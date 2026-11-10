@@ -89,6 +89,12 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	r.Use(AccessLog(log))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(RequestTimeout))
+	// THE REDIRECT HOSTS (backlog T71, redirecthost.go): every request on one of them is answered
+	// with a permanent redirect to the base URL, path and query kept, before any route or host gate
+	// runs. Mounted after AccessLog, so the redirect is recorded like any other answer.
+	if cfg != nil && cfg.BaseURL != "" && len(cfg.RedirectHosts) > 0 {
+		r.Use(redirectHosts(cfg.BaseURL, cfg.RedirectHosts))
+	}
 	// THE CUSTOMER HALF OF THE OPERATOR HOST GATE (M10 OP-8, operatorhost.go): with an
 	// operator host configured, operatorHostOnly decides that host's requests. Mounted
 	// after AccessLog, so its 404 is recorded like the router's, and as middleware, so

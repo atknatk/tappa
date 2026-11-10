@@ -869,10 +869,58 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			continue
 		}
 		up, down := opMigrationSections(t, e.Name())
+		if n == shiftSnapshotMigration {
+			// T152: 00095's Down refuses while a row carries a shift snapshot, and the tap path
+			// writes one on every directed nfc/qr row other packages' tests commit. The walk sets
+			// them aside first, inside the same rolled-back transaction (ssSetAside's statements).
+			down = ssSetAsideSQL + "\n" + down
+		}
 		out = append(out, aiLaterMigration{e.Name(), up, down})
 	}
 	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })
 	return out
+}
+
+// aiPlanHistoryMigration is 00097's number (T27): its Down REFUSES while tenant_plan_history records
+// a plan change (a tenant with more than one row) -- and the billing tests commit such tenants
+// (their fixtures set a plan as the owner). aiLiftLaterDownRefusals lifts that inside the walk's
+// transaction, as opAtVersion lifts 00063's suspensions; the rows come back with the rollback.
+const aiPlanHistoryMigration = 97
+
+// aiLiftLaterDownRefusals removes, inside the test's transaction and only when the walk is about to
+// run 00097's Down, the rows that Down refuses over: every history row of a tenant with more than
+// one. The table is append-only for every role (tappa_forbid_mutation), so its row trigger is
+// disabled for the delete and enabled again, all inside the transaction -- under the ACCESS
+// EXCLUSIVE lock the walk took first (00097's Down LOCKs the table, so downTables names it).
+func aiLiftLaterDownRefusals(t *testing.T, ctx context.Context, tx pgx.Tx, later []aiLaterMigration) {
+	t.Helper()
+	walks := false
+	for _, f := range later {
+		if strings.HasPrefix(f.name, opMigrationPrefix(aiPlanHistoryMigration)) {
+			walks = true
+		}
+	}
+	if !walks {
+		return
+	}
+	var n int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM (SELECT 1 FROM public.tenant_plan_history
+	                             GROUP BY tenant_id HAVING count(*) > 1) AS c`).Scan(&n); err != nil {
+		t.Fatalf("count the recorded plan changes 00097's Down refuses over: %v", err)
+	}
+	if n == 0 {
+		return
+	}
+	for _, s := range []string{
+		`ALTER TABLE public.tenant_plan_history DISABLE TRIGGER tenant_plan_history_no_mutation`,
+		`DELETE FROM public.tenant_plan_history WHERE tenant_id IN (SELECT tenant_id FROM public.tenant_plan_history
+		                                                          GROUP BY tenant_id HAVING count(*) > 1)`,
+		`ALTER TABLE public.tenant_plan_history ENABLE TRIGGER tenant_plan_history_no_mutation`,
+	} {
+		if _, err := tx.Exec(ctx, s); err != nil {
+			t.Fatalf("lift 00097's Down refusal inside the transaction: %v", err)
+		}
+	}
 }
 
 // aiLaterSkips are the files above 00070 that aiLaterMigrations leaves out, each with why. A NO

@@ -25,12 +25,9 @@ import (
 //   - "The Taptime guarantees come first and cannot be switched off." (README O1, U7):
 //     the public site's unmeasured-claim scanner refuses the word on every page, with no
 //     exception, so the bullet says "guardrails" -- the engine's own word for sys:* --
-//     and the Rules drawing's label says "Taptime's guardrails" where the panel prints
-//     its own heading.
-//     THE TWO WORDS DIFFER ON PURPOSE: the panel's Rules screen heads the same list
-//     "Taptime guarantees" (pages/policies.templ), and the public site may not print that
-//     word. Aligning the panel's term is a backlog item for the orchestrator, not this
-//     page's; until then the public page says "guardrails" and the panel "guarantees".
+//     and the Rules drawing's label says "Taptime's guardrails", the panel's own heading.
+//     Since backlog T150 (2026-11-09) the panel's Rules screen heads the same list
+//     "Taptime's guardrails" too (pages/policies.templ): one word on both sides.
 //   - "Nobody can decide on their own record." (U10) is gone. The self-review guard
 //     never meets a real review today: a reviewer is an admin_users id and a record's
 //     subject an employees id (LP-07's security review, backlog T148). The Spike says

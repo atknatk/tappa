@@ -229,6 +229,9 @@ templ reportReceipt(v ReportsView) {
 					if v.Unattributable > 0 {
 						<p>{ unattributableLine(v.Unattributable) }</p>
 					}
+					if v.ShiftFromToday > 0 {
+						<p>{ shiftFromTodayLine(v.ShiftFromToday) }</p>
+					}
 				</div>
 				<p class="text-center font-mono text-[11px] tracking-[0.1em] text-ink/70" aria-hidden="true">— PUNCHLESS · TAPTIME —</p>
 			</div>
@@ -668,6 +671,17 @@ func shownOfLine(shown, total int) string {
 // have been waiting longest rather than an arbitrary hundred.
 func shownOfOpenLine(shown, total int) string {
 	return "Showing the " + itoa(shown) + " oldest of " + itoa(total) + " open check-ins."
+}
+
+// shiftFromTodayLine names the arrivals whose late minutes use TODAY's shift times (ADR 0042):
+// their record carries no shift snapshot, so editing a shift moves them, and every other
+// arrival on this screen is measured against the shift recorded with it. An arrival whose venue
+// has no shift TODAY is counted too: its "not measured" is today's answer as well.
+func shiftFromTodayLine(n int) string {
+	if n == 1 {
+		return "Late minutes for 1 arrival use the current shift times, or it is not measured — it was typed by a manager, or recorded before Taptime saved the shift with each record."
+	}
+	return "Late minutes for " + itoa(n) + " arrivals use the current shift times, or they are not measured — they were typed by a manager, or recorded before Taptime saved the shift with each record."
 }
 
 // startedEarlierLine names the seam between two reports rather than leaving a reader

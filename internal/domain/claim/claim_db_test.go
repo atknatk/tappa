@@ -376,6 +376,37 @@ func TestSubmitDB_EveryRefusalWritesNothing(t *testing.T) {
 // at the ANCHOR's venue (not the home venue: "mekân = çapanın mekânı"), entered by the decider, at
 // the claimed moment, with the decision naming it, record.entered and claim.decided -- one
 // transaction. A second decision is "already decided".
+// TestDecideDB_AManualEntryAtAnApprovedClaimsMinuteIsToldTheClaimHoldsIt: a manager who types the
+// record a claim they approved already wrote (same person, direction, minute, author) writes
+// nothing (T258), and the answer says the row answers a claim -- so the panel never tells them they
+// pressed twice (user decision 2026-11-10).
+func TestDecideDB_AManualEntryAtAnApprovedClaimsMinuteIsToldTheClaimHoldsIt(t *testing.T) {
+	w := newWorld(t)
+	// AT THE HOME VENUE, WITH THE CLAIM'S OWN NOTE: the entry matches the row in venue and note, so
+	// only "it answers a claim" tells them apart.
+	in := w.tapAt("in", w.at(0, 9, 0), w.home)
+	c := w.mustSubmit(in, KindOut, w.at(0, 16, 0))
+	if _, err := w.decide(c.ID, Approved, nil, false); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	_, err := w.rec.Record(w.ctx, manual.Entry{TenantID: w.tenant, EmployeeID: w.who, EnteredBy: w.admin,
+		Direction: manual.Out, At: w.at(0, 16, 0), Note: ClaimApprovedNote})
+	var dup *manual.AlreadyRecordedError
+	if !errors.As(err, &dup) {
+		t.Fatalf("Record at the claim's minute = %v, want an *AlreadyRecordedError", err)
+	}
+	if !dup.Existing.AnswersAClaim || dup.Existing.Same() || !dup.Existing.SameVenue || !dup.Existing.SameNote {
+		t.Errorf("the row a claim wrote: %+v, want the same venue and note, AnswersAClaim, and not Same", dup.Existing)
+	}
+	var n int
+	if err := w.owner.QueryRow(w.ctx, `SELECT count(*) FROM transactions WHERE tenant_id = $1 AND channel = 'manual'`, w.tenant).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("%d manual records, want the claim's 1", n)
+	}
+}
+
 func TestDecideDB_AnApprovalIsOneRecordOneDecisionAndTwoTrailRows(t *testing.T) {
 	w := newWorld(t)
 	in := w.tapAt("in", w.at(0, 11, 0), w.other) // tapped at the other venue

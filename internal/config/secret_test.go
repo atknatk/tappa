@@ -48,6 +48,9 @@ var plainStrings = map[string]bool{
 	"Mail.Host": true,
 	// A sender address and a reply-to: public by design, on every mail the product sends.
 	"Mail.From": true, "Mail.ReplyTo": true,
+	// A list of strings is classified by path too (configFieldProblem): host names from the closed
+	// list in config.go (backlog T71), public by design.
+	"RedirectHosts": true,
 }
 
 // harmlessTypes is the closed list of the other types Config may hold. A map, a pointer to a
@@ -90,7 +93,7 @@ func configFieldProblem(path string, typ reflect.Type) string {
 	if typ.Kind() == reflect.Slice && typ.Elem().Kind() == reflect.Uint8 {
 		return "a byte slice in Config is a key in the clear"
 	}
-	if typ.Kind() == reflect.String {
+	if typ.Kind() == reflect.String || (typ.Kind() == reflect.Slice && typ.Elem().Kind() == reflect.String) {
 		if !plainStrings[path] {
 			return "a new string field is unclassified: wrap it (config.Key, config.DSN) or add it to plainStrings with the reason"
 		}
@@ -150,6 +153,8 @@ func TestConfig_EverySecretFieldIsARedactingType(t *testing.T) {
 		{"BackupURL", dsnType, false},
 		{"Mail.Password", credentialType, false},
 		{"BaseURL", reflect.TypeFor[string](), false},
+		{"RedirectHosts", reflect.TypeFor[[]string](), false},
+		{"Relays", reflect.TypeFor[[]string](), true},
 		{"Env", reflect.TypeFor[string](), false},
 		{"Debounce", reflect.TypeFor[time.Duration](), false},
 	} {

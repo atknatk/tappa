@@ -10,7 +10,8 @@ import (
 // THE MINTING GETs' FETCH-METADATA GATE (backlog T14, T19).
 //
 // Five panel acts are confirmed with a value minted on a GET (deactivateconfirm.go):
-// deactivating an employee (?confirm=deactivate on the roster), removing a venue or a
+// deactivating an employee (?confirm=deactivate on the roster; since T59 also signing their
+// phones out, ?confirm=signout), removing a venue or a
 // department (?confirm=remove), and replacing or taking down a plaque (?plaque=<uid>,
 // ?confirm=unmount). The two exports -- hours (reportsCSVHref) and invoice
 // (billingCSVHref) -- each write an append-only row, report.exported and
@@ -97,7 +98,7 @@ func (a *AdminAuth) mintGate(arms func(*http.Request) bool) func(http.Handler) h
 // r.URL.Query() the handler reads, and any value of the key counts, not only the one
 // the handler acts on -- so a refusal can be wider than a mint, never narrower.
 
-// armsRosterConfirmation: rosterActions mints on ?confirm=deactivate.
+// armsRosterConfirmation: rosterActions mints on ?confirm=deactivate and ?confirm=signout.
 func armsRosterConfirmation(r *http.Request) bool {
 	return r.URL.Query().Get("confirm") != ""
 }

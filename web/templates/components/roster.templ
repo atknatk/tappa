@@ -192,6 +192,29 @@ templ RosterActions(v RosterActionsView) {
 							Any phone they signed in on stays signed in; it simply cannot record time any more.
 						</p>
 					}
+					if v.CanSignOut {
+						// T59 -- THE SIGN-OUT, TWO STEPS LIKE DEACTIVATION'S: a link to a warning that
+						// says the count and what comes after, then the button. The server refuses a
+						// POST that did not come through the warning.
+						if v.SigningOut {
+							<p class="text-sm text-ink">{ signOutWarning(v.Name, v.LiveDevices) }</p>
+							<p class="text-sm text-ink">
+								To record time again they need a new activation link. Their records stay as
+								they are.
+							</p>
+							<div class="flex flex-wrap items-center gap-3">
+								<form method="post" action={ templ.URL(Bound(ctx, v.SignOutAction)) }>
+									@hiddenFields(v.Hidden)
+									<input type="hidden" name={ v.ConfirmField } value={ v.SignOutToken }/>
+									<button type="submit" class="btn btn--danger">Yes, sign them out</button>
+								</form>
+								<a class="btn btn--quiet rounded-xl" href={ templ.URL(v.CloseHref) }>Cancel</a>
+							</div>
+						} else {
+							<a class="btn btn--line self-start" href={ templ.URL(v.SignOutHref) }>Sign out their phones</a>
+							<p class="text-xs text-ink/70">For a lost or stolen phone. Asks first.</p>
+						}
+					}
 				</div>
 			}
 			if v.Status != "invited" {

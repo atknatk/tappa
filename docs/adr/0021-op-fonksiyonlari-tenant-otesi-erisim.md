@@ -1264,6 +1264,9 @@ hangi testin hangi karta düştüğü plan bloğunda):
   Fatura aritmetiği (00016'nın fonksiyonları, tenant önizlemesi, `op_read_tenant_billing`)
   değişmez, askı geçmişi tablosu yoktur ([ADR 0025](0025-tenant-askiya-alma.md) §6; uygulama
   00063, "OP-15 uygulama notu"). OP-K12 açık kalır.
+  → **OP-K12'nin T27 yarısı [ADR 0043](0043-plan-gecmisi.md) ile cevaplandı (2026-11-09):** plan
+  geçmişi tablosu (00097/00098); `op_read_tenant_billing`'in canlı ayları yürürlükteki planı okur (00098).
+  **T37 yarısı açık.**
 
 ## OP-5 uygulama notu (2026-09-26)
 

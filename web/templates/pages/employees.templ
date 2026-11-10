@@ -89,6 +89,17 @@ templ AdminEmployees(v EmployeesView) {
 							if v.Actions != nil {
 								<p>{ externalRefLine(v.Actions) }</p>
 							}
+						case "signed-out":
+							// T59 — shown only beside a measured zero (confirmedRosterAction), so
+							// the first sentence is a state this request read, not an event. The
+							// next step is named because without it the person cannot tap at all.
+							if v.Actions != nil {
+								<p>No phone is signed in as { v.Actions.Name } now. A tap on a signed-out phone records nothing and opens the activation page.</p>
+								<p class="mt-1">
+									To record time again they need a new activation link: send one from the
+									Invitation part of their card below.
+								</p>
+							}
 						default:
 							if v.Actions != nil {
 								<p>{ movedLine(v.Actions) }</p>
@@ -109,6 +120,18 @@ templ AdminEmployees(v EmployeesView) {
 							// the two it was would be a claim nothing measured.
 							<p>Nothing was changed. Deactivating somebody needs the warning screen first, and this one either was not used or was left open too long.</p>
 							<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
+						case "signout-confirm-required":
+							// T59: the sign-out's own copy of the sentence above.
+							<p>Nothing was changed. Signing somebody's phones out needs the warning screen first, and this one either was not used or was left open too long.</p>
+							<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
+						case "no-phones":
+							<p>No phone was signed in as them, so nothing was signed out and nothing was recorded.</p>
+						case "signout-deactivated":
+							<p>
+								Nothing was changed. They have been deactivated, and a deactivated person's
+								phones stay signed in on purpose: every tap they make is refused and still
+								recorded.
+							</p>
 						case "confirm-stale":
 							<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
 							<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>
@@ -406,6 +429,8 @@ func doneRosterHeading(done string) string {
 		return "Address on file"
 	case "external-ref":
 		return "External ref on file"
+	case "signed-out":
+		return "Signed out"
 	default:
 		return "Where they work now"
 	}
@@ -458,6 +483,12 @@ func problemRosterHeading(problem string) string {
 		return "We could not load this person"
 	case "confirm-required":
 		return "That deactivation was not confirmed"
+	case "signout-confirm-required":
+		return "That sign-out was not confirmed"
+	case "no-phones":
+		return "Nothing to sign out"
+	case "signout-deactivated":
+		return "Their phones stay signed in"
 	case "confirm-stale":
 		return "That confirmation was for somebody else"
 	case "unknown":

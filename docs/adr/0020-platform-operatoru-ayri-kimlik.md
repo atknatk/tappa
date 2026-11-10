@@ -1245,6 +1245,7 @@ m10-platform.md §3'ün ölçütleriyle:
   → **Kapandı (kullanıcı kararı, 2026-10-08): (a) — askıdaki ay normal faturalanır;** fatura
   aritmetiği değişmez, askı geçmişi tablosu yok ([ADR 0025](0025-tenant-askiya-alma.md) §6).
 - **OP-K12 — T27/T37 plan geçmişi** (OP-17'nin önkoşulu).
+  → **T27 yarısı [ADR 0043](0043-plan-gecmisi.md) ile cevaplandı (2026-11-09):** plan geçmişi tablosu (00097/00098); ay, başladığı andaki planla fiyatlanır (kullanıcı onayı). **T37 yarısı açık.**
 
 **Görev kartında sayıyla/ölçümle karara bağlanacak (bu ADR bilerek sayı koymadı):**
 - TOTP kilidinin eşiği N ve kilit penceresi — OP-6/OP-8. (Kilidin yeri karara

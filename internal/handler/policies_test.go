@@ -355,7 +355,7 @@ func TestPoliciesSection_SaysTheReadFailedRatherThanShowingAnEmptyRulebook(t *te
 		t.Fatalf("GET with a failing read: %d, want 500", rec.Code)
 	}
 	body := htmlOf(t, rec)
-	for _, forbidden := range []string{"Taptime guarantees", "Who may do what"} {
+	for _, forbidden := range []string{"Taptime's guardrails", "Who may do what"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("a failed read rendered the section heading %q; it must render a problem "+
 				"page instead", forbidden)
@@ -658,7 +658,7 @@ func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 			// only where a body exists -- and the branch derivation is what guarantees
 			// every OTHER fixture reaches the blocks these headings live in.
 			if screen.Queried {
-				for _, heading := range []string{"Taptime guarantees", "Taptime baseline", "Who may do what"} {
+				for _, heading := range []string{"Taptime's guardrails", "Taptime baseline", "Who may do what"} {
 					if !strings.Contains(section, heading) {
 						t.Fatalf("the scanned slice does not contain %q, so the check above ran over "+
 							"less than the section", heading)
@@ -797,7 +797,7 @@ var policyBranchWitness = map[string]string{
 	`g.Tunable != ""@1`:         "set by Taptime for every business, between",
 	"len(v.Tenant) == 0@1":      "You have not written any policies of your own.",
 	"v.BaselineInForce@1":       "the intended starting point rather than a gap",
-	"else@3":                    "running on the Taptime guarantees alone",
+	"else@3":                    "running on Taptime's guardrails alone",
 	"else@4":                    "zz-branch-tenant-rule",
 	"r.Managed@1":               "Managed by Taptime",
 	"else@5":                    "Written by you",
@@ -807,7 +807,7 @@ var policyBranchWitness = map[string]string{
 	`r.Problem != ""@1`:         "This rule is not being applied",
 	`i > 0 && s.Reason != ""@1`: "zz-branch-second-reason",
 	`r.Lead != ""@1`:            "zz-branch-reason",
-	`g.Group != ""@1`:           "Guarantees on the panel itself",
+	`g.Group != ""@1`:           "Guardrails on the panel itself",
 	`g.Stage == ""@1`:           "effect-pill effect-pill--locked",
 	`g.Stage == ""@2`:           "Cannot be switched off",
 	`g.Stage == ""@3`:           `md:col-span-2">Engine’s reason`,
@@ -1356,7 +1356,7 @@ func policyGuaranteeBytes(t *testing.T, screen tenant.PolicyScreen, mayEdit bool
 	out := buf.String()
 	// ANTI-VACUITY: an empty or trivial render would make every page conform, which is
 	// the failure mode this approach exists to remove rather than inherit.
-	if len(out) < 500 || !strings.Contains(out, "Taptime guarantees") {
+	if len(out) < 500 || !strings.Contains(out, "Taptime's guardrails") {
 		t.Fatalf("the guarantee component rendered %d bytes and does not name itself; the "+
 			"region would then be nothing", len(out))
 	}
@@ -2504,7 +2504,7 @@ func TestPoliciesSection_DrawsTheLadderTheEngineKeeps(t *testing.T) {
 	}
 	// THE PANEL'S GUARANTEES ARE A GROUP OF THEIR OWN, headed once, right before the first
 	// of them -- and after every tap guarantee.
-	const group = "Guarantees on the panel itself · they guard the rules, not taps"
+	const group = "Guardrails on the panel itself · they guard the rules, not taps"
 	if n := strings.Count(guarantees, group); n != 1 {
 		t.Fatalf("the panel group's heading appears %d times, want 1", n)
 	}
@@ -2806,17 +2806,17 @@ func TestPoliciesSection_DoesNotTellABusinessWithNoBaselineThatTheBaselineIsCarr
 		screen.Baseline[i].Statements = nil
 	}
 	body := policyPage(t, &fakeRules{screen: screen})
-	if strings.Contains(body, "running on the guarantees and the baseline above") {
+	if strings.Contains(body, "running on the guardrails and the baseline above") {
 		t.Error("with no baseline rule in force the page still claims the baseline is " +
 			"carrying the business, directly under a list saying every one of them is not " +
 			"set up")
 	}
-	if !strings.Contains(body, "running on the Taptime guarantees alone") {
+	if !strings.Contains(body, "running on Taptime's guardrails alone") {
 		t.Error("the page does not say what IS carrying the business; an empty state that " +
 			"only removes a claim leaves the reader with nothing")
 	}
 	// CONTROL: the reassuring sentence is still there when it is true.
-	if !strings.Contains(policyPage(t, newFakeRules()), "running on the guarantees and the baseline above") {
+	if !strings.Contains(policyPage(t, newFakeRules()), "running on the guardrails and the baseline above") {
 		t.Error("a tenant whose baseline IS in force no longer gets the sentence at all")
 	}
 }
