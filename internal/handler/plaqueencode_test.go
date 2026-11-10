@@ -153,6 +153,12 @@ func encodeRouter(t *testing.T, admins *fakeAdmins, enc PlaqueEncoder, log *slog
 	return r
 }
 
+// encodeBeginForm is the begin body the relay sends since 2026-11-10: the business ref the
+// business read handed it, here the fixture session's own tenant (panelTestTenant).
+func encodeBeginForm() url.Values {
+	return url.Values{"business": {panelTestTenant.String()}}
+}
+
 // signedIn returns a browser carrying a panel cookie the fake verifier accepts.
 func signedIn(t *testing.T, h http.Handler) *browser {
 	t.Helper()
@@ -197,6 +203,8 @@ func TestPlaqueEncode_TheTenantComesFromTheSessionAndNotFromTheBody(t *testing.T
 
 	other := uuid.MustParse("00000000-dead-4000-8000-00000000beef")
 	rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{
+		// The ref the business read handed over -- the session's own; compared, never used.
+		"business":  {panelTestTenant.String()},
 		"tenant_id": {other.String()},
 		"tenant":    {other.String()},
 		"actor":     {"whoever-i-like"},
@@ -271,7 +279,7 @@ func TestPlaqueEncode_TheRelayMustDeclareItsOrigin(t *testing.T) {
 	b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, nil))
 
 	b.origin = "" // a native HTTP client's default
-	rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+	rec := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("a request with no Origin answered %d, want 303 (sameOriginGate)", rec.Code)
 	}
@@ -283,7 +291,7 @@ func TestPlaqueEncode_TheRelayMustDeclareItsOrigin(t *testing.T) {
 	// POSITIVE CONTROL: the same request WITH the header is served. Without this the
 	// assertion above would pass over an endpoint that refuses everything.
 	b.origin = testBaseURL
-	rec = b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+	rec = b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a request WITH Origin: %s answered %d, want 200. body=%q",
 			testBaseURL, rec.Code, rec.Body.String())
@@ -459,13 +467,13 @@ func TestPlaqueEncodeGrant_IsBuiltOnlyFromTheResolvedAdminSession(t *testing.T) 
 	}
 }
 
-// TestPlaqueEncode_ReadsOnlyTheTwoFormKeysTheRelaySends is the supporting net.
+// TestPlaqueEncode_ReadsOnlyTheFormKeysTheRelaySends is the supporting net.
 //
 // ⚠️ IT IS NOT THE PROOF AND MUST NOT BE READ AS ONE. A tenant could in principle
 // arrive in a header, a path segment or a query string, and no list of accessor names
 // can be complete. What makes the question closed is the PATH test above; this one
 // exists so that a new form key is a visible edit rather than a silent one.
-func TestPlaqueEncode_ReadsOnlyTheTwoFormKeysTheRelaySends(t *testing.T) {
+func TestPlaqueEncode_ReadsOnlyTheFormKeysTheRelaySends(t *testing.T) {
 	fset, files := parseOneFile(t, "plaqueencode.go")
 	// ⚠️ FILE-SCOPED ON PURPOSE, UNLIKE THE WRITER GATES. Every other handler in this
 	// package reads its own form keys, so a package-wide sweep of accessor names would
@@ -497,7 +505,12 @@ func TestPlaqueEncode_ReadsOnlyTheTwoFormKeysTheRelaySends(t *testing.T) {
 			return true
 		})
 	}
-	want := map[string]bool{"session": true, "rapdu": true}
+	// `business` (2026-11-10) NAMES a tenant, and this test's warning below is about exactly that.
+	// It is read only to be COMPARED with the session's tenant and refuse on a difference
+	// (plaqueEncodeBegin); the tenant a round is opened in is still the grant's, which the PATH pin
+	// above holds character for character. A key that could choose the tenant would turn that pin
+	// red, not this one.
+	want := map[string]bool{"session": true, "rapdu": true, "business": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("plaqueencode.go reads form keys %v, want %v. A tenant key here would be "+
 			"ADR 0017 §6 md. 10 renamed rather than closed", keysOf(got), keysOf(want))
@@ -644,7 +657,9 @@ func TestPlaqueEncode_EveryReplyCallSitePassesTheDriversOwnValues(t *testing.T) 
 func TestPlaqueEncode_NothingOnThisSurfaceSerialisesACallerSuppliedValue(t *testing.T) {
 	fset, files := parsePackageSource(t, ".")
 
-	declared := map[string]bool{"encodeReply": true, "encodeFault": true}
+	// encodeBusiness joined on 2026-11-10: the business read's body (plaqueEncodeBusiness),
+	// three scalars built inside writeEncodeBusiness -- the same discipline, one more type.
+	declared := map[string]bool{"encodeReply": true, "encodeFault": true, "encodeBusiness": true}
 	encodes := 0
 	for name, f := range files {
 		for _, decl := range f.Decls {
@@ -675,19 +690,19 @@ func TestPlaqueEncode_NothingOnThisSurfaceSerialisesACallerSuppliedValue(t *test
 				}
 				id, ok := lit.Type.(*ast.Ident)
 				if !ok || !declared[id.Name] {
-					t.Errorf("%s: %s serialises a literal of type %s, want encodeReply or "+
-						"encodeFault", name, fd.Name.Name, exprText(t, fset, lit.Type))
+					t.Errorf("%s: %s serialises a literal of type %s, want encodeReply, "+
+						"encodeFault or encodeBusiness", name, fd.Name.Name, exprText(t, fset, lit.Type))
 				}
 				return true
 			})
 		}
 	}
-	if encodes != 2 {
-		t.Fatalf("found %d JSON Encode call(s) on the encode surface, want 2 (one per reply "+
+	if encodes != 3 {
+		t.Fatalf("found %d JSON Encode call(s) on the encode surface, want 3 (one per reply "+
 			"function). Fewer means the scan has gone blind; more means a third place composes "+
 			"a body", encodes)
 	}
-	t.Logf("encode-surface JSON writes: %d, both composite literals of the two declared types", encodes)
+	t.Logf("encode-surface JSON writes: %d, each a composite literal of one of the three declared types", encodes)
 }
 
 // encodeSurfaceFunc reports whether fd belongs to the plaque encode HTTP surface.
@@ -716,6 +731,9 @@ func encodeSurfaceFunc(t *testing.T, fset *token.FileSet, fd *ast.FuncDecl) bool
 		"plaqueEncodeHref":      true,
 		"plaqueEncodeStepHref":  true,
 		"plaqueEncodeAbortHref": true,
+		// The business read (2026-11-10): its writer and its route.
+		"writeEncodeBusiness":      true,
+		"plaqueEncodeBusinessHref": true,
 	}
 	found := false
 	ast.Inspect(fd, func(n ast.Node) bool {
@@ -764,6 +782,7 @@ func TestPlaqueEncode_NoHandlerTouchesTheResponseWriterExceptThroughOneWriter(t 
 	sinks := map[string]bool{
 		"writeEncodeReply":      true, // the one success body; EXEMPT, it writes
 		"writeEncodeFault":      true, // the one failure body; EXEMPT, it writes
+		"writeEncodeBusiness":   true, // the business read's one body (2026-11-10); EXEMPT, it writes
 		"writeEncodeStoreFault": true, // the closed error mapping; calls writeEncodeFault
 		"encodeResponseHeaders": true, // the shared header block; EXEMPT, it writes
 		"http.MaxBytesReader":   true, // bounds the request body; writes nothing
@@ -771,14 +790,18 @@ func TestPlaqueEncode_NoHandlerTouchesTheResponseWriterExceptThroughOneWriter(t 
 	}
 	used := map[string]bool{}
 
-	// 🔴 THE EXEMPT FUNCTIONS ARE NAMED AND THERE ARE EXACTLY THREE. Everything else
+	// 🔴 THE EXEMPT FUNCTIONS ARE NAMED AND THERE ARE EXACTLY FOUR (three until 2026-11-10). Everything else
 	// may only HAND the writer on; these three may call methods on it. They went from
 	// one to three when writeEncodeJSON was deleted: the two reply functions now own
 	// their own literal and share only a header block, which is the change that removed
 	// the body parameter an auditor drove a leak through.
+	//
+	// FOUR SINCE 2026-11-10: writeEncodeBusiness, the business read's body, owns its own
+	// literal exactly as the two reply functions do and shares only the header block.
 	exempt := map[string]bool{
 		"writeEncodeReply":      true,
 		"writeEncodeFault":      true,
+		"writeEncodeBusiness":   true,
 		"encodeResponseHeaders": true,
 	}
 	inspected := 0
@@ -914,7 +937,7 @@ func TestPlaqueEncode_WritesOnlyDeclaredFaults(t *testing.T) {
 	// client's Wording.FAULT_WORDS and RelayLoopTest's word -> status map, which is the
 	// only order ContractPinTest.theFaultVocabulary_matchesPlaqueencodeGo stays green in.
 	wantWords := []string{
-		"already-encoded", "bad-request", "busy", "encode-unavailable", "refused",
+		"already-encoded", "bad-request", "business-changed", "busy", "encode-unavailable", "refused",
 		"server-error", "suspended", "too-many-rounds", "unknown-session",
 	}
 	gotWords := append([]string(nil), encodeFaults...)
@@ -1162,7 +1185,7 @@ func TestPlaqueEncode_TheBudgetRefusesAndTheRoundDiesOnItsOwn(t *testing.T) {
 	b := signedIn(t, encodeRouter(t, signedInAdmins(), store, nil))
 
 	// One real round is opened and left in flight.
-	rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+	rec := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Begin answered %d: %q", rec.Code, rec.Body.String())
 	}
@@ -1317,7 +1340,7 @@ func TestPlaqueEncode_TheRelayRoundTripsBytesAndNothingElse(t *testing.T) {
 	enc := &fakeEncoder{progress: encode.Progress{Command: []byte{0x90, 0x60, 0x00, 0x00, 0x00}, Step: "getversion.1"}}
 	b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, nil))
 
-	rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+	rec := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 	begin := replyOf(t, rec)
 	if begin.Command != "00a40400" {
 		t.Fatalf("the first command is %q, want the ISO SELECT the double returns", begin.Command)
@@ -1408,7 +1431,7 @@ func TestPlaqueEncode_AStoreErrorNeverReachesTheBody(t *testing.T) {
 	for _, tc := range cases {
 		enc := &fakeEncoder{nextErr: tc.err}
 		b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, nil))
-		rec := b.do(http.MethodPost, plaqueEncodeHref, url.Values{})
+		rec := b.do(http.MethodPost, plaqueEncodeHref, encodeBeginForm())
 		if rec.Code != tc.status {
 			t.Errorf("%v answered %d, want %d", tc.err, rec.Code, tc.status)
 		}

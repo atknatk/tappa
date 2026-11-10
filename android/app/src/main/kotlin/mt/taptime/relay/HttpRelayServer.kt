@@ -8,7 +8,8 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * The real transport: three form-encoded POSTs over java.net.HttpURLConnection.
+ * The real transport: three form-encoded POSTs and one GET (the business read) over
+ * java.net.HttpURLConnection.
  *
  * TWO HEADERS ARE THE CONTRACT (plaqueencode.go, "THE RELAY MUST SEND AN Origin
  * HEADER"; m8-deploy-pilot.md open item 20):
@@ -43,15 +44,21 @@ class HttpRelayServer(
      * Defaults to FALSE so that a caller who forgets gets the strict side.
      */
     allowHttp: Boolean = false,
+    /**
+     * The business reference the round is for (BusinessReply.Known.ref), sent as `business`
+     * in the round's begin. The server opens no round without it or for another business.
+     * Null only for clients that never begin a round (the probes, the business read).
+     */
+    private val business: String? = null,
     private val connectTimeoutMs: Int = 10_000,
     private val readTimeoutMs: Int = 20_000,
-) : RelayServer {
+) : RelayServer, BusinessSource {
     private val base: String = normaliseBase(base, allowHttp)
 
     /** The Origin header this client sends: scheme and authority of [base], nothing else. */
     val origin: String = originOf(this.base)
 
-    override fun begin(): Reply = post(ENCODE_PATH, emptyMap())
+    override fun begin(): Reply = post(ENCODE_PATH, if (business != null) mapOf("business" to business) else emptyMap())
 
     override fun step(session: String, rapdu: ByteArray): Reply =
         post(STEP_PATH, mapOf("session" to session, "rapdu" to Hex.encode(rapdu)))
@@ -76,26 +83,36 @@ class HttpRelayServer(
     }
 
     /**
-     * Asks whether the cookie jar still holds a live panel session: a GET of the panel
-     * with no redirect-following. 200 means signed in; a 303 means not. Costs one
-     * request of the panel's session budget.
+     * The business read (GET /admin/plaques/encode/business): which business the panel
+     * session in [cookieHeader] encodes for. It also serves as the "still signed in?" probe
+     * at start-up — a 303 is a dead session (it replaced a GET of /admin on 2026-11-10).
+     *
+     * The SAME two headers as the round routes, because the server mounts this read behind
+     * the same Origin check ahead of the resolver: `Origin` and the cookie. [cookieHeader] is
+     * passed in rather than taken from [cookie] so that EncodeTarget can bind the answer to
+     * exactly the session it was asked with. No redirect is followed: a 303 is the answer.
      */
-    fun probeSignedIn(): Boolean {
+    override fun business(cookieHeader: String): BusinessReply {
         return try {
-            val c = URL(base + PANEL_PATH).openConnection() as HttpURLConnection
+            val c = URL(base + BUSINESS_PATH).openConnection() as HttpURLConnection
             try {
                 c.requestMethod = "GET"
                 c.instanceFollowRedirects = false
                 c.useCaches = false
                 c.connectTimeout = connectTimeoutMs
                 c.readTimeout = readTimeoutMs
-                cookie()?.let { c.setRequestProperty("Cookie", it) }
-                c.responseCode == 200
+                c.setRequestProperty("Origin", origin)
+                c.setRequestProperty("Accept", "application/json")
+                c.setRequestProperty("User-Agent", USER_AGENT)
+                c.setRequestProperty("Cookie", cookieHeader)
+                val status = c.responseCode
+                val text = readAll(if (status < 400) c.inputStream else c.errorStream)
+                BusinessReply.parse(status, c.getHeaderField("Content-Type"), text)
             } finally {
                 c.disconnect()
             }
         } catch (e: IOException) {
-            false
+            BusinessReply.Unreachable(e.message ?: e.javaClass.simpleName)
         }
     }
 
@@ -195,6 +212,12 @@ class HttpRelayServer(
         const val ENCODE_PATH = "/admin/plaques/encode"
         const val STEP_PATH = "/admin/plaques/encode/step"
         const val ABORT_PATH = "/admin/plaques/encode/abort"
+
+        /** The business read — plaqueencode.go, plaqueEncodeBusinessHref; a GET. */
+        const val BUSINESS_PATH = "/admin/plaques/encode/business"
+
+        /** The panel's switch screen — adminswitch.go, adminSwitchHref. Opened in the WebView, never called. */
+        const val SWITCH_PATH = "/admin/switch"
         const val LOGOUT_PATH = "/admin/logout"
         const val PANEL_PATH = "/admin"
         const val LOGIN_PATH = "/admin/login"

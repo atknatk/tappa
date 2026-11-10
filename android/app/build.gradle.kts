@@ -67,6 +67,7 @@ android {
                 rootProject.file("../internal/adminauth/cookie.go"),
                 rootProject.file("../internal/handler/adminlogin.go"),
                 rootProject.file("../deploy/k8s/05-config.yaml"),
+                rootProject.file("../internal/handler/adminswitch.go"),
             ).withPathSensitivity(PathSensitivity.RELATIVE)
         }
     }

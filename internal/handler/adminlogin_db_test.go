@@ -475,6 +475,22 @@ func (p *panelHarness) get(t *testing.T, path string) (*http.Response, string) {
 	return res, withoutBinding(readAll(t, res))
 }
 
+// getAsRelay is a GET as the Android relay sends one: with the panel's Origin (the business read,
+// plaqueEncodeBusinessHref, refuses a GET without it before the resolver -- 2026-11-10).
+func (p *panelHarness) getAsRelay(t *testing.T, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, p.server.URL+path, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Origin", p.server.URL)
+	res, err := p.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	return res, readAll(t, res)
+}
+
 // post submits a form as the signed-in browser does: to a bound panel route it carries
 // the binding the page it was shown would have carried (M14-10a), computed for the jar's
 // current session cookie by the panel's own binder and resolver.
