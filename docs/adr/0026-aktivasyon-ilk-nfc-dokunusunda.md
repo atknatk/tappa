@@ -255,3 +255,42 @@ madde 1). Holding ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) iki ş
   hatasına çevirirdi); plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır (Karar 3).
   Oturumsuz tarayıcıda değişiklik yoktur.
 - QR ile aktivasyon yine yoktur (Bedel 3) — çapraz QR da aktive edemez.
+
+## Çerez denetimi notu (2026-11-11, kullanıcının §9 kararı)
+
+**Ölçülen olay (üretim log'u + DB, 2026-11-11, Kebab Manufacturing).** A çalışanının daveti çalıştı:
+`GET /activate?code=… 303` → `GET /activate 200` (markalı sihirbaz `/brand/theme/…` ve `/activate/logo/…`
+yükledi) → `POST /api/activate` → dokunuş → tamam. B çalışanı **başka bir telefonda** geçerli bağlantıları
+defalarca açtı: her seferinde `GET /activate?code=… 303` → `GET /activate 200`, ama **hiç** tema/logo isteği ve
+**hiç** `POST /api/activate` yok. `?code=` dalındaki 303 yalnız `startActivation`'dan gelir ve o yanıt aktivasyon
+çerezini yazar; markasız 200 ise çerezsiz `/activate`'in cevabıdır (`problemNoLink`, *"Ask your manager to send it
+again"*). Okumamız: B'nin tarayıcısı çerezi yönlendirilen GET'te geri göndermedi. **Hangi tarayıcı olduğu
+bilinmiyor** (user-agent log'lanmıyordu); bir e-posta uygulamasının iç tarayıcısı ya da çerezi kapalı bir tarayıcı
+olabilir, ölçülmedi. Ekranın tavsiyesi müdüre daveti iki kez yeniden gönderttirdi; her yeniden gönderim öncekini
+iptal ettiği için B'nin eski bağlantıları sonra *"This link can't be used"* gösterdi.
+
+**Karar.** `startActivation` artık `/activate?cookiecheck=1`'e yönlendirir (`activationCookieCheck`). İşaret veri
+değildir: kod ve sır taşımaz, yalnız *"önceki yanıt çerezi yazdı"* der. `landWithoutLink` sırası korunur — canlı
+oturum yine önce *"already set up"* alır, `from=tap` / `from=signedout` değişmez — ve **işaret var, çerez yoksa**
+`problemNoLink` yerine yeni `problemCookieLost` çizilir (aynı `pages.Problem` şablonu, yeni bileşen yok, markasız):
+
+- *"Open this link in your browser"*
+- *"This window can't finish setup, because it didn't keep what setup needs."*
+- *"Copy the link your workplace sent you and paste it into Chrome or Safari, then follow the steps there. Your link
+  still works — you don't need a new one. Already in Chrome or Safari? Allow cookies for this site and open the link
+  again."*
+
+İşaret **ve** çerez varsa sayfa bir kez daha çıplak `/activate`'e 303 verir: işaret adres çubuğunda kalırsa, çerezin
+süresi dolduktan çok sonra yapılan bir yenileme bağlantısı artık çalışmayan birine *"your link still works"*
+derdi. Bedeli tek aktivasyonda bir istek (7 → 8, logolu işletmede 8 → 9); hiçbir sınır değişmedi (`ratelimit.go`; tavan 600). İşareti iki
+çağıran da taşır (`Page`'in `?code=` gelişi ve `Continue`'nun onaylı devralması — ikisi de o yanıtta çerezi yazar);
+`Submit`'in `?step=2` yönlendirmesi taşımaz, çünkü o istek çerez **geldiği** için koştu.
+
+**Log.** Dal bir INFO satırı yazar: `"activation cookie did not return"`, alanlar `ip`, `device` (`coarseDevice`'ın
+kapalı sözlüğü, ör. *"Android Chrome"*) ve `embedded_browser` (bool: Android WebView'in `; wv)` imi ya da
+iPhone/iPad'de `Safari/` jetonunun yokluğu — `embeddedBrowser`). User-agent'ın kendisi, kod ve çerez yazılmaz
+(§7, §4.1). Satır bilinmeyen bütçesiyle sınırlıdır (`anonFail` gibi), çünkü işaret herkese açık bir URL'dir.
+
+Testler: `TestPage_CookieCheck`, `TestPage_CookieLostScreenSaysTheLinkStillWorks`,
+`TestPage_CookieLostIsLoggedCoarsely`, `TestEmbeddedBrowser`; `TestPage_ValidCodeMovesIntoCookieAndRedirects`
+artık işaretli `Location` bekler, `TestNoLogLineEverCarriesTheCode` yeni dalı da tarar.

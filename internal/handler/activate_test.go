@@ -15,6 +15,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -427,8 +428,8 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate" {
-		t.Fatalf("Location = %q, want /activate (the code must not survive in the URL)", loc)
+	if loc := w.Header().Get("Location"); loc != activationCookieCheck {
+		t.Fatalf("Location = %q, want %s (the code must not survive in the URL)", loc, activationCookieCheck)
 	}
 	if strings.Contains(w.Body.String(), fakeCode) {
 		t.Fatal("the redirect body carries the code")
@@ -1524,6 +1525,107 @@ func TestPage_LandingWithoutALinkSaysWhatIsTrue(t *testing.T) {
 	}
 }
 
+// TestPage_CookieCheck covers the marker startActivation adds to its redirect
+// (activationCookieCheck; the 2026-11-11 incident, ADR 0026): a browser whose
+// activation cookie did not come back is told to open the link in a real browser,
+// not to ask for a new one, and every other arrival is answered as before.
+func TestPage_CookieCheck(t *testing.T) {
+	sessionCookie := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	tests := []struct {
+		name       string
+		target     string
+		cookies    []*http.Cookie
+		wantStatus int
+		wantLoc    string // for a 303
+		wantBody   string // for a 200
+	}{
+		{"a valid link redirects with the marker", "/activate?code=" + fakeCode, nil,
+			http.StatusSeeOther, activationCookieCheck, ""},
+		{"marker without the cookie says open it in a browser", activationCookieCheck, nil,
+			http.StatusOK, "", problemCookieLost.Title},
+		{"marker with the cookie drops the marker", activationCookieCheck, []*http.Cookie{codeCookie()},
+			http.StatusSeeOther, "/activate", ""},
+		{"the bare page with the cookie is the wizard", "/activate", []*http.Cookie{codeCookie()},
+			http.StatusOK, "", "Agree and continue"},
+		{"no marker and no cookie keeps the no-link landing", "/activate", nil,
+			http.StatusOK, "", problemNoLink.Title},
+		{"a set-up phone is still told it is set up", activationCookieCheck, []*http.Cookie{sessionCookie},
+			http.StatusOK, "", "This phone is already set up"},
+		{"from=tap is unchanged by a stray marker", activationFromTap + "&" + cookieCheckParam + "=1", nil,
+			http.StatusOK, "", problemFinishHere.Title},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+			w := get(t, h, tc.target, tc.cookies...)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+			if tc.wantLoc != "" {
+				if loc := w.Header().Get("Location"); loc != tc.wantLoc {
+					t.Fatalf("Location = %q, want %q", loc, tc.wantLoc)
+				}
+				return
+			}
+			body := w.Body.String()
+			if !strings.Contains(body, html.EscapeString(tc.wantBody)) {
+				t.Fatalf("the page does not say %q", tc.wantBody)
+			}
+			if tc.wantBody != problemCookieLost.Title && strings.Contains(body, html.EscapeString(problemCookieLost.Title)) {
+				t.Fatal("the dropped-cookie screen reached an arrival it is not for")
+			}
+		})
+	}
+}
+
+// TestPage_CookieLostScreenSaysTheLinkStillWorks pins what the dropped-cookie
+// screen promises and what it must not advise first: the link was VALID one
+// response ago, so a new invitation would only cancel it (ADR 0026, 2026-11-11).
+func TestPage_CookieLostScreenSaysTheLinkStillWorks(t *testing.T) {
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+	body := get(t, h, activationCookieCheck).Body.String()
+	for _, want := range []string{"Open this link in your browser", "Chrome or Safari", "still works", "Allow cookies"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the screen does not say %q", want)
+		}
+	}
+	if strings.Contains(body, "Ask your manager") || strings.Contains(body, "new link") {
+		t.Error("the screen sends the person to their manager, whose re-send would cancel a link that works")
+	}
+	if strings.Contains(body, fakeCode) {
+		t.Error("the screen carries the code")
+	}
+}
+
+// TestPage_CookieLostIsLoggedCoarsely: the dropped-cookie line names the browser
+// family from the closed vocabulary and never the user agent itself (§7, §4.1).
+func TestPage_CookieLostIsLoggedCoarsely(t *testing.T) {
+	var logged strings.Builder
+	h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{log: &logged})
+	const ua = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Mobile Safari/537.36 UNIQUEappTOKEN"
+	req := httptest.NewRequest(http.MethodGet, activationCookieCheck, nil)
+	req.RemoteAddr = "203.0.113.5:41234"
+	req.Header.Set("User-Agent", ua)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	out := logged.String()
+	for _, want := range []string{"activation cookie did not return", "ip=203.0.113.5", `device="Android Chrome"`, "embedded_browser=true"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log line lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "UNIQUEappTOKEN") || strings.Contains(out, "Pixel 8") {
+		t.Errorf("the log line carries the user agent:\n%s", out)
+	}
+
+	// The bare landing is not this branch and writes no such line.
+	logged.Reset()
+	get(t, h, "/activate")
+	if strings.Contains(logged.String(), "activation cookie did not return") {
+		t.Error("a visit without the marker was logged as a dropped cookie")
+	}
+}
+
 // TestWizard_NoStrayPunctuationAfterNames: an employer name that ends in a full
 // stop ("Kebab Factory Ltd.") must not produce "Ltd. ." or "Ltd.." anywhere on
 // the wizard (third eye #5).
@@ -1647,6 +1749,30 @@ func TestCoarseDevice(t *testing.T) {
 	}
 }
 
+// TestEmbeddedBrowser pins the two structural signals logCookieLost reports.
+func TestEmbeddedBrowser(t *testing.T) {
+	cases := []struct {
+		name, ua string
+		want     bool
+	}{
+		{"android webview", "Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36", true},
+		{"android chrome", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", false},
+		{"iphone wkwebview", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", true},
+		{"iphone safari", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1", false},
+		{"iphone chrome", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0 Mobile/15E148 Safari/604.1", false},
+		{"desktop", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36", false},
+		{"empty", "", false},
+		{"oversized", strings.Repeat("iPhone", 1000), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := embeddedBrowser(tc.ua); got != tc.want {
+				t.Fatalf("embeddedBrowser = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestCodeCookies_ZeroValueIsSecure is the M5-01 round-3 lesson applied to the
 // second cookie in the codebase: the DANGEROUS state must not be the zero value,
 // because Go lets any package obtain a zero struct even when it cannot name the
@@ -1716,6 +1842,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	// Happy path (which logs nothing) plus every branch that does.
 	happy := build(&fakeInvites{}, &fakeSessions{})
 	get(t, happy, "/activate?code="+fakeCode)
+	get(t, happy, activationCookieCheck) // the dropped-cookie line (logCookieLost)
 	post(t, happy, consent(), codeCookie())
 	doTap(t, happy, activationTapURL, pendingCookie())
 
@@ -1768,7 +1895,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	}
 	// Positive controls: the buffer really holds this handler's output, and it
 	// really reached the branches that are supposed to be loud.
-	for _, want := range []string{"activation attempt rejected", "activation rate limited", "issuing the session failed"} {
+	for _, want := range []string{"activation attempt rejected", "activation rate limited", "issuing the session failed", "activation cookie did not return"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the captured log never reached %q; the negative assertions cover less than they claim", want)
 		}
