@@ -90,7 +90,7 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q11 | **iOS Safari çerez ömrü.** Oturum 1 yıl hedefleniyor; Safari ITP altında gerçek bir iPhone'da NFC → Safari akışıyla **ölçülmeli**. "Telefon seni tanır" vaadi buna dayanıyor. **M5-01 (`a71e1b2`) kodu tamamlandı ve bunu BLOKLAMIYOR:** sunucu tarafı ölçümden bağımsız (`Set-Cookie`, `httpOnly`, `SameSite=Lax`, `Max-Age=31536000`) ve sonuç kod tasarımını değiştirmez, o yüzden kabul kriteri olamaz (kart düzeltmesi, 2026-07-31). Ölçülecek olan: **sunucunun yazdığı httpOnly** çerez ITP altında 1 yıl yaşıyor mu (7 günlük kırpma JS ile yazılan çerezlere ait — doğrulanması gereken bu ayrım). Gerçek cihaz turu M8-05'te. | hiçbir şeyi bloklamıyor (bilgi: M8-05) | C | **açık — kullanıcı ölçümü bekliyor** |
 | Q12 | **Barındırma.** VPS sağlayıcı ve managed Postgres, AB bölgesi, yedek politikası, ~€30-50 bütçe. | M8-02 | A | açık |
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
-| Q28 | **Uyarı hedefi ve log saklama süresi.** M8-03 altı sinyali log'dan **hesaplanabilir** kıldı (olay adları ve eşikler yazılı, testle pinli) ama **hiçbir teslimat kanalı yok**: bir eşik aşıldığında kimse haberdar olmuyor. İki karar birlikte: **(a)** uyarı nereye gidecek — kümedeki mevcut SigNoz kurulumu mu, e-posta mı (Q02'ye bağlanır), başka bir şey mi; **(b)** log'lar ne kadar saklanacak — bugün node'da bir **süre** değil bir **boyut** var (10Mi × 5) ve gerçek üst sınır *"bir sonraki deploy"*, ⚠️ ve `tappa` namespace'i işletmediğimiz bir SigNoz toplayıcısına **rıza verilmeden** dahil edilmiş durumda, TTL'i **doğrulanamadı**. 🔴 GDPR bağı gerçek: log satırları IP ve çalışan id'si taşır, ve Q13'ün silme akışı `employees` üzerinde bir UPDATE'tir — **log'a ulaşmaz**. ⚠️ Bu soru M8-03'ten **önce yoktu** ve yokluğu ölçülerek bulundu: kart *"teslimat Q12'ye bağlı"* diyordu, oysa Q12 **barındırma** sorusudur (2. tur denetimi, 2026-08-19). | M8-06 (pilot kapısı) · M8-03 kriter 3-4 | A | 🟡 **(a) CEVAPLANDI (2026-10-09/11, kullanıcı):** healthchecks.io — uptime heartbeat + gece yedeği (T116) ve SigNoz'un yedi log kuralı → `tappa-signals` (T118, `588f1e1`); Telegram + e-posta. **(b) log saklama hâlâ açık.** |
+| Q28 | **Uyarı hedefi ve log saklama süresi.** M8-03 altı sinyali log'dan **hesaplanabilir** kıldı (olay adları ve eşikler yazılı, testle pinli) ama **hiçbir teslimat kanalı yok**: bir eşik aşıldığında kimse haberdar olmuyor. İki karar birlikte: **(a)** uyarı nereye gidecek — kümedeki mevcut SigNoz kurulumu mu, e-posta mı (Q02'ye bağlanır), başka bir şey mi; **(b)** log'lar ne kadar saklanacak — bugün node'da bir **süre** değil bir **boyut** var (10Mi × 5) ve gerçek üst sınır *"bir sonraki deploy"*, ⚠️ ve `tappa` namespace'i işletmediğimiz bir SigNoz toplayıcısına **rıza verilmeden** dahil edilmiş durumda, TTL'i **doğrulanamadı**. 🔴 GDPR bağı gerçek: log satırları IP ve çalışan id'si taşır, ve Q13'ün silme akışı `employees` üzerinde bir UPDATE'tir — **log'a ulaşmaz**. ⚠️ Bu soru M8-03'ten **önce yoktu** ve yokluğu ölçülerek bulundu: kart *"teslimat Q12'ye bağlı"* diyordu, oysa Q12 **barındırma** sorusudur (2. tur denetimi, 2026-08-19). | M8-06 (pilot kapısı) · M8-03 kriter 3-4 | A | ✅ **(a) CEVAPLANDI (2026-10-09/11, kullanıcı):** healthchecks.io — uptime heartbeat + gece yedeği (T116) ve SigNoz'un yedi log kuralı → `tappa-signals` (T118, `588f1e1`); Telegram + e-posta. **(b) CEVAPLANDI (2026-10-14, kullanıcı): log'lar 15 gün** — SigNoz'un ölçülen TTL'i, değiştirilmedi; aşağı bak. |
 | Q30 | **Gün dönümü değerleri, canlıya çıkmadan önce (M15 Faz A).** Varsayılan 05:00 (ADR 0032 §A.2; kademe işletme → şube (profil) → departman → kişi) KF'ye uyar (10:00–22:00, Rusty Bar 18:00–02:00 — çakışma yok) ama seed'deki **KM** departmanlarıyla çakışıyor: *KM Pastry & Bakery* 04:00–12:00 (05:00 vardiyanın içinde → 12:05 çıkışı `in` olur), *KM Meat Production* 05:00–13:00 (04:50'de gelen önceki iş gününe düşer) (`test/fixtures/seed.sql:195-211`). Faz A ayarsız sevk edilirse KM'de zinciri **bugünkünden kötü** bozar; üretimdeki vardiyalar seed'den farklı olabilir. **Öneri:** KF işletme kesimi **05:00**; KM işletme kesimi **23:00** (KM'nin bütün departmanları 04:00–17:00 arasında, payıyla 03:00–19:00 — ayar ekranının önerisi de bu aralığın dışını önerir); deploy'dan önce M15-08'in salt okunur çakışma raporu üretimde koşar, çakışan her değer onunla birlikte onaylanır. | M15-08 (deploy) | A | **cevaplandı (2026-10-21)** — KF işletme kesimi 05:00, KM 23:00; yayından önce Account'taki çakışma kontrolü üretimde yeniden bakılır. Pilot olmayan iki canlı tenant: varsayılan 05:00, çakışırsa owner panelinin her ekranında `PanelNotice` ve owner kendisi ayarlar (M15-08 adım 3a). ADR 0032 *Kabul notu* |
 | Q31 | **`/v1` punch akışı: düzeltilmiş yön ve onaylı talepler (M15 Faz B/C × M11) — Faz B'nin sevk kapısı.** (a) Çalışanın seçtiği yön akışa **işaretsiz** gider (`punch_events.direction` = `transactions.type`, K-40; akış canlı — `00048`–`00052`); dış sistem (KF-RMS / KM-ERP) kendi eşlemesini yapıyorsa ADR 0032 §A.6'nın *"çıkış yalnız kendi iş gününün girişini kapatır"* koruması orada yoktur. (b) Onaylı talep `channel='manual'` satır yazar ve akışa **hiç girmez** (`punch_events_channel CHECK (channel IN ('nfc','qr'))`, K-6). **Öneri:** (a) canlıda aktif API anahtarı ya da webhook'u olan bir tenant varsa **evet** — eklemeli, isteğe bağlı `directionSource` alanı (v1 ile geriye uyumlu) M15-13 kartıyla **Faz B ile birlikte**; M15-11 Q31 cevaplanmadan `main`'e girmez; (b) K-6 aynen — panel bunu API'li tenant'a bir cümleyle söyler. | M15-11 (sevk), M15-13 | A | **cevaplandı (2026-10-21)** — evet — `directionSource: auto\|employee` (isteğe bağlı, v1 ile geriye uyumlu), M15-13 ile Faz B birlikte (koşulsuz); onaylı talepler akışa girmez (K-6) |
 | Q32 | **Talep sonucunun çalışana bildirimi (M15 Faz C).** Müdür bir talebi onaylar ya da reddeder; çalışan sonucu **M9-05'e (çalışan self-service saat görünümü, todo) kadar göremez** — e-posta yok, M9-02'nin push'u yöneticiye yöneliktir, ve sonuç ekranına her ekleme CLAUDE.md §9 sorusudur. (Önceki gerekçe *"onay sonraki dokunuşun yönünü düzeltir"* yanlıştı: onaylanan manuel satır geçmişteki çifti kapatır, sonraki dokunuşun yönü zaten iş günü kuralıyla doğrudur.) **Öneri:** M15'te **bildirim yok**; reddedilen talep müdürle konuşulur; pilotta talep edilirse ayrı bir §9 kararıyla ya da M9-05'in parçası olarak. | — (M15'i bloklamaz) | A | **cevaplandı (2026-10-21)** — M15'te bildirim yok; çalışan sonucu M9-05 ile görür; pilotta istenirse ayrı karar |
@@ -98,6 +98,47 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q34 | **E-posta değiştirme M14'ün içinde mi (ADR 0031 K-15, bulgu 12)?** M14'te e-posta global tekildir (K-1) ve kimliğe aittir; `admin_users.email` bir aynadır (K-14). Var olan kimliğin adresini değiştirmek mevcut parola + yeni adresin doğrulanması + eski adrese bildirim + çakışmada aynı *"gelen kutunu kontrol et"* + aynanın bütün işletmelerde definer ile güncellenmesini ister. (a) M14'ün dışında, kendi kartı ve kararıyla; (b) M14'e ek kart. **Öneri: (a)** — ADR 0031 (a)'yı varsayar. | M14-01 | A | **cevaplandı (2026-10-22, kullanıcı): (a)** — e-posta değiştirme M14'ün dışında; kendi kartı ve kararıyla gelir (backlog **T173**). ADR 0031 §13 K-15 |
 
 ## Cevaplananlar
+
+### Q28 (b) — Uygulama log'ları 15 gün saklanır (2026-10-14)
+
+**Karar (kullanıcı, 2026-10-14):** uygulama log'larının saklama süresi **15 gün**. Seçenekler
+7, 15 ve 30 gündü; kullanıcı 15'i seçti. Bu, SigNoz'un bugünkü değeridir — **SigNoz'da hiçbir
+şey değiştirilmedi.** (`Q28 (a)` — uyarı hedefi — 2026-10-09/11'de cevaplandı; tablo satırı.)
+
+**Ölçüm (orkestratör, 2026-10-14):**
+- SigNoz (v0.131, `signoz.everva.com.tr`, kümede, ~20 uygulamayla **paylaşılan**)
+  `GET /api/v2/settings/ttl?type=logs` → `default_ttl_days: 15`, `cold_storage_ttl_days: -1`
+  (soğuk katman yok). Traces ve metrics de 15.
+- TTL **SigNoz genelidir**; ölçülen sürümde `tappa`'ya özel bir ayar görülmedi.
+- Node'da kubelet konteyner log'unu 10Mi × 5 tutar ve pod değişince (deploy) siler.
+- Log satırları IP, `employee_id`, `tenant_id`, `request_id` taşır; e-posta, token ve anahtar
+  taşımaz (CLAUDE.md §7).
+
+**Gerekçe:** GDPR veri en aza indirme — log kişisel veri taşır ve Q13'ün silme akışı
+(`employees` üzerinde UPDATE) ona **ulaşmaz**, yani kısa süre doğrudan daha az iz demektir;
+toplayıcıdaki iz süre dolunca kendiliğinden silinir (≤ 15 gün; node kopyası için aşağıdaki sınır). İki hafta bir uyarının olay incelemesi
+için yeterli (`Q28 (a)`'nın kuralları dakikalar içinde ateşler). Paylaşılan SigNoz'un ayarı
+değişmiyor — tappa için başka 20 uygulamanın saklamasını değiştirmek gerekmedi.
+
+**Sınırlar:**
+- **TTL SigNoz genelidir.** Biri SigNoz'un TTL'ini değiştirirse tappa'nın süresi de değişir
+  ve bu repodan **pinlenemez**; tek bekçi operatörün periyodik, salt-okur kontrolüdür
+  (deploy/README.md adım 10 (f)'nin sonu, eylem `log-retention-signoz`; beklenen 15).
+- **Node log'unun üst sınırı bir süre DEĞİLDİR.** kubelet konteyner log'unu süreye göre
+  değil boyuta göre (10Mi × 5 = 50 MiB) döndürür; log, pod değişene (deploy) ya da 50 MiB
+  dolana kadar yaşar. Deploy seyrekse ve hacim düşükse node kopyası **15 günü aşabilir**
+  (deploy/README.md sınır 24). Çare (uygulanmadı): kubelet'te `containerLogMaxAge` gibi bir
+  süre ayarı yok, bu yüzden ya düzenli deploy ya da en geç 15 günde bir rollout.
+- **Yedekler log içermez** (okunarak doğrulandı): `scripts/pg-backup.sh` yalnız
+  `pg_dump --format=plain` koşar; `scripts/pg-backup-ship.sh` R2'ye (14 gün kilit) yalnız o
+  `.sql.gz`'yi ve manifestini gönderir. Veritabanının **kendi** IP sütunu
+  (`transactions.source_ip`) yedektedir — o log değil kayıttır ve Q13 / `TAPPA_RETENTION_YEARS`
+  kapsamındadır.
+- **Yayın:** gizlilik metni (`/legal/privacy`, bugün yer tutucu) bu sayıyı henüz söylemiyor;
+  taslak `docs/legal/privacy-draft.md` hazır, yayın kullanıcıda (T117, `docs/backlog.md`).
+
+**Normatif metin:** deploy/README.md *"Gözlemlenebilirlik"* → *"Politika"* 2–3 · sınır 24 ·
+adım 10 (f)'nin sonundaki salt-okur kontrol.
 
 ### Q02 — E-posta sağlayıcısı: AWS SES (`eu-central-1`), SMTP arayüzü + stdlib `net/smtp` (2026-10-03)
 
