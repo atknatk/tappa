@@ -2913,20 +2913,42 @@ Bu, `tappa-redirects`'e `permanent-redirect`'i geri koyar; hedef commit'in kendi
 40'ın öteki iki nesnesi de dönülen imajla aynı sürümde olur (bir deploy da tam bunu yapar). İleri dönüşte sıradan deploy 43'ü yeniden uygular.
 
 **Doğrulama (deploy'dan sonra, salt-okur, küme yetkisi gerekmez).** Hiçbir satırda `cf-ray` **yok**;
-beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` · `HTTP/2 301` +
-`location: https://taptime.mt/t?p=AB&c=1` · `HTTP/2 308` + `location: https://taptime.mt/admin/login` ·
-`location: https://taptime.mt/evil.example/x`:
+beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` +
+`strict-transport-security: max-age=31536000; includeSubDomains` · `HTTP/2 301` +
+`location: https://taptime.mt/t?p=AB&c=1` + aynı HSTS satırı · `HTTP/2 308` +
+`location: https://taptime.mt/admin/login` · `location: https://taptime.mt/evil.example/x`:
 
 ```bash
-curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|cf-ray'
-curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|cf-ray'
+curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|^strict-transport-security\|cf-ray'
+curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|^strict-transport-security\|cf-ray'
 curl -sS -o /dev/null -D - -X POST 'https://www.taptime.mt/admin/login' | grep -i '^HTTP\|^location'
 curl -sS -o /dev/null -D - 'https://www.taptime.mt//evil.example/x' | grep -i '^location'
 ```
 
+HSTS satırı (T257) eksikse tarayıcı eski host'a bir sonraki gidişinde düz HTTP deneyebilir; ölçüldü
+(2026-11-11, salt-okur `curl`): iki host da `strict-transport-security: max-age=31536000; includeSubDomains`
+gönderiyor. Aynı gün ilk ölçümde `tappa.everva.com.tr` `cf-ray` taşıyordu: DNS-only kaydı yoktu ve
+`everva.com.tr`'nin proxy'li joker kaydı cevap veriyordu (backlog T275). Orkestratör (kullanıcı onayıyla)
+aynı gün `144.76.158.60`'a DNS-only A kaydı açtı (okundu, orkestratörün bildirimi); yeniden ölçüldü:
+1.1.1.1 ve 8.8.8.8 adı `144.76.158.60`'a çözüyor, `cf-ray` yok, tarayıcı origin'in Let's Encrypt
+sertifikasını görüyor (`CN=tappa.everva.com.tr`, bitiş 2027-01-12) ve `redirect-hosts` iki host'ta çıkış 0.
+Joker kayıt hâlâ proxy'li (var olmayan bir ad Cloudflare adreslerine çözülüyor, ölçüldü): bu kayıt
+silinirse ya da proxy'lenirse kapı yeniden kırmızı olur.
+
 Sertifikalar değişmez (`tappa-tls`, `taptime-www-tls`); HTTP-01 yenilemesi artık öteki host'larla
-aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu). Bu kontrol
-deploy'un kendi kapılarında **yok** (backlog T261).
+aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu).
+
+**Deploy'un kapısı (T261).** `deploy.yml`'in *"Gate — the legacy hosts redirect to the base URL with
+the path kept"* adımı, API host kapısından sonra
+`scripts/verify-deployment.sh redirect-hosts taptime.mt tappa.everva.com.tr www.taptime.mt` koşar:
+iki host'tan da `GET /activate?x=1` ister ve yalnız `301` + `location: https://taptime.mt/activate?x=1`
++ `cf-ray` yok cevabını geçirir. `cf-ray` ya da 2xx hemen kırmızı; 404 ya da başka bir Location (örneğin
+`permanent-redirect` notu canlı nesnede kalmış: path'siz `https://taptime.mt`) ~90 sn yeniden sorulur,
+sonra kırmızı; curl hatası (çözülemeyen ad dahil) UNCHECKED, kırmızı. `all` da koşar. Pinler:
+`TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer`, `TestPackaging_TheDeployGatesTheRedirectHosts`.
+Kapı rollout'tan **sonra** koşar: kırmızı olduğunda uygulanan hiçbir şey geri alınmaz, yalnız sonuç
+*"failure"* olur. 2xx, `cf-ray`'den önce yargılanır (Cloudflare arkasında sunulan bir sayfa sayfa olarak
+raporlanır).
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 
