@@ -317,13 +317,16 @@ func TestBfUpgradeGuard_DoesNotSeeNowait(t *testing.T) {
 // row newer than an earlier snapshot is opAtVersion's 40001 -- lockForDowns says how it was
 // measured). The transaction's snapshot shows as its backend_xmin in pg_stat_activity, read from a
 // second session: NULL after lockForDowns, set after one SELECT (the premise that the reading sees a
-// snapshot at all). hold > 0 keeps a reader on the table that long, so the NOWAIT tries miss more
-// than 40 times and lockInTurn runs too.
+// snapshot at all). With inTurn, a reader holds the table until lockInTurn's blocking LOCK is seen
+// WAITING on it -- the transaction's pid blocked by the holder's (pg_blocking_pids), which a NOWAIT try
+// never shows -- so the case ends only through lockInTurn, however long the 40 NOWAIT rounds take. A
+// first version released on a 1.5 s timer instead: under -race at load ~44 the NOWAIT rounds outlasted
+// it once in six and the settings mutant below stayed green (third-eye audit, measured).
 //
 // MUTANTS (measured, T255): lockForDowns' existence check back to SELECT to_regclass(...) -> red in
 // both tests; lockInTurn's settings read back to SELECT ... FROM pg_settings -> red in the in-turn
 // test only.
-func lockSnapshotCase(t *testing.T, hold time.Duration) {
+func lockSnapshotCase(t *testing.T, inTurn bool) {
 	t.Helper()
 	ctx, tx := opTx(t)
 	watcher, err := pgx.Connect(ctx, opOwnerDSN(t))
@@ -347,11 +350,15 @@ func lockSnapshotCase(t *testing.T, hold time.Duration) {
 	if hasSnapshot() {
 		t.Fatal("PREMISE: opTx's transaction has a snapshot before lockForDowns")
 	}
-	// The holder's release runs on a goroutine of its own and is waited for HERE, before the test can
-	// end: lockHoldAccessShare's release is not safe beside its connection's cleanup (-race, CI
-	// 42939616527, measured), and t.Fatalf belongs to the test's goroutine.
-	released := make(chan error, 1)
-	if hold > 0 {
+	// The holder is released by a goroutine of its own, watching on a connection of its own, and its
+	// answer is received HERE, before the test can end: t.Fatalf belongs to the test's goroutine, and a
+	// release racing its connection's cleanup was CI 42939616527's data race.
+	type outcome struct {
+		waited bool
+		err    error
+	}
+	released := make(chan outcome, 1)
+	if inTurn {
 		holder, err := pgx.Connect(ctx, opOwnerDSN(t))
 		if err != nil {
 			t.Fatalf("connect the lock holder: %v", err)
@@ -361,22 +368,50 @@ func lockSnapshotCase(t *testing.T, hold time.Duration) {
 				t.Logf("close the lock holder: %v", err)
 			}
 		})
+		spy, err := pgx.Connect(ctx, opOwnerDSN(t))
+		if err != nil {
+			t.Fatalf("connect the lock spy: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := spy.Close(context.Background()); err != nil {
+				t.Logf("close the lock spy: %v", err)
+			}
+		})
 		for _, q := range []string{`BEGIN`, `LOCK TABLE public.` + bfGuardCaseTable + ` IN ACCESS SHARE MODE`} {
 			if _, err := holder.Exec(ctx, q); err != nil {
 				t.Fatalf("lock holder: %s: %v", q, err)
 			}
 		}
+		holderPid := holder.PgConn().PID()
 		go func() {
-			time.Sleep(hold)
-			_, err := holder.Exec(context.Background(), `ROLLBACK`)
-			released <- err
+			var o outcome
+			// lockForDowns gives up after 90 s; this gives the holder back before that either way.
+			for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+				var blocked bool
+				if o.err = spy.QueryRow(context.Background(), `SELECT $1::int = ANY (pg_catalog.pg_blocking_pids($2))`,
+					int64(holderPid), int64(pid)).Scan(&blocked); o.err != nil {
+					break
+				}
+				if blocked {
+					o.waited = true
+					break
+				}
+			}
+			if _, err := holder.Exec(context.Background(), `ROLLBACK`); err != nil && o.err == nil {
+				o.err = err
+			}
+			released <- o
 		}()
 	} else {
-		released <- nil
+		released <- outcome{}
 	}
 	lockForDowns(t, ctx, tx, []string{"zz_no_such_table", bfGuardCaseTable})
-	if err := <-released; err != nil {
-		t.Fatalf("release the lock holder: %v", err)
+	o := <-released
+	if o.err != nil {
+		t.Fatalf("watch for lockInTurn's wait, or release the holder: %v", o.err)
+	}
+	if inTurn && !o.waited {
+		t.Fatal("CONTROL: lockInTurn never waited on the held table: the in-turn path did not run")
 	}
 	if hasSnapshot() {
 		t.Error("lockForDowns left the transaction with a snapshot: rows committed while it waited are invisible to the caller")
@@ -389,8 +424,6 @@ func lockSnapshotCase(t *testing.T, hold time.Duration) {
 	}
 }
 
-func TestLockHelpers_TheLocksComeBeforeTheSnapshot(t *testing.T) { lockSnapshotCase(t, 0) }
+func TestLockHelpers_TheLocksComeBeforeTheSnapshot(t *testing.T) { lockSnapshotCase(t, false) }
 
-func TestLockHelpers_TheLocksComeBeforeTheSnapshotInTurnToo(t *testing.T) {
-	lockSnapshotCase(t, 1500*time.Millisecond)
-}
+func TestLockHelpers_TheLocksComeBeforeTheSnapshotInTurnToo(t *testing.T) { lockSnapshotCase(t, true) }
