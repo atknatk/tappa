@@ -311,3 +311,61 @@ func TestBfUpgradeGuard_DoesNotSeeNowait(t *testing.T) {
 		})
 	})
 }
+
+// lockSnapshotCase (T255): lockForDowns must leave opTx's REPEATABLE READ transaction WITHOUT a
+// snapshot, so the caller's first SELECT sees every row committed while it waited for the locks (a
+// row newer than an earlier snapshot is opAtVersion's 40001 -- lockForDowns says how it was
+// measured). The transaction's snapshot shows as its backend_xmin in pg_stat_activity, read from a
+// second session: NULL after lockForDowns, set after one SELECT (the premise that the reading sees a
+// snapshot at all). hold > 0 keeps a reader on the table that long, so the NOWAIT tries miss more
+// than 40 times and lockInTurn runs too.
+//
+// MUTANTS (measured, T255): lockForDowns' existence check back to SELECT to_regclass(...) -> red in
+// both tests; lockInTurn's settings read back to SELECT ... FROM pg_settings -> red in the in-turn
+// test only.
+func lockSnapshotCase(t *testing.T, hold time.Duration) {
+	t.Helper()
+	ctx, tx := opTx(t)
+	watcher, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect the watcher: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := watcher.Close(context.Background()); err != nil {
+			t.Logf("close the watcher: %v", err)
+		}
+	})
+	pid := tx.Conn().PgConn().PID()
+	hasSnapshot := func() bool {
+		t.Helper()
+		var has bool
+		if err := watcher.QueryRow(ctx, `SELECT backend_xmin IS NOT NULL FROM pg_catalog.pg_stat_activity WHERE pid = $1`, pid).Scan(&has); err != nil {
+			t.Fatalf("read the transaction's backend_xmin: %v", err)
+		}
+		return has
+	}
+	if hasSnapshot() {
+		t.Fatal("PREMISE: opTx's transaction has a snapshot before lockForDowns")
+	}
+	if hold > 0 {
+		release := lockHoldAccessShare(t, bfGuardCaseTable)
+		timer := time.AfterFunc(hold, release)
+		t.Cleanup(func() { timer.Stop() })
+	}
+	lockForDowns(t, ctx, tx, []string{"zz_no_such_table", bfGuardCaseTable})
+	if hasSnapshot() {
+		t.Error("lockForDowns left the transaction with a snapshot: rows committed while it waited are invisible to the caller")
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1`); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSnapshot() {
+		t.Error("PREMISE: a SELECT did not give the transaction a snapshot the watcher can see")
+	}
+}
+
+func TestLockHelpers_TheLocksComeBeforeTheSnapshot(t *testing.T) { lockSnapshotCase(t, 0) }
+
+func TestLockHelpers_TheLocksComeBeforeTheSnapshotInTurnToo(t *testing.T) {
+	lockSnapshotCase(t, 1500*time.Millisecond)
+}

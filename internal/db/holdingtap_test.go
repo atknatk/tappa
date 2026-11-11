@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1799,15 +1800,22 @@ func holdingLockForDowns(t *testing.T, ctx context.Context, sp pgx.Tx) {
 //     one a deadlock check finds a cycle through (see there).
 //
 // The deadline is 90 s, or the context's deadline less 10 s when that is sooner.
+//
+// 🔴 NO SNAPSHOT BEFORE THE LOCKS (T255; CI 42726656534's 40001 in
+// TestOperator00057_DownGivesBack00029AndUpTakesItAgain, reproduced on the lane database by a scratch
+// test: a committed suspended tenant, reinstated by another session that held tenants while this
+// waited). opTx's transaction is REPEATABLE READ, whose snapshot is fixed by its first SELECT or DML
+// -- not by SAVEPOINT, LOCK, SET or SHOW. When that first statement ran before the LOCK (it was
+// to_regclass, here), every row another session committed during the wait was newer than the
+// snapshot, and opAtVersion's lift of the suspensions met it: 40001. A retry in the same
+// transaction meets the same snapshot. So nothing on this path takes one: existence is a LOCK probe
+// (lockProbeExists), lockInTurn reads and sets its settings with SHOW and SET, and the caller's first
+// SELECT sees everything committed before the locks were granted.
 func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) {
 	t.Helper()
 	var list []string
 	for _, tb := range tables {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.' || $1) IS NOT NULL`, tb).Scan(&exists); err != nil {
-			t.Fatal(err)
-		}
-		if exists {
+		if lockProbeExists(t, ctx, tx, "public."+tb) {
 			list = append(list, "public."+tb)
 		}
 	}
@@ -1842,6 +1850,51 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// lockProbeExists answers whether table exists as tx sees it (a table the transaction dropped does
+// not) without fixing tx's snapshot (lockForDowns says why): LOCK ... ACCESS SHARE NOWAIT in a
+// savepoint that is then undone, so the probe keeps no lock. Granted or 55P03 (someone holds or
+// queues for ACCESS EXCLUSIVE) means it exists; 42P01 means it does not.
+func lockProbeExists(t *testing.T, ctx context.Context, tx pgx.Tx, table string) bool {
+	t.Helper()
+	const sp = "lock_probe"
+	if _, err := tx.Exec(ctx, `SAVEPOINT `+sp); err != nil {
+		t.Fatal(err)
+	}
+	_, err := tx.Exec(ctx, `LOCK TABLE `+table+` IN ACCESS SHARE MODE NOWAIT`)
+	lockUndoSavepoint(t, ctx, tx, sp)
+	if err == nil {
+		return true
+	}
+	switch code, _ := opCode(err); code {
+	case "55P03":
+		return true
+	case "42P01":
+		return false
+	}
+	t.Fatalf("probe %s: %v", table, err)
+	return false
+}
+
+// pgMillis reads a PostgreSQL time setting as SHOW prints it ("1s", "200ms", "2min", a bare number
+// of milliseconds) in milliseconds.
+func pgMillis(t *testing.T, s string) int64 {
+	t.Helper()
+	for _, u := range []struct {
+		suffix string
+		ms     int64
+	}{{"ms", 1}, {"min", 60_000}, {"s", 1000}, {"h", 3_600_000}, {"d", 86_400_000}, {"", 1}} {
+		num, ok := strings.CutSuffix(s, u.suffix)
+		if !ok {
+			continue
+		}
+		if n, err := strconv.ParseInt(num, 10, 64); err == nil {
+			return n * u.ms
+		}
+	}
+	t.Fatalf("read the setting %q as a duration", s)
+	return 0
 }
 
 // lockNowait runs LOCK ... NOWAIT over tables in a savepoint of tx's: true and the locks kept, or false
@@ -1906,12 +1959,15 @@ func lockUndoSavepoint(t *testing.T, ctx context.Context, tx pgx.Tx, name string
 // not excluded.)
 func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (busy string, ok bool) {
 	t.Helper()
-	var deadlockMs int64
-	var prev string
-	if err := tx.QueryRow(ctx, `SELECT setting::bigint, current_setting('lock_timeout') FROM pg_catalog.pg_settings WHERE name = 'deadlock_timeout'`).
-		Scan(&deadlockMs, &prev); err != nil {
+	// SHOW and SET, not SELECT: no snapshot before the locks (lockForDowns, T255).
+	var deadlock, prev string
+	if err := tx.QueryRow(ctx, `SHOW deadlock_timeout`).Scan(&deadlock); err != nil {
 		t.Fatal(err)
 	}
+	if err := tx.QueryRow(ctx, `SHOW lock_timeout`).Scan(&prev); err != nil {
+		t.Fatal(err)
+	}
+	deadlockMs := pgMillis(t, deadlock)
 	wait, hold := deadlockMs/5, time.Duration(deadlockMs/2)*time.Millisecond
 	const held = "lock_in_turn"
 	if _, err := tx.Exec(ctx, `SAVEPOINT `+held); err != nil {
@@ -1932,7 +1988,7 @@ func lockInTurn(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string) (
 			_, err = one.Exec(ctx, `LOCK TABLE `+tb+` IN ACCESS EXCLUSIVE MODE`)
 		}
 		if err == nil {
-			_, err = one.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, prev)
+			_, err = one.Exec(ctx, `SET LOCAL lock_timeout = '`+strings.ReplaceAll(prev, "'", "''")+`'`)
 		}
 		if err != nil {
 			if rbErr := one.Rollback(ctx); rbErr != nil {
