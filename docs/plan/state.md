@@ -1751,6 +1751,12 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-11 (M14 parti 6, dal `m14-legal`) — `m10-a1`'de kalmış iki kayıt ana hatta taşındı (T285)
+
+- **Neden:** `19c7177d` (T119 canlı kaydı) ve `2ef582ea` (Q28 (b) cevabı) yalnız `origin/m10-a1`'deydi; `main`'de ve M14 dalında Q28 hâlâ *"(b) açık"* görünüyordu. İçerik bugünkü metne elle taşındı (cherry-pick dört dosyada çakışıyordu); aşağıdaki iki madde o commit'lerin kaydıdır, bu oturumun işi değil.
+- **T119 canlı (2026-10-14, kullanıcı onayıyla; `19c7177d`'nin kaydı):** main `1ce79a3`; deploy log'u: iki Cloudflare ön kapısı "not proxied", `operator-surface: on`, 41 `unchanged`, yoklama `303 to /operator (try 1)`; imaj `sha-1ce79a312bbd` 1/1, healthz/ops 200. 2026-10-14 oturum notundaki *"Kalan: T119'un canlıya alınması"* bu kayıtla kapanmıştır.
+- **Q28 (b) — log'lar 15 gün (kullanıcı kararı 2026-10-14; `2ef582ea`'nın kaydı):** SigNoz `GET /api/v2/settings/ttl?type=logs` → `default_ttl_days: 15`, soğuk katman yok — bugünkü değer karar oldu, paylaşılan SigNoz'da değişiklik yok. Sınırlar: TTL SigNoz genelidir (repodan pinlenemez; salt-okur kontrol `log-retention-signoz`, README adım 10 (f) sonu) · node kopyası boyutla (10Mi × 5) ve deploy'la sınırlı, deploy seyrekse 15 günü aşabilir (sınır 24 (b)). Taşınan yerler: `docs/plan/open-questions.md` Q28 + *Cevaplananlar*, `deploy/README.md` (adım 10 (f), sınır 24, M8-03 uyarı sınırları, Gözlemlenebilirlik saklama maddeleri), backlog T117. Gizlilik taslağı `docs/legal/privacy-draft.md`; yayın kullanıcıda.
+
 ### 2026-10-26 (30. oturum, devam — worktree `tappa-m15-plan`, dal `plan/m15-is-gunu`) — ✅ **M15-19 done — M15 BİTTİ**
 - **İki mercek `eb11c67c`'ye ONAY verdi**; son DÜŞÜK turu yeniden denetimsiz kapandı. Zincir: `f46e9491` + `eb11c67c` + `docs(plan): close M15`.
 - **Son tur:** onay adımının gerekçesi *"They chose this direction when they tapped, so it is not approved in one press."* (seçim tap sayfasında yapılır, QR çapasında plaket yoktur; ADR 0032 §C.4 S5 notu aynı metinle; `claim.approve_outside_band` etiketi değişmedi, S5'i de kapsar); "ŞU AN" satırındaki çift *"M15-18 done"* kaldırıldı; plan kartlarına tarihli notlar (M15-16 md. 6 ve M15-18 bant cümlesi: S5 ve iki uç; M15-19 kriteri: *"iki sabit saatli koşum"* → M15-04'ün yardımcı özelliği + `TZ=Pacific/Chatham`).
