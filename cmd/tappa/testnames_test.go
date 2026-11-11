@@ -47,8 +47,15 @@ func TestEveryNamedTestExists(t *testing.T) {
 	fixtures := map[string][]string{}
 	walk := func(root string, fn func(path string, b []byte)) {
 		err := filepath.Walk(filepath.Join(repoRoot, root), func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+			if err != nil {
 				return err
+			}
+			if info.IsDir() {
+				// A _test.go file under testdata is not a test the go tool runs (T218 (b)).
+				if rel, rerr := filepath.Rel(repoRoot, path); rerr == nil && skipGoDir(rel) {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			b, rerr := os.ReadFile(path)
 			if rerr != nil {
@@ -575,6 +582,19 @@ func skipScanDir(rel string) bool {
 	return skipScanDirIn(repoRoot, rel)
 }
 
+// skipGoDir is skipScanDir for a walk that reads GO SOURCE (T218 (b)): it also leaves out every
+// directory named testdata, at any depth, because the go tool does -- a .go file there is a fixture,
+// never part of a package, so it writes no brand slot, no policy document, no comparison and declares
+// no test, and a fixture that does not parse is not this repository's syntax error. The TEXT walk of
+// TestEveryNamedTestExists keeps skipScanDir: a citation written in a fixture is still a citation.
+//
+// MEASURED (T218 (b)): with an unparsable zz_*.go and zz_*_test.go planted in
+// internal/handler/testdata, TestEveryNamedTestExists, TestBrandWrites_TheCallSitesAreTheOnesInventoried
+// and TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument were red; with skipGoDir, green.
+func skipGoDir(rel string) bool {
+	return filepath.Base(rel) == "testdata" || skipScanDir(rel)
+}
+
 // skipScanDirIn is skipScanDir under any root, so the nested-checkout half can be driven in a temporary
 // directory instead of planting a .git in the repository.
 func skipScanDirIn(root, rel string) bool {
@@ -688,6 +708,29 @@ func TestScanScope_SkipsBuildOutputWithoutSkippingEverythingNamedLikeIt(t *testi
 				"The skip list names BUILD OUTPUT at the repository root, not every directory "+
 				"that happens to share its name.", rel)
 		}
+	}
+}
+
+// TestScanScope_GoWalksSkipTestdataAndTheTextWalkDoesNot (T218 (b)): skipGoDir leaves out a testdata
+// directory at any depth and nothing merely named like one; skipScanDir -- the citation walk's -- keeps it.
+func TestScanScope_GoWalksSkipTestdataAndTheTextWalkDoesNot(t *testing.T) {
+	for _, rel := range []string{"testdata", filepath.Join("cmd", "tappa", "testdata"), filepath.Join("internal", "handler", "testdata"),
+		filepath.Join("internal", "qrcode", "testdata", "deeper", "testdata")} {
+		if !skipGoDir(rel) {
+			t.Errorf("skipGoDir(%q) is false: a fixture there would be read as this repository's Go source", rel)
+		}
+	}
+	for _, rel := range []string{".", "internal", filepath.Join("internal", "handler"), filepath.Join("internal", "testdatax"),
+		filepath.Join("docs", "testdata-notes")} {
+		if skipGoDir(rel) {
+			t.Errorf("skipGoDir(%q) is true: only a directory NAMED testdata is the go tool's fixture tree", rel)
+		}
+	}
+	if skipScanDir(filepath.Join("internal", "handler", "testdata")) {
+		t.Error("skipScanDir skips testdata: a citation written in a fixture would no longer be checked")
+	}
+	if !skipGoDir(".git") {
+		t.Error("skipGoDir does not include skipScanDir's own list")
 	}
 }
 

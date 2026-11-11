@@ -361,7 +361,7 @@ func TestObservability_EveryLoggerCallSiteIsSpelledLog(t *testing.T) {
 		}
 		if info.IsDir() {
 			rel, rerr := filepath.Rel(repoRoot, path)
-			if rerr == nil && skipScanDir(rel) {
+			if rerr == nil && skipGoDir(rel) {
 				return filepath.SkipDir
 			}
 			return nil
