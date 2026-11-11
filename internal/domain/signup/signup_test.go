@@ -64,7 +64,7 @@ func TestValidateBusiness_ServerSide(t *testing.T) {
 
 // TestValidateBusiness_ARuneThatBreaksOutOfTheIsolateIsRefused (T97, T216): the nine runes that open
 // or close a bidi embedding, override or isolate, PDI+RLO, a control and the paragraph separators are
-// refused with their own sentence. U+2028, U+2029 and U+0085 are spaces to collapseSpaces, so they
+// refused with their own sentence -- the account screen's, word for word (T248). U+2028, U+2029 and U+0085 are spaces to collapseSpaces, so they
 // never reach the rule here: they arrive as a space, and the name is stored without them.
 // Right-to-left names, a joiner inside a word, a zero-width space and the implicit marks pass.
 func TestValidateBusiness_ARuneThatBreaksOutOfTheIsolateIsRefused(t *testing.T) {
@@ -76,8 +76,8 @@ func TestValidateBusiness_ARuneThatBreaksOutOfTheIsolateIsRefused(t *testing.T) 
 		refused = append(refused, "Rusty"+string(r)+"Bar")
 	}
 	for _, name := range refused {
-		if _, errs := ValidateBusiness(valid(name)); !strings.Contains(errs["name"], "direction override") {
-			t.Errorf("%q: the name field says %q, want the rule's sentence", name, errs["name"])
+		if _, errs := ValidateBusiness(valid(name)); errs["name"] != NameBreaksIsolationSentence {
+			t.Errorf("%q: the name field says %q, want the rule's sentence %q", name, errs["name"], NameBreaksIsolationSentence)
 		}
 	}
 	for _, name := range []string{"Rusty\u2029Bar", "Rusty\u2028Bar", "Rusty\u0085Bar"} {

@@ -307,6 +307,12 @@ func (e Errors) add(field, msg string) {
 	}
 }
 
+// NameBreaksIsolationSentence is the answer beside a business name that tenant.NameBreaksIsolation
+// refuses, here and on the account screen (T216, T248): one sentence, so the two forms cannot drift
+// apart again. It names the rule's classes -- a tab is the control a pasted name most often carries.
+const NameBreaksIsolationSentence = "That name has a tab, a line break, a direction override or another control character in it, " +
+	"usually from pasted text. Type the name again."
+
 // ValidateBusiness checks step one. It returns the NORMALISED business alongside
 // the errors, so the caller stores what was checked rather than what was typed.
 //
@@ -331,7 +337,7 @@ func ValidateBusiness(b Business) (Business, Errors) {
 	case tenant.NameBreaksIsolation(b.Name):
 		// T97, T216: the account screen's rule. An Arabic or a Hebrew name is letters, and passes;
 		// the venues' wider rule (NameHasHiddenCharacters, below) is not applied to this field.
-		errs.add("name", "That name has a line break or a direction override in it, usually from pasted text. Type it again.")
+		errs.add("name", NameBreaksIsolationSentence)
 	}
 
 	b.VATNumber = NormaliseVAT(b.VATNumber)
