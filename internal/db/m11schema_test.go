@@ -507,6 +507,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// a callable: EXECUTE to tappa_app alone.
 	"holding_peer(uuid)": {owner: "tappa_holdingdefiner", execute: "tappa_holdingdefiner"},
 	"holding_group()":    {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
+	// 00100 (the user's decision of 2026-11-11, ADR 0027 §2): the activating tap on a live peer's
+	// plaque -- a callable: EXECUTE to tappa_app alone.
+	"holding_activation_tap(character,integer)": {owner: "tappa_holdingdefiner", definer: true, execute: "tappa_app,tappa_holdingdefiner"},
 	// 00058 (T130): settled_at's one writer, a trigger function -- EXECUTE in its owner alone,
 	// SECURITY INVOKER (it only sets NEW), its body asserting its table (webhookretention_test.go's
 	// TestWebhookRetention_TheClockIsTheDatabases binds it elsewhere).

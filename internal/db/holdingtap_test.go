@@ -1375,8 +1375,13 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 	feedOpen(t, ctx, tx, w.km, "KM", true)
 	reviewer := holdingNewAdmin(t, ctx, tx, w.km)
 	alone := opNewTenant(t, ctx, tx, "api8 grants alone "+opToken(t), 0)
+	// 00100: holding_activation_tap writes the peer's trail row only on an advance, so every drive
+	// presents a counter no earlier drive did (a savepoint's rollback takes last_ctr back; this
+	// counter goes on rising).
+	activationCtr := int32(1000)
 	drive := func(sp pgx.Tx) []error {
 		var errs []error
+		activationCtr++
 		for _, c := range []struct {
 			sql  string
 			args []any
@@ -1387,6 +1392,8 @@ func TestHoldingDefiner_EveryGrantIsUsed(t *testing.T) {
 			{`SELECT * FROM public.holding_site_locations(NULL)`, nil},
 			// GRP-1 (00062): the holding's name -- holdings (id, name).
 			{`SELECT * FROM public.holding_group()`, nil},
+			// 2026-11-11 (00100): the peer's trail row -- audit_log (tenant_id, action, target, detail).
+			{`SELECT * FROM public.holding_activation_tap($1, $2)`, []any{w.kfTag, activationCtr}},
 		} {
 			errs = append(errs, holdingAppIn(t, ctx, sp, w.km, func(q pgx.Tx) error {
 				rows, err := q.Query(ctx, c.sql, c.args...)
@@ -1475,6 +1482,7 @@ const (
 	op00045File = "00045_report_the_counter_gap_of_a_peers_plaque.sql"
 	op00046File = "00046_project_a_holding_tap_to_its_site.sql"
 	op00047File = "00047_list_a_peers_venues.sql"
+	op00100File = "00100_trail_an_activation_on_a_peers_plaque.sql"
 )
 
 // holdingSiteConstraints are the six constraints 00043 adds NOT VALID and 00044 validates.

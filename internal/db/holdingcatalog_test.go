@@ -94,6 +94,9 @@ var holdingSignatures = []holdingSignature{
 	{"holding_group", "",
 		"TABLE(holding_id uuid, holding_name text, member_name text, member_api_code text, " +
 			"joined_at timestamp with time zone, is_self boolean)", holdingCallable},
+	// 00100 (the user's decision of 2026-11-11): the activating tap on a live peer's plaque --
+	// holding_advance_tag_counter's outcome and status, and the peer's own trail row on an advance.
+	{"holding_activation_tap", "p_uid character, p_ctr integer", "TABLE(outcome text, tag_status text)", holdingCallable},
 }
 
 // holdingTriggerConfig is a holding trigger function's exact proconfig: the search path and
@@ -1207,6 +1210,9 @@ var holdingDefinerMatrix = map[string]string{
 	"feed_counters:UPDATE":      "last_seq",
 	"punch_events:INSERT":       feedEventInsertColumns,
 	"webhook_deliveries:INSERT": "tenant_id,endpoint_id,punch_event_seq",
+	// 00100 (2026-11-11): holding_activation_tap -- the peer's one trail row; never actor_id or at,
+	// never a SELECT.
+	"audit_log:INSERT": "tenant_id,action,target,detail",
 }
 
 // holdingDefinerReachFindings: tappa_holdingdefiner's privileges on every relation in public
@@ -1554,6 +1560,11 @@ var holdingCanaryCalls = map[string]holdingCanaryCall{
 		sql:  `SELECT * FROM public.holding_group()`,
 		args: func(holdingCanaryFixture) []any { return nil },
 	},
+	// 00100 (2026-11-11): the activating tap on the canary venue's plaque -- no exemption.
+	"holding_activation_tap": {
+		sql:  `SELECT * FROM public.holding_activation_tap($1, $2)`,
+		args: func(f holdingCanaryFixture) []any { return []any{f.uid, int32(950)} },
+	},
 }
 
 // holdingWrittenTables are the tables the holding trigger writes (ADR 0027 §3, "yazılan
@@ -1863,6 +1874,8 @@ var holdingSingleRowCalls = map[string]string{
 	"holding_tap_site":            `SELECT * FROM public.holding_tap_site('%s')`,
 	"holding_advance_tag_counter": `SELECT * FROM public.holding_advance_tag_counter('%s', 2000000)`,
 	"holding_logo":                `SELECT * FROM public.holding_logo('%s', repeat('0', 64))`,
+	// 00100 (2026-11-11): the advance's one holding_peer call; the trail row asks none.
+	"holding_activation_tap": `SELECT * FROM public.holding_activation_tap('%s', 2000001)`,
 }
 
 // holdingPeerCalls counts holding_peer's calls made by stmt (run as tappa_app in tenant's

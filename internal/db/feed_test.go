@@ -269,6 +269,11 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	// holdingDownTables. feedUpAgain gives it back.
 	_, down67 := opMigrationSections(t, ds00067File)
 	opRunSection(t, ctx, sp, down67, "00067 Down")
+	// 2026-11-11: 00100's Down -- holding_activation_tap and the definer's INSERT on audit_log, a
+	// reach 00041's and 00043's preconditions would read as "no migration gave it" (feedUpAgain gives
+	// them back). Nothing stored, no table lock.
+	_, down100 := opMigrationSections(t, op00100File)
+	opRunSection(t, ctx, sp, down100, "00100 Down")
 	// API-8: 00055's Down first -- holding_directory is a definer's function and its four employees
 	// grants are the definer's, so a walk below 00047 must not find them (feedUpAgain gives them back).
 	// It takes no table lock; the directory's index is 00056's and is not walked.
@@ -315,6 +320,8 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	// gave back.
 	up67, _ := opMigrationSections(t, ds00067File)
 	opRunSection(t, ctx, sp, up67, "00067 Up again")
+	up100, _ := opMigrationSections(t, op00100File)
+	opRunSection(t, ctx, sp, up100, "00100 Up again")
 }
 
 func feedStr(p *string) string {

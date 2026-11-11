@@ -303,6 +303,7 @@ column api_keys tappa_app SELECT tenant_id,id,name,prefix_hint,created_by,create
 column api_keys tappa_app UPDATE last_used_at,revoked_at
 column api_keys tappa_resolver SELECT tenant_id,id,token_hash,revoked_at
 column audit_log tappa_app INSERT id,tenant_id,actor_id,action,target,detail
+column audit_log tappa_holdingdefiner INSERT tenant_id,action,target,detail
 column audit_log tappa_identitydefiner INSERT tenant_id,actor_id,action,target,detail
 column audit_log tappa_opdefiner INSERT tenant_id,actor_id,action,target,detail,at
 column billing_periods tappa_opdefiner SELECT tenant_id,period_month,period_from,period_to,timezone,plan,free_period,employee_count,unstamped_employees,unit_price,currency,amount_due,closed_at
@@ -407,6 +408,7 @@ extension plpgsql schema=pg_catalog
 function admin_users_guard_identity_credentials() owner=tappa_owner definer=false execute=-
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function feed_open_counter() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
+function holding_activation_tap(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_advance_tag_counter(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_directory(timestamp with time zone,uuid) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_feed() owner=tappa_holdingdefiner definer=true execute=tappa_holdingdefiner

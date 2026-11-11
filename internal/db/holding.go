@@ -17,8 +17,9 @@ import (
 // holding.go -- the Go side of ADR 0027 §2's callable holding functions: the tap path's three
 // (M11 API-1b, migration 00043), holding_tap_site, holding_advance_tag_counter and holding_logo,
 // the employer's readers' one (M11 API-1c, migration 00047), holding_site_locations, and the
-// integration API's directory (M11 API-8, migration 00055), holding_directory, and the panel's Group
-// section's (GRP-1, migration 00062), holding_group.
+// integration API's directory (M11 API-8, migration 00055), holding_directory, the panel's Group
+// section's (GRP-1, migration 00062), holding_group, and the activating tap's on a peer's plaque
+// (the user's decision of 2026-11-11, migration 00100), holding_activation_tap.
 //
 // HAND-WRITTEN AND TYPED, for resolve.go's reason: sqlc v1.28 cannot type a call to a
 // `RETURNS TABLE(...)` function (ADR 0002 md.7, measured three times). The SQL strings below
@@ -231,6 +232,35 @@ func (h Holding) HoldingAdvanceTagCounter(ctx context.Context, uid string, ctr u
 	}
 	if gap != nil {
 		out.CtrGap = *gap
+	}
+	return out, nil
+}
+
+// holdingActivationTapSQL names holding_activation_tap's two result columns (migration 00100).
+const holdingActivationTapSQL = `SELECT outcome, tag_status FROM public.holding_activation_tap($1, $2)`
+
+// ActivationTap is the activating tap's advance on a PEER's plaque (the user's decision of
+// 2026-11-11; ADR 0026, ADR 0027 §2): holding_activation_tap, in the INVITATION's tenant context. It
+// runs holding_advance_tag_counter -- §4.4's one statement, its strict peer check inside it -- and,
+// only when that advanced, writes the peer's own audit_log row in the same call (the plaque's uid and
+// wall, nothing of the person). Its outcomes are the advance's four; CtrGap is always 0 (an activation
+// is not judged). A replay is an OUTCOME, not an error.
+func (h Holding) ActivationTap(ctx context.Context, uid string, ctr uint32) (HoldingAdvance, error) {
+	var (
+		outcome string
+		status  *string
+	)
+	if err := h.tx.QueryRow(ctx, holdingActivationTapSQL, uid, int32(ctr)).Scan(&outcome, &status); err != nil { //nolint:gosec // a 24-bit chip counter (sun.Params), always inside int32
+		return HoldingAdvance{}, fmt.Errorf("db: holding_activation_tap: %w", err)
+	}
+	out := HoldingAdvance{Outcome: HoldingAdvanceOutcome(outcome)}
+	switch out.Outcome {
+	case HoldingAdvanced, HoldingNotPeer, HoldingReplay, HoldingPeerInactive:
+	default:
+		return HoldingAdvance{}, fmt.Errorf("db: holding_activation_tap: unknown outcome %q", outcome)
+	}
+	if status != nil {
+		out.TagStatus = *status
 	}
 	return out, nil
 }
