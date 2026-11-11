@@ -1497,6 +1497,14 @@ func TestWebhookDeliveries_PagesNewestFirstAndNamesNoAddress(t *testing.T) {
 // keeps a delivery from being sent twice -- TestWebhookWorker_TwoPodsSendOnce): while one worker's claim
 // transaction holds the oldest delivery's row, a second worker takes the NEXT one at once instead of
 // waiting on the lock; the held one is untouched.
+//
+// THE CONTEXT IS A MUTANT'S BOUND, NOT A MEASURE OF "AT ONCE" (T144): the held row is released only
+// after RunFor returns, so a claim that waited on it would wait until the context ends -- red whatever
+// the context's length. It was 3 s, and internal/db's Down-walking tests can keep tenants (the API
+// gate's read) busy for about 3.5 s under load (CI, 2026-10-20): an unmutated run could end in the
+// context instead of in the answer. 30 s leaves that wait far inside it.
+//
+// MUTANT (measured, T144): the claim's SKIP LOCKED removed -> the run ends at the context -> red.
 func TestWebhookWorker_AClaimInProgressDoesNotStallAnother(t *testing.T) {
 	w := newWorld(t)
 	b := w.biz("SK", false)
@@ -1516,7 +1524,7 @@ func TestWebhookWorker_AClaimInProgressDoesNotStallAnother(t *testing.T) {
 		})
 	}()
 	<-held
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := w.job(w.client(2*time.Second, nil), nil, nil).RunFor(ctx, b.id)
 	close(release)

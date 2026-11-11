@@ -208,10 +208,14 @@ func tryTruncate(t *testing.T, d *DB, stmt string) error {
 	// section 4.3 TRUNCATE guard would rebuild that hole on the very test that
 	// guards the red line. The message names the cause instead, so the failure
 	// cannot be read as "append-only broke".
+	// The holder is NOT named as a concurrent package (T63): on 2026-08-20 it was an abandoned agent
+	// probe, a server-side BEGIN ... still open after its client gave up. The list below tells them
+	// apart: a test's transaction is seconds old, a leftover is idle in transaction for minutes.
 	t.Fatalf("%s: %d attempts in a row could not take the locks (last: %v). This is LOCK CONTENTION "+
-		"with concurrent packages -- the statement never reached the append-only trigger, so this is "+
-		"NOT a section 4.3 regression and NOT a verdict on the guard. Something is holding these tables "+
-		"far longer than the suite does. Holding them now: %s",
+		"-- the statement never reached the append-only trigger, so this is NOT a section 4.3 regression "+
+		"and NOT a verdict on the guard. Something is holding these tables far longer than the suite does: "+
+		"a concurrent package's test, or a session left open (an abandoned probe; see each holder's state "+
+		"and transaction age). Holding them now: %s",
 		stmt, probeAttempts, err, truncateLockHolders(t, d, stmt))
 	return nil // unreachable: t.Fatalf calls runtime.Goexit
 }
