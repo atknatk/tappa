@@ -1176,6 +1176,130 @@ budamadan sonra boş; zsh'te `command not found` **0**; sonunda kalan konteyner,
 indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrıntılar
 *"Yedek ve geri yükleme"* → *"Provanın kendisi"*.
 
+**(e) Aylık gerçek döküm provası (T223) — R2'deki gecelik dökümün kendisi, her ay.** CI'ın zinciri
+(T215, `make restore-check`) betikleri ve bu runbook'u her koşuda **fikstürle** sınar. Üretime özgü
+bir sapma ise yalnız gerçek dökümle görünür: canlı katalogda elle yapılmış bir değişiklik, büyük veri,
+R2'den indirme ve `crypt` çözme yolu, yani `(d1)`. Gerçek dökümün son geri yüklenmesi T45'tir
+(2026-10-09, goose 34).
+
+**Karar** (kullanıcı, orkestratör aracılığıyla 2026-11-11): prova **ayda bir** yapılır, onu
+**orkestratör (Claude)** koşar, ve **her küme yazması kullanıcı onayı** ister. Koşulduğu yer kullanıcının
+Mac'idir, çünkü küme dışındaki tek config kopyası orada (T115).
+
+**Takvim.** Her takvim ayında bir kez, ayın ilk haftasında. Atlanan bir ay, sonraki oturumun ilk işidir.
+Aşağıdaki prova satırlarının sonuncusu 35 günden eskiyse prova gecikmiştir.
+
+**Neye dokunur.** Bu provanın yolunda **küme yazması yok**:
+
+| Ne | Nasıl | Onay |
+|---|---|---|
+| R2 | yalnız okuma: `(d1)`'in `lsf` ve `copy`'si | karar kapsamında |
+| küme | hiç dokunulmaz; isteğe bağlı salt okuma (aşağıda adım 1) | yazma gerekirse 🔴 **KULLANICI ONAYI** |
+| R2'ye yazma | `(d4)`'ün altındaki `prune-probe`. Aylık provada **koşulmaz** | 🔴 **KULLANICI ONAYI** |
+| bu Mac | `tappa-drill-db` konteyneri, `tappa-drill` ağı, `mktemp -d` dizinleri | `(d5)` ve sürücünün tuzağı siler |
+
+🔴 **`(d6)` aylık provada KOŞULMAZ.** Yerel config küme dışındaki **tek** emanettir (T115); silinirse
+küme gittiğinde hiçbir yedek açılamaz. Emanetin kümedekiyle hâlâ aynı olduğunu provanın kendisi
+kanıtlar: son gecenin dökümünü bu config indirip çözebiliyorsa R2 anahtarı da `crypt` parolası da
+geçerlidir. Kümedeki Secret'ı okuyan 9(b) karşılaştırmasına bunun için gerek yoktur.
+
+**1. Ön koşullar (salt okuma).** Docker çalışıyor; config yerinde ve yalnız sahibine açık:
+
+```bash
+docker info --format '{{.ServerVersion}}'
+stat -f '%Lp %N' "$HOME/.config/tappa/backup.rclone.conf"
+```
+
+Beklenen: bir sürüm ve `600 …/backup.rclone.conf`. Dosya yoksa **dur**: emanet kaybolmuş olabilir
+(T115), kullanıcıya sorulur. İsteğe bağlı, kümeden salt okuma (Tailscale gerekir): son gecenin Job'ı
+yeşil mi (yukarıdaki *"Son yedek ne durumda"* bloğu). Bu adım provayı değiştirmez, sonuca not düşer.
+
+**2. Temiz bir `origin/main` checkout'u.** B YOLU bir felakette `main`'in araçlarını koşar, prova da
+onları koşar. Ana checkout'ta, dallara dokunmadan:
+
+```bash
+WT="$(mktemp -d)/tappa-t223"
+git fetch -q origin main
+git worktree add -q --detach "$WT" origin/main
+cd "$WT" && echo "WT=$WT" && git log -1 --format='%h %cs %s'
+```
+
+⚠️ Orkestratörün kabuğu çağrılar arasında değişken ve dizin **tutmaz**: 2. ve 3. adım tek bir çağrıda
+koşar, ya da basılan `WT=` ve `DRILL_DIR=` yolları sonraki çağrıya elle taşınır.
+
+**3. Koşu — sürücü.** `(d1)`–`(d5)` bu dosyadan **kesilir ve yazıldığı gibi** tek bir bash'te koşar
+(CI'ın `(d2)`–`(d5)`'i kestiği gibi; `(d6)` ve `prune-probe` kesilmez). Bash `set -euo pipefail` ile
+koşar, yani bir blok düşerse sonrakine geçilmez. Tuzak, kırmızı bir koşuda da konteyneri, ağı ve
+indirilen dökümü siler. Döküm çalışanların mesai kaydıdır ve repo dışındaki bir `mktemp -d`'ye iner.
+`rclone` bu Mac'te kurulu değilse CronJob'ın imajı (`rclone/rclone:1.71`) bir kabuk fonksiyonuyla
+çağrılır. Bağlama `-v …:ro` ile değil `--mount …,readonly` ile yapılır: Docker Desktop'ta aynı
+yola `-v A:A:ro` bağlanan bir `.config` dizini konteynerde **görünmedi**, `--mount` ile göründü
+(ölçüldü, 2026-11-11, üç kez; yapıcının scratch dizininde, gerçek `$HOME` altında denenmedi).
+
+```bash
+DRILL_DIR=$(mktemp -d); echo "DRILL_DIR=$DRILL_DIR"
+cat > "$DRILL_DIR/drill.sh" <<'DRILL'
+set -euo pipefail
+trap 'docker rm -f -v tappa-drill-db >/dev/null 2>&1 || true; docker network rm tappa-drill >/dev/null 2>&1 || true; [ -z "${RESTORE:-}" ] || rm -rf "$RESTORE"' EXIT
+command -v rclone >/dev/null 2>&1 || rclone() {
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    --mount "type=bind,src=$HOME/.config/tappa,dst=$HOME/.config/tappa,readonly" \
+    --mount "type=bind,src=$RESTORE,dst=$RESTORE" rclone/rclone:1.71 "$@"
+}
+DRILL
+awk 'BEGIN { f = "\140\140\140" } /^\(d[1-5]b?\) / { armed = 1; m = $1; next } armed && $0 == f "bash" { inside = 1; print "# runbook block " m; next } inside && $0 == f { inside = 0; armed = 0; next } inside { print }' deploy/README.md >> "$DRILL_DIR/drill.sh"
+awk '/^# runbook block / { printf "%s ", $4 } END { print "" }' "$DRILL_DIR/drill.sh"
+start=$(date +%s); bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
+echo "drill exit: $rc in $(( $(date +%s) - start )) s"
+grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )' "$DRILL_DIR/drill.log"
+```
+
+Beklenen: kesilen bloklar `(d1) (d2) (d3) (d3b) (d4) (d5)` (başka bir liste bir başlığın değiştiği
+demektir, sürücüyü koşturmadan dur), `drill exit: 0`, `sha256 OK <damga>`, `restore exit: 0`,
+`pg-restore-verify: PASS` ve `verify exit: 0`. Bunlardan biri yoksa prova **kırmızıdır** (adım 6).
+`(d1)`'in `sha256 MISMATCH: DUR` satırı koşuyu kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı
+aynı sha256'yı 1. bölümünde reddeder ve koşu `drill exit: 1` ile biter (ölçüldü, aşağıda).
+
+**4. Kalıntı yok.** İkisi de boş dönmeli; sonra kayıt ve checkout temizlenir:
+
+```bash
+docker ps -a --filter name=tappa-drill --format '{{.Names}}'
+docker network ls --filter name=tappa-drill --format '{{.Name}}'
+```
+
+Kayıt dosyasında sır ve satır verisi yoktur (araç yalnız sayı ve ad basar). Prova satırı
+yazıldıktan sonra `DRILL_DIR` silinir, sonra `git worktree remove "$WT"` koşulur.
+
+**5. Prova satırı.** Aşağıdaki tabloya bir satır, kayıt dosyasından: damga (`sha256 OK`'un yanındaki),
+goose ve tablo/satır sayısı (`goose schema version`, `row counts`), yetki/fonksiyon/rol/tetikleyici
+sayıları, süre, sonuç ve gecenin Job'ı (adım 1 koşulduysa). Satır bir dalda commit'lenir ve `main`'e
+sıradaki toplu geçişle gider. Kırmızı bir prova da yazılır.
+
+**6. Kırmızıysa.** Elle düzeltip yeniden koşma, düzeltme veritabanında değil koddadır ya da kümede.
+Önce kayıttaki `FAIL` satırını oku: `sha256 MISMATCH` ise başka bir damga dene; indirme ya da çözme
+hatasıysa emanet kaymış olabilir (T115), kullanıcıya git. Araç `FAIL` verdiyse satırı yaz ve backlog'a
+bir satır aç. Bu sırada gecelik yedek **kanıtlanmamış** sayılır. Kümede bir düzeltme gerekiyorsa
+🔴 **KULLANICI ONAYI**.
+
+**Prova satırları:**
+
+| Tarih | Damga (UTC) | goose | Tablolar / satır | Sonuç | Süre | Koşan | Not |
+|---|---|---|---|---|---|---|---|
+| 2026-10-09 | ilk gece (T45) | 34 | 24 / 284 | `pg-restore-verify: PASS` | — | orkestratör | T45 kapanışından (okundu): R2'den geri alma, 9(d) yazıldığı gibi; sürücü o gün yoktu |
+
+**Sürücünün kendisi ölçüldü (2026-11-11, yapıcı; prova DEĞİL — R2'ye ve kümeye dokunulmadı).**
+Hedef R2 yerine **bu Mac'te bir `crypt`-üstü-`local` remote**'du (rclone v1.71.2, CronJob'ın imajı;
+parolalar koşuda üretildi, basılmadı), `HOME` atılabilir bir dizine çevrildi ve döküm yapıcının kendi
+lane veritabanından gerçek `pg-backup.sh` ile alındı (goose 99, 43 tablo, 340 satır). 3. adımın
+bloğu bu dosyadan kesilip `zsh -f` ile, boşaltılmış bir ortamda koşuldu (orkestratörün kabuğu zsh):
+kesilen bloklar `(d1) (d2) (d3) (d3b) (d4) (d5)`, `drill exit: 0` (16 ve 21 sn, iki koşu), `sha256 OK`, `restore
+exit: 0`, `pg-restore-verify: PASS`, `verify exit: 0`; sonra `tappa-drill` konteyneri ve ağı 0, docker
+volume sayısı önce ve sonra aynı, indirilen döküm dizini yok. **Kırmızı yol:** manifest'in sha256'sı
+bozuk daha yeni bir damga yüklenince `sha256 MISMATCH: DUR`, araç `FAIL sha256 mismatch`, `drill
+exit: 1 in 14 s`; tuzak konteyneri, ağı ve döküm dizinini yine sildi (geride yalnız `DRILL_DIR`, 4.
+adımın sildiği). **Ölçülmeyen:** gerçek R2 (ağ, kova kapsamlı token, AB uç noktası) ve üretim
+dökümünün boyutu. İlki ilk gerçek provada ölçülür.
+
 **10. Dış uyarı — healthchecks.io ölü adam anahtarı (T116; `Q28 (a)`'nın bir parçası).**
 
 > ⚠️ **Bu adım da listenin SONUNA eklendi** — 9. adımın notundaki gerekçe aynen geçerli:
