@@ -418,17 +418,37 @@ WHERE t.tenant_id = $1
   AND t.type = 'in'
   AND NOT t.practice
   AND t.occurred_at <= $3
+  AND t.id = (
+      SELECT l.id
+      FROM transactions l
+      WHERE l.tenant_id = $1
+        AND l.employee_id = $2
+        AND l.type = 'in'
+        AND NOT l.practice
+        AND l.occurred_at <= $3
+      ORDER BY l.occurred_at DESC, l.id DESC
+      LIMIT 1
+  )
   AND NOT EXISTS (
       SELECT 1
       FROM transactions o
-      WHERE o.tenant_id = t.tenant_id
-        AND o.employee_id = t.employee_id
+      WHERE o.tenant_id = $1
+        AND o.employee_id = $2
         AND o.type = 'out'
+        AND NOT o.practice
         AND (o.occurred_at, o.id) > (t.occurred_at, t.id)
         AND o.occurred_at <= $3
   )
-ORDER BY t.occurred_at DESC, t.id DESC
-LIMIT 1
+  AND NOT EXISTS (
+      SELECT 1
+      FROM transactions p
+      WHERE p.tenant_id = $1
+        AND p.employee_id = $2
+        AND p.type = 'out'
+        AND p.practice
+        AND (p.occurred_at, p.id) > (t.occurred_at, t.id)
+        AND p.occurred_at <= $3
+  )
 `
 
 type GetLastOpenTransactionParams struct {
@@ -458,7 +478,7 @@ type GetLastOpenTransactionParams struct {
 // Bar 18:00-02:00) toggles correctly at a 02:00 exit. Neutral on verdict: 'in' only
 // ever appears on decided taps (reject/ignored carry NULL type), so filtering on the
 // direction column is enough; whether a flagged 'in' counts is a domain (M3) call,
-// not the store's. Uses the (tenant_id, employee_id, occurred_at DESC) index.
+// not the store's. Reads 00094's, 00091's and 00092's partial indexes (T245, below).
 //
 // 🔴 `NOT t.practice` IS THE FIX FOR A MEASURED SECTION 5 VIOLATION (ADR 0008,
 // M5-11). This query used to be practice-NEUTRAL and the exclusion lived in the
@@ -482,12 +502,42 @@ type GetLastOpenTransactionParams struct {
 // internal/handler/seedflow_db_test.go (openCheckIns), which already carried
 // `AND NOT t.practice`.
 //
-// SCOPE, exactly: the predicate is on the OUTER row only. The NOT EXISTS stays
-// practice-neutral because it asks a different question -- "was this entry closed
-// later" -- and a closing 'out' closes it whatever flag it carries. It is also moot
-// today: a practice row is ALWAYS type='in' (tap.isPracticeTap requires no prior
-// tap and no open check-in, so resolveDirection cannot return 'out' for it), pinned
-// by TestDecide_NoNewRecordIsEverPractice.
+// SCOPE, exactly: the predicate is on the entry (t, and l below) only. "Was this
+// entry closed later" stays practice-NEUTRAL, because a closing 'out' closes it
+// whatever flag it carries -- it is asked as TWO NOT EXISTS since T245 (below), one
+// per value of the NOT NULL practice column, so together they still see every 'out'.
+// A practice 'out' should not exist (tap.isPracticeTap required no prior tap and no
+// open check-in, so resolveDirection could not return 'out' for it; since ADR 0026
+// no new record is practice, pinned by TestDecide_NoNewRecordIsEverPractice) -- but
+// no CHECK says so, and this query does not lean on it.
+//
+// 🔴 T245: ONE ENTRY, ONE PROBE PER HALF -- THE SAME ANSWER, MEASURED CHEAPER. The
+// statement used to be "the latest `in` with no later `out`" as one anti-join, and
+// the practice-neutral NOT EXISTS could not be proved from 00091's predicate (NOT
+// practice), so it read 00005's index and filtered every row of the person after
+// the entry -- the refused and ignored taps (type NULL) included. The planner also
+// picked a Seq Scan + Materialize of the person's outs, or walked every `in` of a
+// person who is checked out. Two rewrites, each one PURE LOGIC (no fact about the
+// data is assumed):
+//   - l: "the latest `in` with no later `out`" IS "the latest `in` (l), if it has no
+//     later `out`". If an `out` O follows l, it follows every earlier `in` too
+//     ((occurred_at, id) is a total order), so none of them qualifies either.
+//   - o / p: NOT EXISTS (an `out` after it) = NOT EXISTS (a non-practice one) AND NOT
+//     EXISTS (a practice one) -- practice is boolean NOT NULL (00005). The first is
+//     provable from 00091's predicate and reads it; the second reads 00092's
+//     (`WHERE practice`), where only historic practice rows live.
+//
+// The subqueries are bound to the parameters, not to t: t IS l (t.id = l.id, l
+// already carries the tenant and the person), so it is the same row set -- and no
+// correlated sub-query is left for the tenant-scope belt to exempt.
+// Measured (lane DB, 2026-11-11, a temporary copy of transactions with its indexes
+// and policy, as tappa_app; six shapes: an open `in` with 43 197 undirected rows
+// after it, the same checked out, 60 or 730 days of history; custom and generic):
+// before 249-2 962 buffers and up to 64 ms wherever a flood or a long checked-out
+// history was walked (Seq Scan of o, or 43 198 rows filtered on 00005), 8 where
+// neither was; after 9-13 buffers, under 1 ms, in all twelve runs -- the shapes
+// with nothing to walk pay a page or five for the second probe. The agreement and
+// the plan are pinned by internal/db's lastopen_test.go.
 //
 // COST, MEASURED (EXPLAIN (ANALYZE, BUFFERS), 5001 rows for one person, ADR 0008):
 // the predicate NEVER narrows the index range -- `practice` is not in
@@ -499,7 +549,8 @@ type GetLastOpenTransactionParams struct {
 // early exit by returning the WRONG row; the same person WITHOUT a practice row
 // already costs 10246 buffers today. So this is not a new worst case, it is the
 // one every ordinary employee's check-in already pays. Making it cheap is an
-// INDEX question (a migration, deliberately out of M5-11's scope).
+// INDEX question (a migration, deliberately out of M5-11's scope) -- answered by
+// T157's indexes and T245's shape (above); these numbers are M5-11's, kept as history.
 //
 // @at AND THE id TIE-BREAK (M15-02, ADR 0032 §A.4). The question is "the check-in
 // open AT the tap's instant", and the instant is the one the tap is decided at --

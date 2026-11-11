@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/atknatk/tappa/internal/config"
@@ -17,12 +17,15 @@ import (
 // object and a rollback's 40 puts the ingress-level redirect back -- whose rules are exactly the hosts
 // config.Load gives a production pod as RedirectHosts (shippedPodEnv), each "/" Prefix to the tappa
 // Service's http port; it carries no ingress-level redirect any more (the application answers), keeps
-// one certificate per host (tappa-tls, taptime-www-tls), the cluster issuer and forced HTTPS. And the
+// one certificate per host (tappa-tls, taptime-www-tls), and its annotations are EXACTLY the cluster
+// issuer and forced HTTPS (T257: nothing else, so no snippet or auth-* can answer first). And the
 // router built from that same configuration answers each host with a redirect to the base URL that
 // keeps the path and the query.
 //
 // MUTANTS (measured): permanent-redirect put back -> red; a third host added to 43 -> red (not the
 // pod's list); www.taptime.mt removed from redirectHostList -> red (43 routes a host the pod serves).
+// T257 (measured): a configuration-snippet annotation added to 43 -> red; force-ssl-redirect removed
+// -> red.
 func TestPackaging_TheRedirectIngressRoutesExactlyTheRedirectHosts(t *testing.T) {
 	productionBuildOnly(t)
 	objs := ingressesIn(t, redirectIngressFile)
@@ -62,18 +65,18 @@ func TestPackaging_TheRedirectIngressRoutesExactlyTheRedirectHosts(t *testing.T)
 	if len(pod) == 0 || !slices.Equal(hosts, pod) {
 		t.Errorf("%s routes %v, the pod redirects %v: they must be one list", redirectIngressFile, hosts, pod)
 	}
-	for k := range o.annotations {
-		if strings.Contains(k, "redirect") && !strings.HasSuffix(k, "/ssl-redirect") && !strings.HasSuffix(k, "/force-ssl-redirect") {
-			t.Errorf("annotation %s: the ingress answers the request itself and the application never sees it", k)
-		}
+	// The annotation set is pinned EXACTLY (backlog T257): any annotation beyond these three --
+	// a configuration-snippet, server-snippet or auth-* -- would let the controller answer or gate the
+	// request before the application's redirect runs, and a test that only refused names containing
+	// "redirect" stayed green for every one of them.
+	wantAnnotations := map[string]string{
+		"cert-manager.io/cluster-issuer":                 "letsencrypt-prod",
+		"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
+		"nginx.ingress.kubernetes.io/force-ssl-redirect": "true",
 	}
-	for _, k := range []string{"nginx.ingress.kubernetes.io/ssl-redirect", "nginx.ingress.kubernetes.io/force-ssl-redirect"} {
-		if o.annotations[k] != "true" {
-			t.Errorf("%s = %q, want \"true\"", k, o.annotations[k])
-		}
-	}
-	if o.annotations["cert-manager.io/cluster-issuer"] != "letsencrypt-prod" {
-		t.Errorf("cluster-issuer %q, want letsencrypt-prod", o.annotations["cert-manager.io/cluster-issuer"])
+	if !maps.Equal(o.annotations, wantAnnotations) {
+		t.Errorf("%s's annotations are %v, want exactly %v: the ingress must neither answer the request itself "+
+			"(the application never sees it) nor drop the issuer or forced HTTPS", redirectIngressFile, o.annotations, wantAnnotations)
 	}
 	tls := map[string]string{}
 	for _, x := range o.tls {

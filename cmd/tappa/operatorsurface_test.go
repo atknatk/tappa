@@ -821,7 +821,7 @@ func TestVerifyDeployment_TheSecretCallScanClassifiesEveryShape(t *testing.T) {
 
 // TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe (T119, round 4) is the
 // run-time half: every mode of the script — cloudflare, operator-surface, operator-host,
-// api-host (M11, merged in API-13b), db-role, all, T134's kubeconfig-server and tailnet (with
+// api-host (M11, merged in API-13b), redirect-hosts (T261), db-role, all, T134's kubeconfig-server and tailnet (with
 // the stub tailscale, and for "no CLI" a PATH without any tailscale), and an unknown one — is
 // run against the stub kubectl through every branch
 // (each pass, VIOLATION, UNCHECKED, notice and warning; the 404 loop's end; db-role's two
@@ -849,6 +849,10 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 		t.Fatal("05-config.yaml has no TAPPA_API_HOST")
 	}
 	apiGuide, apiRoot := "https://"+apiHost+"/v1/guide.md", "https://"+apiHost+"/"
+	// T261's redirect-hosts mode: each of 43's hosts asked for /activate?x=1.
+	redirHosts, _ := redirectGateTargets(t)
+	redirAsk := func(h string) string { return "https://" + h + "/activate?x=1" }
+	redirGood := "HTTP/2 301 \r\nlocation: https://" + base.Host + "/activate?x=1\r\n\r\n"
 	gate := curlReply{"HTTP/2 303 \r\nlocation: /operator\r\n\r\n", "0"}
 	notRouted := curlReply{"HTTP/2 404 \r\n\r\n", "0"}
 	product := curlReply{"HTTP/2 200 \r\n\r\n", "0"}
@@ -886,6 +890,9 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 		rig.curlAnswers(opRoot, gate)
 		rig.curlAnswer(apiGuide, "200 text/markdown; charset=utf-8", "0")
 		rig.curlAnswer(apiRoot, "404", "0")
+		for _, h := range redirHosts {
+			rig.curlAnswer(redirAsk(h), redirGood, "0")
+		}
 		rig.set("secret.out", on)
 		rig.set("ingress.out", "")
 		rig.set("pullsecret.out", pullSecretAnswer(authsFor(harborRegistry, `{"auth":"eDp5"}`)))
@@ -928,6 +935,15 @@ func TestVerifyDeployment_EveryBranchTouchesTheSecretOnlyByDescribe(t *testing.T
 		{"api-host: the guide in another type", func() { rig.curlAnswer(apiGuide, "200 text/html; charset=utf-8", "0") }, []string{"api-host", apiHost}},
 		{"api-host: the root unreachable", func() { rig.curlAnswers(apiRoot, timeout) }, []string{"api-host", apiHost}},
 		{"api-host: the root answers", func() { rig.curlAnswer(apiRoot, "200", "0") }, []string{"api-host", apiHost}},
+		{"redirect-hosts: pass", func() {}, []string{"redirect-hosts"}},
+		{"redirect-hosts: unreachable", func() { rig.curlAnswers(redirAsk(redirHosts[0]), timeout) }, []string{"redirect-hosts"}},
+		{"redirect-hosts: proxied", func() {
+			rig.curlAnswer(redirAsk(redirHosts[0]), "HTTP/2 301 \r\ncf-ray: 0-MXP\r\n\r\n", "0")
+		}, []string{"redirect-hosts"}},
+		{"redirect-hosts: a page", func() { rig.curlAnswers(redirAsk(redirHosts[0]), product) }, []string{"redirect-hosts"}},
+		{"redirect-hosts: the path dropped", func() {
+			rig.curlAnswer(redirAsk(redirHosts[0]), "HTTP/2 301 \r\nlocation: https://"+base.Host+"\r\n\r\n", "0")
+		}, []string{"redirect-hosts"}},
 		{"db-role: pass", func() {}, []string{"db-role", ns}},
 		{"db-role: an offender", func() { rig.set("exec.out", "tappa_owner from 10.42.0.9\n") }, []string{"db-role", ns}},
 		{"db-role: the query does not run", func() { rig.set("exec.rc", "3") }, []string{"db-role", ns}},
@@ -1125,7 +1141,8 @@ func TestVerifyDeployment_OperatorHostReadsTheRootOfTheHost(t *testing.T) {
 // TestVerifyDeployment_AllRunsEveryGate: `all` with no arguments runs kubeconfig-server (OPS-1),
 // the cloudflare gate on TAPPA_BASE_URL's host and on 41's host, operator-surface, operator-host
 // on 41's host judged against operator-surface's word, db-role and api-host on TAPPA_API_HOST
-// (OPS-1), and pull-secret on secret/harbor-pull (OPS-2) — every one, whatever an earlier one
+// (OPS-1), redirect-hosts on 43's hosts (T261), and pull-secret on secret/harbor-pull (OPS-2) —
+// every one, whatever an earlier one
 // said — and its exit code follows the words (1 on a VIOLATION, else 2 on an UNCHECKED, else 0).
 // It never asks tailscale (the header of the script says why tailnet is left out).
 // PART I: a healthy deployment with the surface on, one with it off and not routed, then one
@@ -1133,7 +1150,8 @@ func TestVerifyDeployment_OperatorHostReadsTheRootOfTheHost(t *testing.T) {
 // with the objects left, the operator name unresolvable, the Secret unreadable; OPS-1: the
 // kubeconfig naming the public server, carrying a proxy, unreadable; the API host's root
 // serving something, its name unresolvable — a warning and exit 0 alone, UNCHECKED here — its
-// guide unreachable; OPS-2: the pull Secret missing, and Forbidden to this identity). PART II:
+// guide unreachable; OPS-2: the pull Secret missing, and Forbidden to this identity; T261: a legacy
+// host through Cloudflare, another unreachable). PART II:
 // the summary line and exit code of each, pinned; every gate ran.
 // MUTANT (OPS-1, measured): `check_api_host` or `check_kubeconfig_server` removed from `all` ->
 // red; api-host judged by its exit code instead of API_OUTCOME (the unresolvable name a pass)
@@ -1152,6 +1170,11 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		t.Fatal("05-config.yaml has no TAPPA_API_HOST")
 	}
 	apiGuide, apiRoot := "https://"+apiHost+"/v1/guide.md", "https://"+apiHost+"/"
+	redirHosts, _ := redirectGateTargets(t)
+	var redirAsks []string
+	for _, h := range redirHosts {
+		redirAsks = append(redirAsks, "https://"+h+"/activate?x=1")
+	}
 	rig := newScriptRig(t)
 	rig.env = append(rig.env, "OPERATOR_HOST_PROBE_TRIES=2")
 	// The stub kubectl answers `config view` one field per call: server, proxy-url,
@@ -1166,6 +1189,9 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		kubeconfig("https://10.43.0.1:443", "", "")
 		rig.curlAnswer(apiGuide, "200 text/markdown; charset=utf-8", "0")
 		rig.curlAnswer(apiRoot, "404", "0")
+		for _, a := range redirAsks {
+			rig.curlAnswer(a, "HTTP/2 301 \r\nlocation: https://"+base.Host+"/activate?x=1\r\n\r\n", "0")
+		}
 		rig.curlAnswer(custHealth, "HTTP/2 200 \r\nstrict-transport-security: max-age=31536000\r\n\r\n", "0")
 		rig.curlAnswer(opHealth, "HTTP/2 404 \r\n\r\n", "0")
 		rig.curlAnswer(opRoot, "HTTP/2 303 \r\nlocation: /operator\r\n\r\n", "0")
@@ -1179,9 +1205,12 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 	line := func(kc, cf, ocf, osw, oh, db, api string) string {
 		return "all: kubeconfig-server=" + kc + " cloudflare[" + base.Host + "]=" + cf + " cloudflare[" + opHost + "]=" + ocf +
 			" operator-surface=" + osw + " operator-host=" + oh + " db-role=" + db + " api-host[" + apiHost + "]=" + api +
-			" pull-secret=pass"
+			" redirect-hosts=pass pull-secret=pass"
 	}
 	withPull := func(l, word string) string { return strings.TrimSuffix(l, "pass") + word }
+	withRedirect := func(l, word string) string {
+		return strings.Replace(l, " redirect-hosts=pass ", " redirect-hosts="+word+" ", 1)
+	}
 	for _, tc := range []struct {
 		name     string
 		fault    func()
@@ -1231,6 +1260,12 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 		{"the API guide unreachable", func() {
 			rig.curlAnswer(apiGuide, "curl: (28) Operation timed out", "28")
 		}, line("pass", "pass", "pass", "pass", "pass", "pass", "UNCHECKED"), 2},
+		{"a legacy host served through Cloudflare (T261)", func() {
+			rig.curlAnswer(redirAsks[0], "HTTP/2 301 \r\nlocation: https://"+base.Host+"/activate?x=1\r\ncf-ray: 0-MXP\r\n\r\n", "0")
+		}, withRedirect(line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), "VIOLATION"), 1},
+		{"a legacy host unreachable (T261)", func() {
+			rig.curlAnswer(redirAsks[1], "curl: (28) Operation timed out", "28")
+		}, withRedirect(line("pass", "pass", "pass", "pass", "pass", "pass", "pass"), "UNCHECKED"), 2},
 		{"the pull Secret missing", func() {
 			rig.set("pullsecret.rc", "1")
 			rig.set("pullsecret.err", `Error from server (NotFound): secrets "harbor-pull" not found`)
@@ -1253,7 +1288,7 @@ func TestVerifyDeployment_AllRunsEveryGate(t *testing.T) {
 			t.Errorf("%s: %q, exit %d; want %q, exit %d\n%s", tc.name, got, code, tc.wantLine, tc.wantCode, stderr)
 		}
 		calls := slices.Compact(slices.Sorted(slices.Values(rig.curlCalls())))
-		want := []string{custHealth, opRoot, opHealth, apiGuide}
+		want := append([]string{custHealth, opRoot, opHealth, apiGuide}, redirAsks...)
 		// The API host's root is asked only once its guide has answered (check_api_host).
 		if !strings.Contains(tc.wantLine, "api-host["+apiHost+"]=UNCHECKED") {
 			want = append(want, apiRoot)

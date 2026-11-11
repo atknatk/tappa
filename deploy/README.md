@@ -1046,8 +1046,13 @@ altındaki ilk `bash` bloğu koşulan bloktur; başlık değişirse betik adıyl
 B2/B3/B4 blokları ile `(d3)`/`(d3b)`'nin here-doc SQL'i ve `sh -c` satırları **bayt bayt aynı**
 olmalı, ve `(d2)` B1'in iki init dosyasını kurmalı; değilse betik konteyner açmadan reddeder
 (*"9(d) is what this check runs; B YOLU is what an operator runs in a disaster"*). **(3)**
-`(d2)`–`(d5)` içinde `kubectl`, `rclone`, `$HOME` ya da `$CONF` geçerse betik konteyner açmadan
-reddeder, ve bloklar boşaltılmış bir ortamda koşar (`env -i`: yalnız `PATH`, geçici bir `HOME`,
+`(d2)`–`(d5)` içinde `kubectl`, `rclone`, `$HOME` ya da `$CONF` geçerse, ya da bir satır kendi
+konteynerinin dışına uzanırsa betik konteyner açmadan reddeder. Dışarı uzanmak şunlardır: bind mount
+kaynağı `"$RESTORE`/`"$PWD/scripts` dışında, ağ `tappa-drill` dışında, istemci adresi
+`127.0.0.1`/`tappa-drill-db` dışında ya da başka bir IPv4, docker soketi, `--mount`, `--add-host`,
+`-H`/`--host`, `DOCKER_*`, konak ad alanları, `--privileged`/`--cap-add`/`--device`. `(d1)` yalnız
+hedefi listeleyip bu Mac'e kopyalayabilir, satır satır ve bütünüyle (`D1_ALLOWED`). Bu kemer T224'te genişletildi; **yanlış bir düzenlemeye karşıdır,
+saldırgana karşı değil** (metin okur, `TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer`). Bloklar boşaltılmış bir ortamda koşar (`env -i`: yalnız `PATH`, geçici bir `HOME`,
 `KUBECONFIG=/dev/null`, `DOCKER_HOST`); B3'ü olduğu gibi `(d3)`'e kopyalayan bir düzenleme
 geliştiricinin kümesine ulaşamaz. Doğrulama aracı da daraltmayı **dökümden bağımsız** denetler
 (bölüm 5a: `tappa_owner`'ın `public` tabloları için varsayılanı `tappa_app`'e `SELECT`,
@@ -1176,6 +1181,168 @@ stdin'den yapıştırılır gibi verilerek. İkisinde de: `sha256 OK`, `restore 
 budamadan sonra boş; zsh'te `command not found` **0**; sonunda kalan konteyner, ağ,
 indirilmiş döküm ve yerel config **0**, checkout'ta yeni dosya **0**. Ayrıntılar
 *"Yedek ve geri yükleme"* → *"Provanın kendisi"*.
+
+**(e) Aylık gerçek döküm provası (T223) — R2'deki gecelik dökümün kendisi, her ay.** CI'ın zinciri
+(T215, `make restore-check`) betikleri ve bu runbook'u her koşuda **fikstürle** sınar. Üretime özgü
+bir sapma ise yalnız gerçek dökümle görünür: canlı katalogda elle yapılmış bir değişiklik, büyük veri,
+R2'den indirme ve `crypt` çözme yolu, yani `(d1)`. Gerçek dökümün son geri yüklenmesi T45'tir
+(2026-10-09, goose 34).
+
+**Karar** (kullanıcı, orkestratör aracılığıyla 2026-11-11): prova **ayda bir** yapılır, onu
+**orkestratör (Claude)** koşar, ve **her küme yazması kullanıcı onayı** ister. Koşulduğu yer kullanıcının
+Mac'idir, çünkü küme dışındaki tek config kopyası orada (T115).
+
+**Takvim.** Her takvim ayında bir kez, ayın ilk haftasında. Atlanan bir ay, sonraki oturumun ilk işidir.
+Aşağıdaki prova satırlarının sonuncusu 35 günden eskiyse prova gecikmiştir.
+
+**Neye dokunur.** Bu provanın yolunda **küme yazması yok**:
+
+| Ne | Nasıl | Onay |
+|---|---|---|
+| R2 | yalnız okuma: `(d1)`'in `lsf` ve `copy`'si | karar kapsamında |
+| küme | hiç dokunulmaz; isteğe bağlı salt okuma (aşağıda adım 1) | yazma gerekirse 🔴 **KULLANICI ONAYI** |
+| R2'ye yazma | `(d4)`'ün altındaki `prune-probe`. Aylık provada **koşulmaz** | 🔴 **KULLANICI ONAYI** |
+| bu Mac | `tappa-drill-db` konteyneri, `tappa-drill` ağı, `mktemp -d` dizinleri | `(d5)` ve sürücünün tuzağı siler |
+
+🔴 **`(d6)` aylık provada KOŞULMAZ.** Yerel config küme dışındaki **tek** emanettir (T115); silinirse
+küme gittiğinde hiçbir yedek açılamaz. Emanetin kümedekiyle hâlâ aynı olduğunu provanın kendisi
+kanıtlar: son gecenin dökümünü bu config indirip çözebiliyorsa R2 anahtarı da `crypt` parolası da
+geçerlidir. Kümedeki Secret'ı okuyan 9(b) karşılaştırmasına bunun için gerek yoktur.
+
+**1. Ön koşullar (salt okuma).** Docker çalışıyor; config yerinde ve yalnız sahibine açık:
+
+```bash
+docker info --format '{{.ServerVersion}}'
+stat -f '%Lp %N' "$HOME/.config/tappa/backup.rclone.conf"
+```
+
+Beklenen: bir sürüm ve `600 …/backup.rclone.conf`. Dosya yoksa **dur**: emanet kaybolmuş olabilir
+(T115), kullanıcıya sorulur. İsteğe bağlı, kümeden salt okuma (Tailscale gerekir): son gecenin Job'ı
+yeşil mi (yukarıdaki *"Son yedek ne durumda"* bloğu). Bu adım provayı değiştirmez, sonuca not düşer.
+
+**2. Temiz bir `origin/main` checkout'u.** B YOLU bir felakette `main`'in araçlarını koşar, prova da
+onları koşar. Ana checkout'ta, dallara dokunmadan:
+
+```bash
+WT="$(mktemp -d)/tappa-t223"
+git fetch -q origin main
+git worktree add -q --detach "$WT" origin/main
+cd "$WT" && echo "WT=$WT" && git log -1 --format='%h %cs %s'
+```
+
+⚠️ Orkestratörün kabuğu çağrılar arasında değişken ve dizin **tutmaz**: 2. ve 3. adım tek bir çağrıda
+koşar, ya da basılan `WT=` yolu sonraki çağrıya elle taşınır (3. adım kendi dizinini kendisi siler).
+
+**3. Koşu — sürücü.** `(d1)`–`(d5)` bu dosyadan **kesilir ve yazıldığı gibi** tek bir bash'te koşar
+(CI'ın `(d2)`–`(d5)`'i kestiği gibi; `(d6)` ve `prune-probe` kesilmez). Bu blokları CI her koşuda
+denetler (`scripts/restore-chain-check.sh` 0. adımı): `(d2)`–`(d5)` yalnız kendi konteynerine
+uzanabilir. `(d1)`'in her satırı ise `scripts/restore-chain-check.sh`'in `D1_ALLOWED` listesindeki
+sekiz satırdan biriyle **bütünüyle** aynı olmalıdır (hedefi listelemek, hedeften bu Mac'e kopyalamak,
+sha256 kontrolü, `mktemp`). Bir `rclone delete`, ters yönde bir `copy`, `--backup-dir`, bir `kubectl`
+satırı ya da var olan bir satıra eklenmiş bir kuyruk (`; …`, `| sh`, `&& …`) CI'ı kırmızıya çevirir;
+`(d1)`'i değiştiren, listeyi aynı değişiklikte günceller. Bu, **yanlışlıkla
+yapılan bir düzenlemeye** karşı bir kemerdir, bir saldırgana karşı değil.
+
+Sürücü üç kapı koyar. **(i)** Kesilen bloklar tam olarak `(d1) (d2) (d3) (d3b) (d4) (d5)` değilse
+**hiçbir şey koşmaz** (bir başlık değişmiştir). **(ii)** Bloklar boşaltılmış bir ortamda koşar:
+`env -i`, yalnız `PATH`, geçici bir `HOME`, `KUBECONFIG=/dev/null`, `DOCKER_HOST` ve geçici bir
+`TMPDIR`. Geçici `HOME`'da `.config/tappa` gerçek dizine bir bağlantıdır, yani `(d1)`'in `$CONF`'u
+aynı dosyayı okur ama başka hiçbir şey kullanıcının dizinini görmez. **(iii)** Bash
+`set -euo pipefail` ile koşar, bir blok düşerse sonrakine geçilmez; içteki tuzak kırmızı bir koşuda da
+konteyneri, ağı ve indirilen dökümü siler. Dıştaki tuzak çağrı biterken bütün `DRILL_DIR`'ı (kayıt
+dahil) siler, yani prova satırının sayıları bu bloğun **ekrana bastığı** satırlardan alınır. Döküm
+çalışanların mesai kaydıdır ve `DRILL_DIR/tmp`'ye iner.
+
+`rclone` bu Mac'te kurulu değilse CronJob'ın imajı (`rclone/rclone:1.71`) bir kabuk fonksiyonuyla
+çağrılır. Config dizini gerçek yoluyla (`pwd -P`) bağlanır. Bağlama `-v …:ro` ile değil
+`--mount …,readonly` ile yapılır: Docker Desktop'ta aynı yola `-v A:A:ro` bağlanan bir `.config`
+dizini konteynerde **görünmedi**, `--mount` ile göründü (ölçüldü, 2026-11-11, üç kez; yapıcının
+scratch dizininde, gerçek `$HOME` altında denenmedi).
+
+```bash
+DRILL_DIR=$(mktemp -d); trap 'rm -rf "$DRILL_DIR"' EXIT INT TERM
+mkdir -p "$DRILL_DIR/home/.config" "$DRILL_DIR/tmp"
+ln -s "$HOME/.config/tappa" "$DRILL_DIR/home/.config/tappa"
+cat > "$DRILL_DIR/drill.sh" <<'DRILL'
+set -euo pipefail
+trap 'docker rm -f -v tappa-drill-db >/dev/null 2>&1 || true; docker network rm tappa-drill >/dev/null 2>&1 || true; [ -z "${RESTORE:-}" ] || rm -rf "$RESTORE"' EXIT
+command -v rclone >/dev/null 2>&1 || rclone() {
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    --mount "type=bind,src=$(cd "$HOME/.config/tappa" && pwd -P),dst=$HOME/.config/tappa,readonly" \
+    --mount "type=bind,src=$RESTORE,dst=$RESTORE" rclone/rclone:1.71 "$@"
+}
+DRILL
+awk 'BEGIN { f = "\140\140\140" } /^\(d[1-5]b?\) / { armed = 1; m = $1; next } armed && $0 == f "bash" { inside = 1; print "# runbook block " m; next } inside && $0 == f { inside = 0; armed = 0; next } inside { print }' deploy/README.md >> "$DRILL_DIR/drill.sh"
+blocks=$(awk '/^# runbook block / { printf "%s ", $4 }' "$DRILL_DIR/drill.sh")
+EP=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+vols=$(docker volume ls -q | wc -l | tr -d ' ')
+if [ "$blocks" != "(d1) (d2) (d3) (d3b) (d4) (d5) " ]; then
+  echo "DUR: the cut blocks are '$blocks'; nothing was run"
+else
+  start=$(date +%s)
+  env -i PATH="$PATH" HOME="$DRILL_DIR/home" TMPDIR="$DRILL_DIR/tmp" KUBECONFIG=/dev/null \
+    DOCKER_HOST="${EP:-${DOCKER_HOST:-unix:///var/run/docker.sock}}" \
+    bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
+  echo "drill exit: $rc in $(( $(date +%s) - start )) s"
+  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | cut -c1-300
+  echo "left behind: containers $(docker ps -aq --filter name=tappa-drill | wc -l | tr -d ' '), networks $(docker network ls -q --filter name=tappa-drill | wc -l | tr -d ' '), dump dirs $(ls -A "$DRILL_DIR/tmp" | wc -l | tr -d ' '), volumes $vols -> $(docker volume ls -q | wc -l | tr -d ' ')"
+fi
+```
+
+Beklenen: `drill exit: 0`, `sha256 OK <damga>`, `restore exit: 0`, `pg-restore-verify: PASS`,
+`verify exit: 0` ve `left behind: containers 0, networks 0, dump dirs 0, volumes N -> N`. Burada
+`dump dirs`, `(d1)`'in `RESTORE=$(mktemp -d)` dizinidir (`TMPDIR` altında doğar), `0` onun
+silindiğini söyler. Volume sayısı makinedeki başka koşularla değişebilir. Bunlardan biri yoksa ya da
+`DUR:` basıldıysa prova **kırmızıdır** (adım 6). `(d1)`'in `sha256 MISMATCH: DUR` satırı koşuyu
+kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı aynı sha256'yı 1. bölümünde reddeder ve koşu
+`drill exit: 1` ile biter (ölçüldü, aşağıda).
+
+⚠️ **Kayıt yalnız yeşil bir koşuda sırsız ve satırsızdır** (araç yalnız sayı ve ad basar). Kırmızı
+bir koşuda psql'in `DETAIL:` ve `CONTEXT:` satırları bir döküm satırını (bir çalışanın mesai kaydını)
+taşıyabilir. Bu yüzden blok yalnız süzülmüş satırları basar, ikisini atar, kaydın tamamı okunmaz ve
+çağrı biterken silinir.
+
+**4. Checkout'u kaldır.** `DRILL_DIR` 3. adımın tuzağıyla gitti; geriye 2. adımın worktree'si kalır:
+
+```bash
+git worktree remove "$WT"
+```
+
+**5. Prova satırı.** Aşağıdaki tabloya bir satır, 3. adımın bastığı satırlardan: damga (`sha256 OK`'un yanındaki),
+goose ve tablo/satır sayısı (`goose schema version`, `row counts`), yetki/fonksiyon/rol/tetikleyici
+sayıları, süre, sonuç ve gecenin Job'ı (adım 1 koşulduysa). Satır bir dalda commit'lenir ve `main`'e
+sıradaki toplu geçişle gider. Kırmızı bir prova da yazılır.
+
+**6. Kırmızıysa.** Elle düzeltip yeniden koşma, düzeltme veritabanında değil koddadır ya da kümede.
+Yalnız 3. adımın bastığı süzülmüş satırlar okunur; kaydı açıp `DETAIL:`/`CONTEXT:` satırı okunmaz
+(çalışan verisi). Önce `FAIL` ya da `ERROR:` satırını oku: `sha256 MISMATCH` ise başka bir damga dene; indirme ya da çözme
+hatasıysa emanet kaymış olabilir (T115), kullanıcıya git. Araç `FAIL` verdiyse satırı yaz ve backlog'a
+bir satır aç. Bu sırada gecelik yedek **kanıtlanmamış** sayılır. Kümede bir düzeltme gerekiyorsa
+🔴 **KULLANICI ONAYI**.
+
+**Prova satırları:**
+
+| Tarih | Damga (UTC) | goose | Tablolar / satır | Sonuç | Süre | Koşan | Not |
+|---|---|---|---|---|---|---|---|
+| 2026-10-09 | ilk gece (T45) | 34 | 24 / 284 | `pg-restore-verify: PASS` | — | orkestratör | T45 kapanışından (okundu): R2'den geri alma, 9(d) yazıldığı gibi; sürücü o gün yoktu |
+
+**Sürücünün kendisi ölçüldü (2026-11-11, yapıcı; prova DEĞİL — R2'ye ve kümeye dokunulmadı).**
+Hedef R2 yerine bu Mac'te ağdan okunan bir `crypt` remote'tu: altında `rclone serve http` ile
+sunulan bir dizin (rclone v1.71.2, CronJob'ın imajı; parolalar koşuda üretildi, basılmadı). Dış
+`HOME` atılabilir bir dizine çevrildi. Döküm yapıcının kendi lane veritabanından gerçek
+`pg-backup.sh` ile alındı (goose 99, 43 tablo). 3. adımın bloğu bu dosyadan kesilip `zsh -f` ile
+boşaltılmış bir ortamda koşuldu (orkestratörün kabuğu zsh). Sonuçlar:
+
+- **Yeşil:** `drill exit: 0`, `sha256 OK`, `restore exit: 0`, `pg-restore-verify: PASS`, `verify exit: 0`,
+  `left behind: containers 0, networks 0, dump dirs 0, volumes 65 -> 65`; `DRILL_DIR` de gitti.
+- **Kırmızı yol:** manifest'in sha256'sı bozuk daha yeni bir damga yüklendi. Sonuç `sha256 MISMATCH:
+  DUR`, araçtan `FAIL sha256 mismatch`, `drill exit: 1`, `left behind` yine dördü de sıfır.
+- **Kapı:** `(d3b)` başlığı `(d3c)` yapılınca, ayrıca `(d1)` başlığının boşluğu silinince sürücü
+  `DUR: the cut blocks are '…'; nothing was run` bastı ve hiçbir konteyner açılmadı.
+
+İlk sürücü (kapısız, `env -i`'siz) aynı gün bir `local` remote'la iki kez yeşil, bir kez kırmızı
+koşmuştu. **Ölçülmeyen:** gerçek R2 (kova kapsamlı token, AB uç noktası), üretim dökümünün boyutu
+ve gerçek `$HOME` altında `--mount`. Üçü de ilk gerçek provada ölçülür.
 
 **10. Dış uyarı — healthchecks.io ölü adam anahtarı (T116; `Q28 (a)`'nın bir parçası).**
 
@@ -1382,7 +1549,7 @@ alanlar basılır (`ping_url` basılmaz).
 
 ```bash
 umask 077
-HC_CFG=$(mktemp)
+HC_CFG=$(mktemp); trap 'rm -f "$HC_CFG"' EXIT INT TERM
 printf 'healthchecks.io API key (read-write): '; read -rs HC_KEY; echo
 printf 'header = "X-Api-Key: %s"\nheader = "Content-Type: application/json"\n' "$HC_KEY" > "$HC_CFG"
 unset HC_KEY
@@ -1402,7 +1569,7 @@ doğar — taze olmayan bir SigNoz'da önce *Alerts*'te var olanlara bak.
 ```bash
 umask 077
 SIGNOZ=https://signoz.everva.com.tr
-SZ_CFG=$(mktemp)
+SZ_CFG=$(mktemp); trap 'rm -f "$SZ_CFG"' EXIT INT TERM
 printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
 printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
 SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
@@ -1434,6 +1601,40 @@ Son olarak SigNoz → *Alerts*: dosyadaki bütün kurallar, durumları `inactive
 — `firing` görünürse o gerçek bir uyarıdır. Kural JSON'unun `version` alanı `v5`'tir; bu
 SigNoz `v4`'ü **reddediyor** (ölçüldü).
 
+**Yalnız 9. kural (T235) — 🔴 KULLANICI ONAYI (küme yazması; 2026-11-11'de kurulmadı).** Kümede
+1–8 ve kanal `tappa-healthchecks` zaten var; yukarıdaki döngü dosyanın tamamını gönderir ve 1–8'in
+**ikinci kopyalarını** doğurur. Bu yüzden yalnız dizinin **dokuzuncu** elemanı (`.[8]`) gönderilir,
+kanal yeniden kurulmaz. Önce SigNoz → *Alerts*'te `tappa 9:` ile başlayan bir kural **olmadığına**
+bak (varsa bu blok ikincisini yaratır). Oturum satırları (2)'nin aynısıdır; blok bu repodan
+**koşulmadı**:
+
+```bash
+umask 077
+SIGNOZ=https://signoz.everva.com.tr
+SZ_CFG=$(mktemp); trap 'rm -f "$SZ_CFG"' EXIT INT TERM
+printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
+printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
+SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
+[ -n "$SZ_ORG" ] && [ "$SZ_ORG" != null ] && echo 'org ok'
+printf 'url = "%s/api/v2/sessions/email_password"\nheader = "Content-Type: application/json"\n' "$SIGNOZ" > "$SZ_CFG"
+SZ_TOKEN=$(printf '%s\n%s\n%s\n' "$SZ_EMAIL" "$SZ_PASS" "$SZ_ORG" | jq -Rn '[inputs] | {email: .[0], password: .[1], orgId: .[2]}' | curl -fsS -K "$SZ_CFG" --data-binary @- | jq -r '.data.accessToken')
+unset SZ_EMAIL SZ_PASS
+[ ${#SZ_TOKEN} -gt 20 ] && [ "$SZ_TOKEN" != null ] && echo 'token ok'
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$SZ_TOKEN" > "$SZ_CFG"
+unset SZ_TOKEN
+jq -r '.[8].alert' deploy/observability/signoz-alert-rules.json
+jq -c '.[8]' deploy/observability/signoz-alert-rules.json \
+  | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w 'rule 9: HTTP %{http_code}\n' "$SIGNOZ/api/v1/rules"
+rm -f "$SZ_CFG"
+```
+
+Beklenen: `org ok`, `token ok`, `tappa 9: panel recovery left a link live, a mint unmade or a trail
+unwritten` ve `rule 9: HTTP 2xx`. Sonra SigNoz → *Alerts*: dokuz `tappa` kuralı, 9.su `inactive`
+(hatasız değerlendiriliyor) ve kanalı `tappa-healthchecks`. T122'nin 8. kurala yaptığı gibi sorgu
+bir kez ClickHouse'a karşı koşulur (son 6 saat, HTTP 200; seri olmaması **olay yok** demektir).
+Uçtan uca ateşleme (olay → bildirim) ölçülmeyecekse bu yazılır. Kurulunca backlog T235 kapanır ve
+*"M8-03 — UYARI KURALLARI"* kutusundaki T235 notu *"kümede"* olur.
+
 **Testler** (yalnız bu adımın; tam takım değil):
 `go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
 on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
@@ -1442,7 +1643,26 @@ on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
 🔴 **`Q28 (a)`:** M8-03'ün log sinyalleri 2026-10-11'den beri (f) üzerinden teslim
 ediliyor (o gün yedisi; 8.si T122'de, 2026-10-13'te kümeye kuruldu);
 kalanı — SigNoz'un tek başına ölümü, basitleştirmeler, tek kontrolün bütün kuralları
-taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) açık (sınır 24).
+taşıması — sınır 25'te sayılı. `Q28 (b)` (log saklama) **CEVAPLANDI (2026-10-14,
+kullanıcı): 15 gün** — sınır 24, operatör eylemi `log-retention-signoz`.
+
+**Log saklama — salt-okur kontrol (`log-retention-signoz`, `Q28 (b)`).** SigNoz'un TTL'i
+**SigNoz genelidir** (aynı kurulumu ~20 uygulama paylaşıyor); `tappa`'ya özel bir ayar
+ölçülen sürümde (v0.131) yoktur, yani tappa'nın süresi bu repodan **pinlenemez** — biri
+SigNoz'un TTL'ini değiştirirse tappa'nınki de sessizce değişir. Bu yüzden periyodik olarak
+ve her SigNoz yükseltmesinden sonra okunur; **yalnız okunur, buradan ayarlanmaz.**
+Oturum (2)'deki bloğun **ilk 13 satırıdır** (`umask 077`'den yapılandırma dosyasına
+`Authorization` başlığının yazıldığı satır ve ardındaki `unset`'e kadar); `org ok` ve ikinci
+onay satırı gelmezse **dur**. Sonra yalnız şu iki satır — ikisi de bir `GET`'tir ve kimlik
+değeri ekrana düşmez:
+`curl -fsS -K "$SZ_CFG" "$SIGNOZ/api/v2/settings/ttl?type=logs" | jq '{default_ttl_days, cold_storage_ttl_days}'`
+`rm -f "$SZ_CFG"`
+Beklenen: `default_ttl_days` **15**, `cold_storage_ttl_days` **-1** (soğuk katman yok).
+Orkestratör 2026-10-14'te tam bunu okudu (traces ve metrics de 15). 15'ten farklıysa
+gizlilik metnindeki sayı yanlıştır: SigNoz'u işletenle konuş ya da kullanıcıya sor —
+**SigNoz'un TTL'ini tappa için değiştirme**, öteki uygulamaların saklamasını da değiştirir.
+⚠️ 15 gün **toplayıcının** süresidir; node'daki konteyner kopyası süreyle değil boyutla ve
+deploy'la sınırlıdır (sınır 24 (b)).
 
 ---
 
@@ -2915,20 +3135,42 @@ Bu, `tappa-redirects`'e `permanent-redirect`'i geri koyar; hedef commit'in kendi
 40'ın öteki iki nesnesi de dönülen imajla aynı sürümde olur (bir deploy da tam bunu yapar). İleri dönüşte sıradan deploy 43'ü yeniden uygular.
 
 **Doğrulama (deploy'dan sonra, salt-okur, küme yetkisi gerekmez).** Hiçbir satırda `cf-ray` **yok**;
-beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` · `HTTP/2 301` +
-`location: https://taptime.mt/t?p=AB&c=1` · `HTTP/2 308` + `location: https://taptime.mt/admin/login` ·
-`location: https://taptime.mt/evil.example/x`:
+beklenen, sırayla: `HTTP/2 301` + `location: https://taptime.mt/activate?x=1` +
+`strict-transport-security: max-age=31536000; includeSubDomains` · `HTTP/2 301` +
+`location: https://taptime.mt/t?p=AB&c=1` + aynı HSTS satırı · `HTTP/2 308` +
+`location: https://taptime.mt/admin/login` · `location: https://taptime.mt/evil.example/x`:
 
 ```bash
-curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|cf-ray'
-curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|cf-ray'
+curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^HTTP\|^location\|^strict-transport-security\|cf-ray'
+curl -sS -o /dev/null -D - 'https://www.taptime.mt/t?p=AB&c=1' | grep -i '^HTTP\|^location\|^strict-transport-security\|cf-ray'
 curl -sS -o /dev/null -D - -X POST 'https://www.taptime.mt/admin/login' | grep -i '^HTTP\|^location'
 curl -sS -o /dev/null -D - 'https://www.taptime.mt//evil.example/x' | grep -i '^location'
 ```
 
+HSTS satırı (T257) eksikse tarayıcı eski host'a bir sonraki gidişinde düz HTTP deneyebilir; ölçüldü
+(2026-11-11, salt-okur `curl`): iki host da `strict-transport-security: max-age=31536000; includeSubDomains`
+gönderiyor. Aynı gün ilk ölçümde `tappa.everva.com.tr` `cf-ray` taşıyordu: DNS-only kaydı yoktu ve
+`everva.com.tr`'nin proxy'li joker kaydı cevap veriyordu (backlog T275). Orkestratör (kullanıcı onayıyla)
+aynı gün `144.76.158.60`'a DNS-only A kaydı açtı (okundu, orkestratörün bildirimi); yeniden ölçüldü:
+1.1.1.1 ve 8.8.8.8 adı `144.76.158.60`'a çözüyor, `cf-ray` yok, tarayıcı origin'in Let's Encrypt
+sertifikasını görüyor (`CN=tappa.everva.com.tr`, bitiş 2027-01-12) ve `redirect-hosts` iki host'ta çıkış 0.
+Joker kayıt hâlâ proxy'li (var olmayan bir ad Cloudflare adreslerine çözülüyor, ölçüldü): bu kayıt
+silinirse ya da proxy'lenirse kapı yeniden kırmızı olur.
+
 Sertifikalar değişmez (`tappa-tls`, `taptime-www-tls`); HTTP-01 yenilemesi artık öteki host'larla
-aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu). Bu kontrol
-deploy'un kendi kapılarında **yok** (backlog T261).
+aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu).
+
+**Deploy'un kapısı (T261).** `deploy.yml`'in *"Gate — the legacy hosts redirect to the base URL with
+the path kept"* adımı, API host kapısından sonra
+`scripts/verify-deployment.sh redirect-hosts taptime.mt tappa.everva.com.tr www.taptime.mt` koşar:
+iki host'tan da `GET /activate?x=1` ister ve yalnız `301` + `location: https://taptime.mt/activate?x=1`
++ `cf-ray` yok cevabını geçirir. `cf-ray` ya da 2xx hemen kırmızı; 404 ya da başka bir Location (örneğin
+`permanent-redirect` notu canlı nesnede kalmış: path'siz `https://taptime.mt`) ~90 sn yeniden sorulur,
+sonra kırmızı; curl hatası (çözülemeyen ad dahil) UNCHECKED, kırmızı. `all` da koşar. Pinler:
+`TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer`, `TestPackaging_TheDeployGatesTheRedirectHosts`.
+Kapı rollout'tan **sonra** koşar: kırmızı olduğunda uygulanan hiçbir şey geri alınmaz, yalnız sonuç
+*"failure"* olur. 2xx, `cf-ray`'den önce yargılanır (Cloudflare arkasında sunulan bir sayfa sayfa olarak
+raporlanır).
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 
@@ -6070,6 +6312,8 @@ Negatif kanıtlar (her biri geri alındı, yalnız zincirin kendi konteynerlerin
 | kaynakta `GRANT UPDATE (aes_key_ref) ON tags TO tappa_app` (döküm de taşır) | **exit 1** (5a): *"tags.aes_key_ref UPDATE"* |
 | kaynakta `GRANT UPDATE ON audit_log TO tappa_app` (döküm de taşır) | **exit 1** (5a): *"audit_log UPDATE"* |
 | `(d3)`'e `kubectl` önekli bir satır eklendi | betik konteyner açmadan reddetti |
+| kaynakta `tappa_forbid_mutation`'ın gövdesi hiçbir şeyi reddetmeyecek biçimde yeniden yazıldı (döküm de taşır; T224, 2026-11-11, goose 99) | önce ⚠️ **exit 0** (PASS); şimdi **exit 1** (5b): *"the guard functions' bodies are missing or not ones this product shipped … public.tappa_forbid_mutation"* |
+| `(d3)`'e `tappa-drill` adını taşıyan ama konağa uzanan altı satır eklendi, tek tek (`-h host.docker.internal`, `--network=host`, `--pid host`, `--privileged`, `-v /:/host`, `--mount type=bind,source=/,…`; T224) | önce altısı da iki kuraldan geçiyordu (eski desen tek başına sınandı); şimdi betik altısını da konteyner açmadan reddetti. İki denetçi ilk genişletmenin geçirdiği kanonik biçimleri ölçtü (soket, anahtar sırası değişik `--mount`, `-v //:`, `--network container:`, `--ipc host`, `--cap-add`, `--host`, `DOCKER_HOST=`, `--add-host`, ağ geçidi IP'leri, `-v ~/:`); izin kurallarıyla 40 satırın 40'ı reddediliyor (`TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer`). Kemer yanlış düzenlemeye karşıdır, saldırgana karşı değil |
 
 Kalıntı yok: dört kırmızı ve bir yeşil koşuda `docker volume ls -q | wc -l` önce ve sonra **61**
 (ölçüldü; ilk turda kaynak konteyner `-v`'siz silindiği için her koşuda bir anonim volume
@@ -8314,12 +8558,28 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
    satıra yazılır**. Sahibi: kümeyi işleten operatör (Tappa değil — SigNoz kurulumu
    başka bir ürünün altyapısı ve `tappa` namespace'i ona **rıza vermeden** dahil
    edilmiş durumda).
+   ✅ **2026-10-14 — ÖLÇÜLDÜ VE KARARA BAĞLANDI (`Q28 (b)`).** Orkestratör SigNoz API'sini
+   okudu: `GET /api/v2/settings/ttl?type=logs` → `default_ttl_days: 15`,
+   `cold_storage_ttl_days: -1`; traces ve metrics de 15. Kullanıcı (7 / 15 / 30 arasından)
+   **15 günü** seçti, yani bugünkü değer karardır ve **SigNoz'da hiçbir şey değişmedi**.
+   Yukarıdaki *"okunur/ayarlanır ve bu satıra yazılır"* artık **yalnız okunur**: kontrol
+   satırı adım 10 (f)'nin sonunda (*"Log saklama — salt-okur kontrol"*). ⚠️ TTL SigNoz
+   genelidir — bu repodan pinlenemez; periyodik okuma onun tek bekçisidir.
 3. **🔴 M8-06 PİLOT KAPISI.** Yukarıdaki 2. madde kapanmadan gerçek çalışan tap
    atmamalı: Tappa'nın kendi kayıtları için saklama süresi çözülmedi (Q13) ve 2026-11-03
    kullanıcı kararından beri aktivasyon ekranı süre vermiyor; `TAPPA_RETENTION_YEARS`'i hiçbir
    ekran ya da akış okumuyor. Süreyi yayınlanacak gizlilik politikası taşımak zorunda
    (ADR 0026'nın o tarihli notu) ve **log'lar** bugün süresi bilinmeyen bir veridir: bilinmeyen
    bir saklama süresi, politikanın yazacağı sayıyı yalanlayabilir.
+   ✅ **2026-10-14 (log yarısı):** süre artık **biliniyor ve karar**: toplayıcıda 15 gün. Node
+   kopyasının üst sınırı ise bir süre **değildir** — pod değişene (deploy) ya da 50 MiB dolana
+   kadar yaşar, deploy seyrekse **15 günü aşabilir** (sınır 24 (b)). Q13'ün silme akışı log'a
+   yine ulaşmaz; toplayıcıdaki iz süre dolunca kendiliğinden kalkar (≤ 15 gün). Bu kapının
+   **log yarısında kalan** tek iş yayındır: gizlilik metni bu sayıyı söylemeli
+   (`docs/backlog.md` T117 — taslak `docs/legal/privacy-draft.md`, yayın kullanıcıda).
+   Yedekler bu süreyi uzatmaz: `scripts/pg-backup.sh` yalnız veritabanını döker (`pg_dump`)
+   ve gönderilen yalnız o döküm + manifesttir — konteyner ya da SigNoz log'u yedekte yoktur.
+   Tappa'nın **kendi kayıtlarının** süresi (Q13) bu nottan etkilenmez ve hâlâ açıktır.
 
 ### 🔴 M8-03 — UYARI KURALLARI
 
@@ -8361,6 +8621,13 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > `critical`, sunucunun bozuk olduğuna (5, 6) ya da bir güvenlik olayına (3)
 > ayrılmıştır.
 >
+> **T235 (2026-11-11) — 9. kural dosyada ve tabloda, kümede DEĞİL.** Kurtarma akışının (panel
+> parola sıfırlama) habersiz kalan ERROR'ları: canlı kalan link, yapılmayan mint, yazılmayan audit
+> satırı. Kurulum bir küme yazmasıdır ve **kullanıcı onayı** ister: adım 10 (f)'nin sonundaki
+> *"Yalnız 9. kural (T235)"* bloğu. O koşulana dek bu satır **haber vermez**; sorgusu ClickHouse'a
+> karşı **koşulmadı** (yapıcı SigNoz'a istek atmadı). Filtreleri koddaki sabitlere bağlı
+> (`TestSignozRules_FilterOnThePinnedNames`, `TestObservability_AlertSignalNames`).
+>
 > ❌ **Sayılı sınırlar — kurulu kural tablodan DARDIR ve zincirin kör noktaları var:**
 > - **Basitleştirmeler.** 1. kural *"≥ 5 reject **ve** oran > %10"*u tek ifadede tutar
 >   (5'in altında oran 0 sayılır). 2. kural *"toplam > 20 **veya** tek `matched_sid` > 10"*u
@@ -8371,7 +8638,7 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > - **Pencereler kayan değil, saate hizalı kovalardır** (`toStartOfInterval`; SQL'den
 >   okundu, ölçülmedi). Değerlendirme penceresi genellikle iki kovaya bölünür, yani eşiğin
 >   hemen üstünde bir patlama sınırdan ikiye ayrılıp **ateşlemeyebilir** — 1., 2. ve 5.
->   kuralda. Eşiği `0` olan 3., 4., 6., 7. ve 8. kuralı etkilemez (tek satır yeter).
+>   kuralda. Eşiği `0` olan 3., 4., 6., 7., 8. ve 9. kuralı etkilemez (tek satır yeter).
 > - **SigNoz'un kendi e-postası kapalı** — tek teslim yolu healthchecks.io (sınır 33 (a):
 >   tek sağlayıcı).
 > - **SigNoz kümede.** Küme ya da node ölürse hepsi **birlikte susar** — o durumu
@@ -8383,12 +8650,18 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 >   ateşlenmesi **yeni bildirim üretmez** (healthchecks.io durum **değişiminde** bildirir).
 >   Bu tasarımın sonucudur, **ölçülmedi**. Hangi kuralların ateşte olduğunu SigNoz →
 >   *Alerts* söyler.
-> - **Log saklama `Q28 (b)` hâlâ açık** (sınır 24, operatör eylemi `log-retention-signoz`)
->   — bir uyarıyı araştırmak için log'un hâlâ orada olması gerekir.
+> - **Log saklama `Q28 (b)`: 15 gün (toplayıcıda)** (sınır 24, operatör eylemi `log-retention-signoz`,
+>   artık salt-okur) — bir uyarıyı araştırmak için log'un hâlâ orada olması gerekir.
+>   ✅ **2026-10-14:** `Q28 (b)` **cevaplandı** — 15 gün (kullanıcı kararı; SigNoz API'sinden
+>   okunan `default_ttl_days: 15`, değiştirilmedi). Bir uyarının olay incelemesi için iki
+>   hafta yeter. Node kopyası süreyle değil boyutla (50 MiB) ve deploy'la silinir; deploy
+>   seyrekse 15 günü aşabilir (sınır 24 (b)).
 >
 > **Sahibi:** kümeyi işleten operatör (SigNoz ve healthchecks.io hesabı). **Neye bağlı:**
 > `Q28 (b)` — log saklama süresi (**saklama**) · operatör eylemi `log-retention-signoz`
 > (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin ölçülmemiş yarısı).
+> ✅ 2026-10-14: o yarı ölçüldü (15 gün) ve karar oldu; eylem artık **salt-okur** periyodik
+> kontroldür (adım 10 (f)'nin sonu).
 >
 > ⚠️ **BURADA BİR TUR BOYUNCA `Q12` YAZIYORDU VE ÜÇ YERDE YANLIŞTI.** `Q12`
 > ***barındırma*** sorusudur (VPS sağlayıcı, managed Postgres, AB bölgesi, yedek
@@ -8414,9 +8687,10 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > geçerlidir.~~ → **T118 (2026-10-11): yedi kural da aynı sağlayıcıya, `tappa-signals`
 > üzerinden gidiyor** (yukarıdaki kutu).
 
-**Sekiz sinyal**, beş olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo sekiz
-satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
-kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural T122'de):
+**Dokuz sinyal**, beş olaydan, bir açılış satırından ve kurtarma akışının ERROR'larından
+hesaplanır (aşağıdaki tablo dokuz satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural
+eklendikten sonra belge kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural
+T122'de; 9. kural T235'te, kümede henüz yok):
 
 | # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
 |---|---|---|---|---|---|---|
@@ -8428,6 +8702,7 @@ kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural 
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
 | 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
 | 8 | **dokunuş yalnız guardrail'lerle karar verdi** (T122) | `policy.guardrails_alone` | olayın kendisi | 15 dk'lık pencerede **≥ 1** olay = uyarı | `forTenant` işletmenin politika kümesini kuramadı (okuyamadı, yazamadı ya da yazdıktan sonra tamamlayamadı/ayrıştıramadı) ve dokunuşa **yalnız guardrail'lerle** karar verdi. Hiçbir baseline ifadesi eşleşemediği için `ok` olacak dokunuş **çoğunlukla `flag` olarak yazılır** ve müdür kuyruğuna düşer (§4.6). ⚠️ Veritabanına **bütünüyle** ulaşılamıyorsa kaydı yazacak `WithTenant` da düşer: kayıt yazılmaz, kişiye yeniden dokunması söylenir — o durumda 6. kural da ateşler. T121'den (`f2c7771`) sonra bilinen zararsız kaynağı yok — eşzamanlı ilk dokunuşların 23505'i kapandı —, yani tek satır gerçek bir sorundur. ⚠️ Panelin `StoredSet` okuması bu olayı **basmaz**: oradaki geri düşüş bir yetki reddidir ve hiç dokunulmamış bir işletmede beklenen durumdur. ⚠️ İsteğin **kendi** bağlamı bittiyse (istemci gitti ya da `httpx.RequestTimeout` doldu) olay da **basılmaz**: o dokunuş zaten kaydedilmez (kaydı yazacak `WithTenant` aynı ölü bağlamla düşer); yerine sayfalamayan bir WARN cümlesi yazılır (`reason` taşır). İstek canlıyken sürücünün kendi zaman aşımı ise sayfalar. | `tenant_id` (hangi işletme) ve `reason` (hangi yol): `load_failed` / `reload_failed` = politika katmanı okunamadı (önce 6. kural ve `sqlstate`; `42501` bir GRANT kaymasıdır) · `materialise_failed` = eksik baseline yazılamadı (`sqlstate` + `constraint` hangi ifadenin düştüğünü söyler; örnekler: `23505` = bir benzersiz indekste çakışma — T121'in kapattığı sınıf geri gelmiş olabilir —, `23503` = aynı adla ama türetilmemiş bir id'yle duran bir `policies` satırı, `db/queries/policies.sql`'in *foreign-id container* notu) · `incomplete_after_materialise` = yazıldı, geri okundu, hâlâ eksik; SQL hatası yok, çoğu zaman saklı bir baseline belgesini bu sürüm okuyamıyor (ör. bir kod geri alımından sonra) — panelin kural sayfası onu gösterir. `sqlstate` ve `constraint` yalnız bir PostgreSQL hatası varsa yazılır; `Detail` **bilerek yazılmaz** (satır değeri taşır) |
+| 9 | **kurtarma akışı bir linki canlı, bir mint'i yapılmamış ya da bir izi yazılmamış bıraktı** (T235) | `panel recovery: minting a link waited too long for a lock, so none was made` · `audit write failed` · geri çekme kaybı ve boşaltma özeti olay adıyla değil **alanla** seçilir | `recovery = "list_full"` · `recovery = "closing"` · `recovery = "not_retried"` · `owed_withdrawals > 0` · ya da yukarıdaki iki olaydan biri | 15 dk'lık pencerede **≥ 1** olay = uyarı | **Dört ayrı arıza, hepsi ERROR ve hiçbiri kendiliğinden kimseye görünmez.** (a) **Geri çekme kaybı** (`recovery` alanı; T212): teslim edilemeyen bir sıfırlama linki geri çekilemedi ve süresi (`ResetTTL`, 1 saat) dolana dek canlı; sahibinin o sürede istediği her link `kept` sayılır, yani kişi yeni link alamaz. Kimlik linkinde (`identity_id` taşıyan satır) bu kişiyi **bütün işletmelerinde** kilitler. `retrying` bilerek **sayfalamaz**: link listededir ve veritabanı düzelince geri çekilir; listede süresi dolan girdi WARN yazar. (b) **Boşaltma özeti** (`owed_withdrawals`): süreç durdu ve listedeki geri çekmeler bellekle gitti; o linkler de süreleri dolana dek canlı. (c) **Duran mint** (T219, T236 (b)): bir hesabın ya da kimliğin link basımı kilit beklerken `ResetMintLockWait` (150 ms) bütçesini aştı; link basılmadı, kişi kayıtsız adresin sayfasını gördü ve yeniden istemesi gerekir. Satırı hesap bütçesi sınırlar, yani bir sel ERROR seline dönmez. (d) **`audit write failed`**: bir audit satırı yazılamadı, §4.6'nın izi delindi. Bu msg'yi yazan **her yer** sayfalar, kurtarmanın iki yeri ve ayrıca panel girişi, aktivasyon ve tap hız sınırlayıcısı (hepsi `audit.EventWriteFailed`). ⚠️ `checkin: audit write failed` ve girişin `audit write failed; the act it records was refused` satırı **başka msg'lerdir**, bu kurala girmez (T282). Veritabanı bütünüyle gittiyse (a), (c) ve (d) birlikte gelir ve 6. kural da ateşler. | Önce 6. kural: çoğu zaman aynı veritabanı arızasıdır. Sonra satırın `msg`'i ve `recovery`'si hangi yol olduğunu, `admin_user_id` ya da `identity_id` ile `reset_id` hangi link olduğunu, `action` hangi audit olayının kaybolduğunu söyler; adres ve link satırda **yoktur** (§7). Canlı kalan kimlik linklerini beklemeden öldürmek gerekirse: *"Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali"* (bir küme yazmasıdır, kullanıcı onayı) |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
@@ -8461,6 +8736,9 @@ body.operator_surface = "unavailable"
 
 # 8 — dokunus yalniz guardrail'lerle karar verdi (tek satir bile uyaridir) — yolu reason soyler
 body.msg = "policy.guardrails_alone"                     # group by body.reason, body.sqlstate
+
+# 9 — kurtarma akisi: canli kalan link, yapilmayan mint, yazilmayan audit satiri (tek satir bile uyaridir)
+body.recovery IN ("list_full", "closing", "not_retried") OR body.owed_withdrawals > 0 OR body.msg = "panel recovery: minting a link waited too long for a lock, so none was made" OR body.msg = "audit write failed"
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR
@@ -9270,6 +9548,26 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     ⚠️ `Q12` (barındırma) bu maddeye **dolaylı** bağlıdır: nerede barındığımız node
     kopyasının rotasyon ayarını ve toplayıcının varlığını belirler. Ama *"ne kadar
     saklanacak"* sorusu `Q28 (b)`'dir, `Q12` değil.
+    ✅ **2026-10-14 — `Q28 (b)` CEVAPLANDI, bilinmeyen kapandı.** Orkestratör SigNoz
+    API'sini okudu (`GET /api/v2/settings/ttl?type=logs`): logs `default_ttl_days: 15`,
+    `cold_storage_ttl_days: -1`; traces ve metrics de 15. Kullanıcı 7 / 15 / 30 arasından
+    **15 günü** seçti — ölçülen değer karardır, SigNoz'da hiçbir şey değişmedi. Gerekçe:
+    GDPR veri en aza indirme (log IP, `employee_id`, `tenant_id`, `request_id` taşır;
+    e-posta, token ve anahtar taşımaz — §7) · olay incelemesi için iki hafta yeterli ·
+    paylaşılan SigNoz'un (~20 uygulama) ayarına dokunulmuyor. ❌ **Kalan sınırlar:**
+    (a) TTL **SigNoz genelidir** — biri değiştirirse tappa'nınki de değişir ve bu repodan
+    pinlenemez; tek bekçi adım 10 (f)'nin sonundaki salt-okur kontroldür. (b) **Node kopyasının
+    üst sınırı bir süre değildir:** kubelet log'u süreye göre değil boyuta göre (10Mi × 5)
+    döndürür; kopya pod değişene (deploy) ya da 50 MiB dolana kadar yaşar, yani deploy
+    seyrekse ve hacim düşükse **15 günü aşabilir**. Çare (uygulanmadı): kubelet'te
+    `containerLogMaxAge` gibi bir süre ayarı yok — ya düzenli deploy ya da en geç 15 günde
+    bir rollout. (c) Q13'ün silme akışı log'a yine **ulaşmaz**; toplayıcıdaki iz süre dolunca
+    kendiliğinden kalkar (≤ 15 gün). (d) Yedekler log **içermez**: `scripts/pg-backup.sh`
+    yalnız `pg_dump --format=plain` koşar ve `scripts/pg-backup-ship.sh` R2'ye yalnız o
+    `.sql.gz`'yi ve manifestini gönderir. Veritabanının **kendi** IP sütunu
+    (`transactions.source_ip`) yedektedir — o bir log değil kayıttır ve
+    `TAPPA_RETENTION_YEARS` / Q13 kapsamındadır. (e) Yayın: gizlilik metni bu sayıyı henüz
+    söylemiyor; taslak `docs/legal/privacy-draft.md` (`docs/backlog.md` T117).
 25. **[uyarıların teslimatı: ~~kanal yok~~ → kümenin İÇİNDEN, tek kontrol üzerinden]** —
     🔴 **T118 (2026-10-11) — TESLİMAT KURULDU, kör noktaları sayılı.** Yedi kural kümedeki
     SigNoz'da ClickHouse-SQL eşik kuralı olarak koşuyor (kaynak
@@ -9513,7 +9811,8 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     (e) ~~**`Q28 (a)`'nın KALANI:** M8-03'ün yedi log sinyali hâlâ hiçbir yere
     gönderilmiyor (sınır 25).~~ → **T118 (2026-10-11):** yedi log sinyali de aynı
     sağlayıcıya, `tappa-signals` üzerinden gidiyor; kör noktaları sınır 25'te. Bu madde
-    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) açık (sınır 24).
+    yalnız log **dışı** iki sinyali anlatır. `Q28 (b)` (log saklama) **cevaplandı**
+    (2026-10-14, kullanıcı: 15 gün; sınır 24).
     ⚠️ **T118 DÜZELTMESİ — bu madde ve adım 10 *"e-postayla"* diyordu, ve iki gün boyunca
     DOĞRU DEĞİLDİ.** Ölçüldü (orkestratör, 2026-10-11): API ile kurulan bir kontrol hiçbir
     bildirim kanalına bağlanmaz; `tappa-uptime` ve `tappa-backup` yalnız Telegram'a bağlıydı,

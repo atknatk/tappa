@@ -825,6 +825,10 @@ func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityRes
 		"identity_id", k.IdentityID, "reset_id", k.ResetID, "outcome", "kept", "reason", resetReasonLiveLink)
 }
 
+// EventMintStalled is logStalledMint's msg. An alert rule filters on it (deploy/README.md, M8-03
+// rule 9, T235).
+const EventMintStalled = "panel recovery: minting a link waited too long for a lock, so none was made"
+
 // logStalledMint is the trail of an account -- or an identity -- whose mint gave up waiting for a
 // lock (adminauth.ResetMintLockWait, T219). Nothing was minted, so nothing is sent and nothing is owed;
 // the visitor got the page every address gets, and the owner's next request mints once the lock is
@@ -846,8 +850,7 @@ func (h *AdminReset) logStalledMint(ctx context.Context, ip string, st adminauth
 		return
 	}
 	// Keys from ADR 0031's M14-14 closed list only: ip and the id.
-	h.log.ErrorContext(ctx, "panel recovery: minting a link waited too long for a lock, so none was made",
-		append([]any{"ip", ip}, ids...)...)
+	h.log.ErrorContext(ctx, EventMintStalled, append([]any{"ip", ip}, ids...)...)
 }
 
 // identityResetBudgetKey namespaces an identity's bucket in the per-account budget it shares with
@@ -1383,7 +1386,7 @@ func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPass
 // limit is safer than a closure nobody verified.
 func (h *AdminReset) record(ctx context.Context, e audit.Event) {
 	if _, err := h.audit.Record(ctx, e); err != nil {
-		h.log.ErrorContext(ctx, "audit write failed", "action", e.Action, "err", err)
+		h.log.ErrorContext(ctx, audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
 }
 

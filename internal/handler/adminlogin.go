@@ -1951,7 +1951,7 @@ func (a *AdminAuth) sameOrigin(r *http.Request) bool {
 // written is an ERROR, because it means section 4.6 is not being kept.
 func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 	if _, err := a.audit.Record(ctx, e); err != nil {
-		a.log.Error("audit write failed", "action", e.Action, "err", err)
+		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
 }
 

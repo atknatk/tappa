@@ -549,6 +549,11 @@ func (h *AdminReset) deliverJob(j resetJob, decided *bool) {
 	h.deliver(j.base, j.ip, j.g, decided)
 }
 
+// LogOwedWithdrawals is the count Drain's ERROR line carries: withdrawals still owed when the
+// process stops, whose links stay live until they expire. An alert rule reads it (deploy/README.md,
+// M8-03 rule 9, T235).
+const LogOwedWithdrawals = "owed_withdrawals"
+
 // Drain stops the outbox taking grants and waits for the worker to finish what it
 // holds, inside ctx's deadline (cmd/tappa passes ResetDrainGrace).
 //
@@ -570,7 +575,7 @@ func (h *AdminReset) Drain(ctx context.Context) error {
 	if owed := q.close(); owed > 0 {
 		// Said once, here: the list is in memory and the process is about to go.
 		h.log.ErrorContext(ctx, "panel recovery: the process is stopping with withdrawals still owed; their links stay live until they expire",
-			"owed_withdrawals", owed)
+			LogOwedWithdrawals, owed)
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		// A deadline nearer than the reserve stops the sends at once (AfterFunc runs

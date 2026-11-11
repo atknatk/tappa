@@ -1008,6 +1008,15 @@ jobs:
       - name: Gate — the API host serves the API and nothing else
         run: scripts/verify-deployment.sh api-host api.taptime.mt
 
+      # 🔴 THE TWO LEGACY HOSTS, MEASURED FROM OUTSIDE (backlog T261): GET /activate?x=1 on each of
+      # 43-redirect-ingress.yaml's hosts must be the application's 301 to https://taptime.mt/activate?x=1
+      # (path and query kept) with no cf-ray; a 2xx or cf-ray is red at once, a 404 or another Location
+      # is retried for about 90 s, a curl failure is red (scripts/verify-deployment.sh,
+      # check_redirect_hosts). It sees the one premise no test can: that 43's apply really removed the
+      # ingress-level permanent-redirect from the live object. It REPORTS: it cannot undo an apply.
+      - name: Gate — the legacy hosts redirect to the base URL with the path kept
+        run: scripts/verify-deployment.sh redirect-hosts taptime.mt tappa.everva.com.tr www.taptime.mt
+
       - name: Report what is running
         if: always()
         run: |

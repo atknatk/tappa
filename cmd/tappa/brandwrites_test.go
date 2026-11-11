@@ -149,7 +149,7 @@ func TestBrandWrites_TheCallSitesAreTheOnesInventoried(t *testing.T) {
 			return rerr
 		}
 		if info.IsDir() {
-			if skipScanDir(rel) {
+			if skipGoDir(rel) {
 				return filepath.SkipDir
 			}
 			return nil

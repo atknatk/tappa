@@ -307,7 +307,7 @@ func TestResetRecoveryDB_AFullListClearsOnAHealthyDatabase(t *testing.T) {
 	grants := grantsFor("owed@list.example.test", resetRecoverySize)
 	for i := range grants {
 		grants[i].Issued.Reset.TenantID = tenantID
-		if fate := h.owe(ctx, grants[i]); fate != recoveryRetrying {
+		if fate := h.owe(ctx, grants[i]); fate != RecoveryRetrying {
 			t.Fatalf("CONTROL: owed withdrawal %d refused: %s", i+1, fate)
 		}
 	}

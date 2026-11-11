@@ -393,6 +393,6 @@ func (a *AdminAuth) refuseAccountSave(r *http.Request, id httpx.AdminIdentity) {
 // accountNameSentence is the account form's answer to tenant.ErrNameHiddenCharacter. It is not the
 // venue form's hiddenNameSentence: a zero-width space passes this field's rule (NameBreaksIsolation).
 // It names the rule's classes (T216): a tab is the control a pasted name most often carries, and the
-// sentence used to call it a line break.
-const accountNameSentence = "That name has a tab, a line break, a direction override or another control character in it, " +
-	"usually from pasted text. Type the name again."
+// sentence used to call it a line break. Signup's business name answers with the same sentence, from
+// the same constant (T248).
+const accountNameSentence = signup.NameBreaksIsolationSentence

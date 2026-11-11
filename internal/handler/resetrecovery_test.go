@@ -29,7 +29,7 @@ func TestResetRecovery_AFullListRefusesWithAnError(t *testing.T) {
 	h := outcomeHandlerOver(t, f, &logged)
 	h.clocks.recoveryFirst = time.Hour
 	for i := 0; i < resetRecoverySize; i++ {
-		if fate := h.owe(context.Background(), grantFor(known)); fate != recoveryRetrying {
+		if fate := h.owe(context.Background(), grantFor(known)); fate != RecoveryRetrying {
 			t.Fatalf("CONTROL: owed withdrawal %d of %d refused: %s", i+1, resetRecoverySize, fate)
 		}
 	}
@@ -37,7 +37,7 @@ func TestResetRecovery_AFullListRefusesWithAnError(t *testing.T) {
 	o.withdrawal.last = context.DeadlineExceeded
 	h.loseWithdrawal(o, true)
 	out := logged.String()
-	if !strings.Contains(out, "level=ERROR") || logged.count("recovery="+recoveryListFull) != 1 {
+	if !strings.Contains(out, "level=ERROR") || logged.count("recovery="+RecoveryListFull) != 1 {
 		t.Errorf("want one ERROR naming the full list:\n%s", out)
 	}
 	if n := h.outbox.owedCount(); n != resetRecoverySize {
@@ -68,8 +68,8 @@ func TestResetRecovery_TheDrainCountsWhatIsStillOwed(t *testing.T) {
 	if n := logged.count(lineOwedAtDrain); n != 1 || logged.count("owed_withdrawals=3") != 1 {
 		t.Errorf("%d drain line(s), want one counting 3:\n%s", n, logged.String())
 	}
-	if fate := h.owe(context.Background(), grantFor(known)); fate != recoveryClosing {
-		t.Errorf("a withdrawal owed after the drain: %s, want %s", fate, recoveryClosing)
+	if fate := h.owe(context.Background(), grantFor(known)); fate != RecoveryClosing {
+		t.Errorf("a withdrawal owed after the drain: %s, want %s", fate, RecoveryClosing)
 	}
 	if withdraw, _ := f.tries(); withdraw != 0 {
 		t.Errorf("%d tries at the drain, want none: its budget is for the outbox's rows", withdraw)
@@ -145,7 +145,7 @@ func TestResetRecovery_TheWorkerTriesUntilTheDatabaseAnswers(t *testing.T) {
 			if n := strings.Count(out, lineOwedRecovered); n != tc.wantSuccess {
 				t.Errorf("%d success line(s), want %d:\n%s", n, tc.wantSuccess, out)
 			}
-			if n := strings.Count(out, "recovery="+recoveryNotRetried); n != tc.wantNotRetried {
+			if n := strings.Count(out, "recovery="+RecoveryNotRetried); n != tc.wantNotRetried {
 				t.Errorf("%d refused line(s), want %d:\n%s", n, tc.wantNotRetried, out)
 			}
 			time.Sleep(100 * time.Millisecond) // past two more passes: nothing tries again
@@ -201,8 +201,8 @@ func TestResetRecovery_AFailedRequestsWithdrawalIsOwed(t *testing.T) {
 		wantTries int
 		wantFate  string
 	}{
-		{"a stalled withdrawal", context.DeadlineExceeded, 1, recoveryRetrying},
-		{"a refused withdrawal", &pgconn.PgError{Code: "42501"}, 0, recoveryNotRetried},
+		{"a stalled withdrawal", context.DeadlineExceeded, 1, RecoveryRetrying},
+		{"a refused withdrawal", &pgconn.PgError{Code: "42501"}, 0, RecoveryNotRetried},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -121,6 +121,25 @@ kaynak eşleme) müşteriye açar — pilot öncesi gereksiz risk ve iş.
 - Nicel sınırlar (belge boyutu, ifade sayısı, kota) editörde gösteriliyor.
 - Kaydetmeden önce **M9-06 simülasyonu** zorunlu adım.
 - Sürüm geçmişi ve geri alma; düzenleme yeni sürüm üretiyor.
+- **Müşterinin yazdığı `reason` işaretsiz basılmaz (backlog T58; kullanıcı kararı 2026-11-11:
+  *"kural editörüyle birlikte ele alınsın"*).** Editör bir tenant'a bir ifadenin `reason` metnini
+  yazdırıyorsa o cümle **işletmenin kuralı** olarak işaretlenir. Neden: bugün tenant serbest metin
+  yazamıyor (`TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs`; `tenant.copyOfShipped` ifadeyi
+  bütün olarak kopyalar), ama editör bunu değiştirirse müşterinin cümlesi **değişmez** bir
+  `transactions.note`'a düşer (§4.3) ve sonradan düzeltilemez.
+  - **Fiş ve rapor:** cümle `ledger.Record.NoteIsTenants` yolundan geçer (`transactions.policy_layer
+    = 'tenant'`'tan türetilir) ve fişte işletmenin kuralı olarak görünür. Bu bayrak *kuralı* işaretler,
+    sözcüklerin yazarını değil (`internal/domain/ledger/ledger.go` yorumu) — editör tenant metnini
+    `policy_layer = 'tenant'` olmayan bir satıra taşıyabiliyorsa işaret yetmez ve kayıtta kalıcı bir
+    ek gerekir (T58'in hazır önerisi: `tap.appendNote` tenant kararlarına bir ek yazsın).
+  - **Sonuç ekranı:** bugün kural cümlesi basmıyor — `pages.ResultView`'da onun için alan yok
+    (kullanıcının §9 kararı, 2026-11-02; `TestResultScreen_SaysExactlyThisAndNothingElse`). Editör bu
+    ekrana tenant metni **taşımaz**; taşıması gerekirse bu, CLAUDE.md §9 gereği **önce kullanıcıya
+    sorulur** ve cümle orada da işletmenin kuralı olarak işaretlenir.
+  - **Yazıcı envanteri:** editör politika belgesinin üçüncü üretim yazıcısıdır; cmd/tappa'nın üç
+    note-provenance testinden biri bunu yakalar
+    (`TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument` ve kardeşleri) — envanter
+    bilerek güncellenir, susturulmaz.
 
 ---
 

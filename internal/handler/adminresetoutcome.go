@@ -444,7 +444,7 @@ func (h *AdminReset) logWillRetry(o *resetOutcome, write string, err error) {
 // loseWithdrawal is a withdrawal that failed its tries: handed to the list of withdrawals owed when a
 // later try can help (adminresetrecovery.go), and logged with its fate either way.
 func (h *AdminReset) loseWithdrawal(o *resetOutcome, retryable bool) {
-	fate := recoveryNotRetried
+	fate := RecoveryNotRetried
 	if retryable {
 		fate = h.owe(o.base, o.g)
 	}
@@ -458,11 +458,11 @@ func (h *AdminReset) logWithdrawalLost(base context.Context, g adminauth.ResetGr
 	if g.IdentityID != uuid.Nil {
 		msg = "panel recovery: withdrawing an undelivered identity link failed"
 	}
-	h.log.ErrorContext(base, msg, append(grantIDs(g), "err_type", fmt.Sprintf("%T", err), "recovery", fate)...)
+	h.log.ErrorContext(base, msg, append(grantIDs(g), "err_type", fmt.Sprintf("%T", err), LogRecovery, fate)...)
 }
 
 // logRowLost is record's line for record's reason: a trail that cannot be written is an
 // ERROR, because it means §4.6 is not being kept.
 func (h *AdminReset) logRowLost(o *resetOutcome) {
-	h.log.ErrorContext(o.base, "audit write failed", "action", o.event.Action, "err", o.row.last)
+	h.log.ErrorContext(o.base, audit.EventWriteFailed, "action", o.event.Action, "err", o.row.last)
 }

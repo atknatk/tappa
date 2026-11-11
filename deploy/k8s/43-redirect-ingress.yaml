@@ -53,6 +53,9 @@
 # ⚠️ TO VERIFY AFTER THE FIRST DEPLOY THAT CARRIES THIS FILE (deploy/README.md, "T71"):
 #   curl -sS -o /dev/null -D - 'https://tappa.everva.com.tr/activate?x=1' | grep -i '^location'
 #   -> location: https://taptime.mt/activate?x=1
+# Since T261 every deploy measures this itself, after this file's apply: deploy.yml's step "Gate --
+# the legacy hosts redirect to the base URL with the path kept" (scripts/verify-deployment.sh
+# redirect-hosts): 301 to that Location, no cf-ray, on both hosts.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

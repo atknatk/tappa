@@ -27,6 +27,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// EventWriteFailed is the ERROR line a caller writes when an event could not be stored: the trail
+// §4.6 promises has a hole. An alert rule filters on this exact msg (deploy/README.md, M8-03
+// rule 9, T235), so every caller spells it with this constant rather than a literal.
+const EventWriteFailed = "audit write failed"
+
 // Database is the narrow slice of *db.DB this package needs, declared HERE at the
 // consumer (CLAUDE.md §7).
 type Database interface {

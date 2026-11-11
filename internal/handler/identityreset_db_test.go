@@ -157,6 +157,8 @@ func TestPanelIdentityReset_TimingIsFlatOverHTTP(t *testing.T) {
 	spread := slices.Max(all3) - slices.Min(all3)
 	t.Logf("medians: issued %v, kept %v, unknown %v (spread %v, floor %v)", mi, mk, mu, spread, resetRequestFloor)
 	if spread > 60*time.Millisecond {
-		t.Errorf("medians issued %v / kept %v / unknown %v differ by %v: the identity path's work leaks through the clock", mi, mk, mu, spread)
+		t.Errorf("medians issued %v / kept %v / unknown %v differ by %v: the identity path's work leaks through the clock "+
+			"-- or, on a local macOS + Docker Desktop run, the database round trip does (backlog T198: the reds measured "+
+			"there were); CI is the referee", mi, mk, mu, spread)
 	}
 }

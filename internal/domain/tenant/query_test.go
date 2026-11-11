@@ -100,10 +100,11 @@ func TestStaffQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 		}
 		findings, checked := scopeFindings(body, scoped)
 		// M15-07 made this package call GetLastOpenTransaction (the business-day review asks
-		// which open check-in the engine could close). txnScopeExemptions clears ONE finding
-		// of it by name -- the correlated sub-query's -- and exemptCorrelated removes exactly
-		// that one and nothing else, so the outer statement's own predicate is still checked
-		// here (M15-07 review: clearing every finding hid a deleted outer predicate).
+		// which open check-in the engine could close). An entry of txnScopeExemptions (none
+		// since T245) clears ONE finding by name -- the correlated sub-query's -- and
+		// exemptCorrelated removes exactly that one and nothing else, so the outer statement's
+		// own predicate is still checked here (M15-07 review: clearing every finding hid a
+		// deleted outer predicate).
 		if _, cleared := txnScopeExemptions[name]; cleared && file == txnQueryFile {
 			findings = exemptCorrelated(t, name, findings)
 		}
@@ -161,16 +162,13 @@ const txnQueryFile = "transactions.sql"
 // human has cleared, each with the reason. It is an ALLOWLIST THAT MUST SHRINK: adding
 // a name here is the only way to make this belt weaker, so it is an edit somebody has
 // to defend.
-var txnScopeExemptions = map[string]string{
-	// A CORRELATED SUB-QUERY, AND IT IS CORRECTLY SCOPED. The NOT EXISTS binds
-	// `o.tenant_id = t.tenant_id`, and the outer statement binds `t.tenant_id =
-	// @tenant_id` -- so every row the sub-query can see is already inside the caller's
-	// tenant, transitively. The matcher rejects it because it accepts ONLY a direct
-	// binding to the parameter, which is the same strictness that makes it catch a
-	// predicate on a different table; loosening it to follow aliases would weaken the
-	// case its negative control exists to refuse. Fail-closed, in the safe direction.
-	"GetLastOpenTransaction": "correlated NOT EXISTS scoped to the outer alias, which is itself bound to @tenant_id",
-}
+//
+// EMPTY SINCE T245 (2026-11-11). Its one entry was GetLastOpenTransaction, whose NOT EXISTS
+// bound `o.tenant_id = t.tenant_id` (the outer alias) rather than @tenant_id. T245 reshaped
+// that statement -- every sub-query of it is now bound to @tenant_id directly -- so the
+// matcher no longer flags it and the entry went, as the stale-entry check below requires.
+// The machinery stays: the next exemption must still be argued here.
+var txnScopeExemptions = map[string]string{}
 
 // correlatedFinding is the one finding txnScopeExemptions clears: the correlated sub-query
 // (alias o) bound to the OUTER alias rather than to the parameter.

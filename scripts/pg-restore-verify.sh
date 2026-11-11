@@ -701,11 +701,20 @@ fi
 # (TestAppendOnlyTablesAreNamedByBothScripts derives it from db/migrations). The function is
 # matched by name AND schema (T215): a same-named zz_sec.tappa_forbid_mutation that refuses
 # nothing passed when only the name was read; section 5's TRUNCATE query carries the same pin.
-# ⚠️ ITS BODY IS NOT COMPARED, and that is a written limit: a source whose own
-# public.tappa_forbid_mutation was rewritten to refuse nothing dumps that body and restores it,
-# so a dump-against-restore comparison sees two equal bodies, and an absolute pin (a hash in this
-# file) would turn every older backup red the day a migration rewords the function. Rewriting it
-# takes the owner's privilege, which this script cannot defend against anyway.
+# AND THE TWO GUARD FUNCTIONS' BODIES ARE FROM A CLOSED LIST (T224). A source whose own
+# public.tappa_forbid_mutation was rewritten to refuse nothing dumps that body and restores it, so
+# a dump-against-restore comparison sees two equal bodies: measured, a restore-chain source whose
+# guard returned NEW/OLD and NULL (every UPDATE, DELETE and TRUNCATE let through) gave
+# `pg-restore-verify: PASS`, exit 0. So GUARD_BODIES holds the sha256 of every body this product
+# ever shipped for tappa_forbid_mutation (00005) and tappa_forbid_counter_rewind (00013), with its
+# language, and a body that is not on it fails. A LIST, NOT ONE PIN: a migration that rewords a
+# function ADDS its digest and keeps the old one, which every older backup still carries -- and the
+# day it lands, `make restore-check` (CI, T215) restores a dump of the new body and is red until it
+# does. Both functions are defined once today (measured at goose 99: neither is redefined after its
+# first migration; 00061 only revokes EXECUTE), so the list is two lines and holds every backup
+# since goose 13. What it does not hold: the body's other attributes (owner, SECURITY DEFINER,
+# search_path, EXECUTE -- section 3b, against the dump), and an owner who rewrites a function and
+# this file -- the owner's privilege is beyond any check here.
 #
 # THE MATCH IS ARMED BY pg_dump's OWN COMMENT LINE, so a COPY row that happens to start
 # with the words CREATE TRIGGER is not taken for one (it could only have failed the
@@ -734,6 +743,12 @@ FLOOR_COUNTER_SQL="SELECT count(*)
   WHERE n.nspname = 'public' AND c.relname = 'tags' AND g.tgname = 'tags_counter_monotonic'
     AND g.tgenabled IN ('O', 'A')
     AND p.proname = 'tappa_forbid_counter_rewind' AND p.pronamespace = 'public'::regnamespace;"
+GUARD_BODIES="tappa_forbid_mutation plpgsql b669ed5ab7cf32a29e780e666e0b7013e3a3017a3b5fd46574c83197e0ae26ff
+tappa_forbid_counter_rewind plpgsql 1f19f489494252649e1ac87851b5c647cc5c69b471db6752efc41167a93543e8"
+FLOOR_GUARD_BODIES_SQL="SELECT p.proname || ' ' || l.lanname || ' ' || encode(sha256(convert_to(p.prosrc, 'UTF8')), 'hex')
+  FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+  WHERE p.pronamespace = 'public'::regnamespace AND p.pronargs = 0
+    AND p.proname IN ('tappa_forbid_mutation', 'tappa_forbid_counter_rewind');"
 TRIGGER_DEFS_SQL="SET search_path = ''; SELECT pg_catalog.pg_get_triggerdef(g.oid, false) || ';'
   FROM pg_catalog.pg_trigger g JOIN pg_catalog.pg_class c ON c.oid = g.tgrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -774,6 +789,20 @@ if [ -z "$floor_missing" ] && [ "$floor_counter" = "1" ]; then
   ok "triggers: the append-only row guards and tags_counter_monotonic are here, whatever the dump says"
 else
   bad "section 4.3's and 4.4's triggers are missing or off, whatever the dump says. Row guards missing:${floor_missing:- none}; tags_counter_monotonic present: $floor_counter of 1. If the dump agrees, they are not in the dump: it is older than their migrations or its source had lost them."
+fi
+$OWNER_PSQL -c "$FLOOR_GUARD_BODIES_SQL" > "$TMP/have.guardbodies" \
+  || die "the guard body query failed against $PGDATABASE; no verdict is issued"
+bodies_bad=""
+for fn in tappa_forbid_mutation tappa_forbid_counter_rewind; do
+  have_body="$(awk -v f="$fn" '$1 == f' "$TMP/have.guardbodies")"
+  if [ -z "$have_body" ] || ! printf '%s\n' "$GUARD_BODIES" | grep -qxF -- "$have_body"; then
+    bodies_bad="$bodies_bad public.$fn"
+  fi
+done
+if [ -z "$bodies_bad" ]; then
+  ok "triggers: the bodies of tappa_forbid_mutation and tappa_forbid_counter_rewind are ones this product shipped, whatever the dump says"
+else
+  bad "the guard functions' bodies are missing or not ones this product shipped, whatever the dump says:$bodies_bad. A body that refuses nothing keeps every trigger above in place and lets UPDATE, DELETE and TRUNCATE through. If a migration rewrote the function, add its new digest to GUARD_BODIES in scripts/pg-restore-verify.sh and keep the old one; otherwise the source's guard was rewritten and this database must not go into service. Read it with: SELECT pg_get_functiondef('public.tappa_forbid_mutation()'::regprocedure);"
 fi
 if [ -s "$TMP/have.triggersoff" ]; then
   bad "these triggers would NOT fire on an ordinary session: $(tr '\n' ' ' < "$TMP/have.triggersoff")
@@ -907,7 +936,7 @@ if [ "$fails" -eq 0 ]; then
   # catalog, including whether they would fire. None of them executes a TRUNCATE or
   # fires a trigger, so "the guards are present and would fire" is the claim, not
   # "TRUNCATE was tried and refused" -- that one is internal/db/appendonly_truncate_test.go's.
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the twelve append-only tables, every trigger the dump declares with its definition and enabled, where the database carries the punch feed, a counter for every tenant moved past its last restored event, and, where it carries the plan history, every tenant's plan in force agreeing with its current plan."
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, every function's owner/SECURITY DEFINER/search_path/EXECUTE and the attributes of every role behind them, the UPDATE/DELETE privilege belt, a narrow default for new tables and no tappa_app write on tags' key columns or the append-only tables whatever the dump says, an enabled TRUNCATE guard on each of the twelve append-only tables, every trigger the dump declares with its definition and enabled, the two guard functions' bodies ones this product shipped, where the database carries the punch feed, a counter for every tenant moved past its last restored event, and, where it carries the plan history, every tenant's plan in force agreeing with its current plan."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

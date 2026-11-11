@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/handler"
@@ -347,6 +348,21 @@ func signozRuleExpectations() map[int]ruleExpect {
 			// would drop a path the rule exists to page on.
 			eqs:        []strEq{{msg, checkin.EventPolicyFallback}},
 			fields:     []string{msg},
+			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 0, matchType: "1", severity: "warning",
+		},
+		9: {
+			// Rule 9 (T235) is one OR of the panel recovery flow's ERRORs that nobody was told
+			// of: a lost withdrawal whose fate leaves the link live (RecoveryRetrying is left
+			// out, the list may still withdraw it), the drain's count of withdrawals still
+			// owed, the stalled mint, and a lost audit row (every caller of that msg pages).
+			eqs: []strEq{
+				{handler.LogRecovery, handler.RecoveryListFull},
+				{handler.LogRecovery, handler.RecoveryClosing},
+				{handler.LogRecovery, handler.RecoveryNotRetried},
+				{msg, handler.EventMintStalled},
+				{msg, audit.EventWriteFailed},
+			},
+			fields:     []string{msg, handler.LogRecovery, handler.LogOwedWithdrawals},
 			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 0, matchType: "1", severity: "warning",
 		},
 	}

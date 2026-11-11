@@ -7,6 +7,8 @@
 #   scripts/verify-deployment.sh operator-host    <on|off> [host]  default host: ops.taptime.mt
 #   scripts/verify-deployment.sh db-role          [namespace]   default: tappa
 #   scripts/verify-deployment.sh api-host         [host]        default: api.taptime.mt (M11 API-13a)
+#   scripts/verify-deployment.sh redirect-hosts   [base host] [redirect host...]
+#                                                 default: taptime.mt tappa.everva.com.tr www.taptime.mt (T261)
 #   scripts/verify-deployment.sh all              [host] [ns] [operator host] [api host]
 #   scripts/verify-deployment.sh kubeconfig-server [host] [port] default: 10.43.0.1 443 (T134)
 #   scripts/verify-deployment.sh tailnet          [host] [port]  default: 10.43.0.1 443 (T134)
@@ -34,7 +36,10 @@
 # mode is run once per host by the deploy; `all` runs every gate, the cloudflare one on
 # both hosts. api-host is the integration API's post-rollout probe (M11 API-13a); the
 # deploy runs it on its own step, and since OPS-1 `all` runs it too (an operator checking
-# the deployment by hand used to see no line about the API host at all).
+# the deployment by hand used to see no line about the API host at all). redirect-hosts is the
+# two legacy hosts' post-rollout probe (T261): each must answer with the application's 301 to the
+# base URL, path and query kept, and not through Cloudflare; the deploy runs it on its own step and
+# `all` runs it too.
 #
 # pull-secret is OPS-2's PREFLIGHT of the registry credential both pod specs name
 # (secret/harbor-pull, the operator's): it exists, is a dockerconfigjson and holds a
@@ -79,7 +84,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|db-role|all|kubeconfig-server|tailnet|pull-secret> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|operator-surface|operator-host|api-host|redirect-hosts|db-role|all|kubeconfig-server|tailnet|pull-secret> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -527,6 +532,117 @@ check_api_host() {
   echo "api-host: ${host} serves /v1 (guide 200 text/markdown) and 404 at its root"
 }
 
+# check_redirect_hosts -- backlog T261. Since T71 the two legacy hosts (tappa.everva.com.tr,
+# www.taptime.mt; 43-redirect-ingress.yaml) reach the APPLICATION, which answers every request on
+# them with a permanent redirect to TAPPA_BASE_URL that keeps the path and the query
+# (internal/httpx/redirecthost.go). This asks each host, from outside and after the rollout, for
+# `GET /activate?x=1` and passes exactly one answer: 301 with `location: https://<base>/activate?x=1`
+# and no cf-ray. Measured 2026-11-11 (read-only curl): www.taptime.mt -> 301,
+# location https://taptime.mt/activate?x=1, no cf-ray. tappa.everva.com.tr first gave the same 301
+# and Location WITH cf-ray -- the zone's proxied wildcard answered for it (backlog T275); after the
+# DNS-only A record to the origin was created the same day, both hosts pass (this mode, exit 0).
+#
+# What it sees that no test can: the live object still carrying the ingress-level
+# permanent-redirect (a 301 to https://<base> with the path dropped -- 43's apply removes that
+# annotation only through kubectl apply's three-way merge, which assumes the object was created by
+# kubectl apply from 40; read, not measured), a pod that does not redirect the host (a 2xx: the
+# customer product on a second origin, 40's "EXACTLY ONE HOST SERVES THE APP"), and a host served
+# through Cloudflare (43's header: tappa.everva.com.tr MUST STAY DNS-ONLY, or cert-manager's HTTP-01
+# challenge meets Cloudflare first; §5 is not at stake -- the redirect reads no client address).
+#
+#   pass       301 + the exact Location + no cf-ray.
+#   VIOLATION  a 2xx, or cf-ray present -- at once, on any try (the 2xx is judged first, so a page
+#              served through Cloudflare is reported as a page); a 404 or a 3xx with another
+#              Location once the tries have run out (the path dropped among them); any other
+#              answer -- a 5xx, no status line -- at once, it is not retried. Exit 1.
+#   UNCHECKED  curl failed -- INCLUDING a name that does not resolve (exit 6): unlike the API and
+#              operator hosts these names have existed since before T71, so no first-deploy state
+#              excuses it, and an unanswered probe passes nothing. Exit 2.
+# A 404 (the controller has not configured a just-applied Ingress yet; it does that
+# asynchronously) and a 3xx with another Location (the previous configuration still loaded) are
+# retried, 18 tries 5 s apart (about 90 s, as api-host and operator-host). The request is a GET
+# (T261's wording; the application answers HEAD the same), -k for the cloudflare gate's reason: the
+# certificate is not this gate's question. Every host is asked, whatever an earlier one answered.
+# Exit code over the hosts: 1 if any VIOLATION, else 2 if any UNCHECKED, else 0.
+RH_OUTCOME=unchecked
+check_redirect_hosts() {
+  local base=${1:-taptime.mt} hosts host want headers status location rc try word cf note violation=0 unchecked=0
+  if (( $# > 1 )); then
+    shift
+    hosts=("$@")
+  else
+    hosts=(tappa.everva.com.tr www.taptime.mt)
+  fi
+  want="https://${base}/activate?x=1"
+  for host in "${hosts[@]}"; do
+    try=0
+    word=
+    while [[ -z $word ]]; do
+      try=$((try + 1))
+      rc=0
+      headers=$(curl -sS -k -o /dev/null -D - --connect-timeout 10 --max-time 20 "https://${host}/activate?x=1" 2>&1) || rc=$?
+      if (( rc != 0 )); then
+        word=unchecked
+        echo "::error::redirect-hosts: https://${host} could not be asked (curl exit ${rc}; 6 is a name that does not resolve). This legacy host has existed since before T71, so nothing excuses an unanswered probe: NOT checked. Output: ${headers}" >&2
+        break
+      fi
+      # The LAST status line and Location, as operator-host reads them (awk: an absent header must
+      # not trip `set -e`).
+      status=$(awk '$1 ~ /^HTTP\// {s = $2} END {print s}' <<<"$headers" | tr -d '\r')
+      location=$(awk 'tolower($1) == "location:" {v = $2} END {print v}' <<<"$headers" | tr -d '\r')
+      cf=
+      if grep -qi '^cf-ray:' <<<"$headers"; then cf=1; fi
+      # The 2xx first, and cf-ray only after it: a page served on a redirect host is the graver
+      # finding, and a proxy in front of it must not hide it behind a DNS remark (security audit,
+      # T261 round 2).
+      case $status in
+        2[0-9][0-9])
+          word=violation
+          echo "::error::https://${host}/activate?x=1 answered ${status}: a redirect host SERVES A PAGE instead of redirecting -- a pod without the T71 redirect, or a configuration whose redirect list lacks this host. That is a second origin of the customer product (40-ingress.yaml, EXACTLY ONE HOST SERVES THE APP).${cf:+ It also came through Cloudflare (cf-ray present).}" >&2
+          break
+          ;;
+      esac
+      if [[ -n $cf ]]; then
+        word=violation
+        # Only the right redirect earns the remark that the proxy costs nothing but the
+        # certificate; any other answer is named as it is.
+        if [[ $status == 301 && $location == "$want" ]]; then
+          note="The redirect itself is right and reads no client address, but"
+        else
+          note="That is not the redirect either (want 301 to ${want}), and"
+        fi
+        echo "::error::https://${host}/activate?x=1 answered '${status:-no status line}'${location:+ with Location ${location}} THROUGH CLOUDFLARE (cf-ray present). ${note} cert-manager's HTTP-01 challenge for this host now meets Cloudflare first (43-redirect-ingress.yaml: tappa.everva.com.tr MUST STAY DNS-ONLY). Give it a DNS-only (grey cloud) A record to the origin -- everva.com.tr's wildcard is proxied." >&2
+        break
+      fi
+      if [[ $status == 301 && $location == "$want" ]]; then
+        word=pass
+        echo "redirect-hosts: ${host} answers /activate?x=1 with 301 to ${want} (try ${try})"
+        break
+      fi
+      if [[ $status == 404 || $status == 3[0-9][0-9] ]] && (( try < 18 )); then
+        sleep 5
+        continue
+      fi
+      word=violation
+      echo "::error::https://${host}/activate?x=1 answered '${status:-no status line}'${location:+ with Location ${location}} after ${try} try(s), want 301 to ${want}: the legacy deep link does not land on its page (a Location without the path is the ingress-level permanent-redirect still on tappa-redirects; deploy/README.md, \"T71\")." >&2
+    done
+    case $word in
+      violation) violation=1 ;;
+      pass) ;;
+      *) unchecked=1 ;;
+    esac
+  done
+  if (( violation )); then
+    RH_OUTCOME=violation
+    return 1
+  fi
+  if (( unchecked )); then
+    RH_OUTCOME=unchecked
+    return 2
+  fi
+  RH_OUTCOME=pass
+}
+
 # printable_address echoes its argument when it is shaped like a URL of an address and
 # nothing more (letters, digits, and . : / [ ] -), and a placeholder otherwise: a server
 # field could carry userinfo (a user name and password before an @), and this repository's Actions
@@ -782,6 +898,7 @@ case $mode in
   operator-surface) check_operator_surface "${2:-}" ;;
   operator-host)    check_operator_host    "${2:-}" "${3:-}" ;;
   api-host)         check_api_host         "${2:-}" ;;
+  redirect-hosts)   shift; check_redirect_hosts "$@" ;;
   db-role)          check_db_role          "${2:-}" ;;
   # 🔴 EVERY GATE RUNS, ALWAYS, AND THE RESULTS ARE COLLECTED. The previous spelling
   # was `check_cloudflare ...; check_db_role ...` under `set -e`, which meant a
@@ -796,7 +913,8 @@ case $mode in
   # operator gates on the operator host, and db-role. Since OPS-1 it is seven: also
   # kubeconfig-server (first, offline -- the kubeconfig the later reads use) and api-host
   # on the API host, $5. Since OPS-2 it is eight: also pull-secret, in namespace $3 (the
-  # Secret every new server pod pulls with). tailnet is left out; the header says why.
+  # Secret every new server pod pulls with). Since T261 it is nine: also redirect-hosts, the two
+  # legacy hosts redirected to $2. tailnet is left out; the header says why.
   # TestVerifyDeployment_AllRunsEveryGate.
   #
   # Exit code: 1 if any gate found a VIOLATION, else 2 if any gate could not CHECK,
@@ -815,6 +933,7 @@ case $mode in
     check_operator_host "${osword:-}" "$ophost" || true
     check_db_role "${3:-}" || db=$?
     check_api_host "$apihost" || true
+    check_redirect_hosts "$cfhost" || true
     check_pull_secret "${3:-}" || ps=$?
     # 🔴 cloudflare's WORD comes from CF_OUTCOME, not from its exit code, and that is
     # the fix for a measured defect: with the name unresolvable this gate prints
@@ -823,7 +942,7 @@ case $mode in
     # not happen. The mirror case: a curl timeout (rc=28) returned 1 and was labelled
     # `VIOLATION`, which it is not; it is another UNCHECKED. operator-host has the same
     # two shapes and its own OH_OUTCOME; api-host's unresolvable name is the first shape
-    # again, hence API_OUTCOME. db-role, operator-surface, kubeconfig-server and pull-secret report three
+    # again, hence API_OUTCOME; redirect-hosts reports through RH_OUTCOME the same way. db-role, operator-surface, kubeconfig-server and pull-secret report three
     # states through their exit codes (0 pass / 1 violation / 2 could not run).
     # Named helpers, because an inline `case` inside "$( )" inside a double-quoted
     # string does not survive the surrounding `case` -- measured: the summary line
@@ -832,12 +951,12 @@ case $mode in
     _outcome() { case ${1:-} in pass) echo pass ;; violation) echo VIOLATION ;; *) echo UNCHECKED ;; esac; }
     words="kubeconfig-server=$(_verdict "$kc") cloudflare[$cfhost]=$(_outcome "$cfw") cloudflare[$ophost]=$(_outcome "$ocfw")"
     words="$words operator-surface=$(_verdict "$os") operator-host=$(_outcome "$OH_OUTCOME") db-role=$(_verdict "$db")"
-    words="$words api-host[$apihost]=$(_outcome "$API_OUTCOME") pull-secret=$(_verdict "$ps")"
+    words="$words api-host[$apihost]=$(_outcome "$API_OUTCOME") redirect-hosts=$(_outcome "$RH_OUTCOME") pull-secret=$(_verdict "$ps")"
     echo "all: $words"
     # The exit code is read from the words above, so the two cannot disagree: a
     # violation outranks an unreadable gate.
     if [[ $words == *=VIOLATION* ]]; then exit 1; fi
     if [[ $words == *=UNCHECKED* ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, db-role, all, kubeconfig-server, tailnet or pull-secret)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, operator-surface, operator-host, api-host, redirect-hosts, db-role, all, kubeconfig-server, tailnet or pull-secret)" >&2; exit 2 ;;
 esac
