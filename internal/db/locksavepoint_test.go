@@ -347,12 +347,37 @@ func lockSnapshotCase(t *testing.T, hold time.Duration) {
 	if hasSnapshot() {
 		t.Fatal("PREMISE: opTx's transaction has a snapshot before lockForDowns")
 	}
+	// The holder's release runs on a goroutine of its own and is waited for HERE, before the test can
+	// end: lockHoldAccessShare's release is not safe beside its connection's cleanup (-race, CI
+	// 42939616527, measured), and t.Fatalf belongs to the test's goroutine.
+	released := make(chan error, 1)
 	if hold > 0 {
-		release := lockHoldAccessShare(t, bfGuardCaseTable)
-		timer := time.AfterFunc(hold, release)
-		t.Cleanup(func() { timer.Stop() })
+		holder, err := pgx.Connect(ctx, opOwnerDSN(t))
+		if err != nil {
+			t.Fatalf("connect the lock holder: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := holder.Close(context.Background()); err != nil {
+				t.Logf("close the lock holder: %v", err)
+			}
+		})
+		for _, q := range []string{`BEGIN`, `LOCK TABLE public.` + bfGuardCaseTable + ` IN ACCESS SHARE MODE`} {
+			if _, err := holder.Exec(ctx, q); err != nil {
+				t.Fatalf("lock holder: %s: %v", q, err)
+			}
+		}
+		go func() {
+			time.Sleep(hold)
+			_, err := holder.Exec(context.Background(), `ROLLBACK`)
+			released <- err
+		}()
+	} else {
+		released <- nil
 	}
 	lockForDowns(t, ctx, tx, []string{"zz_no_such_table", bfGuardCaseTable})
+	if err := <-released; err != nil {
+		t.Fatalf("release the lock holder: %v", err)
+	}
 	if hasSnapshot() {
 		t.Error("lockForDowns left the transaction with a snapshot: rows committed while it waited are invisible to the caller")
 	}
