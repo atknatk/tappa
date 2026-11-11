@@ -32,6 +32,7 @@ package db
 // reads plaques that already exist and writes none.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -53,6 +54,7 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -538,11 +540,13 @@ var opPlaqueStates = map[string]PlaqueShape{
 }
 
 // opPlaqueTenant writes the fixture. The states are reached the way the product reaches
-// them where that is possible -- loaded unassigned, stamped (an UPDATE: a row is born
-// unstamped, 00022), mounted (00025 lets only a stamped plaque go active) -- and by the
-// INSERT path where it is not (an 'active' row born unstamped is the A-1 shape, backlog
-// T76: the INSERT path still allows it; a retired, a lost plaque). Half carry a key-0
-// envelope (app_key_ref), half do not: nothing the read returns may tell them apart.
+// them (fixtures.LoadPlaque: loaded unassigned -- 00100 lets a row be born in stock only --,
+// stamped by MarkTagEncoded, mounted by AssignTagToLocation, its counter moved by
+// AdvanceTagCounter, then lost or retired by an UPDATE), and incident A-1's row ('active' on a
+// wall, never stamped, backlog T76) the one way left to reach it: written with triggers off, as
+// a row born before 00100 (fixtures.LoadLegacyUnstampedActive -- this is the owner's transaction).
+// Half carry a key-0 envelope (app_key_ref), half do not: nothing the read returns may tell them
+// apart.
 func opPlaqueTenant(t *testing.T, ctx context.Context, tx pgx.Tx, name string, ahead time.Duration) opPlaqueFixture {
 	t.Helper()
 	f := opPlaqueFixture{id: opNewTenant(t, ctx, tx, name, ahead), name: name, uid: map[string]string{}, want: opPlaqueStates}
@@ -557,29 +561,31 @@ func opPlaqueTenant(t *testing.T, ctx context.Context, tx pgx.Tx, name string, a
 		exec(`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, $3)`, id, f.id, "op13 door "+strconv.Itoa(i)+" of "+name)
 		f.doors = append(f.doors, id)
 	}
-	load := func(key, status string, door *uuid.UUID, ctr int, keyZero bool, replacedBy any) {
+	load := func(key string, p fixtures.Plaque, keyZero bool) {
 		t.Helper()
-		uid := opUID(t)
-		exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status, last_ctr, retired_at, replaced_by)
-		      VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'),
-		              CASE WHEN $4 THEN decode(repeat('beef', 22), 'hex') END, $5, $6,
-		              CASE WHEN $5 = 'retired' THEN clock_timestamp() END, $7)`,
-			uid, f.id, door, keyZero, status, ctr, replacedBy)
-		f.uid[key] = uid
+		p.UID, p.TenantID = opUID(t), f.id
+		if keyZero {
+			p.AppKey = bytes.Repeat([]byte{0xBE, 0xEF}, 22)
+		}
+		load := fixtures.LoadPlaque
+		if p.Status == fixtures.PlaqueActive && p.Unstamped {
+			load = func(ctx context.Context, _ store.DBTX, p fixtures.Plaque) error {
+				return fixtures.LoadLegacyUnstampedActive(ctx, tx, p)
+			}
+		}
+		if err := load(ctx, tx, p); err != nil {
+			t.Fatalf("plaque fixture %s: %s: %v", name, key, err)
+		}
+		f.uid[key] = p.UID
 	}
-	stamp := func(key string) { exec(`UPDATE tags SET encoded_at = clock_timestamp() WHERE uid = $1`, f.uid[key]) }
-	load("wall", "unassigned", nil, 11, true, nil)
-	stamp("wall")
-	exec(`UPDATE tags SET status = 'active', location_id = $2 WHERE uid = $1`, f.uid["wall"], f.doors[0])
-	load("wall-a1", "active", &f.doors[1], 7, false, nil)
-	load("stock", "unassigned", nil, 0, true, nil)
-	stamp("stock")
-	load("stock-bare", "unassigned", nil, 0, false, nil)
-	load("retired", "retired", &f.doors[0], 3, true, f.uid["wall"])
-	load("lost-wall", "lost", &f.doors[1], 5, false, nil)
-	load("lost-stock", "lost", nil, 0, true, nil)
-	load("lost-wall-stamped", "lost", &f.doors[0], 9, true, nil)
-	stamp("lost-wall-stamped")
+	load("wall", fixtures.Plaque{Wall: f.doors[0], LastCtr: 11}, true)
+	load("wall-a1", fixtures.Plaque{Wall: f.doors[1], Status: fixtures.PlaqueActive, LastCtr: 7, Unstamped: true}, false)
+	load("stock", fixtures.Plaque{}, true)
+	load("stock-bare", fixtures.Plaque{Unstamped: true}, false)
+	load("retired", fixtures.Plaque{Wall: f.doors[0], Status: fixtures.PlaqueRetired, LastCtr: 3, Unstamped: true, ReplacedBy: f.uid["wall"]}, true)
+	load("lost-wall", fixtures.Plaque{Wall: f.doors[1], Status: fixtures.PlaqueLost, LastCtr: 5, Unstamped: true}, false)
+	load("lost-stock", fixtures.Plaque{Status: fixtures.PlaqueLost, Unstamped: true}, true)
+	load("lost-wall-stamped", fixtures.Plaque{Wall: f.doors[0], Status: fixtures.PlaqueLost, LastCtr: 9}, true)
 	return f
 }
 
@@ -1853,14 +1859,24 @@ func TestOpReadTenantPlaques_TheFirst200AndTheWholeCount(t *testing.T) {
 			}
 		}
 		prefix := strings.ToUpper(opUID(t)[:6])
-		if _, err := tx.Exec(ctx, `
+		// The product's three steps in bulk (00100: a row is born in stock): load every plaque,
+		// stamp every one, mount two in three on the two doors.
+		for _, step := range []string{`
 			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			SELECT $2 || lpad(upper(to_hex(g)), 8, '0'), $1,
-			       CASE WHEN g % 3 = 0 THEN NULL WHEN g % 2 = 0 THEN $3::uuid ELSE $4::uuid END,
-			       decode(repeat('dead', 22), 'hex'),
-			       CASE WHEN g % 3 = 0 THEN 'unassigned' ELSE 'active' END
-			  FROM generate_series(1, $5::int) AS g`, tenant, prefix, doors[0], doors[1], n); err != nil {
-			t.Fatalf("%d plaques: %v", n, err)
+			SELECT $2 || lpad(upper(to_hex(g)), 8, '0'), $1, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned'
+			  FROM generate_series(1, $5::int) AS g
+			 WHERE $3::uuid IS NOT NULL AND $4::uuid IS NOT NULL`, `
+			UPDATE tags t SET encoded_at = now()
+			  FROM generate_series(1, $5::int) AS g
+			 WHERE t.tenant_id = $1 AND t.uid = $2 || lpad(upper(to_hex(g)), 8, '0')
+			   AND $3::uuid IS NOT NULL AND $4::uuid IS NOT NULL`, `
+			UPDATE tags t SET location_id = CASE WHEN g % 2 = 0 THEN $3::uuid ELSE $4::uuid END, status = 'active'
+			  FROM generate_series(1, $5::int) AS g
+			 WHERE t.tenant_id = $1 AND t.uid = $2 || lpad(upper(to_hex(g)), 8, '0') AND g % 3 <> 0`,
+		} {
+			if _, err := tx.Exec(ctx, step, tenant, prefix, doors[0], doors[1], n); err != nil {
+				t.Fatalf("%d plaques: %v", n, err)
+			}
 		}
 		owner := opOwnerPlaques(t, ctx, tx, tenant)
 		if len(owner) != n {
@@ -2225,7 +2241,7 @@ func TestOpReadTenantPlaques_TwoPhaseLifecycle(t *testing.T) {
 		}
 		defer func() { _ = rtx.Rollback(context.Background()) }()
 		if !commit {
-			door := uuid.New()
+			door, mounted := uuid.New(), opUID(t)
 			for _, s := range []struct {
 				sql  string
 				args []any
@@ -2233,7 +2249,10 @@ func TestOpReadTenantPlaques_TwoPhaseLifecycle(t *testing.T) {
 				{`INSERT INTO tenants (id, name, vat_number, business_type, structure, created_at)
 				  VALUES ($1, $2, $3, 'hotel', 'single', clock_timestamp() + interval '1 day')`, []any{tenant, name, "VAT-OP13-" + tenant.String()}},
 				{`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'op13 lifecycle door')`, []any{door, tenant}},
-				{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, []any{opUID(t), tenant, door}},
+				// load -> stamp -> mount (00100: born in stock).
+				{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`, []any{mounted, tenant}},
+				{`UPDATE tags SET encoded_at = now() WHERE uid = $1 AND tenant_id = $2`, []any{mounted, tenant}},
+				{`UPDATE tags SET location_id = $3, status = 'active' WHERE uid = $1 AND tenant_id = $2`, []any{mounted, tenant, door}},
 				{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`, []any{opUID(t), tenant}},
 			} {
 				if _, err := rtx.Exec(ctx, s.sql, s.args...); err != nil {

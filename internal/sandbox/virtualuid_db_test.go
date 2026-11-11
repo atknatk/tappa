@@ -84,8 +84,11 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	exec(`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Real wall')`, venue, tenantID)
 	exec(`INSERT INTO employees (id, tenant_id, full_name, location_id, status, invited_at) VALUES ($1, $2, 'NXP Staff', $3, 'active', now())`, employee, tenantID, venue)
 	nxp := "04" + strings.ToUpper(hex.EncodeToString(random(t, 6)))
-	exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 5, 'active')`,
-		nxp, tenantID, venue, random(t, sun.WrappedKeyLen))
+	// The owner loads it the product's way (fixtures.LoadPlaque: born in stock, 00100) and as SQL,
+	// not through the door this test is about -- AdmitTagUID is a Go check, not a database one.
+	if err := fixtures.LoadPlaque(ctx, owner, fixtures.Plaque{UID: nxp, TenantID: tenantID, Wall: venue, Key: random(t, sun.WrappedKeyLen), LastCtr: 5}); err != nil {
+		t.Fatal(err)
+	}
 
 	// resolve
 	if tag, err := devPool.GetTagByUID(ctx, nxp); err != nil || tag.TenantID != tenantID {
@@ -200,7 +203,11 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		if d.IsDir() {
-			if strings.HasPrefix(rel, ".") && rel != "." || rel == "internal/store" || rel == "android" || rel == "web/static" {
+			// test/ is test infrastructure: test/fixtures' LoadPlaque (T76) loads plaques through
+			// store.InsertUnassigned for the tests of every package, into the test database -- no
+			// deployment's door. No binary under cmd/ imports anything under test/ (measured
+			// 2026-11-11: go list -deps over every cmd/ package).
+			if strings.HasPrefix(rel, ".") && rel != "." || rel == "internal/store" || rel == "android" || rel == "web/static" || rel == "test" {
 				return filepath.SkipDir
 			}
 			return nil

@@ -15,6 +15,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -491,11 +492,11 @@ func newVerifyTag(t *testing.T, d *db.DB, kek, tagKey []byte, startCtr int32, st
 			locationID, tenantID); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			uid, tenantID, locationID, ref, startCtr, status)
-		return e
+		// Born in stock, then stamped / mounted / counted / lost or retired the product's way
+		// (fixtures.LoadPlaque; 00100, T76).
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{
+			UID: uid, TenantID: tenantID, Wall: locationID, Key: ref, LastCtr: startCtr, Status: status,
+		})
 	})
 	if err != nil {
 		t.Fatalf("newVerifyTag: %v", err)

@@ -104,8 +104,7 @@ func TestAPIWiring_ThePunchFeedRunsThroughTheShippedSurface(t *testing.T) {
 	if err := owner.QueryRow(ctx, `INSERT INTO locations (tenant_id, name, external_ref) VALUES ($1, 'Wiring Venue', 'W7-LOC') RETURNING id`, biz).Scan(&venue); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000, 'active')`,
-		uid, biz, venue, keyRef); err != nil {
+	if err := fixtures.LoadPlaque(ctx, owner, fixtures.Plaque{UID: uid, TenantID: biz, Wall: venue, Key: keyRef, LastCtr: 1000}); err != nil {
 		t.Fatal(err)
 	}
 	var punch uuid.UUID

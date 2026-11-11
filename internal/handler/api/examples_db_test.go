@@ -157,8 +157,7 @@ func runExampleStory(t *testing.T) exampleStory {
 	// Plaques at the two locations (mounted in the panel: no API writes a plaque).
 	for _, b := range []*punchBiz{&kf, &km} {
 		b.tag = strings.ToUpper(hex.EncodeToString(randomBytes(t, 7)))
-		w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000000, 'active')`,
-			b.tag, b.id, b.venue, randomBytes(t, 44))
+		w.plaque(b.tag, b.id, b.venue, randomBytes(t, 44), 1000000)
 	}
 
 	// Employees (section 5).

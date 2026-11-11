@@ -280,11 +280,8 @@ func (h *tapHarness) newTag(t *testing.T, kek []byte, tenantID, locationID uuid.
 				return e
 			}
 		}
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, $4, $5, 'active')`,
-			uid, tenantID, locationID, ref, startCtr)
-		return e
+		// Born in stock, stamped, mounted, counter moved (00100, T76).
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: uid, TenantID: tenantID, Wall: locationID, Key: ref, LastCtr: startCtr})
 	})
 	if err != nil {
 		t.Fatalf("fixture: %v", err)

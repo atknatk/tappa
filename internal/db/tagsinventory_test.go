@@ -61,6 +61,7 @@ import (
 	"testing"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -103,23 +104,46 @@ func newTagTenant(t *testing.T, d *DB) tagFixture {
 	return fx
 }
 
-// addPlaque inserts one plaque in fx's context. location may be uuid.Nil to mean
-// "unassigned stock" (location_id NULL), in which case status must be
-// 'unassigned' -- the CHECK pair added by 00013.
+// addPlaque loads one plaque in fx's context the product's way (fixtures.LoadPlaque: born in
+// stock, 00100). location may be uuid.Nil to mean "unassigned stock" (location_id NULL), in which
+// case status must be 'unassigned' or 'lost' -- the CHECK pair added by 00013.
+//
+// An 'active' plaque is stamped and mounted (AssignTagToLocation): since 00100 that is the only way
+// a row reaches 'active'. Every other status is left UNSTAMPED, as it was before 00100 -- the 00025
+// tests below lean on an unstamped stock, lost or retired row. Incident A-1's row (active, never
+// stamped) is addLegacyA1Plaque's.
 func addPlaque(t *testing.T, d *DB, fx tagFixture, uid string, location uuid.UUID, status string, ctr int32) {
 	t.Helper()
-	var loc any
-	if location != uuid.Nil {
-		loc = location
-	}
 	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, $5)`,
-			uid, fx.tenantID, loc, ctr, status)
-		return e
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{
+			UID: uid, TenantID: fx.tenantID, Wall: location, Status: status, LastCtr: ctr,
+			Unstamped: status != fixtures.PlaqueActive,
+		})
 	}); err != nil {
 		t.Fatalf("addPlaque(%s, %s): %v", uid, status, err)
+	}
+}
+
+// addLegacyA1Plaque commits incident A-1's row in fx's tenant: active on fx's wall, counter ctr,
+// encode never recorded. Production holds such rows from before 00100; no statement reaches the
+// shape any more, so the owner writes it with triggers off for its one INSERT
+// (fixtures.LoadLegacyUnstampedActive).
+func addLegacyA1Plaque(t *testing.T, fx tagFixture, uid string, ctr int32) {
+	t.Helper()
+	owner := ownerDB(t)
+	ctx := context.Background()
+	tx, err := owner.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("addLegacyA1Plaque: begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := fixtures.LoadLegacyUnstampedActive(ctx, tx, fixtures.Plaque{
+		UID: uid, TenantID: fx.tenantID, Wall: fx.locationID, LastCtr: ctr, Unstamped: true,
+	}); err != nil {
+		t.Fatalf("addLegacyA1Plaque(%s): %v", uid, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("addLegacyA1Plaque: commit: %v", err)
 	}
 }
 
@@ -217,12 +241,12 @@ func TestTags00013_UIDHasOneCanonicalSpelling(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			uid := tc.uid
-			// status is named: since 00090 (T76) an omitted one is 'unassigned', which a row with a
-			// location may not be -- the uid is the variable here, not the status.
+			// The row is born in stock (00100, T76) -- the uid is the variable here, not the shape, and
+			// a CHECK is evaluated after every BEFORE trigger, so only a stock row reaches it.
 			_, err := execAs(t, app, fx.tenantID,
 				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`,
-				uid, fx.tenantID, fx.locationID)
+				 VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`,
+				uid, fx.tenantID)
 			if tc.ok {
 				if err != nil {
 					t.Fatalf("canonical uid %q was REFUSED: %v", uid, err)
@@ -475,13 +499,19 @@ func TestTags00013_StockPlaqueHasNoWallAndActivePlaqueMustHaveOne(t *testing.T) 
 			if tc.withLoc {
 				loc = fx.locationID
 			}
-			_, err := execAs(t, app, fx.tenantID,
-				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4)`,
-				randUID(t), fx.tenantID, loc, tc.status)
+			// Since 00100 (T76) every shape but stock is refused at INSERT before a CHECK is read
+			// (tagbirth_test.go), so the pair is measured where a plaque reaches these states: an
+			// UPDATE of a STAMPED stock plaque -- stamped, so 00025's gate stays out of the way and
+			// the refusal, if any, is the CHECK's.
+			uid := randUID(t)
+			addPlaque(t, app, fx, uid, uuid.Nil, "unassigned", 0)
+			stampPlaque(t, app, fx, uid)
+			n, err := execAs(t, app, fx.tenantID,
+				`UPDATE tags SET location_id = $3, status = $4 WHERE uid = $1 AND tenant_id = $2`,
+				uid, fx.tenantID, loc, tc.status)
 			if tc.ok {
-				if err != nil {
-					t.Fatalf("%s was REFUSED: %v", tc.name, err)
+				if err != nil || n != 1 {
+					t.Fatalf("%s was REFUSED: rows=%d err=%v", tc.name, n, err)
 				}
 				return
 			}
@@ -559,11 +589,13 @@ func TestTags00013_ConstraintsNoOtherTestNames(t *testing.T) {
 	}
 
 	// Control: a LOST plaque may still have no location -- it can be lost while
-	// still in stock, which is why the constraint names 'retired' alone.
+	// still in stock, which is why the constraint names 'retired' alone. (Lost by an
+	// UPDATE of a stock plaque: since 00100 no row is BORN lost.)
+	lostInStock := randUID(t)
+	addPlaque(t, app, fx, lostInStock, uuid.Nil, "unassigned", 0)
 	if _, e := execAs(t, app, fx.tenantID,
-		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-		 VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'lost')`,
-		randUID(t), fx.tenantID); e != nil {
+		`UPDATE tags SET status = 'lost' WHERE uid = $1 AND tenant_id = $2`,
+		lostInStock, fx.tenantID); e != nil {
 		t.Fatalf("lost-in-stock plaque was refused: %v -- the constraint is too wide", e)
 	}
 }

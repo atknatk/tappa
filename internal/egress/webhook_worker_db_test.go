@@ -336,8 +336,9 @@ func (w *world) biz(code string, noEndpoint bool) wbiz {
 		w.t.Fatal(err)
 	}
 	b.tag = strings.ToUpper(randHex(w.t, 7))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000000, 'active')`,
-		b.tag, b.id, b.venue, []byte(randHex(w.t, 22)))
+	if err := fixtures.LoadPlaque(w.ctx, w.owner(), fixtures.Plaque{UID: b.tag, TenantID: b.id, Wall: b.venue, Key: []byte(randHex(w.t, 22)), LastCtr: 1000000}); err != nil {
+		w.t.Fatal(err)
+	}
 	b.emp = uuid.New()
 	b.email = strings.ToLower(w.canary) + "." + strings.ToLower(code) + "@api10.example.test"
 	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, employee_code, full_name, email, status, invited_at)

@@ -112,8 +112,9 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w.plaque = strings.ToUpper(hex.EncodeToString(b))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 10000, 'active')`,
-		w.plaque, w.tenant, w.home, key)
+	if err := fixtures.LoadPlaque(w.ctx, w.owner, fixtures.Plaque{UID: w.plaque, TenantID: w.tenant, Wall: w.home, Key: key, LastCtr: 10000}); err != nil {
+		w.t.Fatal(err)
+	}
 	w.exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Owner', $3, $4, 'owner')`,
 		w.admin, w.tenant, "o-"+w.admin.String()[:12]+"@example.test", "$2a$12$"+strings.Repeat("h", 53))
 	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at, location_id) VALUES ($1, $2, $3, 'Claim Staff', 'active', now(), $4)`,
@@ -1183,8 +1184,9 @@ func newPeerWorld(t *testing.T) *peerWorld {
 		t.Fatal(err)
 	}
 	p.peerTag = strings.ToUpper(hex.EncodeToString(b))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 10000, 'active')`,
-		p.peerTag, p.peer, p.peerVenue, key)
+	if err := fixtures.LoadPlaque(w.ctx, w.owner, fixtures.Plaque{UID: p.peerTag, TenantID: p.peer, Wall: p.peerVenue, Key: key, LastCtr: 10000}); err != nil {
+		w.t.Fatal(err)
+	}
 	return p
 }
 

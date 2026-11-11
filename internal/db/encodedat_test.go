@@ -784,7 +784,7 @@ func TestTags00022_ReadyToMountCountsOnlyStampedStock(t *testing.T) {
 	onWall := randUID(t)
 	addPlaque(t, app, fx, onWall, fx.locationID, "active", 0)
 	stampPlaque(t, app, fx, onWall)
-	addPlaque(t, app, fx, randUID(t), fx.locationID, "active", 0)
+	addLegacyA1Plaque(t, fx, randUID(t), 0)
 
 	var got store.CountTenantPlaquesRow
 	if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {

@@ -50,6 +50,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -333,17 +334,20 @@ func opPopulate(t *testing.T, ctx context.Context, tx pgx.Tx, f *opFixtureTenant
 			f.id, loc, f.empEmail)
 		f.invitedEmp++
 	}
-	for i := 0; i < f.activeTags; i++ {
-		exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`,
-			opUID(t), f.id, loc)
-	}
-	for i := 0; i < f.retiredTags; i++ {
-		exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'retired')`,
-			opUID(t), f.id, loc)
-	}
-	for i := 0; i < f.spareTags; i++ {
-		exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`,
-			opUID(t), f.id)
+	// Plaques the product's way (fixtures.LoadPlaque; 00100: born in stock): mounted, retired
+	// off the same wall, spares in stock.
+	for status, n := range map[string]int{
+		fixtures.PlaqueActive: f.activeTags, fixtures.PlaqueRetired: f.retiredTags, fixtures.PlaqueUnassigned: f.spareTags,
+	} {
+		wall := loc
+		if status == fixtures.PlaqueUnassigned {
+			wall = uuid.Nil
+		}
+		for i := 0; i < n; i++ {
+			if err := fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: opUID(t), TenantID: f.id, Wall: wall, Status: status}); err != nil {
+				t.Fatalf("tenant fixture %s: %v", f.name, err)
+			}
+		}
 	}
 	for i := 0; i < f.activeAdmins; i++ {
 		email := fmt.Sprintf("op11-%s-%d@example.test", f.id.String()[:8], i)
