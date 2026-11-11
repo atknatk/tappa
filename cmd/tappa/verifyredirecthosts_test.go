@@ -31,15 +31,17 @@ func redirectGateTargets(t *testing.T) (hosts []string, base string) {
 
 // TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer: each host is asked for
 // GET /activate?x=1 and passes only with a 301 to <base>/activate?x=1 and no cf-ray (the measured
-// answer of www.taptime.mt, 2026-11-11). PART I, one host at a time: cf-ray and a 2xx are a VIOLATION
-// at once; a 404 or a 3xx with another Location is asked again, 18 times in all, and is a VIOLATION
+// answer of both hosts, 2026-11-11). PART I, one host at a time: a 2xx and cf-ray are a VIOLATION
+// at once, the 2xx judged first (a page through Cloudflare is reported as a page), and only the right
+// redirect through Cloudflare is called harmless but for the certificate; a 404 or a 3xx with another Location is asked again, 18 times in all, and is a VIOLATION
 // when it never turns (the path-dropping ingress redirect's https://taptime.mt among them), a pass
 // when it does; any other answer (a 503, no status line) is a VIOLATION at once; every curl failure
 // -- a name that does not resolve included -- is UNCHECKED, exit 2. PART II: both hosts are asked
 // whatever the first answered, and a VIOLATION outranks an UNCHECKED. PART III: with no arguments the
 // mode asks exactly 43's hosts and wants the ConfigMap's base host, pausing 5 s between tries.
 //
-// MUTANTS (measured): the cf-ray check removed -> red; the 2xx case removed -> red; the Location
+// MUTANTS (measured): the cf-ray check removed -> red; the cf-ray check moved back ahead of the 2xx
+// case -> red; the harmless remark printed for every cf-ray answer -> red; the 2xx case removed -> red; the Location
 // comparison dropped (any 301 passes) -> red; a host that does not resolve passed (exit 0) -> red;
 // `break` after the first host's violation -> red.
 func TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer(t *testing.T) {
@@ -55,6 +57,10 @@ func TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer(t *testing.T) {
 	notRouted := curlReply{"HTTP/2 404 \r\n\r\n", "0"}
 	rig := newScriptRig(t)
 	args := append([]string{"redirect-hosts", base}, hosts...)
+	viaCF := func(r curlReply) curlReply {
+		return curlReply{r.headers[:len(r.headers)-2] + "server: cloudflare\r\ncf-ray: a5894f566f11ed9c-MXP\r\n\r\n", r.rc}
+	}
+	const harmless = "reads no client address"
 
 	for _, tc := range []struct {
 		name      string
@@ -62,28 +68,34 @@ func TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer(t *testing.T) {
 		wantCode  int
 		wantCalls int
 		wantMark  string
+		mustNot   string // absent from stdout+stderr
 	}{
-		{"the application's redirect (measured)", []curlReply{good}, 0, 1, "301 to " + want + " (try 1)"},
-		{"the same over HTTP/1.1", []curlReply{{"HTTP/1.1 301 Moved Permanently\r\nLocation: " + want + "\r\n\r\n", "0"}}, 0, 1, "(try 1)"},
-		{"through Cloudflare", []curlReply{{good.headers[:len(good.headers)-2] + "server: cloudflare\r\ncf-ray: a5894f566f11ed9c-MXP\r\n\r\n", "0"}}, 1, 1, "THROUGH CLOUDFLARE"},
-		{"a page instead of a redirect", []curlReply{{"HTTP/2 200 \r\ncontent-type: text/html\r\n\r\n", "0"}}, 1, 1, "SERVES A PAGE"},
-		{"a 404, then the page", []curlReply{notRouted, {"HTTP/2 200 \r\n\r\n", "0"}}, 1, 2, "SERVES A PAGE"},
-		{"the path dropped on every try", []curlReply{pathDropped}, 1, 18, "after 18 try(s)"},
-		{"the path dropped, then kept", []curlReply{pathDropped, good}, 0, 2, "(try 2)"},
-		{"not routed on every try", []curlReply{notRouted}, 1, 18, "'404' after 18"},
-		{"not routed, then routed", []curlReply{notRouted, notRouted, good}, 0, 3, "(try 3)"},
-		{"a 308 to the right place is not a GET's answer", []curlReply{{"HTTP/2 308 \r\nlocation: " + want + "\r\n\r\n", "0"}}, 1, 18, "'308'"},
-		{"a 301 elsewhere", []curlReply{{"HTTP/2 301 \r\nlocation: https://evil.example/activate?x=1\r\n\r\n", "0"}}, 1, 18, "evil.example"},
-		{"a 503 is final", []curlReply{{"HTTP/2 503 \r\n\r\n", "0"}}, 1, 1, "'503' after 1"},
-		{"no status line", []curlReply{{"", "0"}}, 1, 1, "no status line"},
-		{"the name does not resolve", []curlReply{{"curl: (6) Could not resolve host", "6"}}, 2, 1, "curl exit 6"},
-		{"a timeout", []curlReply{{"curl: (28) Operation timed out", "28"}}, 2, 1, "NOT checked"},
+		{"the application's redirect (measured)", []curlReply{good}, 0, 1, "301 to " + want + " (try 1)", ""},
+		{"the same over HTTP/1.1", []curlReply{{"HTTP/1.1 301 Moved Permanently\r\nLocation: " + want + "\r\n\r\n", "0"}}, 0, 1, "(try 1)", ""},
+		{"the right redirect through Cloudflare", []curlReply{viaCF(good)}, 1, 1, "'301' with Location " + want + " THROUGH CLOUDFLARE (cf-ray present). The redirect itself is right and " + harmless, ""},
+		{"a page through Cloudflare is a page", []curlReply{viaCF(curlReply{"HTTP/2 200 \r\ncontent-type: text/html\r\n\r\n", "0"})}, 1, 1, "answered 200: a redirect host SERVES A PAGE", harmless},
+		{"the path dropped through Cloudflare", []curlReply{viaCF(pathDropped)}, 1, 1, "'301' with Location https://" + base + " THROUGH CLOUDFLARE", harmless},
+		{"a page instead of a redirect", []curlReply{{"HTTP/2 200 \r\ncontent-type: text/html\r\n\r\n", "0"}}, 1, 1, "SERVES A PAGE", ""},
+		{"a 404, then the page", []curlReply{notRouted, {"HTTP/2 200 \r\n\r\n", "0"}}, 1, 2, "SERVES A PAGE", ""},
+		{"the path dropped on every try", []curlReply{pathDropped}, 1, 18, "after 18 try(s)", ""},
+		{"the path dropped, then kept", []curlReply{pathDropped, good}, 0, 2, "(try 2)", ""},
+		{"not routed on every try", []curlReply{notRouted}, 1, 18, "'404' after 18", ""},
+		{"not routed, then routed", []curlReply{notRouted, notRouted, good}, 0, 3, "(try 3)", ""},
+		{"a 308 to the right place is not a GET's answer", []curlReply{{"HTTP/2 308 \r\nlocation: " + want + "\r\n\r\n", "0"}}, 1, 18, "'308'", ""},
+		{"a 301 elsewhere", []curlReply{{"HTTP/2 301 \r\nlocation: https://evil.example/activate?x=1\r\n\r\n", "0"}}, 1, 18, "evil.example", ""},
+		{"a 503 is final", []curlReply{{"HTTP/2 503 \r\n\r\n", "0"}}, 1, 1, "'503' after 1", ""},
+		{"no status line", []curlReply{{"", "0"}}, 1, 1, "no status line", ""},
+		{"the name does not resolve", []curlReply{{"curl: (6) Could not resolve host", "6"}}, 2, 1, "curl exit 6", ""},
+		{"a timeout", []curlReply{{"curl: (28) Operation timed out", "28"}}, 2, 1, "NOT checked", ""},
 	} {
 		rig.curlAnswers(ask(hosts[0]), tc.replies...)
 		rig.curlAnswers(ask(hosts[1]), good)
 		stdout, stderr, code := rig.run(args...)
 		if code != tc.wantCode || !strings.Contains(stdout+stderr, tc.wantMark) {
 			t.Errorf("%s: exit %d; want exit %d and %q in\n%s%s", tc.name, code, tc.wantCode, tc.wantMark, stdout, stderr)
+		}
+		if tc.mustNot != "" && strings.Contains(stdout+stderr, tc.mustNot) {
+			t.Errorf("%s: the output says %q, which only the right redirect earns:\n%s", tc.name, tc.mustNot, stderr)
 		}
 		calls := rig.curlCalls()
 		first := slices.DeleteFunc(slices.Clone(calls), func(c string) bool { return c != ask(hosts[0]) })

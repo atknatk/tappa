@@ -2927,11 +2927,13 @@ curl -sS -o /dev/null -D - 'https://www.taptime.mt//evil.example/x' | grep -i '^
 
 HSTS satırı (T257) eksikse tarayıcı eski host'a bir sonraki gidişinde düz HTTP deneyebilir; ölçüldü
 (2026-11-11, salt-okur `curl`): iki host da `strict-transport-security: max-age=31536000; includeSubDomains`
-gönderiyor. Aynı ölçümde `www.taptime.mt` doğru (`cf-ray` yok), ama **`tappa.everva.com.tr` `cf-ray`
-taşıyor** (`server: cloudflare`): adı Cloudflare adreslerine çözülüyor — `everva.com.tr` altında var
-olmayan bir adın çözüldüğü adreslerin aynısı, yani proxy'li joker kayıt; onu ezen DNS-only kayıt yok
-(1.1.1.1 ve 8.8.8.8 ile ölçüldü). Yönlendirme yine doğru (`301` + path korunuyor, origin'e
-`--resolve` ile gidince de aynı); açık kalan, 43'ün başlığındaki HTTP-01 riski — backlog T275.
+gönderiyor. Aynı gün ilk ölçümde `tappa.everva.com.tr` `cf-ray` taşıyordu: DNS-only kaydı yoktu ve
+`everva.com.tr`'nin proxy'li joker kaydı cevap veriyordu (backlog T275). Orkestratör (kullanıcı onayıyla)
+aynı gün `144.76.158.60`'a DNS-only A kaydı açtı (okundu, orkestratörün bildirimi); yeniden ölçüldü:
+1.1.1.1 ve 8.8.8.8 adı `144.76.158.60`'a çözüyor, `cf-ray` yok, tarayıcı origin'in Let's Encrypt
+sertifikasını görüyor (`CN=tappa.everva.com.tr`, bitiş 2027-01-12) ve `redirect-hosts` iki host'ta çıkış 0.
+Joker kayıt hâlâ proxy'li (var olmayan bir ad Cloudflare adreslerine çözülüyor, ölçüldü): bu kayıt
+silinirse ya da proxy'lenirse kapı yeniden kırmızı olur.
 
 Sertifikalar değişmez (`tappa-tls`, `taptime-www-tls`); HTTP-01 yenilemesi artık öteki host'larla
 aynı biçimdedir (çözücünün daha özgül `/.well-known/acme-challenge/<token>` yolu).
@@ -2944,9 +2946,9 @@ iki host'tan da `GET /activate?x=1` ister ve yalnız `301` + `location: https://
 `permanent-redirect` notu canlı nesnede kalmış: path'siz `https://taptime.mt`) ~90 sn yeniden sorulur,
 sonra kırmızı; curl hatası (çözülemeyen ad dahil) UNCHECKED, kırmızı. `all` da koşar. Pinler:
 `TestVerifyDeployment_TheRedirectHostsModeJudgesEveryAnswer`, `TestPackaging_TheDeployGatesTheRedirectHosts`.
-⚠️ **Bugün `tappa.everva.com.tr`'de kırmızıdır** (yukarıdaki ölçüm, T275): DNS-only kayıt açılana kadar
-bu adımı taşıyan her deploy, rollout'tan **sonra** bu adımda kırmızı biter; uygulanan hiçbir şey geri
-alınmaz, yalnız sonuç *"failure"* olur.
+Kapı rollout'tan **sonra** koşar: kırmızı olduğunda uygulanan hiçbir şey geri alınmaz, yalnız sonuç
+*"failure"* olur. 2xx, `cf-ray`'den önce yargılanır (Cloudflare arkasında sunulan bir sayfa sayfa olarak
+raporlanır).
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 

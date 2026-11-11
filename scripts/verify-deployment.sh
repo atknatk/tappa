@@ -538,10 +538,9 @@ check_api_host() {
 # (internal/httpx/redirecthost.go). This asks each host, from outside and after the rollout, for
 # `GET /activate?x=1` and passes exactly one answer: 301 with `location: https://<base>/activate?x=1`
 # and no cf-ray. Measured 2026-11-11 (read-only curl): www.taptime.mt -> 301,
-# location https://taptime.mt/activate?x=1, no cf-ray; tappa.everva.com.tr -> the same 301 and
-# Location but WITH cf-ray -- its name resolves to Cloudflare's addresses, the same ones a name
-# that does not exist under everva.com.tr resolves to (the proxied wildcard; no DNS-only record
-# overrides it -- backlog T275). So this gate is red on that host until the record exists.
+# location https://taptime.mt/activate?x=1, no cf-ray. tappa.everva.com.tr first gave the same 301
+# and Location WITH cf-ray -- the zone's proxied wildcard answered for it (backlog T275); after the
+# DNS-only A record to the origin was created the same day, both hosts pass (this mode, exit 0).
 #
 # What it sees that no test can: the live object still carrying the ingress-level
 # permanent-redirect (a 301 to https://<base> with the path dropped -- 43's apply removes that
@@ -552,8 +551,10 @@ check_api_host() {
 # challenge meets Cloudflare first; §5 is not at stake -- the redirect reads no client address).
 #
 #   pass       301 + the exact Location + no cf-ray.
-#   VIOLATION  cf-ray present, or a 2xx -- at once, on any try; any other answer once the tries
-#              have run out (the path dropped, a 404, a 5xx...). Exit 1.
+#   VIOLATION  a 2xx, or cf-ray present -- at once, on any try (the 2xx is judged first, so a page
+#              served through Cloudflare is reported as a page); a 404 or a 3xx with another
+#              Location once the tries have run out (the path dropped among them); any other
+#              answer -- a 5xx, no status line -- at once, it is not retried. Exit 1.
 #   UNCHECKED  curl failed -- INCLUDING a name that does not resolve (exit 6): unlike the API and
 #              operator hosts these names have existed since before T71, so no first-deploy state
 #              excuses it, and an unanswered probe passes nothing. Exit 2.
@@ -565,7 +566,7 @@ check_api_host() {
 # Exit code over the hosts: 1 if any VIOLATION, else 2 if any UNCHECKED, else 0.
 RH_OUTCOME=unchecked
 check_redirect_hosts() {
-  local base=${1:-taptime.mt} hosts host want headers status location rc try word violation=0 unchecked=0
+  local base=${1:-taptime.mt} hosts host want headers status location rc try word cf note violation=0 unchecked=0
   if (( $# > 1 )); then
     shift
     hosts=("$@")
@@ -589,18 +590,30 @@ check_redirect_hosts() {
       # not trip `set -e`).
       status=$(awk '$1 ~ /^HTTP\// {s = $2} END {print s}' <<<"$headers" | tr -d '\r')
       location=$(awk 'tolower($1) == "location:" {v = $2} END {print v}' <<<"$headers" | tr -d '\r')
-      if grep -qi '^cf-ray:' <<<"$headers"; then
-        word=violation
-        echo "::error::https://${host} is served THROUGH CLOUDFLARE (cf-ray present). The redirect itself reads no client address, but cert-manager's HTTP-01 challenge for this host now meets Cloudflare first (43-redirect-ingress.yaml: tappa.everva.com.tr MUST STAY DNS-ONLY). Create a DNS-only (grey cloud) A record for it to the origin -- everva.com.tr's wildcard is proxied." >&2
-        break
-      fi
+      cf=
+      if grep -qi '^cf-ray:' <<<"$headers"; then cf=1; fi
+      # The 2xx first, and cf-ray only after it: a page served on a redirect host is the graver
+      # finding, and a proxy in front of it must not hide it behind a DNS remark (security audit,
+      # T261 round 2).
       case $status in
         2[0-9][0-9])
           word=violation
-          echo "::error::https://${host}/activate?x=1 answered ${status}: a redirect host SERVES A PAGE instead of redirecting -- a pod without the T71 redirect, or a configuration whose redirect list lacks this host. That is a second origin of the customer product (40-ingress.yaml, EXACTLY ONE HOST SERVES THE APP)." >&2
+          echo "::error::https://${host}/activate?x=1 answered ${status}: a redirect host SERVES A PAGE instead of redirecting -- a pod without the T71 redirect, or a configuration whose redirect list lacks this host. That is a second origin of the customer product (40-ingress.yaml, EXACTLY ONE HOST SERVES THE APP).${cf:+ It also came through Cloudflare (cf-ray present).}" >&2
           break
           ;;
       esac
+      if [[ -n $cf ]]; then
+        word=violation
+        # Only the right redirect earns the remark that the proxy costs nothing but the
+        # certificate; any other answer is named as it is.
+        if [[ $status == 301 && $location == "$want" ]]; then
+          note="The redirect itself is right and reads no client address, but"
+        else
+          note="That is not the redirect either (want 301 to ${want}), and"
+        fi
+        echo "::error::https://${host}/activate?x=1 answered '${status:-no status line}'${location:+ with Location ${location}} THROUGH CLOUDFLARE (cf-ray present). ${note} cert-manager's HTTP-01 challenge for this host now meets Cloudflare first (43-redirect-ingress.yaml: tappa.everva.com.tr MUST STAY DNS-ONLY). Give it a DNS-only (grey cloud) A record to the origin -- everva.com.tr's wildcard is proxied." >&2
+        break
+      fi
       if [[ $status == 301 && $location == "$want" ]]; then
         word=pass
         echo "redirect-hosts: ${host} answers /activate?x=1 with 301 to ${want} (try ${try})"
