@@ -1179,6 +1179,13 @@ func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
 		{"(d3) ", `docker cp "tappa-db":/var/lib/postgresql/data "$RESTORE/" && docker exec tappa-drill-db true`},
 		{"(d3) ", "docker run --rm -itp 5432:5432" + net},
 		{"(d3) ", `docker run --rm -p"5432:5432"` + net},
+		// Security re-review of round 2: an image found by shape let these through.
+		{"(d3) ", "docker run --rm --user 70:70 -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm -u 999:999 -P --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --label a:b -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "ID=$(docker run -d -p 5432:5432 --network tappa-drill postgres:17-alpine)"},
+		{"(d3) ", "true;docker run -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --network tappa-drill postgres:17-alpine true && docker run --rm -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
 		{"(d5) ", "rm -rf /"},
 		{"(d1) ", `rclone --config "$CONF" delete tappa-backup:prod`},
 		{"(d1) ", `rclone --config "$CONF" purge tappa-backup:prod`},
@@ -1210,13 +1217,13 @@ func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
 		{"(d3) ", "docker exec -i tappa-drill-db psql postgresql://tappa_owner@127.0.0.1:5432/tappa -c 'SELECT 1'"},
 		{"(d3) ", "X=$(openssl rand -hex 8); docker exec tappa-drill-db true"},
 		{"(d3) ", "docker cp scripts/db-init/01-roles.sql tappa-drill-db:/tmp/01-roles.sql"},
-		// Round 2: a quoted allowed host, a clock time in SQL, and psql's own -p after the image.
+		// Round 2: a quoted allowed host and a clock time in SQL. (psql's own -p after the image on a
+		// docker run line is refused again: the publish rule reads the whole line, T289.)
 		{"(d3) ", `docker exec -i tappa-drill-db psql -h "127.0.0.1" -U tappa_owner -d tappa -c 'SELECT 1'`},
 		{"(d3) ", `docker exec -i tappa-drill-db psql -h"127.0.0.1" -U tappa_owner -d tappa -c 'SELECT 1'`},
 		{"(d3) ", `docker exec -i tappa-drill-db psql "host=127.0.0.1 dbname=tappa" -c 'SELECT 1'`},
 		{"(d3) ", `docker exec -i tappa-drill-db psql -c "SELECT count(*) FROM transactions WHERE created_at < '2026-11-11 03:00:00'"`},
 		{"(d3) ", `docker exec -i tappa-drill-db psql -c "SELECT '12:00:00'::time"`},
-		{"(d3) ", "docker run --rm --network tappa-drill postgres:17-alpine psql -h tappa-drill-db -p 5432 -c 'SELECT 1'"},
 	} {
 		if out, err := run(t, insert(t, c.marker, c.line)); err != nil || !strings.Contains(out, "lint only: the runbook's blocks pass") {
 			t.Errorf("%s %q: an honest line is refused (%v):\n%s", c.marker, c.line, err, out)

@@ -168,8 +168,8 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 #       docker run/create publishes no port (-p/-P/--publish); every container:path of a docker cp
 #       is tappa-drill-db; round 2 (the last): a quoted value is read, not skipped (-h "x",
 #       PGHOST="x", host='x'), host = x with spaces, a clock time is not IPv6, the publish rule
-#       stops at the image (psql's own -p) and reads a short flag cluster (-itp), docker cp a
-#       quoted container name;
+#       reads a short flag cluster (-itp) and a quoted -p anywhere on a docker run/create line
+#       (psql's own -p after the image is refused too), docker cp a quoted container name;
 #   A DENY LIST for the rest: kubectl, rclone, ssh, curl, wget, nc, the home directory (also ~),
 #     the rclone config variable, a /Users/ path, docker's -H, --host and --context, any DOCKER_*
 #     variable, the docker socket, docker.internal names, --mount, --volumes-from, --env-file
@@ -232,19 +232,14 @@ for b in D2 D3 D3B D4 D5; do
   # A logical line is the block's line with its continuations joined: docker run/create's flags sit
   # on `\` continuation lines in (d2) and (d4).
   logical="$(printf '%s\n' "$text" | awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }')"
-  # -p/--publish (T289): a published port puts the drill's database on this host's interfaces. Read
-  # up to the image only (the first bare name:tag word), so the container's own command -- psql's
-  # -p 5432 -- is not docker's flag; a short flag cluster counts (-itp), quoted or not (round 2).
-  bad_pub="$(printf '%s\n' "$logical" | awk '
-    { on = 0; d = 0
-      for (i = 1; i <= NF; i++) {
-        w = $i
-        if (!on) { if (w == "docker") { d = 1; continue } if (d && w == "container") continue
-                   if (d && (w == "run" || w == "create")) on = 1; d = 0; continue }
-        if (w ~ /^[a-z0-9][a-z0-9._\/-]*:[A-Za-z0-9._-]+$/) break
-        if (w ~ /^--publish(-all)?(=|$)/ || w ~ /^-[A-Za-z]*[pP]([0-9"=:\047].*)?$/) { print w; exit }
-      } }' || true)"
-  [ -z "$bad_pub" ] || refuse "$b" "publishes a port ('$bad_pub'; the drill's database is reached on tappa-drill only)"
+  # -p/--publish (T289): a published port puts the drill's database on this host's interfaces. A
+  # -p/-P/--publish token ANYWHERE on a line that runs docker run/create is refused, quoted or not,
+  # and inside a short flag cluster (-itp). Round 2 tried stopping at the image so psql's own -p
+  # after it would pass; finding the image by shape let --user 70:70 -p … and a second docker run
+  # on the same line through (security re-review, measured), so the line is read whole again.
+  bad_pub="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?(run|create)[[:space:]]' \
+    | grep -E -o -- "(^|[[:space:]])(--publish(-all)?([=[:space:]]|$)|-[A-Za-z]*[pP]([=[:space:]0-9\"']|$))[^[:space:]]*" | head -1 || true)"
+  [ -z "$bad_pub" ] || refuse "$b" "publishes a port ('${bad_pub# }'; the drill's database is reached on tappa-drill only; a -p after the image (e.g. psql's port) is also refused: drop it, psql in the drill container uses 5432 by default)"
   # docker cp (T289): every container:path operand is the drill's own container, quoted or not.
   bad_cp="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?cp[[:space:]]' \
     | tr -d "\"'" | grep -E -o -- "(^|[[:space:]])[A-Za-z0-9_][A-Za-z0-9_.-]*:" | sed -E "s/^[[:space:]]*//; s/:$//" \
