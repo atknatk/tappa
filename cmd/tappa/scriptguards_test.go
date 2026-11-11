@@ -1063,3 +1063,106 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 		}
 	}
 }
+
+// TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer (T224) feeds scripts/restore-chain-check.sh
+// step 0 edited copies of the runbook, one hostile line at a time, and wants each refused before a
+// container starts (RESTORE_CHAIN_LINT_ONLY: no goose, no docker daemon). The (d2)-(d5) lines are the
+// shapes both auditors measured passing the first deny-only rule: they all name tappa-drill, so the
+// docker allow rule alone lets them through. The (d1) lines are what its own allow list exists for:
+// the one block that reaches the backup target may only list and copy from it. The unedited runbook
+// must pass, or every refusal below would be the same refusal.
+//
+// What it does not prove: that the rule holds against someone set on getting past it -- it reads
+// text (the script's own comment says so). It holds the honest edit.
+func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
+	t.Parallel()
+	script := scriptPathIn(t, "restore-chain-check.sh")
+	runbook, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// insert puts line first in the ```bash block under the line that starts with marker.
+	insert := func(t *testing.T, marker, line string) string {
+		t.Helper()
+		lines := strings.Split(string(runbook), "\n")
+		for i, l := range lines {
+			if !strings.HasPrefix(l, marker) {
+				continue
+			}
+			for j := i + 1; j < len(lines); j++ {
+				if lines[j] == "```bash" {
+					out := append(append(append([]string{}, lines[:j+1]...), line), lines[j+1:]...)
+					return strings.Join(out, "\n")
+				}
+			}
+		}
+		t.Fatalf("the runbook has no ```bash block under %q", marker)
+		return ""
+	}
+	dir := t.TempDir()
+	run := func(t *testing.T, text string) (string, error) {
+		t.Helper()
+		f, err := os.CreateTemp(dir, "README-*.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(text); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", script)
+		cmd.Env = append(os.Environ(), "RESTORE_CHAIN_LINT_ONLY=1", "RESTORE_CHAIN_RUNBOOK="+f.Name())
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	if out, err := run(t, string(runbook)); err != nil || !strings.Contains(out, "lint only: the runbook's blocks pass") {
+		t.Fatalf("CONTROL FAILED: the unedited runbook is refused (%v):\n%s", err, out)
+	}
+
+	const net = " --network tappa-drill postgres:17-alpine true"
+	for _, c := range []struct{ marker, line string }{
+		{"(d3) ", "docker run --rm -v /var/run/docker.sock:/s" + net},
+		{"(d3) ", "docker run --rm --mount type=bind,src=/,dst=/h" + net},
+		{"(d3) ", "docker run --rm --mount dst=/h,source=/,type=bind" + net},
+		{"(d3) ", "docker run --rm -v //:/h" + net},
+		{"(d3) ", "docker run --rm -v ~/:/h" + net},
+		{"(d3) ", `docker run --rm -v "$PWD:/h"` + net},
+		{"(d3) ", "docker run --rm --network container:tappa-db --name tappa-drill-x postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --network=host --name tappa-drill-x postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --pid=host" + net},
+		{"(d3) ", "docker run --rm --ipc host" + net},
+		{"(d3) ", "docker run --rm --uts host" + net},
+		{"(d3) ", "docker run --rm --userns host" + net},
+		{"(d3) ", "docker run --rm --cap-add SYS_ADMIN" + net},
+		{"(d3) ", "docker run --rm --privileged" + net},
+		{"(d3) ", "docker run --rm --device /dev/sda" + net},
+		{"(d3) ", "docker run --rm --add-host x:host-gateway" + net},
+		{"(d3) ", "docker --host unix:///var/run/other.sock exec tappa-drill-db true"},
+		{"(d3) ", "docker -H unix:///var/run/other.sock exec tappa-drill-db true"},
+		{"(d3) ", "DOCKER_HOST=unix:///var/run/other.sock docker exec tappa-drill-db true"},
+		{"(d3) ", "DOCKER_CONTEXT=other docker exec tappa-drill-db true"},
+		{"(d3) ", "docker exec -i tappa-drill-db pg_isready -h host.docker.internal"},
+		{"(d3) ", "docker exec -i tappa-drill-db pg_isready -h 192.168.65.254"},
+		{"(d3) ", "docker exec -i tappa-drill-db pg_isready -h 172.17.0.1"},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "host=192.168.65.254 dbname=tappa"`},
+		{"(d3) ", "docker run --rm -e PGHOST=tappa-db" + net},
+		{"(d3) ", "kubectl -n tappa get pods"},
+		{"(d3) ", "docker exec -i tappa-db true"},
+		{"(d5) ", "rm -rf /"},
+		{"(d1) ", `rclone --config "$CONF" delete tappa-backup:prod`},
+		{"(d1) ", `rclone --config "$CONF" purge tappa-backup:prod`},
+		{"(d1) ", `STAMP=$(rclone --config "$CONF" lsf --dirs-only tappa-backup:prod); rclone --config "$CONF" deletefile x`},
+		{"(d1) ", "kubectl -n tappa get secret tappa-backup-target"},
+		{"(d1) ", `rm -rf "$HOME/.config/tappa"`},
+		{"(d1) ", `cp "$CONF" "$RESTORE/conf"`},
+	} {
+		out, err := run(t, insert(t, c.marker, c.line))
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 1 || !strings.Contains(out, "the drill block") || strings.Contains(out, "lint only") {
+			t.Errorf("%s %q: want refused before anything starts (exit 1, \"the drill block ...\"); got %v:\n%s", c.marker, c.line, err, out)
+		}
+	}
+}

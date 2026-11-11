@@ -1044,9 +1044,13 @@ altındaki ilk `bash` bloğu koşulan bloktur; başlık değişirse betik adıyl
 B2/B3/B4 blokları ile `(d3)`/`(d3b)`'nin here-doc SQL'i ve `sh -c` satırları **bayt bayt aynı**
 olmalı, ve `(d2)` B1'in iki init dosyasını kurmalı; değilse betik konteyner açmadan reddeder
 (*"9(d) is what this check runs; B YOLU is what an operator runs in a disaster"*). **(3)**
-`(d2)`–`(d5)` içinde `kubectl`, `rclone`, `$HOME` ya da `$CONF` geçerse, ya da konağa uzanan bir
-docker biçimi (`host.docker.internal`, `--network host`, `--pid host`, `--privileged`, `/`'ün
-bağlanması; T224) geçerse betik konteyner açmadan reddeder, ve bloklar boşaltılmış bir ortamda koşar (`env -i`: yalnız `PATH`, geçici bir `HOME`,
+`(d2)`–`(d5)` içinde `kubectl`, `rclone`, `$HOME` ya da `$CONF` geçerse, ya da bir satır kendi
+konteynerinin dışına uzanırsa betik konteyner açmadan reddeder. Dışarı uzanmak şunlardır: bind mount
+kaynağı `"$RESTORE`/`"$PWD/scripts` dışında, ağ `tappa-drill` dışında, istemci adresi
+`127.0.0.1`/`tappa-drill-db` dışında ya da başka bir IPv4, docker soketi, `--mount`, `--add-host`,
+`-H`/`--host`, `DOCKER_*`, konak ad alanları, `--privileged`/`--cap-add`/`--device`. `(d1)` yalnız
+hedefi listeleyip kopyalayabilir. Bu kemer T224'te genişletildi; **yanlış bir düzenlemeye karşıdır,
+saldırgana karşı değil** (metin okur, `TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer`). Bloklar boşaltılmış bir ortamda koşar (`env -i`: yalnız `PATH`, geçici bir `HOME`,
 `KUBECONFIG=/dev/null`, `DOCKER_HOST`); B3'ü olduğu gibi `(d3)`'e kopyalayan bir düzenleme
 geliştiricinin kümesine ulaşamaz. Doğrulama aracı da daraltmayı **dökümden bağımsız** denetler
 (bölüm 5a: `tappa_owner`'ın `public` tabloları için varsayılanı `tappa_app`'e `SELECT`,
@@ -6228,7 +6232,7 @@ Negatif kanıtlar (her biri geri alındı, yalnız zincirin kendi konteynerlerin
 | kaynakta `GRANT UPDATE ON audit_log TO tappa_app` (döküm de taşır) | **exit 1** (5a): *"audit_log UPDATE"* |
 | `(d3)`'e `kubectl` önekli bir satır eklendi | betik konteyner açmadan reddetti |
 | kaynakta `tappa_forbid_mutation`'ın gövdesi hiçbir şeyi reddetmeyecek biçimde yeniden yazıldı (döküm de taşır; T224, 2026-11-11, goose 99) | önce ⚠️ **exit 0** (PASS); şimdi **exit 1** (5b): *"the guard functions' bodies are missing or not ones this product shipped … public.tappa_forbid_mutation"* |
-| `(d3)`'e `tappa-drill` adını taşıyan ama konağa uzanan altı satır eklendi, tek tek (`-h host.docker.internal`, `--network=host`, `--pid host`, `--privileged`, `-v /:/host`, `--mount type=bind,source=/,…`; T224) | önce altısı da iki kuraldan geçiyordu (eski desen tek başına sınandı); şimdi betik altısını da konteyner açmadan reddetti |
+| `(d3)`'e `tappa-drill` adını taşıyan ama konağa uzanan altı satır eklendi, tek tek (`-h host.docker.internal`, `--network=host`, `--pid host`, `--privileged`, `-v /:/host`, `--mount type=bind,source=/,…`; T224) | önce altısı da iki kuraldan geçiyordu (eski desen tek başına sınandı); şimdi betik altısını da konteyner açmadan reddetti. İki denetçi ilk genişletmenin geçirdiği kanonik biçimleri ölçtü (soket, anahtar sırası değişik `--mount`, `-v //:`, `--network container:`, `--ipc host`, `--cap-add`, `--host`, `DOCKER_HOST=`, `--add-host`, ağ geçidi IP'leri, `-v ~/:`); izin kurallarıyla 34 satırın 34.ü reddediliyor (`TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer`). Kemer yanlış düzenlemeye karşıdır, saldırgana karşı değil |
 
 Kalıntı yok: dört kırmızı ve bir yeşil koşuda `docker volume ls -q | wc -l` önce ve sonra **61**
 (ölçüldü; ilk turda kaynak konteyner `-v`'siz silindiği için her koşuda bir anonim volume

@@ -44,9 +44,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 
-: "${GOOSE:?GOOSE is not set: run this through make restore-check, which passes the pinned goose of the Makefile}"
+# RESTORE_CHAIN_LINT_ONLY=1 stops after step 0 (the runbook's blocks cut out and judged) and needs
+# neither goose nor a docker daemon; RESTORE_CHAIN_RUNBOOK names another copy of the runbook. Both
+# exist for cmd/tappa's TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer, which feeds this
+# step edited runbooks. A real run uses neither.
+LINT_ONLY="${RESTORE_CHAIN_LINT_ONLY:-}"
+[ -n "$LINT_ONLY" ] || : "${GOOSE:?GOOSE is not set: run this through make restore-check, which passes the pinned goose of the Makefile}"
 IMAGE=postgres:17-alpine
-RUNBOOK=deploy/README.md
+RUNBOOK="${RESTORE_CHAIN_RUNBOOK:-deploy/README.md}"
 SEED=test/fixtures/seed.sql
 FIXTURE=test/fixtures/restore-chain.sql
 # A watchdog for the runbook's blocks: (d2)'s `until ... pg_isready` has no limit of its own, and a
@@ -55,10 +60,13 @@ DRILL_DEADLINE=300
 
 say()  { echo "restore-chain: $*"; }
 die()  { echo "restore-chain: FAILED: $*" >&2; exit 1; }
-for tool in docker openssl awk; do
+for tool in openssl awk; do
   command -v "$tool" >/dev/null 2>&1 || die "'$tool' is not on PATH"
 done
-docker info >/dev/null 2>&1 || die "docker is installed but the daemon does not answer"
+if [ -z "$LINT_ONLY" ]; then
+  command -v docker >/dev/null 2>&1 || die "'docker' is not on PATH"
+  docker info >/dev/null 2>&1 || die "docker is installed but the daemon does not answer"
+fi
 
 # Per run, so a second run on the same machine (another checkout, another agent) cannot collide.
 # Lower case, digits and dashes only: the name goes through sed below.
@@ -103,6 +111,7 @@ cut_block() { # var marker n
   [ -n "$text" ] || die "$RUNBOOK: the block after '$2' is empty"
   eval "$1=\$text"
 }
+cut_block D1  '(d1) '  1
 cut_block D2  '(d2) '  1
 cut_block D3  '(d3) '  1
 cut_block D3B '(d3b) ' 1
@@ -140,35 +149,82 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 # -- `kubectl -n tappa exec ... statefulset/tappa-postgres` -- would pass it and run B2's
 # ALTER DEFAULT PRIVILEGES against whatever cluster the developer's kubeconfig names (read in
 # review, not measured), and `env -i` below does not stop a `docker exec -i tappa-db ...` aimed at
-# the developer's own database. Three belts, before a container starts:
-#   AN ALLOW RULE FOR DOCKER: every line that runs docker names this drill's container or network
-#     (`tappa-drill`, renamed per run below), so docker can only reach what (d2) created;
-#   AN ALLOW RULE FOR rm: the one rm a block may run is (d5)'s `rm -rf "$RESTORE"`;
-#   A DENY LIST for what has no business in a local drill: kubectl, rclone, ssh, curl, wget, nc,
-#     the home directory, the rclone config variable, a /Users/ path, docker's -H and --context,
-#     and (T224) the ways a container named tappa-drill still reaches the host: Docker Desktop's
-#     host.docker.internal / gateway.docker.internal names, --network host, --pid host,
-#     --privileged and a bind mount of / (-v, --volume or --mount). Measured before T224: six such
-#     lines, each naming tappa-drill, passed the old deny pattern and the docker rule alike (the
-#     patterns run alone); with this one all six stop the check before a container starts. Why it
-#     matters (T215's last review, read, not measured): on Docker Desktop host.docker.internal is
-#     this machine, so `docker exec -i tappa-drill-db psql -h host.docker.internal ...` would aim
-#     a block at the developer's own database.
-# A full allow list of commands was weighed and not taken: the blocks carry continuation lines and
-# here-documents, so "the first word of a line" is not a command and such a list would refuse the
-# runbook's own text or need a shell parser. Step 3 also runs the blocks with an emptied environment
-# (no KUBECONFIG, no PG*, no DATABASE_URL, HOME a scratch directory).
+# the developer's own database.
+#
+# ⚠️ WHAT THIS IS: A GUARD AGAINST AN ACCIDENTAL EDIT, NOT AGAINST AN ATTACKER. It reads text line
+# by line; someone who wants to get past it can (a variable holding a flag, a here-document fed to
+# sh, a second script). What it holds is the shapes an honest edit of these five blocks would take:
+#   ALLOW RULES, so what is not named is refused --
+#     docker: every line that runs docker names this drill's container or network (`tappa-drill`,
+#       renamed per run below);
+#     rm: the one rm a block may run is (d5)'s `rm -rf "$RESTORE"`;
+#     a bind mount (-v/--volume with a colon) has "$RESTORE or "$PWD/scripts as its source;
+#     --network/--net is tappa-drill;
+#     a host a client is pointed at (-h, PGHOST=) is 127.0.0.1 or tappa-drill-db, and no other
+#       IPv4 literal is written at all (Docker Desktop's gateway 192.168.65.254, the bridge's
+#       172.17.0.1 are this machine);
+#   A DENY LIST for the rest: kubectl, rclone, ssh, curl, wget, nc, the home directory (also ~),
+#     the rclone config variable, a /Users/ path, docker's -H, --host and --context, any DOCKER_*
+#     variable, the docker socket, docker.internal names, --mount, --add-host, the host's
+#     pid/ipc/uts/userns/cgroup namespace, --privileged, --cap-add, --device, --security-opt.
+#   (T224, after both auditors measured the first deny-only form passing `-v
+#   /var/run/docker.sock:...`, `--mount` with its keys in another order, `-v //:/h`, `--network
+#   container:x`, `--ipc host`, `--cap-add`, `--host tcp://...`, an inline DOCKER_HOST=,
+#   `--add-host x:host-gateway`, a gateway IP and `-v ~/:...`; cmd/tappa's
+#   TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer feeds every one of them.)
+# (d1) is held to its own allow list: it is the one block that reaches the backup target, so each
+# of its lines is one of the shapes it has today -- rclone only as `rclone --config "$CONF" lsf` or
+# `... copy`, shasum, awk, mktemp, the sha256 comparison -- and nothing else (CI does not run (d1);
+# the monthly rehearsal, operator step 9 (e), does).
+# A full allow list of commands for (d2)-(d5) was weighed and not taken: the blocks carry
+# continuation lines and here-documents, so "the first word of a line" is not a command and such a
+# list would refuse the runbook's own text or need a shell parser. Step 3 also runs the blocks with
+# an emptied environment (no KUBECONFIG, no PG*, no DATABASE_URL, HOME a scratch directory).
+deny_drill='kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|~|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H([=[:space:]]|$)|--host([=[:space:]]|$)|--context|DOCKER_[A-Za-z_]*=|docker\.sock|docker\.internal|--mount|--add-host|--(pid|ipc|uts|userns|cgroupns)([=[:space:]]|$)|--privileged|--cap-add|--device|--security-opt'
+refuse() { die "$RUNBOOK: the drill block $1 $2. 9(d)'s (d2)-(d5) run here, against a throwaway container, and (d1) in the monthly rehearsal; a block that can reach a cluster, the backup target beyond reading it, another host, this host or the operator's files is not run"; }
 for b in D2 D3 D3B D4 D5; do
   eval "text=\$$b"
-  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H[[:space:]]|--context|docker\.internal|--(net|network|pid)[=[:space:]]+["'"'"']?host|--privileged|(^|[[:space:]])(-v|--volume|--mount)[=[:space:]]+["'"'"']?(type=bind,source=|src=)?/[:,]'; then
-    die "$RUNBOOK: the drill block $b names kubectl, rclone, ssh, curl, wget, nc, the home directory, the rclone config variable, a /Users/ path, -H, --context, docker.internal, a host network or pid namespace, --privileged or a bind mount of /. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target, another host, this host or the operator's files is not run"
-  fi
+  hit="$(printf '%s\n' "$text" | grep -E -o -- "$deny_drill" | head -1 || true)"
+  [ -z "$hit" ] || refuse "$b" "names '$hit' (the deny list: kubectl, rclone, ssh/curl/wget/nc, the home directory, a /Users/ path, docker's -H/--host/--context, DOCKER_*, the docker socket, docker.internal, --mount, --add-host, a host namespace, --privileged, --cap-add, --device, --security-opt)"
   bad_docker="$(printf '%s\n' "$text" | awk '/(^|[^A-Za-z0-9_-])docker([^A-Za-z0-9_-]|$)/ && !/tappa-drill/')"
   [ -z "$bad_docker" ] || die "$RUNBOOK: the drill block $b runs docker without naming the drill's own container or network (tappa-drill): '$bad_docker' -- docker could reach another container, the development database included"
   bad_rm="$(printf '%s\n' "$text" | awk '/^[[:space:]]*rm[[:space:]]/ && $0 != "rm -rf \"$RESTORE\""')"
   [ -z "$bad_rm" ] || die "$RUNBOOK: the drill block $b removes something other than \"\$RESTORE\": '$bad_rm'"
+  # psql's own -v NAME=value has no colon; a docker bind mount always does.
+  bad_vol="$(printf '%s\n' "$text" | grep -E -o -- '(^|[[:space:]])(-v|--volume)[=[:space:]]+[^[:space:]]*:[^[:space:]]*' \
+    | sed -E 's/^[[:space:]]*(-v|--volume)[=[:space:]]+//' | grep -v -E '^"\$(RESTORE|PWD/scripts):' || true)"
+  [ -z "$bad_vol" ] || refuse "$b" "mounts '$bad_vol' (a bind mount's source is \"\$RESTORE or \"\$PWD/scripts)"
+  bad_net="$(printf '%s\n' "$text" | grep -E -o -- '--(net|network)[=[:space:]]+[^[:space:]]+' \
+    | sed -E 's/^--(net|network)[=[:space:]]+//' | grep -v -x 'tappa-drill' || true)"
+  [ -z "$bad_net" ] || refuse "$b" "joins the network '$bad_net' (only tappa-drill)"
+  bad_host="$(printf '%s\n' "$text" | grep -E -o -- '((^|[[:space:]])-h[=[:space:]]+|PGHOST=)[^[:space:]]+' \
+    | sed -E 's/^[[:space:]]*(-h[=[:space:]]+|PGHOST=)//' | grep -v -x -E '127\.0\.0\.1|tappa-drill-db' || true)"
+  [ -z "$bad_host" ] || refuse "$b" "points a client at '$bad_host' (only 127.0.0.1 inside the target, or tappa-drill-db)"
+  bad_ip="$(printf '%s\n' "$text" | grep -E -o -- '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v -x '127\.0\.0\.1' || true)"
+  [ -z "$bad_ip" ] || refuse "$b" "writes the address '$bad_ip' (no IPv4 literal but 127.0.0.1)"
 done
-lap "runbook: (d2) (d3) (d3b) (d4) (d5) cut out; B2/B3/B4 and (d3)/(d3b) carry the same SQL and command lines"
+# (d1): every line is one of today's shapes, every rclone is `rclone --config "$CONF" lsf|copy`.
+bad_d1="$(printf '%s\n' "$D1" | awk '
+  /^CONF="\$HOME\/\.config\/tappa\/backup\.rclone\.conf"$/ { next }
+  /^RESTORE=\$\(mktemp -d\)$/ { next }
+  /^rclone --config "\$CONF" (lsf|copy) / { next }
+  /^STAMP=\$\(rclone --config "\$CONF" lsf / { next }
+  /^want=\$\(awk / { next }
+  /^have=\$\(shasum -a 256 / { next }
+  /^if \[ "\$want" = "\$have" \]; then echo / { next }
+  { print }')"
+[ -z "$bad_d1" ] || refuse D1 "carries a line that is not one of its own shapes: '$bad_d1' ((d1) may only list and copy from the target with rclone, check the sha256 with shasum and awk, and make its directory with mktemp)"
+n_rclone="$(printf '%s\n' "$D1" | grep -E -o '(^|[^.A-Za-z0-9_-])rclone([^.A-Za-z0-9_-]|$)' | awk 'END { print NR + 0 }')"
+n_allowed="$(printf '%s\n' "$D1" | grep -E -o 'rclone --config "\$CONF" (lsf|copy) ' | awk 'END { print NR + 0 }')"
+[ "$n_rclone" -eq "$n_allowed" ] || refuse D1 "runs rclone $n_rclone times but only $n_allowed of them as \`rclone --config \"\$CONF\" lsf|copy\`"
+if printf '%s\n' "$D1" | grep -E -q -- 'kubectl|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc|rm|docker)([^A-Za-z0-9_-]|$)|DOCKER_'; then
+  refuse D1 "names kubectl, ssh, curl, wget, nc, rm, docker or DOCKER_"
+fi
+lap "runbook: (d1) (d2) (d3) (d3b) (d4) (d5) cut out and judged; B2/B3/B4 and (d3)/(d3b) carry the same SQL and command lines"
+if [ -n "$LINT_ONLY" ]; then
+  say "lint only: the runbook's blocks pass; nothing was started"
+  exit 0
+fi
 
 # =================================================================================================
 # 1. THE SOURCE -- built as development and CI build theirs, migrated, seeded, fixture loaded.
