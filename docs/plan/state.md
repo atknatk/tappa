@@ -1758,6 +1758,10 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-11 — dal `activation-peer-plaque` — 🟡 **eşin plaketinde aktivasyon: düzeltme turu (yeniden denetim bekliyor)**
+- **Kod ONAY, kabul denetimi RED (belgeler).** Düzeltildi: CLAUDE.md §9 holding-marka cümlesinin gerekçesi; ADR 0023 ve ADR 0026 (başlık, *"Tenant"*) ileri işaretleri; ADR 0027 Bedeller 3 (K-1b üstü çizili) ve 10 (K-24 argümanı zayıfladı — notta adlandırılmış bedel); `m11-entegrasyon-api.md` tarihsel satırları; satırın anlamı *"aktivasyon dokunuşu/denemesi"* (migration yorumu + ADR notu, bedel).
+- **Kod:** başarılı ilerletmeden sonra eşin plaketi yeniden okunur, işverenin satırındaki duvar oradan (`peer_tag_changed` kemeri); `activationViolation` `advanceAPeer`'i tarar ve CMAC'in ilerletmeden önce olduğunu pinler (iki yeni kontrol); yarış testine üçüncü kol (`holding_activation_tap`; 5–7. turlar yalnız o kol: tam 1 `advanced`, tam 1 iz satırı); `TestHolding00100_DownGivesBackAndUpTakesItAgain`; 00100'ün ön koşulu eksik fonksiyonda 42883 yerine 55000 verir (`to_regprocedure`).
+
 ### 2026-11-11 — dal `activation-peer-plaque` — 🟡 **eşin plaketinde aktivasyon (yapıcı bitti, denetim bekliyor)**
 - **Kullanıcı kararı:** aktivasyon davetin tenant'ının ya da onun **canlı holding eşinin** plaketinde tamamlanır (katı eşlik; K-29'un 60 sn penceresi uzanmaz); eşin `audit_log`'una tek satır (`holding.activation_tap`, uid + duvar, kişi yok). Kapalı listeye tek fonksiyon kullanıcı onaylı.
 - **Yapılan:** 00100 `holding_activation_tap` (ilerletmeyi **çağırır**, satırı yalnız `advanced`'ta aynı işlemde yazar); `invite.PeerPlaque`/`AdvancePeerPlaque`; `CompleteByTap` → `advanceAPeer`; K-35'in `PendingTenant`'ı → `PendingActivatesOn`. Testler handler (7) + db (3) + katalog listeleri; `feedBelow48`/`feedUpAgain` 00100'ü de yürür.

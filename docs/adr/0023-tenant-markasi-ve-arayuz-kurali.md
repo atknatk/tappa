@@ -2191,6 +2191,8 @@ logosunu taşır — oturumun tenant'ınınkini değil. Kaynak `holding_tap_site
 logo boyutu ve logonun `alt`'ı olan işletme adı; logo özeti **yalnız VIES-doğrulanmış** saha tenant'ı
 için — WL-13 kapısının aynısı); bayt `holding_logo` ile ([ADR 0024](0024-kullanici-yukledigi-gorsel.md)
 notu). Sonuç ekranında accent yoktur. **Aktivasyon ailesi değişmez:** aktivasyon yalnız kendi tenant'ının
-plaketinde (K-1b, ADR 0026), sihirbazın markası davetin tenant'ınınkidir. Bu, §7'nin *"tap ve sonuç
+plaketinde (K-1b, ADR 0026), sihirbazın markası davetin tenant'ınınkidir. *(2026-11-11, kullanıcı kararı —
+ADR 0026'nın ve ADR 0027'nin aynı tarihli notu: aktivasyon artık davetin tenant'ının canlı holding eşinin plaketinde de
+tamamlanır; markanın sonucu değişmez — aktivasyon ailesi eşin plaketinde de davetin tenant'ının markasını taşır.)* Bu, §7'nin *"tap ve sonuç
 ekranlarındaki başka her değişiklik yeniden sorulur"* kuralının kullanıcıya sorulmuş cevabıdır;
 CLAUDE.md §9'a aynı cümle eklendi.

@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -133,6 +134,72 @@ func TestHoldingActivationTap_NoAdvanceWithoutItsRow(t *testing.T) {
 		}
 		if got := opInt(t, ctx, sp, `SELECT last_ctr FROM tags WHERE uid = $1`, w.kfTag); got != 100 {
 			t.Errorf("the counter was left at %d with no trail row", got)
+		}
+	})
+}
+
+// holdingActivationSurface is what 00100 changes, read off the catalogue: holding_activation_tap (body
+// md5, result, owner, ACL, SECURITY DEFINER, config) or "-", and the definer's INSERT and SELECT
+// columns on audit_log.
+func holdingActivationSurface(t *testing.T, ctx context.Context, q opQuerier) string {
+	t.Helper()
+	var s string
+	if err := q.QueryRow(ctx, `SELECT coalesce((SELECT md5(prosrc) || ' ' || pg_get_function_result(oid) || ' ' || pg_get_userbyid(proowner) || ' ' ||
+	                                 coalesce(array_to_string(proacl, ','), '') || ' ' || prosecdef::text || ' ' || coalesce(array_to_string(proconfig, ','), '')
+	                            FROM pg_proc WHERE oid = to_regprocedure('public.holding_activation_tap(character, integer)')), '-')`).Scan(&s); err != nil {
+		t.Fatal(err)
+	}
+	return s + " | insert:" + opColumns(t, ctx, q, "tappa_holdingdefiner", "audit_log", "INSERT") +
+		" | select:" + opColumns(t, ctx, q, "tappa_holdingdefiner", "audit_log", "SELECT")
+}
+
+// TestHolding00100_DownGivesBackAndUpTakesItAgain: 00100's Down drops holding_activation_tap and takes
+// the definer's INSERT on audit_log back -- the surface before it -- and its Up gives HEAD's surface
+// back exactly. The precondition refuses a second run (the function is there), a definer that already
+// reaches audit_log (the Down takes the table's INSERT back whole), and a holding_advance_tag_counter
+// that is not 00045's.
+func TestHolding00100_DownGivesBackAndUpTakesItAgain(t *testing.T) {
+	ctx, tx := opTx(t)
+	up, down := opMigrationSections(t, op00100File)
+	pre := holdingPrecondition(t, op00100File)
+	head := holdingActivationSurface(t, ctx, tx)
+	if !strings.Contains(head, " TABLE(outcome text, tag_status text) tappa_holdingdefiner ") ||
+		!strings.Contains(head, "tappa_app=X/tappa_holdingdefiner") || !strings.Contains(head, " true search_path=pg_catalog, pg_temp ") ||
+		!strings.HasSuffix(head, " | insert:tenant_id,action,target,detail | select:") {
+		t.Fatalf("PREMISE at HEAD: %s", head)
+	}
+	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		opWant(t, holdingNestedRun(t, ctx, sp, pre), sqlstatePrerequisiteState, "00100's precondition at HEAD")
+		opRunSection(t, ctx, sp, down, "00100 Down")
+		if got := holdingActivationSurface(t, ctx, sp); got != "- | insert: | select:" {
+			t.Errorf("after 00100's Down: %s", got)
+		}
+		if err := holdingNestedRun(t, ctx, sp, pre); err != nil {
+			t.Fatalf("00100's precondition at 00099: %v", err)
+		}
+		for _, c := range []struct{ name, ddl string }{
+			{"a holding_activation_tap already there", `CREATE FUNCTION public.holding_activation_tap() RETURNS boolean LANGUAGE sql AS 'SELECT false'`},
+			{"a definer that already inserts into audit_log", `GRANT INSERT (action) ON audit_log TO tappa_holdingdefiner`},
+			{"a definer that already reads audit_log", `GRANT SELECT (id) ON audit_log TO tappa_holdingdefiner`},
+			{"an advance that is not 00045's", `DROP FUNCTION public.holding_advance_tag_counter(character, integer)`},
+		} {
+			// A plain savepoint inside the locked one (holdingInSavepoint would read the outer
+			// savepoint's Down locks as its own).
+			bad, err := sp.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bad.Exec(ctx, c.ddl); err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			opWant(t, holdingNestedRun(t, ctx, bad, pre), sqlstatePrerequisiteState, "00100's precondition over "+c.name)
+			if err := bad.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		opRunSection(t, ctx, sp, up, "00100 Up again")
+		if got := holdingActivationSurface(t, ctx, sp); got != head {
+			t.Errorf("after the Up again:\n %s\nwant HEAD's\n %s", got, head)
 		}
 	})
 }

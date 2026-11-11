@@ -35,7 +35,12 @@
 --   detail     {"location_id": the plaque's wall}.
 --   at         the database's DEFAULT now() (CLAUDE.md §6: the trail's clock is the database's).
 -- NOTHING ABOUT THE PERSON OR THE EMPLOYER: no employee id or name, no invitation, no employer tenant
--- id -- the site learns that a plaque of its own was used to activate a phone, and nothing else.
+-- id -- the site learns that a plaque of its own was used in an activation TAP, and nothing else.
+-- WHAT THE ROW MEANS: "this plaque's counter was advanced by an activation tap (an attempt)", NOT
+-- "a phone was activated": the invitation is consumed afterwards, in its own transaction, and that
+-- can still fail (another browser consented since, the session could not be issued) -- the row
+-- stays, as the counter advance does on the own-plaque path. The employer's activation.* rows say
+-- how the attempt ended.
 --
 -- THE MATRIX GROWS BY ONE ROW: INSERT (tenant_id, action, target, detail) ON audit_log -- no SELECT, no
 -- actor_id, no at. The definer's tags columns are 00043's (uid, tenant_id, location_id).
@@ -52,9 +57,9 @@ SET LOCAL lock_timeout = '1s';
 -- +goose StatementBegin
 DO $$
 BEGIN
-    IF pg_catalog.to_regprocedure('public.holding_advance_tag_counter(character, integer)') IS NULL
-       OR pg_catalog.pg_get_function_result('public.holding_advance_tag_counter(character, integer)'::pg_catalog.regprocedure)
-          <> 'TABLE(outcome text, tag_status text, ctr_gap integer)' THEN
+    -- to_regprocedure, never a ::regprocedure cast: a missing function must reach this RAISE, not 42883.
+    IF pg_catalog.pg_get_function_result(pg_catalog.to_regprocedure('public.holding_advance_tag_counter(character, integer)'))
+          IS DISTINCT FROM 'TABLE(outcome text, tag_status text, ctr_gap integer)' THEN
         RAISE EXCEPTION 'migration 00100 needs holding_advance_tag_counter as 00045 made it. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;

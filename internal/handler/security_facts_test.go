@@ -283,7 +283,8 @@ func wrappedViolation(s securityFactSources) string {
 }
 
 // activationViolation: activation ends on a real NFC tap at an active plaque of the same
-// business, checked by sun.Verify, and writes no attendance record.
+// business, checked by sun.Verify -- or (2026-11-11) of a live holding peer, whose signature is
+// refused BEFORE its counter is advanced (advanceAPeer) -- and writes no attendance record.
 func activationViolation(s securityFactSources) string {
 	body := goFuncBody(s.Activate, "func (a *Activation) CompleteByTap(")
 	if body == "" {
@@ -296,8 +297,13 @@ func activationViolation(s securityFactSources) string {
 				"at an active plaque of the same business"
 		}
 	}
+	peer := goFuncBody(s.Activate, "func (a *Activation) advanceAPeer(")
+	cmac, advance := strings.Index(peer, "if !pv.CMACValid {"), strings.Index(peer, "a.invites.AdvancePeerPlaque(")
+	if cmac < 0 || advance < 0 || cmac > advance {
+		return "Activation.advanceAPeer no longer refuses a peer's plaque whose signature does not verify before it advances the counter"
+	}
 	finish := goFuncBody(s.Activate, "func (a *Activation) finishActivation(")
-	for _, fn := range []string{body, finish} {
+	for _, fn := range []string{body, peer, finish} {
 		if regexp.MustCompile(`(?i)transaction\b|InsertTransaction|checkin\.`).MatchString(fn) {
 			return "the activation tap now reaches the attendance record; the page says it writes none"
 		}
@@ -1170,6 +1176,12 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}},
 		{"activation at another business's plaque", activationViolation, func(s *securityFactSources) {
 			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) CompleteByTap("), "pv.TenantID != ictx.TenantID", "false")
+		}},
+		{"a peer's counter advanced before its signature is checked", activationViolation, func(s *securityFactSources) {
+			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) advanceAPeer("), "if !pv.CMACValid {", "if false {")
+		}},
+		{"a peer's plaque writes a record", activationViolation, func(s *securityFactSources) {
+			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) advanceAPeer("), "{", "{\n\ta.checkin.Record(r.Context(), nil)")
 		}},
 		{"activation writes a record", activationViolation, func(s *securityFactSources) {
 			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) finishActivation("), "{", "{\n\ta.checkin.Record(r.Context(), nil)")

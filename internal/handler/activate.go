@@ -882,6 +882,8 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 //	                      the peer check inside it again, and the PEER's trail row in the same
 //	                      transaction. replay -> peer_replay; peer_inactive -> peer_tag_not_active;
 //	                      not_peer (the membership ended between) -> foreign_tenant_tag.
+//	· re-read             holding_tap_site again: the wall the employer's row names; gone or no
+//	                      longer a peer's -> peer_tag_changed (the own plaque's tag_changed belt).
 //	· the caller          finishActivation, in CompleteByTap: the session is the invitation's
 //	                      tenant's and employee's, the branding the invitation's (ADR 0026, 0023
 //	                      unchanged). ok is false after every refusal, which is rendered here.
@@ -926,7 +928,23 @@ func (a *Activation) advanceAPeer(w http.ResponseWriter, r *http.Request, ip str
 	}
 	switch outcome {
 	case invite.PeerAdvanced:
-		return activationTap{UID: p.UID, LocationID: *peer.LocationID, SiteTenantID: peer.SiteTenantID}, true
+		// Belt over the pre-check, as the own plaque's after sun.Verify: the wall named in the
+		// employer's row is the one the plaque hangs on NOW (re-read after the advance), so it
+		// agrees with the peer's row, which holding_activation_tap read under the plaque's lock.
+		// A plaque that left its wall, or a business no longer a peer, in between is refused with
+		// the same screen. What remains is the window between the advance's commit and this read
+		// -- microseconds, and a wall moved in it is named here as it now stands (accepted).
+		now, still, err := a.invites.PeerPlaque(ctx, ictx.TenantID, p.UID)
+		if err != nil {
+			a.log.Error("activation tap: re-reading a peer's plaque failed", "tag_uid", p.UID, "err", err)
+			a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+			return activationTap{}, false
+		}
+		if !still || now.SiteTenantID != peer.SiteTenantID || now.LocationID == nil {
+			fail("peer_tag_changed")
+			return activationTap{}, false
+		}
+		return activationTap{UID: p.UID, LocationID: *now.LocationID, SiteTenantID: now.SiteTenantID}, true
 	case invite.PeerReplay:
 		fail("peer_replay")
 	case invite.PeerInactive:

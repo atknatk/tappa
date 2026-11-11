@@ -980,7 +980,8 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
    değişikliğidir (§2).
 2. **K-1a:** KF'nin şube istisnaları KM çalışanına uygulanmaz (çapraz QR hariç — K-1g).
    `employer_manual` satırlarına KF itiraz edemez; raporda ayrı ve toplamdan hariç.
-3. **K-1b:** yalnız KF'de çalışan bir KM çalışanı aktivasyon için bir KM plaketine dokunmalı.
+3. ~~**K-1b:** yalnız KF'de çalışan bir KM çalışanı aktivasyon için bir KM plaketine dokunmalı.~~ *(2026-11-11,
+   kullanıcı kararıyla kalktı — aşağıdaki *"Aktivasyon eşin plaketinde"* notu; o notun bedelleri yerini alır.)*
 4. **K-1d/K-1f/K-1h:** ad, kod, ref, zaman, yön, sonuç ve aktiflik holding içinde paylaşılır; KF,
    KM'de işten ayrılanı dolaylı öğrenir (tersi de). DPA / aydınlatma metni ve `site_punches`'ın
    saklama süresi kullanıcıda (plan §7 madde 5).
@@ -1038,7 +1039,9 @@ adlandırılmış kalan risk (1. tur, güvenlik merceği; §13 madde 13).
 9. **K-36:** holding üyesinin saat dilimi v1'de değiştirilemez (koordineli değişiklik için `op_*`
    yok).
 10. **K-24 (holding cümlesi):** e-posta tekilliği holding genelinde aranmaz → aynı kişiyi iki tenant
-    davet edebilir; aktivasyon K-1b gereği o tenant'ın plaketinde fiziksel dokunuş ister.
+    davet edebilir; aktivasyon K-1b gereği o tenant'ın plaketinde fiziksel dokunuş ister. *(2026-11-11'den beri
+    zayıfladı: aktivasyon davetin tenant'ının **ya da herhangi bir canlı eşinin** plaketinde fiziksel dokunuşla
+    tamamlanır — aşağıdaki *"Aktivasyon eşin plaketinde"* notunun adlandırılmış bedeli.)*
 11. **`scope=location` ile süre hesaplayan entegratör** holding çalışanının süresini fazla sayabilir
     (plan §2 madde 30–31; ADR 0028 sözleşme farkları).
 12. **Kilit çapası** (§3): `tappa_holdingdefiner` `holding_members`'ta anlamsız bir sütunda `UPDATE`
@@ -2217,6 +2220,20 @@ kez bir KM plaketine dokunmalı"*) kalktı.
   `TestHoldingActivationTap_NoAdvanceWithoutItsRow`). Eşlik sorusu ilerletmenin kendisidir; ikinci bir `holding_peer` çağrısı yok
   (`TestHoldingFunctions_PeerSetComputedOnce`'ın tek-satır sayımı 1). Satırın tenant'ı plaketin satırından okunur — açık yüklem
   `t.uid = p_uid AND t.tenant_id <> çağıran`; plaket satırı ilerletmenin `FOR UPDATE` kilidi altındadır.
+- **Satırın anlamı:** *"bu plaketin sayacı bir aktivasyon dokunuşunda (denemesinde) ilerletildi"* — *"bir telefon aktive
+  edildi"* **değil**. Davetin tüketimi ilerletmeden sonra, kendi işleminde koşar ve yine başarısız olabilir (araya başka bir
+  tarayıcının onayı girdi, oturum verilemedi); eşin satırı kalır — kendi plaketteki yolda ilerletilmiş sayacın kalması gibi.
+  Denemenin nasıl bittiğini işverenin `activation.*` satırları söyler. **Adlandırılmış bedel:** saha, başarısız bir
+  aktivasyon denemesini de kendi izinde bir satır olarak görür.
+- **Adlandırılmış bedel — K-24'ün artık risk argümanı zayıfladı.** E-posta tekilliği holding genelinde aranmaz (K-24); aynı
+  kişiyi iki eş davet edebilir. Önceki argüman *"aktivasyon o tenant'ın plaketinde fiziksel dokunuş ister"* idi; artık davetin
+  tenant'ının **ya da herhangi bir canlı eşinin** plaketinde fiziksel dokunuş yeter. Dokunuş yine fiziksel, imzalı ve sayaçlı;
+  daveti yine o tenant'ın yöneticisi verir ve onay sihirbazı o tenant'ın adını gösterir — değişen, dokunuşun yapılabileceği
+  yerlerin kümesidir (bütün holding).
+- **İşverenin satırındaki duvar** ilerletmeden **sonra** yeniden okunur (`holding_tap_site`, `invite.PeerPlaque`); plaket
+  duvarından ayrıldıysa ya da işletme artık eş değilse ret `peer_tag_changed` (kendi plaketin `tag_changed` kemeriyle aynı) —
+  böylece iki satır aynı duvarı adlandırır. İlerletmenin commit'i ile bu okuma arasındaki mikro saniyelik pencere kabul edildi
+  (dönüş sütunu eklemek §2'yi genişletirdi).
 - **Satırın biçimi (normatif):** `tenant_id` = eş · `actor_id` NULL · `action = 'holding.activation_tap'` (gövdede sabit) ·
   `target` = plaket uid'i · `detail = {"location_id": <plaketin duvarı>}` · `at` veritabanınınki. Kişinin adı ya da kimliği, davet,
   işverenin kimliği **yoktur** — saha yalnız kendi plaketinin bir telefonu aktive etmekte kullanıldığını öğrenir; bu, §9'un
@@ -2243,7 +2260,9 @@ kez bir KM plaketine dokunmalı"*) kalktı.
   `TestHoldingActivation_AReplayedPeerURLIsRefused`, `TestHoldingActivation_AnInactivePeerPlaqueIsRefused`,
   `TestHoldingActivation_AnExMemberIsNotAPeer`, `TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer`,
   `TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding` (handler); `TestHoldingActivationTap_TrailsOnlyAnAdvance`,
-  `TestHoldingActivationTap_AnExMemberWithinTheWindowIsNotAPeer`, `TestHoldingActivationTap_NoAdvanceWithoutItsRow` (db); katalog
+  `TestHoldingActivationTap_AnExMemberWithinTheWindowIsNotAPeer`, `TestHoldingActivationTap_NoAdvanceWithoutItsRow`,
+  `TestHolding00100_DownGivesBackAndUpTakesItAgain`, `TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins`'in üçüncü kolu
+  (db); `activationViolation` güvenlik olgusu `advanceAPeer`'i de tarar (CMAC reddi ilerletmeden önce); katalog
   (`holdingSignatures`, `holdingDefinerMatrix`, `holdingCanaryCalls`, `holdingSingleRowCalls`, `TestHoldingDefiner_EveryGrantIsUsed`'in
   sürüşü, `privCatalogAllowed`, `m11Functions`). K-1b'nin eski testi (eşin plaketinde ret) ve eski K-35'in testi (davetin eşinin plaketinde
   holding dokunuşu) yeni kurala göre yeniden yazıldı — yukarıdaki ilk ve altıncı test onların yerini aldı.

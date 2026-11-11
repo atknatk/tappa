@@ -1264,6 +1264,11 @@ func holdingWaitsWithin(t *testing.T, f *holdingLive, c *pgx.Conn, d time.Durati
 // + strict `<` alone. MUTANT (measured, ADR 0027's API-1b note): FOR UPDATE taken out of
 // internal/store's advanceTagCounter -> more than one winner. (The test once carried a copy of
 // that SQL; a copy would have stayed green while the real query lost its lock.)
+//
+// THE THIRD ARM (migration 00100, 2026-11-11): holding_activation_tap, as tappa_app in KM's context
+// -- the activating tap's advance on a peer's plaque. Rounds 0-4 split the racers three ways; rounds
+// 5-7 race ONLY that arm. In every round exactly one racer advances, and KF's trail gains exactly as
+// many holding.activation_tap rows as the activation arm won -- in rounds 5-7, exactly 1.
 func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 	f := holdingLiveFixture(t)
 	w := holdingWorldLive(t, f)
@@ -1272,8 +1277,12 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 	for i := range conns {
 		conns[i] = f.conn(t)
 	}
-	for round := 0; round < 5; round++ {
+	trail := func() int64 {
+		return opInt(t, f.ctx, f.owner, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'holding.activation_tap' AND target = $2`, w.kf, w.kfTag)
+	}
+	for round := 0; round < 8; round++ {
 		ctr := int32(200 + round)
+		trailBefore := trail()
 		var (
 			wg      sync.WaitGroup
 			mu      sync.Mutex
@@ -1295,7 +1304,10 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 				}
 				defer func() { _ = tx.Rollback(context.Background()) }()
 				path, tenant := "single", w.kf
-				if i%2 == 1 {
+				switch {
+				case round >= 5 || i%3 == 2:
+					path, tenant = "activation", w.km
+				case i%3 == 1:
 					path, tenant = "holding", w.km
 				}
 				_, err = tx.Exec(f.ctx, `SET LOCAL SESSION AUTHORIZATION tappa_app`)
@@ -1317,7 +1329,11 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 					} else {
 						var outcome string
 						var status *string
-						if err = tx.QueryRow(f.ctx, `SELECT outcome, tag_status FROM public.holding_advance_tag_counter($1, $2)`, w.kfTag, ctr).Scan(&outcome, &status); err == nil {
+						fn := "holding_advance_tag_counter"
+						if path == "activation" {
+							fn = "holding_activation_tap"
+						}
+						if err = tx.QueryRow(f.ctx, `SELECT outcome, tag_status FROM public.`+fn+`($1, $2)`, w.kfTag, ctr).Scan(&outcome, &status); err == nil {
 							won = outcome == "advanced"
 							if outcome != "advanced" && outcome != "replay" {
 								err = fmt.Errorf("holding path answered %s", outcome)
@@ -1346,7 +1362,11 @@ func TestHoldingAdvance_ConcurrentSameCounterExactlyOneWins(t *testing.T) {
 			t.Errorf("round %d: %v", round, e)
 		}
 		if wins != 1 {
-			t.Errorf("round %d: %d of %d racers advanced KF's plaque to %d (single %d, holding %d), want exactly 1", round, wins, racers, ctr, byPath["single"], byPath["holding"])
+			t.Errorf("round %d: %d of %d racers advanced KF's plaque to %d (single %d, holding %d, activation %d), want exactly 1",
+				round, wins, racers, ctr, byPath["single"], byPath["holding"], byPath["activation"])
+		}
+		if got := trail() - trailBefore; got != int64(byPath["activation"]) || (round >= 5 && got != 1) {
+			t.Errorf("round %d: KF's trail gained %d activation rows, the activation arm won %d", round, got, byPath["activation"])
 		}
 		if got := opInt(t, f.ctx, f.owner, `SELECT last_ctr FROM tags WHERE uid = $1`, w.kfTag); got != int64(ctr) {
 			t.Errorf("round %d: last_ctr %d, want %d", round, got, ctr)

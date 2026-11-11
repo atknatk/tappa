@@ -3,7 +3,8 @@
 - **Durum:** kabul edildi
 - **Tarih:** 2026-10-04
 - **Karar veren:** kullanıcı (ürün sahibi). Kararlar: aktivasyon yalnız fiziksel
-  NFC dokunuşunda tamamlanır · işverenin **herhangi bir** aktif plaketi yeter ·
+  NFC dokunuşunda tamamlanır · işverenin **herhangi bir** aktif plaketi yeter *(2026-11-11 notuyla
+  değişti: ya da aynı holding'deki canlı bir eşin aktif plaketi)* ·
   aktivasyon çerezi **davetin süresi bitene kadar** yaşar · practice tap'in yerini
   aktivasyon dokunuşu alır.
 - **Etkilenen:** migration `00035_add_consent_to_employee_invites.sql` *(2026-10-09 düzeltmesi, M10
@@ -78,7 +79,8 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 - **Replay:** aktivasyon dokunuşu `sun.Verify`'ın kendisidir; aynı `(tag, ctr)` ile
   N eşzamanlı istek → tam 1 ilerletme, aynı davetle N farklı geçerli dokunuş → tam 1
   oturum (tek ifadeli tüketim). İkisi de `-race` ile test altında.
-- **Tenant:** yalnız davetin tenant'ına ait aktif plaket kabul edilir ve bu,
+- **Tenant** *(2026-11-11 notuyla değişti: davetin tenant'ının canlı holding eşinin plaketi de kabul edilir; ön
+  kontrol önce kuralı ve eş olmayanın uid'inin yazılmaması aynen durur)*: yalnız davetin tenant'ına ait aktif plaket kabul edilir ve bu,
   **sayaç ilerlemeden önce** ilerletmeyen ön kontrolde sınanır — B tenant'ının
   plaketine dokunan A davetlisi B'nin `last_ctr`'ını oynatamaz. Yabancı tenant'ın
   uid'i bu tenant'ın audit izine **yazılmaz**. Bilinmeyen uid, yabancı plaket ve
@@ -291,7 +293,9 @@ davet ve işveren **yok**. Satırı yalnız ilerletme `advanced` döndüğünde,
 **K-35 daralır:** canlı oturum + bekleyen onaylı aktivasyon + NFC'de, plaketin tenant'ı **davetin tenant'ı ya da onun canlı
 eşiyse** aktivasyon tamamlanır (sihirbaz canlı oturumun değiştirilmesini zaten onaylattı — `Submit`, ölçü 2); yalnız
 **oturumun** eşi olup davetinki olmayan bir plaket hâlâ sıradan holding dokunuşudur. Pasifleştirilmiş oturum sahibinin
-korunması aynen durur (`HolderDeactivated`, satır 4).
+korunması aynen durur (`HolderDeactivated`, satır 4). Davetin eşini sorarken geçici bir okuma hatası olursa
+(`PendingActivatesOn`) dokunuş artık holding dokunuşuna değil aktivasyon akışına düşer — orada da okuma başarısızsa sunucu hata
+ekranı (`problemServer`); davet çözülmezse de aktivasyon akışı cevaplar (eskisi gibi).
 
 Testler: `TestHoldingActivation_CompletesOnALivePeersPlaque`, `TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing`,
 `TestHoldingActivation_AReplayedPeerURLIsRefused`, `TestHoldingActivation_AnInactivePeerPlaqueIsRefused`,
