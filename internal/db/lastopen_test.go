@@ -174,6 +174,8 @@ func TestGetLastOpenTransaction_AgreesWithTheAntiJoinItReplaced(t *testing.T) {
 		{"a qr in", []loRow{{id: 1, at: 0, typ: "in", channel: "qr"}}, 1},
 		{"another business's out does not close", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "out", other: "tenant"}}, 1},
 		{"another business's in is not open", []loRow{{id: 1, at: 0, typ: "in", other: "tenant"}}, 0},
+		{"another business's practice out does not close", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "out", practice: true, other: "tenant"}}, 1},
+		{"another business's later in is not the entry", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "in", other: "tenant"}}, 1},
 		{"another person's out does not close", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "out", other: "person"}}, 1},
 		{"two ins and no out", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "in"}}, 2},
 		{"in, out, in", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 30, typ: "out"}, {id: 3, at: 60, typ: "in"}}, 3},
@@ -182,12 +184,24 @@ func TestGetLastOpenTransaction_AgreesWithTheAntiJoinItReplaced(t *testing.T) {
 		{"same instant, the out's id later", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 0, typ: "out"}}, 0},
 		{"same instant, the out's id earlier", []loRow{{id: 1, at: 0, typ: "out"}, {id: 2, at: 0, typ: "in"}}, 2},
 		{"two same-instant ins", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 0, typ: "in"}}, 2},
+		{"two same-instant ins, the larger id written first", []loRow{{id: 2, at: 0, typ: "in"}, {id: 1, at: 0, typ: "in"}}, 2},
 		{"same instant practice out, id later", []loRow{{id: 1, at: 0, typ: "in"}, {id: 2, at: 0, typ: "out", practice: true}}, 0},
 		{"an out before every in", []loRow{{id: 1, at: -10, typ: "out"}, {id: 2, at: 0, typ: "in"}}, 2},
 	}
 
+	// Every shape is written first, then asked twice: with the planner free, and with index scans
+	// off. The second pass is for the (occurred_at, id) tie-break of the ORDER BY: with an index
+	// the backward walk of 00094's key (occurred_at, id) already yields the larger id first, so a
+	// deleted `l.id DESC` stays green there (third-eye round, T245); a sort over a sequential scan
+	// has only the ORDER BY to go by. The two same-instant shapes write their rows in both
+	// physical orders, so a sort that keeps either order is caught.
 	base := time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
-	compared := 0
+	type written struct {
+		person   string
+		instants []time.Time
+		want     string
+	}
+	var all []written
 	for n, sh := range shapes {
 		person := fmt.Sprintf("00000000-0000-4000-8245-%012d", n+1)
 		otherPerson := fmt.Sprintf("00000000-0000-4000-8246-%012d", n+1)
@@ -220,38 +234,73 @@ func TestGetLastOpenTransaction_AgreesWithTheAntiJoinItReplaced(t *testing.T) {
 			}
 			instants = append(instants, at.Add(-time.Microsecond), at, at.Add(time.Microsecond))
 		}
-		last := base.Add(24 * time.Hour)
-		instants = append(instants, base.Add(-24*time.Hour), last)
-
-		ask := func(stmt string, at time.Time) string {
-			t.Helper()
-			var got string
-			err := tx.QueryRow(ctx, `SELECT id::text FROM (`+stmt+`) AS r`, loTenant, person, at).Scan(&got)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return "none"
-			}
-			if err != nil {
-				t.Fatalf("%s at %s: %v", sh.name, at.Format(time.RFC3339Nano), err)
-			}
-			return got
-		}
-		for _, at := range instants {
-			now, then := ask(shipped, at), ask(before, at)
-			compared++
-			if now != then {
-				t.Errorf("%s at %s: the shipped statement answers %s, the one it replaced %s", sh.name, at.Format(time.RFC3339Nano), now, then)
-			}
-		}
+		instants = append(instants, base.Add(-24*time.Hour), base.Add(24*time.Hour))
 		want := "none"
 		if sh.want != 0 {
 			want = id(sh.want)
 		}
-		if got := ask(shipped, last); got != want {
-			t.Errorf("%s: after every row the open entry is %s, want %s", sh.name, got, want)
+		all = append(all, written{person, instants, want})
+	}
+
+	compared := 0
+	for _, mode := range []struct {
+		name string
+		gucs []string
+	}{
+		{"planner free", []string{`SET LOCAL enable_indexscan = on`, `SET LOCAL enable_indexonlyscan = on`, `SET LOCAL enable_bitmapscan = on`}},
+		{"index scans off", []string{`SET LOCAL enable_indexscan = off`, `SET LOCAL enable_indexonlyscan = off`, `SET LOCAL enable_bitmapscan = off`}},
+	} {
+		for _, g := range mode.gucs {
+			if _, err := tx.Exec(ctx, g); err != nil {
+				t.Fatalf("%s: %v", g, err)
+			}
+		}
+		if mode.name == "index scans off" {
+			// PREMISE: the second pass really sorts -- no index is read for any of the statement's
+			// four scans.
+			rows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF) `+shipped+` /* `+mode.name+` */`, loTenant, all[0].person, base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if text := strings.Join(plan, "\n"); strings.Contains(text, "Index") || !strings.Contains(text, "Sort") {
+				t.Fatalf("PREMISE: with index scans off the statement still reads an index or does not sort:\n%s", text)
+			}
+		}
+		for n, sh := range shapes {
+			w := all[n]
+			ask := func(stmt string, at time.Time) string {
+				t.Helper()
+				var got string
+				// The mode is in the text so pgx prepares, and the planner plans, each mode's statement
+				// under that mode's settings: a statement prepared in the first pass would keep its
+				// index plan in the second (measured: the deleted tie-break stayed green that way).
+				err := tx.QueryRow(ctx, `SELECT id::text FROM (`+stmt+`) AS r /* `+mode.name+` */`, loTenant, w.person, at).Scan(&got)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return "none"
+				}
+				if err != nil {
+					t.Fatalf("%s (%s) at %s: %v", sh.name, mode.name, at.Format(time.RFC3339Nano), err)
+				}
+				return got
+			}
+			for _, at := range w.instants {
+				now, then := ask(shipped, at), ask(before, at)
+				compared++
+				if now != then {
+					t.Errorf("%s (%s) at %s: the shipped statement answers %s, the one it replaced %s", sh.name, mode.name, at.Format(time.RFC3339Nano), now, then)
+				}
+			}
+			if got := ask(shipped, w.instants[len(w.instants)-1]); got != w.want {
+				t.Errorf("%s (%s): after every row the open entry is %s, want %s", sh.name, mode.name, got, w.want)
+			}
 		}
 	}
-	if compared < 3*len(shapes) {
-		t.Fatalf("PREMISE: %d comparisons over %d shapes", compared, len(shapes))
+	if compared < 6*len(shapes) {
+		t.Fatalf("PREMISE: %d comparisons over %d shapes in two modes", compared, len(shapes))
 	}
 }
 
