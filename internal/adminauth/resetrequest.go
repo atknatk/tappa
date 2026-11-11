@@ -161,7 +161,7 @@ func (r *Resets) withMintClock(ctx context.Context) context.Context {
 // reports whether the bound ran out first -- then the transaction never began, nothing was written,
 // and the account is a stall like a lock wait that ran out. THE PRICE (backlog T309, measured): a pool
 // busy for longer than the budget stalls mints that would have waited and minted -- 16 simultaneous
-// full windows on a 4-connection pool minted 25-32 of 128.
+// full windows on a 4-connection pool minted 25-32 of 128 (on 16, the likely production size: 128).
 func (r *Resets) mintStep(ctx context.Context) (context.Context, func() (cut bool)) {
 	return db.BoundAcquireWait(ctx, r.lockWaitFor(ctx, 1))
 }
@@ -318,7 +318,7 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		// cut never began, so the account is a stall like a lock wait that ran out.
 		step, cut := r.mintStep(ctx)
 		to, err := r.recipient(step, c.TenantID, c.ID)
-		if cut() {
+		if cut() && err != nil {
 			stalled = append(stalled, StalledReset{TenantID: c.TenantID, AdminUserID: c.ID})
 			continue
 		}
@@ -332,7 +332,7 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		}
 		step, cut = r.mintStep(ctx)
 		issued, live, err := r.issueUnlessLive(step, c.TenantID, c.ID)
-		wasCut := cut()
+		wasCut := cut() // read only under err != nil: a call that returned a result committed
 		if err != nil {
 			if errors.Is(err, ErrNoSuchAdmin) && !wasCut {
 				continue

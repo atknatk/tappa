@@ -194,3 +194,47 @@ func TestIssueForPerson_AStarvedPoolStallsTheOpening(t *testing.T) {
 		t.Fatalf("with the pool free again: %v, %+v; want the identity's link and the row's", err, p)
 	}
 }
+
+// lateOpeningDB opens the identity's link only after the step's bound has run out, on a context of its
+// own -- the shape the third-eye review measured in the pool's hook (a guard marked cut, the opening
+// still begun and committed).
+type lateOpeningDB struct {
+	*db.DB
+	after time.Duration
+}
+
+func (l lateOpeningDB) OpenIdentityReset(_ context.Context, id uuid.UUID, h string, exp time.Time, wait time.Duration) (db.OpenedIdentityReset, error) {
+	time.Sleep(l.after)
+	return l.DB.OpenIdentityReset(context.Background(), id, h, exp, wait)
+}
+
+// TestIssueForPerson_AnOpeningThatReturnedIsNotACut (third-eye review of T236 (a)): an opening that
+// RETURNED a link committed it, whatever the step's bound says afterwards. It is a grant -- reported cut
+// instead, the identity would hold a live link nobody was sent and nobody withdraws, and every later
+// request of the owner would be answered kept for ResetTTL.
+//
+// MUTATION: `if cut() && err != nil` back to `if cut()` -> the identity reported stalled with a live
+// link -> red.
+func TestIssueForPerson_AnOpeningThatReturnedIsNotACut(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	w := newPersonResetWorld(t)
+	r := cheapResets(t, lateOpeningDB{DB: d, after: 300 * time.Millisecond})
+	r.mintLockWait = 50 * time.Millisecond
+
+	p, err := r.IssueForPerson(ctx, w.typed)
+	if err != nil {
+		t.Fatalf("IssueForPerson: %v", err)
+	}
+	for _, st := range p.Stalled {
+		if st.IdentityID == w.ident {
+			t.Fatalf("the identity reported stalled although its opening returned a link (stalled %+v)", p.Stalled)
+		}
+	}
+	if len(p.Grants) == 0 || p.Grants[0].IdentityID != w.ident {
+		t.Fatalf("grants %+v; want the identity's link first", p.Grants)
+	}
+	if n := w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, w.ident); n != 1 {
+		t.Fatalf("%d identity link(s), want the one granted", n)
+	}
+}

@@ -249,9 +249,10 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 	// withdrawContext, which drops the bound.
 	ctx, cut := r.mintStep(ctx)
 	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, r.lockWaitFor(ctx, openIdentityResetWaits))
-	if cut() {
+	if cut() && err != nil {
 		// No connection inside the budget: the transaction never began, nothing was opened, nothing is
-		// to be withdrawn -- the lock wait's case below, and the caller reports it the same way.
+		// to be withdrawn -- the lock wait's case below, and the caller reports it the same way. Only
+		// with an error: a call that returned a result committed, whatever the bound says.
 		return nil, nil, errOpeningCut
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

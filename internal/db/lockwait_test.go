@@ -145,3 +145,27 @@ func TestBoundAcquireWait_DoesNotCutTheTransaction(t *testing.T) {
 		t.Fatalf("a transaction slower than the bound: err %v, cut %v; want it committed and not cut", err, wasCut)
 	}
 }
+
+// TestBoundAcquireWait_ACutGuardRefusesBeforeTheContextIsCancelled (third-eye review of T236 (a)): the
+// timer marks the guard cut and only then cancels the context, so an acquire can reach the pool's hook
+// in between. The hook must refuse on the guard alone.
+//
+// MUTATION: the hook returning context.Cause(ctx) (nil in that window) -> it passes -> red.
+func TestBoundAcquireWait_ACutGuardRefusesBeforeTheContextIsCancelled(t *testing.T) {
+	ctx, cut := BoundAcquireWait(context.Background(), time.Hour)
+	defer cut()
+	g := ctx.Value(acquireGuardKey{}).(*acquireGuard)
+	if !g.state.CompareAndSwap(acquireWaiting, acquireCut) {
+		t.Fatal("PREMISE: the guard was not waiting")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("PREMISE: the context is already cancelled; the window under test is gone")
+	}
+	ok, err := connectionHandedOver(ctx, nil)
+	if !ok || err == nil {
+		t.Fatalf("a cut guard, context not yet cancelled: ok=%v err=%v; want the connection kept and the acquire refused", ok, err)
+	}
+	if ok, err := connectionHandedOver(context.Background(), nil); !ok || err != nil {
+		t.Errorf("CONTROL: a context without a bound: ok=%v err=%v, want it passed", ok, err)
+	}
+}

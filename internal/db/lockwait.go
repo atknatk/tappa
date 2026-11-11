@@ -99,10 +99,15 @@ const (
 // connectionHandedOver is the pool's PrepareConn: the last step of an acquire, after the pool's own
 // liveness ping. It disarms a BoundAcquireWait bound on ctx, or refuses the connection if the bound
 // ran out first (the connection goes back, it is not destroyed). A context without a bound passes.
+//
+// THE REFUSAL IS A FIXED ERROR, NOT context.Cause(ctx): the timer marks the guard cut BEFORE it cancels
+// the context, and an acquire that lands between the two would read a nil cause and pass -- a
+// transaction begun under a bound that cut later reports as run out (third-eye review, measured).
+// Whatever the context's state, a guard marked cut refuses.
 func connectionHandedOver(ctx context.Context, _ *pgx.Conn) (bool, error) {
 	g, ok := ctx.Value(acquireGuardKey{}).(*acquireGuard)
 	if !ok || g.state.CompareAndSwap(acquireWaiting, acquireDone) || g.state.Load() == acquireDone {
 		return true, nil
 	}
-	return true, context.Cause(ctx)
+	return true, errAcquireWait
 }
