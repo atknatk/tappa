@@ -1229,58 +1229,88 @@ cd "$WT" && echo "WT=$WT" && git log -1 --format='%h %cs %s'
 ```
 
 ⚠️ Orkestratörün kabuğu çağrılar arasında değişken ve dizin **tutmaz**: 2. ve 3. adım tek bir çağrıda
-koşar, ya da basılan `WT=` ve `DRILL_DIR=` yolları sonraki çağrıya elle taşınır.
+koşar, ya da basılan `WT=` yolu sonraki çağrıya elle taşınır (3. adım kendi dizinini kendisi siler).
 
 **3. Koşu — sürücü.** `(d1)`–`(d5)` bu dosyadan **kesilir ve yazıldığı gibi** tek bir bash'te koşar
-(CI'ın `(d2)`–`(d5)`'i kestiği gibi; `(d6)` ve `prune-probe` kesilmez). Bash `set -euo pipefail` ile
-koşar, yani bir blok düşerse sonrakine geçilmez. Tuzak, kırmızı bir koşuda da konteyneri, ağı ve
-indirilen dökümü siler. Döküm çalışanların mesai kaydıdır ve repo dışındaki bir `mktemp -d`'ye iner.
+(CI'ın `(d2)`–`(d5)`'i kestiği gibi; `(d6)` ve `prune-probe` kesilmez). Bu blokları CI her koşuda
+denetler (`scripts/restore-chain-check.sh` 0. adımı): `(d2)`–`(d5)` yalnız kendi konteynerine
+uzanabilir, `(d1)` ise yalnız hedefi listeleyip kopyalayabilir (`rclone … lsf|copy`, `shasum`, `awk`,
+`mktemp`); bir `rclone delete` ya da `kubectl` satırı CI'ı kırmızıya çevirir. Bu, **yanlışlıkla
+yapılan bir düzenlemeye** karşı bir kemerdir, bir saldırgana karşı değil.
+
+Sürücü üç kapı koyar. **(i)** Kesilen bloklar tam olarak `(d1) (d2) (d3) (d3b) (d4) (d5)` değilse
+**hiçbir şey koşmaz** (bir başlık değişmiştir). **(ii)** Bloklar boşaltılmış bir ortamda koşar:
+`env -i`, yalnız `PATH`, geçici bir `HOME`, `KUBECONFIG=/dev/null`, `DOCKER_HOST` ve geçici bir
+`TMPDIR`. Geçici `HOME`'da `.config/tappa` gerçek dizine bir bağlantıdır, yani `(d1)`'in `$CONF`'u
+aynı dosyayı okur ama başka hiçbir şey kullanıcının dizinini görmez. **(iii)** Bash
+`set -euo pipefail` ile koşar, bir blok düşerse sonrakine geçilmez; içteki tuzak kırmızı bir koşuda da
+konteyneri, ağı ve indirilen dökümü siler. Dıştaki tuzak çağrı biterken bütün `DRILL_DIR`'ı (kayıt
+dahil) siler, yani prova satırının sayıları bu bloğun **ekrana bastığı** satırlardan alınır. Döküm
+çalışanların mesai kaydıdır ve `DRILL_DIR/tmp`'ye iner.
+
 `rclone` bu Mac'te kurulu değilse CronJob'ın imajı (`rclone/rclone:1.71`) bir kabuk fonksiyonuyla
-çağrılır. Bağlama `-v …:ro` ile değil `--mount …,readonly` ile yapılır: Docker Desktop'ta aynı
-yola `-v A:A:ro` bağlanan bir `.config` dizini konteynerde **görünmedi**, `--mount` ile göründü
-(ölçüldü, 2026-11-11, üç kez; yapıcının scratch dizininde, gerçek `$HOME` altında denenmedi).
+çağrılır. Config dizini gerçek yoluyla (`pwd -P`) bağlanır. Bağlama `-v …:ro` ile değil
+`--mount …,readonly` ile yapılır: Docker Desktop'ta aynı yola `-v A:A:ro` bağlanan bir `.config`
+dizini konteynerde **görünmedi**, `--mount` ile göründü (ölçüldü, 2026-11-11, üç kez; yapıcının
+scratch dizininde, gerçek `$HOME` altında denenmedi).
 
 ```bash
-DRILL_DIR=$(mktemp -d); echo "DRILL_DIR=$DRILL_DIR"
+DRILL_DIR=$(mktemp -d); trap 'rm -rf "$DRILL_DIR"' EXIT INT TERM
+mkdir -p "$DRILL_DIR/home/.config" "$DRILL_DIR/tmp"
+ln -s "$HOME/.config/tappa" "$DRILL_DIR/home/.config/tappa"
 cat > "$DRILL_DIR/drill.sh" <<'DRILL'
 set -euo pipefail
 trap 'docker rm -f -v tappa-drill-db >/dev/null 2>&1 || true; docker network rm tappa-drill >/dev/null 2>&1 || true; [ -z "${RESTORE:-}" ] || rm -rf "$RESTORE"' EXIT
 command -v rclone >/dev/null 2>&1 || rclone() {
   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    --mount "type=bind,src=$HOME/.config/tappa,dst=$HOME/.config/tappa,readonly" \
+    --mount "type=bind,src=$(cd "$HOME/.config/tappa" && pwd -P),dst=$HOME/.config/tappa,readonly" \
     --mount "type=bind,src=$RESTORE,dst=$RESTORE" rclone/rclone:1.71 "$@"
 }
 DRILL
 awk 'BEGIN { f = "\140\140\140" } /^\(d[1-5]b?\) / { armed = 1; m = $1; next } armed && $0 == f "bash" { inside = 1; print "# runbook block " m; next } inside && $0 == f { inside = 0; armed = 0; next } inside { print }' deploy/README.md >> "$DRILL_DIR/drill.sh"
-awk '/^# runbook block / { printf "%s ", $4 } END { print "" }' "$DRILL_DIR/drill.sh"
-start=$(date +%s); bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
-echo "drill exit: $rc in $(( $(date +%s) - start )) s"
-grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )' "$DRILL_DIR/drill.log"
+blocks=$(awk '/^# runbook block / { printf "%s ", $4 }' "$DRILL_DIR/drill.sh")
+EP=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+vols=$(docker volume ls -q | wc -l | tr -d ' ')
+if [ "$blocks" != "(d1) (d2) (d3) (d3b) (d4) (d5) " ]; then
+  echo "DUR: the cut blocks are '$blocks'; nothing was run"
+else
+  start=$(date +%s)
+  env -i PATH="$PATH" HOME="$DRILL_DIR/home" TMPDIR="$DRILL_DIR/tmp" KUBECONFIG=/dev/null \
+    DOCKER_HOST="${EP:-${DOCKER_HOST:-unix:///var/run/docker.sock}}" \
+    bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
+  echo "drill exit: $rc in $(( $(date +%s) - start )) s"
+  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | cut -c1-300
+  echo "left behind: containers $(docker ps -aq --filter name=tappa-drill | wc -l | tr -d ' '), networks $(docker network ls -q --filter name=tappa-drill | wc -l | tr -d ' '), dump dirs $(ls -A "$DRILL_DIR/tmp" | wc -l | tr -d ' '), volumes $vols -> $(docker volume ls -q | wc -l | tr -d ' ')"
+fi
 ```
 
-Beklenen: kesilen bloklar `(d1) (d2) (d3) (d3b) (d4) (d5)` (başka bir liste bir başlığın değiştiği
-demektir, sürücüyü koşturmadan dur), `drill exit: 0`, `sha256 OK <damga>`, `restore exit: 0`,
-`pg-restore-verify: PASS` ve `verify exit: 0`. Bunlardan biri yoksa prova **kırmızıdır** (adım 6).
-`(d1)`'in `sha256 MISMATCH: DUR` satırı koşuyu kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı
-aynı sha256'yı 1. bölümünde reddeder ve koşu `drill exit: 1` ile biter (ölçüldü, aşağıda).
+Beklenen: `drill exit: 0`, `sha256 OK <damga>`, `restore exit: 0`, `pg-restore-verify: PASS`,
+`verify exit: 0` ve `left behind: containers 0, networks 0, dump dirs 0, volumes N -> N`. Burada
+`dump dirs`, `(d1)`'in `RESTORE=$(mktemp -d)` dizinidir (`TMPDIR` altında doğar), `0` onun
+silindiğini söyler. Volume sayısı makinedeki başka koşularla değişebilir. Bunlardan biri yoksa ya da
+`DUR:` basıldıysa prova **kırmızıdır** (adım 6). `(d1)`'in `sha256 MISMATCH: DUR` satırı koşuyu
+kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı aynı sha256'yı 1. bölümünde reddeder ve koşu
+`drill exit: 1` ile biter (ölçüldü, aşağıda).
 
-**4. Kalıntı yok.** İkisi de boş dönmeli; sonra kayıt ve checkout temizlenir:
+⚠️ **Kayıt yalnız yeşil bir koşuda sırsız ve satırsızdır** (araç yalnız sayı ve ad basar). Kırmızı
+bir koşuda psql'in `DETAIL:` ve `CONTEXT:` satırları bir döküm satırını (bir çalışanın mesai kaydını)
+taşıyabilir. Bu yüzden blok yalnız süzülmüş satırları basar, ikisini atar, kaydın tamamı okunmaz ve
+çağrı biterken silinir.
+
+**4. Checkout'u kaldır.** `DRILL_DIR` 3. adımın tuzağıyla gitti; geriye 2. adımın worktree'si kalır:
 
 ```bash
-docker ps -a --filter name=tappa-drill --format '{{.Names}}'
-docker network ls --filter name=tappa-drill --format '{{.Name}}'
+git worktree remove "$WT"
 ```
 
-Kayıt dosyasında sır ve satır verisi yoktur (araç yalnız sayı ve ad basar). Prova satırı
-yazıldıktan sonra `DRILL_DIR` silinir, sonra `git worktree remove "$WT"` koşulur.
-
-**5. Prova satırı.** Aşağıdaki tabloya bir satır, kayıt dosyasından: damga (`sha256 OK`'un yanındaki),
+**5. Prova satırı.** Aşağıdaki tabloya bir satır, 3. adımın bastığı satırlardan: damga (`sha256 OK`'un yanındaki),
 goose ve tablo/satır sayısı (`goose schema version`, `row counts`), yetki/fonksiyon/rol/tetikleyici
 sayıları, süre, sonuç ve gecenin Job'ı (adım 1 koşulduysa). Satır bir dalda commit'lenir ve `main`'e
 sıradaki toplu geçişle gider. Kırmızı bir prova da yazılır.
 
 **6. Kırmızıysa.** Elle düzeltip yeniden koşma, düzeltme veritabanında değil koddadır ya da kümede.
-Önce kayıttaki `FAIL` satırını oku: `sha256 MISMATCH` ise başka bir damga dene; indirme ya da çözme
+Yalnız 3. adımın bastığı süzülmüş satırlar okunur; kaydı açıp `DETAIL:`/`CONTEXT:` satırı okunmaz
+(çalışan verisi). Önce `FAIL` ya da `ERROR:` satırını oku: `sha256 MISMATCH` ise başka bir damga dene; indirme ya da çözme
 hatasıysa emanet kaymış olabilir (T115), kullanıcıya git. Araç `FAIL` verdiyse satırı yaz ve backlog'a
 bir satır aç. Bu sırada gecelik yedek **kanıtlanmamış** sayılır. Kümede bir düzeltme gerekiyorsa
 🔴 **KULLANICI ONAYI**.
@@ -1292,17 +1322,22 @@ bir satır aç. Bu sırada gecelik yedek **kanıtlanmamış** sayılır. Kümede
 | 2026-10-09 | ilk gece (T45) | 34 | 24 / 284 | `pg-restore-verify: PASS` | — | orkestratör | T45 kapanışından (okundu): R2'den geri alma, 9(d) yazıldığı gibi; sürücü o gün yoktu |
 
 **Sürücünün kendisi ölçüldü (2026-11-11, yapıcı; prova DEĞİL — R2'ye ve kümeye dokunulmadı).**
-Hedef R2 yerine **bu Mac'te bir `crypt`-üstü-`local` remote**'du (rclone v1.71.2, CronJob'ın imajı;
-parolalar koşuda üretildi, basılmadı), `HOME` atılabilir bir dizine çevrildi ve döküm yapıcının kendi
-lane veritabanından gerçek `pg-backup.sh` ile alındı (goose 99, 43 tablo, 340 satır). 3. adımın
-bloğu bu dosyadan kesilip `zsh -f` ile, boşaltılmış bir ortamda koşuldu (orkestratörün kabuğu zsh):
-kesilen bloklar `(d1) (d2) (d3) (d3b) (d4) (d5)`, `drill exit: 0` (16 ve 21 sn, iki koşu), `sha256 OK`, `restore
-exit: 0`, `pg-restore-verify: PASS`, `verify exit: 0`; sonra `tappa-drill` konteyneri ve ağı 0, docker
-volume sayısı önce ve sonra aynı, indirilen döküm dizini yok. **Kırmızı yol:** manifest'in sha256'sı
-bozuk daha yeni bir damga yüklenince `sha256 MISMATCH: DUR`, araç `FAIL sha256 mismatch`, `drill
-exit: 1 in 14 s`; tuzak konteyneri, ağı ve döküm dizinini yine sildi (geride yalnız `DRILL_DIR`, 4.
-adımın sildiği). **Ölçülmeyen:** gerçek R2 (ağ, kova kapsamlı token, AB uç noktası) ve üretim
-dökümünün boyutu. İlki ilk gerçek provada ölçülür.
+Hedef R2 yerine bu Mac'te ağdan okunan bir `crypt` remote'tu: altında `rclone serve http` ile
+sunulan bir dizin (rclone v1.71.2, CronJob'ın imajı; parolalar koşuda üretildi, basılmadı). Dış
+`HOME` atılabilir bir dizine çevrildi. Döküm yapıcının kendi lane veritabanından gerçek
+`pg-backup.sh` ile alındı (goose 99, 43 tablo). 3. adımın bloğu bu dosyadan kesilip `zsh -f` ile
+boşaltılmış bir ortamda koşuldu (orkestratörün kabuğu zsh). Sonuçlar:
+
+- **Yeşil:** `drill exit: 0`, `sha256 OK`, `restore exit: 0`, `pg-restore-verify: PASS`, `verify exit: 0`,
+  `left behind: containers 0, networks 0, dump dirs 0, volumes 65 -> 65`; `DRILL_DIR` de gitti.
+- **Kırmızı yol:** manifest'in sha256'sı bozuk daha yeni bir damga yüklendi. Sonuç `sha256 MISMATCH:
+  DUR`, araçtan `FAIL sha256 mismatch`, `drill exit: 1`, `left behind` yine dördü de sıfır.
+- **Kapı:** `(d3b)` başlığı `(d3c)` yapılınca, ayrıca `(d1)` başlığının boşluğu silinince sürücü
+  `DUR: the cut blocks are '…'; nothing was run` bastı ve hiçbir konteyner açılmadı.
+
+İlk sürücü (kapısız, `env -i`'siz) aynı gün bir `local` remote'la iki kez yeşil, bir kez kırmızı
+koşmuştu. **Ölçülmeyen:** gerçek R2 (kova kapsamlı token, AB uç noktası), üretim dökümünün boyutu
+ve gerçek `$HOME` altında `--mount`. Üçü de ilk gerçek provada ölçülür.
 
 **10. Dış uyarı — healthchecks.io ölü adam anahtarı (T116; `Q28 (a)`'nın bir parçası).**
 
@@ -1509,7 +1544,7 @@ alanlar basılır (`ping_url` basılmaz).
 
 ```bash
 umask 077
-HC_CFG=$(mktemp)
+HC_CFG=$(mktemp); trap 'rm -f "$HC_CFG"' EXIT INT TERM
 printf 'healthchecks.io API key (read-write): '; read -rs HC_KEY; echo
 printf 'header = "X-Api-Key: %s"\nheader = "Content-Type: application/json"\n' "$HC_KEY" > "$HC_CFG"
 unset HC_KEY
@@ -1529,7 +1564,7 @@ doğar — taze olmayan bir SigNoz'da önce *Alerts*'te var olanlara bak.
 ```bash
 umask 077
 SIGNOZ=https://signoz.everva.com.tr
-SZ_CFG=$(mktemp)
+SZ_CFG=$(mktemp); trap 'rm -f "$SZ_CFG"' EXIT INT TERM
 printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
 printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
 SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
@@ -1571,7 +1606,7 @@ bak (varsa bu blok ikincisini yaratır). Oturum satırları (2)'nin aynısıdır
 ```bash
 umask 077
 SIGNOZ=https://signoz.everva.com.tr
-SZ_CFG=$(mktemp)
+SZ_CFG=$(mktemp); trap 'rm -f "$SZ_CFG"' EXIT INT TERM
 printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
 printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
 SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
