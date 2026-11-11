@@ -592,7 +592,7 @@ func (t *TapLimiter) refuse(w http.ResponseWriter, r *http.Request, l *Limiter, 
 			}); err != nil {
 				// Never swallowed (§7): a trail that cannot be written means
 				// §4.6 is not being kept, even though the refusal itself stands.
-				t.log.Error("audit write failed", "action", ActionTapRateLimited, "err", err)
+				t.log.Error(audit.EventWriteFailed, "action", ActionTapRateLimited, "err", err)
 			}
 		}
 	}

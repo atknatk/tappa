@@ -318,5 +318,45 @@
       "tappa-healthchecks"
     ],
     "version": "v5"
+  },
+  {
+    "alert": "tappa 9: panel recovery left a link live, a mint unmade or a trail unwritten",
+    "alertType": "LOGS_BASED_ALERT",
+    "ruleType": "threshold_rule",
+    "evalWindow": "15m0s",
+    "frequency": "5m0s",
+    "condition": {
+      "compositeQuery": {
+        "queries": [
+          {
+            "type": "clickhouse_sql",
+            "spec": {
+              "name": "A",
+              "query": "SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 5 MINUTE) AS ts, toFloat64(count()) AS value FROM signoz_logs.distributed_logs_v2 WHERE timestamp BETWEEN {{.start_timestamp_nano}} AND {{.end_timestamp_nano}} AND resources_string['k8s.namespace.name'] = 'tappa' AND resources_string['k8s.container.name'] = 'tappa' AND (JSONExtractString(body, 'recovery') = 'list_full' OR JSONExtractString(body, 'recovery') = 'closing' OR JSONExtractString(body, 'recovery') = 'not_retried' OR JSONExtractInt(body, 'owed_withdrawals') > 0 OR JSONExtractString(body, 'msg') = 'audit write failed' OR JSONExtractString(body, 'msg') = 'panel recovery: minting a link waited too long for a lock, so none was made') GROUP BY ts",
+              "disabled": false
+            }
+          }
+        ],
+        "panelType": "graph",
+        "queryType": "clickhouse_sql"
+      },
+      "op": "1",
+      "target": 0,
+      "matchType": "1",
+      "selectedQueryName": "A"
+    },
+    "labels": {
+      "app": "tappa",
+      "severity": "warning"
+    },
+    "annotations": {
+      "description": "A panel recovery link could not be withdrawn and stays live until it expires (recovery list_full, closing or not_retried; an identity link holds the person in every business), the process stopped with withdrawals still owed (owed_withdrawals), a mint gave up waiting for a lock so the person got no link, or an audit row was not written. Read the line's msg, recovery, admin_user_id or identity_id, reset_id and action. See M8-03 rule 9.",
+      "summary": "tappa 9: panel recovery left a link live, a mint unmade or a trail unwritten"
+    },
+    "disabled": false,
+    "preferredChannels": [
+      "tappa-healthchecks"
+    ],
+    "version": "v5"
   }
 ]

@@ -89,18 +89,21 @@ type owedWithdrawal struct {
 	tries     int
 }
 
-// The fates a lost withdrawal's ERROR line names (logWithdrawalLost's "recovery" key).
+// The fates a lost withdrawal's ERROR line names under LogRecovery. Exported because an alert
+// rule filters on them (deploy/README.md, M8-03 rule 9, T235): the three that leave a link live
+// until it expires page; RecoveryRetrying does not, the list may still withdraw it.
 const (
-	recoveryRetrying   = "retrying"    // on the list: a later try may still withdraw it
-	recoveryListFull   = "list_full"   // the list refused: the link stays live until it expires
-	recoveryClosing    = "closing"     // the process is stopping: the same
-	recoveryNotRetried = "not_retried" // the database answered no, or the drain stopped the write
+	LogRecovery        = "recovery"
+	RecoveryRetrying   = "retrying"    // on the list: a later try may still withdraw it
+	RecoveryListFull   = "list_full"   // the list refused: the link stays live until it expires
+	RecoveryClosing    = "closing"     // the process is stopping: the same
+	RecoveryNotRetried = "not_retried" // the database answered no, or the drain stopped the write
 )
 
 // owe hands a failed withdrawal to the list WITHOUT BLOCKING and answers its fate.
 func (h *AdminReset) owe(base context.Context, g adminauth.ResetGrant) string {
 	if h.outbox == nil {
-		return recoveryClosing
+		return RecoveryClosing
 	}
 	now := time.Now()
 	g.Recipient = ""
@@ -113,18 +116,18 @@ func (h *AdminReset) owe(base context.Context, g adminauth.ResetGrant) string {
 	})
 	switch {
 	case accepted:
-		return recoveryRetrying
+		return RecoveryRetrying
 	case closing:
-		return recoveryClosing
+		return RecoveryClosing
 	}
-	return recoveryListFull
+	return RecoveryListFull
 }
 
 // oweFailedRequest takes the withdrawals a failed mint could not make (adminauth.OwedWithdrawals): each
 // one owed or lost, with its line.
 func (h *AdminReset) oweFailedRequest(base context.Context, err error) {
 	for _, w := range adminauth.OwedWithdrawals(err) {
-		fate := recoveryNotRetried
+		fate := RecoveryNotRetried
 		if db.Transient(w.Err) {
 			fate = h.owe(base, w.Grant)
 		}
@@ -162,7 +165,7 @@ func (h *AdminReset) recoverWithdrawals() {
 				append(grantIDs(w.g), "tries", w.tries, "owed_for", time.Since(w.since).Round(time.Second).String())...)
 		case db.Transient(err):
 			if !q.deferOwed(w, time.Now(), h.clocks.recoveryFirst, h.clocks.recoveryMaxPause) {
-				h.logWithdrawalLost(w.base, w.g, err, recoveryClosing)
+				h.logWithdrawalLost(w.base, w.g, err, RecoveryClosing)
 				return
 			}
 			// One line per failing pass, not per entry: the pass ends here.
@@ -170,7 +173,7 @@ func (h *AdminReset) recoverWithdrawals() {
 				append(grantIDs(w.g), "tries", w.tries, "owed", q.owedCount(), "err_type", fmt.Sprintf("%T", err))...)
 			return
 		default:
-			h.logWithdrawalLost(w.base, w.g, err, recoveryNotRetried)
+			h.logWithdrawalLost(w.base, w.g, err, RecoveryNotRetried)
 		}
 	}
 }

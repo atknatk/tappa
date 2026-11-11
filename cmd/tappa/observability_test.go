@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/handler"
@@ -106,6 +107,16 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		"checkin.FallbackMaterialiseFailed": "materialise_failed",
 		"checkin.FallbackReloadFailed":      "reload_failed",
 		"checkin.FallbackIncomplete":        "incomplete_after_materialise",
+
+		// Rule 9 (T235) filters on the panel recovery flow's lost withdrawals (their fate), the
+		// drain's count of withdrawals still owed, the stalled mint and the lost audit row.
+		"handler.LogRecovery":        "recovery",
+		"handler.RecoveryListFull":   "list_full",
+		"handler.RecoveryClosing":    "closing",
+		"handler.RecoveryNotRetried": "not_retried",
+		"handler.LogOwedWithdrawals": "owed_withdrawals",
+		"handler.EventMintStalled":   "panel recovery: minting a link waited too long for a lock, so none was made",
+		"audit.EventWriteFailed":     "audit write failed",
 	}
 	got := alertSignalConstants()
 
@@ -158,6 +169,8 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		httpx.EventHTTPRequest,
 		handler.EventReadinessLost,
 		checkin.EventPolicyFallback,
+		handler.EventMintStalled,
+		audit.EventWriteFailed,
 	} {
 		if !mentionsWholeName(block, event) {
 			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q as a "+
@@ -200,6 +213,15 @@ func alertSignalConstants() map[string]string {
 		"checkin.FallbackMaterialiseFailed": checkin.FallbackMaterialiseFailed,
 		"checkin.FallbackReloadFailed":      checkin.FallbackReloadFailed,
 		"checkin.FallbackIncomplete":        checkin.FallbackIncomplete,
+
+		// Rule 9 (T235).
+		"handler.LogRecovery":        handler.LogRecovery,
+		"handler.RecoveryListFull":   handler.RecoveryListFull,
+		"handler.RecoveryClosing":    handler.RecoveryClosing,
+		"handler.RecoveryNotRetried": handler.RecoveryNotRetried,
+		"handler.LogOwedWithdrawals": handler.LogOwedWithdrawals,
+		"handler.EventMintStalled":   handler.EventMintStalled,
+		"audit.EventWriteFailed":     audit.EventWriteFailed,
 	}
 }
 

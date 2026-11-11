@@ -1432,6 +1432,40 @@ Son olarak SigNoz → *Alerts*: dosyadaki bütün kurallar, durumları `inactive
 — `firing` görünürse o gerçek bir uyarıdır. Kural JSON'unun `version` alanı `v5`'tir; bu
 SigNoz `v4`'ü **reddediyor** (ölçüldü).
 
+**Yalnız 9. kural (T235) — 🔴 KULLANICI ONAYI (küme yazması; 2026-11-11'de kurulmadı).** Kümede
+1–8 ve kanal `tappa-healthchecks` zaten var; yukarıdaki döngü dosyanın tamamını gönderir ve 1–8'in
+**ikinci kopyalarını** doğurur. Bu yüzden yalnız dizinin **dokuzuncu** elemanı (`.[8]`) gönderilir,
+kanal yeniden kurulmaz. Önce SigNoz → *Alerts*'te `tappa 9:` ile başlayan bir kural **olmadığına**
+bak (varsa bu blok ikincisini yaratır). Oturum satırları (2)'nin aynısıdır; blok bu repodan
+**koşulmadı**:
+
+```bash
+umask 077
+SIGNOZ=https://signoz.everva.com.tr
+SZ_CFG=$(mktemp)
+printf 'SigNoz admin e-mail: '; read -rs SZ_EMAIL; echo
+printf 'SigNoz admin password: '; read -rs SZ_PASS; echo
+SZ_ORG=$(printf 'url = "%s/api/v2/sessions/context?email=%s"\n' "$SIGNOZ" "$(printf '%s' "$SZ_EMAIL" | jq -sRr @uri)" | curl -fsS -K - | jq -r '.data.orgs[0].id')
+[ -n "$SZ_ORG" ] && [ "$SZ_ORG" != null ] && echo 'org ok'
+printf 'url = "%s/api/v2/sessions/email_password"\nheader = "Content-Type: application/json"\n' "$SIGNOZ" > "$SZ_CFG"
+SZ_TOKEN=$(printf '%s\n%s\n%s\n' "$SZ_EMAIL" "$SZ_PASS" "$SZ_ORG" | jq -Rn '[inputs] | {email: .[0], password: .[1], orgId: .[2]}' | curl -fsS -K "$SZ_CFG" --data-binary @- | jq -r '.data.accessToken')
+unset SZ_EMAIL SZ_PASS
+[ ${#SZ_TOKEN} -gt 20 ] && [ "$SZ_TOKEN" != null ] && echo 'token ok'
+printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$SZ_TOKEN" > "$SZ_CFG"
+unset SZ_TOKEN
+jq -r '.[8].alert' deploy/observability/signoz-alert-rules.json
+jq -c '.[8]' deploy/observability/signoz-alert-rules.json \
+  | curl -sS -K "$SZ_CFG" --data-binary @- -o /dev/null -w 'rule 9: HTTP %{http_code}\n' "$SIGNOZ/api/v1/rules"
+rm -f "$SZ_CFG"
+```
+
+Beklenen: `org ok`, `token ok`, `tappa 9: panel recovery left a link live, a mint unmade or a trail
+unwritten` ve `rule 9: HTTP 2xx`. Sonra SigNoz → *Alerts*: dokuz `tappa` kuralı, 9.su `inactive`
+(hatasız değerlendiriliyor) ve kanalı `tappa-healthchecks`. T122'nin 8. kurala yaptığı gibi sorgu
+bir kez ClickHouse'a karşı koşulur (son 6 saat, HTTP 200; seri olmaması **olay yok** demektir).
+Uçtan uca ateşleme (olay → bildirim) ölçülmeyecekse bu yazılır. Kurulunca backlog T235 kapanır ve
+*"M8-03 — UYARI KURALLARI"* kutusundaki T235 notu *"kümede"* olur.
+
 **Testler** (yalnız bu adımın; tam takım değil):
 `go test ./cmd/tappa/ -run 'TestHeartbeat_|TestBackup_|TestBackupShip_|TestCronJobs_'` —
 on üç test, adlarının öneki bunlardır. (f)'nin kuralları:
@@ -8359,6 +8393,13 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > `critical`, sunucunun bozuk olduğuna (5, 6) ya da bir güvenlik olayına (3)
 > ayrılmıştır.
 >
+> **T235 (2026-11-11) — 9. kural dosyada ve tabloda, kümede DEĞİL.** Kurtarma akışının (panel
+> parola sıfırlama) habersiz kalan ERROR'ları: canlı kalan link, yapılmayan mint, yazılmayan audit
+> satırı. Kurulum bir küme yazmasıdır ve **kullanıcı onayı** ister: adım 10 (f)'nin sonundaki
+> *"Yalnız 9. kural (T235)"* bloğu. O koşulana dek bu satır **haber vermez**; sorgusu ClickHouse'a
+> karşı **koşulmadı** (yapıcı SigNoz'a istek atmadı). Filtreleri koddaki sabitlere bağlı
+> (`TestSignozRules_FilterOnThePinnedNames`, `TestObservability_AlertSignalNames`).
+>
 > ❌ **Sayılı sınırlar — kurulu kural tablodan DARDIR ve zincirin kör noktaları var:**
 > - **Basitleştirmeler.** 1. kural *"≥ 5 reject **ve** oran > %10"*u tek ifadede tutar
 >   (5'in altında oran 0 sayılır). 2. kural *"toplam > 20 **veya** tek `matched_sid` > 10"*u
@@ -8369,7 +8410,7 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > - **Pencereler kayan değil, saate hizalı kovalardır** (`toStartOfInterval`; SQL'den
 >   okundu, ölçülmedi). Değerlendirme penceresi genellikle iki kovaya bölünür, yani eşiğin
 >   hemen üstünde bir patlama sınırdan ikiye ayrılıp **ateşlemeyebilir** — 1., 2. ve 5.
->   kuralda. Eşiği `0` olan 3., 4., 6., 7. ve 8. kuralı etkilemez (tek satır yeter).
+>   kuralda. Eşiği `0` olan 3., 4., 6., 7., 8. ve 9. kuralı etkilemez (tek satır yeter).
 > - **SigNoz'un kendi e-postası kapalı** — tek teslim yolu healthchecks.io (sınır 33 (a):
 >   tek sağlayıcı).
 > - **SigNoz kümede.** Küme ya da node ölürse hepsi **birlikte susar** — o durumu
@@ -8412,9 +8453,10 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > geçerlidir.~~ → **T118 (2026-10-11): yedi kural da aynı sağlayıcıya, `tappa-signals`
 > üzerinden gidiyor** (yukarıdaki kutu).
 
-**Sekiz sinyal**, beş olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo sekiz
-satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
-kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural T122'de):
+**Dokuz sinyal**, beş olaydan, bir açılış satırından ve kurtarma akışının ERROR'larından
+hesaplanır (aşağıdaki tablo dokuz satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural
+eklendikten sonra belge kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural
+T122'de; 9. kural T235'te, kümede henüz yok):
 
 | # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
 |---|---|---|---|---|---|---|
@@ -8426,6 +8468,7 @@ kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32; 8. kural 
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
 | 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
 | 8 | **dokunuş yalnız guardrail'lerle karar verdi** (T122) | `policy.guardrails_alone` | olayın kendisi | 15 dk'lık pencerede **≥ 1** olay = uyarı | `forTenant` işletmenin politika kümesini kuramadı (okuyamadı, yazamadı ya da yazdıktan sonra tamamlayamadı/ayrıştıramadı) ve dokunuşa **yalnız guardrail'lerle** karar verdi. Hiçbir baseline ifadesi eşleşemediği için `ok` olacak dokunuş **çoğunlukla `flag` olarak yazılır** ve müdür kuyruğuna düşer (§4.6). ⚠️ Veritabanına **bütünüyle** ulaşılamıyorsa kaydı yazacak `WithTenant` da düşer: kayıt yazılmaz, kişiye yeniden dokunması söylenir — o durumda 6. kural da ateşler. T121'den (`f2c7771`) sonra bilinen zararsız kaynağı yok — eşzamanlı ilk dokunuşların 23505'i kapandı —, yani tek satır gerçek bir sorundur. ⚠️ Panelin `StoredSet` okuması bu olayı **basmaz**: oradaki geri düşüş bir yetki reddidir ve hiç dokunulmamış bir işletmede beklenen durumdur. ⚠️ İsteğin **kendi** bağlamı bittiyse (istemci gitti ya da `httpx.RequestTimeout` doldu) olay da **basılmaz**: o dokunuş zaten kaydedilmez (kaydı yazacak `WithTenant` aynı ölü bağlamla düşer); yerine sayfalamayan bir WARN cümlesi yazılır (`reason` taşır). İstek canlıyken sürücünün kendi zaman aşımı ise sayfalar. | `tenant_id` (hangi işletme) ve `reason` (hangi yol): `load_failed` / `reload_failed` = politika katmanı okunamadı (önce 6. kural ve `sqlstate`; `42501` bir GRANT kaymasıdır) · `materialise_failed` = eksik baseline yazılamadı (`sqlstate` + `constraint` hangi ifadenin düştüğünü söyler; örnekler: `23505` = bir benzersiz indekste çakışma — T121'in kapattığı sınıf geri gelmiş olabilir —, `23503` = aynı adla ama türetilmemiş bir id'yle duran bir `policies` satırı, `db/queries/policies.sql`'in *foreign-id container* notu) · `incomplete_after_materialise` = yazıldı, geri okundu, hâlâ eksik; SQL hatası yok, çoğu zaman saklı bir baseline belgesini bu sürüm okuyamıyor (ör. bir kod geri alımından sonra) — panelin kural sayfası onu gösterir. `sqlstate` ve `constraint` yalnız bir PostgreSQL hatası varsa yazılır; `Detail` **bilerek yazılmaz** (satır değeri taşır) |
+| 9 | **kurtarma akışı bir linki canlı, bir mint'i yapılmamış ya da bir izi yazılmamış bıraktı** (T235) | `panel recovery: minting a link waited too long for a lock, so none was made` · `audit write failed` · geri çekme kaybı ve boşaltma özeti olay adıyla değil **alanla** seçilir | `recovery = "list_full"` · `recovery = "closing"` · `recovery = "not_retried"` · `owed_withdrawals > 0` · ya da yukarıdaki iki olaydan biri | 15 dk'lık pencerede **≥ 1** olay = uyarı | **Dört ayrı arıza, hepsi ERROR ve hiçbiri kendiliğinden kimseye görünmez.** (a) **Geri çekme kaybı** (`recovery` alanı; T212): teslim edilemeyen bir sıfırlama linki geri çekilemedi ve süresi (`ResetTTL`, 1 saat) dolana dek canlı; sahibinin o sürede istediği her link `kept` sayılır, yani kişi yeni link alamaz. Kimlik linkinde (`identity_id` taşıyan satır) bu kişiyi **bütün işletmelerinde** kilitler. `retrying` bilerek **sayfalamaz**: link listededir ve veritabanı düzelince geri çekilir; listede süresi dolan girdi WARN yazar. (b) **Boşaltma özeti** (`owed_withdrawals`): süreç durdu ve listedeki geri çekmeler bellekle gitti; o linkler de süreleri dolana dek canlı. (c) **Duran mint** (T219, T236 (b)): bir hesabın ya da kimliğin link basımı kilit beklerken `ResetMintLockWait` (150 ms) bütçesini aştı; link basılmadı, kişi kayıtsız adresin sayfasını gördü ve yeniden istemesi gerekir. Satırı hesap bütçesi sınırlar, yani bir sel ERROR seline dönmez. (d) **`audit write failed`**: bir audit satırı yazılamadı, §4.6'nın izi delindi. Bu msg'yi yazan **her yer** sayfalar, kurtarmanın iki yeri ve ayrıca panel girişi, aktivasyon ve tap hız sınırlayıcısı (hepsi `audit.EventWriteFailed`). ⚠️ `checkin: audit write failed` ve girişin `audit write failed; the act it records was refused` satırı **başka msg'lerdir**, bu kurala girmez (T282). Veritabanı bütünüyle gittiyse (a), (c) ve (d) birlikte gelir ve 6. kural da ateşler. | Önce 6. kural: çoğu zaman aynı veritabanı arızasıdır. Sonra satırın `msg`'i ve `recovery`'si hangi yol olduğunu, `admin_user_id` ya da `identity_id` ile `reset_id` hangi link olduğunu, `action` hangi audit olayının kaybolduğunu söyler; adres ve link satırda **yoktur** (§7). Canlı kalan kimlik linklerini beklemeden öldürmek gerekirse: *"Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali"* (bir küme yazmasıdır, kullanıcı onayı) |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
@@ -8459,6 +8502,9 @@ body.operator_surface = "unavailable"
 
 # 8 — dokunus yalniz guardrail'lerle karar verdi (tek satir bile uyaridir) — yolu reason soyler
 body.msg = "policy.guardrails_alone"                     # group by body.reason, body.sqlstate
+
+# 9 — kurtarma akisi: canli kalan link, yapilmayan mint, yazilmayan audit satiri (tek satir bile uyaridir)
+body.recovery IN ("list_full", "closing", "not_retried") OR body.owed_withdrawals > 0 OR body.msg = "panel recovery: minting a link waited too long for a lock, so none was made" OR body.msg = "audit write failed"
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR

@@ -1484,7 +1484,7 @@ func (a *Activation) anonFail(ip, where, reason string) {
 // is an ERROR-level event, because it means §4.6 is not being kept.
 func (a *Activation) record(ctx context.Context, e audit.Event) {
 	if _, err := a.audit.Record(ctx, e); err != nil {
-		a.log.Error("audit write failed", "action", e.Action, "err", err)
+		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
 }
 
