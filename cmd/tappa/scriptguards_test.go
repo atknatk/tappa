@@ -976,9 +976,19 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 	}
 	dir := t.TempDir()
 	const tables = "audit_log operator_audit_log"
+	// T224: the guard functions' bodies the script accepts, cut from it; a stand-in digest for a
+	// rewritten one.
+	bm := regexp.MustCompile(`(?s)\nGUARD_BODIES="([^"]*)"\n`).FindStringSubmatch(src)
+	if bm == nil || strings.Count(bm[1], "\n") != 1 {
+		t.Fatal(`scripts/pg-restore-verify.sh has no two-line GUARD_BODIES="..."`)
+	}
+	shipped := bm[1] + "\n"
+	mutation, counterRewind, _ := strings.Cut(bm[1], "\n")
+	rewritten := strings.Join(strings.Fields(mutation)[:2], " ") + " " + strings.Repeat("0", 64)
 	for _, c := range []struct {
 		what, dump, defs, off string
 		rows, counter         string
+		bodies                string
 		pass                  bool
 		say                   string
 	}{
@@ -997,15 +1007,24 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 		{what: "a trigger the dump does not have", dump: dump(a), defs: a + "\n" + b + "\n", say: "restore " + b},
 		{what: "a trigger bound to another function", dump: dump(a, b), defs: a + "\n" + b2 + "\n", say: "restore " + b2},
 		{what: "a dump with no trigger", dump: dump(), defs: "", say: "declares no trigger"},
+		{what: "a source whose tappa_forbid_mutation was rewritten, the dump and the database agreeing", dump: dump(a, b), defs: a + "\n" + b + "\n",
+			bodies: rewritten + "\n" + counterRewind + "\n", say: "whatever the dump says: public.tappa_forbid_mutation."},
+		{what: "the counter guard's shipped body in another language", dump: dump(a, b), defs: a + "\n" + b + "\n",
+			bodies: mutation + "\n" + strings.Replace(counterRewind, " plpgsql ", " sql ", 1) + "\n", say: "whatever the dump says: public.tappa_forbid_counter_rewind."},
+		{what: "a guard function missing", dump: dump(a, b), defs: a + "\n" + b + "\n",
+			bodies: mutation + "\n", say: "public.tappa_forbid_counter_rewind"},
 	} {
 		if c.rows == "" {
 			c.rows, c.counter = "audit_log\noperator_audit_log\n", "1\n"
 		}
+		if c.bodies == "" {
+			c.bodies = shipped
+		}
 		dumpFile, defsFile, offFile := filepath.Join(dir, "dump.sql"), filepath.Join(dir, "defs"), filepath.Join(dir, "off")
-		rowsFile, counterFile := filepath.Join(dir, "rows"), filepath.Join(dir, "counter")
+		rowsFile, counterFile, bodiesFile := filepath.Join(dir, "rows"), filepath.Join(dir, "counter"), filepath.Join(dir, "bodies")
 		stub := filepath.Join(dir, "psql")
-		for f, body := range map[string]string{dumpFile: c.dump, defsFile: c.defs, offFile: c.off, rowsFile: c.rows, counterFile: c.counter,
-			stub: "#!/bin/sh\ncase \"$2\" in\nSET*) cat " + defsFile + " ;;\n*tappa_forbid_counter_rewind*) cat " + counterFile +
+		for f, body := range map[string]string{dumpFile: c.dump, defsFile: c.defs, offFile: c.off, rowsFile: c.rows, counterFile: c.counter, bodiesFile: c.bodies,
+			stub: "#!/bin/sh\ncase \"$2\" in\nSET*) cat " + defsFile + " ;;\n*prosrc*) cat " + bodiesFile + " ;;\n*tappa_forbid_counter_rewind*) cat " + counterFile +
 				" ;;\n*tappa_forbid_mutation*) cat " + rowsFile + " ;;\n*) cat " + offFile + " ;;\nesac\n"} {
 			if err := os.WriteFile(f, []byte(body), 0o700); err != nil {
 				t.Fatal(err)
@@ -1029,7 +1048,8 @@ func TestRestoreVerify_TriggerGate(t *testing.T) {
 		"the definitions": "case \"$2\" in\nSET*) exit 3 ;;\nesac\n",
 		"the state":       "case \"$2\" in\nSET*) ;;\n*tappa_forbid*) ;;\n*) exit 3 ;;\nesac\n",
 		"the row guards":  "case \"$2\" in\n*tappa_forbid_counter_rewind*) ;;\n*tappa_forbid_mutation*) exit 3 ;;\nesac\n",
-		"the counter":     "case \"$2\" in\n*tappa_forbid_counter_rewind*) exit 3 ;;\nesac\n",
+		"the counter":     "case \"$2\" in\n*prosrc*) ;;\n*tappa_forbid_counter_rewind*) exit 3 ;;\nesac\n",
+		"the bodies":      "case \"$2\" in\n*prosrc*) exit 3 ;;\nesac\n",
 	} {
 		if err := os.WriteFile(stub, []byte("#!/bin/sh\n"+body), 0o700); err != nil {
 			t.Fatal(err)

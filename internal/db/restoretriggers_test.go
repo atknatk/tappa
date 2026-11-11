@@ -245,6 +245,32 @@ func TestRestoreVerify_TriggerQueries(t *testing.T) {
 	if got := lines(counter); !slices.Equal(got, []string{"0"}) {
 		t.Errorf("the floor's counter query answers %v on a disabled trigger, want 0", got)
 	}
+
+	// T224: the guard functions' bodies. The migrated schema's two are exactly the script's list
+	// (so the list is what the migrations ship); a rewritten body is off it; zz_t215's same-named
+	// functions, created above, are not read.
+	bodies := restoreTriggerSQL(t, "FLOOR_GUARD_BODIES_SQL")
+	accepted := strings.Split(restoreTriggerSQL(t, "GUARD_BODIES"), "\n")
+	shipped := lines(bodies)
+	slices.Sort(shipped)
+	want := slices.Sorted(slices.Values(accepted))
+	if !slices.Equal(shipped, want) {
+		t.Errorf("on the migrated schema the guard bodies read %v; GUARD_BODIES holds %v", shipped, want)
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION public.tappa_forbid_mutation() RETURNS trigger LANGUAGE plpgsql
+		SET search_path = pg_catalog, pg_temp AS $$ BEGIN RETURN NULL; END $$`); err != nil {
+		t.Fatalf("rewrite the guard: %v", err)
+	}
+	rewritten := lines(bodies)
+	if len(rewritten) != 2 {
+		t.Fatalf("after the rewrite the body query answers %v, want two lines", rewritten)
+	}
+	for _, l := range rewritten {
+		if strings.HasPrefix(l, "tappa_forbid_mutation ") == slices.Contains(accepted, l) {
+			t.Errorf("after rewriting tappa_forbid_mutation, %q is %v on GUARD_BODIES", l, slices.Contains(accepted, l))
+		}
+	}
 }
 
 // TestRestoreVerify_TheColumnGrantsSeeTheSystemColumns (T214) runs section 3's actual-grants query,

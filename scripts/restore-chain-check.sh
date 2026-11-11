@@ -145,15 +145,23 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 #     (`tappa-drill`, renamed per run below), so docker can only reach what (d2) created;
 #   AN ALLOW RULE FOR rm: the one rm a block may run is (d5)'s `rm -rf "$RESTORE"`;
 #   A DENY LIST for what has no business in a local drill: kubectl, rclone, ssh, curl, wget, nc,
-#     the home directory, the rclone config variable, a /Users/ path, docker's -H and --context.
+#     the home directory, the rclone config variable, a /Users/ path, docker's -H and --context,
+#     and (T224) the ways a container named tappa-drill still reaches the host: Docker Desktop's
+#     host.docker.internal / gateway.docker.internal names, --network host, --pid host,
+#     --privileged and a bind mount of / (-v, --volume or --mount). Measured before T224: six such
+#     lines, each naming tappa-drill, passed the old deny pattern and the docker rule alike (the
+#     patterns run alone); with this one all six stop the check before a container starts. Why it
+#     matters (T215's last review, read, not measured): on Docker Desktop host.docker.internal is
+#     this machine, so `docker exec -i tappa-drill-db psql -h host.docker.internal ...` would aim
+#     a block at the developer's own database.
 # A full allow list of commands was weighed and not taken: the blocks carry continuation lines and
 # here-documents, so "the first word of a line" is not a command and such a list would refuse the
 # runbook's own text or need a shell parser. Step 3 also runs the blocks with an emptied environment
 # (no KUBECONFIG, no PG*, no DATABASE_URL, HOME a scratch directory).
 for b in D2 D3 D3B D4 D5; do
   eval "text=\$$b"
-  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H[[:space:]]|--context'; then
-    die "$RUNBOOK: the drill block $b names kubectl, rclone, ssh, curl, wget, nc, the home directory, the rclone config variable, a /Users/ path, -H or --context. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target, another host or the operator's files is not run"
+  if printf '%s\n' "$text" | grep -E -q 'kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H[[:space:]]|--context|docker\.internal|--(net|network|pid)[=[:space:]]+["'"'"']?host|--privileged|(^|[[:space:]])(-v|--volume|--mount)[=[:space:]]+["'"'"']?(type=bind,source=|src=)?/[:,]'; then
+    die "$RUNBOOK: the drill block $b names kubectl, rclone, ssh, curl, wget, nc, the home directory, the rclone config variable, a /Users/ path, -H, --context, docker.internal, a host network or pid namespace, --privileged or a bind mount of /. 9(d)'s (d2)-(d5) run here, against a throwaway container; a block that can reach a cluster, the backup target, another host, this host or the operator's files is not run"
   fi
   bad_docker="$(printf '%s\n' "$text" | awk '/(^|[^A-Za-z0-9_-])docker([^A-Za-z0-9_-]|$)/ && !/tappa-drill/')"
   [ -z "$bad_docker" ] || die "$RUNBOOK: the drill block $b runs docker without naming the drill's own container or network (tappa-drill): '$bad_docker' -- docker could reach another container, the development database included"
