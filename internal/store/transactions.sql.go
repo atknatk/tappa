@@ -142,7 +142,13 @@ type CountOnTheFloorByVenueRow struct {
 // 516-544 pages and 21-30 ms before, 120-122 pages and ~1.5 ms after; 60 days 50 before, 100
 // after (both ~1-6 ms: a short history pays the per-entry probes); 60 days with 43 198
 // refused/ignored taps inside the window 808 before, 118 after; 730 days with the same flood
-// 2 249-2 472 before, 1 117-1 340 after (the window's read, see above). The agreement and the plan are pinned by internal/db's floor_test.go.
+// 2 249-2 472 before, 1 117-1 340 after (the window's read, see above). WHERE THE GAIN IS: the
+// generic plan (pgx's statement cache settles on it) and the in-window burst. The old statement's
+// custom plan is data-dependent: on these scratch shapes it hashed the outs too (516 pages), but
+// on floor_test.go's own data it already probed per person (Nested Loop Anti Join, 104 pages --
+// fewer than this statement's ~146) and only its generic plan read the history (Seq Scan + Hash
+// Anti Join, 568-571; third-eye review's measurement, T272). The agreement and the plan are
+// pinned by internal/db's floor_test.go.
 //
 // 🔴 @since IS now - tap.StaleOpenIn, COMPUTED IN GO, and it is a bare parameter (no coalesce):
 // a check-in older than the engine's own "forgotten checkout" horizon is not somebody on the

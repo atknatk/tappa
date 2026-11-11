@@ -313,9 +313,12 @@ func TestCountOnTheFloorByVenue_AgreesWithTheAntiJoinItReplaced(t *testing.T) {
 // hours and 8 in and out today, the shipped statement -- generic and custom plan, as the owner and
 // as tappa_app in the business's context -- asks "a later non-practice `out`" (o) as one index probe
 // per entry and "a later practice `out`" (p) of 00092's index, never reads the copy sequentially,
-// counts the 12, and reads at most floorBufferCeiling pages, executed. Before T272 the same data cost 516-544
-// pages: a Seq Scan of every `out` the business recorded, hashed (the T272 block in
-// db/queries/transactions.sql has the numbers).
+// counts the 12, and reads at most floorBufferCeiling pages, executed. What the pin buys is the
+// GENERIC plan (the one pgx's statement cache settles on): on this test's own data the statement
+// before T272 read 568-571 pages there -- a Seq Scan of every `out` the business recorded, hashed --
+// while its CUSTOM plan already probed per person (Nested Loop Anti Join, 104 pages, fewer than the
+// shipped statement's ~146); third-eye review's measurement, T272. The T272 block in
+// db/queries/transactions.sql has the scratch shapes, the in-window burst among them.
 func TestCountOnTheFloorByVenue_ProbesEachEntryInsteadOfTheOutHistory(t *testing.T) {
 	const floorBufferCeiling = 250
 	ctx, tx := lastOpenTx(t)
