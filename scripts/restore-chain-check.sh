@@ -173,9 +173,9 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 #   `--add-host x:host-gateway`, a gateway IP and `-v ~/:...`; cmd/tappa's
 #   TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer feeds every one of them.)
 # (d1) is held to its own allow list: it is the one block that reaches the backup target, so each
-# of its lines is one of the shapes it has today -- rclone only as `rclone --config "$CONF" lsf` or
-# `... copy`, shasum, awk, mktemp, the sha256 comparison -- and nothing else (CI does not run (d1);
-# the monthly rehearsal, operator step 9 (e), does).
+# of its lines must be, whole, one of the eight it has today (D1_ALLOWED below: list and copy from
+# the target, the sha256 check, mktemp) and nothing else (CI does not run (d1); the monthly
+# rehearsal, operator step 9 (e), does).
 # A full allow list of commands for (d2)-(d5) was weighed and not taken: the blocks carry
 # continuation lines and here-documents, so "the first word of a line" is not a command and such a
 # list would refuse the runbook's own text or need a shell parser. Step 3 also runs the blocks with
@@ -203,20 +203,23 @@ for b in D2 D3 D3B D4 D5; do
   bad_ip="$(printf '%s\n' "$text" | grep -E -o -- '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v -x '127\.0\.0\.1' || true)"
   [ -z "$bad_ip" ] || refuse "$b" "writes the address '$bad_ip' (no IPv4 literal but 127.0.0.1)"
 done
-# (d1): every line is one of today's shapes, every rclone is `rclone --config "$CONF" lsf|copy`.
-bad_d1="$(printf '%s\n' "$D1" | awk '
-  /^CONF="\$HOME\/\.config\/tappa\/backup\.rclone\.conf"$/ { next }
-  /^RESTORE=\$\(mktemp -d\)$/ { next }
-  /^rclone --config "\$CONF" (lsf|copy) / { next }
-  /^STAMP=\$\(rclone --config "\$CONF" lsf / { next }
-  /^want=\$\(awk / { next }
-  /^have=\$\(shasum -a 256 / { next }
-  /^if \[ "\$want" = "\$have" \]; then echo / { next }
-  { print }')"
-[ -z "$bad_d1" ] || refuse D1 "carries a line that is not one of its own shapes: '$bad_d1' ((d1) may only list and copy from the target with rclone, check the sha256 with shasum and awk, and make its directory with mktemp)"
-n_rclone="$(printf '%s\n' "$D1" | grep -E -o '(^|[^.A-Za-z0-9_-])rclone([^.A-Za-z0-9_-]|$)' | awk 'END { print NR + 0 }')"
-n_allowed="$(printf '%s\n' "$D1" | grep -E -o 'rclone --config "\$CONF" (lsf|copy) ' | awk 'END { print NR + 0 }')"
-[ "$n_rclone" -eq "$n_allowed" ] || refuse D1 "runs rclone $n_rclone times but only $n_allowed of them as \`rclone --config \"\$CONF\" lsf|copy\`"
+# (d1): EVERY LINE IS ONE OF THESE, WHOLE (full-line equality, not a prefix: a prefix let a tail
+# through -- `; cat "$CONF"`, `| sh`, `&& ...` -- and a copy turned round, `copy "$RESTORE/"
+# tappa-backup:...`, or given --backup-dir; both auditors, 2026-11-11). Editing (d1) in the runbook
+# therefore means editing this list in the same change, and CI says so the day it is forgotten.
+D1_ALLOWED="$(cat <<'D1OK'
+CONF="$HOME/.config/tappa/backup.rclone.conf"
+RESTORE=$(mktemp -d)
+rclone --config "$CONF" lsf --dirs-only tappa-backup:prod
+STAMP=$(rclone --config "$CONF" lsf --dirs-only tappa-backup:prod | sort | tail -n 1 | tr -d /)
+rclone --config "$CONF" copy "tappa-backup:prod/$STAMP" "$RESTORE/"
+want=$(awk '/^sha256 /{print $2}' "$RESTORE/tappa-$STAMP.manifest")
+have=$(shasum -a 256 "$RESTORE/tappa-$STAMP.sql.gz" | awk '{print $1}')
+if [ "$want" = "$have" ]; then echo "sha256 OK $STAMP"; else echo "sha256 MISMATCH: DUR"; fi
+D1OK
+)"
+bad_d1="$(printf '%s\n' "$D1" | grep -v -x -F -f <(printf '%s\n' "$D1_ALLOWED") || true)"
+[ -z "$bad_d1" ] || refuse D1 "carries a line that is not, whole, one of its own: '$bad_d1' ((d1) may only list and copy from the target, check the sha256 and make its directory, in exactly the lines D1_ALLOWED in this file names)"
 if printf '%s\n' "$D1" | grep -E -q -- 'kubectl|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc|rm|docker)([^A-Za-z0-9_-]|$)|DOCKER_'; then
   refuse D1 "names kubectl, ssh, curl, wget, nc, rm, docker or DOCKER_"
 fi

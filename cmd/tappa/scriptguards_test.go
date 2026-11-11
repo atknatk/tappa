@@ -1158,6 +1158,12 @@ func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
 		{"(d1) ", "kubectl -n tappa get secret tappa-backup-target"},
 		{"(d1) ", `rm -rf "$HOME/.config/tappa"`},
 		{"(d1) ", `cp "$CONF" "$RESTORE/conf"`},
+		{"(d1) ", `rclone --config "$CONF" copy "$RESTORE/" "tappa-backup:prod/$STAMP"`},
+		{"(d1) ", `rclone --config "$CONF" copy "tappa-backup:prod/$STAMP" "$RESTORE/" --backup-dir tappa-backup:old`},
+		{"(d1) ", `rclone --config "$CONF" lsf --dirs-only tappa-backup:prod | sh`},
+		{"(d1) ", `rclone --config "$CONF" lsf --dirs-only tappa-backup:prod; cat "$CONF"`},
+		{"(d1) ", `RESTORE=$(mktemp -d) && cat "$CONF"`},
+		{"(d1) ", `want=$(awk '/^sha256 /{print $2}' "$RESTORE/tappa-$STAMP.manifest")$(cat "$CONF")`},
 	} {
 		out, err := run(t, insert(t, c.marker, c.line))
 		var ee *exec.ExitError
