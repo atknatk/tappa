@@ -103,9 +103,30 @@ func TestTags00100_APlaqueIsBornInStock(t *testing.T) {
 		})
 	}
 
+	// COPY FROM: tappa_app cannot COPY into tags at all (0A000, "COPY FROM not supported with
+	// row-level security" -- measured), and for the owner, whom RLS does not bind, COPY is an
+	// INSERT to a row trigger: the bulk door is shut too.
+	copyActive := func(ctx context.Context, q interface {
+		CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error)
+	}, uid string) error {
+		_, e := q.CopyFrom(ctx, pgx.Identifier{"tags"}, []string{"uid", "tenant_id", "location_id", "aes_key_ref", "status"},
+			pgx.CopyFromRows([][]any{{uid, fx.tenantID, fx.locationID, fixtures.FakeKeyRef(), "active"}}))
+		return e
+	}
+	copied := randUID(t)
+	err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return copyActive(ctx, tx, copied)
+	})
+	wantSQLSTATE(t, err, "0A000", "tappa_app's COPY tags FROM STDIN")
+	err = copyActive(context.Background(), ownerDB(t).pool, copied)
+	wantBornInStockRefusal(t, err, "tappa_owner's COPY tags FROM STDIN of an active row")
+	if n := tagCount(t, app, fx, copied); n != 0 {
+		t.Fatalf("after the refused COPYs %d row(s) carry the uid, want 0", n)
+	}
+
 	// A stamped INSERT is 00022's to refuse, with 00022's words: BEFORE triggers fire in name order
 	// and tags_encoded_at_not_settable_at_insert sorts before tags_is_born_in_stock.
-	_, err := execAs(t, app, fx.tenantID,
+	_, err = execAs(t, app, fx.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status, encoded_at) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned', now())`,
 		randUID(t), fx.tenantID)
 	wantSQLSTATE(t, err, sqlstateRestrictViolation, "a stamped INSERT")

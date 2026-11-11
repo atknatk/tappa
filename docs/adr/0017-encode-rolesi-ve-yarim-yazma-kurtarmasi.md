@@ -186,8 +186,13 @@ NULL, `last_ctr` 0, `retired_at`/`replaced_by` NULL; başka her şekil 23001. Da
 mount, sayaç ve emeklilik UPDATE'tir ve her birinin kendi kapısı vardır. Sevk edilen
 iki INSERT yolu (encode turu, sandbox) `InsertUnassigned` ile zaten bu şekli yazıyor.
 Kapı geriye uzanmaz: 00100'den önce doğmuş A-1 satırları olduğu gibi kalır (onarım
-yine Replace). `aes_key_ref` sahte zarf ile stok satırı doğurmak hâlâ mümkün —
-backlog T16.
+yine Replace). `aes_key_ref` sahte zarf ile stok satırı doğurmak hâlâ mümkün, ve
+**o satır iki UPDATE ile servise sokulabilir**: `encoded_at` `tappa_app`'in UPDATE
+hakkında (`tappa_app=rw`, 00022), yani 00025'in damga kapısı hataları durdurur,
+ele geçirilmiş bir uygulamayı değil. Böyle bir plaket panelde sağlıklı ve serviste
+görünür — `in_service` onu sayar, damgalı olduğu için A-1'in "needs replacing"
+uyarısı çıkmaz; bedeli ilk tap'teki 500. Backlog T16 (ve T290: INSERT sütunlarını
+daraltmak bu UPDATE'i kapatmaz).
 🔴 **Patlama yarıçapı "encode penceresi" DEĞİL** — ilk sürüm öyle yazdı ve §5.3
 onu **çürüttü**: kurtarma da *fabrika → bizimki* yönünde `ChangeKey` çağırır ve o
 oturum, ilk turdan **günler sonra**, muhtemelen **başka bir telefonla**, yine

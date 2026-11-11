@@ -186,6 +186,12 @@ func TestSandbox_RealNXPUIDRefusedOnEveryResolveAndInsert(t *testing.T) {
 	theWritersAskTheDoorFirst(t)
 }
 
+// knownTestWriter is the one tags writer that does not ask AdmitTagUID, named rather than exempted
+// by directory: test/fixtures' LoadPlaque (T76) loads plaques through store.InsertUnassigned for the
+// tests of every package, into the test database -- no deployment's door. No binary under cmd/
+// imports anything under test/ (measured 2026-11-11: go list -deps over every cmd/ package).
+const knownTestWriter = "test/fixtures/plaque.go:LoadPlaque"
+
 // theWritersAskTheDoorFirst is the code half: every use of the store's InsertUnassigned statement
 // outside internal/store sits in a function that calls AdmitTagUID before it, and those functions are the two known ones;
 // db.DB.GetTagByUID's first statement asks AdmitTagUID; db/queries has one INSERT INTO tags.
@@ -196,6 +202,7 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	writers := map[string]bool{}
+	testWriters := map[string]bool{}
 	resolverAsks := map[string]bool{}
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -203,11 +210,7 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		if d.IsDir() {
-			// test/ is test infrastructure: test/fixtures' LoadPlaque (T76) loads plaques through
-			// store.InsertUnassigned for the tests of every package, into the test database -- no
-			// deployment's door. No binary under cmd/ imports anything under test/ (measured
-			// 2026-11-11: go list -deps over every cmd/ package).
-			if strings.HasPrefix(rel, ".") && rel != "." || rel == "internal/store" || rel == "android" || rel == "web/static" || rel == "test" {
+			if strings.HasPrefix(rel, ".") && rel != "." || rel == "internal/store" || rel == "android" || rel == "web/static" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -242,7 +245,9 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 				return true
 			})
 			name := rel + ":" + fd.Name.Name
-			if insert.IsValid() {
+			if insert.IsValid() && name == knownTestWriter {
+				testWriters[name] = true
+			} else if insert.IsValid() {
 				writers[name] = true
 				if !admit.IsValid() || admit > insert {
 					t.Errorf("%s writes a tags row without asking AdmitTagUID first", name)
@@ -273,6 +278,11 @@ func theWritersAskTheDoorFirst(t *testing.T) {
 		if !writers[w] {
 			t.Errorf("CONTROL: %s is not seen as a writer (seen: %v)", w, writers)
 		}
+	}
+	// The one UNGATED writer, by name: any other function under test/ that loads a plaque is a
+	// writer like the two above and must ask the door.
+	if len(testWriters) != 1 || !testWriters[knownTestWriter] {
+		t.Errorf("CONTROL: the test writers are %v, want exactly %s", testWriters, knownTestWriter)
 	}
 	for _, f := range []string{"GetTagByUID", "GetTagByUIDOn"} {
 		if !resolverAsks[f] {
