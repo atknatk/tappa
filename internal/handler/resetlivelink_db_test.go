@@ -233,7 +233,8 @@ func TestResetOutboxDB_TheFallbackWithdrawalsStayUnderTheFloor(t *testing.T) {
 	}
 	if fastest, ceiling := minDuration(took), resetRequestFloor+50*time.Millisecond; fastest > ceiling {
 		t.Errorf("the fastest of %d runs answered in %v, over floor+50ms (%v): the fallback's %d withdrawals "+
-			"and rows are visible in the clock", runs, fastest, ceiling, len(grants))
+			"and rows are visible in the clock -- or, on a local macOS + Docker Desktop run, the database round "+
+			"trip is (backlog T198: the reds measured there were); CI is the referee", runs, fastest, ceiling, len(grants))
 	}
 	// Since T197 a sample slow enough to meet resetFallbackBudget hands its remaining writes to the
 	// worker: the band above is this test's claim, and the writes are counted once they are all done.
