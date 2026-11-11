@@ -641,7 +641,7 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 		// one: that would hide an outage behind a screen saying a link is on its way.
 		// The address is NOT in the line (§4.7 spirit: an address is personal data and
 		// this path is unauthenticated).
-		h.log.Error("panel recovery: issuing failed", "ip", ip, "err", err)
+		h.log.Error(EventIssueFailed, "ip", ip, "err", err)
 		// What the failed request minted and could not withdraw is owed, not forgotten (T210,
 		// T212): the worker tries it again later. A hand-over; this request does not wait.
 		h.oweFailedRequest(context.WithoutCancel(r.Context()), err)
@@ -773,7 +773,7 @@ func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetG
 		if class, code, ok := sendErrorClass(err); ok {
 			attrs = append(attrs, "class", class, "smtp_code", code)
 		}
-		h.log.ErrorContext(base, "panel recovery: delivery failed", attrs...)
+		h.log.ErrorContext(base, EventDeliveryFailed, attrs...)
 	}
 	*decided = true
 	h.recordWorkerOutcome(base, g, action, outcome, reason)
@@ -828,6 +828,22 @@ func (h *AdminReset) recordIdentityKept(r *http.Request, k adminauth.IdentityRes
 // EventMintStalled is logStalledMint's msg. An alert rule filters on it (deploy/README.md, M8-03
 // rule 9, T235).
 const EventMintStalled = "panel recovery: minting a link waited too long for a lock, so none was made"
+
+// The panel recovery flow's other ERROR lines, each one a msg rule 9 filters on (deploy/README.md,
+// M8-03 rule 9, T282): before T282 nothing paged on them, so a recovery that failed for everybody
+// read as a quiet flow. Exported so cmd/tappa's pins hold the alert rule to the literal.
+const (
+	// EventIssueFailed: the request's mint failed on the database (not "unknown address").
+	EventIssueFailed = "panel recovery: issuing failed"
+	// EventDeliveryFailed: the channel did not take a minted link; the person got no e-mail.
+	EventDeliveryFailed = "panel recovery: delivery failed"
+	// EventSpendFailed: spending a link failed on the database; the person could not reset.
+	EventSpendFailed = "panel recovery: spending the link failed"
+	// EventDeliveryPanicked: a delivery panicked and the worker recovered (adminresetoutbox.go).
+	EventDeliveryPanicked = "panel recovery: a delivery panicked; the worker recovered and moved on"
+	// EventOutcomesLost: the shutdown drain ran out of budget with outcome rows unwritten (§4.6).
+	EventOutcomesLost = "panel recovery: the drain ended with outcomes still waiting, and their writes are lost"
+)
 
 // logStalledMint is the trail of an account -- or an identity -- whose mint gave up waiting for a
 // lock (adminauth.ResetMintLockWait, T219). Nothing was minted, so nothing is sent and nothing is owed;
@@ -1110,7 +1126,7 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, adminauth.ErrResetUnusable):
 		h.refused(w, r, ip, resolved)
 	default:
-		h.log.Error("panel recovery: spending the link failed", "ip", ip, "err", err)
+		h.log.Error(EventSpendFailed, "ip", ip, "err", err)
 		h.problem(w, r, http.StatusInternalServerError, problemResetServer)
 	}
 }

@@ -1966,6 +1966,10 @@ func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 // path any signed-in manager can drive, so it does not depend on every wrap below being right.
 // A request the client itself abandoned (class "canceled") is a WARN: nothing failed on our
 // side, and a manager cancelling a download must not be able to write ERROR lines.
+//
+// The msg is audit.EventWriteFailed (T282; it was "audit write failed; the act it records was
+// refused", which no rule read) and "refused" says the act did not happen. M8-03 rule 9 pages on
+// that msg at level ERROR only, so the cancelled request's WARN stays off the pager.
 func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		class, cause := readinessFailure(err)
@@ -1973,7 +1977,7 @@ func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
 		if class == errClassCanceled {
 			level = slog.LevelWarn
 		}
-		a.log.Log(ctx, level, "audit write failed; the act it records was refused", "action", e.Action,
+		a.log.Log(ctx, level, audit.EventWriteFailed, "action", e.Action, "refused", true,
 			LogErrClassKey, class, LogErrCauseKey, cause)
 		return err
 	}

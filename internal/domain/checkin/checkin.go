@@ -1911,10 +1911,12 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 // The attendance record is already written by the time this runs, so a failure
 // here costs a line in the trail and not an hour on a payslip — but it is LOGGED
 // AS AN ERROR rather than swallowed (§7), because a trail that is not being
-// written means §4.6 is not being kept even when the record is.
+// written means §4.6 is not being kept even when the record is. The msg is
+// audit.EventWriteFailed, which M8-03 rule 9 pages on (T282: it was a literal of its
+// own, "checkin: audit write failed", and no rule read it).
 func (s *Service) record(ctx context.Context, e audit.Event) {
 	if _, err := s.trail.Record(ctx, e); err != nil {
-		s.log.ErrorContext(ctx, "checkin: audit write failed", "action", e.Action, "err", err)
+		s.log.ErrorContext(ctx, audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
 }
 

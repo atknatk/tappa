@@ -359,7 +359,7 @@ func (a *AdminAuth) recordInvite(r *http.Request, id httpx.AdminIdentity, action
 	defer cancel()
 	actor := id.Admin.AdminUserID
 	if _, err := a.audit.Record(ctx, audit.Event{TenantID: id.TenantID(), ActorID: &actor, Action: action, Target: inviteID.String(), Detail: detail}); err != nil {
-		a.log.Error("panel manager invitation: the trail row could not be written", "action", action, "invite_id", inviteID, "err", err)
+		a.log.Error(audit.EventWriteFailed, "action", action, "invite_id", inviteID, "err", err)
 	}
 }
 

@@ -604,6 +604,6 @@ func (a *AdminAuth) recordShowRefusal(ctx context.Context, id httpx.AdminIdentit
 			RequiredRole: adminRoleOwner,
 		},
 	}); err != nil {
-		a.log.Error("panel: could not record the refused on-screen invitation", "employee_id", employeeID, "err", err)
+		a.log.Error(audit.EventWriteFailed, "action", ActionInviteShowRefused, "employee_id", employeeID, "err", err)
 	}
 }

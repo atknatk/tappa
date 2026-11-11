@@ -139,6 +139,8 @@ func suspensionProblem(code string) pages.ProblemView {
 // could lift. No form value, address, name, cookie or session value reaches the line;
 // the error's own text is not printed either, because a database error's text is SQL
 // and arguments (TestSuspensionGate_AFailedRefusalRowStillRefusesAndLogsThreeFields).
+// The line's msg is audit.EventWriteFailed, which M8-03 rule 9 pages on (T284: it was a
+// sentence of its own and no rule read it).
 //
 // The row's target is the ROUTE PATTERN the router matched — a fixed set, with no id
 // in any path — never the request's path. The two formats are chosen by that same
@@ -159,7 +161,7 @@ func (a *AdminAuth) suspensionGate(next http.Handler) http.Handler {
 			Target:   route,
 			Detail:   suspensionRefusalDetail{Reason: s.Reason},
 		}); err != nil {
-			a.log.Error("panel: a suspended business's refused write could not be recorded; it is refused anyway",
+			a.log.Error(audit.EventWriteFailed,
 				"tenant_id", id.TenantID(), "sqlstate", sqlstateOf(err), "reason", reasonWord(s.Reason))
 		}
 		if encodeRelayRoutes[route] {
