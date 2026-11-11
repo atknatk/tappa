@@ -128,8 +128,8 @@ const (
 	// logo goes through /t/logo/ and the tap surface's own budget, not this one.
 	//
 	// THE COOKIE CHECK ADDS ONE MORE (2026-11-11, ADR 0026): GET /activate?code= now
-	// answers 303 to /activate?cookiecheck=1, which answers 303 to the bare /activate
-	// when the cookie came back (activationCookieCheck). 8 requests each without a
+	// answers 303 to /activate?cookiecheck=<unix seconds>, which answers 303 to the bare /activate
+	// when the cookie came back (cookieCheckURL). 8 requests each without a
 	// logo, 9 with one; fifteen people about 120 or 135 -- 75 or 66 complete
 	// activations per window per address key. No limit moved.
 	//

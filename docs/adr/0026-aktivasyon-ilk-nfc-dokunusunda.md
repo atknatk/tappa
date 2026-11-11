@@ -269,28 +269,39 @@ bilinmiyor** (user-agent log'lanmıyordu); bir e-posta uygulamasının iç taray
 olabilir, ölçülmedi. Ekranın tavsiyesi müdüre daveti iki kez yeniden gönderttirdi; her yeniden gönderim öncekini
 iptal ettiği için B'nin eski bağlantıları sonra *"This link can't be used"* gösterdi.
 
-**Karar.** `startActivation` artık `/activate?cookiecheck=1`'e yönlendirir (`activationCookieCheck`). İşaret veri
-değildir: kod ve sır taşımaz, yalnız *"önceki yanıt çerezi yazdı"* der. `landWithoutLink` sırası korunur — canlı
-oturum yine önce *"already set up"* alır, `from=tap` / `from=signedout` değişmez — ve **işaret var, çerez yoksa**
-`problemNoLink` yerine yeni `problemCookieLost` çizilir (aynı `pages.Problem` şablonu, yeni bileşen yok, markasız):
+**Karar.** `startActivation` artık `/activate?cookiecheck=<unix saniye>`'ye yönlendirir (`cookieCheckURL`). İşaret
+veri değildir: kod ve sır taşımaz, yalnız çerezi yazan yanıtın **sunucu** saatini taşır. `landWithoutLink` sırası
+korunur — canlı oturum yine önce *"already set up"* alır, `from=tap` / `from=signedout` değişmez — ve **işaret taze,
+çerez yoksa** `problemNoLink` yerine yeni `problemCookieLost` çizilir (aynı `pages.Problem` şablonu, yeni bileşen yok,
+markasız). **Taze** = en çok 2 dakika eski, sunucu saatinin en çok 30 sn önünde (`cookieCheckMaxAge`,
+`cookieCheckSkew`; denetim bulgusu 2): eski, bozuk ya da gelecekten bir işaret — eski bir sekmenin yenilenmesi, yer
+imi, elle yazılmış URL — eskisi gibi `problemNoLink` alır, çünkü *"your link still works"* yalnız geçerli bir
+bağlantının çerezi az önce yazdığı anda doğrudur. Metin (kullanıcının §9 onayıyla, denetim sonrası):
 
-- *"Open this link in your browser"*
-- *"This window can't finish setup, because it didn't keep what setup needs."*
-- *"Copy the link your workplace sent you and paste it into Chrome or Safari, then follow the steps there. Your link
-  still works — you don't need a new one. Already in Chrome or Safari? Allow cookies for this site and open the link
-  again."*
+- *"Open your activation link in your browser"*
+- *"This window can't finish setup — it didn't keep what setup needs."*
+- *"Go back to the message your workplace sent and copy the link from there — this page's address won't work. Paste
+  it into your phone's main browser (for example Chrome or Safari) and follow the steps there. Your link still works —
+  you don't need a new one. Already there? Allow cookies for this site and open the link again."*
 
-İşaret **ve** çerez varsa sayfa bir kez daha çıplak `/activate`'e 303 verir: işaret adres çubuğunda kalırsa, çerezin
-süresi dolduktan çok sonra yapılan bir yenileme bağlantısı artık çalışmayan birine *"your link still works"*
-derdi. Bedeli tek aktivasyonda bir istek (7 → 8, logolu işletmede 8 → 9); hiçbir sınır değişmedi (`ratelimit.go`; tavan 600). İşareti iki
+Kişi **mesaja** geri gönderilir, bu sayfaya değil: bu ekranda adres çubuğu `/activate?cookiecheck=…` tutar ve iç
+tarayıcıların *"Open in Chrome/Safari"* düğmesi **o** adresi açar; çerezi hiç almamış bir tarayıcıda o adres
+çalışamaz. (İlk sürümün metni *"Open this link in your browser"* / *"Copy the link your workplace sent you and paste
+it into Chrome or Safari…"* idi.)
+
+İşaret **ve** çerez varsa sayfa, işaretin yaşına bakmadan, bir kez daha çıplak `/activate`'e 303 verir: işaret adres
+çubuğunda kalmamalı. Bedeli tek aktivasyonda bir istek (7 → 8, logolu işletmede 8 → 9); hiçbir sınır değişmedi (`ratelimit.go`; tavan 600). İşareti iki
 çağıran da taşır (`Page`'in `?code=` gelişi ve `Continue`'nun onaylı devralması — ikisi de o yanıtta çerezi yazar);
 `Submit`'in `?step=2` yönlendirmesi taşımaz, çünkü o istek çerez **geldiği** için koştu.
 
-**Log.** Dal bir INFO satırı yazar: `"activation cookie did not return"`, alanlar `ip`, `device` (`coarseDevice`'ın
+**Log.** Dal bir INFO satırı yazar: `"activation cookie did not return"`. Anlamı **"taze işaret çerezsiz geldi"**dir;
+tek başına bu tarayıcının kendisine verilen bir çerezi düşürdüğünü **kanıtlamaz**: iç tarayıcının *"Open in
+Chrome/Safari"* devri işaretli URL'yi çerezi hiç almamış bir tarayıcıya taşır ve o istek de buraya, çoğunlukla
+`embedded_browser=false` ile düşer (denetim bulgusu 1b). Alanlar `ip`, `device` (`coarseDevice`'ın
 kapalı sözlüğü, ör. *"Android Chrome"*) ve `embedded_browser` (bool: Android WebView'in `; wv)` imi ya da
 iPhone/iPad'de `Safari/` jetonunun yokluğu — `embeddedBrowser`). User-agent'ın kendisi, kod ve çerez yazılmaz
 (§7, §4.1). Satır bilinmeyen bütçesiyle sınırlıdır (`anonFail` gibi), çünkü işaret herkese açık bir URL'dir.
 
 Testler: `TestPage_CookieCheck`, `TestPage_CookieLostScreenSaysTheLinkStillWorks`,
-`TestPage_CookieLostIsLoggedCoarsely`, `TestEmbeddedBrowser`; `TestPage_ValidCodeMovesIntoCookieAndRedirects`
+`TestPage_CookieLostIsLoggedCoarsely`, `TestPage_CookieLostLogIsBounded`, `TestEmbeddedBrowser`; `TestPage_ValidCodeMovesIntoCookieAndRedirects`
 artık işaretli `Location` bekler, `TestNoLogLineEverCarriesTheCode` yeni dalı da tarar.
