@@ -9,6 +9,14 @@
   (§5.4, K-E10 (i)); K-E1'in gerçek kapsamı — kemerin dört eki, "silme yok" istisnası (§5.9, K-E1); alıcı
   tavanının ne zaman sayıldığı (§5.4, §5.8); `identity_open_reset`'in alıcı yarışı (S-1, §5.3); oturum ve zincir
   alanının yeniden incelemesi (S-2, §5.6); sessizce verilmiş iki karar K-E1 (iii) ve K-E14 olarak; K-E15.
+  **Denetim turu 2 (2026-11-11, 30634dbe üzerinde):** üçüncü göz RET (1 ORTA + 5 DÜŞÜK; turu 1'in düzeltmeleri
+  doğrulandı), yeni tam güvenlik denetimi RET (1 YÜKSEK, 1 ORTA, 3 DÜŞÜK). Düzeltilenler: pencerede çözülen
+  üyeliklerin geri almadan sonra kurtarılamaması — `identity_unlink_backfilled` canlı geri alma linki varken 0
+  satır, geri alma pencereyi kapatır (YÜKSEK-1, §5.6, K-E16); aynanın yeni adresi her işletmenin üye listesinde
+  göstermesi (ORTA-2, §8 risk 10, K-E8, K-E17); nöbetçi digest yalnız SQL'de (§5.3); `p_recipient`'ın
+  `DEFAULT`'u için T295; Down'ın iki durması VEYA; istek retlerinin taşıyıcısı (`refusal` sütunu, §5.3, §5.4);
+  K-E15 yeniden soruldu (istek ve onay rotalarının askı halkası); EC-3 ön/son kontrolleri; dosya ve satır atıfları;
+  §3'ün adlı e-posta-geniş okuma istisnası. Güvenliğin zorladığı cevaplar §10'da işaretli.
 - **Tarih:** 2026-11-11 · **Backlog:** T173 · **Dal:** `m14-emailcard` (taban `origin/m14-identity` 2624a89a)
 - **Ayrılmış numaralar:** migration **00101–00103** (kodu yazacak kartlar için; bu dalda dosya yok) · artık
   satırlar için backlog T294–T297.
@@ -73,7 +81,9 @@ olmadan hiçbir şey değişmez; eski adres haber alır ve (karar K-E2) değişi
 - `tappa_app` kimlik tablolarında yetkisiz kalır ve `admin_users.email`'e yazamaz (ADR 0031:196-197).
   Yazan yalnız kapalı listenin yeni fonksiyonlarıdır; her biri kimliği bir **sırdan** bulur (§5.3).
 - Bir istek her an tek tenant bağlamında koşar; BYPASSRLS gövdesinde tenant tablosuna dokunan her ifade açık
-  `tenant_id` yüklemi taşır (CLAUDE.md §4.5 (3)).
+  `tenant_id` yüklemi taşır (CLAUDE.md §4.5 (3)). — **tek adlandırılmış istisna** istekteki "eski adreste bağsız satır" okumasıdır: kimliğin kendi adresiyle
+  anahtarlı adlı e-posta-geniş okuma (`identityEmailWideReads`, §5.3), tenant'ı önceden bilinmez; sınırı
+  kimliğin adresidir.
 - Audit satırları karşı işletmeyi, üyelik sayısını, `identity_id`'yi ve adresi anmaz (ADR 0031 §6).
 - Bağlanmamış (eski, satır başına) bir satırın adresi bu yolla **değişmez** — kişi değildir; satır `tappa_app`'ın
   yetkisiyle de değişemez (00069:251). Contract'a kadar o satırlar kendi yollarında kalır.
@@ -139,7 +149,7 @@ olmadan hiçbir şey değişmez; eski adres haber alır ve (karar K-E2) değişi
 `admin_identity_events_event_known` üç değer alır: `email_change_requested`, `email_changed`,
 `email_reverted`; `detail` boş (`tenant` / `scope` anahtarları bu olaylarda kullanılmaz).
 
-**00101'in Down'ı iki koşulda sabit bir mesajla durur, hiçbir şey değiştirmez** (00079'un Down'ının emsali,
+**00101'in Down'ı iki koşuldan herhangi biri (VEYA) tutarsa sabit bir mesajla durur, hiçbir şey değiştirmez** (00079'un Down'ının emsali,
 `00079:471-476`): (1) `admin_identity_events`'te `email_*` olayı varken — olay CHECK'i 00079'un biçimine geri
 konamaz ve olay satırı silinemez (R17: tek silme yolu 90 günlük süpürmedir); (2) canlı bir `'revert'` satırı
 varken (§6). Mesaj satır sayısını da verebilir (00076'nın Up'ı gibi); adres vermez.
@@ -186,9 +196,24 @@ ikisi de gerekli:
 
 | Fonksiyon | Anahtar | Ne yapar / ne zaman 0 satır |
 |---|---|---|
-| `identity_request_email_change(p_session_hash text, p_verified_digest text, p_link_hash text, p_new_email citext)` → `TABLE (change_id uuid, expires_at timestamptz)` | canlı oturum (+ kilit altında digest yeniden denetimi) | 6b yeni adreste; kimlik kilidi; oturum ve digest kilit altında; **ön koşullar** (K-E9): `email_verified_at IS NOT NULL`, onay penceresi kapalı, eski adreste bağsız aktif satır yok, (K-E9 (d) seçilirse) kimliğin canlı `'revert'` satırı yok; yeni adres kimliğin kendi adresine citext'te eşit değil. Kimliğin canlı `'change'` satırını `cancelled_at` ile iptal eder, yenisini yazar (`address` = yeni adres, 24 saat), `email_change_requested` olayı. **Çakışmaya bakmaz** — çakışan adreste de satır yazılır (§5.4). Tenant tablosuna yalnız okur, `audit_log`'a yazmaz (`identity_open_reset` emsali, ADR 0031:317). Okumalar kemerin sınıflarıyla: oturum araması (`identitySessionKeyLookups`), üyelikler (kimlikle sınırlı, `identityTenantWideReads`), **eski adresteki bağsız satır** kimliğin kendi adresiyle anahtarlı **adlı e-posta-geniş okumadır** (`identityEmailWideReads`, `internal/db/identitybelt_test.go:142`; `identity_confirm_window` / `identity_link_by_email` emsali) — tenant'ı önceden bilinmediği için açık `tenant_id` yüklemi **taşıyamaz**, sınırı kimliğin adresidir |
+| `identity_request_email_change(p_session_hash text, p_verified_digest text, p_link_hash text, p_new_email citext)` → `TABLE (change_id uuid, expires_at timestamptz, refusal text)` | canlı oturum (+ kilit altında digest yeniden denetimi) | Oturum bulunamazsa 0 satır; her öbür ret **bir** satır, `change_id`/`expires_at` NULL ve `refusal` kapalı kümeden (aşağıdaki "istek retlerinin taşıyıcısı"). 6b yeni adreste; kimlik kilidi; oturum ve digest kilit altında; **ön koşullar** (K-E9): `email_verified_at IS NOT NULL`, onay penceresi kapalı, eski adreste bağsız aktif satır yok, (K-E9 (d) seçilirse) kimliğin canlı `'revert'` satırı yok; yeni adres kimliğin kendi adresine citext'te eşit değil. Kimliğin canlı `'change'` satırını `cancelled_at` ile iptal eder, yenisini yazar (`address` = yeni adres, 24 saat), `email_change_requested` olayı. **Çakışmaya bakmaz** — çakışan adreste de satır yazılır (§5.4). Tenant tablosuna yalnız okur, `audit_log`'a yazmaz (`identity_open_reset` emsali, ADR 0031:317). Okumalar kemerin sınıflarıyla: oturum araması (`identitySessionKeyLookups`), üyelikler (kimlikle sınırlı, `identityTenantWideReads`), **eski adresteki bağsız satır** kimliğin kendi adresiyle anahtarlı **adlı e-posta-geniş okumadır** (`identityEmailWideReads`, `internal/db/identitybelt_test.go:142`; `identity_confirm_window` / `identity_link_by_email` emsali) — tenant'ı önceden bilinmediği için açık `tenant_id` yüklemi **taşıyamaz**, sınırı kimliğin adresidir |
 | `identity_change_email(p_link_hash text, p_session_hash text, p_revert_hash text)` → `TABLE (old_email text, new_email text, revoked_sessions integer, revert_expires_at timestamptz)` | **iki sır:** `'change'` linki + tıklayan tarayıcıda aynı kimliğin canlı oturumu | Ayrıntı aşağıda. Ret (bilinmeyen / iptal / harcanmış / süresi dolmuş link, başka kimliğin oturumu, yeni adres artık bir kimliğin, kişinin bir işletmesinde aynı adresli başka satır, ön koşulların biri): 0 satır, hiçbir şey yazılmaz. Dönüş: iki adres (bildirimin ve yanıtın alıcısı — 00075/00084'ün dönen adres emsali), bu işletmede kapanan oturum sayısı, geri alma linkinin bitişi (yazılmadıysa NULL) |
-| `identity_revert_email_change(p_revert_hash text, p_sentinel_digest text)` → `TABLE (restored_email text, revoked_sessions integer)` | `'revert'` linki (tek sır; sıfırlama tüketiminin türü — ADR 0031:413-414) | Ayrıntı aşağıda. Ret (bilinmeyen / iptal / harcanmış / süresi dolmuş link, eski adres artık başka bir kimliğin): 0 satır |
+| `identity_revert_email_change(p_revert_hash text)` → `TABLE (restored_email text, revoked_sessions integer)` | `'revert'` linki (tek sır; sıfırlama tüketiminin türü — ADR 0031:413-414) | Ayrıntı aşağıda. Ret (bilinmeyen / iptal / harcanmış / süresi dolmuş link, eski adres artık başka bir kimliğin): 0 satır |
+
+**İstek retlerinin taşıyıcısı (turu 2, DÜŞÜK-5 (b)).** K-E10 (v)'in görünür cümleleri ayrı ayrı seçilebilmeli,
+ama fonksiyon 0 satırla hepsini birleştirirdi; Go'nun önceden okuması ise kilit dışında olurdu (TOCTOU) ve pencere /
+bağsız satır okumaları zaten yalnız definer'dadır. Taşıyıcı bu yüzden dönüşün `refusal` sütunudur, kapalı küme:
+`unverified` (mevcut adres doğrulanmamış), `window_open`, `unlinked_rows` (eski adreste bağsız aktif satır),
+`revert_live` (K-E9 (d)), `same_address` (citext'te kendi adresi), `invalid_address` (6b), `stale` (kilit altında
+digest artık eşit değil — "sign in again"). **Kural, pinli:** her değer yalnız kişinin **kendi** durumunu ya da
+yazdığı dizginin **biçimini** anlatır; hiçbiri yeni adresin bir kimliğe ya da başka bir işletmenin satırına ait
+olup olmadığına bakmaz — fonksiyon o soruyu hiç sormaz (çakışmaya bakmaz, adım 3'teki denetimler yalnız onayda).
+Test: kapalı küme bu yedi değerdir (katalog + Go'daki eşleme); çakışan, çakışmasız ve kişinin işletmesinde satırı
+olan yeni adres için `refusal` NULL'dır ve dönüş satırları sütun sütun aynıdır. **Düz zamanlama ile ilişkisi:**
+düzlük iddiası yalnız yeni adresin üç durumu arasındadır (§5.4) ve bu üç kol ön koşulların hepsini geçmiş, aynı
+yolu yürümüş isteklerdir; bir ret kolu (kişinin kendi durumu) tabanı yine öder ama süresi kişiye kendisi hakkında
+bildiğinden fazlasını söylemez — zamanlama testi üç kolu ölçer, ret kollarını "her çıkış tabanı öder" yapısal testi
+kapsar.
 
 **`identity_change_email`'in gövdesi — kilit sırası ve adımlar.**
 1. Linki kilitsiz oku → yeni adresi al → **adresin danışma kilidi** (`00074:176`'nın anahtarı) → kimliğin
@@ -226,20 +251,30 @@ okuma; varsa 0 satır) → **kişinin bağlı her işletmesinde eski adresli ba�
 çünkü çözme `identity_id`'yi NULL yapar ama adrese dokunmaz, `00072:903-905`; kişi değişimden sonra aynı işletmeye
 yeni adresle davetle dönerse aynayı geri çevirmek `admin_users_tenant_email_key`'e, `00006:96-97`, çarpardı)
 → kimliğin `email` = eski adres, `email_verified_at = now()`,
-`password_hash` = `p_sentinel_digest` (aşağıda) → bağlı her satır: ayna + digest kopyası (contract B'ye dek,
+`password_hash` = SQL'de üretilen nöbetçi digest (aşağıda), `confirm_opened_at` / `confirm_open_until` /
+`confirm_scope` **NULL** (açık bir onay penceresi — saldırganın sıfırlamasıyla açılmış olabilir — tek UPDATE'te
+kapanır; 00069'un pencere CHECK'i üç sütunun birlikte olmasını ister; K-E11'in sıfırlaması kişiye yenisini açar) →
+bağlı her satır: ayna + digest kopyası (contract B'ye dek,
 ADR 0031:227-229) + **bütün** oturumlar + canlı `password_resets` iptal + `admin.email.reverted` satırı →
 kimliğin canlı `admin_identity_resets`, `'change'` ve öbür `'revert'` satırları iptal → link harcanır →
 `email_reverted` olayı. **Nöbetçi digest:** çözmenin nöbetçi digest'iyle aynı tür (32 rastgele baytın bcrypt'i,
-baytlar atılır, repoda sabit yok — ADR 0031:321). Gövde onu SQL'de pgcrypto ile üretebilir (00072'nin yolu,
-`00072:146-148`); imzadaki `p_sentinel_digest` yalnız kart onu Go'da üretmeyi seçerse kalır — **kart karar
-verir, imza katalog testinde pinlenir.** Geri alma oturum vermez; Go ardından eski adrese
+baytlar atılır, repoda sabit yok — ADR 0031:321) ve **yalnız SQL'de** pgcrypto ile üretilir — `00079:422`'nin
+birebir ifadesi (`crypt` + `gen_random_bytes(32)` + `gen_salt('bf', 12)`). Güvenlik gereği, seçenek değil (turu 2,
+DÜŞÜK-3): Go'dan gelen bir digest `admin_identities.password_hash`'in bcrypt CHECK'ine (`00069:180`) çarpabilirdi
+ve `check_violation`'ın *"Failing row contains"* `DETAIL`'i adresi log'a basardı (ADR 0031:261-265); gövde yalnız
+`unique_violation` yakalar. Bu yüzden imzada digest argümanı **yoktur**. Geri alma oturum vermez; Go ardından eski adrese
 `identity_open_reset` ile bir sıfırlama linki açar (K-E11), `p_recipient` = geri almanın döndürdüğü adres (S-1).
 
 **Geri almanın rotası** oturum istemez: `mountGated(SurfaceAccountIdentity)` altında ama panelin oturum isteyen
 grubunun **dışında**, sıfırlama ve davet sayfaları gibi kendi bağlamasıyla (ADR 0031:692-693'ün davet emsali;
-iniş GET'i çereze alır, onay POST'u Origin denetimli). Askıdaki bir işletme geri almayı engellemez (bir güvenlik
-eylemidir); EC-2 bunu ADR 0025'in istisna listesine karşı doğrular ve gerekiyorsa listeyi adıyla genişletir —
-o bir kullanıcı kararıdır (K-E15).
+iniş GET'i çereze alır, onay POST'u Origin denetimli).
+
+**Askı — olgular (karar değil; turu 2, üçüncü göz ORTA-A):** (1) geri alma oturumsuzdur; panelin askı halkası
+yalnız `ProtectWriting` zincirindedir (`internal/handler/adminlogin.go:895-902`), dolayısıyla geri almaya **hiç
+uygulanmaz** (`/admin/invite` emsali, ADR 0031:692-693); (2) ayna askıdaki işletmeler dahil **her** bağlı satıra
+yazılır — aksi `identityOfSession`'ı kırardı (`identityaccount.go:139-151`), bu yüzden aynayı askıda atlayan bir
+seçenek **güvensizdir** ve sunulmaz; (3) definer askıya bakmaz (`identity_set_password` emsali, `00085:417-494`).
+**Karar olan:** istek ve onay rotalarının hangi zincirde olduğu (K-E15).
 
 ### 5.4 Çakışma ve numaralandırma — düz zamanlama
 
@@ -270,7 +305,7 @@ kişinin kendisidir ve o satır kişinin kendi işletmesindedir — numaralandı
 | Bağlı satırların canlı satır başına linkleri (`password_resets`) | `cancelled_at`, işletme başına açık `tenant_id` | `identity_consume_row_reset` bağlı satırın linkinden kimliği yazar (ADR 0031:315) — aynı gerekçe |
 | Kimliğin öbür canlı `'change'` linkleri | `cancelled_at` | Kimlik başına tek canlı değişim |
 | Kimliğin canlı `'verify'` / `'link'` linkleri | **dokunulmaz** | İki sır ister (link **ve** aynı kimliğin canlı oturumu, ADR 0031:324-325); eski posta kutusunun sahibi tek başına kullanamaz. `'link'`'in adayları kimliğin **o anki** adresinden okunur, yani değişimden sonra yeni adresin satırları — kişi o adresi az önce kanıtladı |
-| Kimliğin canlı `'revert'` linki (önceki bir değişimden) | **Öneri K-E9 (d):** böyle bir link varken yeni değişim **isteği reddedilir** — geri alma penceresi başına tek değişim, zincir hiç oluşmaz. (d) seçilmezse: link **dokunulmaz**, yeni `'revert'` yazılmaz | **Zincir:** saldırgan A→B, sonra B→C yapsa ve her değişim kendi geri alma linkini bassaydı, B'nin (saldırganın) linki kurbanın A geri almasını bozardı; "en eski link" kuralı bunu kapatır ama §8 risk 6'yı açık bırakır (kişinin kendi önceki A0→A değişiminden sonra gelen bir saldırıda A'nın sahibinin geri dönüşü yoktur). (d) ikisini birden kapatır |
+| Kimliğin canlı `'revert'` linki (önceki bir değişimden) | **K-E9 (d), güvenlik gereği:** böyle bir link varken yeni değişim **isteği reddedilir** — geri alma penceresi başına tek değişim, zincir hiç oluşmaz. (d) seçilmezse: link **dokunulmaz**, yeni `'revert'` yazılmaz | **Zincir:** saldırgan A→B, sonra B→C yapsa ve her değişim kendi geri alma linkini bassaydı, B'nin (saldırganın) linki kurbanın A geri almasını bozardı; "en eski link" kuralı bunu kapatır ama §8 risk 6'yı açık bırakır (kişinin kendi önceki A0→A değişiminden sonra gelen bir saldırıda A'nın sahibinin geri dönüşü yoktur). (d) ikisini birden kapatır |
 | Eski adrese açık davetler (`admin_invites`) | açık kalır; kabul 0 satır döner | `identity_accept_invite` `identity.email = invite.email` ister (ADR 0031:328); owner yeni adrese yeniden davet eder |
 | Yeni adrese açık davetler | kabul edilebilir hâle gelir | Kimliğin adresi artık davetinkine eşit; tıklama yine aynı kimliğin oturumunu ister |
 | Eski adresteki açık kayıt taslağı (`admin_signup_claims`) | "yeni adres" koluna düşer | Var olan kimlik kolu `identity.email = claim.email` ister (ADR 0031:331); tıklayan eski posta kutusunun sahibidir, onun kimliği doğar. Bu, geri almayı bloke eder (eski adres artık bir kimliğin) — adlandırılmış (§8) |
@@ -287,7 +322,8 @@ değiştirir; parola değişimiyle aynı ağırlıktadır. Geri almada **bütün
 - *Saldırganın oturumu geri almadan sağ çıkar mı?* Geri alma kimliğin `unlinked_at IS NULL` her bağlı satırının
   **bütün** oturumlarını kapatır ve parolayı nöbetçi digest yapar. Oturum doğuran üç yol kimliği `FOR UPDATE`
   kilitleyip kilit altında yeniden denetler: geçiş eski oturumu yeniden okur (`00085:211-227`), giriş digest'i
-  `p_verified_digest`'e karşı denetler (`00071:189-249`; nöbetçiden sonra hiçbir parola tutmaz), satır oturumu
+  `p_verified_digest`'e karşı denetler (yürürlükteki tanım `00081:135-226`; nöbetçiden sonra hiçbir parola
+  tutmaz), satır oturumu
   güncel digest'i ister (ADR 0036). Geri alma aynı kimlik kilidini aldığı için onlarla sıralanır: önce commit eden
   geçiş/giriş oturumu geri alma tarafından kapatılır, sonra gelen 0 satır alır. **Bulgu yok; kart bunu bir
   eşzamanlılık testine bağlar** (geri alma ↔ geçiş / giriş / `identity_link_by_email`, N goroutine, sonunda canlı
@@ -297,9 +333,33 @@ değiştirir; parola değişimiyle aynı ağırlıktadır. Geri almada **bütün
 - *Saldırganın pencerede kurduğu üyelikler* (ör. kendi işletmesine kurbanın kimliğiyle davet kabulü): geri almadan
   sonra durur; K-E11 (a)'nın sıfırlama linkinin tüketimi `reset` kapsamlı pencereyi açar ve `invite` dahil
   pencereden önce kurulmuş her bağı listeler (ADR 0031:321), kişi orada çözer. Adlandırılmış (§8 risk 7).
+- 🔴 *Saldırganın pencerede **çözdüğü** üyelikler* (turu 2, güvenlik YÜKSEK-1 — **turu 1'in incelemesi bunu
+  kaçırdı**). Senaryo (yalnız parola): saldırgan girer, adresi N'ye çevirir, onaylar; N'de "Forgot password" ister;
+  `identity_consume_reset` 7 günlük `reset` penceresini açar (`00075:160-166`); taze oturumla her üyeliği
+  `identity_unlink_backfilled` ile çözer (`reset` kapsamında `linked_at < confirm_opened_at` hepsini geçirir,
+  `00079:409-411`; son-owner koruması yok). Çözülen satır N adresini tutar (çözme yalnız `identity_id`,
+  `unlinked_at` ve digest'e dokunur, `00079:422-425`). Kurban A'dan geri alır, ama geri alma yalnız `unlinked_at
+  IS NULL` satırlara dokunur; `identity_relink_refused` satırın adresinin kimliğinkine eşit olmasını (N ≠ A) **ve**
+  `unlinked_at >= confirm_opened_at`'i ister (`00072:990-996`) — K-E11'in sıfırlaması pencereyi yeniden açtığı
+  için ikincisi de tutmaz. Kurban, yalnız kendisinin sahip olduğu bir işletmenin panelinden **kalıcı** olarak
+  kilitlenir (reddedilmiş satır giriş adayı değildir, `00072:300`); operatör yardım edemez (ADR 0020). Bu yeteneği
+  T173 getirir. **Kapanış (öneri K-E16 (a)):** `identity_unlink_backfilled` kimliğin canlı bir `'revert'` satırı
+  varken **0 satır** döner — aynı imzayla `CREATE OR REPLACE` (T5 kuralı aynen; Down 00079'un gövdesini bayt bayt
+  geri koyar); kapalı listenin var olan bir fonksiyonu değiştiği için K-E1 (i)'in kapsamında adıyla. Ek olarak
+  geri alma `confirm_*` sütunlarını açıkça NULL yapar (§5.3), yani saldırganın penceresi geri almayla biter.
+  **Neden (a), (b) değil:** (a) yalnız geri dönüşü olmayan eylemi (çözme) durdurur ve tek fonksiyona dokunur;
+  (b) `identity_consume_reset`'in **ve** `identity_consume_row_reset`'in pencere açmasını geri alma süresince
+  kapatırdı (iki fonksiyon) ve meşru kişinin sıfırlamadan sonraki onay listesini de alırdı. (a)'nın bedeli: adresini
+  yeni değiştiren meşru kişi geri alma linki yaşarken (K-E3) bir üyeliği çözemez — "Keep all" ve Undo etkilenmez.
+  Kalıntı: saldırgan geri alma linkinin bitiminden sonra hâlâ açık bir pencereyle çözebilir — ama o noktada kurban
+  geri alma süresini kullanmamıştır ve hesap zaten saldırgandadır. Test: değişim → sıfırlama → çözme 0 satır, satır
+  bağlı kalır; geri almadan sonra pencere kapalı; K-E11'in sıfırlamasından sonra çözme yine mümkün.
+- *Pencerede panel üzerinden yapılan üyelik değişiklikleri* (saldırganın kurbanın kimliğiyle ikinci bir kişiyi
+  owner yapıp kurbanın üyeliğini devre dışı bırakması — M14-16): ele geçirilmiş bir oturumun bugün de var olan
+  gücüdür, T173'e özgü değildir; geri alma onları geri çevirmez. Adlandırılmış (§8 risk 11).
 - *Saldırganın onay oturumu değişimden sağ çıkar* (K-E6 (a) onaylayanı tutar) — tasarım gereği; geri alma onu
   kapatır. K-E2 (b) seçilirse saldırganın oturumu 12 saatlik ömrüne dek yaşar (ADR 0035).
-- *"En eski link" kuralı:* **açık bulundu** — ORTA-2'nin senaryosu (§8 risk 6). Öneri K-E9 (d).
+- *"En eski link" kuralı:* **açık bulundu** — ORTA-2'nin senaryosu (§8 risk 6). K-E9 (d) güvenlik gereği.
 - *Sıfırlama linkinin alıcı yarışı:* S-1, §5.3'ün dördüncü değişikliğiyle kapandı.
 
 ### 5.7 Audit, olay, log
@@ -356,8 +416,9 @@ Seçenekler **K-E1 (iii)**'tür (saklama süresi de bir karardır, sessizce veri
 Yeni bir bayrak **yok**. Rotalar `mountGated` ile `SurfaceAccountIdentity`'nin altında bağlanır
 (`internal/adminauth/flag.go:42`; bayrak kapalıyken panelin hiç sahip olmadığı yolun 404'ü, ADR 0031:623-627);
 bayrak bugün `"on"` (`deploy/k8s/05-config.yaml:220`) ve contract A'da kalkar. Bağlanmamış satırın oturumu
-formu görmez (§3). İstek ve onay rotaları panelin oturum isteyen yazma grubunda; geri alma rotası **oturumsuz**
-alt grupta (§5.3'ün son paragrafı).
+formu görmez (§3). İstek ve onay rotaları oturum isteyen yazma zincirindedir — **hangi** zincirde (askı halkalı
+ana grup mu, `protectWritingThroughSuspension`'ın istisna grubu mu, `adminlogin.go:906-922`) K-E15'tir; geri alma
+rotası **oturumsuz** alt grupta (§5.3'ün son paragrafı).
 
 ## 6. Geçiş — expand/contract ve geri dönüş
 
@@ -369,11 +430,16 @@ alt grupta (§5.3'ün son paragrafı).
 - **Geri dönüş = önceki imaj** (şema geride kalır, eski binary ona uyar). Down'lar ancak **sonraki** bir
   deploy'da, yeni fonksiyonları çağıran binary gittikten sonra; Down hiçbir şeyi önceki binary'nin çağırdığı
   şekilde düşürmez. 00101'in Down'ı `'change'`/`'revert'` satırları varken CHECK'i geri koyamaz: Down canlı
-  (süresi dolmamış, harcanmamış) bir geri alma linki varken **ve** `admin_identity_events`'te `email_*` olayı
-  varken **sabit mesajla durur** (§5.2; 00079'un Down'ı, `00079:471-476`) — geri alma hakkını sessizce silmez
+  (süresi dolmamış, harcanmamış) bir geri alma linki varken **ya da** `admin_identity_events`'te `email_*` olayı
+  varken — iki koşuldan **biri** yeter — **sabit mesajla durur** (§5.2; 00079'un Down'ı, `00079:471-476`) — geri alma hakkını sessizce silmez
   ve R17'nin silinemez olay satırlarına dokunmaz; olaylar 90 günlük süpürmeyle yaşlanınca (T294 bağlandıktan
-  sonra) Down mümkün olur. Süresi geçmiş linkleri siler. 00102'nin Down'ı `identity_open_reset`'i 00072'nin
-  tanımına ve ACL'ine bayt bayt geri koyar. Değiştirilmiş adresler veri olarak kalır.
+  sonra) Down mümkün olur. Süresi geçmiş linkleri siler. 00102'nin Down'ı `identity_open_reset`'i 00072'nin ve
+  `identity_unlink_backfilled`'ı 00079'un tanımına ve ACL'ine bayt bayt geri koyar. Değiştirilmiş adresler veri
+  olarak kalır.
+- **`p_recipient`'ın `DEFAULT NULL`'ı kalıcı olmamalı** (turu 2, DÜŞÜK-4): yalnız rollout dakikaları için vardır;
+  kalırsa üç argümanlı her çağrı alıcı denetimini sessizce atlar. **T295:** bir sonraki deploy'un migration'ı
+  `DEFAULT`'u kaldırır (`DROP` + `CREATE`, dört argüman zorunlu); o güne dek bir test Go'daki her
+  `identity_open_reset` çağrısının dört argüman geçtiğini (`openIdentityResetSQL`'in metni) pinler.
 - **00100'e bağımlılık:** 00100 (`m14-tagshape` şeridinin) bu deploy'dan önce ya da onunla aynı deploy'da
   gitmelidir — EC-1'in Down gidiş-dönüş ölçüsü (00100 ↔ 00101) ve goose'un sırası buna dayanır. 00100 başka bir
   dalda kalırsa numaralar orkestratörle yeniden konuşulur.
@@ -392,7 +458,7 @@ alt grupta (§5.3'ün son paragrafı).
 - **§4.5 (3):** kapalı listeye üç fonksiyon ve matrise `UPDATE (email)` — *"listeye fonksiyon eklemek … sütun
   matrisini … genişletmek kullanıcı onayı + ADR 0031 değişikliği ister"*. Bu ADR o onayı **ister** (K-E1);
   onaydan sonra EC-1 ADR 0031 §5.1 ve §5.2'ye tarihli bir not ekler (kapalı liste, matris, `identity_open_reset`'in
-  yeni imzası, kemerin dört eki, K-E1 (iii) (a) ise "silme yok" istisnasının genişlemesi). Yeni adlandırılmış
+  yeni imzası, `identity_unlink_backfilled`'ın geri alma penceresindeki reddi (K-E16), kemerin dört eki, K-E1 (iii) (a) ise "silme yok" istisnasının genişlemesi). Yeni adlandırılmış
   istisna yok (§5.3); geri alma linki K-E1 (ii) seçilirse §6.1 ve CLAUDE.md'de adıyla sayılır.
 - **§4.6:** değişiklik bir kayıt silmez; audit satırları her işletmede yazılır; bildirim gönderilemezse
   değişiklik geri alınmaz, sonucu log'a yazılır (`passwordnotice.go:49-54`'nin ilkesi).
@@ -428,7 +494,15 @@ alt grupta (§5.3'ün son paragrafı).
    davet kabulü — eski posta kutusunun tıklamasını ister); `tappa_app`'ın `admin_users INSERT (email)` yetkisi
    contract B'ye dek durur (ADR 0031 §8 adım 8.4) ve onu kullanan bir uygulama yolu açılırsa bu risk büyür.
 9. **Rollout dakikalarında eski binary `identity_open_reset`'i alıcı denetimi olmadan çağırır** (S-1, §5.3) —
-   bugünkü davranış; yeni binary devraldığında kapanır.
+   bugünkü davranış; yeni binary devraldığında kapanır, `DEFAULT`'un kendisi T295 ile.
+10. **Yeni adres kişinin üye olduğu her işletmenin yöneticilerine görünür** (turu 2, güvenlik ORTA-2). Ayna devre
+    dışı üyelikler dahil her bağlı satıra yazılır (§5.3 adım 5) ve owner'ın üye listesi adresi ve durumu gösterir
+    (`db/queries/adminmembers.sql:34-39`); her işletmeye ayrıca bir `admin.email.changed` satırı düşer. Yani §8
+    risk 1'in "eski işvereni" — o işletmenin owner'ıysa — kişinin yeni (örneğin kişisel) adresini kendi panelinde
+    görür. K-E8 (a) yalnız eski **posta kutusuna** adres yazmamayı sağlar, bu görünürlüğü kapatmaz. Hafifletme:
+    form bunu söyler (K-E10 (ii)); K-E17.
+11. **Pencerede panelden yapılan üyelik değişiklikleri geri almayla geri dönmez** (§5.6, S-2) — ele geçirilmiş
+    oturumun bugün de var olan gücü; T173 onu ne büyütür ne küçültür.
 
 ## 9. Reddedilen fikirler
 
@@ -441,23 +515,28 @@ alt grupta (§5.3'ün son paragrafı).
 
 ## 10. Açık kararlar — kullanıcının (öneriyle)
 
+**İşaretler:** 🔒 = güvenlik denetiminin zorladığı cevap (turu 2); ⛔ = güvensiz seçenek — kullanıcı seçerse
+tasarımın bir güvencesi düşer ve kart yeniden denetime gider.
+
 | # | Soru | Seçenekler | Öneri |
 |---|---|---|---|
-| **K-E1** | Kapalı liste, matris ve kemer eki | **(i) kapsam:** (a) §5.2–§5.3: üç yeni fonksiyon (`identity_request_email_change`, `identity_change_email`, `identity_revert_email_change`); `identity_open_reset`'in dördüncü argümanı (S-1, imza değişir); `admin_identity_verifications`'a iki amaç + `address` + `cancelled_at`; definer'a `UPDATE (email)` iki tabloda, doğrulama tablosunda `SELECT/INSERT/UPDATE` hücreleri; üç olay; **kemerin dört eki** — istekte adlı e-posta-geniş okuma (`identityEmailWideReads`), değişim ve geri almada adresle anahtarlı kimlik okuması (dördüncü sınıf, `identityClaimAddressKeys` emsali), süpürmenin ikinci tablosu (`identityPersonTableDeleters`, "another table" kontrolü, `identityBeltAllowedCounts` 1 → 2) · (b) ayrı bir tenant-kapsamsız tablo (CLAUDE.md §4.5 (3) + §6 metni, R5, restore sayıları değişir) · (c) hiç yapma. **(ii) geri alma linkinin §6.1'deki adı:** (a) adıyla sayılır — *"e-posta değişikliğinin geri alma linki"*; §6.1 + CLAUDE.md §4.5 (3) bayt-aynı değişir · (b) *"doğrulama token'ı"* sözcüğüne sığdırılır, metin değişmez. **(iii) saklama (§5.9):** (a) süpürme genişler, 1 gün · (b) adres NULL'lanır · (c) süpürme yok; süre 1 / 30 / 90 gün | **(i) (a) · (ii) (a)** — tek sırla adres + parola yazan bir link sıfırlama sınıfındadır, adıyla görünmeli · **(iii) (a), 1 gün** |
-| **K-E2** | "Bu ben değilim" yolu | (a) eski adrese bildirim + tek kullanımlık geri alma linki · (b) yalnız bildirim (geri dönüş yok; operatör de yardım edemez) · (c) bekleme süreli değişim: değişim N gün sonra yürürlüğe girer, eski adreste iptal linki | **(a)** — ana akımın karşılığı: Google/Microsoft eski adrese "bu sen değilsen hesabını güvene al" bağlantısı gönderir |
-| **K-E3** | Geri alma linkinin ömrü | (a) 24 saat (tablonun bugünkü tavanı) · (b) 72 saat · (c) 7 gün | **(c) 7 gün** — hafta sonu okunmayan bir kutu; bedeli §8 risk 1 |
+| **K-E1** | Kapalı liste, matris ve kemer eki | **(i) kapsam:** (a) §5.2–§5.3: üç yeni fonksiyon (`identity_request_email_change`, `identity_change_email`, `identity_revert_email_change`); var olan iki fonksiyonun değişmesi — `identity_open_reset`'in dördüncü argümanı (S-1, imza değişir) ve `identity_unlink_backfilled`'ın canlı geri alma linkinde 0 satır dönmesi (YÜKSEK-1, aynı imza; K-E16); `admin_identity_verifications`'a iki amaç + `address` + `cancelled_at`; definer'a `UPDATE (email)` iki tabloda, doğrulama tablosunda `SELECT/INSERT/UPDATE` hücreleri; üç olay; **kemerin dört eki** — istekte adlı e-posta-geniş okuma (`identityEmailWideReads`), değişim ve geri almada adresle anahtarlı kimlik okuması (dördüncü sınıf, `identityClaimAddressKeys` emsali), süpürmenin ikinci tablosu (`identityPersonTableDeleters`, "another table" kontrolü, `identityBeltAllowedCounts` 1 → 2) · (b) ayrı bir tenant-kapsamsız tablo (CLAUDE.md §4.5 (3) + §6 metni, R5, restore sayıları değişir) · (c) hiç yapma. **(ii) geri alma linkinin §6.1'deki adı:** (a) adıyla sayılır — *"e-posta değişikliğinin geri alma linki"*; §6.1 + CLAUDE.md §4.5 (3) bayt-aynı değişir · (b) *"doğrulama token'ı"* sözcüğüne sığdırılır, metin değişmez. **(iii) saklama (§5.9):** (a) süpürme genişler · (b) adres NULL'lanır · (c) süpürme yok; süre 1 / 30 / 90 gün | **(i) (a) · (ii) (a)** — tek sırla adres + parola yazan bir link sıfırlama sınıfındadır, adıyla görünmeli · **(iii) (a), 1 gün** |
+| **K-E2** | "Bu ben değilim" yolu | (a) eski adrese bildirim + tek kullanımlık geri alma linki · ⛔ (b) yalnız bildirim (geri dönüş yok; operatör de yardım edemez; saldırganın oturumu 12 saat yaşar) · (c) bekleme süreli değişim: değişim N gün sonra yürürlüğe girer, eski adreste iptal linki | **🔒 (a)** — (b) güvensiz; ana akımın karşılığı: Google/Microsoft eski adrese "bu sen değilsen hesabını güvene al" bağlantısı gönderir |
+| **K-E3** | Geri alma linkinin ömrü | (a) 24 saat (tablonun bugünkü tavanı) · (b) 72 saat · (c) 7 gün | **(c) 7 gün** — hafta sonu okunmayan bir kutu; bedeli §8 risk 1 ve K-E16 (a)'nın çözme yasağının süresi |
 | **K-E4** | Değişim linkinin ömrü | (a) 24 saat · (b) 1 saat | **(a)** — doğrulama linkiyle aynı; iki sır ister |
 | **K-E5** | Çakışmada yeni adrese ne gider | (a) linksiz bilgi mektubu (*"Someone asked to use this address for a Taptime sign-in. It already has one, so nothing changed."*) · (b) hiçbir şey | **(a)** — iki kol aynı mektup sayısını öder; adresin gerçek sahibine haber verir |
-| **K-E6** | Değişimden sonra oturumlar | (a) onaylayan oturum kalır, öbürleri her işletmede kapanır · (b) hepsi kapanır (yeniden giriş) · (c) hiçbiri | **(a)** — parola değişiminin emsali; geri alma her durumda hepsini kapatır |
+| **K-E6** | Değişimden sonra oturumlar | (a) onaylayan oturum kalır, öbürleri her işletmede kapanır · (b) hepsi kapanır (yeniden giriş) · ⛔ (c) hiçbiri (saldırganın ve kurbanın oturumları birlikte yaşar; kurtarma kanalı değişti, ele geçirilmiş öbür oturumlar kalır) | **🔒 (a) ya da (b)** — (c) güvensiz; öneri (a), parola değişiminin emsali; geri alma her durumda hepsini kapatır |
 | **K-E7** | Eski adrese istek anında da haber | (a) yalnız değişim anında · (b) istek anında da | **(a)** — istek tek başına hiçbir şeyi değiştirmez |
-| **K-E8** | Eski adres bildirimi yeni adresi anar mı | (a) anmaz · (b) maskeli anar · (c) tam anar | **(a)** — eski kutunun sahibi artık başkası olabilir (§8 risk 1); kişinin yeni adresi ona söylenmez |
-| **K-E9** | İsteğin ön koşulları | (a) mevcut adres doğrulanmış **ve** onay penceresi kapalı **ve** eski adreste bağsız aktif işletme yok · (b) yalnız doğrulanmış adres · (c) hiçbiri · **(d) ek olarak:** kimliğin canlı bir geri alma linki varken yeni değişim isteği reddedilir (geri alma penceresi başına tek değişim; "en eski link" zincir kuralı kalkar) | **(a) + (d)** — doğrulanmamış adres değişirse `first_verify` penceresi hiç açılmaz (ADR 0031 §5.8) ve bildirim kanıtlanmamış bir kutuya gider; pencere açıkken Undo kırılır; bağsız satırlar banttan düşer; (d) §8 risk 6'yı kapatır, bedeli 7 gün içinde ikinci bir değişim yapamamak. (d) seçilmezse §8 risk 6 kabul edilmiş olur |
-| **K-E10** | Kullanıcıya görünen metinler | **(i) istek yanıtı (flash):** (a) adres anmaz — *"Check your inbox at the new address. The change happens when you open the link there."* (kapalı sözcük listesinden, URL'de değer yok) · (b) adresi anar — dar yollu, kısa ömürlü, `HttpOnly` bir çerezle taşınır (doğrulama çerezinin deseni, `accountidentity.go:68`, `:263-276`), bir kez okunur ve silinir; adresin URL'ye, log'a, `Referer`'a girmediğini pinleyen bir test. **(ii)** form başlığı *"Change your sign-in email"* · **(iii)** onay *"Change your sign-in email to the address this link was sent to?"* · **(iv)** ret *"This link can't be used. Ask for a new one from your account page."* · **(v)** ön koşullar *"Confirm your current email first."*, *"Finish confirming your businesses first."*, *"Add your other businesses first."*, *"You changed your email recently. You can change it again after {tarih}."* (K-E9 (d)), *"That's already your address."* · **(vi)** eski adres mektubu, linkli: *"Your Taptime sign-in email was changed on {tarih}. If this wasn't you, press the button below within 7 days to undo it."*; linksiz (zincir, K-E9 (d) seçilmezse): *"Your Taptime sign-in email was changed on {tarih}. If this wasn't you, this address can no longer undo it; the earlier change's undo link still works."* · **(vii)** K-E14 (b) ise yeni adrese: *"This address is now your Taptime sign-in email."* · **(viii)** geri alma sonucu *"Your sign-in email is back. We sent a link to set a new password."* | **(i) (a)** — en küçük kanal; kişi adresi az önce kendisi yazdı. Geri kalanı kullanıcı onaylar ya da düzeltir |
+| **K-E8** | Eski adres **bildirimi** yeni adresi anar mı | (a) anmaz · (b) maskeli anar · ⛔ (c) tam anar (kişinin yeni adresini eski kutunun — artık başkası olabilir — sahibine yazar) | **🔒 (a)** — (c) güvensiz. **Düzeltilmiş gerekçe (turu 2, ORTA-2):** (a) yalnız eski posta kutusuna adres yazmamayı sağlar; yeni adres yine de kişinin üye olduğu **her** işletmenin owner'ının üye listesinde görünür (§8 risk 10) — eski işveren o işletmenin owner'ıysa görür. (a) bu yüzden **kısmi** bir korumadır; görünürlük K-E17'dir |
+| **K-E9** | İsteğin ön koşulları | (a) mevcut adres doğrulanmış **ve** onay penceresi kapalı **ve** eski adreste bağsız aktif işletme yok · ⛔ (b) yalnız doğrulanmış adres · ⛔ (c) hiçbiri · (d) ek olarak: kimliğin canlı bir geri alma linki varken yeni değişim isteği reddedilir (geri alma penceresi başına tek değişim; "en eski link" zincir kuralı kalkar) | **🔒 (a) + (d) zorunlu** — (b) ve (c) güvensiz: doğrulanmamış adres değişirse `first_verify` penceresi hiç açılmaz (ADR 0031 §5.8) ve bildirim kanıtlanmamış bir kutuya gider; pencere açıkken Undo kırılır; bağsız satırlar banttan düşer; (d) olmadan §8 risk 6 açıktır. Bedel: 7 gün içinde ikinci bir değişim yapılamaz |
+| **K-E10** | Kullanıcıya görünen metinler | **(i) istek yanıtı (flash):** (a) adres anmaz — *"Check your inbox at the new address. The change happens when you open the link there."* (kapalı sözcük listesinden, URL'de değer yok) · (b) adresi anar — dar yollu, kısa ömürlü, `HttpOnly` bir çerezle taşınır (doğrulama çerezinin deseni, `accountidentity.go:68`, `:263-276`), bir kez okunur ve silinir; adresin URL'ye, log'a, `Referer`'a girmediğini pinleyen bir test. **(ii)** form başlığı *"Change your sign-in email"* ve formun uyarısı *"Your new email will be visible to the admins of every business you belong to."* (§8 risk 10) · **(iii)** onay *"Change your sign-in email to the address this link was sent to?"* · **(iv)** ret *"This link can't be used. Ask for a new one from your account page."* · **(v)** ön koşullar, `refusal` koduna göre (§5.3): `unverified` *"Confirm your current email first."*, `window_open` *"Finish confirming your businesses first."*, `unlinked_rows` *"Add your other businesses first."*, `revert_live` *"You changed your email recently. You can change it again after {tarih}."*, `same_address` *"That's already your address."*, `invalid_address` *"That doesn't look like an email address we can send to."*, `stale` *"Please sign in again."* · **(vi)** eski adres mektubu, linkli: *"Your Taptime sign-in email was changed on {tarih}. If this wasn't you, press the button below within 7 days to undo it."*; linksiz (yalnız K-E9 (d) seçilmezse — güvenlik gereği seçilir, yani pratikte doğmaz): *"Your Taptime sign-in email was changed on {tarih}. If this wasn't you, this address can no longer undo it; the earlier change's undo link still works."* · **(vii)** K-E14 (b) ise yeni adrese: *"This address is now your Taptime sign-in email."* · **(viii)** geri alma sonucu *"Your sign-in email is back. We sent a link to set a new password."* | **(i) (a)** — en küçük kanal; kişi adresi az önce kendisi yazdı. Geri kalanı kullanıcı onaylar ya da düzeltir |
 | **K-E11** | Geri almadan sonra | (a) eski adrese otomatik bir sıfırlama linki (`p_recipient` bağıyla, S-1) · (b) kişi "Forgot password"u kendisi kullanır | **(a)** — bir adım eksik, aynı güvenlik (link yine eski posta kutusuna) |
 | **K-E12** | Ne zaman | (a) şimdi, contract'tan önce, §5.5'in kurallarıyla · (b) contract B'den sonra (eski kol yok, satır başı link yok) | **(a)** — contract A en erken 2026-12-27 ve tek bağsız owner kaldıkça ertelenir (`state.md:807`); ek kurallar küçük |
 | **K-E13** | Yalnız harf büyüklüğü değişikliği | (a) aynı adres sayılır, reddedilir · (b) izin verilir (yazım düzeltmesi) | **(a)** — citext'te eşit; yazım isteği nadir |
 | **K-E14** | Değişimden sonra **yeni** adrese onay mektubu | (a) yok · (b) var — linksiz, bildirimle aynı yoldan (`SendExempt`, kimlik başına tavanı paylaşır), metin K-E10 (vii) | **(a)** — yeni kutunun sahibi linki az önce açtı ve sayfanın cevabını gördü; bir mektup daha bilgi eklemez |
-| **K-E15** | Askıdaki bir işletme geri almayı engeller mi | (a) engellemez — geri alma bir güvenlik eylemidir, askıdaki işletmeye de `admin.email.reverted` yazılır · (b) askıdaki işletmede aynaya dokunulmaz (kişinin adresi işletmeler arasında ayrışır — `identityOfSession` kırılır, `identityaccount.go:139-151`) | **(a)** — (b) aynayı bozar; EC-2 ADR 0025'in istisna listesine karşı doğrular |
+| **K-E15** *(yeniden soruldu, turu 2 ORTA-A)* | İstek ve onay rotaları askı halkalı zincirde mi | (a) evet — `ProtectWriting`'in ana grubunda (`adminlogin.go:895-902`); askıdaki bir işletmenin oturumundan adres değişmez, kişi askıda olmayan bir işletmesine geçip oradan değiştirir; bütün işletmeleri askıdaysa değiştiremez · (b) hayır — `protectWritingThroughSuspension`'ın istisna grubunda (`adminlogin.go:906-922`; kendi parolası, "sign out everywhere" ve işletme geçişi orada): ADR 0025'in kapalı istisna listesi iki rotayla büyür ve `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` güncellenir. **Olgular, karar değil (§5.3):** geri alma oturumsuzdur, askı halkası ona uygulanmaz; ayna askıdakiler dahil her işletmeye yazılır (aynayı askıda atlamak ⛔ — `identityOfSession`'ı kırar); definer askıya bakmaz | **(a)** — en küçük değişiklik, kapalı listeyi büyütmez; adres değişimi bir işletme ayarı değil ama acil bir güvenlik eylemi de değildir (acil olan "sign out everywhere" ve parola zaten istisnada) |
+| **K-E16** *(yeni, turu 2 YÜKSEK-1)* | Geri alma penceresinde üyelik çözme | (a) kimliğin canlı geri alma linki varken `identity_unlink_backfilled` 0 satır; geri alma `confirm_*`'ı kapatır · (b) canlı geri alma linki varken `identity_consume_reset` / `identity_consume_row_reset` onay penceresi açmaz; geri alma `confirm_*`'ı kapatır · ⛔ (c) hiçbiri (saldırgan pencerede bütün üyelikleri çözer, kurban geri aldıktan sonra kurtaramaz) | **🔒 (a) ya da (b)** — (c) güvensiz; öneri **(a)**: tek fonksiyon, yalnız geri dönüşü olmayan eylemi durdurur, meşru kişinin sıfırlama sonrası listesini korur; bedeli adresi yeni değişmiş meşru kişinin 7 gün çözememesi (§5.6) |
+| **K-E17** *(yeni, turu 2 ORTA-2)* | Yeni adresin işletmelerde görünmesi | (a) form uyarır (K-E10 (ii)), başka bir şey değişmez · (b) uyarı + "önce o işletmeden ayrıl" yönlendirmesi (kişi istemediği işletmeden önce kendi üyeliğini bırakır; bugün kişinin kendi üyeliğini bırakma yolu yoksa ayrı bir kart) · (c) ayna yalnız aktif üyeliklere yazılır, devre dışılara değil — ⛔ (devre dışı satır yeniden açıldığında ayna ile kimlik ayrışır, `identityOfSession` kırılır) | **(a)** — §8 risk 10 kabul edilir; görünürlük ana akımdadır (Slack/Notion'da çalışma alanı yöneticisi üyenin adresini görür) |
 
 ## 11. Testler (özü — adlar yapıcının; henüz var olmayan test burada adlandırılmaz)
 
@@ -480,6 +559,11 @@ alt grupta (§5.3'ün son paragrafı).
   geri alma, reddedilmiş eski-adresli satırı olan bir işletmede 0 satır, 500 yok (YÜKSEK-1); geri alma ↔ geçiş /
   giriş / bağlama eşzamanlı → sonunda canlı oturum 0 (S-2); sıfırlama açılışı ↔ değişim eşzamanlı → link ya
   iptal edilmiş ya hiç basılmamış, eski adrese canlı link yok, kilitlenme yok (S-1).
+- **Turu 2'nin eklediği davranışlar:** değişim → yeni adreste sıfırlama → `identity_unlink_backfilled` **0 satır**
+  ve satır bağlı kalır; geri almadan sonra `confirm_*` üçü NULL; K-E11'in sıfırlamasından sonra çözme mümkün
+  (YÜKSEK-1). `refusal`'ın kapalı kümesi yedi değer; yeni adresin üç durumu için `refusal` NULL ve dönüş sütun
+  sütun aynı (DÜŞÜK-5 (b)). Geri almanın nöbetçi digest'i bcrypt CHECK'inden geçer ve imzada digest argümanı yok
+  (katalog). Down: iki koşuldan **her biri tek başına** durdurur.
 - **Düz zamanlama (HTTP, gerçek Postgres):** çakışmasız / kimliğe çakışan / kendi adresi olmayan üç kol iç içe;
   her yanıt tabanı öder, medyanlar aynı bantta (`TestPanelIdentityReset_TimingIsFlatOverHTTP`'nin biçimi).
 - **Log/audit sızıntısı:** röle davranışlarının hepsinde log anahtarları ADR 0022 §10 + `identity_id`; hiçbir

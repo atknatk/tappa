@@ -1,7 +1,7 @@
 # T173 — Panel kimliğinin e-posta değişikliği: kartlar
 
 > **Durum:** kart yazıldı (2026-11-11, dal `m14-emailcard`), **onay bekliyor** — iki bağımsız inceleyici ve
-> kullanıcının ADR 0044 §10 kararları (K-E1 … K-E15). Onay gelmeden kod yazılmaz (kullanıcı kararı 2026-11-11:
+> kullanıcının ADR 0044 §10 kararları (K-E1 … K-E17; 🔒 işaretliler güvenlik gereği, ⛔ seçenekler güvensiz). Onay gelmeden kod yazılmaz (kullanıcı kararı 2026-11-11:
 > önce kart, iki bağımsız onay, sonra kod). Canlı durum yalnız [state.md](state.md)'dedir.
 >
 > **Mimari karar:** [ADR 0044](../adr/0044-panel-kimliginin-e-posta-degisikligi.md) (Önerildi). Okumadan
@@ -41,14 +41,14 @@
 - **Bağımlılık:** ADR 0044 kabul + K-E1 · goose 99 (bugün son `00099`). **`00100` (`m14-tagshape` şeridi) bu
   kartın değil ama ön koşuludur:** bu kartın deploy'undan önce ya da onunla aynı deploy'da gitmeli — madde 5'in
   00100 ↔ 00101 gidiş-dönüşü ve goose sırası ona dayanır; 00100 başka dalda kalırsa numara orkestratörle konuşulur
-- **Kırmızı çizgi:** §4.5 (3) (kapalı listeye üç fonksiyon, `identity_open_reset`'in imzası, matrise `UPDATE (email)`; K-E1 (ii) (a) ise §6.1 + CLAUDE.md metni) · §6 · §7
+- **Kırmızı çizgi:** §4.5 (3) (kapalı listeye üç fonksiyon; var olan iki fonksiyon değişir — `identity_open_reset`'in imzası, `identity_unlink_backfilled`'ın gövdesi; matrise `UPDATE (email)`; K-E1 (ii) (a) ise §6.1 + CLAUDE.md metni) · §6 · §7
 - **Araç:** agent `tappa-db-migrator` + güvenlik denetçisi
 - **Commit:** `feat(db): let an identity change its sign-in address by mailbox proof`
 
 **Dosyalar.** `db/migrations/00101_*.sql`, `00102_*.sql`, `00103_*.sql` · `internal/db/identity.go` (üç çağrı
-+ süpürme) · `internal/db/identitycatalog_test.go`, `identitybelt_test.go`, `identityascii_test.go`,
-`privcatalog_test.go`, `m11schema_test.go` (envanterler) · `internal/adminauth/identityreset.go` (S-1: alıcıyı
-`OpenIdentityReset`'e geçmek) · `docs/adr/0031-tek-kimlik-cok-isletme.md` §5.1 ve §5.2'ye tarihli not (kullanıcı
++ süpürme + S-1: `OpenIdentityReset` ve `openIdentityResetSQL`, `internal/db/identity.go:324-381`) · `internal/db/identitycatalog_test.go`, `identitybelt_test.go`, `identityascii_test.go`,
+`privcatalog_test.go`, `m11schema_test.go` (envanterler) · `internal/adminauth/identityreset.go` (S-1: çağıran
+`openForIdentity`, alıcıyı geçer) · `docs/adr/0031-tek-kimlik-cok-isletme.md` §5.1 ve §5.2'ye tarihli not (kullanıcı
 onayının tarihiyle) · K-E1 (ii) (a) ise `CLAUDE.md` §4.5 (3) ve ADR 0031 §6.1, bayt-aynı.
 
 **Kabul kriterleri.**
@@ -66,8 +66,8 @@ onayının tarihiyle) · K-E1 (ii) (a) ise `CLAUDE.md` §4.5 (3) ve ADR 0031 §6
    `admin_users` GRANT'ı kendi `SET LOCAL lock_timeout`'uyla; `admin_users` ALTER edilmez.
 4. Ön koşul bloğu (00084'ün deseni): 00099 uygulanmış, tablolar ve `purpose` sütunu var; yoksa sabit mesajla
    durur, hiçbir şey değişmez.
-5. **Down** iki koşulda sabit bir mesajla durur ve hiçbir şey değiştirmez (00079'un Down'ı, `00079:471-476`):
-   (1) canlı (süresi dolmamış, harcanmamış, iptal edilmemiş) bir `'revert'` satırı varken; (2)
+5. **Down** iki koşuldan **herhangi biri** (VEYA) tutarsa sabit bir mesajla durur ve hiçbir şey değiştirmez
+   (00079'un Down'ı, `00079:471-476`): (1) canlı (süresi dolmamış, harcanmamış, iptal edilmemiş) bir `'revert'` satırı varken; (2)
    `admin_identity_events`'te `email_*` olayı varken — olay CHECK'i 00079'un biçimine geri konamaz, olay satırı
    silinemez (R17; tek silme yolu 90 günlük süpürme). Yoksa `'change'`/`'revert'` satırlarını siler, sütunları ve
    CHECK'leri 00084/00079'un biçimine **bayt bayt** geri koyar, yetkileri alır (pg_get_constraintdef + ACL md5'i
@@ -82,7 +82,10 @@ PUBLIC`, `EXECUTE` yalnız `tappa_app`, dinamik SQL yok.
    TRUE THEN RETURN`); K-E9 (a)'nın üç ön koşulu (doğrulanmış adres, pencere kapalı, eski adreste bağsız aktif
    satır yok — kimliğin kendi adresiyle anahtarlı **adlı e-posta-geniş okuma**, `identityEmailWideReads`; tenant'ı
    önceden bilinmediği için açık `tenant_id` taşımaz) ve K-E9 (d) seçilirse canlı `'revert'` yok; citext'te kendi
-   adresi → 0 satır. Önceki canlı `'change'` iptal, yeni satır, olay. Tenant tablosuna yazmaz, `audit_log`'a yazmaz.
+   adresi. Oturum bulunamazsa 0 satır; her öbür ret **bir** satır, `refusal` ADR 0044 §5.3'ün yedi değerli kapalı
+   kümesinden (`unverified`, `window_open`, `unlinked_rows`, `revert_live`, `same_address`, `invalid_address`,
+   `stale`) — hiçbiri yeni adresin başka bir kimliğe/işletmeye ait olup olmadığına bakmaz (fonksiyon o soruyu
+   sormaz). Önceki canlı `'change'` iptal, yeni satır, olay. Tenant tablosuna yazmaz, `audit_log`'a yazmaz.
 7. `identity_change_email`: ADR 0044 §5.3'ün kilit sırası (adres kilidi → kimliğin sıfırlama danışma kilidi →
    kimlik → üyelikler → link → oturum) ve 1–8. adımları. "Yeni adreste kimlik yok" okuması `admin_identities`'i
    adresle anahtarlar — kemerin dördüncü sınıfı (`identityClaimAddressKeys`'in emsali), sayısıyla. Aynanın güncellemesi kimliğin `unlinked_at IS NULL` **her** bağlı satırına (devre dışı
@@ -93,22 +96,31 @@ PUBLIC`, `EXECUTE` yalnız `tappa_app`, dinamik SQL yok.
    unique_violation THEN RETURN` bloğunda (`00084:430-434`'ün emsali; iç blok önceki yazıları bırakırdı) → 0 satır,
    hiçbir şey kalmaz.
 8. `identity_revert_email_change`: ADR 0044 §5.3'ün gövdesi — madde 7'nin kilit sırası (eski adresin kilidi →
-   sıfırlama kilidi → kimlik → üyelikler → link) ve **bütün gövdeyi saran** `unique_violation` bloğu; nöbetçi
-   digest çözmeninkiyle aynı tür (SQL'de pgcrypto ya da Go'da — yapıcı seçer, gerekçeler, imza ona göre
-   pinlenir); bağlı satırlara digest kopyası (contract B'ye dek); **bütün** oturumlar; kimliğin canlı sıfırlama,
-   `'change'` ve öbür `'revert'` linkleri iptal; her işletmeye `admin.email.reverted` (aynı biçim). 0 satır: eski
-   adres başka bir kimliğinse (dördüncü sınıf okuma) **ve** kişinin bağlı herhangi bir işletmesinde eski adresli
+   sıfırlama kilidi → kimlik → üyelikler → link) ve **bütün gövdeyi saran** `unique_violation` bloğu; imza
+   `identity_revert_email_change(p_revert_hash text)` — nöbetçi digest **yalnız SQL'de** üretilir (`00079:422`'nin
+   ifadesi; güvenlik gereği — Go'dan gelen bir digest bcrypt CHECK'ine, `00069:180`, çarpıp adresi `DETAIL`'e
+   basabilirdi); `confirm_opened_at` / `confirm_open_until` / `confirm_scope` tek UPDATE'te NULL; bağlı satırlara
+   digest kopyası (contract B'ye dek); **bütün** oturumlar; kimliğin canlı sıfırlama, `'change'` ve öbür
+   `'revert'` linkleri iptal; her işletmeye `admin.email.reverted` (aynı biçim). 0 satır: eski adres başka bir
+   kimliğinse (dördüncü sınıf okuma) **ya da** kişinin bağlı herhangi bir işletmesinde eski adresli
    başka bir satır varsa (üyelik döngüsünde açık `tenant_id`; YÜKSEK-1 — kişinin reddettiği satır eski adreste
    kalır, `00072:903-905`, ve aynayı geri çevirmek `admin_users_tenant_email_key`'e çarpardı, `00006:96-97`).
-9. Kimlik başına en çok **bir** canlı `'change'` ve **bir** canlı `'revert'` — kilit altında. K-E9 (d) seçilirse
-   canlı `'revert'` varken istek 0 satır (zincir oluşmaz); seçilmezse zincirde (A→B→C) ikinci değişim `'revert'`
-   yazmaz ve ADR 0044 §8 risk 6 kabul edilmiştir.
+9. Kimlik başına en çok **bir** canlı `'change'` ve **bir** canlı `'revert'` — kilit altında. K-E9 (d) (güvenlik
+   gereği): canlı `'revert'` varken istek `refusal = 'revert_live'` döner (zincir oluşmaz).
+9a. **`identity_unlink_backfilled` (YÜKSEK-1, K-E16 (a)):** aynı imzayla `CREATE OR REPLACE` (T5 kuralı aynen);
+   kimlik kilidinden sonra kimliğin canlı bir `'revert'` satırı varsa 0 satır, hiçbir şey yazılmaz; gövdenin geri
+   kalanı 00079'unki bayt bayt (bir gövde-farkı testi bunu pinler). Down 00079'un tanımını ve ACL'ini bayt bayt
+   geri koyar. K-E16 (b) seçilirse bu madde `identity_consume_reset` ve `identity_consume_row_reset`'e taşınır.
 9b. **`identity_open_reset` (S-1):** dördüncü argüman `p_recipient text DEFAULT NULL` (`DROP` + `CREATE`; sahip,
    `SECURITY DEFINER`, `search_path`, `REVOKE ALL … FROM PUBLIC`, `GRANT EXECUTE … TO tappa_app` yeniden yazılır);
    kendi danışma kilidinden sonra `p_recipient IS NOT NULL AND i.email::text <> p_recipient` ise 0 satır; gövdenin
    geri kalanı 00072'ninki bayt bayt. Eski binary'nin üç argümanlı çağrısı `DEFAULT` ile çözülür ve bugünkü
-   davranışı alır. Go (`openForIdentity`) her çağrıda `identityRecipient`'ın adresini geçer; 0 satır "kimlik
-   yok"un cevabını alır (yanıt ve taban aynı). Down 00072'nin tanımını ve ACL'ini bayt bayt geri koyar.
+   davranışı alır. Go tarafı: `internal/db/identity.go`'nun `OpenIdentityReset`'i yeni bir `recipient string`
+   parametresi alır ve `openIdentityResetSQL` dört argümanla çağırır (`identity_open_reset($1, $2, $3, $4)`,
+   `internal/db/identity.go:324-381`); `internal/adminauth`'un `openForIdentity`'si `identityRecipient`'ın adresini
+   geçer; 0 satır "kimlik yok"un cevabını alır (yanıt ve taban aynı). Bir kaynak testi `openIdentityResetSQL`'in
+   dört yer tutucu taşıdığını pinler (T295'in migration'ı `DEFAULT`'u kaldırana dek). Down 00072'nin tanımını ve
+   ACL'ini bayt bayt geri koyar.
 
 *Süpürme (00103)* — K-E1 (iii)'ün seçeneğine göre; aşağısı önerilen (a)'dır (süre K-E1 (iii)'ün süresi).
 10. `identity_sweep_events()` **aynı imzayla** (`CREATE OR REPLACE`; sahip, `SECURITY DEFINER`, `search_path`,
@@ -142,6 +154,11 @@ PUBLIC`, `EXECUTE` yalnız `tappa_app`, dinamik SQL yok.
   açık pencere; eski adreste bağsız satır; yeni adres bir kimliğin; kişinin bir işletmesinde aynı adresli satır;
   6b'den geçmeyen adres (U+0130, U+212A); K-E9 (d) ise canlı geri alma linki; geri almada kişinin bağlı bir
   işletmesinde eski adresli (reddedilmiş) satır → 0 satır, 500 yok, hata metninde adres yok.
+- **YÜKSEK-1:** değişim → yeni adreste kimlik sıfırlaması (`reset` penceresi açılır) → `identity_unlink_backfilled`
+  0 satır, satır bağlı kalır; geri almadan sonra `confirm_*` üçü NULL; K-E11'in sıfırlamasından sonra çözme
+  çalışır.
+- `refusal`: her ret dalı kendi değerini döner; yeni adresin üç durumunda (çakışmasız / bir kimliğin / kişinin
+  bir işletmesinde satırı olan) `refusal` NULL ve dönüş sütun sütun aynı.
 - 1, 2 ve 10 işletmeli kimlik: değişimden sonra her bağlı satırda ayna = kimlik adresi; devre dışı üyelik de;
   reddedilmiş satır eski adreste.
 - Tetikleyici: değişimden sonra `tappa_app` ve `tappa_owner` bağlı satırın `email`'ini yazamaz (00069'un
@@ -168,7 +185,8 @@ yeniden denetimi · aynı işletmede aynı adresli satır denetimi (değişimde)
 adresli satır denetimi** · aynanın `tenant_id` yüklemi · aynanın `identity_id` yüklemi · `unique_violation`
 yakalaması **iki fonksiyonda ayrı ayrı** ve "iç bloğa daraltılmış" mutantı (önceki yazılar kalır → kırmızı) ·
 kimlik sıfırlamalarının iptali · satır başı linklerin iptali · "tek canlı `'revert'`" kuralı ya da K-E9 (d)'nin
-reddi · geri almada "eski adreste kimlik yok" · K-E9'un ön koşulları (ayrı ayrı) · `identity_open_reset`'in
+reddi · `identity_unlink_backfilled`'ın canlı geri alma linki yüklemi · geri almanın `confirm_*` kapatması ·
+geri almada "eski adreste kimlik yok" · K-E9'un ön koşulları (ayrı ayrı) · `identity_open_reset`'in
 alıcı yüklemi · değişim/geri almanın sıfırlama danışma kilidi (kaldırılınca S-1 yarışı kırmızı) · audit
 `detail`'inin sıfırda sayıyı düşürmesi · süpürmenin `'verify'`/`'link'`'e dokunmaması · Down'ın iki durması.
 
@@ -186,14 +204,17 @@ anahtarı — değişim ve geri alma, `deriveVerifyKey`'in biçimi) · `internal
 istek, link inişi, onay, geri alma inişi + onayı; ayrılmış mektup kuyruğu) · `internal/handler/adminratelimit.go`
 (yeni sabitler, `TestPanelConstants_ShippedValuesArePinned`'e) · `web/templates/` (hesap kartı, onay ve geri alma
 sayfaları, mektuplar: değişim linki, çakışma bilgisi, eski adres bildirimi linkli ve linksiz, K-E14 (b) ise
-yeni adres onayı) · `internal/adminauth/identityreset.go` (S-1'in Go yarısı, EC-1 9b ile) · `cmd/tappa/main.go`
+yeni adres onayı) · S-1'in Go yarısı EC-1 9b'dedir (`internal/db/identity.go`, `internal/adminauth/identityreset.go`) · `cmd/tappa/main.go`
 (süpürmenin periyodik çağrısı — T294).
 
 **Kabul kriterleri.**
 
 *İstek*
 1. Hesap sayfasında, yalnız bağlı kimlik oturumunda, **"Change your sign-in email"** kartı (K-E10): yeni adres +
-   mevcut parola. Bağlanmamış satırın oturumu kartı görmez ve rotası `unavailable` döner (ücretsiz — kişinin
+   mevcut parola + formun uyarısı *"Your new email will be visible to the admins of every business you belong
+   to."* (K-E10 (ii), ADR 0044 §8 risk 10). Rotalar K-E15'in zincirinde — önerilen (a): `ProtectWriting`'in
+   askı halkalı ana grubu; (b) seçilirse `protectWritingThroughSuspension`'ın grubu ve
+   `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` + ADR 0025'in listesi aynı commit'te. Bağlanmamış satırın oturumu kartı görmez ve rotası `unavailable` döner (ücretsiz — kişinin
    kovasını harcamaz).
 2. Sıra: iş kapısı → kişinin kovası (`TryCharge`, karşılaştırmadan önce) → adres biçimi (`mail.ValidRecipient`,
    kopya değil) → mevcut parola (`identity_password_for_session`'ın digest'i, `changepassword.go`'nun deseni) →
@@ -206,7 +227,8 @@ yeni adres onayı) · `internal/adminauth/identityreset.go` (S-1'in Go yarısı,
    gövdesi adresi taşımaz). (b) seçilirse: dar yollu, kısa ömürlü, `HttpOnly`, `SameSite=Strict` bir çerez, bir
    kez okunur ve silinir; aynı test + çerezin yolu/ömrü pinli.
 3. Yanlış parola: görünür ret (*"Your current password is not right"*) — kişinin kendi bilgisi; kova harcanır.
-   K-E9'un ön koşulları ve K-E13: görünür, sabit cümleler (K-E10).
+   Definer'ın `refusal` değerleri K-E10 (v)'in cümlelerine birebir eşlenir (kapalı küme, bilinmeyen değer 500
+   değil genel ret); eşlemeyi bir tablo testi pinler. Hiçbir cümle yeni adres hakkında konuşmaz.
 4. **Düz zamanlama:** çakışmasız / yeni adres bir kimliğin / yeni adres kimsesiz ama kişinin bir işletmesinde
    satırı var — üç kol aynı yanıtı (gövde baytları, durum, başlıklar; oturuma özgü değerler hariç) ve aynı
    tabanı öder; HTTP üzerinden gerçek Postgres'le iç içe ölçüm, medyanlar aynı bantta (biçim:
@@ -237,8 +259,8 @@ yeni adres onayı) · `internal/adminauth/identityreset.go` (S-1'in Go yarısı,
    sayfası ne olacağını söyler (eski adres geri gelir, her yerde çıkış, yeni parola linki). POST'ta IP kovası
    (`adminResetSubmitLimit`'in deseni) → `identity_revert_email_change` → başarıda eski adrese
    `identity_open_reset` ile bir sıfırlama linki (K-E11 (a); `p_recipient` = geri almanın döndürdüğü adres, S-1;
-   M14-14'ün yolu) → sabit bir sonuç sayfası. Ret tek sayfa. Askı geri almayı engellemez (K-E15 (a)); EC-2 bunu
-   ADR 0025'in istisna listesine karşı doğrular ve rapor eder.
+   M14-14'ün yolu) → sabit bir sonuç sayfası. Ret tek sayfa. Olgu (karar değil): oturumsuz rota askı halkasının
+   dışındadır, ayna askıdakiler dahil her işletmeye yazılır, definer askıya bakmaz (ADR 0044 §5.3).
 9b. **S-1'in Go yarısı:** `openForIdentity` her çağrıda `identityRecipient`'ın adresini `OpenIdentityReset`'e
    geçer; 0 satır "kimlik yok" gibi cevaplanır (sayfa ve taban aynı, bir log satırı). Test (gerçek Postgres):
    resolver'dan sonra, açılıştan önce bir değişim commit edilir → link basılmaz, eski adrese mektup gitmez.
@@ -273,12 +295,17 @@ yeni adres onayı) · `internal/adminauth/identityreset.go` (S-1'in Go yarısı,
 - **Commit:** `docs(deploy): runbook for the sign-in email change`
 
 **Kabul kriterleri.**
-1. `deploy/README.md`'ye bölüm: ön kontroller (salt okuma: goose 99, `admin_identity_verifications`'ta yalnız
-   `'verify'`/`'link'`, adresi kimliğinkinden farklı bağlı satır = 0), deploy sonrası kontroller (goose 103,
-   üç fonksiyonun sahibi/ACL'i/`search_path`'i, `tappa_app`'ın `admin_users.email`'e hâlâ yazamadığı,
-   `identity_sweep_events`'in yeni gövdesi) ve duman (iki işletmeli kimlik: değiştir → iki işletmede ayna ve
+1. `deploy/README.md`'ye bölüm: ön kontroller (salt okuma: goose **100** — 00100 ön koşuldur, EC-1;
+   `admin_identity_verifications`'ta yalnız `'verify'`/`'link'`, adresi kimliğinkinden farklı bağlı satır = 0),
+   deploy sonrası kontroller (goose 103; üç yeni fonksiyonun sahibi/ACL'i/`search_path`'i; `identity_open_reset`'in
+   **dört argümanlı** imzası, sahibi, ACL'i ve **üç argümanlı eski tanımın artık olmadığı**
+   (`to_regprocedure('public.identity_open_reset(uuid,text,timestamptz)')` NULL); `identity_unlink_backfilled`'ın
+   yeni gövdesi ve ACL'i; `tappa_app`'ın `admin_users.email`'e hâlâ yazamadığı; `identity_sweep_events`'in yeni
+   gövdesi) ve duman (iki işletmeli kimlik: değiştir → iki işletmede ayna ve
    audit → eski adrese bildirim → geri al → yeni parola linki → giriş).
-2. Geri dönüş paragrafı: önceki imaj; Down ancak sonraki deploy'da ve canlı geri alma linki yokken (ADR 0044 §6).
+2. Geri dönüş paragrafı: önceki imaj; Down ancak sonraki deploy'da ve iki durmanın **ikisi de** tutmuyorken —
+   canlı geri alma linki yok **ve** `admin_identity_events`'te `email_*` olayı yok (olaylar ancak 90 günlük
+   süpürmeyle yaşlanır, T294 bağlandıktan sonra); salt okuma sayım sorgusu bölümde (ADR 0044 §6).
 3. `docs/plan/m14-tek-kimlik.md` M14-20b'nin 1b listesine `identity_revert_email_change` (digest kopyalar →
    contract B'den sonra `NULL`) ve ADR 0031 §8 adım 8'e aynı satır — kullanıcı onaylı ADR 0044'e atıfla.
 4. Haftalık sayımlar bölümüne (varsa) bir satır: canlı geri alma linki sayısı (salt okuma, adres basmadan).
