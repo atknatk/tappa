@@ -26,7 +26,8 @@ import (
 // evidenceReaderClass is how one statement treats a row at a peer's venue.
 type evidenceReaderClass struct {
 	// how: "sql-filter" (the evidence figures carry site_tenant_id IS NULL / the partner fold),
-	// "excluded" (the statement's own predicate leaves site rows out), "go-blank" (the rows are
+	// "excluded" (the statement's own predicate leaves out every row that could carry a peer's
+	// evidence -- site rows, or, for ExistingManualRecord alone, tap rows: see its why), "go-blank" (the rows are
 	// returned with their site ids and internal/domain/ledger blanks the evidence -- site.go),
 	// "not-rendered" (a decision input or a writer, never on a screen), "residue" (named in ADR
 	// 0027 §13 item 5).
@@ -77,9 +78,10 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"InsertTransactionReview": {"not-rendered", "", 0, "the review writer reads the decided row's verdict to refuse a non-flag"},
 	"ExistingManualRecord": {"excluded", "t.channel = 'manual'", 1,
 		"T258 (2026-11-09/10): the manual row a press found for the same person, direction, minute and author. Its predicate " +
-			"keeps tap rows out, so the note it reads is the manager's own (a claim's approval writes ClaimApprovedNote), never " +
-			"a tap's evidence note; a row at a peer's venue is named by its site id from the person's partner list -- no address, " +
-			"no coordinate, no verdict"},
+			"keeps TAP rows out, not site rows: this author's manual rows at a peer's venue (InsertManualSiteTransaction) pass " +
+			"(T256). None carries a peer's evidence -- a manual row is written with no address, coordinate or chip read -- and " +
+			"the note it reads is the manager's own (a claim's approval writes ClaimApprovedNote), never a tap's evidence note; " +
+			"a row at a peer's venue is named by its site id from the person's partner list -- no address, no coordinate, no verdict"},
 	"GetTapOutcome": {"go-blank", "site_location_id", 0,
 		"the sandbox simulation's answer (M11 API-11): internal/sandbox's tapBodyOf blanks trust and the rule of a row at a partner venue; the verdict is the residue"},
 }
