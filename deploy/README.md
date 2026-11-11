@@ -1284,7 +1284,7 @@ else
     DOCKER_HOST="${EP:-${DOCKER_HOST:-unix:///var/run/docker.sock}}" \
     bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
   echo "drill exit: $rc in $(( $(date +%s) - start )) s"
-  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | cut -c1-300
+  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | sed -E 's/(ERROR:[^:]*):.*/\1: (cut)/' | cut -c1-300
   echo "left behind: containers $(docker ps -aq --filter name=tappa-drill | wc -l | tr -d ' '), networks $(docker network ls -q --filter name=tappa-drill | wc -l | tr -d ' '), dump dirs $(ls -A "$DRILL_DIR/tmp" | wc -l | tr -d ' '), volumes $vols -> $(docker volume ls -q | wc -l | tr -d ' ')"
 fi
 ```
@@ -1300,7 +1300,11 @@ kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı aynı sha256'yı 1. b�
 ⚠️ **Kayıt yalnız yeşil bir koşuda sırsız ve satırsızdır** (araç yalnız sayı ve ad basar). Kırmızı
 bir koşuda psql'in `DETAIL:` ve `CONTEXT:` satırları bir döküm satırını (bir çalışanın mesai kaydını)
 taşıyabilir. Bu yüzden blok yalnız süzülmüş satırları basar, ikisini atar, kaydın tamamı okunmaz ve
-çağrı biterken silinir.
+çağrı biterken silinir. Bir `ERROR:` satırı da değer taşıyabilir (`invalid input syntax for type
+uuid: "…"`): blok onu `ERROR:`'dan sonraki ilk `:`'da keser ve yerine `(cut)` yazar (T289). Sayılı
+sınır: iki nokta üst üsteden **önce** duran bir değer (`value "…" is out of range`) kesilmez. Yalnız
+SQLSTATE basmak psql'in komut satırını (`-v VERBOSITY=sqlstate`) değiştirmeyi isterdi, o satır da B YOLU
+ile bayt bayt aynı tutulan metindir; bu yüzden seçilmedi.
 
 **4. Checkout'u kaldır.** `DRILL_DIR` 3. adımın tuzağıyla gitti; geriye 2. adımın worktree'si kalır:
 
