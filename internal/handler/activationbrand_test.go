@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -436,6 +437,7 @@ func TestActivationFailureScreens_StayTaptimesForABrandedInvitation(t *testing.T
 		{"no link", nil, nil, nil, get("/activate"), http.StatusOK},
 		{"finish setup in this browser", nil, nil, nil, get("/activate?from=tap"), http.StatusOK},
 		{"signed out", nil, nil, nil, get("/activate?from=signedout"), http.StatusOK},
+		{"lost cookie", nil, nil, nil, get(cookieCheckURL(time.Now())), http.StatusOK},
 		{"expired invitation", func() *fakeInvites { return expired(invite.ErrCodeExpired) }, nil, nil, get("/activate", codeCookie()), http.StatusBadRequest},
 		{"spent invitation, from the link", func() *fakeInvites { return expired(invite.ErrCodeUsed) }, nil, nil, get("/activate?code=" + fakeCode), http.StatusBadRequest},
 		{"cancelled invitation", func() *fakeInvites { return expired(invite.ErrCodeCancelled) }, nil, nil, get("/activate", codeCookie()), http.StatusBadRequest},

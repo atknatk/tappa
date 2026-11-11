@@ -127,6 +127,12 @@ const (
 	// -- 75 complete activations per window per address key. The two session screens'
 	// logo goes through /t/logo/ and the tap surface's own budget, not this one.
 	//
+	// THE COOKIE CHECK ADDS ONE MORE (2026-11-11, ADR 0026): GET /activate?code= now
+	// answers 303 to /activate?cookiecheck=<unix seconds>, which answers 303 to the bare /activate
+	// when the cookie came back (cookieCheckURL). 8 requests each without a
+	// logo, 9 with one; fifteen people about 120 or 135 -- 75 or 66 complete
+	// activations per window per address key. No limit moved.
+	//
 	// (The pre-wizard figures were 4, 5 or 7 requests depending on the tour.)
 	//
 	// ⚠️ THIS PARAGRAPH USED TO SAY "about 45 requests" FOR FIFTEEN PEOPLE, and it
@@ -146,7 +152,7 @@ const (
 	//     a VALID activation. Refusing a real activation to save 480 counter
 	//     increments is a bad trade.
 	//   · HIGHER buys nothing: 600 already carries a fifteen-person crew walking
-	//     the whole wizard (about 105 requests) with five times the room to spare,
+	//     the whole wizard (about 120 requests) with five times the room to spare,
 	//     and every failure mode past this ceiling is already bounded by the other
 	//     two budgets. (This line also said "~45"; same drift, same fix.)
 	// What genuinely improved is not the number but the KEY, and that was the
