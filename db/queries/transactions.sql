@@ -1311,10 +1311,10 @@ WHERE tenant_id = @tenant_id
 -- Measured (lane DB, 2026-11-11; a temporary copy of transactions with its indexes and policy,
 -- as tappa_app, plan forced custom and generic; 20 people at 09:00 in / 17:00 out every day,
 -- 12 of them in since 6 h, 8 in and out today, 20 historic practice rows): 730 days of history
--- 516-544 pages and 21-30 ms before, 110-122 pages and ~1.5 ms after; 60 days 50 before, 58-90
--- after (both ~1-6 ms); 60 days with 43 198 refused/ignored taps inside the window 808 before,
--- 108 after; 730 days with the same flood 2 249-2 472 before, 1 107-1 330 after (the window's
--- read, see above). The agreement and the plan are pinned by internal/db's floor_test.go.
+-- 516-544 pages and 21-30 ms before, 120-122 pages and ~1.5 ms after; 60 days 50 before, 100
+-- after (both ~1-6 ms: a short history pays the per-entry probes); 60 days with 43 198
+-- refused/ignored taps inside the window 808 before, 118 after; 730 days with the same flood
+-- 2 249-2 472 before, 1 117-1 340 after (the window's read, see above). The agreement and the plan are pinned by internal/db's floor_test.go.
 --
 -- 🔴 @since IS now - tap.StaleOpenIn, COMPUTED IN GO, and it is a bare parameter (no coalesce):
 -- a check-in older than the engine's own "forgotten checkout" horizon is not somebody on the
@@ -1335,8 +1335,10 @@ WHERE tenant_id = @tenant_id
 --
 -- NO LIMIT: the rows are bounded by the business's venues plus its peers', not by its history.
 --
--- TENANT SCOPE (§4.5): the explicit predicate on the outer row, the entry's row, both probes'
--- rows and the join's ON, beside RLS -- each probe bound to @tenant_id, not to the outer alias.
+-- TENANT SCOPE (§4.5): the explicit predicate on the outer row, the entry's row (in its own scan
+-- and again on the derived table e, whose WHERE the panel belt reads as a statement of its own),
+-- both probes' rows and the join's ON, beside RLS -- each probe bound to @tenant_id, not to the
+-- outer alias.
 -- The tenant comes from the panel session. (The outer statement is over transactions rather than
 -- over a CTE of the picked rows because internal/domain/tenant's
 -- TestTransactionsQueries_CarryAnExplicitTenantPredicate refuses a statement that reads a tenant
@@ -1352,7 +1354,7 @@ WHERE t.tenant_id = @tenant_id
   AND t.id IN (
       SELECT e.id
       FROM (
-          SELECT DISTINCT ON (x.employee_id) x.id, x.employee_id, x.occurred_at
+          SELECT DISTINCT ON (x.employee_id) x.id, x.tenant_id, x.employee_id, x.occurred_at
           FROM transactions x
           WHERE x.tenant_id = @tenant_id
             AND x.employee_id IS NOT NULL
@@ -1361,7 +1363,8 @@ WHERE t.tenant_id = @tenant_id
             AND x.occurred_at >= @since
           ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC
       ) e
-      WHERE NOT EXISTS (
+      WHERE e.tenant_id = @tenant_id
+        AND NOT EXISTS (
                 SELECT 1
                 FROM transactions o
                 WHERE o.tenant_id = @tenant_id
