@@ -223,6 +223,18 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 // restores that.
 func opAtVersionLocking(t *testing.T, ctx context.Context, tx pgx.Tx, version int, also []string, kinds ...string) {
 	t.Helper()
+	// 🔴 NO SNAPSHOT BEFORE THE WALK (T278). The walk's UPDATE of tenants and DELETEs below write
+	// committed rows of other sessions; under opTx's REPEATABLE READ a snapshot taken BEFORE
+	// lockForDowns is older than whatever another session committed while the locks were awaited,
+	// and the UPDATE meets that row as concurrently updated: 40001 (T255; reproduced for T278 on the
+	// lane database: a catalogue SELECT first, then a suspended tenant reinstated by a session holding
+	// tenants for 1.5 s -> 2 of 2 red; the same read on another connection -> 2 of 2 green). So the
+	// caller's first statement on tx must come after this.
+	if txHasSnapshot(t, ctx, tx) {
+		t.Fatalf("opAtVersion(%d) on a transaction that already has a snapshot: run it before the "+
+			"test's first SELECT or DML on tx (read the catalogue on another connection if it must come "+
+			"first) -- a row committed while its locks are awaited would be a 40001 (T278)", version)
+	}
 	entries, err := os.ReadDir(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatalf("read db/migrations: %v", err)

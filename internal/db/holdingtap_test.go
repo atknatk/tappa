@@ -1852,6 +1852,35 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 	}
 }
 
+// txHasSnapshot reports whether tx's transaction has fixed its snapshot -- its backend_xmin, read
+// from a second session (a SELECT on tx itself would take the snapshot it asks about). lockForDowns
+// says why it matters: under REPEATABLE READ a snapshot fixed before the locks makes every row
+// committed during the wait invisible, and a write to such a row is 40001. NULL after BEGIN, SET,
+// SHOW, SAVEPOINT and LOCK; set by the first SELECT or DML (lockSnapshotCase measures both).
+func txHasSnapshot(t *testing.T, ctx context.Context, tx pgx.Tx) bool {
+	t.Helper()
+	watcher, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect the snapshot watcher: %v", err)
+	}
+	defer func() {
+		if err := watcher.Close(context.Background()); err != nil {
+			t.Logf("close the snapshot watcher: %v", err)
+		}
+	}()
+	return snapshotSeenBy(t, ctx, watcher, tx.Conn().PgConn().PID())
+}
+
+// snapshotSeenBy is txHasSnapshot's read, on a watcher connection the caller keeps.
+func snapshotSeenBy(t *testing.T, ctx context.Context, watcher *pgx.Conn, pid uint32) bool {
+	t.Helper()
+	var has bool
+	if err := watcher.QueryRow(ctx, `SELECT backend_xmin IS NOT NULL FROM pg_catalog.pg_stat_activity WHERE pid = $1`, pid).Scan(&has); err != nil {
+		t.Fatalf("read the transaction's backend_xmin: %v", err)
+	}
+	return has
+}
+
 // lockProbeExists answers whether table exists as tx sees it (a table the transaction dropped does
 // not) without fixing tx's snapshot (lockForDowns says why): LOCK ... ACCESS SHARE NOWAIT in a
 // savepoint that is then undone, so the probe keeps no lock. Granted or 55P03 (someone holds or

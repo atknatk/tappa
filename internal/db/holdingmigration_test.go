@@ -231,7 +231,11 @@ func TestHoldingSchema_AppRoleHasNoVerbOnHoldingTables(t *testing.T) {
 			}
 		}
 	}
-	check(tx, "on this database")
+	// On another connection, not tx (T278): a read on tx would fix its REPEATABLE READ snapshot
+	// before opAtVersionLocking's locks, and the walk's UPDATE of tenants then meets a suspension
+	// another session lifted during the wait as 40001 (reproduced; opAtVersionLocking refuses the
+	// order). The catalogue tx would see is the committed one: tx has written nothing yet.
+	check(ownerDB(t).pool, "on this database")
 
 	// Since 00063 (M10 OP-15) HEAD is past 00062 on the operator surface: 00042's Up composes over
 	// 00039's tenant-write CHECK, which 00063 widened, so the transaction is taken to 00062 first --
