@@ -466,13 +466,16 @@ func TestObservability_EveryLoggerCallSiteIsSpelledLog(t *testing.T) {
 //
 // 🔴 THE FAILURE IS THE SAME SILENT ONE: a caller that writes its own sentence ("checkin: audit
 // write failed", "the trail row could not be written") is an ERROR no rule reads, and the trail's
-// hole is never reported. Measured when this test was written: of the nine call sites it finds,
-// five used the constant and four wrote a sentence of their own (checkin, the panel's export gate,
+// hole is never reported. Measured when this test was written (base 2624a89a): of the nine log
+// calls it finds, four used the constant (activation, the panel's record, the recovery's record,
+// the tap rate limiter) and five wrote a sentence of their own (checkin, the panel's export gate,
 // the manager invitation, the suspension gate, the on-screen invitation refusal: T282 and T284
 // moved them to the constant).
 //
 // Two nets. (1) Shape: the body of an `if` whose init or condition calls <x>.audit.Record or
-// <x>.trail.Record (audit.Recorder's own-transaction write) — every log call in it must pass the
+// <x>.trail.Record (audit.Recorder's own-transaction write), or of the first `if` after a statement
+// that assigns such a call in the same block (`_, err := x.audit.Record(…)` then `if err != nil`,
+// the form adminresetoutcome.go uses) — every log call in it must pass the
 // selector audit.EventWriteFailed as its msg. (2) Spelling: no log call anywhere passes a string
 // literal containing the constant's text, so a revert to the literal is red even in a helper the
 // shape does not reach (adminresetoutcome.go's logRowLost).
@@ -558,7 +561,40 @@ func TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg(t *testing.T) {
 			return nil // not our business; the compiler owns syntax
 		}
 		rel, _ := filepath.Rel(repoRoot, path)
+		// judge holds every log call in an error branch to the constant.
+		judge := func(body *ast.BlockStmt) {
+			sites++
+			ast.Inspect(body, func(m ast.Node) bool {
+				msg := logCall(m)
+				if msg == nil {
+					return true
+				}
+				logged++
+				if !isConstant(msg) {
+					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(msg.Pos()).Line)+
+						" reports a failed audit write without audit.EventWriteFailed as its msg")
+				}
+				return true
+			})
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
+			// The two-statement form: an assignment from the Record call, then the first `if`
+			// after it in the same block is its error branch.
+			if blk, ok := n.(*ast.BlockStmt); ok {
+				for i, st := range blk.List {
+					as, ok := st.(*ast.AssignStmt)
+					if !ok || !isAuditRecord(as) {
+						continue
+					}
+					for _, next := range blk.List[i+1:] {
+						if ifs, ok := next.(*ast.IfStmt); ok {
+							judge(ifs.Body)
+							break
+						}
+					}
+				}
+				return true
+			}
 			if msg := logCall(n); msg != nil {
 				if lit, ok := msg.(*ast.BasicLit); ok && lit.Kind == token.STRING &&
 					strings.Contains(lit.Value, audit.EventWriteFailed) {
@@ -571,19 +607,7 @@ func TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg(t *testing.T) {
 			if !ok || !((ifs.Init != nil && isAuditRecord(ifs.Init)) || isAuditRecord(ifs.Cond)) {
 				return true
 			}
-			sites++
-			ast.Inspect(ifs.Body, func(m ast.Node) bool {
-				msg := logCall(m)
-				if msg == nil {
-					return true
-				}
-				logged++
-				if !isConstant(msg) {
-					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(msg.Pos()).Line)+
-						" reports a failed audit write without audit.EventWriteFailed as its msg")
-				}
-				return true
-			})
+			judge(ifs.Body)
 			return true
 		})
 		return nil

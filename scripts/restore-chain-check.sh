@@ -166,7 +166,10 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 #     (T289) the host forms include -hHOST on a PostgreSQL client's line, PGHOSTADDR=, libpq's
 #       host=/hostaddr= and a postgres(ql):// URI's host; no IPv6 literal at all (::1 included);
 #       docker run/create publishes no port (-p/-P/--publish); every container:path of a docker cp
-#       is tappa-drill-db;
+#       is tappa-drill-db; round 2 (the last): a quoted value is read, not skipped (-h "x",
+#       PGHOST="x", host='x'), host = x with spaces, a clock time is not IPv6, the publish rule
+#       stops at the image (psql's own -p) and reads a short flag cluster (-itp), docker cp a
+#       quoted container name;
 #   A DENY LIST for the rest: kubectl, rclone, ssh, curl, wget, nc, the home directory (also ~),
 #     the rclone config variable, a /Users/ path, docker's -H, --host and --context, any DOCKER_*
 #     variable, the docker socket, docker.internal names, --mount, --volumes-from, --env-file
@@ -202,14 +205,16 @@ for b in D2 D3 D3B D4 D5; do
   bad_net="$(printf '%s\n' "$text" | grep -E -o -- '--(net|network)[=[:space:]]+[^[:space:]]+' \
     | sed -E 's/^--(net|network)[=[:space:]]+//' | grep -v -x 'tappa-drill' || true)"
   [ -z "$bad_net" ] || refuse "$b" "joins the network '$bad_net' (only tappa-drill)"
-  # The host forms (T289): -h HOST, PGHOST=/PGHOSTADDR=, libpq's host=/hostaddr= (a conninfo string
-  # or a URI's ?host=), a URI's authority, and -hHOST with no space -- that last one only on a line
-  # that runs a PostgreSQL client, because elsewhere it is another flag (openssl's -hex in (d2)).
-  # `-` before host= is not a host either: (d2)'s --auth-host=scram-sha-256 is initdb's.
-  bad_host="$( { printf '%s\n' "$text" | grep -E -o -- "((^|[[:space:]])-h[=[:space:]]+|PGHOST(ADDR)?=|(^|[^A-Za-z0-9_-])host(addr)?=)[^[:space:]\"'&]+" \
-      | sed -E "s/^.*(-h[=[:space:]]+|HOST(ADDR)?=|host(addr)?=)//"
+  # The host forms (T289): -h HOST, PGHOST=/PGHOSTADDR=, libpq's host=/hostaddr= (a conninfo string,
+  # spaces around = allowed, or a URI's ?host=), a URI's authority, and -hHOST with no space -- that
+  # last one only on a line that runs a PostgreSQL client, because elsewhere it is another flag
+  # (openssl's -hex in (d2)). `-` before host= is not a host either: (d2)'s --auth-host= is initdb's.
+  # A value may open with a quote (-h "x", PGHOST="x", host='x'): the quote is skipped, not the
+  # value (round 2: the first form's value class stopped at the quote and let all three through).
+  bad_host="$( { printf '%s\n' "$text" | grep -E -o -- "((^|[[:space:]])-h[=[:space:]]+|PGHOST(ADDR)?=|(^|[^A-Za-z0-9_-])host(addr)?[[:space:]]*=[[:space:]]*)[\"']?[^[:space:]\"'&]+" \
+      | sed -E "s/^.*(-h[=[:space:]]+|HOST(ADDR)?=|host(addr)?[[:space:]]*=[[:space:]]*)[\"']?//"
     printf '%s\n' "$text" | grep -E -- '(^|[^A-Za-z0-9_-])(psql|pg_isready|pg_dump|pg_dumpall|pg_restore)([^A-Za-z0-9_-]|$)' \
-      | grep -E -o -- '(^|[[:space:]])-h[^=[:space:]][^[:space:]"'"'"']*' | sed -E 's/^[[:space:]]*-h//'
+      | grep -E -o -- '(^|[[:space:]])-h[^=[:space:]][^[:space:]]*' | sed -E "s/^[[:space:]]*-h//; s/^[\"']//; s/[\"'].*$//"
     printf '%s\n' "$text" | grep -E -o -- "postgres(ql)?://[^/?[:space:]\"']*" \
       | sed -E 's#^postgres(ql)?://##; s#^.*@##; s#:[0-9]*$##' | grep -v -x '' ; } \
     | grep -v -x -E '127\.0\.0\.1|tappa-drill-db' | head -1 || true)"
@@ -218,20 +223,31 @@ for b in D2 D3 D3B D4 D5; do
   [ -z "$bad_ip" ] || refuse "$b" "writes the address '$bad_ip' (no IPv4 literal but 127.0.0.1)"
   # IPv6 (T289): no literal at all, ::1 included (it is this host's loopback from the host side).
   # Judged per token so SQL's ::regclass cast is not one: a token is an address only if it is
-  # hex groups and colons whole (optionally in brackets with a port, or with an IPv4 tail).
+  # hex groups and colons whole (optionally in brackets with a port, or with an IPv4 tail). A clock
+  # time (03:00:00, 12:00:00.5) has that shape too and is not one (round 2).
   bad_ip6="$(printf '%s\n' "$text" | grep -E -o -- '[][0-9A-Za-z_.:%-]*:[][0-9A-Za-z_.:%-]*' \
-    | grep -E -x -- '\[?([0-9A-Fa-f]{0,4}:){2,7}([0-9A-Fa-f]{0,4}|[0-9]{1,3}(\.[0-9]{1,3}){3})(%[0-9A-Za-z]+)?(\](:[0-9]+)?)?' | head -1 || true)"
+    | grep -E -x -- '\[?([0-9A-Fa-f]{0,4}:){2,7}([0-9A-Fa-f]{0,4}|[0-9]{1,3}(\.[0-9]{1,3}){3})(%[0-9A-Za-z]+)?(\](:[0-9]+)?)?' \
+    | grep -v -x -E '[0-9]{1,2}(:[0-9]{2}){1,2}(\.[0-9]+)?' | head -1 || true)"
   [ -z "$bad_ip6" ] || refuse "$b" "writes the IPv6 address '$bad_ip6' (no IPv6 literal at all)"
   # A logical line is the block's line with its continuations joined: docker run/create's flags sit
   # on `\` continuation lines in (d2) and (d4).
   logical="$(printf '%s\n' "$text" | awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }')"
-  # -p/--publish (T289): a published port puts the drill's database on this host's interfaces.
-  bad_pub="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?(run|create)[[:space:]]' \
-    | grep -E -o -- '(^|[[:space:]])(-p|-P|--publish|--publish-all)([=[:space:]0-9]|$)[^[:space:]]*' | head -1 || true)"
-  [ -z "$bad_pub" ] || refuse "$b" "publishes a port ('${bad_pub# }'; the drill's database is reached on tappa-drill only)"
-  # docker cp (T289): every container:path operand is the drill's own container.
+  # -p/--publish (T289): a published port puts the drill's database on this host's interfaces. Read
+  # up to the image only (the first bare name:tag word), so the container's own command -- psql's
+  # -p 5432 -- is not docker's flag; a short flag cluster counts (-itp), quoted or not (round 2).
+  bad_pub="$(printf '%s\n' "$logical" | awk '
+    { on = 0; d = 0
+      for (i = 1; i <= NF; i++) {
+        w = $i
+        if (!on) { if (w == "docker") { d = 1; continue } if (d && w == "container") continue
+                   if (d && (w == "run" || w == "create")) on = 1; d = 0; continue }
+        if (w ~ /^[a-z0-9][a-z0-9._\/-]*:[A-Za-z0-9._-]+$/) break
+        if (w ~ /^--publish(-all)?(=|$)/ || w ~ /^-[A-Za-z]*[pP]([0-9"=:\047].*)?$/) { print w; exit }
+      } }' || true)"
+  [ -z "$bad_pub" ] || refuse "$b" "publishes a port ('$bad_pub'; the drill's database is reached on tappa-drill only)"
+  # docker cp (T289): every container:path operand is the drill's own container, quoted or not.
   bad_cp="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?cp[[:space:]]' \
-    | grep -E -o -- "(^|[[:space:]\"'])[A-Za-z0-9_][A-Za-z0-9_.-]*:" | sed -E "s/^[[:space:]\"']*//; s/:$//" \
+    | tr -d "\"'" | grep -E -o -- "(^|[[:space:]])[A-Za-z0-9_][A-Za-z0-9_.-]*:" | sed -E "s/^[[:space:]]*//; s/:$//" \
     | grep -v -x 'tappa-drill-db' | head -1 || true)"
   [ -z "$bad_cp" ] || refuse "$b" "copies from or to the container '$bad_cp' (docker cp reaches tappa-drill-db only)"
 done
