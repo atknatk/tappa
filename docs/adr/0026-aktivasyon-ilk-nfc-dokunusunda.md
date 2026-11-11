@@ -255,3 +255,47 @@ madde 1). Holding ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) iki ş
   hatasına çevirirdi); plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır (Karar 3).
   Oturumsuz tarayıcıda değişiklik yoktur.
 - QR ile aktivasyon yine yoktur (Bedel 3) — çapraz QR da aktive edemez.
+
+## Eşin plaketinde aktivasyon (2026-11-11, kullanıcı kararı) — K-1b'nin yerini alır; K-35 daralır
+
+**Karar (kullanıcı, 2026-11-11):** aktivasyon dokunuşu, davetin tenant'ının plaketinin yanı sıra **aynı holding'deki
+canlı bir eşin** aktif plaketinde de tamamlanır ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md) — aynı tarihli not).
+**Gerekçe:** bir grup şirketinde kayıtlı olup ötekinde çalışan kişi, çalıştığı yerde aktive edebilmeli. Gerçek vaka: Eser
+Kebab Factory'de (KF) kayıtlı, Kebab Manufacturing'de (KM) çalışıyor; KF ile KM eş; bugüne dek KM plaketindeki dokunuşu
+`foreign_tenant_tag` ile reddediliyordu ve Eser'in KF'ye gitmesi gerekiyordu (K-1b'nin adlandırılmış bedeli — artık yok).
+
+**Ne değişmez:**
+- Eşlik **dokunuş anında** ve sıradan bir holding dokunuşunun ilerletmesi kadar katıdır: `holding_tap_site` ve
+  `holding_advance_tag_counter` **katı** kipte (`left_at > clock_timestamp()`). K-29'un 60 sn çıkış penceresi
+  `transactions` kapısınındır (`holding_site_gate`), satır yazmayan bu dokunuşa uzanmaz — tıpkı holding check-in'in
+  ilerletmesine uzanmadığı gibi. Ayrılmış üye eş değildir.
+- **Ön kontrol önce, ilerletme sonra:** `PreviewWithoutReplayProtection` (sayaçsız) → `holding_tap_site` davetin tenant
+  bağlamında (eş mi?) → plaket aktif ve duvarda mı → CMAC (ön kontrolün) → ancak o zaman ilerletme. Eş olmayan yabancı
+  plaket **hiçbir** sayacı oynatmaz ve davetin izinde uid'i yazılmaz (Güvenlik değerlendirmesinin *"Tenant"* maddesi aynen).
+- Sayaç ilerletmesi tek ifadelidir (§4.4): eşin plaketinde `holding_advance_tag_counter` — yeni fonksiyon
+  `holding_activation_tap` onu **çağırır**, kopyalamaz.
+- Aktivasyon **`transactions` satırı yazmaz**; `site_punches` ve `punch_events` satırı da yok. Sonraki dokunuş sıradan
+  check-in'dir — eşin plaketinde sıradan bir holding dokunuşu.
+- Oturum **davetin** tenant'ı ve çalışanı için doğar (işveren KF); aktivasyon ailesinin markası davetin tenant'ınındır
+  (ADR 0023/0024 değişmez). QR yine aktive edemez. Bütün retler **tek ekran ve tek durum kodudur**
+  (`problemActivationTapFailed`, §4.7); ayrım davetin `audit_log`'unda sabit sözcüklerle durur: `foreign_tenant_tag` (eş
+  değil — üyelik araya bitti de dahil), `peer_tag_not_active`, `sun_invalid`, `peer_replay`.
+
+**İz:** davetin tenant'ının `activation.completed` satırı eşin plaket uid'ini ve `site_tenant_id`'yi taşır — holding
+dokunuşunun `transactions.site_tag_uid` / `site_tenant_id` emsali (ADR 0027 §4); eşin plaketindeki ret satırları da aynı
+iki alanı taşır, eş olmayanınki taşımaz. **Eşin** `audit_log`'una tek satır düşer (kullanıcı kararı, aynı gün): eylem
+`holding.activation_tap`, `target` = plaket uid'i, `detail` = `{"location_id": …}`, `actor_id` boş — kişinin adı, kimliği,
+davet ve işveren **yok**. Satırı yalnız ilerletme `advanced` döndüğünde, aynı işlemde `holding_activation_tap` yazar
+(migration `00100`).
+
+**K-35 daralır:** canlı oturum + bekleyen onaylı aktivasyon + NFC'de, plaketin tenant'ı **davetin tenant'ı ya da onun canlı
+eşiyse** aktivasyon tamamlanır (sihirbaz canlı oturumun değiştirilmesini zaten onaylattı — `Submit`, ölçü 2); yalnız
+**oturumun** eşi olup davetinki olmayan bir plaket hâlâ sıradan holding dokunuşudur. Pasifleştirilmiş oturum sahibinin
+korunması aynen durur (`HolderDeactivated`, satır 4).
+
+Testler: `TestHoldingActivation_CompletesOnALivePeersPlaque`, `TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing`,
+`TestHoldingActivation_AReplayedPeerURLIsRefused`, `TestHoldingActivation_AnInactivePeerPlaqueIsRefused`,
+`TestHoldingActivation_AnExMemberIsNotAPeer`, `TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer`,
+`TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding` (`internal/handler/holding_db_test.go`);
+`TestHoldingActivationTap_TrailsOnlyAnAdvance`, `TestHoldingActivationTap_AnExMemberWithinTheWindowIsNotAPeer`,
+`TestHoldingActivationTap_NoAdvanceWithoutItsRow` (`internal/db/holdingactivation_test.go`).

@@ -216,7 +216,7 @@ func (noActivation) Pending(*http.Request) bool { return false }
 func (noActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, nil
 }
-func (noActivation) PendingTenant(*http.Request) (uuid.UUID, bool) { return uuid.Nil, false }
+func (noActivation) PendingActivatesOn(*http.Request, uuid.UUID, string) bool { return true }
 func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params) {
 	panic("CompleteByTap reached for a phone with no pending activation")
 }
@@ -238,9 +238,10 @@ func (p *pendingActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.U
 
 func (*pendingActivation) Pending(*http.Request) bool { return true }
 
-// PendingTenant is the invitation's business the fake was given (uuid.Nil: unknown).
-func (p *pendingActivation) PendingTenant(*http.Request) (uuid.UUID, bool) {
-	return p.inviteTenant, p.inviteTenant != uuid.Nil
+// PendingActivatesOn: the invitation's business the fake was given (uuid.Nil: unknown, which the
+// real flow answers true for -- the activation flow then gives its own answer).
+func (p *pendingActivation) PendingActivatesOn(_ *http.Request, site uuid.UUID, _ string) bool {
+	return p.inviteTenant == uuid.Nil || site == p.inviteTenant
 }
 func (p *pendingActivation) CompleteByTap(w http.ResponseWriter, _ *http.Request, sp sun.Params) {
 	p.calls++

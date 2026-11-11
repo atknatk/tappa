@@ -201,7 +201,9 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    fonksiyon eklemek, bir fonksiyonun dönüş sütunlarını ya da definer'ın sütun matrisini
    genişletmek, `holding_peer`'e kip **ya da imza** eklemek (T124'ün küme biçimi `holding_peer(a, mod)`
    kullanıcı onaylı, 2026-10-19; GRP-1'in `holding_group()` okuyucusu, `holding_peer(a)` kadro biçimi ve
-   definer'a `holdings (id, name)` kullanıcı onaylı, 2026-10-20) ya da bir kipin süzgecini veya zaman kuralını
+   definer'a `holdings (id, name)` kullanıcı onaylı, 2026-10-20; aktivasyonun eş plaketteki ilerletmesi
+   `holding_activation_tap` ve definer'a `audit_log (tenant_id, action, target, detail)` INSERT — eşin izine
+   tek satır — kullanıcı onaylı, 2026-11-11) ya da bir kipin süzgecini veya zaman kuralını
    gevşetmek kullanıcı onayı + ADR 0027 değişikliği ister** (ADR 0027 §2; testler: ADR 0027
    §2'deki imza katalog testi ve sütun matrisi testi).
    **(3) Panel yöneticisinin kimliği** (ADR 0031) — bir kişi tek kimlikle birden çok işletmeye üye
@@ -315,9 +317,13 @@ kapsar. `SameHolding` bir sunucu olgusudur (sayaç ilerletmesinin sonucu ya da k
 `holding_tap_site`), motor onu hesaplamaz. **Yeni guardrail `sys:cross-tenant-qr-site-ip` (K-1g):**
 kanal `qr` ∧ holding dokunuşu ∧ **saha IP'si eşleşmedi** → `flag`; yeri `sys:person-debounce`'tan
 (satır 5) **hemen sonra**, baseline'dan (satır 6–7) önce; işveren onu ne gevşetebilir ne `deny`'e
-sıkılaştırabilir. **Aktivasyon** (satır 3) yalnız davetin **kendi** tenant'ının plaketinde
-tamamlanır — ADR 0026 değişmez; canlı oturumlu ve aktivasyonu bekleyen bir tarayıcıda eş tenant'ın
-plaketi aktivasyonu değil holding dokunuşunu üretir (K-35). **Sayaç atlaması** (`ctr_gap`)
+sıkılaştırabilir. **Aktivasyon** (satır 3) davetin **kendi** tenant'ının ya da onun **dokunuş anında canlı
+eşinin** (katı: `left_at > now`; K-29'un 60 sn penceresi uzanmaz) plaketinde tamamlanır (kullanıcı kararı
+2026-11-11, ADR 0026/0027 notları); oturum davetin tenant'ının ve çalışanınındır, eşin sayacı
+`holding_activation_tap` ile ilerler ve eşin `audit_log`'una yalnız plaket uid'i ve duvarı olan tek satır
+düşer; eş olmayan yabancı plaket hiçbir sayacı oynatmadan reddedilir. Canlı oturumlu ve aktivasyonu bekleyen
+bir tarayıcıda yalnız **oturumun** eşi olup davetinkinin eşi olmayan plaket aktivasyonu değil holding
+dokunuşunu üretir (K-35). **Sayaç atlaması** (`ctr_gap`)
 holding NFC dokunuşunda ilerletme ifadesinin içinde hesaplanır ve işverenin `base:ctr-gap-review`'ı
 onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 
@@ -388,8 +394,11 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **Aktivasyon dokunuşu** (practice tap'in yerini aldı — ADR 0026): davet linki bir
   sihirbaz açar; onay POST'u yalnız onayı kaydeder ve bu tarayıcıya bağlar (daveti
   tüketmez, oturum vermez). Aktivasyon, o tarayıcıdan gelen ilk **gerçek NFC**
-  dokunuşunda tamamlanır: `sun.Verify` (atomik `ctr`) → işverenin **aktif** bir
-  plaketi (aynı tenant) → tek ifadeli tüketim → oturum. Bu dokunuş **`transactions`
+  dokunuşunda tamamlanır: plaket önce sayaçsız ön kontrolle yargılanır → davetin
+  tenant'ının **aktif** bir plaketiyse `sun.Verify` (atomik `ctr`), aynı holding'deki **canlı
+  bir eşin** aktif plaketiyse (kullanıcı kararı 2026-11-11) ön kontrolün CMAC'i +
+  `holding_activation_tap` (`holding_advance_tag_counter`'ın tek ifadesi + eşin izine tek satır)
+  → tek ifadeli tüketim → davetin tenant'ı ve çalışanı için oturum. Bu dokunuş **`transactions`
   satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.

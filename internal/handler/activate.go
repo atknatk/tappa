@@ -39,6 +39,12 @@ type (
 		RecordConsent(ctx context.Context, c invite.Code, b invite.Binding) (invite.Context, error)
 		Activate(ctx context.Context, c invite.Code, b invite.Binding) (invite.Activation, error)
 		ActivationContext(ctx context.Context, tenantID, employeeID uuid.UUID) (invite.Context, error)
+		// PeerPlaque and AdvancePeerPlaque are the activating tap on a plaque of a LIVE HOLDING
+		// PEER of the invitation's business (the user's decision of 2026-11-11; ADR 0026, ADR
+		// 0027): the judgement before anything advances, and the advance that writes the peer's
+		// trail -- both in the invitation's tenant context, through ADR 0027 §2's closed list.
+		PeerPlaque(ctx context.Context, tenantID uuid.UUID, uid string) (invite.PeerPlaque, bool, error)
+		AdvancePeerPlaque(ctx context.Context, tenantID uuid.UUID, uid string, ctr uint32) (invite.PeerAdvanceOutcome, error)
 	}
 	// activationVerifier is the ADVANCING half of internal/sun (ADR 0026). The
 	// activating tap is a GET with no button after it, so the replay guard runs
@@ -723,10 +729,14 @@ func (a *Activation) Pending(r *http.Request) bool {
 //     treated like §5 row 3: the tap that finds no usable session records no
 //     attendance. The NEXT tap is an ordinary, non-practice check-in (ADR 0026
 //     replaces the practice tap).
-//   - tags.last_ctr IS ADVANCED, atomically, by sun.Verify (§4.4). A replayed
-//     activation URL therefore fails exactly like a replayed check-in.
+//   - tags.last_ctr IS ADVANCED, atomically (§4.4): by sun.Verify for the
+//     invitation's own plaque, by holding_activation_tap (holding_advance_tag_counter's
+//     one statement) for a live peer's. A replayed activation URL therefore fails
+//     exactly like a replayed check-in.
 //   - audit_log: activation.completed with the plaque's uid and wall on success;
-//     activation.failed with a reason on every refusal that has a tenant.
+//     activation.failed with a reason on every refusal that has a tenant. A peer's
+//     plaque also leaves one row in the PEER's trail (holding.activation_tap: the
+//     plaque's uid and wall, nothing of the person), written by the advance itself.
 //
 // ORDER, and why:
 //
@@ -736,8 +746,11 @@ func (a *Activation) Pending(r *http.Request) bool {
 //	· NFC only            a QR URL carries no proof of a touch, so it cannot
 //	                      activate (and advances nothing).
 //	· sun.Verify          CMAC first, THEN the atomic ctr advance — inside Verify.
-//	· plaque checks       active, mounted, and the SAME tenant as the invitation.
-//	                      Any active plaque of that employer is acceptable.
+//	· plaque checks       active, mounted, and the SAME tenant as the invitation --
+//	                      or a LIVE HOLDING PEER of it (the user's decision of
+//	                      2026-11-11: an employee registered at one company of a
+//	                      group activates where they work, at another). Any active
+//	                      plaque of either is acceptable.
 //	· finishActivation    consume (consent + binding in the same statement),
 //	                      revoke a replaced phone, issue, set the cookie.
 func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params) {
@@ -778,10 +791,11 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 
 	// THE PLAQUE IS JUDGED BEFORE ANYTHING ADVANCES (audit R5). The preview resolves
 	// the tag's tenant and status WITHOUT touching tags.last_ctr; only a plaque of
-	// the invitation's own tenant that is in service goes on to sun.Verify. Without
-	// this, an invitee of tenant A tapping tenant B's plaque moved B's counter while
-	// leaving no row in B's trail — the gap checkin.go's tenant gate closes for an
-	// ordinary tap.
+	// the invitation's own tenant that is in service goes on to sun.Verify, and only
+	// a live peer's in-service plaque with a genuine signature goes on to the peer
+	// advance (advanceAPeer). Without this, an invitee of tenant A tapping tenant
+	// B's plaque moved B's counter while leaving no row in B's trail — the gap
+	// checkin.go's tenant gate closes for an ordinary tap.
 	//
 	// ONE ANSWER FOR THREE REFUSALS (§4.7): an unknown uid, another tenant's plaque
 	// and a signature that does not verify all render problemActivationTapFailed
@@ -799,64 +813,145 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
 		return
 	}
-	// The foreign plaque's uid is NOT written into this tenant's trail (§4.5).
+	// The invitation's own plaque, or (2026-11-11) a live peer's (advanceAPeer, which renders every
+	// refusal itself). Either way the activation is finished at the end of THIS function, the one
+	// path from a tap to a session.
+	var tap activationTap
 	if pv.TenantID != ictx.TenantID {
-		a.failTap(r.Context(), ip, ictx, "foreign_tenant_tag", "")
-		a.log.Warn("activation tap: plaque of another tenant", "tag_uid", p.UID,
-			"invite_tenant_id", ictx.TenantID, "tag_tenant_id", pv.TenantID)
-		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
-		return
-	}
-	// A plaque out of service gets the SAME answer too (audit round 2, security
-	// LOW 1): its status is known before any signature is checked — sun.Verify
-	// never unwraps a key for a dead tag — so a specific screen here would tell an
-	// unsigned URL whether a uid is retired, lost or in the box.
-	if pv.TagStatus != "active" || pv.Location == nil {
-		a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
-		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
-		return
-	}
-
-	// Only now the advancing path: CMAC first, then the atomic counter (§4.4).
-	res, err := a.sun.Verify(r.Context(), p)
-	if err != nil {
-		if errors.Is(err, sun.ErrUnknownTag) {
-			a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
+		var ok bool
+		if tap, ok = a.advanceAPeer(w, r, ip, ictx, p, pv); !ok {
+			return
+		}
+	} else {
+		// A plaque out of service gets the SAME answer too (audit round 2, security
+		// LOW 1): its status is known before any signature is checked — sun.Verify
+		// never unwraps a key for a dead tag — so a specific screen here would tell an
+		// unsigned URL whether a uid is retired, lost or in the box.
+		if pv.TagStatus != "active" || pv.Location == nil {
+			a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
 			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
 			return
 		}
-		a.log.Error("activation tap: sun verification failed", "tag_uid", p.UID, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
-		return
-	}
-	// Belt over the pre-check: what Verify resolved must still be our tenant's
-	// active, mounted plaque. Unreachable unless the row changed in between.
-	if res.Tag.TenantID != ictx.TenantID || res.Tag.Status != "active" || res.Location == nil {
-		a.failTap(r.Context(), ip, ictx, "tag_changed", "")
-		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
-		return
-	}
-	if !res.SUNValid {
-		// A CMAC that did not verify, or a counter that did not advance (a replayed
-		// or reloaded activation URL). The two are one refusal on purpose (§4.7).
-		a.failTap(r.Context(), ip, ictx, "sun_invalid", p.UID)
-		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
-		return
-	}
 
-	a.finishActivation(w, r, ip, st, activationTap{UID: res.Tag.UID, LocationID: *res.Location})
+		// Only now the advancing path: CMAC first, then the atomic counter (§4.4).
+		res, err := a.sun.Verify(r.Context(), p)
+		if err != nil {
+			if errors.Is(err, sun.ErrUnknownTag) {
+				a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
+				a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+				return
+			}
+			a.log.Error("activation tap: sun verification failed", "tag_uid", p.UID, "err", err)
+			a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+			return
+		}
+		// Belt over the pre-check: what Verify resolved must still be our tenant's
+		// active, mounted plaque. Unreachable unless the row changed in between.
+		if res.Tag.TenantID != ictx.TenantID || res.Tag.Status != "active" || res.Location == nil {
+			a.failTap(r.Context(), ip, ictx, "tag_changed", "")
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+			return
+		}
+		if !res.SUNValid {
+			// A CMAC that did not verify, or a counter that did not advance (a replayed
+			// or reloaded activation URL). The two are one refusal on purpose (§4.7).
+			a.failTap(r.Context(), ip, ictx, "sun_invalid", p.UID)
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+			return
+		}
+		tap = activationTap{UID: res.Tag.UID, LocationID: *res.Location}
+	}
+	a.finishActivation(w, r, ip, st, tap)
 }
 
-// PendingTenant is the business of this browser's CONSENTED invitation (K-35, ADR 0027 §5):
-// the tap page asks it for a live session in front of another business's plaque, to tell
-// the invitation's own plaque (the activation completes) from a peer's (a holding tap). It
-// reads the cookie and resolves the invitation -- no write, no budget charged; an invitation
-// that no longer resolves to a business answers false, and the activation flow then gives
-// its own answer.
-func (a *Activation) PendingTenant(r *http.Request) (uuid.UUID, bool) {
+// advanceAPeer is CompleteByTap's judgement and advance for a plaque of ANOTHER business (the user's decision of
+// 2026-11-11; ADR 0026 and ADR 0027 notes of that day): the activation completes there only when
+// that business is a LIVE PEER of the invitation's in one holding -- the strictness of an ordinary
+// holding tap's advance (left_at > now; K-29's exit window is the transactions gate's and does not
+// reach a tap that writes no row). Every other foreign plaque is refused exactly as before.
+//
+// ORDER, the own plaque's, on the closed list:
+//
+//	· holding_tap_site    in the INVITATION's context: is the plaque a peer's? Not a peer (or
+//	                      no longer resolvable) -> foreign_tenant_tag, NOTHING moved anywhere,
+//	                      and the uid stays out of this trail (§4.5) -- unchanged.
+//	· in service          active and on a wall, else peer_tag_not_active (no advance).
+//	· CMAC                the preview's (context-less resolver, no counter): a signature that
+//	                      does not verify never moves the peer's counter (§4.4's DoS guard).
+//	· the advance         holding_activation_tap: holding_advance_tag_counter's one statement,
+//	                      the peer check inside it again, and the PEER's trail row in the same
+//	                      transaction. replay -> peer_replay; peer_inactive -> peer_tag_not_active;
+//	                      not_peer (the membership ended between) -> foreign_tenant_tag.
+//	· the caller          finishActivation, in CompleteByTap: the session is the invitation's
+//	                      tenant's and employee's, the branding the invitation's (ADR 0026, 0023
+//	                      unchanged). ok is false after every refusal, which is rendered here.
+//
+// ONE ANSWER for every refusal (§4.7): problemActivationTapFailed, the same status. The peer's uid
+// is written into the employer's activation rows once the plaque is known to be a peer's -- the
+// precedent of transactions.site_tag_uid on a holding tap's row (ADR 0027 §4) -- with the peer's
+// id beside it as site_tenant_id; never for a plaque that is not.
+func (a *Activation) advanceAPeer(w http.ResponseWriter, r *http.Request, ip string, ictx invite.Context, p sun.Params, pv sun.Preview) (activationTap, bool) {
+	ctx := r.Context()
+	peer, ok, err := a.invites.PeerPlaque(ctx, ictx.TenantID, p.UID)
+	if err != nil {
+		a.log.Error("activation tap: reading a peer's plaque failed", "tag_uid", p.UID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return activationTap{}, false
+	}
+	if !ok || peer.SiteTenantID != pv.TenantID {
+		// The foreign plaque's uid is NOT written into this tenant's trail (§4.5).
+		a.failTap(ctx, ip, ictx, "foreign_tenant_tag", "")
+		a.log.Warn("activation tap: plaque of another tenant", "tag_uid", p.UID,
+			"invite_tenant_id", ictx.TenantID, "tag_tenant_id", pv.TenantID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return activationTap{}, false
+	}
+	fail := func(reason string) {
+		a.failPeerTap(ctx, ip, ictx, reason, p.UID, peer.SiteTenantID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+	}
+	if peer.TagStatus != "active" || peer.LocationID == nil || pv.TagStatus != "active" || pv.Location == nil {
+		fail("peer_tag_not_active")
+		return activationTap{}, false
+	}
+	if !pv.CMACValid {
+		fail("sun_invalid")
+		return activationTap{}, false
+	}
+	outcome, err := a.invites.AdvancePeerPlaque(ctx, ictx.TenantID, p.UID, p.Ctr)
+	if err != nil {
+		a.log.Error("activation tap: advancing a peer's plaque failed", "tag_uid", p.UID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return activationTap{}, false
+	}
+	switch outcome {
+	case invite.PeerAdvanced:
+		return activationTap{UID: p.UID, LocationID: *peer.LocationID, SiteTenantID: peer.SiteTenantID}, true
+	case invite.PeerReplay:
+		fail("peer_replay")
+	case invite.PeerInactive:
+		fail("peer_tag_not_active")
+	default:
+		// not_peer: the membership ended between the read and the advance. Nothing moved.
+		a.failTap(ctx, ip, ictx, "foreign_tenant_tag", "")
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+	}
+	return activationTap{}, false
+}
+
+// PendingActivatesOn reports whether this browser's CONSENTED activation completes on uid's
+// plaque, whose business is site (K-35 as the user's decision of 2026-11-11 left it; ADR 0027
+// §5): the tap page asks it for a live session in front of a plaque of a PEER of the SESSION's
+// business. The activation takes the tap when site is the invitation's business or a live peer of
+// it (holding_tap_site in the invitation's context); otherwise -- a peer of the session's business
+// that is not one of the invitation's -- the tap is the holding tap K-35 names. It writes nothing
+// and charges no budget. When it cannot tell -- an invitation that no longer resolves to a
+// business, a failed peer read -- it answers true: the activation flow then takes the tap and
+// gives its own answer (and clears a dead invitation's cookie), as it did before K-35.
+func (a *Activation) PendingActivatesOn(r *http.Request, site uuid.UUID, uid string) bool {
 	st, ok := a.codes.read(r)
 	if !ok || !st.pending() {
-		return uuid.Nil, false
+		return true
 	}
 	// Lookup returns the invitation's business even with a refusal (a used, cancelled or
 	// expired code) -- it is still THAT business's invitation; only an unknown one has none.
@@ -865,9 +960,17 @@ func (a *Activation) PendingTenant(r *http.Request) (uuid.UUID, bool) {
 		if err != nil {
 			a.log.Info("tap page: the pending invitation does not resolve", "err", err)
 		}
-		return uuid.Nil, false
+		return true
 	}
-	return ictx.TenantID, true
+	if site == ictx.TenantID {
+		return true
+	}
+	peer, ok, err := a.invites.PeerPlaque(r.Context(), ictx.TenantID, uid)
+	if err != nil {
+		a.log.Error("tap page: reading a plaque for the pending invitation failed", "tag_uid", uid, "err", err)
+		return true
+	}
+	return ok && peer.SiteTenantID == site
 }
 
 // HolderDeactivated reports whether the employee a live session belongs to has
@@ -891,11 +994,14 @@ func (a *Activation) EnableDevTools(cfg *config.Config) { a.devTools = DevToolsE
 type activationTap struct {
 	UID        string
 	LocationID uuid.UUID
+	// SiteTenantID is the plaque's business when it is a live holding peer's (2026-11-11);
+	// uuid.Nil for the invitation's own plaque.
+	SiteTenantID uuid.UUID
 }
 
 // failTap records one refused activating tap. It is failAttempt plus the plaque's
 // uid when that uid belongs to the invitation's own tenant (the caller passes ""
-// otherwise). Charged to the invitation's window: a loop of bad taps is exactly
+// otherwise; a live peer's plaque goes through failPeerTap). Charged to the invitation's window: a loop of bad taps is exactly
 // what that window bounds, and every row here is permanent (audit_log is
 // append-only).
 func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context, reason, tagUID string) {
@@ -918,6 +1024,29 @@ func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context
 	})
 	a.log.Info("activation tap rejected", "reason", reason, "ip", ip,
 		"employee_id", ictx.EmployeeID, "invite_id", nonNil(ictx.InviteID))
+}
+
+// failPeerTap is failTap for a plaque known to be a LIVE PEER's (2026-11-11): the row also names
+// the peer's uid and the peer's business, as a holding tap's transactions row names them
+// (site_tag_uid, site_tenant_id -- ADR 0027 §4).
+func (a *Activation) failPeerTap(ctx context.Context, ip string, ictx invite.Context, reason, tagUID string, site uuid.UUID) {
+	if ictx.InviteID != uuid.Nil {
+		a.chargeInvite(ctx, ictx.InviteID.String())
+	}
+	a.record(ctx, audit.Event{
+		TenantID: ictx.TenantID,
+		Action:   ActionActivationFailed,
+		Target:   ictx.EmployeeID.String(),
+		Detail: activationDetail{
+			InviteID:     nonNil(ictx.InviteID),
+			Outcome:      "rejected",
+			Reason:       reason,
+			TagUID:       tagUID,
+			SiteTenantID: site.String(),
+		},
+	})
+	a.log.Info("activation tap rejected", "reason", reason, "ip", ip,
+		"employee_id", ictx.EmployeeID, "invite_id", nonNil(ictx.InviteID), "site_tenant_id", site)
 }
 
 // finishActivation is THE activation: consume the invitation, revoke a replaced
@@ -1049,6 +1178,7 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 			Device:       issued.Session.DeviceInfo,
 			TagUID:       tap.UID,
 			LocationID:   tap.LocationID.String(),
+			SiteTenantID: siteOf(tap),
 		},
 	})
 
@@ -1208,9 +1338,22 @@ type activationDetail struct {
 	// TagUID and LocationID name the plaque whose tap completed (or failed to
 	// complete) the activation (ADR 0026). The uid is not a secret — the chip
 	// prints it in the address bar — and it is only written for a plaque of the
-	// SAME tenant as the row.
+	// SAME tenant as the row, or of a LIVE HOLDING PEER of it (2026-11-11), as a
+	// holding tap's transactions row names it (site_tag_uid, ADR 0027 §4).
 	TagUID     string `json:"tag_uid,omitempty"`
 	LocationID string `json:"location_id,omitempty"`
+	// SiteTenantID is the peer whose plaque it was (transactions.site_tenant_id's
+	// precedent); empty for the invitation's own plaque.
+	SiteTenantID string `json:"site_tenant_id,omitempty"`
+}
+
+// siteOf is the audit spelling of a completing plaque's peer business: "" for the
+// invitation's own plaque.
+func siteOf(tap activationTap) string {
+	if tap.SiteTenantID == uuid.Nil {
+		return ""
+	}
+	return tap.SiteTenantID.String()
 }
 
 // rejectCode is the single exit for every unusable-code outcome: it records the

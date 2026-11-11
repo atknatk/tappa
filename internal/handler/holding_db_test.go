@@ -3,9 +3,10 @@ package handler
 // holding_db_test.go -- M11 API-1b at the HTTP surface, against real Postgres: the tap and
 // result screens of a tap on a PEER's plaque (K-1c: the plaque's business's brand), the logo
 // route's peer form (holding_logo: the VIES gate, the one 404), and the activation rules on a
-// peer's plaque (K-1b: activation only on the invitation's own business's plaque; K-35: a live
-// session with a pending activation taps a peer's plaque as an ordinary holding tap). ADR 0027
-// §5, §10; plan §5 API-1b (h), (i).
+// peer's plaque (the user's decision of 2026-11-11, which replaced K-1b: activation completes on a
+// LIVE peer's plaque of the invitation's business; K-35 as it left it: a live session with a
+// pending activation taps a plaque of a peer of the SESSION's business -- one that is not the
+// invitation's nor its peer -- as an ordinary holding tap). ADR 0027 §5, §10; plan §5 API-1b (h), (i).
 //
 // The holding memberships are written by the OWNER connection (DATABASE_MIGRATE_URL --
 // tappa_app may not, ADR 0027 §1) and removed at the end; the rest stays, like every committed
@@ -366,55 +367,295 @@ func TestHoldingLogo_OutsiderOrStaleDigestIs404(t *testing.T) {
 
 // ------------------------------------------------------------------- (h) --
 
-// TestHoldingActivation_OnlyOnItsOwnTenantsPlaque is K-1b (ADR 0026 unchanged; plan §5 API-1b
-// (h)): an invitee of business A, consented, tapping a plaque of A's PEER B with a genuine
-// signature activates nothing -- the activation flow's one refusal, B's counter unmoved, no
-// session, the invitation unspent -- and then A's own plaque activates.
-func TestHoldingActivation_OnlyOnItsOwnTenantsPlaque(t *testing.T) {
-	h := newHarness(t, "invited")
-	owner := holdingOwner(t)
+// peerTrailRow is one row of a business's audit_log, read in its own context.
+type peerTrailRow struct {
+	action, target, detail string
+	actor                  *uuid.UUID
+}
+
+// peerTrail reads every audit_log row of tenantID (tappa_app, in tenantID's own context).
+func (h *harness) peerTrail(t *testing.T, tenantID uuid.UUID) []peerTrailRow {
+	t.Helper()
+	var out []peerTrailRow
+	if err := h.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT action, coalesce(target, ''), detail::text, actor_id FROM audit_log WHERE tenant_id = $1 ORDER BY at`, tenantID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r peerTrailRow
+			if err := rows.Scan(&r.action, &r.target, &r.detail, &r.actor); err != nil {
+				return err
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("read the trail of %s: %v", tenantID, err)
+	}
+	return out
+}
+
+// countIn counts query's rows in tenantID's own context ($1 = tenantID).
+func (h *harness) countIn(t *testing.T, tenantID uuid.UUID, query string) int {
+	t.Helper()
+	var n int
+	if err := h.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, query, tenantID).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count in %s: %v", tenantID, err)
+	}
+	return n
+}
+
+// peerWorld is the invitation's business (the harness's) and a second business with one active
+// plaque on a wall -- made a holding peer of the first by the caller, or not.
+func peerWorld(t *testing.T, h *harness, startCtr int32) (peer, peerVenue uuid.UUID, peerUID string) {
+	t.Helper()
 	kek, err := hex.DecodeString(tapFakeKEK)
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, peerVenue := uuid.New(), uuid.New()
-	peerUID := h.newTag(t, kek, peer, peerVenue, 100)
+	peer, peerVenue = uuid.New(), uuid.New()
+	peerUID = h.newTag(t, kek, peer, peerVenue, startCtr)
+	return peer, peerVenue, peerUID
+}
+
+// assertNoPeerActivationTrail: the peer's trail holds no activation row.
+func (h *harness) assertNoPeerActivationTrail(t *testing.T, peer uuid.UUID) {
+	t.Helper()
+	for _, r := range h.peerTrail(t, peer) {
+		if r.action == "holding.activation_tap" {
+			t.Errorf("the peer's trail holds an activation row on a refused tap: %+v", r)
+		}
+	}
+}
+
+// TestHoldingActivation_CompletesOnALivePeersPlaque is the user's decision of 2026-11-11 (ADR 0026
+// and ADR 0027 notes of that day; it replaces K-1b): an invitee of business A (Eser, registered at
+// KF), consented, tapping a plaque of A's LIVE holding peer B (KM, where Eser works) with a genuine
+// signature completes the activation. The session is A's and the invitee's; B's counter advanced
+// exactly once; no transactions row, no site_punches row, no punch_events row anywhere; A's trail
+// says activation.completed with B's plaque and B's id; B's trail holds exactly one row --
+// holding.activation_tap, the plaque's uid and wall, no actor -- naming nothing of the person, the
+// invitation or A. The next tap on B's plaque is then an ordinary holding tap.
+func TestHoldingActivation_CompletesOnALivePeersPlaque(t *testing.T) {
+	h := newHarness(t, "invited")
+	owner := holdingOwner(t)
+	peer, peerVenue, peerUID := peerWorld(t, h, 100)
 	holdingOf(t, owner, h.tenantID, peer)
+	before := h.lastCtr(t, h.tagUID)
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 101))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("a live peer's plaque answered %d -- want the activation (2026-11-11):\n%s", resp.StatusCode, page)
+	}
+	if got := h.lastCtr(t, peerUID); got != 101 {
+		t.Errorf("the peer's counter %d, want 101 (advanced once)", got)
+	}
+	if got := h.lastCtr(t, h.tagUID); got != before {
+		t.Errorf("the invitation's own plaque moved from %d to %d", before, got)
+	}
+	h.assertInviteConsumed(t, true)
+	h.assertEmployeeStatus(t, "active")
+	h.assertLiveSessionCount(t, 1)
+	for _, tenantID := range []uuid.UUID{h.tenantID, peer} {
+		for what, q := range map[string]string{
+			"transactions": `SELECT count(*) FROM transactions WHERE tenant_id = $1`,
+			"site_punches": `SELECT count(*) FROM site_punches WHERE tenant_id = $1`,
+			"punch_events": `SELECT count(*) FROM punch_events WHERE tenant_id = $1`,
+		} {
+			if tenantID == h.tenantID && what == "transactions" {
+				// The harness's own fixtures may hold rows of other employees; the invitee's are none.
+				if n := h.countIn(t, tenantID, `SELECT count(*) FROM transactions WHERE tenant_id = $1 AND employee_id = '`+h.employeeID.String()+`'`); n != 0 {
+					t.Errorf("the activation wrote %d transactions rows for the invitee", n)
+				}
+				continue
+			}
+			if n := h.countIn(t, tenantID, q); n != 0 {
+				t.Errorf("%s holds %d %s rows after an activation (want none)", tenantID, n, what)
+			}
+		}
+	}
+	h.assertAuditMentions(t, ActionActivationCompleted, peerUID)
+	h.assertAuditMentions(t, ActionActivationCompleted, `"site_tenant_id": "`+peer.String()+`"`)
+
+	trail := h.peerTrail(t, peer)
+	if len(trail) != 1 {
+		t.Fatalf("the peer's trail holds %d rows, want exactly 1: %+v", len(trail), trail)
+	}
+	row := trail[0]
+	if row.action != "holding.activation_tap" || row.target != peerUID || row.actor != nil {
+		t.Errorf("the peer's row is %+v, want holding.activation_tap on %s with no actor", row, peerUID)
+	}
+	if want := `{"location_id": "` + peerVenue.String() + `"}`; row.detail != want {
+		t.Errorf("the peer's row detail = %s, want %s", row.detail, want)
+	}
+	for _, never := range []string{h.employeeID.String(), h.tenantID.String(), "Maria Borg", "Kebab Factory", "invite", "employee", "@"} {
+		if strings.Contains(row.target+row.detail, never) {
+			t.Errorf("the peer's row names %q: %+v", never, row)
+		}
+	}
+
+	// The next tap on the peer's plaque is an ordinary holding tap: the tap page, the button.
+	resp, page = h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 102))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(page, `name="ctx"`) {
+		t.Fatalf("the next tap on the peer's plaque answered %d, want the ordinary tap page:\n%s", resp.StatusCode, page)
+	}
+}
+
+// TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing: B is NOT a peer of A -- the one
+// refusal (foreign_tenant_tag), no counter moved anywhere (B's nor A's), B's trail untouched, B's
+// uid kept out of A's trail, no session, the invitation unspent; then A's own plaque activates.
+func TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing(t *testing.T) {
+	h := newHarness(t, "invited")
+	peer, _, peerUID := peerWorld(t, h, 100)
+	before := h.lastCtr(t, h.tagUID)
 	c := h.client(t)
 	h.consent(t, c, h.issue(t))
 
 	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 101))
 	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
-		t.Fatalf("a PEER's plaque answered %d -- activation is only on the invitation's own business's plaque (K-1b)", resp.StatusCode)
+		t.Fatalf("a non-peer's plaque answered %d, want the activation's one refusal", resp.StatusCode)
 	}
 	if got := h.lastCtr(t, peerUID); got != 100 {
-		t.Errorf("the peer's counter moved to %d", got)
+		t.Errorf("the non-peer's counter moved to %d", got)
+	}
+	if got := h.lastCtr(t, h.tagUID); got != before {
+		t.Errorf("the invitation's own plaque moved from %d to %d", before, got)
 	}
 	h.assertSessionCount(t, 0)
 	h.assertInviteConsumed(t, false)
 	h.assertAuditMentions(t, ActionActivationFailed, "foreign_tenant_tag")
+	h.assertAuditDoesNotMention(t, peerUID)
+	if n := len(h.peerTrail(t, peer)); n != 0 {
+		t.Errorf("the non-peer's trail holds %d rows", n)
+	}
 
 	if resp, page := h.tapWith(t, c, h.nextTap(t)); resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
 		t.Fatalf("the invitation's own plaque then answered %d", resp.StatusCode)
 	}
 }
 
-// TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding is K-35 (ADR 0027 §5;
-// plan §5 API-1b (h)): a phone with a LIVE session of business A's employee and a PENDING
-// consented activation of A's invitee. On a plaque of A's PEER B -- not the invitation's
-// business -- the tap is an ordinary holding tap: the tap page (200, the button's signed
-// context), no activation, the invitation unspent, B's counter untouched by the page. On A's
-// own plaque the activation completes as ever. The same phone with B NOT a peer gets the
-// activation flow's refusal (the control: today's behaviour).
-func TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding(t *testing.T) {
+// TestHoldingActivation_AReplayedPeerURLIsRefused: the peer's plaque already read past the URL's
+// counter (150 > 101) -- a genuine signature, a counter that does not go up: the one refusal
+// (peer_replay in A's trail), the counter left at 150, no row in B's trail, the invitation
+// unspent. The plaque's next real read (151) then activates.
+func TestHoldingActivation_AReplayedPeerURLIsRefused(t *testing.T) {
 	h := newHarness(t, "invited")
 	owner := holdingOwner(t)
+	peer, _, peerUID := peerWorld(t, h, 150)
+	holdingOf(t, owner, h.tenantID, peer)
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 101))
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+		t.Fatalf("a replayed peer URL answered %d, want the activation's one refusal", resp.StatusCode)
+	}
+	if got := h.lastCtr(t, peerUID); got != 150 {
+		t.Errorf("the peer's counter moved to %d on a replay", got)
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertAuditMentions(t, ActionActivationFailed, "peer_replay")
+	h.assertNoPeerActivationTrail(t, peer)
+
+	if resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 151)); resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("the plaque's next real read then answered %d", resp.StatusCode)
+	}
+	if got := h.lastCtr(t, peerUID); got != 151 {
+		t.Errorf("the peer's counter %d, want 151", got)
+	}
+}
+
+// TestHoldingActivation_AnInactivePeerPlaqueIsRefused: a live peer's plaque that is lost, and one
+// taken off its wall -- the one refusal (peer_tag_not_active), nothing moved, no row in B's trail;
+// and a forged signature on an active one (sun_invalid), nothing moved.
+func TestHoldingActivation_AnInactivePeerPlaqueIsRefused(t *testing.T) {
+	h := newHarness(t, "invited")
+	owner := holdingOwner(t)
+	peer, _, lost := peerWorld(t, h, 100)
 	kek, err := hex.DecodeString(tapFakeKEK)
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, peerVenue := uuid.New(), uuid.New()
-	peerUID := h.newTag(t, kek, peer, peerVenue, 100)
+	unwalled := h.newTag(t, kek, peer, uuid.New(), 100)
+	forged := h.newTag(t, kek, peer, uuid.New(), 100)
+	if _, err := owner.Exec(context.Background(), `UPDATE tags SET status = 'lost' WHERE uid = $1`, lost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(context.Background(), `UPDATE tags SET location_id = NULL, status = 'unassigned' WHERE uid = $1`, unwalled); err != nil {
+		t.Fatal(err)
+	}
+	holdingOf(t, owner, h.tenantID, peer)
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	for _, tc := range []struct{ name, url, uid, reason string }{
+		{"a lost plaque", signedTapURL(t, tapFakeTagKey, lost, 101), lost, "peer_tag_not_active"},
+		{"a plaque on no wall", signedTapURL(t, tapFakeTagKey, unwalled, 101), unwalled, "peer_tag_not_active"},
+		{"a forged signature", signedTapURL(t, "0F0E0D0C0B0A09080706050403020100", forged, 101), forged, "sun_invalid"},
+	} {
+		resp, page := h.tapWith(t, c, tc.url)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+			t.Fatalf("%s answered %d, want the activation's one refusal", tc.name, resp.StatusCode)
+		}
+		if got := h.lastCtr(t, tc.uid); got != 100 {
+			t.Errorf("%s: the counter moved to %d", tc.name, got)
+		}
+		h.assertAuditMentions(t, ActionActivationFailed, tc.reason)
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertNoPeerActivationTrail(t, peer)
+}
+
+// TestHoldingActivation_AnExMemberIsNotAPeer: B LEFT the holding 30 s ago -- inside K-29's 60 s
+// exit window, which is the transactions gate's and not the advance's: the activation is held to
+// the strict rule of a holding tap's advance (left_at > now). The one refusal (foreign_tenant_tag),
+// B's counter unmoved, no row in B's trail, the invitation unspent.
+func TestHoldingActivation_AnExMemberIsNotAPeer(t *testing.T) {
+	h := newHarness(t, "invited")
+	owner := holdingOwner(t)
+	peer, _, peerUID := peerWorld(t, h, 100)
+	hold := holdingOf(t, owner, h.tenantID, peer)
+	if _, err := owner.Exec(context.Background(), `UPDATE holding_members SET left_at = clock_timestamp() - interval '30 seconds'
+	                                               WHERE holding_id = $1 AND member_tenant_id = $2`, hold, peer); err != nil {
+		t.Fatal(err)
+	}
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+
+	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 101))
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
+		t.Fatalf("an ex-member's plaque answered %d, want the activation's one refusal", resp.StatusCode)
+	}
+	if got := h.lastCtr(t, peerUID); got != 100 {
+		t.Errorf("the ex-member's counter moved to %d", got)
+	}
+	h.assertSessionCount(t, 0)
+	h.assertInviteConsumed(t, false)
+	h.assertAuditMentions(t, ActionActivationFailed, "foreign_tenant_tag")
+	h.assertAuditDoesNotMention(t, peerUID)
+	if n := len(h.peerTrail(t, peer)); n != 0 {
+		t.Errorf("the ex-member's trail holds %d rows", n)
+	}
+}
+
+// TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer is K-35 as the user's
+// decision of 2026-11-11 left it (ADR 0027 §5): a phone with a LIVE session of business A's
+// employee and a PENDING consented activation of A's invitee, on a plaque of A's live peer B --
+// the activation completes there now (it was a holding tap before 2026-11-11), B's counter
+// advanced once, B's trail holds its one row. The control, B not a peer: the activation flow's
+// refusal, as ever.
+func TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer(t *testing.T) {
+	h := newHarness(t, "invited")
+	owner := holdingOwner(t)
+	peer, _, peerUID := peerWorld(t, h, 100)
 	c := h.client(t)
 	h.consent(t, c, h.issue(t))
 	u, err := url.Parse(h.server.URL)
@@ -430,18 +671,65 @@ func TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding(t *test
 
 	holdingOf(t, owner, h.tenantID, peer)
 	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, peerUID, 102))
-	if resp.StatusCode != http.StatusOK || !strings.Contains(page, `name="ctx"`) {
-		t.Fatalf("a peer's plaque with a live session and a pending activation answered %d -- want the ordinary tap page (K-35):\n%s", resp.StatusCode, page)
-	}
-	h.assertInviteConsumed(t, false)
-	if got := h.lastCtr(t, peerUID); got != 100 {
-		t.Errorf("the page moved the peer's counter to %d", got)
-	}
-
-	if resp, page := h.tapWith(t, c, h.nextTap(t)); resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
-		t.Fatalf("the invitation's own plaque then answered %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(page, "Activation complete") {
+		t.Fatalf("a peer's plaque with a live session and a pending activation answered %d -- want the activation:\n%s", resp.StatusCode, page)
 	}
 	h.assertInviteConsumed(t, true)
+	if got := h.lastCtr(t, peerUID); got != 102 {
+		t.Errorf("the peer's counter %d, want 102", got)
+	}
+	if n := len(h.peerTrail(t, peer)); n != 1 {
+		t.Errorf("the peer's trail holds %d rows, want 1", n)
+	}
+}
+
+// TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding is what is left of K-35: the live
+// session is of business P's employee, the pending invitation is A's, and the plaque is of C -- a
+// peer of P's, NOT of A's. The tap is an ordinary holding tap for the session (the tap page, the
+// button's signed context), no activation, the invitation unspent, C's counter untouched by the page.
+func TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding(t *testing.T) {
+	h := newHarness(t, "invited")
+	owner := holdingOwner(t)
+	kek, err := hex.DecodeString(tapFakeKEK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, pVenue := uuid.New(), uuid.New()
+	h.newTag(t, kek, p, pVenue, 100)
+	pEmployee := uuid.New()
+	if _, err := owner.Exec(context.Background(), `INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at) VALUES ($1, $2, $3, 'Peer Staff', 'active', now())`,
+		pEmployee, p, pVenue); err != nil {
+		t.Fatal(err)
+	}
+	cTenant, _, cUID := peerWorld(t, h, 100)
+	holdingOf(t, owner, p, cTenant)
+	issued, err := h.sessions.Issue(context.Background(), session.IssueParams{TenantID: p, EmployeeID: pEmployee, DeviceInfo: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	if err := h.cookies.Set(rec, issued.Token); err != nil {
+		t.Fatal(err)
+	}
+	c := h.client(t)
+	h.consent(t, c, h.issue(t))
+	u, err := url.Parse(h.server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Jar.SetCookies(u, rec.Result().Cookies())
+
+	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, cUID, 101))
+	if resp.StatusCode != http.StatusOK || !strings.Contains(page, `name="ctx"`) {
+		t.Fatalf("a plaque of the session's peer (not the invitation's) answered %d -- want the ordinary tap page (K-35):\n%s", resp.StatusCode, page)
+	}
+	h.assertInviteConsumed(t, false)
+	if got := h.lastCtr(t, cUID); got != 100 {
+		t.Errorf("the page moved C's counter to %d", got)
+	}
+	if n := len(h.peerTrail(t, cTenant)); n != 0 {
+		t.Errorf("C's trail holds %d rows", n)
+	}
 }
 
 // TestHoldingTap_PendingActivationOnTheInvitationsPlaqueStillActivates is K-35's other half

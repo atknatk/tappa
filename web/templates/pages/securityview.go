@@ -149,8 +149,10 @@ const (
 	// SourceCounterAdvanceIsGuarded.
 	FactChecksRunOnTheServer Fact = "fact:checks-run-on-the-server"
 	// A phone's session comes from activation, which ends on a real NFC tap at an
-	// active plaque of the same business, checked by sun.Verify, and writes no
-	// attendance record (ADR 0026). Derived from Activation.CompleteByTap.
+	// active plaque of the same business (checked by sun.Verify) or, since the user's
+	// decision of 2026-11-11, of a live holding peer of it (the preview's CMAC and
+	// holding_activation_tap), and writes no attendance record (ADR 0026). Derived
+	// from Activation.CompleteByTap.
 	FactActivationEndsOnARealTap Fact = "handler:Activation.CompleteByTap"
 	// The session token is TokenBits of crypto/rand and the database keeps only an
 	// HMAC-SHA256 of it (sessions.token_hash). Derived from internal/session and

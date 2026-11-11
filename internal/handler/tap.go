@@ -139,9 +139,11 @@ type (
 		Pending(r *http.Request) bool
 		CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params)
 		HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error)
-		// PendingTenant is the business of the pending invitation (K-35): the tap page
-		// asks it only for a live session in front of another business's plaque.
-		PendingTenant(r *http.Request) (uuid.UUID, bool)
+		// PendingActivatesOn says whether the pending activation completes on uid's
+		// plaque of business site -- the invitation's own, or a live holding peer of it
+		// (K-35 as the user's decision of 2026-11-11 left it): the tap page asks it only
+		// for a live session in front of a plaque of a peer of the session's business.
+		PendingActivatesOn(r *http.Request, site uuid.UUID, uid string) bool
 	}
 )
 
@@ -430,7 +432,8 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// fall through: the ordinary page -- whose POST records row 4 for a
-			// deactivated holder, or (K-35) records a holding tap on a peer's plaque
+			// deactivated holder, or (K-35) records a holding tap on the plaque of a
+			// peer of the session's business that is not one of the invitation's
 		} else {
 			t.activation.CompleteByTap(w, r, p)
 			return
@@ -696,17 +699,19 @@ func logoOf(b tenant.PageBrand) layout.Logo {
 	return layout.TapLogo(b.Logo.SHA256, b.Logo.Width, b.Logo.Height, b.Name)
 }
 
-// peerTapInstead is K-35 (ADR 0027 §5): a browser holding a CONSENTED activation and a LIVE
-// session, in front of a plaque of another business, taps as the HOLDING tap it is -- not as an
-// activation -- when that business is a peer of the session's and is NOT the invitation's
-// business. The invitation's own plaque still completes the activation (K-1b, ADR 0026 is
-// unchanged), and every other plaque goes to the activation flow as before.
+// peerTapInstead is K-35 (ADR 0027 §5) as the user's decision of 2026-11-11 left it: a browser
+// holding a CONSENTED activation and a LIVE session, in front of a plaque of another business,
+// taps as the HOLDING tap it is -- not as an activation -- when that business is a peer of the
+// session's and is neither the invitation's business nor a live peer of it. The invitation's own
+// plaque, and since 2026-11-11 a live peer's of the invitation's business, completes the
+// activation (the wizard already made the person confirm replacing the live session -- Submit,
+// measure 2); every other plaque goes to the activation flow as before.
 //
-// It reads the invitation's business (no write, no budget) and the plaque through
-// holding_tap_site on the session's context -- which answers only for a PEER's plaque and names
-// its business -- and nothing else: no preview, no context minted (ADR 0026's activating tap
-// still runs neither). Any failure answers false: the activation flow then runs and gives its
-// own answer.
+// It reads the plaque through holding_tap_site on the session's context -- which answers only for
+// a PEER's plaque and names its business -- and asks the activation flow whether its invitation
+// completes there (no write, no budget), and nothing else: no preview, no context minted (ADR
+// 0026's activating tap still runs neither). Any failure answers false: the activation flow then
+// runs and gives its own answer.
 func (t *Tap) peerTapInstead(ctx context.Context, r *http.Request, p sun.Params, id httpx.Identity) bool {
 	if !p.HasSUN() {
 		return false
@@ -719,8 +724,7 @@ func (t *Tap) peerTapInstead(ctx context.Context, r *http.Request, p sun.Params,
 	if site == uuid.Nil {
 		return false // the session's own plaque, or not a peer's: the activation flow answers
 	}
-	invited, ok := t.activation.PendingTenant(r)
-	return ok && site != invited
+	return !t.activation.PendingActivatesOn(r, site, p.UID)
 }
 
 // EnableDevTools turns on the DEV-ONLY simulate-tap strip on the result page

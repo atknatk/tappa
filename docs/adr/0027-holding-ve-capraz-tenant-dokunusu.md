@@ -114,7 +114,7 @@ mekanik olarak sabitler (§2).
 |---|---|---|---|
 | **K-1** | Şirketler arası dokunuş (CLAUDE.md §4.5) | **KF ve KM aynı holding altında ayrı iki tenant; holding bağıyla çapraz dokunuş** (2026-10-10) | CLAUDE.md §4.5'e ikinci, adı konmuş istisna (yalnız holding içi); §2'nin kapalı fonksiyon listesi. **Kazanç:** API anahtarı = tenant (ADR 0028), EM-12 ön koşul değil, KM plaketleri yerinde, markalar ayrı |
 | **K-1a** | Çapraz dokunuşun kaydı kimin? | **İşverenin (KM):** KM politikası karar verir, KM yöneticisi onaylar, manuel düzeltme KM'de; KF salt okur | KF'nin şube istisnaları KM çalışanına uygulanmaz (istisna K-1g); KM yöneticisinin KF sahası için yazdığı **manuel kayıt** KF'ye `employer_manual` olarak düşer ve KF itiraz edemez → KF işgücü raporu bunları **toplamdan hariç, ayrı** gösterir (DPA notuna) |
-| **K-1b** | Aktivasyon hangi plakette? | **Yalnız kendi tenant'ının** — ADR 0026 değişmez | Yalnız KF'de çalışan bir KM çalışanı da ilk kez bir **KM** plaketine dokunmalı |
+| **K-1b** | Aktivasyon hangi plakette? | ~~**Yalnız kendi tenant'ının** — ADR 0026 değişmez~~ → **2026-11-11 kullanıcı kararıyla değişti:** davetin tenant'ının **ya da onun canlı eşinin** aktif plaketinde (aşağıda *"Aktivasyon eşin plaketinde"* notu) | ~~Yalnız KF'de çalışan bir KM çalışanı da ilk kez bir **KM** plaketine dokunmalı~~ — artık yok; yerine kapalı listeye `holding_activation_tap` ve tanımlayıcıya `audit_log` INSERT (dört sütun) eklendi |
 | **K-1c** | KM çalışanı KF plaketinde — tap ve sonuç ekranı | **KF markasıyla** (logo + accent; sonuç ekranında logo) | CLAUDE.md §9, ADR 0023/0024 notları; logo baytı `holding_logo` ile (§2) |
 | **K-1d** | Holding içi görünürlük | **Kabul, DPA notuyla:** ad, kod, zaman, mekân; GPS, IP, not, policy bağlamı, e-posta **asla** | DPA / aydınlatma metni (saklama süresi dahil) kullanıcıda |
 | ~~**K-1e**~~ | KF'de başlayıp KM plaketinde biten vardiyanın kapanış çıkışı KF'ye gitsin mi? | ~~Evet, yalnız zaman~~ → **KALDIRILDI** (2026-10-10): KF yalnız **kendi plaketlerindeki** dokunuşları görür | 7.–9. turun ORTA'larının çoğu ondan doğdu: kapanış bağı sütunu, ADR 0011 çatışması, mükerrer ve reddedilmiş kapanış, ve 9. turda ölçülen **her tenant'ta kayıt kaybı** (geriye beyanlı çıkış ve geriye dönük manuel düzeltme yazılamıyordu — CLAUDE.md §4.6). Kaldırılınca `closes_transaction_id`, `closes_shift` ve manuel yol değişikliği plandan çıktı, görünürlük daraldı. **Bu ADR'de K-1e'den türeyen hiçbir mekanizma yoktur.** |
@@ -132,7 +132,7 @@ mekanik olarak sabitler (§2).
 | K-31 | **Tek holding tetikleyicisi önce çalışır**; iki sayaç satırını kanonik sırada **var eder**, **tek ifadede** kilitler, kilitlenen sayının 2 olduğunu assert eder; holding punch'ının iki hedef olay satırını da o yazar | 6. tur (iki mercek): iki ayrı tetikleyici → kilitlenme; 7. tur: tek ön-kilit 14 288 işlemde 0 kilitlenme, ama sayaç satırı **eksikken** `FOR UPDATE` onu atlayıp kilitlenmeyi geri getiriyordu | §8; olay yarısı ADR 0028 §4–§5 |
 | K-33 | **Holding süzgeci** — anahtarın tenant'ı ∈ eşler(GUC tenant'ı) ∧ GUC tenant'ı bir holding'in üyesi; **iki yönlü test**, H2 fikstürü, M1/M2/M3 mutantları; **tek yüklem** `holding_peer` | 6. tur: tek yönlü test hatalı süzgeci geçiriyordu; 7. tur: C hiçbir holding'de değilken M3 iki testi de geçiyordu; 8. tur: tetikleyicideki M3 biçimli kontrol KM'nin manuel kaydına C'nin lokasyonunu yazdırıyordu | §2 |
 | K-34 | `tappa_holdingdefiner` için **fiil × sütun matrisi** ve **"asla SELECT"** listesi, katalogda pinli | BYPASSRLS rolde fonksiyon yolunun **tek yapısal sınırı** sütun yetkileridir (7. turda prototipte 18 sütun ölçüldü) | §3 |
-| K-35 | Canlı oturumlu ve bekleyen aktivasyon bağı olan tarayıcıda, plaketin tenant'ı davetinkinden **farklı** ve oturumun eşiyse normal holding dokunuşu; aynıysa aktivasyon tamamlanır | `tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon hatasına çevirirdi | §5 |
+| K-35 | Canlı oturumlu ve bekleyen aktivasyon bağı olan tarayıcıda, plaketin tenant'ı davetinkinden **farklı** ve oturumun eşiyse normal holding dokunuşu; aynıysa aktivasyon tamamlanır. *(2026-11-11, kullanıcı kararı: plaketin tenant'ı davetinkinin **canlı eşiyse** de aktivasyon tamamlanır; holding dokunuşu yalnız **oturumun** eşi olup davetinkinin eşi olmayan plakette kalır)* | `tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon hatasına çevirirdi | §5 |
 | K-36 | Holding üyesi tenant'ın saat dilimi değiştirilemez (tetikleyici, kapalı listede); ekleme farklı saat dilimini reddeder | 6. tur: owner sonradan değiştirirse çapraz geç kalma hesabı bozulurdu | §1 |
 | K-38 | K-1g guardrail'ının yeri: `sys:person-debounce`'tan **hemen sonra**, baseline'dan önce; terminal | Debounce QR'ın tek frenidir (CLAUDE.md §5); önüne geçerse tekrar QR'lar onay kuyruğunu doldururdu | §7 |
 | K-39 | K-1d'nin **ters yönü**: `holding_tap_site`'ın `static_ips`/GPS'i yalnız sunucu içi karar girdisidir, KM'ye gösterilmez; KM panelinde `site_*` satırları için IP/GPS ayrıntısı gösterilmez | 7. tur | §9 |
@@ -389,6 +389,7 @@ dönüş sütunu, tenant sınırının ne kadar açıldığının kendisidir. Ku
 | `holding_peer(a, b, mod)` | İki tenant'ın **aynı** holding'de eş olup olmadığı (tek yüklem) ve yukarıdaki beş kip | yalnız bu listedeki definer'lar ve tetikleyiciler | **yalnız sahip** (INVOKER, VOLATILE) |
 | `holding_peer(a, mod)` *(T124, `00060`)* | Aynı yüklemin küme biçimi: `a`'nın `strict` eşleri (tek kip) | `holding_site_locations`, `holding_directory` | **yalnız sahip** (INVOKER, VOLATILE) |
 | `holding_group()` *(GRP-1, `00062`; kullanıcı onayı 2026-10-20)* | Çağıranın **kendi** holding'i ve onun **canlı** üyeleri: holding'in adı, üyenin adı, şirket kodu (`api_code`), katılma tarihi, kendisi mi — **VAT, adres, e-posta, çalışan sayısı, plan/fatura, API anahtarı, ayrılmış üye asla** (K-1d); argümansız, en çok 1000 | panelin "Group" sekmesi (salt-okur) | `tappa_app` |
+| `holding_activation_tap(p_uid, p_ctr)` *(`00100`; kullanıcı onayı 2026-11-11)* | Aktivasyon dokunuşunun eş plaketteki ilerletmesi: **`holding_advance_tag_counter`'ı çağırır** (tek ifade ve katı eşlik onun içinde — kopya yok) ve **yalnız `advanced`'ta**, aynı işlemde, **eşin** `audit_log`'una tek satır yazar: `action = 'holding.activation_tap'` (sabit), `target` = plaket uid'i, `detail = {"location_id": …}`, `actor_id` NULL — kişi, davet, işveren **asla**. Dönüş ilerletmenin `(sonuç, plaketin güncel durumu)`'udur; satır yazılamazsa hata yükselir ve ilerletme de geri alınır (izsiz ilerletme yok) | aktivasyon dokunuşu (`invite.AdvancePeerPlaque`, davetin tenant bağlamında) | `tappa_app` |
 | `holding_peer(a)` *(GRP-1, `00062`; kullanıcı onayı 2026-10-20)* | Aynı yüklemin kadro biçimi: `a`'nın canlı holding'i/holding'leri ve onların canlı üyeleri (`a` dahil), her biri katılma tarihiyle; `strict`, kipsiz | `holding_group` | **yalnız sahip** (INVOKER, VOLATILE) |
 | Tetikleyici `holding_site_gate()`: **`site_*` üyelik kapısı** | `BEFORE INSERT ON transactions`, `WHEN (NEW.site_tenant_id IS NOT NULL)`; K-29'un kanal × zaman şartı (§6) | `transactions` | yalnız sahip |
 | Tetikleyici `holding_feed()`: **holding akış/izdüşüm tetikleyicisi** | `AFTER INSERT ON transactions` ve `ON transaction_reviews`, tetikleyici adı **ad sırasında ilk** (K-31); `site_punches` (§9) ve iki hedefin olay/teslim satırları (§8; ADR 0028 §4) | `transactions`, `transaction_reviews` | yalnız sahip |
@@ -410,6 +411,7 @@ olarak** bu tablodur.
 | `holding_peer` *(T124, `00060`)* | `a uuid, mod text` | `SETOF uuid` |
 | `holding_peer` *(GRP-1, `00062`)* | `a uuid` | `TABLE(holding_id uuid, member_tenant_id uuid, joined_at timestamp with time zone)` |
 | `holding_group` *(GRP-1, `00062`)* | — | `TABLE(holding_id uuid, holding_name text, member_name text, member_api_code text, joined_at timestamp with time zone, is_self boolean)` |
+| `holding_activation_tap` *(`00100`; kullanıcı onayı 2026-11-11)* | `p_uid character, p_ctr integer` | `TABLE(outcome text, tag_status text)` — `outcome` ilerletmenin dört değeri |
 | `holding_site_gate` | — | `trigger` |
 | `holding_feed` | — | `trigger` |
 | `holding_timezone_lock` | — | `trigger` |
@@ -491,10 +493,11 @@ ile doğar.
 | `punch_events` *(M11)* | — | ADR 0028 §4'teki sütun listesi | — | — | iki hedef olay satırı (K-31) |
 | `webhook_deliveries` *(M11)* | — | ADR 0028 §6'daki ekleme sütunları | — | — | iki hedef teslim satırı |
 | `feed_counters` *(M11)* | `tenant_id`, `last_seq` | `tenant_id`, `last_seq` | `last_seq` | — | K-31'in *"var et"* + kilit + artırma (`ON CONFLICT … DO UPDATE … RETURNING` SELECT ister — 3. tur) |
+| `audit_log` *(`00100`; kullanıcı onayı 2026-11-11)* | — | `tenant_id`, `action`, `target`, `detail` | — | — | yalnız `holding_activation_tap`'in eşe yazdığı satır; `actor_id` ve `at` (veritabanının `DEFAULT now()`'ı) asla, SELECT asla |
 
 `USAGE ON SCHEMA public` (bu kümede PUBLIC'in `USAGE`'ı yok — 4. tur ölçtü). Listede olmayan
 tablolar (`sessions`, `admin_users`, `admin_sessions`, `employee_invites`, `password_resets`,
-`audit_log`, `policies`, `platform_*`, `operator_*`, `api_keys`, `api_idempotency`,
+`audit_log` *(2026-11-11'den beri yalnız yukarıdaki INSERT)*, `policies`, `platform_*`, `operator_*`, `api_keys`, `api_idempotency`,
 `invite_requests`, …) için rol **hiçbir fiil** tutmaz. **Matris kesin listenin üst sınırıdır:**
 API-1a/API-1b/API-1c/API-2 her satırı ölçerek yeniden kazanır ve gereksiz çıkan sütun düşer
 (`tappa_feedwriter`'ın 25/26 kalemlik *"her biri tek başına zorunlu"* kanıtının emsali — ADR 0028 §4).
@@ -572,7 +575,9 @@ işveren).
   markası** (K-1c); **0 satır** → bugünkü davranış (yabancı plaket problemi). Canlı oturum + bekleyen
   aktivasyon bağı + eş plaket (plaketin tenant'ı davetinkinden farklı) → **normal holding dokunuşu**
   (K-35); plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır. Aktivasyon değişmez
-  (K-1b; ADR 0026; `activate.go:797,828`).
+  (K-1b; ADR 0026; `activate.go:797,828`). *(2026-11-11, kullanıcı kararı — aşağıda *"Aktivasyon eşin
+  plaketinde"*: aktivasyon davetin tenant'ının **canlı eşinin** plaketinde de tamamlanır; K-35'in holding
+  dokunuşu yalnız oturumun eşi olup davetinkinin eşi olmayan plakette kalır.)*
 - **`checkin.advance`:** plaketin tenant'ı ≠ oturumunki → `holding_advance_tag_counter` (katı).
   Sonuç karara taşınır:
   - `not_peer` → bugünkü gibi **ilerletmeden** reddet (#1, **kayıt yok**, sayaç ilerlemedi);
@@ -600,6 +605,8 @@ işveren).
   `refused_tag_not_active` olarak görür ve **KF panelinin uyarı yüzeyi** (bugün `AlertLostTagTapped`
   yalnız oturum tenant'ının audit'ine yazıyor) bu izdüşüm satırından beslenir. **Çapraz audit
   yazılmaz:** hiçbir yol başka tenant'ın `audit_log`'una yazmaz (`op_*`'ın K6 satırları hariç).
+  *(2026-11-11, kullanıcı kararı: tek istisna `holding_activation_tap`'in eşe yazdığı tek satırdır —
+  aşağıda *"Aktivasyon eşin plaketinde"*.)*
 - **Sonuç ekranı:** KF logosu (K-1c; bugün farklı tenant'ta logo yok — `checkin.go:320-323`);
   sonuç ekranında accent yoktur (CLAUDE.md §9 değişmez).
 
@@ -1284,8 +1291,10 @@ satırları.)*
   `TestHoldingWindow_ManualAfterLeftIsRefused` · `TestHoldingReads_AfterLeftReturnNothing` ·
   `TestHoldingWindow_ToleranceIsAtLeastTwiceTheRequestTimeout` · `TestHoldingWindow_GateArms` (kapının
   iki kolu satır satır, 10 sn ve 61 sn) · `TestHoldingPeer_AppCannotCallIt` (katalog satırı)
-- (h) `TestHoldingActivation_OnlyOnItsOwnTenantsPlaque` ·
-  `TestHoldingTap_PendingActivationBrowserWithLiveSessionTapsAsHolding` ·
+- (h) *(2026-11-11 kullanıcı kararından beri — aşağıdaki *"Aktivasyon eşin plaketinde"* notu)*
+  `TestHoldingActivation_CompletesOnALivePeersPlaque` · `TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing` ·
+  `TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer` ·
+  `TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding` ·
   `TestHoldingTap_PendingActivationOnTheInvitationsPlaqueStillActivates`
 - (i) `TestHoldingBrand_TapAndResultShowTheSiteBrand` · `TestHoldingLogo_VIESGate` ·
   `TestHoldingLogo_OutsiderOrStaleDigestIs404` · `TestHoldingTapSite_LogoOnlyForAVIESVerifiedSite`
@@ -2187,3 +2196,54 @@ uygulaması, ana oturumun tasarım önerisiyle (otonom kararlar aşağıda işar
   `TestHolding00062_DownGivesBackAndUpTakesItAgain`: Down iki fonksiyonu düşürür ve `holdings` SELECT'ini geri alır, ön koşul ikinci
   koşuyu, başka biçimli üçüncü bir `holding_peer`'i, var olan bir `holding_group`'u ve `holdings`'i zaten okuyan bir tanımlayıcıyı
   reddeder, Up HEAD'i birebir verir.
+
+## Aktivasyon eşin plaketinde (2026-11-11, kullanıcı kararı) — K-1b değişti, K-35 daraldı, kapalı liste büyüdü
+
+**Karar (kullanıcı, 2026-11-11):** bir çalışanın aktivasyon dokunuşu ([ADR 0026](0026-aktivasyon-ilk-nfc-dokunusunda.md)) davetin
+tenant'ının plaketinin yanı sıra **aynı holding'deki canlı bir eşin** plaketinde de tamamlanır. **Gerekçe:** bir grup şirketinde
+kayıtlı olup ötekinde çalışan kişi çalıştığı yerde aktive edebilmeli (Eser KF'de kayıtlı, KM'de çalışıyor; KM plaketindeki
+dokunuşu `foreign_tenant_tag` ile reddediliyordu). K-1b'nin adlandırılmış bedeli (*"yalnız KF'de çalışan bir KM çalışanı da ilk
+kez bir KM plaketine dokunmalı"*) kalktı.
+
+- **🔴 Kapalı liste büyüdü — kullanıcı onayladı (2026-11-11, §2).** Aktivasyon eşin `tags.last_ctr`'ını ilerletir; holding
+  check-in'inin sahadaki izi `site_punches`'tır, ama aktivasyon `transactions` satırı yazmaz — iz olmadan bir tenant'ın sayacı başka
+  bir tenant'ın isteğiyle oynardı (`activate.go`'nun *"audit R5"*'inin kapattığı boşluğun eş hâli). `tappa_app` RLS altında başka
+  tenant'ın `audit_log`'una yazamaz. Kullanıcı tam olarak **bir** fonksiyonu onayladı: **`holding_activation_tap(p_uid, p_ctr)`**
+  (migration `00100`) ve tanımlayıcının matrisine **`audit_log (tenant_id, action, target, detail)` INSERT** (§3).
+- **Neden ilerletmeye bağlı, serbest bir iz yazıcısı değil (otonom).** Yalnız satır ekleyen bir fonksiyon `tappa_app`'e hiçbir şey
+  olmadan eşin izine yazma imkânı verirdi. `holding_activation_tap` `holding_advance_tag_counter`'ı **çağırır** (tek ifade, katı
+  eşlik — §4.4'ün ikinci kopyası değişmeden tektir) ve satırı **yalnız `advanced`'ta**, aynı işlemde yazar: ilerletme yoksa satır
+  yok, bu yolda ilerletme varsa satır hep var (satır yazılamazsa hata yükselir, ilerletme geri alınır —
+  `TestHoldingActivationTap_NoAdvanceWithoutItsRow`). Eşlik sorusu ilerletmenin kendisidir; ikinci bir `holding_peer` çağrısı yok
+  (`TestHoldingFunctions_PeerSetComputedOnce`'ın tek-satır sayımı 1). Satırın tenant'ı plaketin satırından okunur — açık yüklem
+  `t.uid = p_uid AND t.tenant_id <> çağıran`; plaket satırı ilerletmenin `FOR UPDATE` kilidi altındadır.
+- **Satırın biçimi (normatif):** `tenant_id` = eş · `actor_id` NULL · `action = 'holding.activation_tap'` (gövdede sabit) ·
+  `target` = plaket uid'i · `detail = {"location_id": <plaketin duvarı>}` · `at` veritabanınınki. Kişinin adı ya da kimliği, davet,
+  işverenin kimliği **yoktur** — saha yalnız kendi plaketinin bir telefonu aktive etmekte kullanıldığını öğrenir; bu, §9'un
+  `site_punches`'ta zaten gösterdiğinden (ad, kod, zaman) azdır.
+- **Zaman kuralı gevşemedi.** Eşlik iki noktada da katıdır: ön kontrol `holding_tap_site` (davetin tenant bağlamında), ilerletme
+  `holding_advance_tag_counter` (`left_at > clock_timestamp()`). K-29'un 60 sn penceresi `transactions` kapısınındır (§6) ve satır
+  yazmayan bu dokunuşa uzanmaz — holding check-in'inin ilerletmesine uzanmadığı gibi. Ayrılmış üye eş değildir
+  (`TestHoldingActivationTap_AnExMemberWithinTheWindowIsNotAPeer`, `TestHoldingActivation_AnExMemberIsNotAPeer`).
+- **Yol (Go):** `CompleteByTap` → `PreviewWithoutReplayProtection` (sayaçsız) → plaket başka tenant'ınsa `advanceAPeer`:
+  `invite.PeerPlaque` (`holding_tap_site`, davetin bağlamı; eş değilse bugünkü `foreign_tenant_tag`, **hiçbir sayaç oynamaz**) →
+  aktif + duvarda (`peer_tag_not_active`) → ön kontrolün CMAC'i (`sun_invalid`) → `invite.AdvancePeerPlaque`
+  (`holding_activation_tap`; `replay` → `peer_replay`, `peer_inactive` → `peer_tag_not_active`, `not_peer` → `foreign_tenant_tag`)
+  → `finishActivation`. Oturum **davetin** tenant'ı ve çalışanı için doğar; aktivasyon ailesinin markası davetin tenant'ınındır.
+  `transactions`, `site_punches`, `punch_events` satırı yazılmaz. Bütün retler tek ekran (§4.7). WithTenant(eş) açılmaz (ADR 0016 §2).
+- **İşverenin izinde eşin anahtarları:** `activation.completed` ve eşin plaketindeki ret satırları plaket uid'ini ve
+  `site_tenant_id`'yi taşır — holding dokunuşunun `transactions.site_tag_uid`/`site_tenant_id` emsali (§4); eş olmayanın uid'i
+  davetin izine yazılmaz (değişmedi).
+- **K-35 daraldı.** Canlı oturum + bekleyen onaylı aktivasyon + NFC'de `peerTapInstead` (oturum bağlamında `holding_tap_site`)
+  eş plaketi görür ve aktivasyon akışına sorar (`Activation.PendingActivatesOn`, eski `PendingTenant`'ın yerine): plaketin
+  tenant'ı davetinki **ya da davetinkinin canlı eşiyse** aktivasyon tamamlanır (sihirbaz canlı oturumun değiştirilmesini zaten
+  onaylattı); yalnız oturumun eşi olup davetinkinin eşi olmayan plakette dokunuş holding dokunuşu kalır. Davet çözülmezse ya da
+  okuma hata verirse aktivasyon akışı cevaplar (eskisi gibi). Pasifleştirilmiş oturum sahibinin korunması değişmedi.
+- **Testler:** `TestHoldingActivation_CompletesOnALivePeersPlaque`, `TestHoldingActivation_ANonPeersPlaqueIsRefusedAndMovesNothing`,
+  `TestHoldingActivation_AReplayedPeerURLIsRefused`, `TestHoldingActivation_AnInactivePeerPlaqueIsRefused`,
+  `TestHoldingActivation_AnExMemberIsNotAPeer`, `TestHoldingTap_PendingActivationWithLiveSessionCompletesOnTheInvitationsPeer`,
+  `TestHoldingTap_PendingActivationOnASessionOnlyPeerTapsAsHolding` (handler); `TestHoldingActivationTap_TrailsOnlyAnAdvance`,
+  `TestHoldingActivationTap_AnExMemberWithinTheWindowIsNotAPeer`, `TestHoldingActivationTap_NoAdvanceWithoutItsRow` (db); katalog
+  (`holdingSignatures`, `holdingDefinerMatrix`, `holdingCanaryCalls`, `holdingSingleRowCalls`, `TestHoldingDefiner_EveryGrantIsUsed`'in
+  sürüşü, `privCatalogAllowed`, `m11Functions`). K-1b'nin eski testi (eşin plaketinde ret) ve eski K-35'in testi (davetin eşinin plaketinde
+  holding dokunuşu) yeni kurala göre yeniden yazıldı — yukarıdaki ilk ve altıncı test onların yerini aldı.

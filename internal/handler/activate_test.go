@@ -107,6 +107,17 @@ func (f *fakeInvites) ActivationContext(_ context.Context, _, _ uuid.UUID) (invi
 	return okContext("active"), nil
 }
 
+// PeerPlaque: no plaque is a holding peer's in these fakes -- the peer path is driven against
+// real Postgres (holding_db_test.go).
+func (f *fakeInvites) PeerPlaque(context.Context, uuid.UUID, string) (invite.PeerPlaque, bool, error) {
+	return invite.PeerPlaque{}, false, nil
+}
+
+// AdvancePeerPlaque must never be reached for a plaque that is not a peer's: it panics.
+func (f *fakeInvites) AdvancePeerPlaque(context.Context, uuid.UUID, string, uint32) (invite.PeerAdvanceOutcome, error) {
+	panic("AdvancePeerPlaque reached for a plaque that is not a peer's")
+}
+
 type fakeSessions struct {
 	issueErr  error
 	revokeErr error
