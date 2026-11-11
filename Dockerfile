@@ -69,7 +69,11 @@
 # intermediates; govulncheck reports it as called from the VIES client's certificate check;
 # fixed in 1.26.10). Index digest of golang:1.26.10-bookworm on Docker Hub, measured
 # 2026-10-21 (lists linux/amd64). CI and deploy.yml pin the same version.
-ARG GO_IMAGE=golang:1.26.10-bookworm@sha256:5b1f78db1f54cc8cb46e652c51d3f854441c4310a449161b6fe9fb553edab505
+# 2026-11-11: 1.26.10 -> 1.26.11 for GO-2026-6859 (net/http, MaxBytesReader header race that
+# crashes an HTTP/1 server; govulncheck reports it as called from the server path; fixed in
+# 1.26.11; backlog T288). Index digest of golang:1.26.11-bookworm on Docker Hub, measured
+# 2026-11-11 (lists linux/amd64, GOLANG_VERSION=1.26.11). CI and deploy.yml pin the same version.
+ARG GO_IMAGE=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 
 # ---------------------------------------------------------------------- build --
 FROM ${GO_IMAGE} AS build

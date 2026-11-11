@@ -311,7 +311,7 @@ require-db-env:
 # TestMakeTest_TheRaceOptOutIsAClosedList keeps this list these two.
 # HOW IT WORKS, AND IT IS NOT DOCUMENTED: go build puts its own -race first and the per-package
 # flags after it, so the compiler sees `-race -race=false` and the last one wins (measured with
-# go build -n, the same on go1.26.10 and go1.27.1). Check it again on a toolchain bump (the T180
+# go build -n, the same on go1.26.10, go1.26.11 and go1.27.1). Check it again on a toolchain bump (the T180
 # day). A change can only show as slower runs or a red build, never as a silently weaker detector:
 # -race stays on every other package whatever this line does.
 RACE_OPT_OUT := -gcflags=golang.org/x/crypto/blowfish=-race=false -gcflags=regexp/...=-race=false

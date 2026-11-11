@@ -326,7 +326,7 @@ jobs:
       - name: Set up Go (verify-image.sh reads buildinfo with it)
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
           cache: false
 
       # The robot's secret is piped, never passed as an argument: an argument reaches `ps`
@@ -377,7 +377,7 @@ jobs:
           # build and this one start from one toolchain image; GO_BUILD_IMAGE is set once in
           # this step and passed to both builds. A digest bump is three edits in one change:
           # here, the Dockerfile's ARG, and cmd/tappa/deployregistry_test.go's pin.
-          GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.10-bookworm@sha256:5b1f78db1f54cc8cb46e652c51d3f854441c4310a449161b6fe9fb553edab505
+          GO_BUILD_IMAGE=registry.everva.com.tr/dockerhub/library/golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
           docker build --build-arg GO_IMAGE="$GO_BUILD_IMAGE" --target app     -t "$APP_IMAGE:sha-$SHORT" .
           docker build --build-arg GO_IMAGE="$GO_BUILD_IMAGE" --target migrate -t "$MIGRATE_IMAGE:sha-$SHORT" .
 
