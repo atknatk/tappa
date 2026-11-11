@@ -179,6 +179,15 @@ zaten `active` damgasız bir satırın tap sayaç güncellemesi `WHEN`'e hiç uy
 tablo düzeyi INSERT tutuyor ve `tags.status` DEFAULT'u `'active'`; bugün hiçbir kod
 yolu bunu yapmıyor (tek INSERT `InsertUnassigned`, literal `'unassigned'`), kapatma
 sırası backlog T76'da.
+✅ **EK (2026-11-11, migration 00100 — T76 kapandı): doğuş da kapalı.**
+`tags_is_born_in_stock` (BEFORE INSERT, her rol, `tappa_owner` dahil) yalnız §5.1
+adım 3'ün satırını doğurur: `status='unassigned'`, `location_id` NULL, `encoded_at`
+NULL, `last_ctr` 0, `retired_at`/`replaced_by` NULL; başka her şekil 23001. Damga,
+mount, sayaç ve emeklilik UPDATE'tir ve her birinin kendi kapısı vardır. Sevk edilen
+iki INSERT yolu (encode turu, sandbox) `InsertUnassigned` ile zaten bu şekli yazıyor.
+Kapı geriye uzanmaz: 00100'den önce doğmuş A-1 satırları olduğu gibi kalır (onarım
+yine Replace). `aes_key_ref` sahte zarf ile stok satırı doğurmak hâlâ mümkün —
+backlog T16.
 🔴 **Patlama yarıçapı "encode penceresi" DEĞİL** — ilk sürüm öyle yazdı ve §5.3
 onu **çürüttü**: kurtarma da *fabrika → bizimki* yönünde `ChangeKey` çağırır ve o
 oturum, ilk turdan **günler sonra**, muhtemelen **başka bir telefonla**, yine

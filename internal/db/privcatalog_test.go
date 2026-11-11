@@ -496,6 +496,7 @@ function tappa_employee_lifecycle_status(timestamp with time zone,timestamp with
 function tappa_employees_touch_updated_at() owner=tappa_owner definer=false execute=-
 function tappa_first_chargeable_month(text,timestamp with time zone,text) owner=tappa_owner definer=false execute=tappa_app,tappa_opdefiner
 function tappa_forbid_app_key_ref_rewrite() owner=tappa_owner definer=false execute=-
+function tappa_forbid_birth_outside_stock() owner=tappa_owner definer=false execute=-
 function tappa_forbid_counter_rewind() owner=tappa_owner definer=false execute=-
 function tappa_forbid_encoded_at_at_insert() owner=tappa_owner definer=false execute=-
 function tappa_forbid_encoded_at_rewrite() owner=tappa_owner definer=false execute=-
