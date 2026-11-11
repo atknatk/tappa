@@ -10,6 +10,8 @@ import (
 	"context"
 	"os"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -307,5 +309,211 @@ func TestLockWaitFor_DividesTheRemainderAmongAStatementsWaits(t *testing.T) {
 	}
 	if got := r.lockWaitFor(context.Background(), 2); got != 200*time.Millisecond {
 		t.Errorf("no request clock: %v, want half of mintLockWait", got)
+	}
+}
+
+// lockHolder is a session of the test's own that holds one lock in an open transaction: its backend
+// pid, for releaseOnceWaitedOn, and its release (safe to call twice; also at cleanup, and after a
+// minute in any case, so a mutation that waits cannot wait forever).
+type lockHolder struct {
+	pid     uint32
+	release func()
+}
+
+// holdInOwnSession opens a session on dsn, begins, and runs query, which must take its lock and
+// answer one row (an advisory lock taken by SELECT, or SELECT ... FOR UPDATE of one row -- which
+// conflicts with the key share a foreign-key check takes).
+func holdInOwnSession(t *testing.T, dsn, query string, args ...any) lockHolder {
+	t.Helper()
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect the lock holder: %v", err)
+	}
+	tx, err := c.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("take the lock (%s): %v, %d row(s)", query, err, tag.RowsAffected())
+	}
+	done := make(chan struct{})
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		select {
+		case <-done:
+		case <-time.After(time.Minute):
+		}
+		if err := tx.Rollback(context.Background()); err != nil {
+			t.Errorf("release the lock: %v", err)
+		}
+		if err := c.Close(context.Background()); err != nil {
+			t.Errorf("close the lock holder: %v", err)
+		}
+	}()
+	var once sync.Once
+	release := func() {
+		once.Do(func() { close(done) })
+		<-ended
+	}
+	t.Cleanup(release)
+	return lockHolder{pid: c.PgConn().PID(), release: release}
+}
+
+// releaseOnceWaitedOn watches, from an owner session, for a backend blocked by first
+// (pg_blocking_pids), and `after` the moment it sees one releases every holder; waited reports
+// whether it saw one. Counting from the WAIT, not from the call, is what keeps the tests below off
+// the clock: whatever the call spent before the statement, the statement's first wait is held
+// exactly `after` past its start.
+func releaseOnceWaitedOn(t *testing.T, after time.Duration, first lockHolder, all ...lockHolder) (waited func() bool) {
+	t.Helper()
+	ctx := context.Background()
+	w, err := pgx.Connect(ctx, os.Getenv("DATABASE_MIGRATE_URL"))
+	if err != nil {
+		t.Fatalf("connect the watcher: %v", err)
+	}
+	var saw atomic.Bool
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		defer func() {
+			if err := w.Close(context.Background()); err != nil {
+				t.Errorf("close the watcher: %v", err)
+			}
+		}()
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(2 * time.Millisecond) {
+			var blocked bool
+			if err := w.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity a
+			                            WHERE $1 = ANY (pg_catalog.pg_blocking_pids(a.pid)))`, int64(first.pid)).Scan(&blocked); err != nil {
+				t.Errorf("watch for a waiter: %v", err)
+				return
+			}
+			if blocked {
+				saw.Store(true)
+				time.Sleep(after)
+				for _, h := range all {
+					h.release()
+				}
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() { <-ended })
+	return saw.Load
+}
+
+// stallSplitBudget and stallSplitAfter shape the two tests below (T236 (d)): an 800 ms budget, and
+// a statement whose FIRST wait is held 640 ms past its start -- over half of any remainder, under
+// the whole one unless the call spent more than 160 ms before the statement -- after which both of
+// its locks go. With the statement's waits divided by 2, the first wait runs out at 400 ms at the
+// latest and the account stalls: nothing on that side depends on how loaded the machine is but the
+// 240 ms between the timeout and the release. Divided by 1, the first wait is granted, the second
+// lock is already gone, and the link is minted.
+//
+// Why not a ceiling on the call's duration, like the tests above: measured while writing these, at
+// load ~300 locally, the unmutated cases took 440-550 ms against an 860 ms ceiling and once went over.
+const (
+	stallSplitBudget = 800 * time.Millisecond
+	stallSplitAfter  = 640 * time.Millisecond
+)
+
+// TestIssueForEmail_TheInsertsTwoWaitsSplitWhatIsLeft (T236 (d)): CreatePasswordReset's INSERT can
+// wait twice, once per foreign key (tenants, then admin_users -- the check triggers fire in name
+// order, read from the catalog below), so createResetWaits divides what is left by 2. Both rows are
+// held; the business row's wait is held stallSplitAfter; the account must stall with nothing minted.
+// TestIssueForEmail_TwoWaitsInOneMintShareTheBudget cannot see the divisor: there the INSERT waits once.
+//
+// MUTATION (measured): createResetWaits = 1 -> the link is minted -> red.
+func TestIssueForEmail_TheInsertsTwoWaitsSplitWhatIsLeft(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	tenantID := newTenantRow(t, d, "Split Waits Ltd")
+	email := randEmail(t)
+	admin := newAdminRow(t, d, tenantID, email, "p", "active", "owner", "Split Waits")
+	r := cheapResets(t, d)
+	r.mintLockWait = stallSplitBudget
+
+	cat, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("connect for the catalog read: %v", err)
+	}
+	defer func() {
+		if err := cat.Close(ctx); err != nil {
+			t.Errorf("close the catalog connection: %v", err)
+		}
+	}()
+	var order []string
+	rows, err := cat.Query(ctx, `SELECT c.confrelid::regclass::text FROM pg_catalog.pg_trigger t
+	                               JOIN pg_catalog.pg_constraint c ON c.oid = t.tgconstraint
+	                              WHERE t.tgrelid = 'public.password_resets'::regclass AND c.contype = 'f'
+	                                AND t.tgfoid = 'pg_catalog."RI_FKey_check_ins"'::regproc
+	                              ORDER BY t.tgname`)
+	if err == nil {
+		order, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	}
+	if err != nil {
+		t.Fatalf("read password_resets' foreign-key checks: %v", err)
+	}
+	if !slices.Equal(order, []string{"tenants", "admin_users"}) {
+		t.Fatalf("PREMISE: password_resets' foreign-key checks fire in the order %v, want [tenants admin_users]", order)
+	}
+	owner := os.Getenv("DATABASE_MIGRATE_URL")
+	business := holdInOwnSession(t, owner, `SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE`, tenantID)
+	account := holdInOwnSession(t, owner, `SELECT 1 FROM admin_users WHERE id = $1 FOR UPDATE`, admin)
+	waited := releaseOnceWaitedOn(t, stallSplitAfter, business, business, account)
+
+	start := time.Now()
+	grants, _, stalled, err := r.IssueForEmail(ctx, email)
+	t.Logf("both rows held, the business row's wait %v: returned after %v (budget %v)", stallSplitAfter, time.Since(start), r.mintLockWait)
+	if err != nil {
+		t.Fatalf("IssueForEmail: %v", err)
+	}
+	if !waited() {
+		t.Fatal("CONTROL: no backend ever waited on the business row: the INSERT's first wait did not happen")
+	}
+	if len(grants) != 0 || len(stalled) != 1 {
+		t.Fatalf("%d grant(s), %d stalled; want the account stalled at the INSERT's first wait -- a grant means "+
+			"that wait was given the whole remainder, and its second could have been too", len(grants), len(stalled))
+	}
+	if ids := liveLinkIDs(t, d, tenantID, admin); len(ids) != 0 {
+		t.Fatalf("%d live link(s), want 0", len(ids))
+	}
+}
+
+// TestIssueForPerson_TheOpeningsTwoWaitsSplitWhatIsLeft (T236 (d)), flag on: identity_open_reset can
+// wait twice -- its advisory lock, then admin_identity_resets' foreign key on the identity row -- so
+// openIdentityResetWaits divides what is left by 2. Both are held; the opening lock's wait is held
+// stallSplitAfter; the identity must stall with nothing opened.
+// TestIssueForPerson_AHeldIdentityLockStallsOnlyTheIdentity cannot see the divisor: there it waits once.
+//
+// MUTATION (measured): openIdentityResetWaits = 1 -> the identity's link is opened -> red.
+func TestIssueForPerson_TheOpeningsTwoWaitsSplitWhatIsLeft(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	w := newPersonResetWorld(t)
+	r := cheapResets(t, d)
+	r.mintLockWait = stallSplitBudget
+
+	opening := holdInOwnSession(t, os.Getenv("DATABASE_URL"), `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, identityOpeningKey(w.ident))
+	row := holdInOwnSession(t, os.Getenv("DATABASE_MIGRATE_URL"), `SELECT 1 FROM admin_identities WHERE id = $1 FOR UPDATE`, w.ident)
+	waited := releaseOnceWaitedOn(t, stallSplitAfter, opening, opening, row)
+
+	start := time.Now()
+	p, err := r.IssueForPerson(ctx, w.typed)
+	t.Logf("opening lock and identity row held, the opening's wait %v: returned after %v (budget %v)", stallSplitAfter, time.Since(start), r.mintLockWait)
+	if err != nil {
+		t.Fatalf("IssueForPerson: %v", err)
+	}
+	if !waited() {
+		t.Fatal("CONTROL: no backend ever waited on the opening lock: the opening's first wait did not happen")
+	}
+	if len(p.Stalled) != 1 || p.Stalled[0].IdentityID != w.ident || p.IdentityKept != nil {
+		t.Fatalf("stalled %+v, identity kept %v; want exactly the identity stalled -- an opened link means the "+
+			"opening's first wait was given the whole remainder, and its second could have been too", p.Stalled, p.IdentityKept)
+	}
+	if n := w.int(`SELECT count(*) FROM admin_identity_resets WHERE identity_id = $1`, w.ident); n != 0 {
+		t.Fatalf("%d identity link(s) after a stalled opening, want 0", n)
 	}
 }
