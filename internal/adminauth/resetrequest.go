@@ -95,8 +95,13 @@ type ResetGrant struct {
 	IdentityID uuid.UUID
 }
 
-// ResetMintLockWait is everything ONE request's mints may spend waiting for locks (T219), shared by
-// every mint of IssueForEmail or IssueForPerson rather than one each.
+// ResetMintLockWait is everything ONE request's mints may spend waiting for locks (T219) and for pool
+// connections (T236 (a), mintStep), shared by every mint of IssueForEmail or IssueForPerson rather than
+// one each.
+//
+// ⚠️ WHAT IT DOES NOT BOUND: a statement that is slow rather than waiting (slow I/O, a loaded server).
+// Bounding the statements too was measured and refused: on a loaded machine it refused healthy mints
+// (db.BoundAcquireWait says how). Those still run to the request's deadline, as before.
 //
 // 🔴 IT IS SPENT PER WAIT, AND A STATEMENT CAN WAIT MORE THAN ONCE. lock_timeout bounds each wait,
 // not the statement (db.BoundLockWaits), and the first version set it once per transaction: the
@@ -147,6 +152,18 @@ type mintClockKey struct{}
 // withMintClock starts the request's one lock-wait budget.
 func (r *Resets) withMintClock(ctx context.Context) context.Context {
 	return context.WithValue(ctx, mintClockKey{}, time.Now().Add(r.mintLockWait))
+}
+
+// mintStep is ctx with its wait for a pool connection bounded by what is left of the request's
+// ResetMintLockWait (db.BoundAcquireWait; T236 (a)): the budget is for every wait of a mint the
+// database cannot see the end of, lock or connection, not for locks alone. At least a millisecond, as
+// for a lock, so a free connection is still taken past the budget. One step, one transaction: cut
+// reports whether the bound ran out first -- then the transaction never began, nothing was written,
+// and the account is a stall like a lock wait that ran out. THE PRICE (backlog T309, measured): a pool
+// busy for longer than the budget stalls mints that would have waited and minted -- 16 simultaneous
+// full windows on a 4-connection pool minted 25-32 of 128.
+func (r *Resets) mintStep(ctx context.Context) (context.Context, func() (cut bool)) {
+	return db.BoundAcquireWait(ctx, r.lockWaitFor(ctx, 1))
 }
 
 // The most lock waits one statement of a mint can make (ResetMintLockWait's comment counts them).
@@ -297,7 +314,14 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 		// minting first would leave a live credential behind whenever this read fails.
 		// It also costs nothing extra in the common case, because the read runs only
 		// for identities the resolver already returned.
-		to, err := r.recipient(ctx, c.TenantID, c.ID)
+		// Each step's wait for a connection comes out of the request's budget too (mintStep): a step it
+		// cut never began, so the account is a stall like a lock wait that ran out.
+		step, cut := r.mintStep(ctx)
+		to, err := r.recipient(step, c.TenantID, c.ID)
+		if cut() {
+			stalled = append(stalled, StalledReset{TenantID: c.TenantID, AdminUserID: c.ID})
+			continue
+		}
 		if err != nil {
 			return nil, nil, nil, r.withdrawAfterFailure(ctx, err, grants)
 		}
@@ -306,12 +330,14 @@ func (r *Resets) issueForRows(ctx context.Context, candidates []db.ResolvedAdmin
 			// here and recorded by the caller's trail, never by a different response.
 			continue
 		}
-		issued, live, err := r.issueUnlessLive(ctx, c.TenantID, c.ID)
+		step, cut = r.mintStep(ctx)
+		issued, live, err := r.issueUnlessLive(step, c.TenantID, c.ID)
+		wasCut := cut()
 		if err != nil {
-			if errors.Is(err, ErrNoSuchAdmin) {
+			if errors.Is(err, ErrNoSuchAdmin) && !wasCut {
 				continue
 			}
-			if db.LockWaitExpired(err) {
+			if db.LockWaitExpired(err) || wasCut {
 				// A stall, not a failure (ResetMintLockWait): rolled back at the wait, so nothing of
 				// this account's was written, and the links minted before it stay good to send.
 				stalled = append(stalled, StalledReset{TenantID: c.TenantID, AdminUserID: c.ID})

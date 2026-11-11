@@ -74,3 +74,74 @@ func TestLockWaitExpired_IsOnlyTheLockTimeout(t *testing.T) {
 		}
 	}
 }
+
+// TestBoundAcquireWait_CutsTheWaitForAConnection (T236 (a), real Postgres, a pool of ONE connection,
+// held by another transaction): a transaction under BoundAcquireWait gives up when the bound runs out
+// instead of waiting for the connection, reports cut, and never began; with the connection free, the
+// same bound lets the next one through.
+//
+// MUTATION: the bound's timer never cancels (BoundAcquireWait returning ctx unchanged) -> the call
+// waits for the holder's 2 s -> red.
+func TestBoundAcquireWait_CutsTheWaitForAConnection(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	held, free := make(chan struct{}), make(chan struct{})
+	holder := make(chan error, 1)
+	go func() {
+		holder <- d.WithTenant(ctx, uuid.New(), func(context.Context, pgx.Tx) error {
+			close(held)
+			select {
+			case <-free:
+			case <-time.After(2 * time.Second):
+			}
+			return nil
+		})
+	}()
+	<-held
+
+	bounded, cut := BoundAcquireWait(ctx, 100*time.Millisecond)
+	start := time.Now()
+	ran := false
+	err := d.WithTenant(bounded, uuid.New(), func(context.Context, pgx.Tx) error {
+		ran = true
+		return nil
+	})
+	took := time.Since(start)
+	wasCut := cut()
+	close(free)
+	if herr := <-holder; herr != nil {
+		t.Fatalf("the holder: %v", herr)
+	}
+	t.Logf("the only connection held: the bounded transaction gave up after %v (bound 100ms)", took)
+	if err == nil || ran || !wasCut {
+		t.Fatalf("err %v, ran %v, cut %v; want an error, fn not run, cut", err, ran, wasCut)
+	}
+	if took > time.Second {
+		t.Errorf("gave up after %v: it waited for the connection instead of the bound", took)
+	}
+
+	bounded, cut = BoundAcquireWait(ctx, 100*time.Millisecond)
+	err = d.WithTenant(bounded, uuid.New(), func(context.Context, pgx.Tx) error { return nil })
+	if wasCut = cut(); err != nil || wasCut {
+		t.Fatalf("with the connection free: err %v, cut %v; want neither", err, wasCut)
+	}
+}
+
+// TestBoundAcquireWait_DoesNotCutTheTransaction (T236 (a)): once a connection is handed over the bound
+// is disarmed, so a transaction slower than the bound -- a statement that runs, not a wait -- still
+// commits, and cut is false. This is what keeps the bound off the COMMIT (no lost commit answer,
+// backlog T169) and off healthy work on a slow machine.
+//
+// MUTATION: the pool's PrepareConn hook removed (pool.go) -> the bound fires during pg_sleep, the
+// statement is cancelled -> red.
+func TestBoundAcquireWait_DoesNotCutTheTransaction(t *testing.T) {
+	d := testDB(t)
+	bounded, cut := BoundAcquireWait(context.Background(), 50*time.Millisecond)
+	err := d.WithTenant(bounded, uuid.New(), func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `SELECT pg_sleep(0.3)`)
+		return e
+	})
+	if wasCut := cut(); err != nil || wasCut {
+		t.Fatalf("a transaction slower than the bound: err %v, cut %v; want it committed and not cut", err, wasCut)
+	}
+}

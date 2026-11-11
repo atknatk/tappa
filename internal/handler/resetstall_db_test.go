@@ -280,15 +280,9 @@ func TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome(t *testing.T)
 	}
 	liveKept := w.liveLinks(t)
 
-	allMinted, stalled := make(chan struct{}), make(chan struct{})
-	var arrived sync.WaitGroup
-	arrived.Add(undeliveredRequests)
-	go func() {
-		arrived.Wait()
-		close(allMinted)
-	}()
+	arrived, stalled := make(chan struct{}), make(chan struct{})
 	w.afterMint = func([]adminauth.ResetGrant) {
-		arrived.Done()
+		arrived <- struct{}{}
 		<-stalled
 	}
 	var answered sync.WaitGroup
@@ -302,30 +296,28 @@ func TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome(t *testing.T)
 				t.Errorf("an undelivered request answered %d", rec.Code)
 			}
 		}(w.emails[i])
+		awaitMint(t, arrived, i)
 	}
-	<-allMinted
 	release := w.stall(t, true, true)
 	releaseAfter(5*time.Minute, release)
 
-	// The flood first: every kept row stalls, goes to the queue, and stops at its share.
-	var kept sync.WaitGroup
+	// The flood first: every kept row stalls, goes to the queue, and stops at its share. One request at a
+	// time (awaitMint's reason: fired at once, the flood's own issuing reads wait for this world's four
+	// connections past adminauth.ResetMintLockWait, stall instead of finding their live links, and write
+	// no kept row -- measured: 0 lost, the control below red). Nothing drains the queue meanwhile: the
+	// stall holds the rows every retry needs.
 	keptTook := make([]time.Duration, keptRequests)
 	for i, e := range keptEmails {
-		kept.Add(1)
 		// A browser of its own per request, from its own address: the request budget is per source.
 		b := newBrowser(t, w.router)
 		b.ip = fmt.Sprintf("198.51.100.%d:1234", i+1)
 		csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, adminResetPath, nil)))
-		go func(i int, e string) {
-			defer kept.Done()
-			start := time.Now()
-			if rec := b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {e}}); rec.Code != http.StatusOK {
-				t.Errorf("a kept request answered %d", rec.Code)
-			}
-			keptTook[i] = time.Since(start)
-		}(i, e)
+		start := time.Now()
+		if rec := b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {e}}); rec.Code != http.StatusOK {
+			t.Errorf("a kept request answered %d", rec.Code)
+		}
+		keptTook[i] = time.Since(start)
 	}
-	kept.Wait()
 	keptLost := w.logged.count(lineRowLost)
 	close(stalled)
 	answered.Wait()

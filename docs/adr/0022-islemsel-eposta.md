@@ -3490,8 +3490,11 @@ değiştirmez; yarış `undelivered` + sınıf ve kendi cümlesiyle kaydedilir.*
    kilitli), HTTP üzerinden, 5 turun en hızlısı: 250,3 ms. Duruş testleri tabanın bandını
    (taban + 50 ms, en hızlı tur) tutar. Denetimde bütçe 900 ms'ye çıkarılınca hepsi kırmızı oldu. Duran mint yeniden denenmez, kişi yeniden ister
    (kilit gidince hemen basılır, ölçüldü). İzi id'li, bütçeli bir ERROR satırıdır, audit satırı yok.
-   **Kalan (T236):** kilit dışı duruşlar (havuz, G/Ç) sınırlı değildir ve eskisi gibi isteğin süresine dek bekler. Kalan
-   kuyruk ve ölüm kayıpları T197'ninkilerdir.
+   **Havuz (T236 (a), 2026-11-11):** bir bağlantı için bekleme de aynı bütçeden düşer (`db.BoundAcquireWait`; sınır
+   bağlantı teslim edilince sökülür, kesilen işlem hiç başlamamıştır). Havuzu aç bırakılmış bir istek, HTTP üzerinden:
+   kayıtlı **1,53–1,75 sn → 250,7–251,7 ms**, kayıtsız 250,4–252,9 ms. Bedeli (T309): havuz doyunca mint basılmaz
+   (16 eşzamanlı tam pencere, havuz 4: 128'den 25–32). **Kalan (T306):** yavaş bir ifade (G/Ç, yüklü
+   sunucu) sınırlı değildir ve eskisi gibi isteğin süresine dek sürebilir. Kalan kuyruk ve ölüm kayıpları T197'ninkilerdir.
 10. **`kept` satırları hesap bütçesini harcar:** anonim istekler bir hesabın sonraki `requested`/`undelivered`
     satırlarını bütçenin dışına itebilir (EM-5A'nın *"satırları sınırlar, gönderimleri değil"* sınırı) — gönderim
     etkilenmez.

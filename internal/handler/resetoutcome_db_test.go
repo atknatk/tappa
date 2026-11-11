@@ -491,6 +491,20 @@ func TestResetOutcomeDB_ALostAnswerDoesNotDoubleAWrite(t *testing.T) {
 	}
 }
 
+// awaitMint waits for request i to have minted (its afterMint) before the next one starts. The requests
+// reach the stall together either way -- each waits in afterMint -- but they MINT one at a time: fired
+// at once, sixteen full windows wait for this world's four connections, and since T236 (a) a mint that
+// waits for a connection longer than adminauth.ResetMintLockWait stalls instead of minting (backlog
+// T309), so a request with nothing minted would never arrive.
+func awaitMint(t *testing.T, arrived <-chan struct{}, i int) {
+	t.Helper()
+	select {
+	case <-arrived:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("request %d minted nothing in 30 s", i)
+	}
+}
+
 // TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue is the regression an audit measured at a
 // queue of 32: a short stall right after the mint, 16 requests of a full window each. Every budget
 // runs out and sends its writes to the queue untried. All of them fit: not one write is lost, and once
@@ -501,15 +515,9 @@ func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
 	const requests = 16
 	total := requests * adminauth.ResetWindow
 	w := newOutcomeWorld(t, outcomeWorldOptions{n: adminauth.ResetWindow, addresses: requests, channel: refusingChannel{&recordingChannel{}}})
-	allMinted, stalled := make(chan struct{}), make(chan struct{})
-	var arrived sync.WaitGroup
-	arrived.Add(requests)
-	go func() {
-		arrived.Wait()
-		close(allMinted)
-	}()
+	arrived, stalled := make(chan struct{}), make(chan struct{})
 	w.afterMint = func([]adminauth.ResetGrant) {
-		arrived.Done()
+		arrived <- struct{}{}
 		<-stalled
 	}
 	type form struct {
@@ -536,8 +544,8 @@ func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
 				t.Errorf("request %d answered %d", i, rec.Code)
 			}
 		}(i)
+		awaitMint(t, arrived, i)
 	}
-	<-allMinted
 	release := w.stall(t, true, true)
 	start = time.Now()
 	close(begin)
