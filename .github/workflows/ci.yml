@@ -114,7 +114,12 @@ jobs:
           # VIES istemcisinin sertifika dogrulamasi; "Fixed in: crypto/x509@go1.26.10")
           # `make audit`i kirmiziya cevirdi. Kod degisikligi yok; Dockerfile ve
           # deploy.yml ayni surumu pinliyor.
-          go-version: "1.26.10"
+          # 2026-11-11: 1.26.10 -> 1.26.11 — GO-2026-6859 (net/http, MaxBytesReader
+          # baslik yarisi, HTTP/1 sunucu cokmesi; cagriliyor: sunucu yolu ve
+          # brandupload/policyactions MaxBytesReader kullaniyor; "Fixed in:
+          # net/http@go1.26.11") `make audit`i kirmiziya cevirdi (T288). Kod
+          # degisikligi yok; Dockerfile ve deploy.yml ayni surumu pinliyor.
+          go-version: "1.26.11"
           # Modul onbellegi go.sum'a gore (setup-go varsayilani; "modul onbellegi"
           # kart adim 1).
           cache: true
