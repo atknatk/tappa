@@ -279,6 +279,7 @@ func TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome(t *testing.T)
 		}
 	}
 	liveKept := w.liveLinks(t)
+	seeded := w.mintedCount() // the live links above were minted past the flow, not through mintHook
 
 	arrived, stalled := make(chan struct{}), make(chan struct{})
 	w.afterMint = func([]adminauth.ResetGrant) {
@@ -331,7 +332,9 @@ func TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome(t *testing.T)
 	}
 	release()
 	w.finish(t)
-	if n, want := w.rows(t), undeliveredRequests*win; n != want {
+	// The links the undelivered requests minted (TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue's
+	// reason: a step that must open a connection past the budget stalls).
+	if n, want := w.rows(t), w.mintedCount()-seeded; n != want {
 		t.Errorf("%d undelivered row(s), want %d", n, want)
 	}
 	if n := w.liveLinks(t); n != liveKept {

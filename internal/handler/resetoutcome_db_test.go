@@ -159,6 +159,13 @@ func (m *mintHook) IssueForEmail(ctx context.Context, email string) ([]adminauth
 	return g, k, st, err
 }
 
+// mintedCount is how many links the requests minted (mintHook).
+func (w *outcomeWorld) mintedCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.minted)
+}
+
 // outcomeLog is a buffer two goroutines can log into, counted by sentence.
 type outcomeLog struct {
 	mu sync.Mutex
@@ -513,7 +520,6 @@ func awaitMint(t *testing.T, arrived <-chan struct{}, i int) {
 // MUTATION: resetRetryQueueSize 32 -> 33 rows, 95 live links -> red.
 func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
 	const requests = 16
-	total := requests * adminauth.ResetWindow
 	w := newOutcomeWorld(t, outcomeWorldOptions{n: adminauth.ResetWindow, addresses: requests, channel: refusingChannel{&recordingChannel{}}})
 	arrived, stalled := make(chan struct{}), make(chan struct{})
 	w.afterMint = func([]adminauth.ResetGrant) {
@@ -561,6 +567,14 @@ func TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue(t *testing.T) {
 	}
 	release()
 	w.finish(t)
+	// Every link that was minted, not requests x window: past its ResetMintLockWait a mint step has a
+	// millisecond to get a connection, and one that must be OPENED takes longer and stalls (T236 (a),
+	// backlog T309; CI measured 125 of 128). A stall is not this test's subject.
+	total := w.mintedCount()
+	t.Logf("%d of %d links minted", total, requests*adminauth.ResetWindow)
+	if total < requests*adminauth.ResetWindow/2 {
+		t.Fatalf("only %d of %d links minted: the queue under test was barely filled", total, requests*adminauth.ResetWindow)
+	}
 	if n := w.rows(t); n != total {
 		t.Errorf("%d row(s), want %d", n, total)
 	}
