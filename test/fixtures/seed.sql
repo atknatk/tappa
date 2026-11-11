@@ -561,7 +561,7 @@ WHERE t.uid = p.uid
 
 -- ------------------------------------------------------------ tags: lifecycle
 -- LOST and RETIRED, for the plaques this run loaded. The retire is
--- RetireTagForReplacement's shape (status, retired_at, replaced_by, from 'active');
+-- RetireTagForReplacement's shape: status, retired_at and replaced_by, from an active plaque;
 -- the successor is mounted above, in the same tenant (the composite self-FK).
 UPDATE tags AS t
 SET status = 'lost'
