@@ -53,9 +53,9 @@ Taptime is operated by [DOĞRULA: tüzel kişinin tam unvanı, hukuki biçimi, s
 
 The employer enters, and Taptime stores: your full name; your venue and, if the employer uses them, your department and job title; your e-mail address, if the employer enters one to send your invitation; the employer's own reference or code for you, if it connects Taptime to another system; and the dates your invitation was sent, your activation finished and, if it happens, your account was switched off.
 
-When you activate Taptime on your phone, the browser keeps a sign-in cookie. Taptime stores only a hash of it, never the cookie itself, together with when it was created and last used and a short device label such as "iPhone Safari". The label is chosen from a fixed list; Taptime does not store your phone's full browser identification.
+When you activate Taptime on your phone, the browser keeps a sign-in cookie. In its database, Taptime stores only a hash of it, never the cookie itself, together with when it was created and last used and a short device label such as "iPhone Safari". The label is chosen from a fixed list; Taptime's database does not store your phone's full browser identification. [DOĞRULA: ingress erişim log'u — ingress-nginx'in varsayılan satırı IP, User-Agent ve sorgu dizesini taşır; bu satırlar uygulama log'larıyla aynı yerde tutuluyorsa bölüm 9'daki log cümlesi onları da kapsar.]
 
-Each time you touch a plaque, Taptime records: the time; which plaque and venue; whether it was a clock-in or a clock-out; the result of the checks below; the network (IP) address your phone connected from; and, only if your phone shares it at that moment, your position as latitude and longitude. It also records the shift that applied and the outcome (approved, flagged for a manager, refused or ignored as a duplicate), with a short note explaining it.
+Each time you touch a plaque, or scan the QR code printed on it, Taptime records: the time; which plaque and venue; whether it was a clock-in or a clock-out; the result of the checks below; the network (IP) address your phone connected from; and, only if your phone shares it at that moment, your position as latitude and longitude. It also records the shift that applied and the outcome (approved, flagged for a manager, refused or ignored as a duplicate), with a short note explaining it.
 
 If you ask your manager to correct a record, or a manager enters or reviews a record for you, that request or decision is recorded too, with who made it. Records are never edited or deleted after the fact: a correction is a new record next to the original, and the change is logged.
 
@@ -89,23 +89,25 @@ Taptime does not sell personal data and does not use it for advertising or profi
 
 7. Who receives the data
 
-The employer's dashboard users see their own business's records. No other business can see them: every record belongs to one business, and the database itself refuses to show it to another.
+The employer's dashboard users see their own business's records. Except as described below, no other business can see them: every record belongs to one business, and the database itself refuses to show it to another.
 
-If the employer belongs to a group of businesses in Taptime and you clock in at a venue of another business in that group, that business sees that someone from your employer clocked in at its venue, [DOĞRULA: tam olarak hangi alanlar — site_punches çalışanın adını, işverenin referansını/kodunu, zamanı ve yönü taşır (migration 00046; ADR 0027)].
+If the employer belongs to a group of businesses in Taptime and you clock in at a venue of another business in that group, that business sees, by name, that you clocked in at its venue on behalf of your employer, [DOĞRULA: tam olarak hangi alanlar — site_punches çalışanın adını, işverenin referansını/kodunu, zamanı ve yönü taşır (migration 00046; ADR 0027)].
 
 If the employer has Taptime's integration interface switched on, your attendance records are also sent to the employer's own systems at the employer's request. Taptime switches this on per business.
 
-Taptime's own staff can reach a business's data only through a separate operator console, and every such access is written to an audit log.
+Through the product, Taptime's own staff can reach a business's data only through a separate operator console, and every such access is written to an audit log.
+
+People who administer the server and the database have technical access to all data stored there, including the database and the backups. [DOĞRULA: kim (kişi/şirket), hangi durumda ve nasıl kayıt altına alınıyor — deploy kimliğinin tappa-postgres-0 üzerinde pods/exec yetkisi var (deploy/k8s/01-rbac.yaml) ve runbook kubectl … psql kullanıyor (deploy/README.md); bu erişim operator_audit_log'a düşmez.]
 
 Taptime uses the following service providers (sub-processors). Each processes data only to provide its service to Taptime:
 
-- Hetzner — hosting of the application, its database and its log collector, in a data centre in Falkenstein, Germany. [DOĞRULA: sözleşme tarafı tüzel kişi (Hetzner Online GmbH?) ve DPA.]
+- Hetzner — hosting of the application, its database and its log collector, in a data centre in Falkenstein, Germany. [DOĞRULA: sözleşme tarafı tüzel kişi (Hetzner Online GmbH?) ve DPA; Hetzner hesabının sahibi kim — Taptime'ın kendisi mi, sunucuyu işleten başka bir taraf mı.]
 
-- Amazon Web Services (Amazon SES), region eu-central-1 (Frankfurt) — sending invitation, sign-up confirmation and password reset e-mails; it receives the recipient's e-mail address and the message. [DOĞRULA: sözleşme tarafı (AWS EMEA SARL?), DPA, ABD'li ana şirket nedeniyle aktarım konumu.]
+- Amazon Web Services (Amazon SES), region eu-central-1 (Frankfurt) — sending invitation, sign-up confirmation, password reset, password-changed and business-link e-mails; it receives the recipient's e-mail address and the message. [DOĞRULA: sözleşme tarafı (AWS EMEA SARL?), DPA, ABD'li ana şirket nedeniyle aktarım konumu.]
 
 - Cloudflare R2, EU jurisdiction — storage of database backups, which are encrypted on Taptime's own server before they are sent, so Cloudflare receives only encrypted data. [DOĞRULA: sözleşme tarafı tüzel kişi, kabul edilen self-serve DPA, ABD'li ana şirket nedeniyle aktarım konumu.]
 
-- [DOĞRULA: log toplayıcı (SigNoz) aynı sunucuda koşuyor ama deploy/README.md onu "kümeyi işleten operatör (Tappa değil)" diye anıyor — işleten ayrı bir kişi/şirketse burada alt işleyici olarak adlandırılmalı; Taptime'ın kendisiyse bu madde silinir.]
+- [DOĞRULA: sunucuyu, kümeyi ve log toplayıcıyı (SigNoz) işleten taraf — deploy/README.md kümeyi işleteni "Tappa değil" diye anıyor. Bu ayrı bir tüzel/gerçek kişiyse veritabanına, log'lara ve yedek şifreleme anahtarına erişimi olan bir alt işleyicidir ve burada adıyla yazılmalı; Taptime'ın kendisiyse bu madde silinir.]
 
 - [DOĞRULA: healthchecks.io — çalışma/uyarı bildirimi; okunan uyarı kuralları (deploy/observability/signoz-alert-rules.json) yalnız toplam sayı gönderiyor, kişisel veri değil. Kişisel veri almadığı teyit edilirse bu madde silinir.]
 
@@ -113,13 +115,13 @@ The business's VAT number is checked against the European Commission's VIES regi
 
 8. Where the data is kept
 
-The application, the database and the logs run on one server in Falkenstein, Germany. E-mail is sent from the EU (Frankfurt). Backups are stored in Cloudflare's EU jurisdiction. [DOĞRULA: AB dışına aktarım — AWS ve Cloudflare'in ABD'li ana şirketleri; standart sözleşme maddeleri / AB-ABD Veri Gizliliği Çerçevesi konumu.]
+The application, the database and the logs run on one server in Falkenstein, Germany [DOĞRULA: sunucuyu ve kümeyi işleten taraf — bölüm 7]. E-mail is sent from the EU (Frankfurt). Backups are stored in Cloudflare's EU jurisdiction. [DOĞRULA: AB dışına aktarım — AWS ve Cloudflare'in ABD'li ana şirketleri; standart sözleşme maddeleri / AB-ABD Veri Gizliliği Çerçevesi konumu.]
 
 9. How long we keep it
 
 Attendance records: [DOĞRULA: saklama süresi KARARA BAĞLI DEĞİL (Q13). Yapılandırmadaki TAPPA_RETENTION_YEARS="2" bir geliştirme yer tutucusudur, avukattan geçmedi ve hiçbir kod onunla kayıt silmiyor (deploy/k8s/05-config.yaml). Bugün kayıtlar süresiz tutuluyor; silme/anonimleştirme akışı yok. Yayımlanan süre ürünün gerçekten uyguladığı süre olmalı — önce Q13 kapanmalı.]
 
-Application logs: 15 days. Logs record requests to the service, including network addresses and internal record identifiers, and are deleted automatically after 15 days. [DOĞRULA: 15 gün log toplayıcının süresidir; sunucudaki konteyner kopyası bir süreyle değil boyutla (50 MiB) ve bir sonraki sürüm dağıtımıyla sınırlıdır ve dağıtım seyrekse 15 günü aşabilir (deploy/README.md, m10-a1 dalındaki Q28 (b) notu). Metin "15 gün" diyecekse bu kopyanın da 15 günle sınırlanması gerekebilir.]
+Application logs: logs record requests to the service, which may include network addresses, the browser identification and internal record identifiers. The log collector keeps them for 15 days and then deletes them. A copy also stays on the server next to the running service until the next software release replaces it, and that copy is limited in size rather than in time. [DOĞRULA: konteyner kopyası boyutla (10 MiB × 5) ve bir sonraki deploy'la sınırlı; deploy seyrekse 15 günü aşar (deploy/README.md; m10-a1 dalındaki Q28 (b) notu). Bu cümle bunu söylüyor; metin düz "15 gün" diyecekse kopya da 15 günle sınırlanmalı.]
 
 Backups: 30 days, then deleted. A backup contains the whole database, so a record removed from the service survives in backups until they expire. [DOĞRULA: BACKUP_RETENTION_DAYS=30 (deploy/k8s/50-backup.yaml) "sayılmış bir sınırdır, hukuki görüş değil"; R2 kova kilidi 14 gün.]
 
@@ -157,15 +159,18 @@ When this notice changes, the new version is published here with its date, and e
 | Kayıt: işletme adı, VAT, tür, lokasyonlar; VIES; ≤ 24 saat | `00078` `admin_signup_claims` (`ttl_ceiling`, `draft_closed`); `internal/handler/operator/vat.go` |
 | Holding ortağında dokunuş | `00046` `site_punches`; ADR 0027 |
 | Entegrasyon API'si işletme başına Taptime açar | `web/templates/pages/pricingview.go` `PricingFAQ`; ADR 0028 |
-| Operatör erişimi audit'li | CLAUDE.md §4.5; ADR 0020/0021 (`operator_audit_log`) |
+| Ürün içinden operatör erişimi audit'li — yalnız `tappa_operator` rolü için; sunucu/veritabanı yöneticisinin erişimi ayrı ve bu log'a düşmez | CLAUDE.md §4.5; ADR 0020/0021 (`operator_audit_log`); `deploy/k8s/01-rbac.yaml` (`pods/exec` → `tappa-postgres-0`) |
 | Hetzner fsn1 (Falkenstein) | `deploy/README.md` başlık ve *"AB kriteri"* |
 | AWS SES `eu-central-1` | `deploy/k8s/05-config.yaml` `TAPPA_SMTP_HOST`; open-questions Q02 |
+| SES'in taşıdığı e-postalar: davet, kayıt onayı, parola sıfırlama, parola değişti bildirimi, işletme bağlama | ADR 0022; `internal/handler/passwordnotice.go`; `internal/handler/accountlinkbusinesses.go` |
+| QR kanalı (plakete basılı) | CLAUDE.md §5 *"QR kanalı"*; `landingview.go` `SourceQRRequiresIP` |
 | Cloudflare R2 AB, istemci tarafı şifreli (rclone crypt) | `deploy/README.md` yedek hedefi tablosu (T45); `scripts/pg-backup-ship.sh` |
-| Cloudflare yalnız DNS (proxy kapalı) — trafik geçmiyor, bu yüzden listede değil | `deploy/README.md` *"1. DNS"* |
+| Cloudflare yalnız DNS (proxy kapalı) — trafik geçmiyor, bu yüzden listede değil. [DOĞRULA: bu süregiden bir işletim olgusu; her Taptime host'u için DNS-only kalmalı] | **Ölçüldü 2026-11-11T09:15Z (salt-okur):** `dig +short A <host> @1.1.1.1` → `taptime.mt`, `www.taptime.mt`, `api.taptime.mt`, `ops.taptime.mt`, `tappa.everva.com.tr` hepsi `144.76.158.60` (origin, Cloudflare kenar adresi değil); `curl -sI` `https://tappa.everva.com.tr/activate?x=1` (301 → `taptime.mt`), `https://taptime.mt/` (200), `https://www.taptime.mt/` (301) — hiçbirinde `cf-ray` ya da `server: cloudflare` yok. Denetim anında `tappa.everva.com.tr` joker kayıtla proxy'liydi; orkestratör 2026-11-11'de DNS-only A kaydı ekledi. `deploy/README.md` *"1. DNS"* |
 | Yedek 30 gün, kova kilidi 14 gün | `deploy/k8s/50-backup.yaml` `BACKUP_RETENTION_DAYS`; `deploy/README.md` *"Kova kilidi"* |
 | Saklama süresi kararsız | `deploy/k8s/05-config.yaml` `TAPPA_RETENTION_YEARS` yorumu; open-questions Q13 |
 | Log'lar 15 gün | Q28 (b), kullanıcı 2026-10-14 (`2ef582ea`, dal `m10-a1`; bu dalda yok — T285) |
 
 Listede bilerek **olmayanlar:** Tailscale (yalnız yöneticinin sunucuya ağ erişimi; uygulama verisini
 taşımaz — [DOĞRULA]), GitHub ve Docker Hub (kod ve imaj; kişisel veri yok), Telegram ve e-posta
-bildirimleri (healthchecks.io'nun operatöre ilettiği uyarılar; içerik toplam sayı).
+bildirimleri (healthchecks.io'nun operatöre ilettiği uyarılar; içerik toplam sayı — [DOĞRULA], healthchecks.io maddesiyle aynı:
+kişisel veri taşımadığı teyit edilmeli).

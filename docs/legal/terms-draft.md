@@ -60,7 +60,9 @@ The integration interface (API and webhooks) is switched on for a Customer by Ta
 
 The Customer's owner creates the account and can invite further dashboard users. The Customer is responsible for who it invites, for keeping its staff list up to date, and for switching off people who no longer work for it. [DOĞRULA: müşterinin yükümlülükleri, kabul edilebilir kullanım.]
 
-Each business's records are kept apart from every other business's, and only the Customer's own dashboard users see them. Taptime's staff reach them only through a separate operator console, and every such access is logged.
+Each business's records are kept apart from every other business's, and only the Customer's own dashboard users see them, except where the Customer belongs to a group of businesses in Taptime, as the privacy notice describes. Through the product, Taptime's staff reach them only through a separate operator console, and every such access is logged.
+
+People who administer the server and the database have technical access to all data stored there, including the database and the backups. [DOĞRULA: kim (kişi/şirket), hangi durumda ve nasıl kayıt altına alınıyor — deploy kimliğinin tappa-postgres-0 üzerinde pods/exec yetkisi var (deploy/k8s/01-rbac.yaml) ve runbook kubectl … psql kullanıyor (deploy/README.md); bu erişim operator_audit_log'a düşmez.]
 
 The Customer is the data controller for its staff's records and Taptime processes them on its behalf. [DOĞRULA: veri işleme sözleşmesi (DPA) — Q23; bu şartlara ek mi, ayrı mı.]
 
