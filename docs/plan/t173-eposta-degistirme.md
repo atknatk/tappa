@@ -165,7 +165,7 @@ PUBLIC`, `EXECUTE` yalnız `tappa_app`, dinamik SQL yok.
   `identityEmailWideReads`'te istek kadar onay da (1) sayılır (madde 12'nin (1)'i yalnız isteği adlandırıyordu).
 - Madde 3 / 10: süpürmenin `DELETE`'i `00103`'te, onu kullanan fonksiyonla birlikte verilir (madde 10'un dediği gibi;
   `00103`'ün Down'ı onu geri alır).
-- Madde 13: K-E1 (ii) (a)'nın CLAUDE.md §4.5 (3) + ADR 0031 §6.1 metin düzenlemesi yapılmadı — backlog T310 (yapıcı
+- Madde 13: K-E1 (ii) (a)'nın CLAUDE.md §4.5 (3) + ADR 0031 §6.1 metin düzenlemesi yapılmadı — backlog T312 (yapıcı
   CLAUDE.md'yi değiştirmez; önerilen metin orada).
 
 **Testler (gerçek Postgres; adlar yapıcının).**
