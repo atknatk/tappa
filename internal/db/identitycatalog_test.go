@@ -85,9 +85,9 @@ var identitySignaturesM1405 = []identitySignature{
 	// M14-22 (00084): identity_request_verification gained its purpose -- identitySignaturesM1422.
 	{"identity_verify_email", "p_verification_hash text, p_session_hash text", "TABLE(first_verification boolean)", "tappa_identitydefiner"},
 	{"identity_record_failed_login", "p_identity_id uuid, p_event text", "TABLE(recorded boolean)", "tappa_identitydefiner"},
+	// T173 (00103): the same signature, its body widened to the address change links.
 	{"identity_sweep_events", "", "TABLE(deleted bigint)", "tappa_identitydefiner"},
-	{"identity_open_reset", "p_identity_id uuid, p_token_hash text, p_expires_at timestamp with time zone",
-		"TABLE(reset_id uuid, expires_at timestamp with time zone, issued boolean)", "tappa_identitydefiner"},
+	// T173 (00102, S-1): identity_open_reset gained its recipient -- identitySignaturesT173.
 	{"identity_withdraw_reset", "p_token_hash text", "boolean", "tappa_identitydefiner"},
 }
 
@@ -161,11 +161,27 @@ var identitySignaturesT187 = []identitySignature{
 		"TABLE(session_id uuid, tenant_id uuid, admin_user_id uuid)", "tappa_identitydefiner"},
 }
 
+// identitySignaturesT173 is T173 EC-1's part (migration 00102; ADR 0044 §5.3, ADR 0031 §5.2's note of
+// 2026-11-12, the user's decision K-E1): the sign-in address change's request (keyed by the live session;
+// one row, a refusal from a closed set or the link), its confirmation (two secrets: the link and the
+// session) and its undo (the undo link alone -- a reset-class secret, no digest argument: the sentinel is
+// made in SQL), and identity_open_reset with its fourth argument, the recipient (S-1; its DEFAULT NULL is
+// the rollout's, T295 -- pg_get_function_identity_arguments does not print a default).
+var identitySignaturesT173 = []identitySignature{
+	{"identity_request_email_change", "p_session_hash text, p_verified_digest text, p_link_hash text, p_new_email citext",
+		"TABLE(change_id uuid, expires_at timestamp with time zone, refusal text)", "tappa_identitydefiner"},
+	{"identity_change_email", "p_link_hash text, p_session_hash text, p_revert_hash text",
+		"TABLE(old_email text, new_email text, revoked_sessions integer, revert_expires_at timestamp with time zone)", "tappa_identitydefiner"},
+	{"identity_revert_email_change", "p_revert_hash text", "TABLE(restored_email text, revoked_sessions integer)", "tappa_identitydefiner"},
+	{"identity_open_reset", "p_identity_id uuid, p_token_hash text, p_expires_at timestamp with time zone, p_recipient text",
+		"TABLE(reset_id uuid, expires_at timestamp with time zone, issued boolean)", "tappa_identitydefiner"},
+}
+
 // identitySignatures is the union of every card's part: the whole closed list as far as it is built.
 // The functions tappa_identitydefiner owns are EXACTLY its tappa_identitydefiner rows.
 var identitySignatures = slices.Concat(identitySignaturesM1404, identitySignaturesM1405, identitySignaturesM1408, identitySignaturesM1415,
 	identitySignaturesM1417, identitySignaturesM1418, identitySignaturesM1416b, identitySignaturesM1406b, identitySignaturesM1422,
-	identitySignaturesT187)
+	identitySignaturesT187, identitySignaturesT173)
 
 // identitySignatureNames lists the table's names (resolve_admin_by_email is a row though neither
 // identity_* nor the definer's -- M14-05's redefinition).
@@ -455,9 +471,11 @@ var identityADRMatrix = map[string]string{
 	"admin_identity_verifications:SELECT": "*", "admin_identity_verifications:INSERT": "*", "admin_identity_verifications:UPDATE": "*",
 	"admin_signup_claims:SELECT": "*", "admin_signup_claims:INSERT": "*", "admin_signup_claims:UPDATE": "*",
 	"admin_identity_events:SELECT": "*", "admin_identity_events:INSERT": "*", "admin_identity_events:UPDATE": "*",
-	"admin_users:SELECT":     "id,tenant_id,email,password_hash,role,status,identity_id,linked_via,linked_at,unlinked_at,created_at",
-	"admin_users:INSERT":     "tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at",
-	"admin_users:UPDATE":     "password_hash,identity_id,linked_via,linked_at,unlinked_at,last_login_at,status",
+	"admin_users:SELECT": "id,tenant_id,email,password_hash,role,status,identity_id,linked_via,linked_at,unlinked_at,created_at",
+	"admin_users:INSERT": "tenant_id,full_name,email,password_hash,role,identity_id,linked_via,linked_at",
+	// T173 (ADR 0031 §5.2's note of 2026-11-12, K-E1 (i) (a)): + email -- the mirror of an identity's address,
+	// written by identity_change_email and identity_revert_email_change alone (K-14, K-15's own card).
+	"admin_users:UPDATE":     "email,password_hash,identity_id,linked_via,linked_at,unlinked_at,last_login_at,status",
 	"password_resets:SELECT": "id,tenant_id,admin_user_id,token_hash,expires_at,used_at,cancelled_at",
 	"password_resets:UPDATE": "used_at,cancelled_at",
 	"admin_sessions:SELECT":  "*",
@@ -547,6 +565,8 @@ var identitySystemColumns = []string{"admin_users.xmin", "tenants.xmin"}
 var identityDefinerTableVerbs = map[string]string{
 	"admin_identity_events:DELETE": "identity_sweep_events -- the event log's 90-day sweep (ADR 0031 §5.1, R17)",
 	"admin_signup_claims:DELETE":   "identity_sweep_signup_claims -- the drafts' sweep: expired or used (ADR 0031 §5.1, R17; M14-17)",
+	// T173 (00103; ADR 0044 §5.9, K-E1 (iii) (a)): the address change links a day after they ended.
+	"admin_identity_verifications:DELETE": "identity_sweep_events -- the 'change' / 'revert' links one day after they were spent, cancelled or expired (ADR 0044 §5.9)",
 }
 
 // identityDefinerMatrixM1406b is what identity_reconcile() (00082) reads and writes. 00082 grants
@@ -570,9 +590,22 @@ var identityDefinerMatrixM1422 = map[string]string{
 	"admin_identity_verifications:INSERT": "purpose",
 }
 
+// identityDefinerMatrixT173 is what 00101 grants tappa_identitydefiner for the sign-in address change
+// (ADR 0044 §5.2, K-E1 (i) (a)): the identity's address and its mirror in every linked row (UPDATE (email)
+// on both -- the first e-mail write of the list), and on the link table the address a 'change' / 'revert'
+// row carries and its retirement. 00103's DELETE is a table-level verb (identityDefinerTableVerbs). The
+// rest the three bodies read and write is 00071/00072/00074's.
+var identityDefinerMatrixT173 = map[string]string{
+	"admin_identities:UPDATE":             "email",
+	"admin_users:UPDATE":                  "email",
+	"admin_identity_verifications:SELECT": "address,cancelled_at",
+	"admin_identity_verifications:INSERT": "address",
+	"admin_identity_verifications:UPDATE": "cancelled_at",
+}
+
 // identityDefinerMatrixParts are the cards' matrices; identityDefinerMatrix is their union.
 var identityDefinerMatrixParts = []map[string]string{identityDefinerMatrixM1404, identityDefinerMatrixM1405, identityDefinerMatrixM1408, identityDefinerMatrixM1415, identityDefinerMatrixM1417,
-	identityDefinerMatrixM1406b, identityDefinerMatrixM1422}
+	identityDefinerMatrixM1406b, identityDefinerMatrixM1422, identityDefinerMatrixT173}
 
 // identityDefinerMatrix unions the parts, cell by cell, as sorted column sets.
 func identityDefinerMatrix() map[string]string {
@@ -705,7 +738,8 @@ func TestIdentityDefiner_ColumnMatrix(t *testing.T) {
 	}
 	for _, c := range []struct{ name, sql, want string }{
 		{"a column outside the matrix", `GRANT SELECT (full_name) ON admin_users TO tappa_identitydefiner`, "SELECT on admin_users"},
-		{"UPDATE (email)", `GRANT UPDATE (email) ON admin_users TO tappa_identitydefiner`, "UPDATE on admin_users"},
+		// T173 made UPDATE (email) the definer's (00101); a column the ADR's matrix still lacks is flagged.
+		{"UPDATE (role)", `GRANT UPDATE (role) ON admin_users TO tappa_identitydefiner`, "UPDATE on admin_users"},
 		{"a table-level SELECT on the sessions", `GRANT SELECT ON admin_sessions TO tappa_identitydefiner`, "SELECT on admin_sessions"},
 		{"DELETE on the sessions", `GRANT DELETE ON admin_sessions TO tappa_identitydefiner`, "DELETE on admin_sessions"},
 		{"CREATE on public", `GRANT CREATE ON SCHEMA public TO tappa_identitydefiner`, "schema privilege"},
@@ -835,6 +869,36 @@ func identityExerciseM1418(t *testing.T, ctx context.Context, sp pgx.Tx) []ident
 	return []identityStep{
 		{name: "M14-18 confirm window", sql: confirmWindowSQL, args: []any{sf}},
 		{name: "M14-18 keep all", sql: keepAllSQL, args: []any{sf}},
+	}
+}
+
+// identityExerciseT173 builds T173 EC-1's world (00101-00103): a verified identity with linked rows in K
+// and L and a live session in K, and returns its calls -- the request (the link's INSERT with its address,
+// the earlier link's retirement), the confirmation (the address and its mirror, the sessions, the reset
+// links, the undo link's INSERT), the undo (the address back, the sentinel, the window closed) and a reset
+// opened for the address given back (identity_open_reset's recipient read). Every 00101 cell on a path that
+// runs.
+func identityExerciseT173(t *testing.T, ctx context.Context, sp pgx.Tx) []identityStep {
+	t.Helper()
+	k, l := idTenant(t, ctx, sp, "exercise K"), idTenant(t, ctx, sp, "exercise L")
+	email := aiEmail()
+	ident := aiIdentity(t, ctx, sp, email)
+	aiExec(t, ctx, sp, `UPDATE admin_identities SET email_verified_at = now() - interval '1 day' WHERE id = $1`, ident)
+	pk, pl := aiAdmin(t, ctx, sp, k, email), aiAdmin(t, ctx, sp, l, email)
+	for _, m := range []uuid.UUID{pk, pl} {
+		aiExec(t, ctx, sp, `UPDATE admin_users SET identity_id = $2, linked_via = 'backfill', linked_at = now() - interval '2 days',
+		                           password_hash = (SELECT password_hash FROM admin_identities WHERE id = $2) WHERE id = $1`, m, ident)
+	}
+	sk := idSession(t, ctx, sp, k, pk, nil)
+	idSession(t, ctx, sp, l, pl, nil)
+	link, revert := opRandHex(t), opRandHex(t)
+	return []identityStep{
+		{name: "T173 request email change", sql: `SELECT * FROM identity_request_email_change($1, $2, $3, $4) WHERE refusal IS NULL`,
+			args: []any{sk, opFakeDigest("a"), link, "t173-new-" + uuid.NewString() + "@identity.example"}},
+		{name: "T173 change email", sql: `SELECT * FROM identity_change_email($1, $2, $3)`, args: []any{link, sk, revert}},
+		{name: "T173 revert email change", sql: `SELECT * FROM identity_revert_email_change($1)`, args: []any{revert}},
+		{name: "T173 open reset for the address given back", sql: `SELECT * FROM identity_open_reset($1, $2, now() + interval '1 hour', $3)`,
+			args: []any{ident, opRandHex(t), email}},
 	}
 }
 
@@ -1026,6 +1090,7 @@ func identityExerciseSteps(t *testing.T, ctx context.Context, sp pgx.Tx, signup 
 	)
 	steps = append(steps, identityExerciseM1418(t, ctx, sp)...)
 	steps = append(steps, identityExerciseM1422(t, ctx, sp)...)
+	steps = append(steps, identityExerciseT173(t, ctx, sp)...)
 	// M14-16b (00081): business A's owners who can sign in, in A's own context (plain is its owner).
 	steps = append(steps, identityStep{name: "M14-16b owners who can sign in",
 		owner: `SELECT set_config('app.tenant_id', '` + a.String() + `', true)`,

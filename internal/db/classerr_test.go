@@ -107,7 +107,7 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 		return err
 	},
 	"OpenIdentityReset": func(ctx context.Context, d *DB) error {
-		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), time.Second)
+		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), "a@b.example", time.Second)
 		return err
 	},
 	"WithdrawIdentityReset": func(ctx context.Context, d *DB) error {
@@ -120,6 +120,23 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 	},
 	"GetIdentityResetByTokenHash": func(ctx context.Context, d *DB) error {
 		_, err := d.GetIdentityResetByTokenHash(ctx, "h")
+		return err
+	},
+	// T173 (00102, 00103): the address change's three calls and the identity sweep.
+	"RequestEmailChange": func(ctx context.Context, d *DB) error {
+		_, err := d.RequestEmailChange(ctx, "h", PasswordHash{}, "h", "a@b.example")
+		return err
+	},
+	"ChangeEmail": func(ctx context.Context, d *DB) error {
+		_, err := d.ChangeEmail(ctx, "h", "h", "h")
+		return err
+	},
+	"RevertEmailChange": func(ctx context.Context, d *DB) error {
+		_, err := d.RevertEmailChange(ctx, "h")
+		return err
+	},
+	"SweepIdentityEvents": func(ctx context.Context, d *DB) error {
+		_, err := d.SweepIdentityEvents(ctx)
 		return err
 	},
 	"OpenSignupClaim": func(ctx context.Context, d *DB) error {
@@ -778,7 +795,7 @@ func TestTransactionSteps_AResetConnectionCarriesNoAddress(t *testing.T) {
 	}
 	defer d.Close()
 	openReset := func() error {
-		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), time.Second)
+		_, err := d.OpenIdentityReset(ctx, uuid.New(), "h", time.Now().Add(time.Hour), "a@b.example", time.Second)
 		return err
 	}
 	for _, tc := range []struct {

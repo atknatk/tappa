@@ -503,8 +503,8 @@ func (x *txCountingDB) ResolveIdentityByEmail(ctx context.Context, email string)
 	return x.inner.ResolveIdentityByEmail(ctx, email)
 }
 
-func (x *txCountingDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time, wait time.Duration) (db.OpenedIdentityReset, error) {
-	return x.inner.OpenIdentityReset(ctx, id, h, exp, wait)
+func (x *txCountingDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time, to string, wait time.Duration) (db.OpenedIdentityReset, error) {
+	return x.inner.OpenIdentityReset(ctx, id, h, exp, to, wait)
 }
 
 func (x *txCountingDB) WithdrawIdentityReset(ctx context.Context, h string) (bool, error) {

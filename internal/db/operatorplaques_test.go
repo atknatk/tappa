@@ -314,6 +314,11 @@ func opAtVersionLocking(t *testing.T, ctx context.Context, tx pgx.Tx, version in
 	// HERE, inside the transaction, and comes back with the rollback. One statement, no row
 	// locked unless such a row exists (tenants is already held: downTables names it).
 	for _, f := range later {
+		if f.n == ecFirstMigration {
+			// T173: 00101-00103's Downs refuse while an undo link lives or an address event exists; both are
+			// set aside inside the transaction (their tables are held -- downTables names them).
+			ecLiftDownRefusals(t, ctx, tx)
+		}
 		if f.n != opSuspensionMigration {
 			continue
 		}

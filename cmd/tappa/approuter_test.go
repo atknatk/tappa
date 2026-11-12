@@ -149,7 +149,7 @@ func (silentDB) LinkByEmail(context.Context, string, string) (db.LinkedByEmail, 
 func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
 	return db.ConsumedIdentityRowReset{}, errSilent
 }
-func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time, time.Duration) (db.OpenedIdentityReset, error) {
+func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time, string, time.Duration) (db.OpenedIdentityReset, error) {
 	return db.OpenedIdentityReset{}, errSilent
 }
 func (silentDB) WithdrawIdentityReset(context.Context, string) (bool, error) { return false, errSilent }

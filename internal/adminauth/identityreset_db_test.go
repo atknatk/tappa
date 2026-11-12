@@ -247,8 +247,8 @@ func (f *faultyResetDB) WithdrawIdentityReset(ctx context.Context, h string) (bo
 
 var errInjected = errors.New("injected failure")
 
-func (f *faultyResetDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time, wait time.Duration) (db.OpenedIdentityReset, error) {
-	o, err := f.DB.OpenIdentityReset(ctx, id, h, exp, wait)
+func (f *faultyResetDB) OpenIdentityReset(ctx context.Context, id uuid.UUID, h string, exp time.Time, to string, wait time.Duration) (db.OpenedIdentityReset, error) {
+	o, err := f.DB.OpenIdentityReset(ctx, id, h, exp, to, wait)
 	if err == nil && f.cancelAfterOpen != nil {
 		f.cancelAfterOpen()
 		return db.OpenedIdentityReset{}, ctx.Err()

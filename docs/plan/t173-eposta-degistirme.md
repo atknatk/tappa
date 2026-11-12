@@ -2,7 +2,7 @@
 
 > **Durum:** kart yazıldı (2026-11-11, dal `m14-emailcard`); iki bağımsız inceleyici ONAY (turu 3,
 > 2026-11-11); **kullanıcı kararları 2026-11-12: §10'un on dokuz önerisinin hepsi kabul** (ADR 0044'ün durum
-> satırı); **EC-1 kodlanıyor.** Aşağıdaki kriterler önerilen seçenekleri varsaydığı için hiçbir madde yeniden
+> satırı); **EC-1 kodlandı (2026-11-12, dal `m14-emailcard`) — üçüncü göz ve güvenlik denetimi bekliyor.** Aşağıdaki kriterler önerilen seçenekleri varsaydığı için hiçbir madde yeniden
 > yazılmadı. Canlı durum yalnız [state.md](state.md)'dedir.
 >
 > **Mimari karar:** [ADR 0044](../adr/0044-panel-kimliginin-e-posta-degisikligi.md) (Kabul edildi, 2026-11-12). Okumadan
@@ -156,6 +156,17 @@ PUBLIC`, `EXECUTE` yalnız `tappa_app`, dinamik SQL yok.
     not, kullanıcı onayının tarihiyle. K-E1 (ii) (a) ise §6.1 ve CLAUDE.md §4.5 (3) geri alma linkini adıyla sayar,
     iki metin bayt-aynı; (b) ise metin değişmez. Her iki durumda
     `TestClaudeMD_TheIdentityExceptionIsADR0031sSection61` yeşil.
+
+**Yapıcı notu (2026-11-12, EC-1 kodlanırken; denetime açık, karar değil):**
+- Madde 12 (4): süpürmenin kemer sayısı **1 → 4**, 2 değil. Bir link üç yoldan biter (harcanır, iptal edilir,
+  süresi dolar) ve kemerin alt kümesi `OR` kabul etmez; tek bir `DELETE` ya `OR` (kemerde adlandırılmamış bir yapı)
+  ya da "1 gün sonra" kuralını gevşetmek (K-E1 (iii) (a)'yı değiştirmek) isterdi. Üç `DELETE` kuralı aynen tutar.
+- Madde 7: onay, K-E9 (a)'nın "eski adreste bağsız satır yok" ön koşulunu kilitler altında **yeniden** okur, dolayısıyla
+  `identityEmailWideReads`'te istek kadar onay da (1) sayılır (madde 12'nin (1)'i yalnız isteği adlandırıyordu).
+- Madde 3 / 10: süpürmenin `DELETE`'i `00103`'te, onu kullanan fonksiyonla birlikte verilir (madde 10'un dediği gibi;
+  `00103`'ün Down'ı onu geri alır).
+- Madde 13: K-E1 (ii) (a)'nın CLAUDE.md §4.5 (3) + ADR 0031 §6.1 metin düzenlemesi yapılmadı — backlog T310 (yapıcı
+  CLAUDE.md'yi değiştirmez; önerilen metin orada).
 
 **Testler (gerçek Postgres; adlar yapıcının).**
 - Her ret dalı: 0 satır **ve** hiçbir tabloda yazı yok (öncesi/sonrası sayım) — bilinmeyen, iptal, harcanmış,
