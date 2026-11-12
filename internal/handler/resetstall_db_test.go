@@ -299,6 +299,11 @@ func TestResetOutcomeDB_KeptRowsCannotCrowdOutAnUndeliveredOutcome(t *testing.T)
 		}(w.emails[i])
 		awaitMint(t, arrived, i)
 	}
+	// PREMISE (TestResetOutcomeDB_AShortStallDoesNotOverflowTheRetryQueue's floor): enough undelivered
+	// outcomes to compete with the flood. With every mint stalled the row count below would read 0 == 0.
+	if minted := w.mintedCount() - seeded; minted < undeliveredRequests*win/2 {
+		t.Fatalf("only %d of %d links minted: too few undelivered outcomes for the flood to crowd out", minted, undeliveredRequests*win)
+	}
 	release := w.stall(t, true, true)
 	releaseAfter(5*time.Minute, release)
 
