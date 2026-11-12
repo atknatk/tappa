@@ -70,6 +70,32 @@ func ecBelow00102(t *testing.T, ctx context.Context, tx pgx.Tx) {
 	opRunSection(t, ctx, tx, d102, "00102 Down")
 }
 
+// ecDownTables are the tables 00103's, 00102's and 00101's Downs lock.
+func ecDownTables(t *testing.T) []string {
+	t.Helper()
+	var tables []string
+	for _, f := range []string{ec00103File, ec00102File, ec00101File} {
+		_, down := opMigrationSections(t, f)
+		tables = append(tables, downTables(down)...)
+	}
+	slices.Sort(tables)
+	return slices.Compact(tables)
+}
+
+// ecBelow00101 takes the test's transaction to 00100: 00103's, 00102's and 00101's Downs, the refusals
+// lifted first. A test that re-runs an older file's Up on top of HEAD needs it where that Up's
+// postcondition pins the identity definer WITHOUT 00101's e-mail cells (00072, 00074, 00077, 00078: "no
+// e-mail write"). The caller takes ecDownTables with its own tables in one lockForDowns first.
+func ecBelow00101(t *testing.T, ctx context.Context, tx pgx.Tx) {
+	t.Helper()
+	lockForDowns(t, ctx, tx, ecDownTables(t))
+	ecLiftDownRefusals(t, ctx, tx)
+	for _, f := range []string{ec00103File, ec00102File, ec00101File} {
+		_, down := opMigrationSections(t, f)
+		opRunSection(t, ctx, tx, down, f+" Down")
+	}
+}
+
 // ecWorld is one person: a VERIFIED identity, a linked row in each of its businesses (the identity's
 // digest), and a live session of the first.
 type ecWorld struct {
