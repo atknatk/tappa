@@ -181,23 +181,36 @@ func (f *plaqueFixture) loadUnrecorded(t *testing.T, tenantID uuid.UUID, status 
 
 func (f *plaqueFixture) loadStamped(t *testing.T, tenantID uuid.UUID, uid, status string, wall uuid.UUID, stamped bool) string {
 	t.Helper()
-	var location *uuid.UUID
-	if wall != uuid.Nil {
-		w := wall
-		location = &w
+	// Born in stock, then stamped / mounted / counted the product's way (fixtures.LoadPlaque;
+	// 00100, T76). Incident A-1's row -- active and never stamped -- no statement reaches since
+	// 00100, so the owner writes it as a row born before it (fixtures.LoadLegacyUnstampedActive).
+	plaque := fixtures.Plaque{UID: uid, TenantID: tenantID, Wall: wall, Status: status, LastCtr: 41, Unstamped: !stamped}
+	if status == PlaqueActive && !stamped {
+		dsn := os.Getenv("DATABASE_MIGRATE_URL")
+		if dsn == "" {
+			t.Skip("DATABASE_MIGRATE_URL not set; incident A-1's row is written by the owner")
+		}
+		ctx := context.Background()
+		owner, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatalf("connect as the owner: %v", err)
+		}
+		defer func() { _ = owner.Close(ctx) }()
+		tx, err := owner.Begin(ctx)
+		if err != nil {
+			t.Fatalf("load plaque (A-1): begin: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := fixtures.LoadLegacyUnstampedActive(ctx, tx, plaque); err != nil {
+			t.Fatalf("load plaque (A-1): %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("load plaque (A-1): commit: %v", err)
+		}
+		return uid
 	}
 	err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 41, $4)`,
-			uid, tenantID, location, status); e != nil {
-			return e
-		}
-		if !stamped {
-			return nil
-		}
-		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: tenantID})
-		return e
+		return fixtures.LoadPlaque(ctx, tx, plaque)
 	})
 	if err != nil {
 		t.Fatalf("load plaque (%s, stamped=%v): %v", status, stamped, err)

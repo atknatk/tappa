@@ -96,8 +96,9 @@ func newRaceWorld(t *testing.T) *raceWorld {
 		t.Fatal(err)
 	}
 	w.plaque = strings.ToUpper(hex.EncodeToString(b))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 100, 'active')`,
-		w.plaque, w.tenant, w.venue, key)
+	if err := fixtures.LoadPlaque(w.ctx, w.owner, fixtures.Plaque{UID: w.plaque, TenantID: w.tenant, Wall: w.venue, Key: key, LastCtr: 100}); err != nil {
+		w.t.Fatal(err)
+	}
 	w.exec(`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Owner', $3, $4, 'owner')`,
 		w.admin, w.tenant, "o-"+w.admin.String()[:12]+"@example.test", "$2a$12$"+strings.Repeat("h", 53))
 	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at, location_id) VALUES ($1, $2, $3, 'Race Staff', 'active', now(), $4)`,

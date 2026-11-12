@@ -30,6 +30,9 @@
 --   migration 00022 refuses the stamp at INSERT (a plaque row is born unstamped).
 --   It matches only rows whose stamp is still NULL, so a second run changes nothing
 --   and a stamp is never rewritten (00022's write-once trigger would refuse that).
+--   Since migration 00100 (T76) a plaque is BORN IN STOCK, so the mount and the
+--   lost/retired states are UPDATEs too; they touch only the plaques the same run
+--   inserted, so a second run changes nothing there either (see the tags block).
 --   The same fixed identifiers are mirrored, typed, in test/fixtures/ids.go so
 --   Go tests reference named handles instead of magic strings.
 --   A THIRD ONE, one column again (M15-08, 2026-10-22): KM's business day, tenants.day_cutoff
@@ -419,9 +422,19 @@ ON CONFLICT (id) DO NOTHING;
 -- One active plaque per KF location + one at the KM facility. Plus two lifecycle
 -- fixtures: a RETIRED St Julians plaque whose replaced_by points to the current
 -- St Julians plaque (the "Replace tag" audit chain, and a retired-tap reject
--- fixture), and a LOST Hamrun plaque (a lost-tap reject fixture). The self-FK
--- (replaced_by, tenant_id) -> tags(uid, tenant_id) is checked at statement end,
--- so the referenced active plaque may sit in the same INSERT.
+-- fixture), and a LOST Hamrun plaque (a lost-tap reject fixture).
+--
+-- 🔴 A PLAQUE IS BORN IN STOCK (migration 00100, T76): the INSERT writes every
+-- plaque 'unassigned', on no wall, unstamped, counter 0 -- the row the encode flow
+-- writes (ADR 0017 §5.1 step 3, InsertUnassigned) -- and the statements below take
+-- it where the product takes it: stamped (MarkTagEncoded's UPDATE), mounted
+-- (AssignTagToLocation's), then lost or retired. A BEFORE INSERT trigger fires
+-- BEFORE ON CONFLICT is resolved, so the second run's INSERT survives only because
+-- it is in that shape; it then inserts nothing, and the mount and lifecycle steps
+-- touch only the plaques THIS run inserted (seed_plaques_born) -- a plaque a demo
+-- user unmounted or replaced is not put back by a re-seed.
+--
+-- seed_plaques is the plan: where each plaque ends up. Temporary, dropped at COMMIT.
 --
 -- aes_key_ref below is only a PLACEHOLDER and is NOT usable: the real value is a
 -- 44-byte KEK-wrapped envelope written by the second half of scripts/seed.sh (see
@@ -441,18 +454,18 @@ ON CONFLICT (id) DO NOTHING;
 -- so the plaque is still refused, only with a vaguer reason.
 -- last_ctr keeps its DEFAULT 0 (untapped in master data; taps advance it
 -- atomically). retired_at is stamped only on the retired plaque.
-INSERT INTO tags
-    (uid, tenant_id, location_id, aes_key_ref, status, retired_at, replaced_by, created_at)
-SELECT
-    t.uid, t.tenant_id, t.location_id,
-    convert_to('NOT-A-KEY-seedkeys-REWRITES-IT' || t.uid, 'UTF8'),
-    t.status,
-    CASE WHEN t.status = 'retired' THEN now() - interval '20 days' ELSE NULL END,
-    t.replaced_by,
-    now() - interval '80 days'
-FROM (VALUES
-    ('04AC7E55000101'::char(14), '10000000-0000-4000-8000-000000000001'::uuid,
-     '10000000-0000-4000-8000-000000000101'::uuid, 'active',  NULL::char(14)),
+CREATE TEMP TABLE seed_plaques (
+    uid         char(14) PRIMARY KEY,
+    tenant_id   uuid NOT NULL,
+    location_id uuid NOT NULL,
+    status      text NOT NULL,
+    replaced_by char(14)
+) ON COMMIT DROP;
+CREATE TEMP TABLE seed_plaques_born (uid char(14) PRIMARY KEY) ON COMMIT DROP;
+
+INSERT INTO seed_plaques (uid, tenant_id, location_id, status, replaced_by) VALUES
+    ('04AC7E55000101', '10000000-0000-4000-8000-000000000001',
+     '10000000-0000-4000-8000-000000000101', 'active',  NULL),
     -- Lost Hamrun plaque -- lost-tap reject fixture (section 5 row 1).
     ('04AC7E550001FF', '10000000-0000-4000-8000-000000000001',
      '10000000-0000-4000-8000-000000000101', 'lost',    NULL),
@@ -479,9 +492,23 @@ FROM (VALUES
      '10000000-0000-4000-8000-000000000109', 'active',  NULL),
     -- KM facility plaque.
     ('04BE7E55000A01', '20000000-0000-4000-8000-000000000001',
-     '20000000-0000-4000-8000-000000000101', 'active',  NULL)
-) AS t(uid, tenant_id, location_id, status, replaced_by)
-ON CONFLICT (uid) DO NOTHING;
+     '20000000-0000-4000-8000-000000000101', 'active',  NULL);
+
+-- LOAD: every plaque in stock (the encode flow's row); the uids this run actually
+-- inserted are recorded for the steps after the stamp.
+WITH born AS (
+    INSERT INTO tags
+        (uid, tenant_id, location_id, aes_key_ref, status, created_at)
+    SELECT
+        p.uid, p.tenant_id, NULL,
+        convert_to('NOT-A-KEY-seedkeys-REWRITES-IT' || p.uid, 'UTF8'),
+        'unassigned',
+        now() - interval '80 days'
+    FROM seed_plaques AS p
+    ON CONFLICT (uid) DO NOTHING
+    RETURNING uid
+)
+INSERT INTO seed_plaques_born (uid) SELECT uid FROM born;
 
 -- ------------------------------------------------------------- tags: encoded
 -- Every demo plaque above is one whose encode round FINISHED (ADR 0017 §5.1 step
@@ -496,14 +523,18 @@ ON CONFLICT (uid) DO NOTHING;
 -- cannot be mounted. Neither says anything about taps, and for these rows the
 -- banner's premise would be FALSE: the seeded keys are real (scripts/seed.sh's
 -- second half wraps them) and every simulated tap verifies. It would also teach a
--- demo audience to ignore the one banner that must never be ignored.
+-- demo audience to ignore the one banner that must never be ignored. Since 00100
+-- it is also what lets the mount below happen at all: 00025 puts only a stamped
+-- plaque into service.
 --
 -- WHY AN UPDATE: 00022's tags_encoded_at_not_settable_at_insert refuses a stamped
 -- INSERT for every role, tappa_owner included. WHY created_at: in this fiction a
 -- plaque was encoded as it was loaded, and a stamp later than "Loaded 80 days ago"
 -- would describe an encode that never happened. `encoded_at IS NULL` makes it
 -- idempotent -- the second run matches nothing -- and keeps it clear of 00022's
--- write-once trigger, which refuses any change to a stamp once written.
+-- write-once trigger, which refuses any change to a stamp once written. (It is
+-- not limited to this run's plaques: a database seeded before F0-6 still gets
+-- its stamps.)
 UPDATE tags
 SET encoded_at = created_at
 WHERE tenant_id IN ('10000000-0000-4000-8000-000000000001',
@@ -513,6 +544,44 @@ WHERE tenant_id IN ('10000000-0000-4000-8000-000000000001',
               '04AC7E55000601', '04AC7E550006AA', '04AC7E55000701',
               '04AC7E55000801', '04AC7E55000901', '04BE7E55000A01')
   AND encoded_at IS NULL;
+
+-- --------------------------------------------------------------- tags: mounted
+-- MOUNT: AssignTagToLocation's statement (the stamp predicate in its WHERE), for
+-- the plaques this run loaded. Every planned plaque goes on its wall, the lost and
+-- the retired one included: both left a wall in the fiction.
+UPDATE tags AS t
+SET location_id = p.location_id,
+    status = 'active'
+FROM seed_plaques AS p
+JOIN seed_plaques_born AS b ON b.uid = p.uid
+WHERE t.uid = p.uid
+  AND t.tenant_id = p.tenant_id
+  AND t.status = 'unassigned'
+  AND t.encoded_at IS NOT NULL;
+
+-- ------------------------------------------------------------ tags: lifecycle
+-- LOST and RETIRED, for the plaques this run loaded. The retire is
+-- RetireTagForReplacement's shape: status, retired_at and replaced_by, from an active plaque;
+-- the successor is mounted above, in the same tenant (the composite self-FK).
+UPDATE tags AS t
+SET status = 'lost'
+FROM seed_plaques AS p
+JOIN seed_plaques_born AS b ON b.uid = p.uid
+WHERE t.uid = p.uid
+  AND t.tenant_id = p.tenant_id
+  AND p.status = 'lost'
+  AND t.status = 'active';
+
+UPDATE tags AS t
+SET status = 'retired',
+    retired_at = now() - interval '20 days',
+    replaced_by = p.replaced_by
+FROM seed_plaques AS p
+JOIN seed_plaques_born AS b ON b.uid = p.uid
+WHERE t.uid = p.uid
+  AND t.tenant_id = p.tenant_id
+  AND p.status = 'retired'
+  AND t.status = 'active';
 
 -- ------------------------------------------------------------------ admin_users
 -- ONE panel owner per tenant (M1-11). role='owner', status='active'. This is the

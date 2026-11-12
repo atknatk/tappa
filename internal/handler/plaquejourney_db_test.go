@@ -35,8 +35,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/config"
-	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // seedWall commits one venue for the harness tenant and returns its id.
@@ -83,11 +83,6 @@ func (p *panelHarness) seedPlaqueStamped(t *testing.T, status string, wall uuid.
 		t.Fatalf("rand: %v", err)
 	}
 	uid := strings.ToUpper(hex.EncodeToString(b))
-	var location *uuid.UUID
-	if wall != uuid.Nil {
-		w := wall
-		location = &w
-	}
 	// 🔴 A REAL 44-BYTE KEK ENVELOPE, NOT A TWO-BYTE PLACEHOLDER. The development
 	// database already carries ~19 500 rows whose aes_key_ref is '\xDEAD' — test
 	// residue that backlog T7/Y2 counts — and a fixture that adds more makes the one
@@ -100,18 +95,27 @@ func (p *panelHarness) seedPlaqueStamped(t *testing.T, status string, wall uuid.
 	if len(ref) != 44 {
 		t.Fatalf("wrapped key is %d bytes, want 44 — the envelope shape T7 is about", len(ref))
 	}
+	// Born in stock, then stamped / mounted / counted the product's way (fixtures.LoadPlaque;
+	// 00100). Incident A-1's row -- active and never stamped -- no statement reaches since 00100,
+	// so the owner writes it as a row born before it (fixtures.LoadLegacyUnstampedActive).
+	plaque := fixtures.Plaque{UID: uid, TenantID: p.tenantID, Wall: wall, Status: status, Key: ref, LastCtr: 500, Unstamped: !stamped}
+	if status == fixtures.PlaqueActive && !stamped {
+		ctx := context.Background()
+		tx, err := holdingOwner(t).Begin(ctx)
+		if err != nil {
+			t.Fatalf("seed plaque: begin: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := fixtures.LoadLegacyUnstampedActive(ctx, tx, plaque); err != nil {
+			t.Fatalf("seed plaque (A-1): %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("seed plaque (A-1): commit: %v", err)
+		}
+		return uid
+	}
 	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, $4, 500, $5)`,
-			uid, p.tenantID, location, ref, status); e != nil {
-			return e
-		}
-		if !stamped {
-			return nil
-		}
-		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: p.tenantID})
-		return e
+		return fixtures.LoadPlaque(ctx, tx, plaque)
 	}); err != nil {
 		t.Fatalf("seed plaque (%s, stamped=%v): %v", status, stamped, err)
 	}

@@ -817,9 +817,8 @@ func (h *harness) extraPlaque(t *testing.T, kek []byte, startCtr int32) string {
 			VALUES ($1, $2, 'Sliema', '{198.51.100.0/24}', 35.912, 14.502)`, loc, h.tenantID); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			VALUES ($1, $2, $3, $4, $5, 'active')`, uid, h.tenantID, loc, ref, startCtr)
-		return e
+		// Born in stock, stamped, mounted, counter moved (00100, T76).
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: uid, TenantID: h.tenantID, Wall: loc, Key: ref, LastCtr: startCtr})
 	}); err != nil {
 		t.Fatalf("extra plaque: %v", err)
 	}

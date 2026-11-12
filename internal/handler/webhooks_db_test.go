@@ -29,6 +29,7 @@ import (
 	"github.com/atknatk/tappa/internal/egress"
 	webhookdelivery "github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 var webhookKeyRE = regexp.MustCompile(`tt_whsec_[A-Za-z0-9_-]{43}`)
@@ -462,8 +463,7 @@ func (f *webhookPanelFixture) tapForDelivery(t *testing.T) uuid.UUID {
 	}
 	tag := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:14])
 	emp := uuid.New()
-	if _, err := c.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000000, 'active')`,
-		tag, f.tenantID, venue, []byte(strings.Repeat("k", 44))); err != nil {
+	if err := fixtures.LoadPlaque(ctx, c, fixtures.Plaque{UID: tag, TenantID: f.tenantID, Wall: venue, Key: []byte(strings.Repeat("k", 44)), LastCtr: 1000000}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Exec(ctx, `INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at) VALUES ($1, $2, $3, 'Hook Staff', 'active', now())`,

@@ -63,12 +63,16 @@ func t138NewWorld(t *testing.T, ctx context.Context, tx pgx.Tx) t138World {
 			[]any{w.location, w.tenant}},
 		{`INSERT INTO employees (id, tenant_id, location_id, full_name, status) VALUES ($1, $2, $3, 'Emp', 'active')`,
 			[]any{w.employee, w.tenant, w.location}},
-		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-		  VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 5, 'active')`, []any{w.live, w.tenant, w.location}},
+		// The two plaques on the wall: load -> stamp -> mount (00100: a row is born in stock),
+		// the live one's counter then moved to 5.
+		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+		  VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`, []any{w.live, w.tenant}},
 		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status, app_key_ref)
-		  VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active', $4)`,
-			[]any{w.stamped, w.tenant, w.location, bytes.Repeat([]byte{0xBE, 0xEF}, 22)}},
-		{`UPDATE tags SET encoded_at = clock_timestamp() WHERE uid = $1`, []any{w.stamped}},
+		  VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned', $3)`,
+			[]any{w.stamped, w.tenant, bytes.Repeat([]byte{0xBE, 0xEF}, 22)}},
+		{`UPDATE tags SET encoded_at = clock_timestamp() WHERE uid IN ($1, $2)`, []any{w.live, w.stamped}},
+		{`UPDATE tags SET location_id = $2, status = 'active' WHERE uid IN ($1, $3)`, []any{w.live, w.location, w.stamped}},
+		{`UPDATE tags SET last_ctr = 5 WHERE uid = $1 AND last_ctr < 5`, []any{w.live}},
 		{`INSERT INTO tags (uid, tenant_id, aes_key_ref, status) VALUES ($1, $2, decode(repeat('dead', 22), 'hex'), 'unassigned')`,
 			[]any{w.stock, w.tenant}},
 		{`INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)

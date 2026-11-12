@@ -1,7 +1,8 @@
 package fixtures
 
-// seed_test.go — the drift check between seed.sql's plaque INSERT, its encoded_at
-// stamp and SeedTags (M10 F0-6, second round, B3).
+// seed_test.go — the drift check between seed.sql's plaque plan, its tags INSERT,
+// its encoded_at stamp, its mount and SeedTags (M10 F0-6, second round, B3; the
+// born-in-stock shape since migration 00100, T76).
 //
 // 🔴 A NEW DEMO PLAQUE HAS THREE HOMES NOW, AND ONLY ONE OF THEM FAILS LOUDLY ON ITS
 // OWN. Forgetting SeedTags is caught by seedkeys' drift guard at `make seed`. The
@@ -34,16 +35,24 @@ var seedUID = regexp.MustCompile(`'([0-9A-F]{14})'`)
 // the replaced_by that sits at the end of the retired plaque's row.
 var firstOfTuple = regexp.MustCompile(`\(\s*'([0-9A-F]{14})'`)
 
-// The two statements, matched on comment-free SQL. Case and whitespace are free
+// The statements, matched on comment-free SQL. Case and whitespace are free
 // because SQL's are; `tags\b` keeps a future `tags_something` table out.
 var (
-	insertTags = regexp.MustCompile(`(?is)\binsert\s+into\s+tags\b(.*?)\bon\s+conflict\s*\(\s*uid\s*\)\s*do\s+nothing\s*;`)
+	// planTags is the plan: every plaque, where it ends up.
+	planTags = regexp.MustCompile(`(?is)\binsert\s+into\s+seed_plaques\s*\(.*?\)\s*values\b(.*?);`)
+	// insertTags is the load. Since 00100 it reads the plan and writes the stock
+	// shape; ON CONFLICT (uid) DO NOTHING is what keeps a second run clean.
+	insertTags = regexp.MustCompile(`(?is)\binsert\s+into\s+tags\b(.*?)\bon\s+conflict\s*\(\s*uid\s*\)\s*do\s+nothing\b`)
 	stampTags  = regexp.MustCompile(`(?is)\bupdate\s+tags\s+set\s+encoded_at\b(.*?);`)
-	// anyInsertTags / anyStampTags count EVERY statement of each kind, so a second
-	// block — which the two patterns above would silently ignore — is a failure
-	// rather than a plaque nobody checked.
+	// mountTags is AssignTagToLocation's shape, for this run's plaques only.
+	mountTags = regexp.MustCompile(`(?is)\bupdate\s+tags\s+as\s+t\s+set\s+location_id\s*=\s*p\.location_id\s*,\s*status\s*=\s*'active'(.*?);`)
+	// anyInsertTags / anyStampTags / anyPlan / anyMount count EVERY statement of each
+	// kind, so a second block — which the patterns above would silently ignore — is
+	// a failure rather than a plaque nobody checked.
 	anyInsertTags = regexp.MustCompile(`(?i)\binsert\s+into\s+tags\b`)
 	anyStampTags  = regexp.MustCompile(`(?i)\bupdate\s+tags\s+set\s+encoded_at\b`)
+	anyPlan       = regexp.MustCompile(`(?i)\binsert\s+into\s+seed_plaques\b`)
+	anyMount      = regexp.MustCompile(`(?i)\bupdate\s+tags\s+as\s+t\s+set\s+location_id\b`)
 )
 
 func TestSeedSQL_EveryLoadedPlaqueIsStampedAndListed(t *testing.T) {
@@ -63,24 +72,46 @@ func TestSeedSQL_EveryLoadedPlaqueIsStampedAndListed(t *testing.T) {
 	// UPDATE; a second of either would be a plaque (or a stamp) it never looked at.
 	// If seed.sql ever genuinely needs a second block, this is the line to change —
 	// deliberately, together with the parsing below.
-	if n := len(anyInsertTags.FindAllString(src, -1)); n != 1 {
-		t.Fatalf("seed.sql has %d `INSERT INTO tags` statements, want exactly 1 — this "+
-			"check reads one block and would miss the plaques in any other", n)
+	for what, n := range map[string]int{
+		"`INSERT INTO tags`":                 len(anyInsertTags.FindAllString(src, -1)),
+		"`UPDATE tags SET encoded_at`":       len(anyStampTags.FindAllString(src, -1)),
+		"`INSERT INTO seed_plaques`":         len(anyPlan.FindAllString(src, -1)),
+		"`UPDATE tags AS t SET location_id`": len(anyMount.FindAllString(src, -1)),
+	} {
+		if n != 1 {
+			t.Fatalf("seed.sql has %d %s statements, want exactly 1 — this check reads one "+
+				"block of each and would miss the plaques in any other", n, what)
+		}
 	}
-	if n := len(anyStampTags.FindAllString(src, -1)); n != 1 {
-		t.Fatalf("seed.sql has %d `UPDATE tags SET encoded_at` statements, want exactly 1", n)
+	plan := planTags.FindStringSubmatch(src)
+	if plan == nil {
+		t.Fatal("seed.sql has no terminated `INSERT INTO seed_plaques (…) VALUES … ;`")
 	}
 	insert := insertTags.FindStringSubmatch(src)
 	if insert == nil {
-		t.Fatal("seed.sql's tags INSERT does not end in ON CONFLICT (uid) DO NOTHING; " +
+		t.Fatal("seed.sql's tags INSERT does not carry ON CONFLICT (uid) DO NOTHING; " +
 			"the idempotency the file promises is gone, or the pattern is")
+	}
+	// 🔴 THE LOAD IS THE STOCK SHAPE (00100, T76): a BEFORE INSERT trigger refuses
+	// any other, and it fires before ON CONFLICT -- so a second run of a seed.sql
+	// that loaded 'active' would fail where the first one did.
+	if !strings.Contains(insert[1], "'unassigned'") || strings.Contains(insert[1], "'active'") ||
+		!regexp.MustCompile(`(?is)\bselect\s+p\.uid\s*,\s*p\.tenant_id\s*,\s*null\s*,`).MatchString(insert[1]) {
+		t.Fatalf("seed.sql's tags INSERT is not the stock shape (status 'unassigned', "+
+			"location_id NULL, read from the plan):\n%s", insert[1])
 	}
 	stamp := stampTags.FindStringSubmatch(src)
 	if stamp == nil {
 		t.Fatal("seed.sql has no terminated `UPDATE tags SET encoded_at … ;`")
 	}
+	mount := mountTags.FindStringSubmatch(src)
+	if mount == nil || !strings.Contains(mount[1], "seed_plaques_born") ||
+		!regexp.MustCompile(`(?i)encoded_at\s+is\s+not\s+null`).MatchString(mount[1]) {
+		t.Fatal("seed.sql's mount is not AssignTagToLocation's shape for this run's plaques " +
+			"(seed_plaques_born, encoded_at IS NOT NULL)")
+	}
 
-	loaded := uids(firstOfTuple, insert[1])
+	loaded := uids(firstOfTuple, plan[1])
 	stamped := uids(seedUID, stamp[1])
 	listed := make([]string, 0, len(SeedTags))
 	for _, s := range SeedTags {
@@ -94,7 +125,7 @@ func TestSeedSQL_EveryLoadedPlaqueIsStampedAndListed(t *testing.T) {
 	}
 	if strings.Join(loaded, ",") != strings.Join(stamped, ",") {
 		t.Errorf("seed.sql loads %v but stamps %v as encoded — a plaque loaded and not "+
-			"stamped shows on the demo panel as unmountable", loaded, stamped)
+			"stamped is not mounted (00025) and shows on the demo panel as unmountable", loaded, stamped)
 	}
 	if strings.Join(loaded, ",") != strings.Join(listed, ",") {
 		t.Errorf("seed.sql loads %v but fixtures.SeedTags lists %v", loaded, listed)

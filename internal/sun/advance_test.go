@@ -16,6 +16,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -181,11 +182,8 @@ func newTagFixture(t *testing.T, d *db.DB, startCtr int32) (tenantID uuid.UUID, 
 			locationID, tenantID); e != nil {
 			return e
 		}
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, 'active')`,
-			uid, tenantID, locationID, startCtr)
-		return e
+		// Born in stock, stamped, mounted, counter moved (fixtures.LoadPlaque; 00100, T76).
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: uid, TenantID: tenantID, Wall: locationID, LastCtr: startCtr})
 	})
 	if err != nil {
 		t.Fatalf("newTagFixture: %v", err)

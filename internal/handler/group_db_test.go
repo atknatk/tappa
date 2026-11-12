@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 )
 
@@ -84,7 +85,9 @@ func TestGroupDB_TheTabAndThePageFollowTheLiveMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	kmPlaque := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:14])
-	exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000, 'active')`, kmPlaque, km, kmVenue, make([]byte, 44))
+	if err := fixtures.LoadPlaque(ctx, owner, fixtures.Plaque{UID: kmPlaque, TenantID: km, Wall: kmVenue, Key: make([]byte, 44), LastCtr: 1000}); err != nil {
+		t.Fatal(err)
+	}
 	kmStaff, kfStaff := uuid.New(), uuid.New()
 	kmName := "GRP1 Partner " + suffix
 	kmMail := "grp1-km-" + suffix + "@example.test"
