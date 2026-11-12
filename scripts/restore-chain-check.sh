@@ -163,9 +163,17 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 #     a host a client is pointed at (-h, PGHOST=) is 127.0.0.1 or tappa-drill-db, and no other
 #       IPv4 literal is written at all (Docker Desktop's gateway 192.168.65.254, the bridge's
 #       172.17.0.1 are this machine);
+#     (T289) the host forms include -hHOST on a PostgreSQL client's line, PGHOSTADDR=, libpq's
+#       host=/hostaddr= and a postgres(ql):// URI's host; no IPv6 literal at all (::1 included);
+#       docker run/create publishes no port (-p/-P/--publish); every container:path of a docker cp
+#       is tappa-drill-db; round 2 (the last): a quoted value is read, not skipped (-h "x",
+#       PGHOST="x", host='x'), host = x with spaces, a clock time is not IPv6, the publish rule
+#       reads a short flag cluster (-itp) and a quoted -p anywhere on a docker run/create line
+#       (psql's own -p after the image is refused too), docker cp a quoted container name;
 #   A DENY LIST for the rest: kubectl, rclone, ssh, curl, wget, nc, the home directory (also ~),
 #     the rclone config variable, a /Users/ path, docker's -H, --host and --context, any DOCKER_*
-#     variable, the docker socket, docker.internal names, --mount, --add-host, the host's
+#     variable, the docker socket, docker.internal names, --mount, --volumes-from, --env-file
+#     (T289), --add-host, the host's
 #     pid/ipc/uts/userns/cgroup namespace, --privileged, --cap-add, --device, --security-opt.
 #   (T224, after both auditors measured the first deny-only form passing `-v
 #   /var/run/docker.sock:...`, `--mount` with its keys in another order, `-v //:/h`, `--network
@@ -180,12 +188,12 @@ case "$D4" in *"scripts/pg-restore-verify.sh"*) ;; *) die "$RUNBOOK: (d4) no lon
 # continuation lines and here-documents, so "the first word of a line" is not a command and such a
 # list would refuse the runbook's own text or need a shell parser. Step 3 also runs the blocks with
 # an emptied environment (no KUBECONFIG, no PG*, no DATABASE_URL, HOME a scratch directory).
-deny_drill='kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|~|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H([=[:space:]]|$)|--host([=[:space:]]|$)|--context|DOCKER_[A-Za-z_]*=|docker\.sock|docker\.internal|--mount|--add-host|--(pid|ipc|uts|userns|cgroupns)([=[:space:]]|$)|--privileged|--cap-add|--device|--security-opt'
+deny_drill='kubectl|rclone|(^|[^A-Za-z0-9_-])(ssh|curl|wget|nc)([^A-Za-z0-9_-]|$)|\$HOME|\$\{HOME|~|\$CONF|\$\{CONF|/Users/|(^|[[:space:]])-H([=[:space:]]|$)|--host([=[:space:]]|$)|--context|DOCKER_[A-Za-z_]*=|docker\.sock|docker\.internal|--mount|--volumes-from|--env-file|--add-host|--(pid|ipc|uts|userns|cgroupns)([=[:space:]]|$)|--privileged|--cap-add|--device|--security-opt'
 refuse() { die "$RUNBOOK: the drill block $1 $2. 9(d)'s (d2)-(d5) run here, against a throwaway container, and (d1) in the monthly rehearsal; a block that can reach a cluster, the backup target beyond reading it, another host, this host or the operator's files is not run"; }
 for b in D2 D3 D3B D4 D5; do
   eval "text=\$$b"
   hit="$(printf '%s\n' "$text" | grep -E -o -- "$deny_drill" | head -1 || true)"
-  [ -z "$hit" ] || refuse "$b" "names '$hit' (the deny list: kubectl, rclone, ssh/curl/wget/nc, the home directory, a /Users/ path, docker's -H/--host/--context, DOCKER_*, the docker socket, docker.internal, --mount, --add-host, a host namespace, --privileged, --cap-add, --device, --security-opt)"
+  [ -z "$hit" ] || refuse "$b" "names '$hit' (the deny list: kubectl, rclone, ssh/curl/wget/nc, the home directory, a /Users/ path, docker's -H/--host/--context, DOCKER_*, the docker socket, docker.internal, --mount, --volumes-from, --env-file, --add-host, a host namespace, --privileged, --cap-add, --device, --security-opt)"
   bad_docker="$(printf '%s\n' "$text" | awk '/(^|[^A-Za-z0-9_-])docker([^A-Za-z0-9_-]|$)/ && !/tappa-drill/')"
   [ -z "$bad_docker" ] || die "$RUNBOOK: the drill block $b runs docker without naming the drill's own container or network (tappa-drill): '$bad_docker' -- docker could reach another container, the development database included"
   bad_rm="$(printf '%s\n' "$text" | awk '/^[[:space:]]*rm[[:space:]]/ && $0 != "rm -rf \"$RESTORE\""')"
@@ -197,11 +205,46 @@ for b in D2 D3 D3B D4 D5; do
   bad_net="$(printf '%s\n' "$text" | grep -E -o -- '--(net|network)[=[:space:]]+[^[:space:]]+' \
     | sed -E 's/^--(net|network)[=[:space:]]+//' | grep -v -x 'tappa-drill' || true)"
   [ -z "$bad_net" ] || refuse "$b" "joins the network '$bad_net' (only tappa-drill)"
-  bad_host="$(printf '%s\n' "$text" | grep -E -o -- '((^|[[:space:]])-h[=[:space:]]+|PGHOST=)[^[:space:]]+' \
-    | sed -E 's/^[[:space:]]*(-h[=[:space:]]+|PGHOST=)//' | grep -v -x -E '127\.0\.0\.1|tappa-drill-db' || true)"
+  # The host forms (T289): -h HOST, PGHOST=/PGHOSTADDR=, libpq's host=/hostaddr= (a conninfo string,
+  # spaces around = allowed, or a URI's ?host=), a URI's authority, and -hHOST with no space -- that
+  # last one only on a line that runs a PostgreSQL client, because elsewhere it is another flag
+  # (openssl's -hex in (d2)). `-` before host= is not a host either: (d2)'s --auth-host= is initdb's.
+  # A value may open with a quote (-h "x", PGHOST="x", host='x'): the quote is skipped, not the
+  # value (round 2: the first form's value class stopped at the quote and let all three through).
+  bad_host="$( { printf '%s\n' "$text" | grep -E -o -- "((^|[[:space:]])-h[=[:space:]]+|PGHOST(ADDR)?=|(^|[^A-Za-z0-9_-])host(addr)?[[:space:]]*=[[:space:]]*)[\"']?[^[:space:]\"'&]+" \
+      | sed -E "s/^.*(-h[=[:space:]]+|HOST(ADDR)?=|host(addr)?[[:space:]]*=[[:space:]]*)[\"']?//"
+    printf '%s\n' "$text" | grep -E -- '(^|[^A-Za-z0-9_-])(psql|pg_isready|pg_dump|pg_dumpall|pg_restore)([^A-Za-z0-9_-]|$)' \
+      | grep -E -o -- '(^|[[:space:]])-h[^=[:space:]][^[:space:]]*' | sed -E "s/^[[:space:]]*-h//; s/^[\"']//; s/[\"'].*$//"
+    printf '%s\n' "$text" | grep -E -o -- "postgres(ql)?://[^/?[:space:]\"']*" \
+      | sed -E 's#^postgres(ql)?://##; s#^.*@##; s#:[0-9]*$##' | grep -v -x '' ; } \
+    | grep -v -x -E '127\.0\.0\.1|tappa-drill-db' | head -1 || true)"
   [ -z "$bad_host" ] || refuse "$b" "points a client at '$bad_host' (only 127.0.0.1 inside the target, or tappa-drill-db)"
   bad_ip="$(printf '%s\n' "$text" | grep -E -o -- '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v -x '127\.0\.0\.1' || true)"
   [ -z "$bad_ip" ] || refuse "$b" "writes the address '$bad_ip' (no IPv4 literal but 127.0.0.1)"
+  # IPv6 (T289): no literal at all, ::1 included (it is this host's loopback from the host side).
+  # Judged per token so SQL's ::regclass cast is not one: a token is an address only if it is
+  # hex groups and colons whole (optionally in brackets with a port, or with an IPv4 tail). A clock
+  # time (03:00:00, 12:00:00.5) has that shape too and is not one (round 2).
+  bad_ip6="$(printf '%s\n' "$text" | grep -E -o -- '[][0-9A-Za-z_.:%-]*:[][0-9A-Za-z_.:%-]*' \
+    | grep -E -x -- '\[?([0-9A-Fa-f]{0,4}:){2,7}([0-9A-Fa-f]{0,4}|[0-9]{1,3}(\.[0-9]{1,3}){3})(%[0-9A-Za-z]+)?(\](:[0-9]+)?)?' \
+    | grep -v -x -E '[0-9]{1,2}(:[0-9]{2}){1,2}(\.[0-9]+)?' | head -1 || true)"
+  [ -z "$bad_ip6" ] || refuse "$b" "writes the IPv6 address '$bad_ip6' (no IPv6 literal at all)"
+  # A logical line is the block's line with its continuations joined: docker run/create's flags sit
+  # on `\` continuation lines in (d2) and (d4).
+  logical="$(printf '%s\n' "$text" | awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }')"
+  # -p/--publish (T289): a published port puts the drill's database on this host's interfaces. A
+  # -p/-P/--publish token ANYWHERE on a line that runs docker run/create is refused, quoted or not,
+  # and inside a short flag cluster (-itp). Round 2 tried stopping at the image so psql's own -p
+  # after it would pass; finding the image by shape let --user 70:70 -p … and a second docker run
+  # on the same line through (security re-review, measured), so the line is read whole again.
+  bad_pub="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?(run|create)[[:space:]]' \
+    | grep -E -o -- "(^|[[:space:]])(--publish(-all)?([=[:space:]]|$)|-[A-Za-z]*[pP]([=[:space:]0-9\"']|$))[^[:space:]]*" | head -1 || true)"
+  [ -z "$bad_pub" ] || refuse "$b" "publishes a port ('${bad_pub# }'; the drill's database is reached on tappa-drill only; a -p after the image (e.g. psql's port) is also refused: drop it, psql in the drill container uses 5432 by default)"
+  # docker cp (T289): every container:path operand is the drill's own container, quoted or not.
+  bad_cp="$(printf '%s\n' "$logical" | grep -E -- '(^|[^A-Za-z0-9_-])docker[[:space:]]+(container[[:space:]]+)?cp[[:space:]]' \
+    | tr -d "\"'" | grep -E -o -- "(^|[[:space:]])[A-Za-z0-9_][A-Za-z0-9_.-]*:" | sed -E "s/^[[:space:]]*//; s/:$//" \
+    | grep -v -x 'tappa-drill-db' | head -1 || true)"
+  [ -z "$bad_cp" ] || refuse "$b" "copies from or to the container '$bad_cp' (docker cp reaches tappa-drill-db only)"
 done
 # (d1): EVERY LINE IS ONE OF THESE, WHOLE (full-line equality, not a prefix: a prefix let a tail
 # through -- `; cat "$CONF"`, `| sh`, `&& ...` -- and a copy turned round, `copy "$RESTORE/"
