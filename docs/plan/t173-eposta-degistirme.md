@@ -1,10 +1,11 @@
 # T173 — Panel kimliğinin e-posta değişikliği: kartlar
 
-> **Durum:** kart yazıldı (2026-11-11, dal `m14-emailcard`), **onay bekliyor** — iki bağımsız inceleyici ve
-> kullanıcının ADR 0044 §10 kararları (K-E1 … K-E19; 🔒 işaretliler güvenlik gereği, ⛔ seçenekler güvensiz). Onay gelmeden kod yazılmaz (kullanıcı kararı 2026-11-11:
-> önce kart, iki bağımsız onay, sonra kod). Canlı durum yalnız [state.md](state.md)'dedir.
+> **Durum:** kart yazıldı (2026-11-11, dal `m14-emailcard`); iki bağımsız inceleyici ONAY (turu 3,
+> 2026-11-11); **kullanıcı kararları 2026-11-12: §10'un on dokuz önerisinin hepsi kabul** (ADR 0044'ün durum
+> satırı); **EC-1 kodlanıyor.** Aşağıdaki kriterler önerilen seçenekleri varsaydığı için hiçbir madde yeniden
+> yazılmadı. Canlı durum yalnız [state.md](state.md)'dedir.
 >
-> **Mimari karar:** [ADR 0044](../adr/0044-panel-kimliginin-e-posta-degisikligi.md) (Önerildi). Okumadan
+> **Mimari karar:** [ADR 0044](../adr/0044-panel-kimliginin-e-posta-degisikligi.md) (Kabul edildi, 2026-11-12). Okumadan
 > başlama: §5 (tasarım), §5.4 (düz zamanlama), §5.5 (açık linkler), §6 (geçiş), §10 (kararlar). Normatif
 > zemin: [ADR 0031](../adr/0031-tek-kimlik-cok-isletme.md) §5.1, §5.2, §5.6, §5.8, §6.1, §8.
 >

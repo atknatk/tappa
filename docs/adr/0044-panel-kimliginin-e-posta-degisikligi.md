@@ -1,8 +1,12 @@
 # ADR 0044 — Panel kimliğinin e-posta adresini değiştirmek: yeni adresin posta kutusu kanıtı, eski adrese bildirim ve geri alma, aynanın definer'la güncellenmesi
 
-- **Durum:** **Önerildi (2026-11-11)** — kart yazıldı, iki bağımsız inceleyicinin onayı ve kullanıcının §10'daki
-  kararları bekleniyor. Kod, migration ve CLAUDE.md değişikliği **yok**. Kullanıcı kararı (2026-11-11):
-  *"parti 7'de kartını yaz"*; önce kart, iki bağımsız onay, **sonra** kod.
+- **Durum:** **Kabul edildi (2026-11-12).** Kullanıcı §10'un on dokuz önerisinin **hepsini** kabul etti
+  (2026-11-12): K-E1 (i) (a), (ii) (a), (iii) (a) **1 gün** · K-E2 (a) · K-E3 **7 gün** · K-E4 **24 saat** ·
+  K-E5 (a) · K-E6 (a) · K-E7 (a) · K-E8 (a) · K-E9 (a) + (d) · K-E10 (i) (a) — öbür metinler EC-2'de ekranda
+  onaylanır · K-E11 (a) · K-E12 (a) · K-E13 (a) · K-E14 (a) · K-E15 (a) · K-E16 (a) · K-E17 (a) · K-E18 (a) ·
+  K-E19 (a). Kartın kabul kriterleri bu seçenekleri zaten varsayıyordu; hiçbir madde yeniden yazılmadı. EC-1
+  kodlanıyor (dal `m14-emailcard`). Önerildi: 2026-11-11 (kullanıcı kararı: *"parti 7'de kartını yaz"*; önce
+  kart, iki bağımsız onay, **sonra** kod).
   **Denetim turu 1 (2026-11-11, 87e2ed4c üzerinde):** üçüncü göz ve güvenlik **RET**. Düzeltilenler: geri
   almada aynı-işletme çakışması ve bütün gövdeyi saran `unique_violation` (YÜKSEK-1, §5.3, §8 risk 8); Down'ın
   olay satırlarıyla durması (§5.2, §6); zincir açığı ve K-E9 (d) (§5.5, §8 risk 6); flash'ın adres taşıyamaması
