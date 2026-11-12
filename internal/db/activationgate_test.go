@@ -200,7 +200,7 @@ func TestTags00025_AnUnstampedPlaqueAlreadyInServiceKeepsWorking(t *testing.T) {
 
 	// (1) THE TAP: the shipped §4.4 statement, as tappa_app.
 	rusty := randUID(t)
-	addPlaque(t, app, fx, rusty, fx.locationID, "active", 5)
+	addLegacyA1Plaque(t, fx, rusty, 5)
 	if err := app.WithTenant(ctx, fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).AdvanceTagCounter(ctx, store.AdvanceTagCounterParams{
 			Ctr: 6, TenantID: fx.tenantID, Uid: rusty,
@@ -236,7 +236,7 @@ func TestTags00025_AnUnstampedPlaqueAlreadyInServiceKeepsWorking(t *testing.T) {
 
 	// (3) THE REPAIR BY UNMOUNT, then the way back is shut.
 	second := randUID(t)
-	addPlaque(t, app, fx, second, fx.locationID, "active", 0)
+	addLegacyA1Plaque(t, fx, second, 0)
 	if err := app.WithTenant(ctx, fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).UnmountTagFromWall(ctx, store.UnmountTagFromWallParams{
 			TenantID: fx.tenantID, Uid: second,

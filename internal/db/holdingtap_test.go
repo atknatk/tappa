@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // ------------------------------------------------------------------- the world --
@@ -46,7 +47,7 @@ type holdingWorld struct {
 	kfDigest        string
 }
 
-// holdingNewTag inserts a plaque of tenant's (a random uid, a 44-byte stand-in envelope -- no
+// holdingNewTag loads a plaque of tenant's (a random uid, a 44-byte stand-in envelope -- no
 // test here unwraps a key) and returns its uid.
 func holdingNewTag(t *testing.T, ctx context.Context, q opQuerier, tenant uuid.UUID, wall *uuid.UUID, status string, ctr int32) string {
 	t.Helper()
@@ -59,8 +60,12 @@ func holdingNewTag(t *testing.T, ctx context.Context, q opQuerier, tenant uuid.U
 	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := q.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, $5, $6)`,
-		uid, tenant, wall, key, ctr, status); err != nil {
+	// Born in stock, then stamped / mounted / counted / lost the product's way (00100, T76).
+	p := fixtures.Plaque{UID: uid, TenantID: tenant, Status: status, LastCtr: ctr, Key: key}
+	if wall != nil {
+		p.Wall = *wall
+	}
+	if err := fixtures.LoadPlaque(ctx, q, p); err != nil {
 		t.Fatalf("insert a %s plaque: %v", status, err)
 	}
 	return uid

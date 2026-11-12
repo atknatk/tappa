@@ -52,9 +52,15 @@ VALUES ('c4a10000-0000-4000-8000-000000000041', 'c4a10000-0000-4000-8000-0000000
         -- password opens it, and nothing logs in to this database.
         '$2a$12$' || repeat('x', 53), 'owner', 'active');
 
+-- The plaque the product's way (migration 00100, T76: a plaque is born in stock): loaded, stamped,
+-- mounted.
 INSERT INTO tags (uid, tenant_id, location_id, status, aes_key_ref)
-VALUES ('C4A1000000000A', 'c4a10000-0000-4000-8000-000000000001', 'c4a10000-0000-4000-8000-000000000011', 'active',
+VALUES ('C4A1000000000A', 'c4a10000-0000-4000-8000-000000000001', NULL, 'unassigned',
         convert_to('NOT-A-KEY-restore-chain-fixture-only-T215...', 'UTF8'));
+UPDATE tags SET encoded_at = now()
+ WHERE uid = 'C4A1000000000A' AND tenant_id = 'c4a10000-0000-4000-8000-000000000001';
+UPDATE tags SET location_id = 'c4a10000-0000-4000-8000-000000000011', status = 'active'
+ WHERE uid = 'C4A1000000000A' AND tenant_id = 'c4a10000-0000-4000-8000-000000000001';
 
 INSERT INTO policies (id, tenant_id, name, layer, enabled)
 VALUES ('c4a10000-0000-4000-8000-000000000051', 'c4a10000-0000-4000-8000-000000000001', 'restore-chain', 'tenant', true);

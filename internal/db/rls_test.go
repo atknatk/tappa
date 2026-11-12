@@ -230,8 +230,13 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO sessions (id, tenant_id, employee_id, token_hash)
 		  VALUES ($1, $2, $3, $4)`,
 			[]any{fx.sessionID, fx.tenantID, fx.employeeID, fx.tokenHash}},
+		// tags: load -> stamp -> mount, the product's three statements (00100: born in stock).
 		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-		  VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 0, 'active')`,
+		  VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 0, 'unassigned')`,
+			[]any{fx.tagUID, fx.tenantID}},
+		{`UPDATE tags SET encoded_at = now() WHERE uid = $1 AND tenant_id = $2`,
+			[]any{fx.tagUID, fx.tenantID}},
+		{`UPDATE tags SET location_id = $3, status = 'active' WHERE uid = $1 AND tenant_id = $2`,
 			[]any{fx.tagUID, fx.tenantID, fx.locationID}},
 		{`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
 		  VALUES ($1, $2, $3, $4, now(), 'flag', 'nfc') RETURNING id`,
@@ -516,13 +521,16 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO sessions (id, tenant_id, employee_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.employeeID, "own-"+uuid.NewString())
 				return e
 			}},
+		// tags: the stock shape, the only one 00100 lets be born -- a BEFORE trigger fires before
+		// the policy's WITH CHECK, so an 'active' forge would be refused by the trigger (23001)
+		// and prove nothing about RLS.
 		{"tags", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), a.tenantID, a.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`, randUID(t), a.tenantID)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 'active')`, randUID(t), b.tenantID, b.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`, randUID(t), b.tenantID)
 				return e
 			}},
 		{"transactions", blockRLS,

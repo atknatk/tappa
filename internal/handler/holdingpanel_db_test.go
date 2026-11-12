@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason renders four screens of the signed-in
@@ -63,7 +64,9 @@ func TestHoldingPanel_PartnerViewsSayTheOutcomeNeverTheReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	kmPlaque := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:14])
-	exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000, 'active')`, kmPlaque, km, kmVenue, make([]byte, 44))
+	if err := fixtures.LoadPlaque(ctx, owner, fixtures.Plaque{UID: kmPlaque, TenantID: km, Wall: kmVenue, Key: make([]byte, 44), LastCtr: 1000}); err != nil {
+		t.Fatal(err)
+	}
 	kmStaff, kfStaff := uuid.New(), uuid.New()
 	kmName, kfName := "Partner Person "+suffix, "Own Person "+suffix
 	exec(`INSERT INTO employees (id, tenant_id, external_ref, full_name, status, invited_at) VALUES ($1, $2, $3, $4, 'active', now())`, kmStaff, km, "ext-"+suffix, kmName)

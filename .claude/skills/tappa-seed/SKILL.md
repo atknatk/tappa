@@ -142,7 +142,11 @@ Bu senaryo olmadan gece vardiyası regresyonu fark edilmez.
   yok ve değer operatörün KEK'ine bağlı (KEK repoda değil — §4.7). Anahtarın hiç
   yoksa üret: `openssl rand -base64 32` → `.env`.
 - ⚠️ **Yeni plaket = ÜÇ yer** (M10 F0-6'dan beri; önceden iki):
-  1. `seed.sql`'deki `INSERT INTO tags` satırı,
+  1. `seed.sql`'deki `INSERT INTO seed_plaques` planının satırı (uid, tenant, duvar,
+     hedef durum). `INSERT INTO tags` bu plandan okur ve plaketi **stokta** doğurur
+     (`'unassigned'`, duvarsız — migration 00100 başka şekli her rolde reddeder);
+     mount ve lost/retired ardından gelen `UPDATE`'lerdir, yalnız o koşumda doğan
+     plaketlere dokunur,
   2. aynı dosyada, hemen altındaki `encoded_at` damga `UPDATE`'inin **sabit uid
      listesi**,
   3. `fixtures.SeedTags` girişi (`test/fixtures/tagkeys.go`).
