@@ -692,7 +692,13 @@ func TestObservability_AuditWritesAreDetachedFromTheRequest(t *testing.T) {
 	calls := 0
 	for _, dir := range []string{"internal/handler", "internal/httpx", "internal/domain/checkin"} {
 		err := filepath.Walk(filepath.Join(repoRoot, dir), func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			if err == nil && info.IsDir() {
+				if rel, rerr := filepath.Rel(repoRoot, path); rerr == nil && skipGoDir(rel) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
 				strings.HasSuffix(path, "_templ.go") {
 				return err
 			}
