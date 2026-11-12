@@ -1915,6 +1915,8 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 // audit.EventWriteFailed, which M8-03 rule 9 pages on (T282: it was a literal of its
 // own, "checkin: audit write failed", and no rule read it).
 func (s *Service) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx) // T284 (a): the tapper leaving does not take the row with it
+	defer cancel()
 	if _, err := s.trail.Record(ctx, e); err != nil {
 		s.log.ErrorContext(ctx, audit.EventWriteFailed, "action", e.Action, "err", err)
 	}

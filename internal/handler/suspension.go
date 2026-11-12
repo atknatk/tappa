@@ -154,13 +154,17 @@ func (a *AdminAuth) suspensionGate(next http.Handler) http.Handler {
 			return
 		}
 		route := matchedRoute(r)
-		if _, err := a.audit.Record(r.Context(), audit.Event{
+		// T284 (a): the client leaving does not take the refusal's row with it.
+		rctx, cancel := audit.Detached(r.Context())
+		_, err := a.audit.Record(rctx, audit.Event{
 			TenantID: id.TenantID(),
 			ActorID:  ptr(id.AdminUserID()),
 			Action:   ActionTenantWriteRefused,
 			Target:   route,
 			Detail:   suspensionRefusalDetail{Reason: s.Reason},
-		}); err != nil {
+		})
+		cancel()
+		if err != nil {
 			a.log.Error(audit.EventWriteFailed,
 				"tenant_id", id.TenantID(), "sqlstate", sqlstateOf(err), "reason", reasonWord(s.Reason))
 		}

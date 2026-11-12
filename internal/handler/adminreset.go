@@ -1401,6 +1401,8 @@ func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPass
 // Counted and handed on, in the shape the second stopping rule asks for: a measured
 // limit is safer than a closure nobody verified.
 func (h *AdminReset) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx) // T284 (a): the client leaving does not take the row with it
+	defer cancel()
 	if _, err := h.audit.Record(ctx, e); err != nil {
 		h.log.ErrorContext(ctx, audit.EventWriteFailed, "action", e.Action, "err", err)
 	}

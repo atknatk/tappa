@@ -627,6 +627,139 @@ func TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg(t *testing.T) {
 	}
 }
 
+// TestObservability_AuditWritesAreDetachedFromTheRequest (T284 (a), user decision 2026-11-12):
+// every audit Record call in internal/handler, internal/httpx and internal/domain/checkin runs
+// under a context detached from the caller's cancellation — audit.Detached, or the older
+// context.WithTimeout(context.WithoutCancel(…), …) shape — assigned in the same function or
+// written inline. A Record call on r.Context(), or on a ctx parameter passed straight through,
+// lets the client's disconnect cancel the trail row (§4.6) and write an EventWriteFailed ERROR
+// that pages for nothing.
+//
+// One named exception: the recovery worker's outcome write (adminresetoutcome.go attemptOutcome)
+// runs on the worker's own clock (clock.step), which is not a request context; its bound is the
+// shutdown drain's budget, and detaching it would let a write outlive the drain.
+//
+// ⚠️ COUNTED LIMIT: syntactic. A ctx detached in another function and passed in, or a variable
+// reassigned after its detach, is judged by the name the call uses in this function only.
+func TestObservability_AuditWritesAreDetachedFromTheRequest(t *testing.T) {
+	t.Parallel()
+	exempt := map[string]bool{"internal/handler/adminresetoutcome.go:attemptOutcome": true}
+
+	isSel := func(e ast.Expr, pkg, name string) bool {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != name {
+			return false
+		}
+		id, ok := sel.X.(*ast.Ident)
+		return ok && id.Name == pkg
+	}
+	// detaching reports whether e is a call that yields a detached context.
+	detaching := func(e ast.Expr) bool {
+		call, ok := e.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		if isSel(call.Fun, "audit", "Detached") {
+			return true
+		}
+		if (isSel(call.Fun, "context", "WithTimeout") || isSel(call.Fun, "context", "WithDeadline")) && len(call.Args) > 0 {
+			inner, ok := call.Args[0].(*ast.CallExpr)
+			return ok && isSel(inner.Fun, "context", "WithoutCancel")
+		}
+		return false
+	}
+	isRecord := func(call *ast.CallExpr) bool {
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Record" || len(call.Args) == 0 {
+			return false
+		}
+		x, ok := sel.X.(*ast.SelectorExpr)
+		return ok && (x.Sel.Name == "audit" || x.Sel.Name == "trail")
+	}
+	// shallow visits body without descending into nested function literals: each literal is
+	// its own scope, judged when the walk reaches it.
+	shallow := func(body ast.Node, fn func(ast.Node)) {
+		ast.Inspect(body, func(n ast.Node) bool {
+			if _, ok := n.(*ast.FuncLit); ok && n != body {
+				return false
+			}
+			fn(n)
+			return true
+		})
+	}
+
+	var offences []string
+	calls := 0
+	for _, dir := range []string{"internal/handler", "internal/httpx", "internal/domain/checkin"} {
+		err := filepath.Walk(filepath.Join(repoRoot, dir), func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.HasSuffix(path, "_templ.go") {
+				return err
+			}
+			fset := token.NewFileSet()
+			f, perr := parser.ParseFile(fset, path, nil, 0)
+			if perr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(repoRoot, path)
+			judge := func(name string, scope ast.Node) {
+				detached := map[string]bool{}
+				shallow(scope, func(n ast.Node) {
+					if as, ok := n.(*ast.AssignStmt); ok && len(as.Rhs) == 1 && detaching(as.Rhs[0]) {
+						if id, ok := as.Lhs[0].(*ast.Ident); ok {
+							detached[id.Name] = true
+						}
+					}
+				})
+				shallow(scope, func(n ast.Node) {
+					call, ok := n.(*ast.CallExpr)
+					if !ok || !isRecord(call) {
+						return
+					}
+					calls++
+					if exempt[rel+":"+name] {
+						return
+					}
+					arg := call.Args[0]
+					if id, ok := arg.(*ast.Ident); ok && detached[id.Name] {
+						return
+					}
+					if detaching(arg) {
+						return
+					}
+					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(call.Pos()).Line)+" ("+name+")")
+				})
+			}
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				judge(fd.Name.Name, fd.Body)
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					if fl, ok := n.(*ast.FuncLit); ok {
+						judge(fd.Name.Name, fl)
+					}
+					return true
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+	// Ten when written (2026-11-12); fewer means the scan stopped matching the tree.
+	if calls < 10 {
+		t.Fatalf("found %d audit Record call(s), want at least 10; the scan is broken, not the tree", calls)
+	}
+	t.Logf("audit Record calls judged: %d", calls)
+	for _, o := range offences {
+		t.Errorf("%s writes an audit row under a context the client can cancel; wrap it in audit.Detached "+
+			"(T284 (a): the client leaving must not take the row with it, §4.6)", o)
+	}
+}
+
 // receiverText renders a selector's receiver expression as source-ish text.
 func receiverText(e ast.Expr) string {
 	switch v := e.(type) {

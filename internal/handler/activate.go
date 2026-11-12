@@ -1483,6 +1483,8 @@ func (a *Activation) anonFail(ip, where, reason string) {
 // the request — but never swallows it either (§7): a trail that cannot be written
 // is an ERROR-level event, because it means §4.6 is not being kept.
 func (a *Activation) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx) // T284 (a): the client leaving does not take the row with it
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
