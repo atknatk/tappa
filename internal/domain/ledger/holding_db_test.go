@@ -23,6 +23,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // hWorld is KF and KM, peers in H; C and D in H2. Each of KF and KM has a venue with a 09:00-17:00
@@ -148,8 +149,9 @@ func (w *hWorld) holding() uuid.UUID {
 func (w *hWorld) tag(tenant, venue uuid.UUID) string {
 	w.t.Helper()
 	uid := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:14])
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000, 'active')`,
-		uid, tenant, venue, make([]byte, 44))
+	if err := fixtures.LoadPlaque(w.ctx, w.owner, fixtures.Plaque{UID: uid, TenantID: tenant, Wall: venue, Key: make([]byte, 44), LastCtr: 1000}); err != nil {
+		w.t.Fatal(err)
+	}
 	return uid
 }
 

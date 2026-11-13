@@ -17,6 +17,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/claim"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // claimScene is one business's person at a 09:00–17:00 venue in Malta, with the business default
@@ -51,9 +52,7 @@ func newClaimScene(t *testing.T, p *panelHarness, tenantID uuid.UUID) *claimScen
 			s.person, tenantID, s.venue); e != nil {
 			return fmt.Errorf("employee: %w", e)
 		}
-		_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref) VALUES ($1, $2, $3, 'active', 0, decode(repeat('dead', 22), 'hex'))`,
-			s.plaque, tenantID, s.venue)
-		return e
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: s.plaque, TenantID: tenantID, Wall: s.venue})
 	}); err != nil {
 		t.Fatalf("seed the claim scene: %v", err)
 	}

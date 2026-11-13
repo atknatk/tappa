@@ -117,6 +117,13 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		"handler.LogOwedWithdrawals": "owed_withdrawals",
 		"handler.EventMintStalled":   "panel recovery: minting a link waited too long for a lock, so none was made",
 		"audit.EventWriteFailed":     "audit write failed",
+
+		// Rule 9's T282 arms: the recovery flow's own failures.
+		"handler.EventIssueFailed":      "panel recovery: issuing failed",
+		"handler.EventDeliveryFailed":   "panel recovery: delivery failed",
+		"handler.EventSpendFailed":      "panel recovery: spending the link failed",
+		"handler.EventDeliveryPanicked": "panel recovery: a delivery panicked; the worker recovered and moved on",
+		"handler.EventOutcomesLost":     "panel recovery: the drain ended with outcomes still waiting, and their writes are lost",
 	}
 	got := alertSignalConstants()
 
@@ -171,6 +178,11 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		checkin.EventPolicyFallback,
 		handler.EventMintStalled,
 		audit.EventWriteFailed,
+		handler.EventIssueFailed,
+		handler.EventDeliveryFailed,
+		handler.EventSpendFailed,
+		handler.EventDeliveryPanicked,
+		handler.EventOutcomesLost,
 	} {
 		if !mentionsWholeName(block, event) {
 			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q as a "+
@@ -222,6 +234,13 @@ func alertSignalConstants() map[string]string {
 		"handler.LogOwedWithdrawals": handler.LogOwedWithdrawals,
 		"handler.EventMintStalled":   handler.EventMintStalled,
 		"audit.EventWriteFailed":     audit.EventWriteFailed,
+
+		// Rule 9's T282 arms.
+		"handler.EventIssueFailed":      handler.EventIssueFailed,
+		"handler.EventDeliveryFailed":   handler.EventDeliveryFailed,
+		"handler.EventSpendFailed":      handler.EventSpendFailed,
+		"handler.EventDeliveryPanicked": handler.EventDeliveryPanicked,
+		"handler.EventOutcomesLost":     handler.EventOutcomesLost,
 	}
 }
 
@@ -438,6 +457,312 @@ func TestObservability_EveryLoggerCallSiteIsSpelledLog(t *testing.T) {
 			"in scripts/redline-check.sh (their patterns require the receiver to read log./slog./fmt.). "+
 			"Rename the receiver to `log`, or bind it first (`log := %s`). Backlog T51 has the measurement.",
 			o.file, o.line, o.recv, o.method, o.recv)
+	}
+}
+
+// TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg (T284 (b)): every log call that
+// reports a failed audit write spells its msg audit.EventWriteFailed, the constant M8-03 rule 9
+// pages on.
+//
+// 🔴 THE FAILURE IS THE SAME SILENT ONE: a caller that writes its own sentence ("checkin: audit
+// write failed", "the trail row could not be written") is an ERROR no rule reads, and the trail's
+// hole is never reported. Measured when this test was written (base 2624a89a): of the nine log
+// calls it finds, four used the constant (activation, the panel's record, the recovery's record,
+// the tap rate limiter) and five wrote a sentence of their own (checkin, the panel's export gate,
+// the manager invitation, the suspension gate, the on-screen invitation refusal: T282 and T284
+// moved them to the constant).
+//
+// Two nets. (1) Shape: the body of an `if` whose init or condition calls <x>.audit.Record or
+// <x>.trail.Record (audit.Recorder's own-transaction write), or of the first `if` after a statement
+// that assigns such a call in the same block (`_, err := x.audit.Record(…)` then `if err != nil`,
+// the form adminresetoutcome.go uses) — every log call in it must pass the
+// selector audit.EventWriteFailed as its msg. (2) Spelling: no log call anywhere passes a string
+// literal containing the constant's text, so a revert to the literal is red even in a helper the
+// shape does not reach (adminresetoutcome.go's logRowLost).
+//
+// ⚠️ COUNTED LIMIT: the shape is syntactic. A failure that reaches its log line through a
+// variable, a helper, or a RecordTx inside WithTenant (internal/domain/tenant/plaque.go's refused
+// mount, inviteemail.go's logUnsentInvitation) is not found by (1); backlog T303 names them.
+func TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg(t *testing.T) {
+	t.Parallel()
+
+	// msgArg is the index of the msg argument for each slog method.
+	msgArg := map[string]int{
+		"Info": 0, "Warn": 0, "Error": 0, "Debug": 0,
+		"InfoContext": 1, "WarnContext": 1, "ErrorContext": 1, "DebugContext": 1,
+		"Log": 2, "LogAttrs": 2,
+	}
+	isAuditRecord := func(n ast.Node) bool {
+		found := false
+		ast.Inspect(n, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || found {
+				return !found
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Record" {
+				return true
+			}
+			switch x := sel.X.(type) {
+			case *ast.SelectorExpr:
+				found = x.Sel.Name == "audit" || x.Sel.Name == "trail"
+			case *ast.Ident:
+				found = x.Name == "audit" || x.Name == "trail"
+			}
+			return !found
+		})
+		return found
+	}
+	isConstant := func(e ast.Expr) bool {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "EventWriteFailed" {
+			return false
+		}
+		id, ok := sel.X.(*ast.Ident)
+		return ok && id.Name == "audit"
+	}
+	// logCall returns the msg argument of a logger call, or nil.
+	logCall := func(n ast.Node) ast.Expr {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return nil
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return nil
+		}
+		i, ok := msgArg[sel.Sel.Name]
+		if !ok || !isLoggerReceiver(receiverText(sel.X)) || len(call.Args) <= i {
+			return nil
+		}
+		return call.Args[i]
+	}
+
+	var offences []string
+	sites, logged := 0, 0
+	err := filepath.Walk(repoRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			rel, rerr := filepath.Rel(repoRoot, path)
+			if rerr == nil && skipGoDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			strings.HasSuffix(path, "_templ.go") || strings.Contains(path, "/internal/store/") {
+			return nil
+		}
+		fset := token.NewFileSet()
+		f, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return nil // not our business; the compiler owns syntax
+		}
+		rel, _ := filepath.Rel(repoRoot, path)
+		// judge holds every log call in an error branch to the constant.
+		judge := func(body *ast.BlockStmt) {
+			sites++
+			ast.Inspect(body, func(m ast.Node) bool {
+				msg := logCall(m)
+				if msg == nil {
+					return true
+				}
+				logged++
+				if !isConstant(msg) {
+					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(msg.Pos()).Line)+
+						" reports a failed audit write without audit.EventWriteFailed as its msg")
+				}
+				return true
+			})
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			// The two-statement form: an assignment from the Record call, then the first `if`
+			// after it in the same block is its error branch.
+			if blk, ok := n.(*ast.BlockStmt); ok {
+				for i, st := range blk.List {
+					as, ok := st.(*ast.AssignStmt)
+					if !ok || !isAuditRecord(as) {
+						continue
+					}
+					for _, next := range blk.List[i+1:] {
+						if ifs, ok := next.(*ast.IfStmt); ok {
+							judge(ifs.Body)
+							break
+						}
+					}
+				}
+				return true
+			}
+			if msg := logCall(n); msg != nil {
+				if lit, ok := msg.(*ast.BasicLit); ok && lit.Kind == token.STRING &&
+					strings.Contains(lit.Value, audit.EventWriteFailed) {
+					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(lit.Pos()).Line)+
+						" spells the alerted msg as the literal "+lit.Value)
+				}
+				return true
+			}
+			ifs, ok := n.(*ast.IfStmt)
+			if !ok || !((ifs.Init != nil && isAuditRecord(ifs.Init)) || isAuditRecord(ifs.Cond)) {
+				return true
+			}
+			judge(ifs.Body)
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	// Nine when written (T284); fewer means the shape stopped matching the tree, not that the
+	// tree got better.
+	if logged < 9 {
+		t.Fatalf("found %d log call(s) in %d audit-write error branches, want at least 9; the scan is broken, not the tree", logged, sites)
+	}
+	t.Logf("audit-write error branches: %d, log calls in them: %d", sites, logged)
+	for _, o := range offences {
+		t.Errorf("%s. M8-03 rule 9 filters on audit.EventWriteFailed's exact text (at level ERROR), so any "+
+			"other msg is a trail hole nobody is told of (T235, T284).", o)
+	}
+}
+
+// TestObservability_AuditWritesAreDetachedFromTheRequest (T284 (a), user decision 2026-11-12):
+// every audit Record call in internal/handler, internal/httpx and internal/domain/checkin runs
+// under a context detached from the caller's cancellation — audit.Detached, or the older
+// context.WithTimeout(context.WithoutCancel(…), …) shape — assigned in the same function or
+// written inline. A Record call on r.Context(), or on a ctx parameter passed straight through,
+// lets the client's disconnect cancel the trail row (§4.6) and write an EventWriteFailed ERROR
+// that pages for nothing.
+//
+// One named exception: the recovery worker's outcome write (adminresetoutcome.go attemptOutcome)
+// runs on the worker's own clock (clock.step), which is not a request context; its bound is the
+// shutdown drain's budget, and detaching it would let a write outlive the drain.
+//
+// ⚠️ COUNTED LIMIT: syntactic. A ctx detached in another function and passed in, or a variable
+// reassigned after its detach, is judged by the name the call uses in this function only.
+func TestObservability_AuditWritesAreDetachedFromTheRequest(t *testing.T) {
+	t.Parallel()
+	exempt := map[string]bool{"internal/handler/adminresetoutcome.go:attemptOutcome": true}
+
+	isSel := func(e ast.Expr, pkg, name string) bool {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != name {
+			return false
+		}
+		id, ok := sel.X.(*ast.Ident)
+		return ok && id.Name == pkg
+	}
+	// detaching reports whether e is a call that yields a detached context.
+	detaching := func(e ast.Expr) bool {
+		call, ok := e.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		if isSel(call.Fun, "audit", "Detached") {
+			return true
+		}
+		if (isSel(call.Fun, "context", "WithTimeout") || isSel(call.Fun, "context", "WithDeadline")) && len(call.Args) > 0 {
+			inner, ok := call.Args[0].(*ast.CallExpr)
+			return ok && isSel(inner.Fun, "context", "WithoutCancel")
+		}
+		return false
+	}
+	isRecord := func(call *ast.CallExpr) bool {
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Record" || len(call.Args) == 0 {
+			return false
+		}
+		x, ok := sel.X.(*ast.SelectorExpr)
+		return ok && (x.Sel.Name == "audit" || x.Sel.Name == "trail")
+	}
+	// shallow visits body without descending into nested function literals: each literal is
+	// its own scope, judged when the walk reaches it.
+	shallow := func(body ast.Node, fn func(ast.Node)) {
+		ast.Inspect(body, func(n ast.Node) bool {
+			if _, ok := n.(*ast.FuncLit); ok && n != body {
+				return false
+			}
+			fn(n)
+			return true
+		})
+	}
+
+	var offences []string
+	calls := 0
+	for _, dir := range []string{"internal/handler", "internal/httpx", "internal/domain/checkin"} {
+		err := filepath.Walk(filepath.Join(repoRoot, dir), func(path string, info os.FileInfo, err error) error {
+			if err == nil && info.IsDir() {
+				if rel, rerr := filepath.Rel(repoRoot, path); rerr == nil && skipGoDir(rel) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.HasSuffix(path, "_templ.go") {
+				return err
+			}
+			fset := token.NewFileSet()
+			f, perr := parser.ParseFile(fset, path, nil, 0)
+			if perr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(repoRoot, path)
+			judge := func(name string, scope ast.Node) {
+				detached := map[string]bool{}
+				shallow(scope, func(n ast.Node) {
+					if as, ok := n.(*ast.AssignStmt); ok && len(as.Rhs) == 1 && detaching(as.Rhs[0]) {
+						if id, ok := as.Lhs[0].(*ast.Ident); ok {
+							detached[id.Name] = true
+						}
+					}
+				})
+				shallow(scope, func(n ast.Node) {
+					call, ok := n.(*ast.CallExpr)
+					if !ok || !isRecord(call) {
+						return
+					}
+					calls++
+					if exempt[rel+":"+name] {
+						return
+					}
+					arg := call.Args[0]
+					if id, ok := arg.(*ast.Ident); ok && detached[id.Name] {
+						return
+					}
+					if detaching(arg) {
+						return
+					}
+					offences = append(offences, rel+":"+strconv.Itoa(fset.Position(call.Pos()).Line)+" ("+name+")")
+				})
+			}
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				judge(fd.Name.Name, fd.Body)
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					if fl, ok := n.(*ast.FuncLit); ok {
+						judge(fd.Name.Name, fl)
+					}
+					return true
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+	// Ten when written (2026-11-12); fewer means the scan stopped matching the tree.
+	if calls < 10 {
+		t.Fatalf("found %d audit Record call(s), want at least 10; the scan is broken, not the tree", calls)
+	}
+	t.Logf("audit Record calls judged: %d", calls)
+	for _, o := range offences {
+		t.Errorf("%s writes an audit row under a context the client can cancel; wrap it in audit.Detached "+
+			"(T284 (a): the client leaving must not take the row with it, §4.6)", o)
 	}
 }
 

@@ -1950,6 +1950,8 @@ func (a *AdminAuth) sameOrigin(r *http.Request) bool {
 // the request — but never swallows it either (section 7): a trail that cannot be
 // written is an ERROR, because it means section 4.6 is not being kept.
 func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx)
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
@@ -1965,15 +1967,23 @@ func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 // error's text: T208 already reduces a connection failure to its class, but this line is on a
 // path any signed-in manager can drive, so it does not depend on every wrap below being right.
 // A request the client itself abandoned (class "canceled") is a WARN: nothing failed on our
-// side, and a manager cancelling a download must not be able to write ERROR lines.
+// side, and a manager cancelling a download must not be able to write ERROR lines. Since T284 (a)
+// the write runs under audit.Detached, so a client leaving no longer cancels it; the WARN stays for
+// a cancellation that still reaches the driver. The refusal is unchanged: a failed write refuses.
+//
+// The msg is audit.EventWriteFailed (T282; it was "audit write failed; the act it records was
+// refused", which no rule read) and "refused" says the act did not happen. M8-03 rule 9 pages on
+// that msg at level ERROR only, so the cancelled request's WARN stays off the pager.
 func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
+	ctx, cancel := audit.Detached(ctx)
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		class, cause := readinessFailure(err)
 		level := slog.LevelError
 		if class == errClassCanceled {
 			level = slog.LevelWarn
 		}
-		a.log.Log(ctx, level, "audit write failed; the act it records was refused", "action", e.Action,
+		a.log.Log(ctx, level, audit.EventWriteFailed, "action", e.Action, "refused", true,
 			LogErrClassKey, class, LogErrCauseKey, cause)
 		return err
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -116,12 +117,11 @@ func newTenant(t *testing.T, d *DB) (tenantID, locationID uuid.UUID) {
 // siblings planted one per run.
 func addTag(t *testing.T, d *DB, tenantID, locationID uuid.UUID, uid string, lastCtr int32) {
 	t.Helper()
+	// Born in stock, stamped, mounted, counter moved -- the product's statements (00100, T76).
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, 'active')`,
-			uid, tenantID, locationID, lastCtr)
-		return e
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{
+			UID: uid, TenantID: tenantID, Wall: locationID, LastCtr: lastCtr,
+		})
 	})
 	if err != nil {
 		t.Fatalf("addTag: %v", err)

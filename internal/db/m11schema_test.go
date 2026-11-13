@@ -535,6 +535,9 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00099 (T59 security review ORTA-2): tap sessions' one-way revocation -- SECURITY INVOKER trigger
 	// function, EXECUTE in its owner alone, body asserting TG_RELID (00051's api_keys shape).
 	"sessions_revocation_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00100 (T76 step 3): tags' born-in-stock BEFORE INSERT check -- SECURITY INVOKER trigger
+	// function, EXECUTE in its owner alone, body asserting TG_RELID (00099's shape).
+	"tappa_forbid_birth_outside_stock()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose

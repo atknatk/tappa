@@ -11,8 +11,9 @@ import (
 // tagstatusdefault_test.go -- migration 00090 (T76, step 1 of 3): a tags row that does not name its
 // status is born 'unassigned'. Before it the default was 00004's 'active', so an INSERT that omitted
 // the status and named a location landed the A-1 shape -- on a wall, 'active', never stamped -- by
-// omission (00025's header). Steps 2 (fixtures load -> stamp -> mount) and 3 (a BEFORE INSERT trigger
-// that refuses an 'active' INSERT) are not this file's: an INSERT that SAYS 'active' still lands.
+// omission (00025's header). Steps 2 (fixtures load -> stamp -> mount) and 3 (00100's BEFORE INSERT
+// trigger, tags_is_born_in_stock) came later and are tagbirth_test.go's; this file keeps step 1's
+// default, and its CONTROL now meets step 3.
 
 const tagStatusDefaultFile = "00090_plaques_are_born_unassigned.sql"
 
@@ -30,9 +31,11 @@ func tsdDefault(t *testing.T, ctx context.Context, q opQuerier) string {
 
 // TestTags00090_AnOmittedStatusIsUnassigned: the catalogue's default is 'unassigned'; as tappa_app in
 // its own tenant's context an INSERT with no status and no location is an 'unassigned' row, and one
-// with no status and a location is refused by 00013's tags_unassigned_has_no_location (23514) --
-// the A-1 shape cannot be reached by omission. CONTROL: the same row SAYING 'active' still lands
-// (steps 2 and 3 are not done), so the refusal is the default and not a broken fixture.
+// with no status and a location is refused -- the A-1 shape cannot be reached by omission. Since
+// 00100 the refusal is tags_is_born_in_stock's (23001: a BEFORE trigger fires before any CHECK);
+// 00013's tags_unassigned_has_no_location still stands behind it (tagsinventory_test.go measures it
+// on the UPDATE path). The same row SAYING 'active' is refused by 00100 too (until step 3 it
+// landed: that was this test's control).
 func TestTags00090_AnOmittedStatusIsUnassigned(t *testing.T) {
 	app := appDB(t)
 	assertAppRole(t, app)
@@ -61,16 +64,12 @@ func TestTags00090_AnOmittedStatusIsUnassigned(t *testing.T) {
 	_, err := execAs(t, app, fx.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('de', 44), 'hex'))`,
 		randUID(t), fx.tenantID, fx.locationID)
-	wantSQLSTATE(t, err, sqlstateCheckViolation, "an INSERT with no status and a location")
-	if !strings.Contains(err.Error(), "tags_unassigned_has_no_location") {
-		t.Fatalf("refused by the wrong constraint: %v, want tags_unassigned_has_no_location", err)
-	}
+	wantBornInStockRefusal(t, err, "an INSERT with no status and a location")
 
-	if _, err := execAs(t, app, fx.tenantID,
+	_, err = execAs(t, app, fx.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status) VALUES ($1, $2, $3, decode(repeat('de', 44), 'hex'), 'active')`,
-		randUID(t), fx.tenantID, fx.locationID); err != nil {
-		t.Fatalf("CONTROL: the same row saying 'active': %v (T76 steps 2 and 3 are not done; it still lands)", err)
-	}
+		randUID(t), fx.tenantID, fx.locationID)
+	wantBornInStockRefusal(t, err, "the same row saying 'active'")
 }
 
 // TestTags00090_TheDownGivesBackActiveAndTheUpTakesItAgain: both sections open with the

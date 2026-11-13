@@ -341,11 +341,7 @@ func lockSnapshotCase(t *testing.T, inTurn bool) {
 	pid := tx.Conn().PgConn().PID()
 	hasSnapshot := func() bool {
 		t.Helper()
-		var has bool
-		if err := watcher.QueryRow(ctx, `SELECT backend_xmin IS NOT NULL FROM pg_catalog.pg_stat_activity WHERE pid = $1`, pid).Scan(&has); err != nil {
-			t.Fatalf("read the transaction's backend_xmin: %v", err)
-		}
-		return has
+		return snapshotSeenBy(t, ctx, watcher, pid)
 	}
 	if hasSnapshot() {
 		t.Fatal("PREMISE: opTx's transaction has a snapshot before lockForDowns")

@@ -180,10 +180,15 @@ func TestPanelLandingDB_AnotherTenantsPlaquesAnswerNothing(t *testing.T) {
 		 VALUES ($1, 'Plaque Neighbour Ltd', $2, 'bar', 'single')`,
 		other, "VAT-"+other.String())
 	otherLocation := seedStartupTenant(t, p, other, "Neighbour")
+	// Load -> stamp -> mount (00100: a plaque is born in stock).
+	theirs := newPlaqueUID()
 	mustExec(t, p, other,
 		`INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref)
-		 VALUES ($1, $2, $3, 'active', 0, decode(repeat('dead', 22), 'hex'))`,
-		newPlaqueUID(), other, otherLocation)
+		 VALUES ($1, $2, NULL, 'unassigned', 0, decode(repeat('dead', 22), 'hex'))`,
+		theirs, other)
+	mustExec(t, p, other, `UPDATE tags SET encoded_at = now() WHERE uid = $1 AND tenant_id = $2`, theirs, other)
+	mustExec(t, p, other, `UPDATE tags SET location_id = $3, status = 'active' WHERE uid = $1 AND tenant_id = $2`,
+		theirs, other, otherLocation)
 
 	p.signIn(t)
 	_, body := p.get(t, transactionsHref)

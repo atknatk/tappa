@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 type punchBiz struct {
@@ -86,6 +87,15 @@ func randomBytes(t *testing.T, n int) []byte {
 	return b
 }
 
+// plaque loads a plaque, stamps it, mounts it on venue and moves its counter -- the product's
+// statements (fixtures.LoadPlaque; 00100: a plaque is born in stock).
+func (w *punchWorld) plaque(uid string, tenant, venue uuid.UUID, key []byte, ctr int32) {
+	w.r.t.Helper()
+	if err := fixtures.LoadPlaque(w.ctx, w.r.owner, fixtures.Plaque{UID: uid, TenantID: tenant, Wall: venue, Key: key, LastCtr: ctr}); err != nil {
+		w.r.t.Fatal(err)
+	}
+}
+
 func (w *punchWorld) exec(sql string, args ...any) {
 	w.r.t.Helper()
 	if _, err := w.r.owner.Exec(w.ctx, sql, args...); err != nil {
@@ -104,8 +114,7 @@ func (w *punchWorld) biz(code string) punchBiz {
 		w.r.t.Fatal(err)
 	}
 	b.tag = strings.ToUpper(hex.EncodeToString(randomBytes(w.r.t, 7)))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1000000, 'active')`,
-		b.tag, b.id, b.venue, randomBytes(w.r.t, 44))
+	w.plaque(b.tag, b.id, b.venue, randomBytes(w.r.t, 44), 1000000)
 	b.emp = uuid.New()
 	b.email = strings.ToLower(w.canary) + "." + code + "@punches.example.test"
 	w.exec(`INSERT INTO employees (id, tenant_id, external_ref, employee_code, full_name, email, status, invited_at)

@@ -59,6 +59,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // loadedPlaque inserts a plaque the way TAPPA'S LOADER would: a real KEK-wrapped
@@ -92,17 +93,9 @@ func (h *tapHarness) loadedPlaque(t *testing.T, status string, wall uuid.UUID) s
 	if err != nil {
 		t.Fatalf("sun.Wrap: %v", err)
 	}
-	var location *uuid.UUID
-	if wall != uuid.Nil {
-		w := wall
-		location = &w
-	}
+	// Born in stock, then stamped / mounted / lost / retired the product's way (00100, T76).
 	err = h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, $4, 0, $5)`,
-			uid, h.tenantID, location, ref, status)
-		return e
+		return fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: uid, TenantID: h.tenantID, Wall: wall, Key: ref, Status: status})
 	})
 	if err != nil {
 		t.Fatalf("load plaque (%s): %v", status, err)

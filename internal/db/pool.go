@@ -108,6 +108,8 @@ func newDB(ctx context.Context, cfg *config.Config, before func(context.Context,
 	// The stuck-writer timeouts (ADR 0028 §5) -- this pool's alone: the operator pool writes no
 	// punch and holds no feed counter.
 	pinFeedTimeouts(poolCfg)
+	// The end of every acquire: a BoundAcquireWait bound is disarmed here (internal/adminauth's mint).
+	poolCfg.PrepareConn = connectionHandedOver
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, poolStepErr("new pool", err)

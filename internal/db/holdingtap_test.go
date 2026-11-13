@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // ------------------------------------------------------------------- the world --
@@ -46,7 +47,7 @@ type holdingWorld struct {
 	kfDigest        string
 }
 
-// holdingNewTag inserts a plaque of tenant's (a random uid, a 44-byte stand-in envelope -- no
+// holdingNewTag loads a plaque of tenant's (a random uid, a 44-byte stand-in envelope -- no
 // test here unwraps a key) and returns its uid.
 func holdingNewTag(t *testing.T, ctx context.Context, q opQuerier, tenant uuid.UUID, wall *uuid.UUID, status string, ctr int32) string {
 	t.Helper()
@@ -59,8 +60,12 @@ func holdingNewTag(t *testing.T, ctx context.Context, q opQuerier, tenant uuid.U
 	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := q.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, $5, $6)`,
-		uid, tenant, wall, key, ctr, status); err != nil {
+	// Born in stock, then stamped / mounted / counted / lost the product's way (00100, T76).
+	p := fixtures.Plaque{UID: uid, TenantID: tenant, Status: status, LastCtr: ctr, Key: key}
+	if wall != nil {
+		p.Wall = *wall
+	}
+	if err := fixtures.LoadPlaque(ctx, q, p); err != nil {
 		t.Fatalf("insert a %s plaque: %v", status, err)
 	}
 	return uid
@@ -1850,6 +1855,35 @@ func lockForDowns(t *testing.T, ctx context.Context, tx pgx.Tx, tables []string)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// txHasSnapshot reports whether tx's transaction has fixed its snapshot -- its backend_xmin, read
+// from a second session (a SELECT on tx itself would take the snapshot it asks about). lockForDowns
+// says why it matters: under REPEATABLE READ a snapshot fixed before the locks makes every row
+// committed during the wait invisible, and a write to such a row is 40001. NULL after BEGIN, SET,
+// SHOW, SAVEPOINT and LOCK; set by the first SELECT or DML (lockSnapshotCase measures both).
+func txHasSnapshot(t *testing.T, ctx context.Context, tx pgx.Tx) bool {
+	t.Helper()
+	watcher, err := pgx.Connect(ctx, opOwnerDSN(t))
+	if err != nil {
+		t.Fatalf("connect the snapshot watcher: %v", err)
+	}
+	defer func() {
+		if err := watcher.Close(context.Background()); err != nil {
+			t.Logf("close the snapshot watcher: %v", err)
+		}
+	}()
+	return snapshotSeenBy(t, ctx, watcher, tx.Conn().PgConn().PID())
+}
+
+// snapshotSeenBy is txHasSnapshot's read, on a watcher connection the caller keeps.
+func snapshotSeenBy(t *testing.T, ctx context.Context, watcher *pgx.Conn, pid uint32) bool {
+	t.Helper()
+	var has bool
+	if err := watcher.QueryRow(ctx, `SELECT backend_xmin IS NOT NULL FROM pg_catalog.pg_stat_activity WHERE pid = $1`, pid).Scan(&has); err != nil {
+		t.Fatalf("read the transaction's backend_xmin: %v", err)
+	}
+	return has
 }
 
 // lockProbeExists answers whether table exists as tx sees it (a table the transaction dropped does

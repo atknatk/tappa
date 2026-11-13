@@ -657,8 +657,9 @@ func TestSandbox_AVirtualUIDHeldByAnotherBusinessIs404(t *testing.T) {
 	r.exec(`INSERT INTO locations (id, tenant_id, name, external_ref) VALUES ($1, $2, 'KF venue', 'KF-VLT')`, venue, kf)
 	r.exec(`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Their venue')`, theirs, other)
 	uid := VirtualUID(venue)
-	r.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 7, 'active')`,
-		uid, other, theirs, random(t, sun.WrappedKeyLen))
+	if err := fixtures.LoadPlaque(r.ctx, r.owner, fixtures.Plaque{UID: uid, TenantID: other, Wall: theirs, Key: random(t, sun.WrappedKeyLen), LastCtr: 7}); err != nil {
+		t.Fatal(err)
+	}
 
 	w := r.tap(key, "E-1", "KF-VLT", "nfc")
 	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"reason":"no_plaque"`) {

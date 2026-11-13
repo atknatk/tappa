@@ -208,8 +208,14 @@ func (w *holdingWorld) tag(tenant uuid.UUID, wall *uuid.UUID, status string, ctr
 		w.t.Fatal(err)
 	}
 	uid := strings.ToUpper(hex.EncodeToString(b))
-	w.exec(`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, $5, $6)`,
-		uid, tenant, wall, key, ctr, status)
+	// Born in stock, then stamped / mounted / counted / lost the product's way (00100, T76).
+	p := fixtures.Plaque{UID: uid, TenantID: tenant, Status: status, LastCtr: ctr, Key: key}
+	if wall != nil {
+		p.Wall = *wall
+	}
+	if err := fixtures.LoadPlaque(w.ctx, w.owner, p); err != nil {
+		w.t.Fatalf("plaque (%s): %v", status, err)
+	}
 	return uid
 }
 
