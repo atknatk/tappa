@@ -167,6 +167,21 @@ func (s *shapeDB) LinkByEmail(context.Context, string, string) (db.LinkedByEmail
 	return db.LinkedByEmail{}, errNoIdentityData
 }
 
+func (s *shapeDB) RequestEmailChange(context.Context, string, db.PasswordHash, string, string) (db.EmailChangeRequest, error) {
+	s.op("request-email-change")
+	return db.EmailChangeRequest{}, errNoIdentityData
+}
+
+func (s *shapeDB) ChangeEmail(context.Context, string, string, string) (db.ChangedEmail, error) {
+	s.op("change-email")
+	return db.ChangedEmail{}, errNoIdentityData
+}
+
+func (s *shapeDB) RevertEmailChange(context.Context, string) (db.RevertedEmail, error) {
+	s.op("revert-email-change")
+	return db.RevertedEmail{}, errNoIdentityData
+}
+
 // countingBudget is a FailureBudget with a small limit, so the over-limit branch is reachable; it is
 // safe for concurrent use, like httpx.Limiter.
 type countingBudget struct {

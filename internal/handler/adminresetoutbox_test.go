@@ -71,6 +71,9 @@ func (c *gateChannel) DeliverPasswordNotice(context.Context, PasswordNotice) err
 	return nil
 }
 
+// DeliverEmailChangeNotice is not this fake's subject either (T173): it answers at once.
+func (c *gateChannel) DeliverEmailChangeNotice(context.Context, EmailChangeNotice) error { return nil }
+
 // RefusingResets: no breaker in front of this fake (M10 EM-7A).
 func (c *gateChannel) RefusingResets() bool { return false }
 
@@ -126,6 +129,18 @@ func (c *panicChannel) DeliverPasswordNotice(_ context.Context, n PasswordNotice
 	c.mu.Unlock()
 	if c.panicOn[k] {
 		panic("composing the notice for " + n.Recipient)
+	}
+	return nil
+}
+
+// DeliverEmailChangeNotice panics like the password notice does, on the same call numbering (T173).
+func (c *panicChannel) DeliverEmailChangeNotice(_ context.Context, n EmailChangeNotice) error {
+	c.mu.Lock()
+	c.calls++
+	k := c.calls
+	c.mu.Unlock()
+	if c.panicOn[k] {
+		panic("composing the address change notice for " + n.Recipient)
 	}
 	return nil
 }

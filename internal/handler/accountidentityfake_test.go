@@ -23,9 +23,13 @@ type fakeIdentityHooks struct {
 	linkBucket  func(s adminauth.Resolved) (string, error)
 	requestLink func(s adminauth.Resolved) (adminauth.IssuedLink, error)
 	linkByEmail func(raw string) (adminauth.LinkedBusinesses, error)
-	calls       []string
-	budgets     []adminauth.FailureBudget
-	verified    []string
+	// The sign-in address change (T173): the request, the press, the undo. nil: refused.
+	emailRequest func(s adminauth.Resolved, password, newEmail string) (adminauth.EmailChangeRequested, error)
+	emailConfirm func(s adminauth.Resolved, raw string) (adminauth.EmailChanged, error)
+	emailUndo    func(raw string) (adminauth.EmailRestored, error)
+	calls        []string
+	budgets      []adminauth.FailureBudget
+	verified     []string
 }
 
 func (f *fakeAdmins) identCall(name string) {
@@ -139,4 +143,28 @@ func (f *fakeAdmins) LinkByEmail(_ context.Context, raw string, _ adminauth.Toke
 		return adminauth.LinkedBusinesses{}, adminauth.ErrLinkRefused
 	}
 	return f.ident.linkByEmail(raw)
+}
+
+func (f *fakeAdmins) RequestEmailChange(_ context.Context, s adminauth.Resolved, _ adminauth.Token, password, newEmail string) (adminauth.EmailChangeRequested, error) {
+	f.identCall("request-email-change")
+	if f.ident.emailRequest == nil {
+		return adminauth.EmailChangeRequested{}, adminauth.ErrNotLinked
+	}
+	return f.ident.emailRequest(s, password, newEmail)
+}
+
+func (f *fakeAdmins) ConfirmEmailChange(_ context.Context, s adminauth.Resolved, raw string, _ adminauth.Token) (adminauth.EmailChanged, error) {
+	f.identCall("confirm-email-change")
+	if f.ident.emailConfirm == nil {
+		return adminauth.EmailChanged{}, adminauth.ErrEmailChangeRefused
+	}
+	return f.ident.emailConfirm(s, raw)
+}
+
+func (f *fakeAdmins) UndoEmailChange(_ context.Context, raw string) (adminauth.EmailRestored, error) {
+	f.identCall("undo-email-change")
+	if f.ident.emailUndo == nil {
+		return adminauth.EmailRestored{}, adminauth.ErrEmailUndoRefused
+	}
+	return f.ident.emailUndo(raw)
 }

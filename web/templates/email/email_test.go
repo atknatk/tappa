@@ -136,10 +136,32 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("businesses-added notice: %v", err)
 	}
+	// T173: the sign-in address change's letters -- the link, the linkless note, and the old address's
+	// notice in both shapes -- held to every property the others are.
+	chg := testBase + changeEmailPath + "?" + changeEmailParam + "=" + randomValue(t)
+	mc, err := RenderEmailChange(ctx, chg, EmailChangeView{BaseURL: testBase, ValidFor: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("address change: %v", err)
+	}
+	mct, err := RenderEmailChangeTaken(ctx, sin, PasswordChangedView{BaseURL: testBase})
+	if err != nil {
+		t.Fatalf("address change, address taken: %v", err)
+	}
+	und := testBase + undoEmailPath + "?" + undoEmailParam + "=" + randomValue(t)
+	mu, err := RenderEmailChanged(ctx, und, EmailChangedView{BaseURL: testBase, Undo: true, ChangedAt: emailChangedAt, ValidFor: 7 * 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("address changed, undo: %v", err)
+	}
+	mun, err := RenderEmailChanged(ctx, sin, EmailChangedView{BaseURL: testBase, ChangedAt: emailChangedAt})
+	if err != nil {
+		t.Fatalf("address changed, no undo: %v", err)
+	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
 		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
 		{"registration verification", sgv, msv}, {"registration, known address", sgk, msk}, {"manager invitation", adm, ma},
-		{"e-mail verification", ver, mv}, {"link by e-mail", lnk, ml}, {"businesses added", sin, mn}}
+		{"e-mail verification", ver, mv}, {"link by e-mail", lnk, ml}, {"businesses added", sin, mn},
+		{"address change", chg, mc}, {"address change, taken", sin, mct},
+		{"address changed, undo", und, mu}, {"address changed, no undo", sin, mun}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -536,6 +558,56 @@ func TestRender_AcceptsTheLinkBusinessesLinkAdminauthMints(t *testing.T) {
 	}
 	if _, err := RenderLinkBusinesses(context.Background(), testBase+verifyPath+"?t="+randomValue(t), LinkBusinessesView{BaseURL: testBase, ValidFor: time.Hour}); err == nil {
 		t.Error("CONTROL: a verification link passed as a link link")
+	}
+}
+
+// emailChangedAt is the address change's instant in renderEach, and emailChangedWhen the words the notice
+// prints for it (UTC -- the identity has no business's zone).
+var emailChangedAt = time.Date(2026, 11, 13, 14, 3, 0, 0, time.FixedZone("Malta", 3600))
+
+const emailChangedWhen = "13 November 2026 at 13:03 UTC"
+
+// TestRender_AcceptsTheEmailChangeLinksAdminauthMints holds this package's two copies of the address
+// change's paths to internal/adminauth's (T173): the links adminauth mints render, each refuses the
+// other's link, and the notice's two shapes take only their own link (the undo link, or the sign-in
+// page when no undo link was written).
+func TestRender_AcceptsTheEmailChangeLinksAdminauthMints(t *testing.T) {
+	ctx := context.Background()
+	if adminauth.ChangeEmailPath != changeEmailPath || adminauth.ChangeEmailParam != changeEmailParam ||
+		adminauth.UndoEmailPath != undoEmailPath || adminauth.UndoEmailParam != undoEmailParam {
+		t.Fatalf("adminauth mints %s / %s, this package checks %s / %s", adminauth.ChangeEmailPath, adminauth.UndoEmailPath, changeEmailPath, undoEmailPath)
+	}
+	chg := testBase + adminauth.ChangeEmailPath + "?" + adminauth.ChangeEmailParam + "=" + randomValue(t)
+	und := testBase + adminauth.UndoEmailPath + "?" + adminauth.UndoEmailParam + "=" + randomValue(t)
+	sin := testBase + signInPath
+	if _, err := RenderEmailChange(ctx, chg, EmailChangeView{BaseURL: testBase, ValidFor: 24 * time.Hour}); err != nil {
+		t.Errorf("the change link adminauth mints was refused: %v", err)
+	}
+	if _, err := RenderEmailChange(ctx, und, EmailChangeView{BaseURL: testBase, ValidFor: 24 * time.Hour}); err == nil {
+		t.Error("CONTROL: an undo link passed as a change link")
+	}
+	m, err := RenderEmailChanged(ctx, und, EmailChangedView{BaseURL: testBase, Undo: true, ChangedAt: emailChangedAt, ValidFor: 7 * 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("the undo link adminauth mints was refused: %v", err)
+	}
+	if !strings.Contains(m.Text, "within 7 days") || !strings.Contains(m.Text, emailChangedWhen) {
+		t.Error("the notice with an undo link does not state its date and its seven days")
+	}
+	if _, err := RenderEmailChanged(ctx, chg, EmailChangedView{BaseURL: testBase, Undo: true, ChangedAt: emailChangedAt, ValidFor: time.Hour}); err == nil {
+		t.Error("CONTROL: a change link passed as an undo link")
+	}
+	if _, err := RenderEmailChanged(ctx, und, EmailChangedView{BaseURL: testBase, ChangedAt: emailChangedAt}); err == nil {
+		t.Error("the notice without an undo link took an undo link")
+	}
+	m, err = RenderEmailChanged(ctx, sin, EmailChangedView{BaseURL: testBase, ChangedAt: emailChangedAt})
+	if err != nil {
+		t.Fatalf("the notice without an undo link refused the sign-in page: %v", err)
+	}
+	if strings.Contains(m.Text, "within") || !strings.Contains(m.Text, "can no longer undo it") {
+		t.Error("the notice without an undo link speaks of a time to undo, or does not say it cannot")
+	}
+	if _, err := RenderEmailChangeTaken(ctx, chg, PasswordChangedView{BaseURL: testBase}); err == nil {
+		t.Error("the linkless note took a change link")
 	}
 }
 
@@ -1510,6 +1582,10 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"e-mail verification":              verificationLetter("1 day"),
 		"link by e-mail":                   linkBusinessesLetter("1 day"),
 		"businesses added":                 businessesAddedLetter(2),
+		"address change":                   emailChangeLetter("1 day"),
+		"address change, taken":            emailChangeTakenLetter(),
+		"address changed, undo":            emailChangedLetter(emailChangedWhen, "7 days"),
+		"address changed, no undo":         emailChangedLetter(emailChangedWhen, ""),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
@@ -1517,7 +1593,8 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 	}
 	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business",
 		"registration verification", "registration, known address", "manager invitation", "e-mail verification",
-		"link by e-mail", "businesses added"} {
+		"link by e-mail", "businesses added", "address change", "address change, taken", "address changed, undo",
+		"address changed, no undo"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}

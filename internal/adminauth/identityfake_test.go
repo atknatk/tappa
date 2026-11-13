@@ -78,6 +78,18 @@ func (noIdentityData) LinkByEmail(context.Context, string, string) (db.LinkedByE
 	return db.LinkedByEmail{}, errNoIdentityData
 }
 
+func (noIdentityData) RequestEmailChange(context.Context, string, db.PasswordHash, string, string) (db.EmailChangeRequest, error) {
+	return db.EmailChangeRequest{}, errNoIdentityData
+}
+
+func (noIdentityData) ChangeEmail(context.Context, string, string, string) (db.ChangedEmail, error) {
+	return db.ChangedEmail{}, errNoIdentityData
+}
+
+func (noIdentityData) RevertEmailChange(context.Context, string) (db.RevertedEmail, error) {
+	return db.RevertedEmail{}, errNoIdentityData
+}
+
 func (noIdentityData) UnlinkMembership(context.Context, string, uuid.UUID) (db.UnlinkedMembership, error) {
 	return db.UnlinkedMembership{}, errNoIdentityData
 }

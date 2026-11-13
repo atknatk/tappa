@@ -67,6 +67,10 @@ type adminAuthenticator interface {
 	LinkBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 	RequestLink(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedLink, error)
 	LinkByEmail(ctx context.Context, raw string, current adminauth.Token) (adminauth.LinkedBusinesses, error)
+	// The sign-in address change (T173, accountemail.go): the request, the press, the undo.
+	RequestEmailChange(ctx context.Context, s adminauth.Resolved, current adminauth.Token, password, newEmail string) (adminauth.EmailChangeRequested, error)
+	ConfirmEmailChange(ctx context.Context, s adminauth.Resolved, raw string, current adminauth.Token) (adminauth.EmailChanged, error)
+	UndoEmailChange(ctx context.Context, raw string) (adminauth.EmailRestored, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -367,8 +371,17 @@ type AdminAuth struct {
 	// accountidentity.go): verification links asked for, and link / unlink / Undo presses.
 	verifyLimiter      *limiter
 	identityActLimiter *limiter
-	sessionLimiter     *limiter
-	logoutLimiter      *limiter
+	// emailChangeLimiter is the address change request's per-PERSON budget and emailUndoLimiter the undo
+	// press's per-address one (T173, adminratelimit.go).
+	emailChangeLimiter *limiter
+	emailUndoLimiter   *limiter
+	// emailFloor is emailChangeRequestFloor, a field so a test can measure the exits without its wait;
+	// emailLetters the change letters' own queue (nil when invitations are not e-mailed -- the letters go
+	// through the same per-mailbox cap and breaker).
+	emailFloor     time.Duration
+	emailLetters   *emailLetterQueue
+	sessionLimiter *limiter
+	logoutLimiter  *limiter
 	// switchLimiter is the switch's budget, keyed by the person and the address
 	// (adminSwitchLimit says why not the session).
 	switchLimiter *limiter
@@ -565,6 +578,9 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 
 		verifyLimiter:      newLimiter(adminVerifyRequestLimit, adminVerifyRequestPeriod),
 		identityActLimiter: newLimiter(adminIdentityActLimit, adminIdentityActPeriod),
+		emailChangeLimiter: newLimiter(adminEmailChangeLimit, adminEmailChangePeriod),
+		emailUndoLimiter:   newLimiter(adminEmailUndoLimit, adminEmailUndoPeriod),
+		emailFloor:         emailChangeRequestFloor,
 		sessionLimiter:     newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:      newLimiter(adminLogoutLimit, adminLogoutPeriod),
 		switchLimiter:      newLimiter(adminSwitchLimit, adminSwitchPeriod),
@@ -586,6 +602,11 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	}
 	if err := invitationMode(cfg.InviteDelivery, a.inviteMail); err != nil {
 		return nil, err
+	}
+	// The address change letters' queue and its worker (T173): only where the panel e-mails, and only
+	// where the identity surface exists.
+	if a.inviteMail != nil && a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
+		a.emailLetters = newEmailLetterQueue(emailLetterQueueSize, a.inviteMail, log)
 	}
 	// 🔴 A CONFIGURATION THAT HOLDS THE API KEY'S HMAC KEY IS ONE THAT ISSUES KEYS (M11 API-3, the
 	// second round's D3): config.Load makes TAPPA_API_KEY_HMAC_KEY required, so every production
@@ -645,6 +666,9 @@ func (a *AdminAuth) Mount(r chi.Router) {
 		r.With(a.floodGate("admin_verify_link")).Get(verifyLinkPath, a.verifyLinkLanding)
 		// M14-22: the link by e-mail's landing -- the same shape (a cookie and a redirect, nothing spent).
 		r.With(a.floodGate("admin_link_landing")).Get(linkLandingPath, a.linkLanding)
+		// T173: the address change link's landing -- the same shape (a cookie and a redirect, nothing
+		// spent). The UNDO link's page and press are mounted by their own call (MountEmailUndo).
+		r.With(a.floodGate("admin_email_change_link")).Get(emailChangeLandingPath, a.emailChangeLanding)
 	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
