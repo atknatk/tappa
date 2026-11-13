@@ -252,8 +252,8 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
    `internal/policy/guardrails.go:396`, `:479`, `:586`; `internal/policy/baseline.go` (`channelQR`). `manual`'ı dışlayan
    biçimler (`checkin.go:1154`, `:1777`, `:1796`; `daycutoff.sql:73`; `00068:336`) `qr_live`'ı sessizce kabul eder ya da
    (`:1154`, plaketsiz istek) reddeder. **Bu liste bir başlangıçtır, eksiksizlik kanıtı değildir** — üç plan denetimi
-   üç kez yeni bir biçim buldu. Kanıt M16-21'in parite testidir: aynı fikstürde `qr` ve `qr_live` satırları kanal ve
-   plaket sütunları dışında aynı olmalıdır. İkisi sessiz kayıp üretir: akış tetikleyicisi
+   üç kez yeni bir biçim buldu. Kanıt M16-21'in parite matrisidir: `qr_live` aynı kanıtla `qr`'nin yazdığı her şeyi
+   yazmalıdır; amacı, bilinen yapısal farkları ve karşılaştırmanın tanımı M16-21'dedir. İkisi sessiz kayıp üretir: akış tetikleyicisi
    `NEW.channel NOT IN ('nfc', 'qr')` satırını atlar (`00067:193`) ve Go aynası `feedEligible` aynı şeyi söyler
    (`internal/domain/checkin/checkin.go:1687-1689`); `/v1` şeması kanalı `enum: [nfc, qr]` diye kapatır
    (`internal/handler/api/openapi.yaml:1105`, `:1170`). Ayrıca `sys:tap-freshness` ve `sys:sun-invalid` yalnız NFC'de

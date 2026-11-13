@@ -795,30 +795,32 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
   hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
-  - **Yalıtım:** iki kanal **aynı çalışanla art arda koşmaz** — ikinci dokunuş debounce'a (`ignored`) düşer ya da yönü
-    çevirir. Her kanal kendi, birebir aynı fikstüründe koşar: **varsayılan klonlanmış çalışandır** (aynı lokasyon,
-    vardiya, gün dönümü, IP, saat). *Geri alınan ayrı transaction* yalıtımı çalışmaz: `checkin` kendi `WithTenant`
-    transaction'ını açıp commit eder, test onu dıştan geri alamaz.
-  - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — dört hücre, çünkü akış tetikleyicisinin dört
-    kanal süzgeci var ve her biri `qr_live`'ı bir `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlar: `00067:193`
-    (yerel `ok`, `NOT IN`), `:234` (yerel `flag` → onay, `NOT IN`), `:366` (holding `ok`, `v_event`'te `IN`), `:408`
-    (holding onayı, `v_event`'te `IN`). Holding hücreleri ADR 0027 kuralı `qr_live`'a **açıksa** parite ölçer.
-    **Kapalıysa parite değil şu ölçülür** — statik `qr` holding'de hiç reddedilmediği için (K-1g,
-    `sys:cross-tenant-qr-site-ip`: IP ile `ok`, IP'siz `flag`) bu dalda `qr` hücresi referans **değildir**: `qr_live`
-    reddi bir `transactions` satırı yazar (§4.6) · `punch_events`'e olay girmez · `site_punches` satırı yazılıyorsa
-    `outcome='refused'` ile (`00046:139-140`'ın kapalı kümesi, eşlemesi `:284-291`) **CHECK hatasız** yazılır
-    (`site_punches.channel` CHECK'i `00046:137` M16-19'da genişlemiş olmalı).
-  - **Karşılaştırmanın dışında kalanlar:** kimlik ve sıra sütunları (`seq`, satır id'leri, `punch_id` /
-    `transaction_id`, `recorded_at`, `created_at`), plaket sütunları (`tag_uid`, `site_tag_uid`), `channel`, ve çalışan
-    klonlandığı için çalışan kimlik sütunları (`employee_id`, `employee_ref`, `employee_code`, `employee_name` —
-    hangisi o tabloda varsa). Geri kalan her sütun eşit olmalıdır.
-  - **Her hücrede karşılaştırılan:** `transactions` satırı (yukarıdaki dışlamalar hariç aynı — özellikle
-    `business_day_start`, vardiya anlık görüntüsü sütunları (`00095`), `direction_source`, `type`, `trust`, `verdict`,
-    `matched_sid`), **`punch_events` satırları** (Q38'in cevabına göre eşlenmiş kanal dışında aynı) ve holding
-    hücrelerinde **`site_punches` satırı** (tablo `00046`; bugünkü yazıcısı `00067:528-544`).
+  - **Amaç:** `qr_live`, aynı kanıtla `qr`'nin yazdığı her şeyi yazar — `transactions`, `punch_events` ve holding'de
+    `site_punches`; bir şeyi eksik yazarsa test kırmızıdır ve envanterde adı geçmeyen bir yer de böyle yakalanır.
+  - **Yalıtım:** iki kanal aynı çalışanla art arda koşmaz (ikinci dokunuş debounce'a düşer ya da yönü çevirir);
+    **varsayılan, birebir aynı fikstürde klonlanmış çalışandır**. Gerekçe: gerçek yolun `*db.DB`'si kendi
+    transaction'ını commit eder; `checkin.Database` tüketici tarafı bir arayüz olduğu için (`checkin.go:141-144`) dış
+    bir transaction'da savepoint'le koşturulabilir — sandbox bunu yapar (`internal/sandbox/runner.go:96-107`,
+    `db.WithTenantIn`) — ama o bağdaştırıcı başka bir işletmenin bağlamını reddeder (`errAnotherBusiness`) ve holding
+    hücrelerine hizmet edemez.
+  - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — akış tetikleyicilerinin `qr_live`'ı bir
+    `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlayan dört kolu: `00067:193` (yerel `ok`), `:234` (yerel
+    onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri ADR 0027 kuralı `qr_live`'a **açıksa**
+    parite ölçer. **Kapalıysa parite değil şu ölçülür** — holding kuralı statik `qr`'yi hiç reddetmez (K-1g,
+    `sys:cross-tenant-qr-site-ip`: IP ile `ok`, IP'siz `flag`), bu yüzden bu dalda `qr` hücresi referans değildir:
+    `qr_live` reddi bir `transactions` satırı yazar (§4.6) · `punch_events`'e olay girmez · `site_punches` satırı
+    yazılıyorsa `outcome='refused'` ile **CHECK hatasız** yazılır (kapalı küme `00046:139-140`; bugünkü eşleme
+    `holding_feed`'de, `00067:300`, `:357-363`; `site_punches.channel` CHECK'i `00046:137` M16-19'da genişlemiş olmalı).
+  - **Bilinen yapısal farklar** (eşitlik beklenmez): kanal sütunu ve kanal eşlemesi; plaket sütunları; kimlik, sıra ve
+    zaman damgası sütunları (`site_punches.bucket_hour` dahil — `now()`'ın saatidir; ya dışlanır ya iki koşu aynı saate
+    sabitlenir); klonlanmış çalışanın kimlik sütunları; `policy_context`'te `tap:channel` (`decide.go:93`). Plaket
+    anahtarları `tag:status`, `tag:locationId`, `location:id` yalnız `in.Tag != nil` iken yazılır (`decide.go:114-117`):
+    `qr_live`'daki ekran karşılıklarını M16-21 açık bir kuralla tanımlar ve test o kurala göre karşılaştırır.
+    `policy_context`'in geri kalan anahtarları (`tap:ipMatch`, `tap:gpsMatch` dahil) eşittir.
+  - **Kesin sütun ve anahtar listesini yapıcı**, testi yazarken şemaya karşı sabitler; liste M16-21'in kendi
+    denetiminde incelenir. Bu kart onu önceden saymaz.
   - Debounce davranışı bu matrisin değil yukarıdaki `TestDecide_` / DB vakalarının (kanallar arası, geriye
-    tarihlenmiş) işidir; matris onlara atıf yapar.
-  - Bir sütun ya da satır `qr_live`'da eksik kalırsa test kırmızıdır; envanterde adı geçmeyen bir yer de böyle yakalanır.
+    tarihlenmiş) işidir.
 - Parite testinin ulaşamadığı yerler (panel metni `claimChannelWord`, sandbox simülatörü gibi kayıt yazmayanlar) tek
   satırlık bir takip maddesi olarak yazılır — yeni arama desenleri eklenmez.
 - CLAUDE.md §5 *"QR kanalı"*na canlı QR cümleleri (bu kartla). ADR 0005'e canlı QR aktarma riski (Bedel 5) —
