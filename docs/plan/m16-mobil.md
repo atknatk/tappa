@@ -1,6 +1,6 @@
 # M16 — Personel mobil uygulaması (isteğe bağlı) + NFC'siz telefonlar
 
-> **Durum:** plan (2026-11-13, 1. sürüm — henüz denetlenmedi). Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
+> **Durum:** plan (2026-11-13, 3. sürüm — iki bağımsız denetim turunun bulguları işlendi; üçüncü tur bekliyor). Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
 > bu dosyaya "yapıldı" yazılmaz.
 >
 > **Karar belgesi:** [ADR 0044](../adr/0044-istege-bagli-native-uygulama.md) (durum *Önerildi*). Kartlar ADR'nin
@@ -59,7 +59,7 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 | Tazelik ve SUN guardrail'leri | `guardrails.go:396`, `:479` | NFC-only → `qr_live` için karar gerekir (M16-21) |
 | Debounce'un sunucu saati bacağı | `db/queries/transactions.sql:317` (`SecondsSinceLastRecordedTap`) | ❌ `channel IN ('nfc', 'qr')` → `qr_live` girmezse geriye tarihlenmiş bir `qr_live` dokunuşu debounce'u **sessizce** atlar (M16-19, M16-21) |
 | Motor her tap'te plaket varsayar | `internal/domain/tap/types.go:471-473` (`Tag` *"Always present for a resolved tap"*), `/v1` `tagId` (`openapi.yaml:1130-1133`) | ❌ `qr_live` satırının plaketi yok → M16-21 |
-| Tenant bilinmeden çözümleme | `00003` `resolve_session_by_token_hash` (`tappa_resolver`, SECURITY DEFINER, sabit `search_path`) | cihaz, ekran oturumu ve eşleşme kodu da aynı desenle çözülür (M16-03, M16-19) |
+| Tenant bilinmeden çözümleme | `00003` `resolve_session_by_token_hash` (`tappa_resolver`, SECURITY DEFINER, sabit `search_path`) | cihaz, ekran oturumu ve eşleşme kodu aynı desenle; dokunuş anındaki ekran `00004` `resolve_tag_by_uid` deseniyle çözülür (M16-03, M16-19) |
 | Yeni baseline belgesi var olan tenant'a nasıl girer | `checkin/policyset.go:422`, `:529` | ilk dokunuşta **onaysız** materialize edilir (ADR 0044 Bedel 10) |
 | `transactions` INSERT yetkisi | ADR 0038 | **sütun listesi** → `client` için ayrı GRANT |
 | İkinci cihaz ilkini iptal eder | `activate.go:1068-1077` | ✅ → uygulamaya genişler (Q40) |
@@ -115,7 +115,7 @@ numara değişikliği notu).
 | 00100 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
 | 00101 | M16-04 | `transactions.client` + **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID` (NULL'u kabul eder — `00065` deseni) + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
 | 00102 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
-| 00103 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + ekran oturumu ve eşleşme kodu çözümleyicileri (SECURITY DEFINER, `00003` deseni) | satır varsa reddeder |
+| 00103 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
 | 00104 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
 | 00105 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
 | 00106 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
@@ -385,7 +385,12 @@ ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
   eşi: önizleme, tahmini yön, **sayaç ilerlemez**, imzalı tap bağlamı), `POST /app/v1/tap` (`POST /api/checkin`'in
   eşi: bağlam + `want` + konum + sahte konum bayrağı), `GET /app/v1/me` (ad, tenant markası, tahmini yön — eski
   iPhone'un tek ekranı için, Q41), `POST /app/v1/revoke` (cihazın kendi çıkışı).
-- Durum değiştiren her istek imzalı + tek kullanımlık nonce (M16-05); imzasız istek 401, kayıt yazmaz — **ama**
+- Durum değiştiren her istek imzalı + tek kullanımlık nonce (M16-05) — **iki istisnayla, açıkça:** `activate/bind`
+  henüz bir cihaz satırı yokken gelir (nonce `device_id`'ye bağlıdır, M16-03), tekrarına karşı korumayı davetin onay +
+  bağ kuralı verir (ikinci bind ilkini taşır, ADR 0026 *"Güvenlik değerlendirmesi"*); `activate/complete` bağlı ama
+  etkin olmayan cihazdan gelir ve **nonce almaz** — tekrar koruması SUN'un atomik `ctr`'ıdır (aynı okuma ikinci kez
+  `sun.Verify`'dan geçemez, §4.4) ve tek ifadeli tüketimdir; imza bağlı anahtarla. Etkin olmayan cihaza nonce
+  verilmez. İmzasız istek 401, kayıt yazmaz — **ama**
   kimliği çözülmüş bir istek §5'in kayıt yazan satırlarına (4, 6, 7) tarayıcıyla aynı şekilde iner.
 - Aynı `checkin.Service.Record`; `client='app'` sunucudan; tap bağlamı `GET /t`'ninkiyle aynı imzalı yapı (tazelik
   guardrail'i aynı saati okur).
@@ -505,6 +510,11 @@ taramasından geçen boş bir personel uygulaması.
   `CompleteByTap` sırası; sunucu `sun.Verify` ile doğrular, uygulama doğrulamaz).
 - M16-05'in bilinen cevap vektörleri Kotlin tarafında JVM testinde geçer (aynı kanonik metin).
 - CLAUDE.md §5 *"Aktivasyon dokunuşu"*na uygulama yolu cümlesi (M16-16 ile ortak; ilk biten yazar, ikinci uyarlar).
+  **§5 sıra notu:** CLAUDE.md §5 *"Aktivasyon dokunuşu"* bugün sırayı *"`sun.Verify` → aktif plaket → tüketim"*
+  diye yazar (`CLAUDE.md:391`); ADR 0026 md. 3 ve plan ise *"ilerletmeyen ön kontrol (aynı tenant, aktif) → `sun.Verify`
+  → tüketim"* der, ve `internal/handler/activate.go:852-862`'nin ORDER yorumu eski sırayı (`sun.Verify` → plaket
+  denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
+  ikisi aynı commit'te düzeltilir.
 
 ## M16-13 — Android tap ekranı: NFC, tek seferlik konum, sahte konum
 
@@ -586,6 +596,12 @@ kapsayan boş bir personel uygulaması.
   biyometri ya da `userPresence` **yok** (birim testi bayrakları okur).
 - Aktivasyon akışı M16-12'nin eşi (aynı ekran sırası, aynı metinler); M16-05 vektörleri birim testinde geçer.
 - Simülatörde Secure Enclave yoktur: test yolu bunu açıkça ayırır (sahte anahtar yalnız test hedefinde).
+- CLAUDE.md §5 *"Aktivasyon dokunuşu"* cümlesi M16-12 ile ortaktır (ilk biten yazar).
+  **§5 sıra notu:** CLAUDE.md §5 *"Aktivasyon dokunuşu"* bugün sırayı *"`sun.Verify` → aktif plaket → tüketim"*
+  diye yazar (`CLAUDE.md:391`); ADR 0026 md. 3 ve plan ise *"ilerletmeyen ön kontrol (aynı tenant, aktif) → `sun.Verify`
+  → tüketim"* der, ve `internal/handler/activate.go:852-862`'nin ORDER yorumu eski sırayı (`sun.Verify` → plaket
+  denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
+  ikisi aynı commit'te düzeltilir.
 
 ## M16-17 — iOS tap ekranı: Universal Link + Core NFC ön plan okuma
 
@@ -643,10 +659,23 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Tenant bilinmeden çözümleme** (M16-03 ile aynı kural): ekranın eşleşme kodunu girdiği istek ve ekran oturumu
   çerezi tenant bilinmeden gelir; ikisinin çözümü de `00003`'ün `resolve_session_by_token_hash` / `tappa_resolver`
   desenindeki dar SECURITY DEFINER fonksiyonlarıdır (en çok 1 satır, sütun GRANT'ı, `SET search_path = pg_catalog,
-  pg_temp`, EXECUTE yalnız `tappa_app`); eşleşme kodunun tüketimi tek ifadedir. RLS testi + definer yüzeyi envanteri
-  (`TestResolverAccess_TheCallSitesAreTheOnesInventoried`) güncellenir.
-- **Envanter tablosu** kartın içine yazılır: `'nfc', 'qr'` / `channel IN` / `NOT IN` geçen **her** migration
-  fonksiyonu, CHECK, sorgu ve Go dosyası (başlangıç: ADR 0044 Bedel 6'nın listesi) — her biri için *"qr_live girer /
+  pg_temp`, EXECUTE yalnız `tappa_app`); eşleşme kodunun tüketimi tek ifadedir.
+- **Üçüncü çözümleyici — dokunuş anı.** Çalışanın okuttuğu token'dan ekran satırına (tenant, lokasyon, `revoked_at`,
+  lokasyonun durumu) giden çözüm de tenant bağlamı olmadan yapılır ve holding durumunda (ADR 0027 — KM çalışanı KF
+  ekranında) **başka bir tenant'ın** satırını okumak zorundadır; §5 satır 1'in eşi (M16-21) buna dayanır. Bu,
+  `00004`'ün `resolve_tag_by_uid`'inin (`00004_create_tags.sql:143`, sahibi `tappa_resolver` `:178`, EXECUTE yalnız
+  `tappa_app` `:182-183`) birebir eşidir: ekran kimliği → (tenant, lokasyon, iptal durumu, lokasyon durumu), en çok 1
+  satır, sabit `search_path`. *İmzalı token tenant'ı zaten taşıyor, arama normal tenant kapsamında kalabilir*
+  seçeneği **alınmadı**: token iptali göremez (iptal edilmiş ekranın son token'ı ~20 sn yaşar ve iptal ekranın
+  satırındadır), ve holding dokunuşunda oturumun tenant'ı token'ınkinden farklıdır — normal kapsam satırı göremez.
+- Üç çözümleyici için RLS testi (fonksiyonsuz `tappa_app` başka tenant'ın ekranını göremez) + definer yüzeyi envanteri
+  (`TestResolverAccess_NoSqlcQueryNamesADefiner`, `TestResolverAccess_TheCallSitesAreTheOnesInventoried`) güncellenir.
+- **Envanter tablosu** kartın içine yazılır: `'nfc', 'qr'` / `channel IN` / `NOT IN` geçen **ve ters biçimdeki**
+  `<> 'manual'` / `!= 'manual'` / `!= ChannelManual` / `== ChannelManual` / `!= tap.ChannelManual` karşılaştırmalarının
+  geçtiği **her** migration fonksiyonu, CHECK, sorgu ve Go dosyası (ters biçim `qr_live`'ı **sessizce kabul eder** — bu
+  doğru olabilir, ama her biri için nedeni yazılır: ör. `db/queries/daycutoff.sql:73`, `00068:336`,
+  `internal/domain/checkin/checkin.go:1777` (`SunValid` sütunu), `:1796` (site yazımı — `tagRow` varsayar, `qr_live`'da
+  plaket satırı yoktur), ve `:1154` aşağıda) (başlangıç: ADR 0044 Bedel 6'nın listesi) — her biri için *"qr_live girer /
   girmez, neden"*. `transactions_site_by_channel` (`00043:139-142`) için üçüncü kol (ekranın lokasyonu dolu, plaket
   uid'i boş — öneri). Envanter en az şunları adlandırır: `00005`, `00043`, `00044`, `00046`, `00048`, `00049`, `00050`,
   `00067`, `00068`, `00095`; `db/queries/transactions.sql` — **`SecondsSinceLastRecordedTap`'in `channel IN ('nfc',
@@ -704,8 +733,13 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
   - **§5 satır 1'in eşi:** iptal edilmiş (`revoked_at` dolu) ya da lokasyonu pasif bir ekranın token'ı → sonuç
     (öneri: `reject`, satır 1 gibi) **ve kaydın yazılıp yazılmadığı** (öneri: kimliği çözülmüş kişi için yazılır,
     §4.6).
-  - **Lokasyon ve tenant token'dan türetilir** (`resolve_tag_by_uid`'in yerini ekran çözümü alır, `00004`); istekten
-    lokasyon alanı okunmaz.
+  - **Lokasyon ve tenant token'dan türetilir** — tap yolunda `resolve_tag_by_uid`'in (`00004`) yerini M16-19'un
+    üçüncü çözümleyicisi alır; istekten lokasyon alanı okunmaz.
+  - **İstek doğrulaması plaket ister:** `internal/domain/checkin/checkin.go:1154`
+    (`r.Channel != tap.ChannelManual && r.TagUID == ""` → `ErrInvalidRequest`, *"a tap needs a tag"*) bugün plaketsiz
+    her `qr_live` isteğini reddeder — kayıt kaybolur (§4.6). Kural `qr_live`'ı ekran kimliğiyle karşılar; `:1796`'nın
+    site yazımı (`tagRow`) da öyle. **DB testi:** `qr_live` + IP → satır yazılır (`channel='qr_live'`, `tag_uid` NULL,
+    `site_location_id` dolu), verdict `ok`.
   - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
     durumu (ADR 0027 — KM çalışanı KF ekranında) statik QR'ın holding kuralına (`sys:cross-tenant-qr-site-ip`) göre
     ya açılır ya kapalı kalır, gerekçesiyle; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
@@ -764,6 +798,11 @@ kalkışı).
 - Kendi kendine onay: müdür kendi telefonunu onaylayamaz (ADR 0037'nin ruhu — ölç, uygulanabiliyorsa).
 - Sihirbaz metinleri §9 aktivasyon ailesi kararı ister — kullanıcıya gösterilir.
 - ADR 0026'ya not: Bedel 3 iptal edildi (silinmez). CLAUDE.md §5 *"Aktivasyon dokunuşu"*na NFC'siz yollar.
+  **§5 sıra notu:** CLAUDE.md §5 *"Aktivasyon dokunuşu"* bugün sırayı *"`sun.Verify` → aktif plaket → tüketim"*
+  diye yazar (`CLAUDE.md:391`); ADR 0026 md. 3 ve plan ise *"ilerletmeyen ön kontrol (aynı tenant, aktif) → `sun.Verify`
+  → tüketim"* der, ve `internal/handler/activate.go:852-862`'nin ORDER yorumu eski sırayı (`sun.Verify` → plaket
+  denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
+  ikisi aynı commit'te düzeltilir.
 
 ## M16-24 — Faz D kapanışı
 
@@ -804,7 +843,7 @@ kalkışı).
 
 ## M16-26 — Raporlar ve panelde cihaz listesi; Faz E kapanışı
 
-- **Bağımlılık:** M16-25
+- **Bağımlılık:** M16-25, M16-24 (`qr_live` oranı Faz D'nin kanalını ister)
 - **Kırmızı çizgi:** §4.5 (tenant panelinde `app_devices` okuması + yazma yolu)
 - **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki** (tek cihaz iptali panelin yazma yoludur)
 - **Commit:** `feat(dashboard): show app, attested and mock-location ratios`

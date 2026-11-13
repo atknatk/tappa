@@ -39,13 +39,16 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.1 Uygulama isteğe bağlıdır ve eklemelidir
 
-- Tarayıcı akışı **değişmez ve tam desteklenir**. Uygulamasız bir çalışan bugünkü her şeyi yapar.
-- **Aynı plaket, aynı URL.** Plaketin NDEF kaydı `TAPPA_BASE_URL` + `/t` taşır (`internal/handler/tap.go:282`,
+- **Karar (kullanıcı):** native uygulama isteğe bağlıdır; tarayıcı akışı **değişmez ve tam desteklenir**. Uygulamasız
+  bir çalışan bugünkü her şeyi yapar.
+- Bu alt bölümün aşağıdaki **üç maddesinin üçü de plan önerisidir** *(kullanıcı 2026-11-12'de planı gördü ve
+  yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir)*:
+- **(Plan önerisi) Aynı plaket, aynı URL.** Plaketin NDEF kaydı `TAPPA_BASE_URL` + `/t` taşır (`internal/handler/tap.go:282`,
   `PlaqueTapBase` `:290`; üretimde `https://taptime.mt` — `deploy/k8s/43-redirect-ingress.yaml:7`). Uygulama kuruluysa
   bu URL iOS Universal Link / Android App Link ile uygulamayı açar; değilse tarayıcıyı. Plaket yeniden kodlanmaz.
-- **Sunucu otoriterdir.** Aynı `tap.Decide` + policy motoru karar verir; uygulama ek kanıt taşıyan ince bir
+- **(Plan önerisi) Sunucu otoriterdir.** Aynı `tap.Decide` + policy motoru karar verir; uygulama ek kanıt taşıyan ince bir
   istemcidir, karar vermez, SUN doğrulamaz, yön hesaplamaz.
-- **Çalışan tap ekranı kuralları uygulamada da geçerlidir** (CLAUDE.md §9): tek ekran, tek düğme (M15'in sayılı
+- **(Plan önerisi) Çalışan tap ekranı kuralları uygulamada da geçerlidir** (CLAUDE.md §9): tek ekran, tek düğme (M15'in sayılı
   *"Not right?"* istisnasıyla), onay ekranında düğme yok, tenant markasının sayılı slotları. Uygulama ekranları tarayıcı
   ekranlarının **eşidir**; bir farklılık §9 sorusudur.
 
@@ -151,7 +154,7 @@ politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan öneris
     süzer (`db/queries/transactions.sql:317`), `qr_live` oraya girmelidir.
   - **Plaketsiz tap.** Motor her çözülmüş tap'te bir plaket varsayar (`internal/domain/tap/types.go:471-473`); §5 satır 1,
     lokasyon/tenant çözümü (`resolve_tag_by_uid`), holding dokunuşunun site sütunları ve `/v1` `tagId`'si de öyle.
-    `qr_live`'da lokasyon ve tenant token'dan türer; iptal edilmiş ekran satır 1'in eşidir; token tenant'ı oturum
+    `qr_live`'da lokasyon ve tenant token'dan, `00004`'ün `resolve_tag_by_uid`'inin eşi olan dar bir SECURITY DEFINER çözümleyiciyle türer (holding'de başka tenant'ın ekran satırını okuyabilmeli; iptal ekran satırındadır, token'da değil); iptal edilmiş ekran satır 1'in eşidir; token tenant'ı oturum
     tenant'ıyla eşleşmelidir (holding istisnası statik QR'ın kuralına göre). Ayrıntı M16-21.
   - **Süre dolmuş / imzası bozuk token'ın sonucu** açık soru (Q39).
   - `/v1` punch akışındaki karşılığı açık soru (Q38).
