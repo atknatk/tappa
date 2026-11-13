@@ -2808,7 +2808,7 @@ ROLLBACK;
 SQL
 ```
 
-beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `L` · `ROLLBACK` (`L`: canlı e-posta değişikliği geri alma linki sayısı; Deploy 18'den önce 4. sorgu `purpose` değerini tanımayan bir şemada 0 döner). Contract A ancak `T = 0` iken konuşulur
+beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `L` · `ROLLBACK` (`L`: canlı e-posta değişikliği geri alma linki sayısı). 4. sorgu yalnız Deploy 18'den sonra (goose 103) koşar; öncesinde `cancelled_at` sütunu yoktur, sorgu hata verir ve `ON_ERROR_STOP` bloğu durdurur — Deploy 18'den önce 4. satır silinerek koşulur. Contract A ancak `T = 0` iken konuşulur
 (ADR 0031 §8, plan M14-20a); `RT` ayrı raporlanır. Satır, adres, ad ya da kimlik id'si basılmaz
 (CLAUDE.md §7). `internal/db/adminflag_test.go` bu bölümün sorgularını yazıldıkları gibi bir dünyada koşar.
 

@@ -748,3 +748,24 @@ func TestEmailChange_AFullResetOutboxDoesNotStopTheLetter(t *testing.T) {
 	}
 	waitSent(t, sender, 1)
 }
+
+// TestEmailChange_ThePressIsRefusedWithoutTheRecoveryChannel (EC-2 re-review, DÜŞÜK): a link written
+// while recovery e-mail was on is pressed after it was switched off -- the press is refused with the one
+// refusal before adminauth, so no change completes without its notice and undo link. MUTATION (measured):
+// the canNotify check removed from the press -> red.
+func TestEmailChange_ThePressIsRefusedWithoutTheRecoveryChannel(t *testing.T) {
+	admins := &fakeAdmins{}
+	admins.ident.emailConfirm = func(adminauth.Resolved, string) (adminauth.EmailChanged, error) {
+		return adminauth.EmailChanged{IdentityID: uuid.New(), OldEmail: "old.person@example.test"}, nil
+	}
+	notices := &fakeNotices{cannotNotify: true}
+	b, _, _ := emailChangePanel(t, true, admins, &fakeMailSender{}, notices)
+	b.cookies[accountEmailCookieName] = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE"
+	res := b.do(http.MethodPost, accountEmailConfirmHref, url.Values{})
+	if res.Header().Get("Location") != accountReturn("", "email-refused") {
+		t.Fatalf("the press answered %d %q, want the one refusal", res.Code, res.Header().Get("Location"))
+	}
+	if n := countCalls(admins, "confirm-email-change"); n != 0 || len(notices.emails) != 0 {
+		t.Errorf("the press reached ConfirmEmailChange %d time(s)", n)
+	}
+}

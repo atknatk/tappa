@@ -504,7 +504,9 @@ func (a *AdminAuth) accountEmailConfirm(w http.ResponseWriter, r *http.Request) 
 	}
 	ck, err := r.Cookie(accountEmailCookieName)
 	a.short.clear(w, accountEmailCookieName)
-	if err != nil || ck.Value == "" || !id.Admin.Linked {
+	// The recovery channel is asked again here (EC-2 re-review, DÜŞÜK): delivery can be switched off
+	// within the link's 24 hours, and a change must not complete without its notice and undo link.
+	if err != nil || ck.Value == "" || !id.Admin.Linked || !a.notices.canNotify() {
 		a.redirect(w, accountReturn("", "email-refused"))
 		return
 	}
