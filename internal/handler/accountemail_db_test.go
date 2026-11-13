@@ -69,12 +69,6 @@ var (
 	undoLinkRe   = regexp.MustCompile(`https?://[^\s"<>]+/admin/undo-email-change\?t=[A-Za-z0-9_-]+`)
 )
 
-func (p *panelHarness) requestEmailChange(t *testing.T, newEmail string) *http.Response {
-	t.Helper()
-	res, _ := p.post(t, accountEmailHref, url.Values{"new_email": {newEmail}, "current_password": {p.password}})
-	return res
-}
-
 // TestEmailChange_TheWholeLoopOverHTTP walks T173 on real Postgres: the request answers the one flash
 // and the worker mails the change link to the typed address, built from TAPPA_BASE_URL (the request
 // carried a hostile X-Forwarded-Host); the link's GET spends nothing; the press moves the identity and
