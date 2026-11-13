@@ -235,8 +235,11 @@ func (a *AdminAuth) emailRequest(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, accountReturn("", "unavailable"))
 		return
 	}
-	// A fact about the deployment, never about the address: said before anything is charged.
-	if a.inviteMail == nil || a.emailLetters == nil {
+	// A fact about the deployment, never about the address: said before anything is charged. The OLD
+	// address's notice and its undo link ride the recovery channel (TAPPA_RESET_DELIVERY): without it a
+	// change would go through with no notice and no way back -- K-E2 (a) closed silently (EC-2 security
+	// review, ORTA) -- so the request is refused unless both channels can send.
+	if a.inviteMail == nil || a.emailLetters == nil || !a.notices.canNotify() {
 		a.redirect(w, accountReturn("", "email-no-mail"))
 		return
 	}
@@ -442,7 +445,9 @@ func (q *emailLetterQueue) render(ctx context.Context, j emailLetterJob) (mail.M
 	if j.link == "" {
 		return email.RenderEmailChangeTaken(ctx, signInLink(q.baseURL), email.PasswordChangedView{BaseURL: q.baseURL})
 	}
-	return email.RenderEmailChange(ctx, j.link, email.EmailChangeView{BaseURL: q.baseURL, ValidFor: time.Until(j.expiresAt)})
+	// Rounded to the minute like the verification and link letters (accountidentity.go): the queue's
+	// moments must not turn "1 day" into "23 hours" (EC-2 third eye, ORTA).
+	return email.RenderEmailChange(ctx, j.link, email.EmailChangeView{BaseURL: q.baseURL, ValidFor: time.Until(j.expiresAt).Round(time.Minute)})
 }
 
 // Drain stops the queue taking letters and waits for the worker to finish what it holds, inside ctx's

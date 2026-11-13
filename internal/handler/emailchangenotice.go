@@ -56,6 +56,10 @@ const (
 // notice's identity key is another key -- the two caps never spend each other).
 func emailChangeBudgetKey(id uuid.UUID) string { return "email-change:" + id.String() }
 
+// canNotify reports whether this deployment can send the old address's notice: the recovery channel
+// exists (TAPPA_RESET_DELIVERY=email). The request asks before anything is charged (accountemail.go).
+func (h *AdminReset) canNotify() bool { return h.canDeliver() }
+
 // emailChanged sends the old address's notice for one committed change and writes its one log line. It
 // never returns an error and never panics: the change has happened, and nothing here may make its answer
 // say otherwise (passwordChanged's rule; §4.6 -- the change is not undone when the notice fails).
@@ -119,11 +123,17 @@ func (h *AdminReset) emailChanged(ctx context.Context, c adminauth.EmailChanged)
 // per-identity request (IssueForPerson, M14-14's path -- identity_open_reset with p_recipient = that
 // address, S-1), its grants handed to the reset outbox like a form request's. The undo already cancelled
 // every live link of the identity, so the identity's link is minted now; what the outbox cannot take is
-// recorded and withdrawn as for any request. A deployment that sends no e-mail logs that nothing was sent:
-// the page then still tells the person to use "Forgot password" (K-E11 (b) is the fallback that exists
-// anyway). Nothing here changes the undo's answer.
+// recorded and withdrawn as for any request. A deployment that sends no e-mail logs that nothing was sent.
+// Nothing here changes the undo's answer: the page says "We sent a link to set a new password." even when
+// no link was minted or handed over (e-mail off, the outbox full, the mint stalled) -- the person then has
+// "Forgot password" (K-E11 (b) exists anyway); the sentence's own change is backlog T315 (user approval).
+//
+// The mint runs WITHOUT the request's cancellation, bounded by the notice's send grace: the undo has
+// committed, and a visitor who closes the tab must not cost them the link (EC-2 security review, DÜŞÜK).
 func (h *AdminReset) addressRestored(r *http.Request, address string) {
 	ip := clientIP(r)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), h.noticeSendGrace)
+	defer cancel()
 	if !h.canDeliver() {
 		h.log.WarnContext(r.Context(), "panel address change undone: this deployment sends no e-mail, so no recovery link was sent", "ip", ip)
 		return
@@ -132,7 +142,7 @@ func (h *AdminReset) addressRestored(r *http.Request, address string) {
 		h.log.WarnContext(r.Context(), "panel address change undone: no address came back, so no recovery link was sent", "ip", ip)
 		return
 	}
-	p, err := h.resets.IssueForPerson(r.Context(), address)
+	p, err := h.resets.IssueForPerson(ctx, address)
 	if err != nil {
 		h.log.Error(EventIssueFailed, "ip", ip, "err", err)
 		h.oweFailedRequest(context.WithoutCancel(r.Context()), err)
@@ -149,6 +159,6 @@ func (h *AdminReset) addressRestored(r *http.Request, address string) {
 		h.recordIdentityKept(r, *p.IdentityKept)
 	}
 	for _, st := range p.Stalled {
-		h.logStalledMint(r.Context(), ip, st)
+		h.logStalledMint(ctx, ip, st)
 	}
 }

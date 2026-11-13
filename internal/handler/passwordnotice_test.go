@@ -42,6 +42,8 @@ type fakeNotices struct {
 	// back (T173).
 	emails   []adminauth.EmailChanged
 	restored []string
+	// cannotNotify: the deployment sends no recovery e-mail (TAPPA_RESET_DELIVERY=none).
+	cannotNotify bool
 }
 
 func (f *fakeNotices) passwordChanged(_ context.Context, c passwordChange) {
@@ -55,6 +57,8 @@ func (f *fakeNotices) emailChanged(_ context.Context, c adminauth.EmailChanged) 
 	defer f.mu.Unlock()
 	f.emails = append(f.emails, c)
 }
+
+func (f *fakeNotices) canNotify() bool { return !f.cannotNotify }
 
 func (f *fakeNotices) addressRestored(_ *http.Request, address string) {
 	f.mu.Lock()

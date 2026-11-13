@@ -282,6 +282,10 @@ type passwordNotifier interface {
 	passwordChanged(ctx context.Context, c passwordChange)
 	emailChanged(ctx context.Context, c adminauth.EmailChanged)
 	addressRestored(r *http.Request, address string)
+	// canNotify: this deployment can send the old address's notice (TAPPA_RESET_DELIVERY). The address
+	// change is refused without it -- a change with no notice and no undo link would silently close
+	// K-E2 (a) (EC-2 security review, ORTA).
+	canNotify() bool
 }
 
 // passwordNoticeDetail is the audit payload of a notice row.

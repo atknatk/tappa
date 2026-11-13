@@ -41,7 +41,7 @@ import (
 //	             openAPISurface over its data parameter (the request pool -- tappa_app, RLS)
 //
 // MUTANTS (measured, API-4 report): the chain built with apikey.SandboxPrefix; NoticeWorkTo removed;
-// W left out of the drainers -- each red. API-5 report: Locations left out of api.New; another
+// W left out of the drainers -- each red. T173 EC-2 review: the panel left out of the drainers -- red. API-5 report: Locations left out of api.New; another
 // tenant.NewVenues built for the API -- each red. API-6 report: Employees left out; W started before
 // the queue is added; the queue's sink not the transport's QueueSink -- each red. API-7 report:
 // Punches left out of api.New (New refuses it -- the build's own test is red); NewPunchFeed handed
@@ -166,9 +166,12 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if n := len(calls(mainFile, "webhook", "NewWorker")); n != 1 {
 		t.Fatalf("main.go calls webhook.NewWorker %d times, want 1", n)
 	}
-	worker, venues, staff, invites := "", "", "", ""
+	worker, venues, staff, invites, panel := "", "", "", "", ""
 	for _, st := range run.Body.List {
 		if as, ok := st.(*ast.AssignStmt); ok && len(as.Rhs) == 1 {
+			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "handler", "NewAdminAuth") {
+				panel = as.Lhs[0].(*ast.Ident).Name
+			}
 			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "webhook", "NewWorker") {
 				worker = as.Lhs[0].(*ast.Ident).Name
 			}
@@ -192,7 +195,7 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if worker == "" {
 		t.Fatal("webhook.NewWorker is not assigned in run()'s own body")
 	}
-	started, noticed, surfaced, drained, venuesSurfaced, staffSurfaced := false, false, false, false, false, false
+	started, noticed, surfaced, drained, venuesSurfaced, staffSurfaced, panelDrained := false, false, false, false, false, false, false
 	var startedAt, addedAt token.Pos
 	queueIdent, queueSink := "", false
 	ast.Inspect(run.Body, func(n ast.Node) bool {
@@ -246,6 +249,9 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 						if id, ok := e.(*ast.Ident); ok && id.Name == worker {
 							drained = true
 						}
+						if id, ok := e.(*ast.Ident); ok && id.Name == panel && panel != "" {
+							panelDrained = true
+						}
 					}
 				}
 			}
@@ -255,6 +261,11 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	if !started || !noticed || !surfaced || !drained {
 		t.Fatalf("the worker %q: started %v, given to the tap path %v, to the API %v, drained %v -- want all four",
 			worker, started, noticed, surfaced, drained)
+	}
+	// T173 EC-2: the panel's address change letters drain at shutdown beside the other queues
+	// (AdminAuth.Drain) -- the third eye's DÜŞÜK-1.
+	if !panelDrained {
+		t.Fatalf("the panel %q (handler.NewAdminAuth's result) is not in the drainers list shutdown drains", panel)
 	}
 	if !venuesSurfaced {
 		t.Fatalf("openAPISurface is not handed %q (tenant.NewVenues's result) as its venues argument", venues)

@@ -208,7 +208,9 @@ func (c *emailResetChannel) DeliverEmailChangeNotice(ctx context.Context, n Emai
 	link := n.UndoLink
 	v := email.EmailChangedView{BaseURL: c.baseURL, Undo: link != "", ChangedAt: n.ChangedAt}
 	if v.Undo {
-		v.ValidFor = time.Until(n.UndoExpiresAt)
+		// Rounded to the minute (the verification letter's rule): the request's own milliseconds must not
+		// turn "within 7 days" into "within 6 days" (EC-2 third eye, ORTA).
+		v.ValidFor = time.Until(n.UndoExpiresAt).Round(time.Minute)
 	} else {
 		link = signInLink(c.baseURL)
 	}

@@ -33,7 +33,7 @@ const emailTestNewAddress = "New.Person+Tag@Example.TEST"
 // emailChangePanel is the real panel over fakes, flag on, signed in as an owner whose session resolves
 // linked or not, with the address change letters' transport over sender (nil: no e-mail), notices as
 // the recovery flow, the undo page mounted, and the panel's JSON log.
-func emailChangePanel(t *testing.T, linked bool, admins *fakeAdmins, sender *fakeMailSender, notices *fakeNotices) (*browser, *AdminAuth, *lockedBuffer) {
+func emailChangePanel(t *testing.T, linked bool, admins *fakeAdmins, sender *fakeMailSender, notices passwordNotifier) (*browser, *AdminAuth, *lockedBuffer) {
 	t.Helper()
 	if admins.verify == nil {
 		admins.verify = func() (adminauth.Resolved, error) {
@@ -661,4 +661,90 @@ func TestEmailChange_TheWindowsRefusalSaysWhyDuringTheUndoWindow(t *testing.T) {
 	if !strings.Contains(page, "If you changed your sign-in email in the last 7 days, removing a business waits until then.") {
 		t.Error("the window's refusal does not carry K-E19's sentence")
 	}
+}
+
+// TestEmailChange_ARequestWithoutTheRecoveryChannelIsRefused (EC-2 security review, ORTA): the old
+// address's notice and its undo link ride the recovery channel (TAPPA_RESET_DELIVERY); with invitations
+// e-mailed but recovery e-mail off, a change would go through with no notice and no way back. The request
+// is refused with the no-e-mail sentence before the bucket is read or adminauth is reached. MUTATION
+// (measured): the canNotify check removed -> red.
+func TestEmailChange_ARequestWithoutTheRecoveryChannelIsRefused(t *testing.T) {
+	admins := &fakeAdmins{}
+	admins.ident.emailRequest = func(adminauth.Resolved, string, string) (adminauth.EmailChangeRequested, error) {
+		return adminauth.EmailChangeRequested{ID: uuid.New(), Recipient: emailTestNewAddress, Taken: true, ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
+	}
+	sender := &fakeMailSender{}
+	b, h, _ := emailChangePanel(t, true, admins, sender, &fakeNotices{cannotNotify: true})
+	res := b.do(http.MethodPost, accountEmailHref, emailRequestForm("pw"))
+	if res.Code != http.StatusSeeOther || res.Header().Get("Location") != accountReturn("", "email-no-mail") {
+		t.Fatalf("the request answered %d %q, want the no-e-mail refusal", res.Code, res.Header().Get("Location"))
+	}
+	if n := countCalls(admins, "request-email-change"); n != 0 {
+		t.Errorf("the request reached RequestEmailChange %d time(s)", n)
+	}
+	if within, n := h.emailChangeLimiter.TryCharge("row:" + panelTestAdmin.String()); !within || n != 1 {
+		t.Errorf("the refused request spent the bucket (count %d)", n)
+	}
+	if sender.count() != 0 {
+		t.Error("a letter was sent")
+	}
+}
+
+// TestEmailChange_TheChangeLetterSaysOneDay (EC-2 third eye, ORTA): the letter rendered a moment after
+// the link was written still says the approved "1 day" (the lifetime rounds down, so the time left is
+// rounded to the minute first, as the verification letter's is). MUTATION (measured): the Round removed
+// -> red ("23 hours").
+func TestEmailChange_TheChangeLetterSaysOneDay(t *testing.T) {
+	s := &fakeMailSender{}
+	q := newEmailLetterQueue(4, &EmailInvitations{sender: s, baseURL: testBaseURL}, slog.New(slog.DiscardHandler))
+	link := testBaseURL + adminauth.ChangeEmailPath + "?" + adminauth.ChangeEmailParam + "=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE"
+	expires := time.Now().Add(24 * time.Hour)
+	time.Sleep(30 * time.Millisecond)
+	req, _ := http.NewRequest(http.MethodPost, "/", nil)
+	q.hand(req, slog.New(slog.DiscardHandler), emailLetterJob{scope: "s", recipient: emailTestNewAddress, link: link, expiresAt: expires, ref: uuid.New()})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := q.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if s.count() != 1 || !strings.Contains(s.sent[0].Text, "stays valid for 1 day.") || !strings.Contains(s.sent[0].Text, link) {
+		t.Fatalf("the change letter does not say its approved lifetime (or lacks its link):\n%v", s.sent)
+	}
+}
+
+// TestEmailChange_AFullResetOutboxDoesNotStopTheLetter (card EC-2 item 15, the third eye's DÜŞÜK-2): with
+// the recovery flow's outbox held full (one grant inside a send, resetOutboxSize waiting, one more
+// refused -- the control), the change letter still reaches its sender: the letters' queue is its own.
+// MUTATION (measured): the request refusing the letter while the reset outbox is full (a shared capacity)
+// -> red.
+func TestEmailChange_AFullResetOutboxDoesNotStopTheLetter(t *testing.T) {
+	gate := newGateChannel()
+	first, fill, late := grantsFor("first@x.test", 1), grantsFor("fill@x.test", resetOutboxSize), grantsFor("late@x.test", 1)
+	resets := &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{"first@x.test": first, "fill@x.test": fill, "late@x.test": late}}
+	trail := &fakeTrail{}
+	router, flow := newResetRouter(t, resets, gate, trail)
+	t.Cleanup(func() { close(gate.release) })
+	requestReset(t, newBrowser(t, router), "first@x.test")
+	gate.waitStarted(t)
+	requestReset(t, newBrowser(t, router), "fill@x.test")
+	requestReset(t, newBrowser(t, router), "late@x.test")
+	full := 0
+	for _, e := range trail.eventsSnapshot() {
+		if d, ok := e.Detail.(adminResetDetail); ok && d.Reason == resetReasonOutboxFull {
+			full++
+		}
+	}
+	if full != 1 {
+		t.Fatalf("CONTROL FAILED: %d grant(s) refused by a full outbox, want 1", full)
+	}
+	admins := &fakeAdmins{}
+	admins.ident.emailRequest = func(_ adminauth.Resolved, _, newEmail string) (adminauth.EmailChangeRequested, error) {
+		return adminauth.EmailChangeRequested{ID: uuid.New(), Recipient: newEmail, Taken: true, ExpiresAt: time.Now().Add(24 * time.Hour)}, nil
+	}
+	sender := &fakeMailSender{}
+	b, _, _ := emailChangePanel(t, true, admins, sender, flow)
+	if res := b.do(http.MethodPost, accountEmailHref, emailRequestForm("pw")); res.Header().Get("Location") != accountReturn("email-sent", "") {
+		t.Fatalf("the request answered %d %q", res.Code, res.Header().Get("Location"))
+	}
+	waitSent(t, sender, 1)
 }
