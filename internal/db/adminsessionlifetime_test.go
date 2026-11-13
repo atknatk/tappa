@@ -588,6 +588,10 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 							// session too (it is its own case: ...ASwitchThatWaitsPastTheEndWritesNothing).
 							aslRecreate(t, ctx, v, fn, regexp.MustCompile(regexp.QuoteMeta(aslSwitchRecheck)), "    IF NOT FOUND THEN\n")
 						}
+						if fn == "identity_request_email_change" || fn == "identity_change_email" {
+							// T173 (00102): the same second guard after the locks (ecLifetimeRecheck).
+							aslRecreate(t, ctx, v, fn, regexp.MustCompile(regexp.QuoteMeta(ecLifetimeRecheck)), "    IF v_found IS NOT TRUE THEN\n")
+						}
 						aslAge(t, ctx, v, hash, AdminSessionLifetime)
 						n, err := identityStepRows(t, ctx, v, s)
 						if err != nil || n == 0 {

@@ -693,3 +693,72 @@ func TestEmailChange00102_TheUnlinksUndoClockIsReadAfterTheLocks(t *testing.T) {
 		t.Errorf("MUTATION: with the clock read before the wait the unlink still answered %d rows", n)
 	}
 }
+
+// ecLifetimeRecheck is the request's and the confirmation's verdict on the session AFTER their locks, as
+// 00102 writes it (identity_switch_session's 00085 rule).
+const ecLifetimeRecheck = "    IF (v_found AND v_auth > v_now - interval '12 hours') IS NOT TRUE THEN\n"
+
+// TestEmailChange00102_ACallThatWaitsPastTheSessionsEndWritesNothing: a session with two seconds of its 12
+// hours left starts a request -- and, separately, a confirmation -- while another transaction holds the
+// identity's lock; the lock is let go after the end. The call writes nothing: the lifetime is judged again
+// after the locks, with the clock read again. MUTATION (in the waiting transaction only, never committed):
+// that verdict reduced to "the session row is there" -> the request writes its link / the confirmation
+// moves the address, red.
+func TestEmailChange00102_ACallThatWaitsPastTheSessionsEndWritesNothing(t *testing.T) {
+	d, owner := appDB(t), ecOwner(t)
+	ctx := context.Background()
+	type call struct {
+		name, fn string
+		prepare  func(w *ecLive) (sql string, args []any)
+	}
+	calls := []call{
+		{"the request", ecRequestFn, func(w *ecLive) (string, []any) {
+			return `SELECT * FROM identity_request_email_change($1, $2, $3, $4) WHERE refusal IS NULL`, []any{w.session, ecDigest(), opRandHex(t), ecNew()}
+		}},
+		{"the confirmation", ecChangeFn, func(w *ecLive) (string, []any) {
+			return `SELECT * FROM identity_change_email($1, $2, $3)`, []any{w.ask(t, d, ecNew()), w.session, opRandHex(t)}
+		}},
+	}
+	run := func(c call, mutate bool) int {
+		w := newECLive(t, owner, 2)
+		sql, args := c.prepare(w)
+		var end time.Time
+		if err := owner.QueryRow(ctx, `UPDATE admin_sessions SET created_at = clock_timestamp() - interval '12 hours' + interval '2 seconds',
+		                                  authenticated_at = clock_timestamp() - interval '12 hours' + interval '2 seconds'
+		                                WHERE token_hash = $1 RETURNING authenticated_at + interval '12 hours'`, w.session).Scan(&end); err != nil {
+			t.Fatal(err)
+		}
+		var pre []string
+		if mutate {
+			_, mutated := ecDef(t, owner, c.fn, ecLifetimeRecheck, "    IF v_found IS NOT TRUE THEN\n")
+			pre = append(pre, mutated)
+		}
+		lock := ecBegin(t)
+		if _, err := lock.tx.Exec(ctx, `SELECT 1 FROM admin_identities WHERE id = $1 FOR UPDATE`, w.ident); err != nil {
+			t.Fatal(err)
+		}
+		caller := ecBegin(t, pre...)
+		done := make(chan int, 1)
+		go func() { done <- caller.app(t, sql, args...) }()
+		fragment := strings.TrimPrefix(strings.SplitN(c.fn, "(", 2)[0], "public.")
+		if !ecWaitFor(t, owner, fragment) {
+			lock.rollback(t)
+			<-done
+			caller.rollback(t)
+			t.Fatalf("%s never waited on the identity's lock", c.name)
+		}
+		time.Sleep(time.Until(end) + 500*time.Millisecond)
+		lock.rollback(t)
+		n := <-done
+		caller.rollback(t) // nothing of the call (nor a mutation) is kept
+		return n
+	}
+	for _, c := range calls {
+		if n := run(c, false); n != 0 {
+			t.Errorf("%s that waited past the session's end answered %d rows, want 0", c.name, n)
+		}
+		if n := run(c, true); n != 1 {
+			t.Errorf("MUTATION: %s with the post-lock verdict cut still answered %d rows -- the case does not test it", c.name, n)
+		}
+	}
+}

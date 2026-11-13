@@ -117,6 +117,8 @@ DECLARE
     v_until    timestamptz;
     v_revert   timestamptz;
     v_now      timestamptz;
+    v_auth     timestamptz;
+    v_found    boolean;
     v_id       uuid;
     v_expires  timestamptz;
 BEGIN
@@ -150,7 +152,7 @@ BEGIN
      WHERE i.id = v_identity
        FOR UPDATE;
     PERFORM 1 FROM public.admin_users AS a WHERE a.identity_id = v_identity FOR UPDATE;
-    PERFORM 1
+    SELECT s.authenticated_at INTO v_auth
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.id = v_session
@@ -160,10 +162,13 @@ BEGIN
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND THEN
+    -- 00102: the lifetime judged again AFTER the locks, with the clock read again (identity_switch_session's
+    -- 00085 rule): a call that began in the session's last second and waited here writes nothing.
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_auth > v_now - interval '12 hours') IS NOT TRUE THEN
         RETURN;
     END IF;
-    v_now := pg_catalog.clock_timestamp();
 
     -- The digest the application verified, under the lock (the user's decision of 2026-10-23).
     IF (v_digest = p_verified_digest) IS NOT TRUE THEN
@@ -261,6 +266,7 @@ DECLARE
     v_address  public.citext;
     v_found    boolean;
     v_now      timestamptz;
+    v_auth     timestamptz;
     v_n        integer;
     v_own      integer := 0;
     v_detail   jsonb;
@@ -324,7 +330,7 @@ BEGIN
     IF (v_found AND v_expires > v_now AND v_address::text = v_new::text) IS NOT TRUE THEN
         RETURN;
     END IF;
-    PERFORM 1
+    SELECT s.authenticated_at INTO v_auth
       FROM public.admin_sessions AS s
       JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id
      WHERE s.id = v_session
@@ -334,7 +340,11 @@ BEGIN
        AND a.unlinked_at IS NULL
        AND a.identity_id = v_identity
        FOR UPDATE OF s;
-    IF NOT FOUND THEN
+    -- 00102: the lifetime judged again AFTER the locks, with the clock read again (identity_switch_session's
+    -- 00085 rule): a call that began in the session's last second and waited here writes nothing.
+    v_found := FOUND;
+    v_now := pg_catalog.clock_timestamp();
+    IF (v_found AND v_auth > v_now - interval '12 hours') IS NOT TRUE THEN
         RETURN;
     END IF;
 
