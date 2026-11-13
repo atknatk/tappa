@@ -964,6 +964,9 @@ func run() error {
 	}
 	// The drafts' fixed-period sweep (R17), for the life of the process.
 	go signupFlow.SweepEvery(ctx, time.Hour)
+	// The identity event log's 90 days (R17) and, since 00103, the address change links a day after they
+	// were spent, cancelled or expired (T294, ADR 0044 §5.9): identity_sweep_events, beside the drafts'.
+	go sweepIdentityEventsEvery(ctx, data, identityEventSweepPeriod, slog.Default())
 
 	// READINESS (M8-01). /healthz is registered by the router itself and is given
 	// nothing; this is the endpoint that IS given the pool, because "can this process
@@ -1020,7 +1023,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;
@@ -1057,7 +1060,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work}, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work, panelAuth}, handler.ResetDrainGrace)
 	}
 }
 

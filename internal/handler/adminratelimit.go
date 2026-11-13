@@ -858,6 +858,27 @@ const (
 	// by hand and bounds a held cookie's guessing of another password at one a minute.
 	adminIdentityActLimit  = 10
 	adminIdentityActPeriod = 10 * time.Minute
+
+	// adminEmailChangeLimit / adminEmailChangePeriod: sign-in address change requests, per PERSON (T173,
+	// ADR 0044 §5.8; adminauth.AccountBucket of a LINKED session -- an unlinked row is refused before it).
+	// Charged BEFORE the password is compared and the address resolved, and every arm spends the same unit
+	// (§5.4). Five an hour, the verification link's number: each request is one letter to an address the
+	// person typed, also counted by the mailbox cap and the breaker in the letter queue's worker.
+	adminEmailChangeLimit  = 5
+	adminEmailChangePeriod = time.Hour
+
+	// adminEmailNoticeLimit / adminEmailNoticePeriod: the old address's notices after a committed change,
+	// per PERSON (ADR 0044 §5.8; passwordNoticeLimit's twin, keyed on the identity). Past it the change
+	// still stands and the notice is not sent (a log line says so).
+	adminEmailNoticeLimit  = 5
+	adminEmailNoticePeriod = time.Hour
+
+	// adminEmailUndoLimit / adminEmailUndoPeriod: presses of the undo link's page, per client address
+	// (ADR 0044 §5.8; adminResetSubmitLimit's pattern -- the page is sessionless and the token is 256
+	// bits, so the bound is on the database work an anonymous caller can buy: each press runs one
+	// identity_revert_email_change -- and a live link's press a cost-12 bcrypt in SQL, the sentinel).
+	adminEmailUndoLimit  = 10
+	adminEmailUndoPeriod = 10 * time.Minute
 )
 
 // ⚠️ THE VALUES ABOVE ARE PINNED BY TestPanelConstants_ShippedValuesArePinned

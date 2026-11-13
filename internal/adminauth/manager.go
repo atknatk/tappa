@@ -68,6 +68,11 @@ type Database interface {
 	// The link by e-mail (M14-22, identityaccount.go).
 	RequestIdentityLink(ctx context.Context, sessionHash, tokenHash string) (db.IdentityVerification, error)
 	LinkByEmail(ctx context.Context, linkHash, sessionHash string) (db.LinkedByEmail, error)
+
+	// The sign-in address change (ADR 0044, T173 EC-2; identityemail.go).
+	RequestEmailChange(ctx context.Context, sessionHash string, verified db.PasswordHash, linkHash, newEmail string) (db.EmailChangeRequest, error)
+	ChangeEmail(ctx context.Context, linkHash, sessionHash, revertHash string) (db.ChangedEmail, error)
+	RevertEmailChange(ctx context.Context, revertHash string) (db.RevertedEmail, error)
 }
 
 // The one implementation, bound at compile time (reset.go's ResetDatabase has the same line).
@@ -243,6 +248,10 @@ type Manager struct {
 	// linkKey hashes a link link (identityaccount.go, M14-22) under a label of its own: a verification
 	// token never hashes to a link's hash, nor the reverse.
 	linkKey config.Key
+	// changeKey and undoKey hash the address change's two links (identityemail.go, T173 EC-2), each under
+	// a label of its own: neither purpose's token hashes to the other's, a verification's or a link's.
+	changeKey config.Key
+	undoKey   config.Key
 	// compareFn is the ONE bcrypt comparison every login path runs through (nil = Compare). It
 	// exists so a test can COUNT the comparisons of each sign-in exit exactly (ADR 0031 §5.6: every
 	// sign-in pays 1 + MaxCandidates), the way `dummy` exists so a test can make them cheap.
@@ -290,7 +299,16 @@ func New(data Database, cfg *config.Config, opts ...Option) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: config.NewKey(key), dummy: dummyDigest, proofKey: config.NewKey(proofKey), verifyKey: config.NewKey(verifyKey), linkKey: config.NewKey(linkKey), openCost: newCostMeter(openCostDefault), gate: gateOf(opts)}, nil
+	changeKey, err := deriveChangeKey(cfg.SessionHMACKey.Reveal())
+	if err != nil {
+		return nil, err
+	}
+	undoKey, err := deriveUndoKey(cfg.SessionHMACKey.Reveal())
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{data: data, hmacKey: config.NewKey(key), dummy: dummyDigest, proofKey: config.NewKey(proofKey), verifyKey: config.NewKey(verifyKey), linkKey: config.NewKey(linkKey),
+		changeKey: config.NewKey(changeKey), undoKey: config.NewKey(undoKey), openCost: newCostMeter(openCostDefault), gate: gateOf(opts)}, nil
 }
 
 // hash is the one digest a password change writes (see hashFn).

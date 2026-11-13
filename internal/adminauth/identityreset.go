@@ -248,7 +248,7 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 	// Its wait for a connection out of the request's budget (mintStep). The withdrawals below run on
 	// withdrawContext, which drops the bound.
 	ctx, cut := r.mintStep(ctx)
-	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, r.lockWaitFor(ctx, openIdentityResetWaits))
+	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, who.address, r.lockWaitFor(ctx, openIdentityResetWaits))
 	if cut() && err != nil {
 		// No connection inside the budget: the transaction never began, nothing was opened, nothing is
 		// to be withdrawn -- the lock wait's case below, and the caller reports it the same way. Only
@@ -256,6 +256,8 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		return nil, nil, errOpeningCut
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
+		// No such identity -- or (S-1, 00102) it no longer holds who.address: an address change committed
+		// after the resolver read it. Nothing was written; the answer is "no identity"'s.
 		return nil, nil, nil
 	}
 	if db.LockWaitExpired(err) {

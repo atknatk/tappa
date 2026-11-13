@@ -894,6 +894,11 @@ const aiPlanHistoryMigration = 97
 // EXCLUSIVE lock the walk took first (00097's Down LOCKs the table, so downTables names it).
 func aiLiftLaterDownRefusals(t *testing.T, ctx context.Context, tx pgx.Tx, later []aiLaterMigration) {
 	t.Helper()
+	for _, f := range later {
+		if strings.HasPrefix(f.name, opMigrationPrefix(ecFirstMigration)) {
+			ecLiftDownRefusals(t, ctx, tx) // T173: 00101-00103's Downs refuse over a live undo link or an address event
+		}
+	}
 	walks := false
 	for _, f := range later {
 		if strings.HasPrefix(f.name, opMigrationPrefix(aiPlanHistoryMigration)) {

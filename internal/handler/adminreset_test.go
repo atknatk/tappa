@@ -171,12 +171,22 @@ type recordingChannel struct {
 	// and noticeErr what it answers them with.
 	notices   []PasswordNotice
 	noticeErr error
+	// emailNotices are the address change's notices (T173).
+	emailNotices []EmailChangeNotice
 }
 
 func (c *recordingChannel) DeliverPasswordNotice(_ context.Context, n PasswordNotice) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.notices = append(c.notices, n)
+	return c.noticeErr
+}
+
+// DeliverEmailChangeNotice records the address change's notice (T173) beside the password notices.
+func (c *recordingChannel) DeliverEmailChangeNotice(_ context.Context, n EmailChangeNotice) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.emailNotices = append(c.emailNotices, n)
 	return c.noticeErr
 }
 

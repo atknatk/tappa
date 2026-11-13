@@ -80,6 +80,10 @@ templ AdminAccount(v AccountView) {
 				// M14-18: the person's businesses (and the e-mail verification).
 				@accountBusinessesCard(*v.Identity)
 			}
+			if v.Identity != nil && v.Identity.Linked && v.Identity.EmailHref != "" {
+				// T173: the sign-in address change, for a linked sign-in.
+				@accountEmailCard(*v.Identity)
+			}
 			if v.SignOutEverywhereHref != "" {
 				@accountSignOutEverywhere(v)
 			}

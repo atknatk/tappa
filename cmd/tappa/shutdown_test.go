@@ -100,6 +100,11 @@ func (c *stuckRelay) DeliverPasswordNotice(context.Context, handler.PasswordNoti
 	return errors.New("not reached in this test")
 }
 
+// DeliverEmailChangeNotice is not reached either (T173).
+func (c *stuckRelay) DeliverEmailChangeNotice(context.Context, handler.EmailChangeNotice) error {
+	return errors.New("not reached in this test")
+}
+
 // RefusingResets: this relay has no breaker in front of it (M10 EM-7A).
 func (c *stuckRelay) RefusingResets() bool { return false }
 

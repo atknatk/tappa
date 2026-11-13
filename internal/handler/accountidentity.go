@@ -72,9 +72,16 @@ const (
 
 // The account page's identity words (accountDoneWords / accountProblemWords take them).
 var (
-	accountIdentityDoneWords    = []string{"verify-sent", "verified", "kept", "unlinked", "relinked"}
-	accountIdentityProblemWords = []string{"verify-refused", "verify-unsent", "no-mail", "mail-down", "already-verified", "window-refused", "too-many"}
+	accountIdentityDoneWords    = append([]string{"verify-sent", "verified", "kept", "unlinked", "relinked"}, accountEmailDoneWords...)
+	accountIdentityProblemWords = append([]string{"verify-refused", "verify-unsent", "no-mail", "mail-down", "already-verified", "window-refused", "too-many"}, accountEmailProblemWords...)
 )
+
+// windowRefusedSentence is the window's one refusal (Keep all, unlink, Undo). Its second sentence is
+// K-E19 (a) (T173, the user's decision of 2026-11-12): while the person's address change can still be
+// undone, identity_unlink_backfilled refuses every unlink (K-E16 (a)), and this is where the person is
+// told why -- without a new carrier and without asking the database again.
+const windowRefusedSentence = "That could not be done. The check may have ended, or the business is no longer on the list. " +
+	"If you changed your sign-in email in the last 7 days, removing a business waits until then."
 
 // accountIdentityNotice places a done or problem word in its card.
 func accountIdentityNotice(v *pages.AccountIdentityView, done, problem string) {
@@ -102,10 +109,11 @@ func accountIdentityNotice(v *pages.AccountIdentityView, done, problem string) {
 	case "already-verified":
 		v.VerifyNotice = "Your email address is already confirmed."
 	case "window-refused":
-		v.WindowProblem = "That could not be done. The check may have ended, or the business is no longer on the list."
+		v.WindowProblem = windowRefusedSentence
 	case "too-many":
 		v.WindowProblem = "Too many attempts from this sign-in. Wait a few minutes and try again."
 	}
+	accountEmailNotice(v, done, problem)
 }
 
 // accountIdentityView builds the sections for a live session (accountView calls it only while the
@@ -143,6 +151,12 @@ func (a *AdminAuth) accountIdentityView(r *http.Request, id httpx.AdminIdentity,
 		return v
 	}
 	v.Verified = w.Verified
+	// T173: the address change's card, for a linked sign-in; its press while this browser holds a link
+	// it opened (the verification's pattern).
+	v.EmailHref = accountEmailHref
+	if ck, err := r.Cookie(accountEmailCookieName); err == nil && ck.Value != "" {
+		v.EmailConfirmHref = accountEmailConfirmHref
+	}
 	if !w.Verified {
 		v.VerifyHref = accountVerifyHref
 		if ck, err := r.Cookie(accountVerifyCookieName); err == nil && ck.Value != "" {

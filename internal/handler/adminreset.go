@@ -184,6 +184,12 @@ type AdminReset struct {
 	// keyed on the account: it bounds e-mails, not rows, and it is spendable only by
 	// changing that account's password.
 	noticeLimiter *limiter
+	// emailNoticeLimiter caps the sign-in address change's notices to the old address, per PERSON
+	// (emailchangenotice.go, T173): adminEmailNoticeLimit an hour.
+	emailNoticeLimiter *limiter
+	// undoBase is TAPPA_BASE_URL without its trailing slashes: the undo link's base (never a request
+	// header).
+	undoBase string
 	// noticeSendGrace is PasswordNoticeSendGrace, a field only so a test can show the
 	// notice's own bound holds against a relay that never answers without waiting the
 	// shipped ten seconds. Production always gets the constant from NewAdminReset.
@@ -288,6 +294,9 @@ type ResetDelivery struct {
 type ResetChannel interface {
 	DeliverReset(ctx context.Context, d ResetDelivery) error
 	DeliverPasswordNotice(ctx context.Context, n PasswordNotice) error
+	// DeliverEmailChangeNotice is the sign-in address change's notice to the OLD address (T173,
+	// emailchangenotice.go): in the request, like the password notice, and never refused by the breaker.
+	DeliverEmailChangeNotice(ctx context.Context, n EmailChangeNotice) error
 	RefusingResets() bool
 }
 
@@ -409,20 +418,22 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 		log = slog.Default()
 	}
 	h := &AdminReset{
-		resets:         resets,
-		mail:           mail,
-		audit:          rec,
-		cookies:        newAdminCookies(cfg),
-		baseURL:        originOf(cfg.BaseURL),
-		linkBase:       strings.TrimRight(cfg.BaseURL, "/") + adminResetNewPath,
-		requestLimiter: newLimiter(adminResetRequestLimit, adminResetRequestPeriod),
-		submitLimiter:  newLimiter(adminResetSubmitLimit, adminResetSubmitPeriod),
-		accountLimiter: newLimiter(adminResetAccountLimit, adminResetAccountPeriod),
-		linkLimiter:    newLimiter(adminResetLinkLimit, adminResetLinkPeriod),
-		unknownLimiter: newLimiter(adminResetUnknownLimit, adminResetUnknownPeriod),
-		noticeLimiter:  newLimiter(passwordNoticeLimit, passwordNoticePeriod),
-		identityGate:   adminauth.NewIdentityGate(cfg.AdminIdentity),
-		log:            log,
+		resets:             resets,
+		mail:               mail,
+		audit:              rec,
+		cookies:            newAdminCookies(cfg),
+		baseURL:            originOf(cfg.BaseURL),
+		linkBase:           strings.TrimRight(cfg.BaseURL, "/") + adminResetNewPath,
+		requestLimiter:     newLimiter(adminResetRequestLimit, adminResetRequestPeriod),
+		submitLimiter:      newLimiter(adminResetSubmitLimit, adminResetSubmitPeriod),
+		accountLimiter:     newLimiter(adminResetAccountLimit, adminResetAccountPeriod),
+		linkLimiter:        newLimiter(adminResetLinkLimit, adminResetLinkPeriod),
+		unknownLimiter:     newLimiter(adminResetUnknownLimit, adminResetUnknownPeriod),
+		noticeLimiter:      newLimiter(passwordNoticeLimit, passwordNoticePeriod),
+		emailNoticeLimiter: newLimiter(adminEmailNoticeLimit, adminEmailNoticePeriod),
+		undoBase:           strings.TrimRight(cfg.BaseURL, "/"),
+		identityGate:       adminauth.NewIdentityGate(cfg.AdminIdentity),
+		log:                log,
 
 		noticeSendGrace: PasswordNoticeSendGrace,
 

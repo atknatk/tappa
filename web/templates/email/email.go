@@ -234,6 +234,12 @@ const (
 	// their sign-in, and the one notice after it.
 	subjectLinkBusinesses  = "Add your businesses to your Taptime sign-in"
 	subjectBusinessesAdded = "Businesses were added to your Taptime sign-in"
+	// T173 (ADR 0044 §5.1, K-E5, K-E10 (vi)): the sign-in address change's three letters -- the link to
+	// the new address, the linkless note to a new address that already has a sign-in, and the notice to
+	// the old address (with its undo link, or -- only when no undo link was written -- without).
+	subjectEmailChange      = "Confirm your new Taptime sign-in email"
+	subjectEmailChangeTaken = "Someone tried to use this address on Taptime"
+	subjectEmailChanged     = "Your Taptime sign-in email was changed"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -271,6 +277,13 @@ const (
 	// own constants, this package checks it (TestRender_AcceptsTheAdminInvitationLinkAdminauthMints).
 	adminInvitePath  = "/admin/invite"
 	adminInviteParam = "t"
+	// changeEmailPath / undoEmailPath are the address change's two links (T173): internal/adminauth's
+	// ChangeEmailPath and UndoEmailPath written a second time for signInPath's reason
+	// (TestRender_AcceptsTheEmailChangeLinksAdminauthMints).
+	changeEmailPath  = "/admin/change-email"
+	changeEmailParam = "t"
+	undoEmailPath    = "/admin/undo-email-change"
+	undoEmailParam   = "t"
 )
 
 // maxLinkValue bounds the code or token in a link. Both producers write 43
@@ -485,6 +498,75 @@ func RenderBusinessesAdded(ctx context.Context, link string, v BusinessesAddedVi
 		return mail.Message{}, ErrCount
 	}
 	return render(ctx, businessesAddedLetter(v.Count), link)
+}
+
+// EmailChangeView is what the address change's link says besides its link (T173, ADR 0044 §5.1).
+//
+// IT NAMES NOBODY AND NO BUSINESS: the recipient is the address being proven, which may be anybody's
+// until the link is used. Its one value slot is the lifetime.
+type EmailChangeView struct {
+	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/change-email?t=" + the token.
+	BaseURL string
+	// ValidFor is the link's lifetime (24 hours, 00101).
+	ValidFor time.Duration
+}
+
+// RenderEmailChange renders the change letter for its link. The returned Message has Subject, Text and
+// HTML; the caller sets To and Ref.
+func RenderEmailChange(ctx context.Context, link string, v EmailChangeView) (mail.Message, error) {
+	if err := checkLink(v.BaseURL, changeEmailPath, changeEmailParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, emailChangeLetter(life), link)
+}
+
+// RenderEmailChangeTaken renders the note a new address that already has a Taptime sign-in receives
+// instead of a link (K-E5 (a)). Its one link is the sign-in page (the password notice's rule): it carries
+// no credential. The returned Message has Subject, Text and HTML; the caller sets To and Ref.
+func RenderEmailChangeTaken(ctx context.Context, link string, v PasswordChangedView) (mail.Message, error) {
+	if err := checkSignInLink(v.BaseURL, link); err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, emailChangeTakenLetter(), link)
+}
+
+// EmailChangedView is what the old address's notice says besides its link (T173, ADR 0044 §5.1 step 3,
+// K-E8 (a)): WHEN the change happened and, with an undo link, how long the link works. It never names the
+// new address -- the old mailbox may be somebody else's now.
+type EmailChangedView struct {
+	// BaseURL is cfg.BaseURL. With an undo link the link must be BaseURL + "/admin/undo-email-change?t="
+	// + the token; without one (Undo false), exactly BaseURL + "/admin/login".
+	BaseURL string
+	// Undo: the letter carries the undo link (identity_change_email wrote one).
+	Undo bool
+	// ChangedAt is when the change committed; printed in UTC (the identity has no business's zone).
+	ChangedAt time.Time
+	// ValidFor is the undo link's time left (7 days, 00101) -- read only when Undo.
+	ValidFor time.Duration
+}
+
+// RenderEmailChanged renders the old address's notice. The returned Message has Subject, Text and HTML;
+// the caller sets To and Ref.
+func RenderEmailChanged(ctx context.Context, link string, v EmailChangedView) (mail.Message, error) {
+	when := v.ChangedAt.UTC().Format("2 January 2006 at 15:04") + " UTC"
+	if !v.Undo {
+		if err := checkSignInLink(v.BaseURL, link); err != nil {
+			return mail.Message{}, err
+		}
+		return render(ctx, emailChangedLetter(when, ""), link)
+	}
+	if err := checkLink(v.BaseURL, undoEmailPath, undoEmailParam, link); err != nil {
+		return mail.Message{}, err
+	}
+	life, err := lifetime(v.ValidFor)
+	if err != nil {
+		return mail.Message{}, err
+	}
+	return render(ctx, emailChangedLetter(when, life), link)
 }
 
 // AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).

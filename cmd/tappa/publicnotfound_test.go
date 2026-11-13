@@ -243,7 +243,7 @@ func TestAppRouter_ThePublicNotFoundIsLoggedWithoutItsPath(t *testing.T) {
 	cfg := walkConfig(t, false)
 	f := buildAppFeatures(t, cfg, false)
 	var buf bytes.Buffer
-	h := appRouter(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing,
+	h := appRouter(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing,
 		f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 	if got := answerOf(h, http.MethodGet, customerHost, "/lp12canary/x?q=lp12canary"); !got.isThePage() {
 		t.Fatalf("PREMISE: the canary path got %d without the page", got.status)

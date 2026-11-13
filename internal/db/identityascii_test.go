@@ -463,14 +463,19 @@ func TestIdentityCreateForSignup_ANonASCIIAddressBirthsNothing(t *testing.T) {
 // so it is no candidate). An allow-listed body is still read: an INSERT or a MERGE into
 // admin_identities, or an EXECUTE, in it is red.
 var identityAdminIdentitiesNonWriters = map[string]bool{
-	"identity_consume_reset(text,text)":                       true,
-	"identity_consume_row_reset(text,text)":                   true,
-	"identity_link_legacy(text,text)":                         true,
-	"identity_open_reset(uuid,text,timestamp with time zone)": true,
-	"identity_open_session(uuid,uuid,text,text)":              true,
-	"identity_password_for_session(text)":                     true,
-	"identity_record_failed_login(uuid,text)":                 true,
-	"identity_relink_refused(text,uuid)":                      true,
+	"identity_consume_reset(text,text)":     true,
+	"identity_consume_row_reset(text,text)": true,
+	"identity_link_legacy(text,text)":       true,
+	// T173 (00102, S-1): the recipient argument; it reads the identity's address by its key, writes none.
+	"identity_open_reset(uuid,text,timestamp with time zone,text)": true,
+	"identity_open_session(uuid,uuid,text,text)":                   true,
+	"identity_password_for_session(text)":                          true,
+	"identity_record_failed_login(uuid,text)":                      true,
+	"identity_relink_refused(text,uuid)":                           true,
+	// T173 (00102): the address change's request locks the identity by its key and writes a LINK (the new
+	// address into admin_identity_verifications, never into admin_identities); it carries 6b as a refusal on
+	// that address all the same (`IF (...) IS NOT TRUE THEN RETURN QUERY ... 'invalid_address'`).
+	"identity_request_email_change(text,text,text,citext)": true,
 	// M14-22 (00084): the request gained its purpose argument (DROP + CREATE) -- still no identity row.
 	"identity_request_verification(text,text,text)": true,
 	"identity_revoke_sessions(text,boolean)":        true,
@@ -503,7 +508,12 @@ var identityAddressRuleWriters = []string{"identity_create_for_signup(uuid,uuid)
 	// M14-06b (00082): the maintenance pass births a group's identity from a locked row that passed the
 	// rule (`IF (...) IS NOT TRUE THEN CONTINUE` in the lock loop); TestIdentityReconcile_TheAddressRuleChoosesTheASCIIRow
 	// holds the refusal to the value inserted.
-	"identity_reconcile()"}
+	"identity_reconcile()",
+	// T173 (00102, ADR 0044 §5.3): the two functions that UPDATE admin_identities SET email -- the change (the
+	// new address, from its link) and the undo (the old one, from its link) -- each refuse with
+	// `IF (...) IS NOT TRUE THEN RETURN` before anything is written (TestEmailChange00102_TheConfirmationsRefusalsAndTheirGuards
+	// and TestEmailChange00102_TheUndoGivesTheOldAddressBack hold the refusal to the address written).
+	"identity_change_email(text,text,text)", "identity_revert_email_change(text)"}
 
 // iaStripComments removes SQL / PL/pgSQL comments (-- to the end of the line, /* ... */, nested)
 // outside single-quoted literals, double-quoted identifiers and dollar-quoted strings, so a pattern
@@ -620,8 +630,11 @@ var (
 	// admin_identities, bare or quoted, behind any chain of qualifiers -- public., tappa.public. (comments
 	// are stripped before it runs; a U&-escaped name is iaEscapedName).
 	iaIdentityWrite = regexp.MustCompile(`(?is)\b((insert|merge)\s+into|copy)\s+(("[^"]*"|[a-z0-9_$]+)\s*\.\s*)*"?admin_identities"?([^_a-z0-9]|$)`)
-	iaEscapedName   = regexp.MustCompile(`(?i)U&"`)
-	iaExecute       = regexp.MustCompile(`(?i)\bexecute\b`)
+	// iaIdentityEmailUpdate is an UPDATE of admin_identities (any qualifier chain, quoted or not) whose SET
+	// list writes email (T173: an address change is a write of the address, held to 6b like a birth).
+	iaIdentityEmailUpdate = regexp.MustCompile(`(?is)\bupdate\s+(only\s+)?(("[^"]*"|[a-z0-9_$]+)\s*\.\s*)*"?admin_identities"?(\s+(as\s+)?[a-z_][a-z0-9_]*)?\s+set\s+([^;]*?,\s*)?"?email"?\s*=`)
+	iaEscapedName         = regexp.MustCompile(`(?i)U&"`)
+	iaExecute             = regexp.MustCompile(`(?i)\bexecute\b`)
 )
 
 // iaCarriesTheRule reports whether body (comments stripped) holds 00076's rule as a refusal: an
@@ -652,7 +665,8 @@ func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (find
 	                             FROM pg_proc p
 	                            WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
 	                              AND p.prokind IN ('f', 'p')
-	                              AND has_any_column_privilege(p.proowner, 'public.admin_identities'::regclass, 'INSERT')
+	                              AND (has_any_column_privilege(p.proowner, 'public.admin_identities'::regclass, 'INSERT')
+	                                   OR has_column_privilege(p.proowner, 'public.admin_identities'::regclass, 'email', 'UPDATE'))
 	                              AND (pg_get_functiondef(p.oid) ~* 'admin_identities|\mexecute\M|U&"')
 	                            ORDER BY 1`)
 	if err != nil {
@@ -669,7 +683,7 @@ func iaIdentityWriterFindings(t *testing.T, ctx context.Context, q pgx.Tx) (find
 		switch {
 		case iaCarriesTheRule(iaRuleText(def)):
 		case identityAdminIdentitiesNonWriters[name]:
-			if iaIdentityWrite.MatchString(body) || iaExecute.MatchString(body) || iaEscapedName.MatchString(body) {
+			if iaIdentityWrite.MatchString(body) || iaIdentityEmailUpdate.MatchString(body) || iaExecute.MatchString(body) || iaEscapedName.MatchString(body) {
 				findings = append(findings, name+": allow-listed as a non-writer, yet it writes admin_identities, executes dynamic SQL or escapes a name")
 			}
 		default:
@@ -798,6 +812,9 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 		{"a COPY into it", "COPY public.admin_identities (email, password_hash) FROM '/nonexistent';"},
 		{"under a three-part name", "INSERT INTO tappa.public.admin_identities (email, password_hash) VALUES ('x@y.z', 'h');"},
 		{"behind an E'' string's escaped quote", "PERFORM E'\\'/*'; " + plantedInsert + " PERFORM '*/';"},
+		// T173: an UPDATE of the address is a write of it.
+		{"an UPDATE of the address", "UPDATE public.admin_identities AS i SET email = 'x@y.z' WHERE i.id = p_identity_id;"},
+		{"an UPDATE of the address after another column", "UPDATE ONLY public.admin_identities SET last_login_at = now(), \"email\" = 'x@y.z' WHERE id = p_identity_id;"},
 	} {
 		t.Run("control/an allow-listed body that starts inserting/"+c.name, func(t *testing.T) {
 			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
@@ -853,6 +870,27 @@ func TestIdentityAddressRule_EveryIdentityInsertDecidesIt(t *testing.T) {
 			}
 		})
 	})
+	// T173 (00102): the change and the undo with their address refusal cut are named -- the refusal is what
+	// lets an UPDATE of the address pass.
+	for _, fn := range []string{"identity_change_email(text,text,text)", "identity_revert_email_change(text)"} {
+		t.Run("control/"+fn+" without its address refusal", func(t *testing.T) {
+			aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+				var def string
+				if err := sp.QueryRow(ctx, `SELECT pg_get_functiondef($1::regprocedure)`, "public."+fn).Scan(&def); err != nil {
+					t.Fatal(err)
+				}
+				refusal := regexp.MustCompile(`(?s)\n\s*IF \(pg_catalog\.octet_length\(v_(new|old)::text\) <= 254.*?\) IS NOT TRUE THEN\s*RETURN;\s*END IF;`)
+				if n := len(refusal.FindAllStringIndex(def, -1)); n != 1 {
+					t.Fatalf("PREMISE: %s holds %d address refusals, want 1", fn, n)
+				}
+				aiExec(t, ctx, sp, refusal.ReplaceAllString(def, ""))
+				name, _, _ := strings.Cut(fn, "(")
+				if f, _ := iaIdentityWriterFindings(t, ctx, sp); !slices.ContainsFunc(f, func(s string) bool { return strings.HasPrefix(s, name+"(") }) {
+					t.Fatalf("CONTROL: %s without its refusal is not named (%v)", fn, f)
+				}
+			})
+		})
+	}
 	t.Run("control/a rewrite rule on the table", func(t *testing.T) {
 		aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			aiExec(t, ctx, sp, `CREATE RULE zz_m1408a_rule AS ON UPDATE TO public.admin_identities DO ALSO NOTHING`)

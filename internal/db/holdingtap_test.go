@@ -1763,6 +1763,10 @@ var holdingDownTables = []string{
 	"tenant_plan_history", "platform_admins",
 	// 00099 (T59): its Down drops sessions' one-way revocation trigger (DROP TRIGGER).
 	"sessions",
+	// 00101-00103 (T173 EC-1): each Down LOCKs admin_identity_verifications (with admin_identity_events,
+	// above) -- SHARE for 00103's and 00102's, ACCESS EXCLUSIVE for 00101's -- and 00101's ALTERs it
+	// (its CHECKs and columns); ecLiftDownRefusals writes it.
+	"admin_identity_verifications",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

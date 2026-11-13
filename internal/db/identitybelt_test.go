@@ -98,6 +98,13 @@ var identityTenantWideReads = map[string]int{
 	// M14-22 (00084): the lock on every membership of the identity before the rows to be linked (the lock
 	// order: identity -> memberships -> candidates -> the link -> the session).
 	"identity_link_by_email": 1,
+	// T173 (00102, ADR 0044 §5.3): the request locks every membership of the identity (the lock order); the
+	// change and the undo lock them, test each business for another row of the address (a read loop), and
+	// drive the mirror / session / link / audit writes from a second loop -- each write pinned to the loop
+	// record's id and tenant.
+	"identity_request_email_change": 1,
+	"identity_change_email":         3,
+	"identity_revert_email_change":  3,
 }
 
 // identitySessionKeyLookups names, per function, how many statements find a session -- or (M14-05) a
@@ -131,6 +138,10 @@ var identitySessionKeyLookups = map[string]int{
 	"identity_accept_invite_new":         1,
 	// M14-22 (00084): the clicking browser's session -- the second secret beside the mailed link.
 	"identity_link_by_email": 1,
+	// T173 (00102): the request's session; the change's clicking browser's session (the second secret
+	// beside the 'change' link). The undo takes no session.
+	"identity_request_email_change": 1,
+	"identity_change_email":         1,
 }
 
 // identityEmailWideReads names, per function, how many statements read admin_users by ONE ADDRESS
@@ -154,6 +165,12 @@ var identityEmailWideReads = map[string]int{
 	// identity is found from the secrets, the address only says WHICH rows its mailbox proof covers (the
 	// user's decision of 2026-10-29); 6b refuses a homoglyph row before anything is written.
 	"identity_link_by_email": 1,
+	// T173 (00102, ADR 0044 §5.3, K-E9 (a)): "the identity's OWN address holds no active row linked to
+	// nobody" -- the rows M14-22's banner offers (HasBusinessToAdd's set): the request reads it as a refusal,
+	// the change reads it again under the locks. An existence test each, keyed by the address read from the
+	// identity row the secret found; neither writes it.
+	"identity_request_email_change": 1,
+	"identity_change_email":         1,
 }
 
 // identityClaimAddressKeys names, per function, how many statements key an admin_identities alias by
@@ -164,6 +181,11 @@ var identityEmailWideReads = map[string]int{
 var identityClaimAddressKeys = map[string]int{
 	// M14-17b (00080): the identity with no active membership, locked while its digest is the verified one.
 	"identity_claim_signup": 1,
+	// T173 (00102, ADR 0044 §5.3, K-E1 (i) (a)): "no identity holds this address" under its lock -- the
+	// change's new address and the undo's old one, each read from the row the link's secret found. An
+	// existence test; the identity written is the one the secret found.
+	"identity_change_email":        1,
+	"identity_revert_email_change": 1,
 }
 
 // identityMaintenanceScans names, per function, how many statements read admin_users across EVERY
@@ -251,6 +273,13 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 		"a call to public.gen_random_bytes": "... 32 random bytes from pgcrypto's strong source, discarded in the same expression ...",
 		"a call to public.gen_salt":         "... at cost 12 (adminauth.Cost); pgcrypto lives in public (scripts/db-init/01-roles.sql), 00072's precondition checks it",
 	},
+	// T173 (00102, ADR 0044 §5.3): the undo's password is the unlink's sentinel, made in SQL (a digest from
+	// the caller could fail 00069's bcrypt CHECK, whose DETAIL prints the address) -- 00079:422's expression.
+	"identity_revert_email_change": {
+		"a call to public.crypt":            "ADR 0044 §5.3, ADR 0031 §5.8, S20: the sentinel digest is bcrypt (pgcrypto, a C function that reads no table) of ...",
+		"a call to public.gen_random_bytes": "... 32 random bytes from pgcrypto's strong source, discarded in the same expression ...",
+		"a call to public.gen_salt":         "... at cost 12 (adminauth.Cost); 00072's precondition checks pgcrypto",
+	},
 }
 
 // identityBeltAllowedCounts pins, per function, how many times each construct
@@ -259,7 +288,9 @@ var identityBeltAllowedConstructs = map[string]map[string]string{
 // has a count here; a missing one is a finding too.
 var identityBeltAllowedCounts = map[string]map[string]int{
 	"resolve_identity_by_email": {identityUnkeyedIdentityStatement: 1},
-	"identity_sweep_events":     {identityUnkeyedIdentityStatement: 1},
+	// T173 (00103): + the address change links, one DELETE per way a link ends (spent, cancelled, expired:
+	// the belt admits no OR) -- 1 -> 4.
+	"identity_sweep_events": {identityUnkeyedIdentityStatement: 4},
 	"identity_reconcile": {
 		identityUnkeyedIdentityStatement: 1, // the address check (EXISTS)
 		`"CONFLICT" in a predicate`:      1, // the identity INSERT's arbiter clause
@@ -268,6 +299,8 @@ var identityBeltAllowedCounts = map[string]map[string]int{
 		`"ANY" in a predicate`:           1, // the choice among the locked ids
 	},
 	"identity_unlink_backfilled": {"a call to public.crypt": 1, "a call to public.gen_random_bytes": 1, "a call to public.gen_salt": 1},
+	// T173 (00102): the undo's sentinel, the same expression once.
+	"identity_revert_email_change": {"a call to public.crypt": 1, "a call to public.gen_random_bytes": 1, "a call to public.gen_salt": 1},
 	// The ON CONFLICT (email) DO NOTHING of the other identity births (M14-08 00074/00076, M14-15 00077,
 	// M14-17 00078/00080): one arbiter clause each; and the registration drafts' sweep (00078).
 	"identity_create_for_signup":   {`"CONFLICT" in a predicate`: 1, `"DO" in a predicate`: 1, `"NOTHING" in a predicate`: 1},
@@ -286,6 +319,10 @@ var identityPersonTables = []string{
 var identityPersonTableDeleters = map[string][]string{
 	"admin_identity_events": {"identity_sweep_events"},
 	"admin_signup_claims":   {"identity_sweep_signup_claims"},
+	// T173 (00103; ADR 0044 §5.9, K-E1 (iii) (a); ADR 0031 §5.1's dated note of 2026-11-12): the address
+	// change links one day after they ended -- the same sweep, widened. 'verify' / 'link' rows keep no
+	// deleter (they carry no address).
+	"admin_identity_verifications": {"identity_sweep_events"},
 }
 
 // identityLexed is a body with comments removed, string literals emptied, and what the lexer saw.
@@ -996,6 +1033,8 @@ var identityBeltFamilies = map[string]func() []identityBeltControl{
 	"TestIdentityBodies_TheReconciliationIsHeldByTheBelt":          identityBeltReconcileControls,
 	"TestIdentityBodies_TheClaimsPasswordBranchIsHeldByTheBelt":    identityBeltClaimsPasswordControls,
 	"TestIdentityBodies_TheLinkByEmailIsHeldByTheBelt":             identityBeltLinkByEmailControls,
+	"TestIdentityBodies_TheEmailChangeIsHeldByTheBelt":             identityBeltEmailChangeControls,
+	"TestIdentityBodies_TheEmailUndoIsHeldByTheBelt":               identityBeltEmailUndoControls,
 }
 
 // identityBeltFamily is the calling test's family.
@@ -1039,6 +1078,26 @@ var identityBeltExpectedControls = []string{
 	"M5: the membership list without its identity",
 	"M9: the revoke correlated to itself",
 	"P3: a tenant read off an unkeyed identity row",
+	"T173: the change's address key by a parameter",
+	"T173: the change's audit row without its tenant",
+	"T173: the change's link spent without its key",
+	"T173: the change's mirror without its tenant",
+	"T173: the change's other-row test without its tenant",
+	"T173: the change's row resets cancelled without their tenant",
+	"T173: the change's sessions revoked without their tenant",
+	"T173: the open reset's recipient read without its key",
+	"T173: the request's e-mail read through another operator",
+	"T173: the request's retirement without its key",
+	"T173: the request's session joined by half its key",
+	"T173: the sweep's fifth unkeyed statement",
+	"T173: the undo's address key through another operator",
+	"T173: the undo's identity write without its key",
+	"T173: the undo's mirror without its tenant",
+	"T173: the undo's other undo links cancelled without their key",
+	"T173: the undo's other-row test without its tenant",
+	"T173: the undo's second sentinel",
+	"T173: the undo's sessions revoked without their tenant",
+	"T173: the unlink's undo-link read without its key",
 	"V1: IS DISTINCT FROM before a top-level OR",
 	"V2: CASE before a top-level OR",
 	"V3: an equality that is not the conjunct",
@@ -1408,6 +1467,103 @@ func identityBeltLinkByEmailControls() []identityBeltControl {
 		{name: "M14-22: the e-mail link spent without its key", fn: fn,
 			cut: "SET used_at = pg_catalog.now()\n     WHERE v.id = v_verification\n       AND v.identity_id = v_identity\n",
 			put: "SET used_at = pg_catalog.now()\n     WHERE v.used_at IS NULL\n"},
+	}
+}
+
+// TestIdentityBodies_TheEmailChangeIsHeldByTheBelt: T173's (00102) request and confirmation, each
+// statement without what holds it (identityBeltEmailChangeControls).
+func TestIdentityBodies_TheEmailChangeIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltEmailChangeControls() []identityBeltControl {
+	const (
+		change  = "public.identity_change_email(text, text, text)"
+		request = "public.identity_request_email_change(text, text, text, citext)"
+	)
+	return []identityBeltControl{
+		{name: "T173: the change's mirror without its tenant", fn: change,
+			cut:  "SET email = v_new\n         WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;",
+			put:  "SET email = v_new\n         WHERE a.id = m.id;",
+			want: "anchored by no tenant"},
+		{name: "T173: the change's sessions revoked without their tenant", fn: change,
+			cut: "         WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id\n           AND s.revoked_at IS NULL AND s.id <> v_session;",
+			put: "         WHERE s.admin_user_id = m.id\n           AND s.revoked_at IS NULL AND s.id <> v_session;"},
+		{name: "T173: the change's row resets cancelled without their tenant", fn: change,
+			cut: "         WHERE r.tenant_id = m.tenant_id AND r.admin_user_id = m.id\n", put: "         WHERE r.admin_user_id = m.id\n"},
+		{name: "T173: the change's other-row test without its tenant", fn: change,
+			cut: "         WHERE o.tenant_id = m.tenant_id\n           AND o.email OPERATOR(public.=) v_new\n",
+			put: "         WHERE o.email OPERATOR(public.=) v_new\n"},
+		{name: "T173: the change's address key by a parameter", fn: change,
+			cut: "WHERE o.email OPERATOR(public.=) v_new;", put: "WHERE o.email OPERATOR(public.=) p_link_hash;"},
+		{name: "T173: the change's link spent without its key", fn: change,
+			cut: "SET used_at = pg_catalog.now()\n     WHERE v.id = v_link\n       AND v.identity_id = v_identity\n",
+			put: "SET used_at = pg_catalog.now()\n     WHERE v.used_at IS NULL\n"},
+		{name: "T173: the change's audit row without its tenant", fn: change,
+			cut:  "INSERT INTO public.audit_log (tenant_id, actor_id, action, target, detail)\n        VALUES (m.tenant_id, m.id,",
+			put:  "INSERT INTO public.audit_log (actor_id, action, target, detail)\n        VALUES (m.id,",
+			want: "does not name tenant_id"},
+		{name: "T173: the request's e-mail read through another operator", fn: request,
+			cut: "     WHERE a.email OPERATOR(public.=) v_email\n       AND a.identity_id IS NULL",
+			put: "     WHERE a.email OPERATOR(public.<>) v_email\n       AND a.identity_id IS NULL"},
+		{name: "T173: the request's session joined by half its key", fn: request,
+			cut: "JOIN public.admin_users AS a ON a.id = s.admin_user_id AND a.tenant_id = s.tenant_id",
+			put: "JOIN public.admin_users AS a ON a.id = s.admin_user_id"},
+		{name: "T173: the request's retirement without its key", fn: request,
+			cut: "SET cancelled_at = pg_catalog.now()\n     WHERE v.identity_id = v_identity\n",
+			put: "SET cancelled_at = pg_catalog.now()\n     WHERE v.cancelled_at IS NULL\n"},
+	}
+}
+
+// TestIdentityBodies_TheEmailUndoIsHeldByTheBelt: T173's (00102) undo, the two functions it redefines
+// (identity_open_reset's recipient, identity_unlink_backfilled's undo-link refusal) and 00103's sweep,
+// each statement without what holds it (identityBeltEmailUndoControls).
+func TestIdentityBodies_TheEmailUndoIsHeldByTheBelt(t *testing.T) {
+	ctx, tx := opTx(t)
+	identityBeltRunControls(t, ctx, tx, identityBeltFamily(t))
+}
+
+func identityBeltEmailUndoControls() []identityBeltControl {
+	const (
+		undo   = "public.identity_revert_email_change(text)"
+		open   = "public.identity_open_reset(uuid, text, timestamptz, text)"
+		unlink = "public.identity_unlink_backfilled(text, uuid)"
+		sweep  = "public.identity_sweep_events()"
+	)
+	return []identityBeltControl{
+		{name: "T173: the undo's mirror without its tenant", fn: undo,
+			cut:  "SET email = v_old, password_hash = v_sentinel\n         WHERE a.id = m.id AND a.tenant_id = m.tenant_id AND a.identity_id = v_identity;",
+			put:  "SET email = v_old, password_hash = v_sentinel\n         WHERE a.id = m.id;",
+			want: "anchored by no tenant"},
+		{name: "T173: the undo's sessions revoked without their tenant", fn: undo,
+			cut: "         WHERE s.tenant_id = m.tenant_id AND s.admin_user_id = m.id AND s.revoked_at IS NULL;",
+			put: "         WHERE s.admin_user_id = m.id AND s.revoked_at IS NULL;"},
+		{name: "T173: the undo's other-row test without its tenant", fn: undo,
+			cut: "         WHERE o.tenant_id = m.tenant_id\n           AND o.email OPERATOR(public.=) v_old\n",
+			put: "         WHERE o.email OPERATOR(public.=) v_old\n"},
+		{name: "T173: the undo's address key through another operator", fn: undo,
+			cut: "WHERE o.email OPERATOR(public.=) v_old AND o.id <> v_identity;", put: "WHERE o.email OPERATOR(public.<>) v_old AND o.id <> v_identity;"},
+		{name: "T173: the undo's identity write without its key", fn: undo,
+			cut: "confirm_opened_at = NULL, confirm_open_until = NULL, confirm_scope = NULL\n     WHERE i.id = v_identity;",
+			put: "confirm_opened_at = NULL, confirm_open_until = NULL, confirm_scope = NULL\n     WHERE i.email IS NOT NULL;"},
+		{name: "T173: the undo's other undo links cancelled without their key", fn: undo,
+			cut: "     WHERE v.identity_id = v_identity\n       AND v.purpose = 'revert'\n       AND v.used_at IS NULL\n       AND v.cancelled_at IS NULL;\n    INSERT INTO public.admin_identity_events",
+			put: "     WHERE v.purpose = 'revert'\n       AND v.used_at IS NULL\n       AND v.cancelled_at IS NULL;\n    INSERT INTO public.admin_identity_events"},
+		{name: "T173: the undo's second sentinel", fn: undo,
+			cut:  "    v_sentinel := public.crypt(",
+			put:  "    v_sentinel := public.crypt(v_sentinel, v_sentinel);\n    v_sentinel := public.crypt(",
+			want: "identityBeltAllowedCounts pins 1"},
+		{name: "T173: the open reset's recipient read without its key", fn: open,
+			cut: "SELECT i.email INTO v_address FROM public.admin_identities AS i WHERE i.id = p_identity_id;",
+			put: "SELECT i.email INTO v_address FROM public.admin_identities AS i WHERE i.email IS NOT NULL;"},
+		{name: "T173: the unlink's undo-link read without its key", fn: unlink,
+			cut: "    PERFORM 1 FROM public.admin_identity_verifications AS v\n     WHERE v.identity_id = v_identity\n",
+			put: "    PERFORM 1 FROM public.admin_identity_verifications AS v\n     WHERE v.identity_id IS NOT NULL\n"},
+		{name: "T173: the sweep's fifth unkeyed statement", fn: sweep,
+			cut:  "    RETURN QUERY SELECT v_n;",
+			put:  "    DELETE FROM public.admin_identity_verifications AS v WHERE v.address IS NOT NULL AND v.created_at < v_links;\n    RETURN QUERY SELECT v_n;",
+			want: "identityBeltAllowedCounts pins 4"},
 	}
 }
 
