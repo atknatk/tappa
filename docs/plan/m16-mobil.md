@@ -20,34 +20,46 @@
 
 ## Kullanıcı kararları (2026-11-12/13) — bağlayıcı
 
-Yeniden tartışılmaz; ayrıntı ve gerekçe ADR 0044 §2'de.
+Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışılmaz (ADR 0044 §2'de *"karar"* diye işaretli):
 
-- Uygulama **isteğe bağlı, eklemeli**; tarayıcı akışı değişmez. Aynı plaket, aynı URL; uygulama kuruluysa Universal
-  Link / App Link onu açar.
-- Sunucu otoriter: aynı `tap.Decide` + policy motoru. Çalışan tap ekranı kuralları (§9) uygulamada da geçerli.
-- **Tamamen native:** iOS Swift/SwiftUI, Android Kotlin/Jetpack Compose; `mobile/ios/`, `mobile/android/`. RN/Expo
-  (Node), Flutter/KMP reddedildi. Üçüncü parti SDK yok; her bağımlılık önce sorulur.
-- Kazanımlar: iOS Core NFC ön plan okuma (P6) · dışa aktarılamayan cihaz anahtarı + imzalı istek + tek kullanımlık
-  nonce (Q11, oturum kopyalama) · Android sahte konum bildirimi → tenant'ın değiştirebildiği baseline ·
-  `transactions.client`.
-- **NFC'siz telefon: statik QR ve canlı QR birlikte.** Canlı QR = Go'nun sunduğu ekran sayfası, panelden lokasyona
-  eşlenir, ~20 sn'lik imzalı token; varsayılan `qr_live` + (IP veya GPS) → `ok`, yoksa `flag`; lokasyon başına
-  isteğe bağlı; kişi başına debounce geçerli.
-- **NFC'siz aktivasyon:** canlı QR ekranıyla, yoksa **müdür onayıyla** (bekleyen cihaz listesi, `audit_log`).
+- Native uygulama **isteğe bağlı**; tarayıcı akışı kalır ve tam desteklenir.
+- **Tamamen native:** iOS Swift/SwiftUI, Android Kotlin/Jetpack Compose — Node içeren yol (React Native / Expo)
+  dışarıda (CLAUDE.md §1).
+- NFC'siz telefon için **statik QR ve canlı QR birlikte**.
+- NFC'siz aktivasyon: lokasyonda **canlı QR ekranı varsa onunla, yoksa müdür onayıyla**.
 - **Attestation** Faz E'de **yalnız kanıt + rapor**; güveni ve verdict'i değiştirmez.
-- Reddedilenler: BLE beacon, Wi-Fi SSID/BSSID, paylaşılan kiosk + PIN.
-- Çevrimdışı kuyruk sonraya; kuyruktaki dokunuş sunucu saatini alır, eşik ötesi `flag`.
+
+## Plan önerileri — M16-01'de ADR kabulüyle kesinleşir
+
+> **Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR
+> kabulüyle kesinleşir.** Aşağıdakilerin hiçbiri bir kullanıcı kararı diye alıntılanmaz.
+
+- Aynı plaket, aynı URL; uygulama kuruluysa Universal Link / App Link onu açar.
+- Sunucu otoriter: aynı `tap.Decide` + policy motoru; çalışan tap ekranı kuralları (§9) uygulamada da geçerli.
+- Kod yeri `mobile/ios/`, `mobile/android/`; Flutter / KMP reddi; üçüncü parti SDK yok (her bağımlılık zaten
+  CLAUDE.md §1 gereği sorulur).
+- Kazanımlar: iOS Core NFC ön plan okuma (P6) · dışa aktarılamayan cihaz anahtarı + imzalı istek + tek kullanımlık
+  nonce (Q11, oturum kopyalama) · sahte konum bildirimi → tenant'ın değiştirebildiği baseline · `transactions.client`.
+- Canlı QR'ın biçimi: Go'nun sunduğu ekran sayfası, panelden lokasyona eşlenir, ~20 sn'lik imzalı token; varsayılan
+  `qr_live` + (IP veya GPS) → `ok`, yoksa `flag`; lokasyon başına isteğe bağlı; kişi başına debounce geçerli.
+- Müdür onayının biçimi: bekleyen cihaz listesi, eşleşme kodu, `audit_log`.
+- NFC'siz yol için reddedilenler: BLE beacon, Wi-Fi SSID/BSSID, paylaşılan kiosk + PIN.
+- Çevrimdışı kuyruk sonraya; anlamı: kuyruktaki dokunuş sunucu saatini alır, eşik ötesi `flag`.
+- Faz sırası (0 · A · B/C · D · E · F · Sonra).
 
 ## Brief iddialarının doğrulaması (2026-11-13, `70e8a016`)
 
 | İddia | Kodda | Sonuç |
 |---|---|---|
-| Plaket URL'si sabit, uygulama aynı URL'yi alabilir | `internal/handler/tap.go:282` (`TapPath`), `:291` (`PlaqueTapBase`) | ✅ — plaket yeniden kodlanmaz |
+| Plaket URL'si sabit, uygulama aynı URL'yi alabilir | `internal/handler/tap.go:282` (`TapPath`), `:290` (`PlaqueTapBase`) | ✅ — plaket yeniden kodlanmaz |
 | Statik QR = SUN'suz `/t` | `internal/sun/params.go:188-192` | ✅ `ctr` ve `cmac` yoksa `ChannelQR` |
 | Kanal sözlüğü kapalı | `00005:114`, `00043:141`, `00046:137`, `00048:171`, `00067:193`, `00095:66` | ⚠️ **10 migration + 2 sorgu + ~12 Go dosyası** — `qr_live` geniş bir değişiklik (ADR 0044 Bedel 6) |
 | Akış `qr_live`'ı görür mü | `00067:193`, `checkin.go:1687` (`feedEligible`), `openapi.yaml:1105` | ❌ bugün **sessizce atlar**; `/v1` enum'u kapalı → Q38 |
 | Canlı QR varsayılanı yeni baseline ister mi | `baseline.go:287-309` | ⚠️ **istemeyebilir:** yalnız `base:qr-requires-ip` kanal koşullu (`channel == "qr"`) |
 | Tazelik ve SUN guardrail'leri | `guardrails.go:396`, `:479` | NFC-only → `qr_live` için karar gerekir (M16-21) |
+| Debounce'un sunucu saati bacağı | `db/queries/transactions.sql:317` (`SecondsSinceLastRecordedTap`) | ❌ `channel IN ('nfc', 'qr')` → `qr_live` girmezse geriye tarihlenmiş bir `qr_live` dokunuşu debounce'u **sessizce** atlar (M16-19, M16-21) |
+| Motor her tap'te plaket varsayar | `internal/domain/tap/types.go:471-473` (`Tag` *"Always present for a resolved tap"*), `/v1` `tagId` (`openapi.yaml:1130-1133`) | ❌ `qr_live` satırının plaketi yok → M16-21 |
+| Tenant bilinmeden çözümleme | `00003` `resolve_session_by_token_hash` (`tappa_resolver`, SECURITY DEFINER, sabit `search_path`) | cihaz, ekran oturumu ve eşleşme kodu da aynı desenle çözülür (M16-03, M16-19) |
 | Yeni baseline belgesi var olan tenant'a nasıl girer | `checkin/policyset.go:422`, `:529` | ilk dokunuşta **onaysız** materialize edilir (ADR 0044 Bedel 10) |
 | `transactions` INSERT yetkisi | ADR 0038 | **sütun listesi** → `client` için ayrı GRANT |
 | İkinci cihaz ilkini iptal eder | `activate.go:1068-1077` | ✅ → uygulamaya genişler (Q40) |
@@ -100,13 +112,13 @@ numara değişikliği notu).
 
 | No (öneri) | Kart | İçerik | `Down` |
 |---|---|---|---|
-| 00100 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) | satır varsa reddeder |
-| 00101 | M16-04 | `transactions.client` + CHECK `NOT VALID` + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
-| 00102 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni) | `NOT VALID` hâline döner |
-| 00103 | M16-19 | `live_qr_displays` (+ eşleşme kodu) | satır varsa reddeder |
+| 00100 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
+| 00101 | M16-04 | `transactions.client` + **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID` (NULL'u kabul eder — `00065` deseni) + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
+| 00102 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
+| 00103 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + ekran oturumu ve eşleşme kodu çözümleyicileri (SECURITY DEFINER, `00003` deseni) | satır varsa reddeder |
 | 00104 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
-| 00105 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği | satır varsa reddeder |
-| 00106 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer) | dolu değer varsa reddeder |
+| 00105 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
+| 00106 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
 
 ADR: **0044** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
 
@@ -154,7 +166,7 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | D | M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | iki |
 | D | M16-24 | Faz D kapanışı | iki |
 | E | M16-25 | Attestation — yalnız kanıt | iki |
-| E | M16-26 | Raporlar ve panelde cihaz listesi; Faz E kapanışı | tek |
+| E | M16-26 | Raporlar ve panelde cihaz listesi; Faz E kapanışı | iki |
 | F | M16-27 | Gizlilik: `/legal/privacy`, mağaza etiketleri | tek |
 | F | M16-28 | İmza, iç test dağıtımı, sürüm süreci | iki |
 | F | M16-29 | KF/KM pilotu ve M16 kapanışı | tek |
@@ -183,6 +195,8 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | `CLAUDE.md` §3 dizin haritası (`:50-150`) | `android/` ve `mobile/` yok | `android/` (encode rölesi, ADR 0017) · `mobile/ios/` · `mobile/android/` · `internal/appdevice/` (cihaz anahtarı doğrulaması — kart M16-05 yazınca) |
 | `CLAUDE.md:158-159` (§4.1) | *"Telefonun kendi ekran kilidi bizim katmanımız değildir"* | aynen + *"uygulamada biyometri API'si ve biyometrik anahtar erişim denetimi yoktur (ADR 0044 §3)"* |
 | `CLAUDE.md:160-161` (§4.2) | *"Arka plan konum, sürekli takip, geofence izleme YOK"* | aynen + *"uygulamada arka plan konum izni ve modu da yoktur"* |
+| `CLAUDE.md` §3 `internal/sun/` satırı (`:76-77`) | *"Kriptografi SADECE burada"* | *"**Plaket** kriptografisi (AES-CMAC, SUN, `ctr`) SADECE burada"* — `internal/appdevice`'in ECDSA doğrulaması (M16-05) ve canlı QR token imzası (M16-20) bu cümleyle çelişmesin; yeni iki yer §3'e kendi satırıyla girer (`internal/appdevice/` M16-05, canlı QR paketi M16-20) |
+| `CLAUDE.md` §7 *"Asla loglanmaz"* listesi (`:474-` paragrafı) | oturum token'ı, CMAC, AES anahtarı, davet kodu, e-posta, tam GPS; operatör ve dış API tarafı | listeye eklenir: **cihaz imzası, istek nonce'u, canlı QR token'ı, ekran eşleşme kodu, ekran oturumu çerezi, canlı QR imza anahtarı**, müdür onayı eşleşme kodu (hata mesajı ve `audit_log` `detail`'i dahil) |
 | `CLAUDE.md` §11 tablosu (`:589-600`) | mobil satırı yok | *"iOS / Android personel uygulaması — `mobile/README.md` + ADR 0044"* |
 | `docs/handoff.md:24` | *"tarayıcı otomatik açılır (uygulama kurulumu YOK)"* | *"… (uygulama kurulumu gerekmez; isteğe bağlı uygulama — ADR 0044)"* |
 | `docs/handoff.md:27` slogan · `:54-55` Connecteam karşılaştırması · `:60` *"app-less akış"* farkı | — | **Q42'nin cevabına göre**; cevap *"kalsın"* ise değişmez |
@@ -232,11 +246,15 @@ eder):
 - R2'ye: `ACCESS_BACKGROUND_LOCATION`, `foregroundServiceType="location"` (ve `FOREGROUND_SERVICE_LOCATION`),
   `requestLocationUpdates`, `GeofencingClient`, `requestAlwaysAuthorization`, `allowsBackgroundLocationUpdates`,
   `startMonitoringSignificantLocationChanges`, `startMonitoring(for:`, `CLCircularRegion`, `UIBackgroundModes` içinde
-  `location`.
+  `location`; iOS'un sürekli/arka plan yolları: `startUpdatingLocation`, `startMonitoringVisits`, `CLMonitor`,
+  `CLLocationUpdate` / `liveUpdates`, `CLBackgroundActivitySession`; `Info.plist` anahtarları
+  `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSLocationAlwaysUsageDescription`. (`startUpdatingLocation` tek
+  seferlik okuma için de kullanılabilir; uygulama `requestLocation` kullanır — kural bunu bilerek FAIL sayar, M16-17
+  ona uyar.)
 - B1 (`Tappa` kullanıcı metninde) `B1_SRC`'ye `mobile/*/` kullanıcı metni dosyaları eklendi (Android `res/values`,
   iOS `*.strings` / `Localizable.xcstrings`, Swift/Kotlin dize literal'leri — kapsam ölçülerek seçilir).
 - R7 log kalıpları Swift (`os_log`, `Logger`, `print`) ve Kotlin (`Log.`) çağrılarını da görür: token, imza, nonce,
-  koordinat, e-posta, davet kodu.
+  canlı QR token'ı, eşleşme kodu, koordinat, e-posta, davet kodu (CLAUDE.md §7'nin M16-01'de genişleyen listesi).
 - Her yeni kalıp için `cmd/tappa/scripttest`'te mevcut redline testlerinin deseninde (ör. `redline_b1_test.go`) bir
   pozitif ve bir negatif fikstür; fikstür `testdata` altında, gerçek `mobile/`'a dosya konmaz.
 - Mevcut `android/` rölesi bu kartın kapsamı **dışında** kalır mı içinde mi — ölçülür, gerekçesiyle yazılır
@@ -264,6 +282,14 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
   now() RETURNING …`.
 - İki tabloda §6 beşlisi + GRANT'lar en dar (sütun düzeyi UPDATE: `last_used_at`, `revoked_at`, `consumed_at`).
 - RLS izolasyon testi (A tenant'ı B'nin cihazını görmez) — CLAUDE.md §6'nın *"filtre taşımayan"* şekliyle.
+- **Tenant bilinmeden çözümleme.** İmzalı bir istek geldiğinde tenant henüz bilinmez; FORCE RLS altında `tappa_app`
+  cihaz satırını göremez. Cihaz kimliği → (tenant, çalışan, açık anahtar, iptal durumu) çözümlemesi **dar bir SECURITY
+  DEFINER fonksiyonudur**, `00003`'ün `resolve_session_by_token_hash` deseninde: sahibi `tappa_resolver`, en çok 1
+  satır döner, `tappa_resolver`'a yalnız gereken sütunlarda SELECT, `SET search_path = pg_catalog, pg_temp`, EXECUTE
+  yalnız `tappa_app`'e. Nonce tüketimi tenant çözüldükten **sonra**, `SET LOCAL app.tenant_id` altında normal sorguyla
+  yapılır. Testler: RLS testi (fonksiyonsuz `tappa_app` başka tenant'ın cihazını göremez) + definer yüzeyi envanteri
+  (`TestResolverAccess_NoSqlcQueryNamesADefiner`, `TestResolverAccess_TheCallSitesAreTheOnesInventoried` yeni
+  çağrıyla güncellenir).
 - **Eşzamanlılık testi:** aynı nonce ile N goroutine → **tam 1** başarı, `-race`.
 - Süresi dolmuş nonce'ların temizliği: kart karar verir (silme mi, bırakma mı); karar §4.3'e değmez (bu tablo
   `transactions` değil) ama `redline-check` R3 kapsamında mı ölçülür.
@@ -278,9 +304,15 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 **Amaç.** Her yeni tap satırının hangi istemciden geldiğini değişmez olarak yazmak.
 
 **Kabul kriterleri.**
-- `transactions.client text NULL`, `CHECK (client IN ('browser','app'))` `NOT VALID`; ikinci CHECK (öneri): tap
-  kanallarında yeni satırda `client IS NOT NULL` — `manual` muaf (müdürün satırı bir istemciden gelmez); tarihsel
-  satırlar NULL, geri doldurma yok.
+- `transactions.client text NULL`, **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID`;
+  tarihsel satırlar NULL, geri doldurma yok, `DEFAULT` yok.
+- **"Tap kanalında `client` zorunlu" CHECK'i YOK.** `NOT VALID` bir CHECK yine her yeni INSERT'i bağlar: migration ile
+  yeni pod'un yayılması arasındaki pencerede eski ikili `client` yazmaz ve her NFC/QR dokunuşu 23514 ile reddedilip
+  **kaybolurdu** (§4.6); `VALIDATE`'i de geçmişi olan her veritabanında NULL'lu tarihsel satırlarda düşerdi. M15 aynı
+  şekli bu yüzden reddetti — `00065:22-29` (*"a slip that reached a CHECK would refuse the INSERT with 23514 and lose
+  the record"*, *"Historical rows are NULL and pass … NOT VALID still binds every new row"*) ve `Down`'un *"the CHECKs
+  admit NULL"* gerekçesi (`00065:57`). Yeni satırların dolu olduğunun kanıtı **kod tarafındadır**: Go testleri
+  (tarayıcı yolu `browser`, uygulama yolu `app`, manuel yol NULL) + M16-10'un uçtan uca DB testi.
 - `tappa_app`'in INSERT sütun listesine `client` eklendi (ADR 0038 — tablo düzeyi INSERT geri gelmez; ölç:
   `has_column_privilege`).
 - `InsertTransaction` ve bütün `store.Transaction` döndüren sorgular güncellendi (`make gen`); tarayıcı yolu
@@ -306,7 +338,10 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
   (`internal/session/manager.go:8-16`'nın gerekçesi; §5 satır 4 kaydı yazılabilsin).
 - Tablo bazlı testler: geçerli imza · yanlış anahtar · bozuk imza · tekrar kullanılan nonce · süresi dolmuş nonce ·
   başka cihazın nonce'u · başka tenant'ın cihazı · iptal edilmiş cihaz.
-- Paket hiçbir log satırına imza, nonce, açık anahtar ya da gövde yazmaz (log testi).
+- Paket hiçbir log satırına imza, nonce, açık anahtar ya da gövde yazmaz (log testi; CLAUDE.md §7 listesi M16-01'de
+  genişler).
+- CLAUDE.md §3 `internal/sun/` satırının *"Kriptografi SADECE burada"* ifadesi M16-01'de *"plaket kriptografisi"*ye
+  daraltılmış olmalı; değilse bu kart onu düzeltir.
 - CLAUDE.md §3'e `internal/appdevice/` satırı (M16-01 tablosu).
 
 ## M16-06 — Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı
@@ -343,8 +378,10 @@ ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 **Amaç.** Uygulamanın konuştuğu tek yüzey; tarayıcı akışının **eşi**, ikinci bir karar yolu değil.
 
 **Kabul kriterleri.**
-- Uç noktalar (öneri adları; kart kesinleştirir): `POST /app/v1/activate` (davet kodu + onay + açık anahtar; ADR 0026'nın
-  bağ ve tüketim kuralları), `POST /app/v1/nonce`, `POST /app/v1/tap/start` (SUN URL'sinin sorgusu → `GET /t`'nin
+- Uç noktalar (öneri adları; kart kesinleştirir): **aktivasyon iki adımdır** — `POST /app/v1/activate/bind` (davet
+  kodu + onay + açık anahtar: ADR 0026'nın onay POST'unun eşi — onayı kaydeder ve bu **anahtara** bağlar, daveti
+  tüketmez, cihazı etkinleştirmez) ve `POST /app/v1/activate/complete` (bağlı anahtarla imzalı; gövdede ilk gerçek NFC
+  okumasının SUN URL sorgusu — Faz D'de canlı QR token'ı, M16-23), `POST /app/v1/nonce`, `POST /app/v1/tap/start` (SUN URL'sinin sorgusu → `GET /t`'nin
   eşi: önizleme, tahmini yön, **sayaç ilerlemez**, imzalı tap bağlamı), `POST /app/v1/tap` (`POST /api/checkin`'in
   eşi: bağlam + `want` + konum + sahte konum bayrağı), `GET /app/v1/me` (ad, tenant markası, tahmini yön — eski
   iPhone'un tek ekranı için, Q41), `POST /app/v1/revoke` (cihazın kendi çıkışı).
@@ -352,7 +389,16 @@ ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
   kimliği çözülmüş bir istek §5'in kayıt yazan satırlarına (4, 6, 7) tarayıcıyla aynı şekilde iner.
 - Aynı `checkin.Service.Record`; `client='app'` sunucudan; tap bağlamı `GET /t`'ninkiyle aynı imzalı yapı (tazelik
   guardrail'i aynı saati okur).
-- Aktivasyon dokunuşu `transactions` satırı yazmaz (ADR 0026 md. 3); ikinci cihaz kuralı Q40'ın cevabına göre.
+- **Aktivasyonun tamamlanması `CompleteByTap`'in sırasıdır** (ADR 0026 md. 3): davet geçerli → kanal NFC →
+  ilerletmeyen ön kontrol (plaket davetle **aynı tenant'ta**, `active`) → **`sun.Verify`** (önce CMAC, sonra atomik
+  `ctr`, CLAUDE.md §4.4) → onay + bağ **tek ifadenin** WHERE'inde tüketim → cihaz etkin. `transactions` satırı yazmaz;
+  ikinci cihaz kuralı Q40'ın cevabına göre. Eşzamanlılık testi: aynı `(tag, ctr)` ile N eşzamanlı tamamlama → **tam 1**
+  başarı, `-race`.
+- **Okuma isteklerinin kimliği.** `GET /app/v1/me` ve `POST /app/v1/tap/start` ad ve tenant markası döndürür; ikisi de
+  imzalıdır — durum değiştirmedikleri için nonce yerine imzalı bir zaman damgası (sunucu saatine göre dar pencere,
+  ör. ±60 sn; kart ölçer) ve cihaz kimliği taşırlar; imzasız ya da pencere dışı → 401, gövde boş. `POST
+  /app/v1/nonce` imzalı + zaman damgalıdır ve **cihaz başına oran sınırlıdır** (yaşayan tüketilmemiş nonce sayısına
+  da üst sınır — tablo şişirilemesin).
 - Holding dokunuşu (KM çalışanı KF plaketinde, ADR 0027) tarayıcıdaki sonucun aynısını verir (DB testi).
 - Oran sınırı: tap yüzeyinin limiter'ı (`internal/httpx/ratelimit.go`) cihaz başına uygulanır; yanıtlar `no-store`.
 - Hata gövdesi kapalı sözlük; hiçbir yanıt ve log satırı imza, nonce, tam koordinat, davet kodu taşımaz.
@@ -366,7 +412,7 @@ ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 - **Commit:** `feat(app): publish the app association files`
 
 **Amaç.** `https://taptime.mt/.well-known/apple-app-site-association` ve `/.well-known/assetlinks.json`'u Go
-ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamaya bağlanır.
+ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu — M16-20 ekler) uygulamaya bağlanır.
 
 **Kabul kriterleri.**
 - Değerler config'ten (env), yoksa yol 404 — eksik env **başlangıçta panic değil** (uygulama isteğe bağlı;
@@ -374,7 +420,10 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - `apple-app-site-association` `Content-Type: application/json`, yönlendirmesiz (Apple yönlendirmeyi izlemez —
   **doğrula**); `www` ve eski host'lar yönlendirmede (`43-redirect-ingress.yaml`) — Universal Link'in yalnız
   `taptime.mt` için çalıştığı yazılır.
-- Ingress bu yolları uygulamaya iletir (`40-ingress.yaml`'daki `acme-challenge` istisnasıyla çakışmaz — ölç).
+- Ingress bu yolları uygulamaya iletir; ACME çözücüsünün `/.well-known/acme-challenge/<token>` yolu yalnız sertifika
+  çözülürken eklenir (`deploy/k8s/42-api-ingress.yaml:22`, `43-redirect-ingress.yaml:48` yorumları; `40-ingress.yaml`
+  bunu anmaz) — `taptime.mt` host'unda `/.well-known/*`'in uygulamaya ulaştığı canlıda ölçülür.
+- Faz D'de canlı QR yolu eklenince (M16-20) iki dosyanın yol listesi **o kartta** güncellenir.
 - `/activate` uygulamaya **bağlanmaz** (öneri): davet linki tarayıcıda açılır, uygulama aktivasyonu kendi ekranından
   davet kodunu alır — tarayıcı aktivasyonu uygulama kurulu diye değişmesin (Q40 ile birlikte karar).
 
@@ -402,9 +451,14 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı + üçüncü göz · **Mercek: iki**
 - **Commit:** `test(app): sign the app surface end to end`
 
+**Amaç.** Faz A'nın sunucu yüzeyini, uygulama yokken, imzalı bir test istemcisiyle uçtan uca kanıtlamak ve fazın büyük
+testlerini bir kez koşmak.
+
 **Kabul kriterleri.**
-- Go'da imzalı bir **sahte istemci** (test yardımcısı; M16-05'in vektörleriyle) gerçek Postgres'e karşı: aktivasyon →
-  nonce → tap/start → tap → kayıt (`client='app'`) → tekrar (60 sn, `ignored`) → telefon çıkışı → `reject`.
+- Go'da imzalı bir **sahte istemci** (test yardımcısı; M16-05'in vektörleriyle) gerçek Postgres'e karşı: aktivasyon
+  (bind → complete) → nonce → tap/start → tap → kayıt (`client='app'`) → tekrar (60 sn, `ignored`) → telefon çıkışı →
+  `reject`. Aynı testte tarayıcı yolu bir satır yazar ve `client='browser'` okunur; manuel kayıt `client IS NULL`
+  (M16-04'ün CHECK'siz kanıtı).
 - Bu fazın **büyük testleri bir kez:** tam `-race`, `go test ./...`, `make check`, `make audit`.
 - ADR 0044'e *"Faz A uygulandı"* notu (migration numaraları, ölçülen sapmalar).
 - `state.md`: Faz A done; sevk kararı kullanıcıya sorulur.
@@ -419,6 +473,9 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Kırmızı çizgi:** §1 (bağımlılık), §4.1, §4.2
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `feat(android): scaffold the staff app`
+
+**Amaç.** `mobile/android/`'de, yalnız onaylanmış bağımlılıklarla ve yalnız izinli izinlerle derlenen, kırmızı çizgi
+taramasından geçen boş bir personel uygulaması.
 
 **Kabul kriterleri.**
 - Ayrı Gradle build `mobile/android/`; toolchain `android/README.md`'nin **ölçülmüş** sürümleri (JDK 21, Gradle 9.7.1,
@@ -437,11 +494,15 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(android): activate with a hardware-bound key`
 
+**Amaç.** Android'de dışa aktarılamayan bir Keystore anahtarı üretip ADR 0026'nın eşi olan iki adımlı aktivasyonu
+(bind → ilk gerçek NFC okumasıyla complete) uçtan uca çalıştırmak.
+
 **Kabul kriterleri.**
 - Keystore'da P-256 imza anahtarı; StrongBox varsa orada (yoksa TEE; sonuç kaydedilir); `setUserAuthenticationRequired`
   **çağrılmaz**; dışa aktarma yok.
 - Aktivasyon akışı ADR 0026'nın eşi: davet kodu → onay ekranı (tarayıcı sihirbazının metni, tenant markası) →
-  *"plakete dokun"* → ilk gerçek NFC okuması → `/app/v1/activate` tamamlanır.
+  `/app/v1/activate/bind` → *"plakete dokun"* → ilk gerçek NFC okuması → `/app/v1/activate/complete` (M16-07'nin
+  `CompleteByTap` sırası; sunucu `sun.Verify` ile doğrular, uygulama doğrulamaz).
 - M16-05'in bilinen cevap vektörleri Kotlin tarafında JVM testinde geçer (aynı kanonik metin).
 - CLAUDE.md §5 *"Aktivasyon dokunuşu"*na uygulama yolu cümlesi (M16-16 ile ortak; ilk biten yazar, ikinci uyarlar).
 
@@ -452,13 +513,18 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(android): clock in from a plaque tap`
 
+**Amaç.** Plakete dokunan Android telefonun uygulamada tarayıcı tap ekranının eşini açması ve dokunuşu imzalı olarak
+`/app/v1/tap`'a kaydettirmesi.
+
 **Kabul kriterleri.**
 - `NDEF_DISCOVERED` filtresi `https://taptime.mt/t` için; uygulama tarayıcıdan önce seçilir (**doğrula** gerçek
   cihazda, M16-14); App Link (`autoVerify`) QR/bağlantı açılışları için.
 - Ekran tarayıcı tap ekranının eşi: ad, tahmini yön düğmesi, *"Not right?"*, tenant logosu + accent slotu; sonuç
   ekranı düğmesiz (§9). Farklılık varsa kullanıcıya sorulur.
-- Konum yalnız düğmeye basıldığında, tek seferlik (`getCurrentLocation` ya da eşdeğeri); izin reddi akışı tarayıcıdaki
-  *"konumsuz"* yolun aynısı (kayıt yine yazılır, §4.6).
+- Konum yalnız düğmeye basıldığında, tek seferlik; izin reddi akışı tarayıcıdaki *"konumsuz"* yolun aynısı (kayıt
+  yine yazılır, §4.6). **Doğrula:** platform `LocationManager.getCurrentLocation` API 30+'dır; minSdk 26 ile 26–29
+  arasında `requestSingleUpdate` (API 30'da kullanımdan kalktı) gerekir. Fused Location Provider Play Services ister ve
+  Q36'da **yoktur** — kullanılacaksa önce sorulur.
 - Sahte konum bayrağı (`isMock()` / `isFromMockProvider()`) yalnız true ise gönderilir.
 - Ağ hatası: dokunuş kaybolmaz mı? — MVP'de **kuyruk yok**; ekran *"tekrar dokun"* der ve plaket sayacı bir sonraki
   dokunuşta ilerler (A1'in sinyali `ctrGap` bunu sayar — bilinen bedel yazılır).
@@ -469,6 +535,9 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Bağımlılık:** M16-13
 - **Araç:** yapıcı (kullanıcıyla cihaz başında) + üçüncü göz · **Mercek: iki**
 - **Commit:** `docs(android): record the device tour`
+
+**Amaç.** Android MVP'sini gerçek bir telefon ve gerçek bir plaketle senaryo senaryo ölçmek ve fazın büyük testlerini bir
+kez koşmak.
 
 **Kabul kriterleri.**
 - NFC'li Android'de, staging ya da yerel sunucuya karşı gerçek bir test plaketiyle: aktivasyon · giriş · 60 sn tekrar
@@ -489,6 +558,9 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `feat(ios): scaffold the staff app`
 
+**Amaç.** `mobile/ios/`'ta, üçüncü parti paketsiz, yalnız izinli yetki ve `Info.plist` anahtarlarıyla derlenen, iPhone 7'yi
+kapsayan boş bir personel uygulaması.
+
 **Kabul kriterleri.**
 - Xcode projesi `mobile/ios/`; Swift Package / CocoaPods bağımlılığı **yok** (Q36 aksini demedikçe) — CoreNFC,
   CryptoKit, CoreLocation, DeviceCheck, AVFoundation platformdandır.
@@ -507,6 +579,8 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(ios): activate with a Secure Enclave key`
 
+**Amaç.** iOS'ta biyometrisiz bir Secure Enclave anahtarı üretip Android'le aynı iki adımlı aktivasyonu çalıştırmak.
+
 **Kabul kriterleri.**
 - Secure Enclave P-256 anahtarı, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; `SecAccessControlCreateFlags`'te
   biyometri ya da `userPresence` **yok** (birim testi bayrakları okur).
@@ -520,12 +594,16 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(ios): clock in from a plaque, on every NFC iPhone`
 
+**Amaç.** NFC'li her iPhone'da — arka planda okuyan XS+ ve yalnız ön planda okuyan 7–X — plaket dokunuşunu gerçek SUN
+kanıtıyla kaydettirmek (P6'nın kapanışı).
+
 **Kabul kriterleri.**
 - iPhone XS+: arka plan okuması → Universal Link → uygulama açılır → tap ekranı (**doğrula** gerçek cihazda).
 - iPhone 7–X: tap ekranı `GET /app/v1/me`'nin tahmini yönüyle çizilir; tek düğme Core NFC NDEF oturumunu açar, okunan
   URL `/app/v1/tap/start` + `/app/v1/tap`'a gider (Q41'in cevabına göre tek ya da iki dokunuş). `channel='nfc'`,
   `sun_valid=true` DB'de ölçülür — P6'nın kapandığının kanıtı.
-- Konum: *When-In-Use*, düğmeye basınca tek seferlik (`requestLocation` ya da eşdeğeri); `sourceInformation
+- Konum: *When-In-Use*, düğmeye basınca tek seferlik (`requestLocation`; `startUpdatingLocation` ve
+  `CLLocationUpdate` M16-02'nin R2'sine takılır); `sourceInformation
   .isSimulatedBySoftware` (iOS 15+) true ise bayrak (**doğrula**).
 - Sonuç ekranı düğmesiz; *"tarayıcıda aç"* çıkışı yalnız hata/aktive değil ekranında (ADR 0044 Bedel 8; §9 sorusu).
 - CLAUDE.md §9'a uygulama ekranlarının eşlik cümlesi (bu kartla ya da M16-13 ile — ilk biten).
@@ -535,6 +613,8 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu, M16-21) uygulamay
 - **Bağımlılık:** M16-17
 - **Araç:** yapıcı (kullanıcıyla) + üçüncü göz · **Mercek: iki**
 - **Commit:** `docs(ios): record the device tour`
+
+**Amaç.** iOS MVP'sini iki iPhone sınıfında gerçek cihazla ölçmek ve fazın büyük testlerini bir kez koşmak.
 
 **Kabul kriterleri.**
 - iPhone XS+ **ve** iPhone 7–X üzerinde M16-14'ün senaryo listesi (sahte konum yerine: konum izni reddi ve *"Precise
@@ -559,11 +639,19 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 
 **Kabul kriterleri.**
 - `live_qr_displays`: `tenant_id`, `location_id`, eşleşme (tek kullanımlık kod özeti + süresi), ekran oturumunun
-  özeti, `created_at`, `revoked_at` (tek yönlü); §6 beşlisi.
+  özeti, `created_at`, `revoked_at` (tek yönlü); §6 beşlisi + GRANT + RLS izolasyon testi.
+- **Tenant bilinmeden çözümleme** (M16-03 ile aynı kural): ekranın eşleşme kodunu girdiği istek ve ekran oturumu
+  çerezi tenant bilinmeden gelir; ikisinin çözümü de `00003`'ün `resolve_session_by_token_hash` / `tappa_resolver`
+  desenindeki dar SECURITY DEFINER fonksiyonlarıdır (en çok 1 satır, sütun GRANT'ı, `SET search_path = pg_catalog,
+  pg_temp`, EXECUTE yalnız `tappa_app`); eşleşme kodunun tüketimi tek ifadedir. RLS testi + definer yüzeyi envanteri
+  (`TestResolverAccess_TheCallSitesAreTheOnesInventoried`) güncellenir.
 - **Envanter tablosu** kartın içine yazılır: `'nfc', 'qr'` / `channel IN` / `NOT IN` geçen **her** migration
   fonksiyonu, CHECK, sorgu ve Go dosyası (başlangıç: ADR 0044 Bedel 6'nın listesi) — her biri için *"qr_live girer /
   girmez, neden"*. `transactions_site_by_channel` (`00043:139-142`) için üçüncü kol (ekranın lokasyonu dolu, plaket
-  uid'i boş — öneri).
+  uid'i boş — öneri). Envanter en az şunları adlandırır: `00005`, `00043`, `00044`, `00046`, `00048`, `00049`, `00050`,
+  `00067`, `00068`, `00095`; `db/queries/transactions.sql` — **`SecondsSinceLastRecordedTap`'in `channel IN ('nfc',
+  'qr')` filtresi (`:317`) dahil**: debounce'un sunucu saati bacağıdır (ADR 0006); `qr_live` oraya girmezse geriye
+  tarihlenmiş bir `qr_live` dokunuşu debounce'u sessizce atlar — ve `daycutoff.sql`.
 - Akış tetikleyicisinin gövdesi (`00067`'nin `punch_feed` fonksiyonu) ve Go aynası `feedEligible` **aynı commit'te**
   Q38'in cevabına göre; parite testi.
 - `Down`: `qr_live` satırı varsa reddeder.
@@ -575,6 +663,9 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(liveqr): pair a venue screen and rotate its code`
 
+**Amaç.** Mekândaki herhangi bir tabletin, uygulamasız, panelden bir lokasyona eşlenip ~20 sn'de bir dönen imzalı QR
+göstermesi.
+
 **Kabul kriterleri.**
 - Panel: lokasyon sayfasında *"Add a live QR screen"* → tek kullanımlık eşleşme kodu (kısa ömürlü); ekranlar listesi
   ve iptal; her eşleme ve iptal `audit_log`.
@@ -584,6 +675,12 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   penceresini bağlar; QR'ın URL'si uygulama tarafından da yakalanabilir yol altında (M16-08).
 - Ekran kişisel veri göstermez; ekran sayfasının CSP'si tap ekranınınki kadar dar.
 - Ekran çevrimdışıyken eski kodu göstermeye devam etmez (son başarılı yenilemenin üstünden süre geçince QR gizlenir).
+- İmza anahtarı env'i `internal/config`'in `namedKeys()` çift-çift farklılık kapısına girer (`config.go:1214`; aynı
+  değer başka bir anahtarla paylaşılırsa açılış reddeder).
+- **Log testleri:** hiçbir log satırı, hata mesajı ve `audit_log` `detail`'i canlı QR token'ını, ekran eşleşme kodunu,
+  ekran oturumu çerezini ya da imza anahtarını taşımaz (CLAUDE.md §7, M16-01'de genişleyen liste).
+- `/.well-known` iki dosyasının yol listesine canlı QR yolu eklenir (M16-08'in Faz D maddesi) — uygulama kuruluysa
+  canlı QR'ı da yakalar.
 
 ## M16-21 — `qr_live` karar motorunda
 
@@ -592,15 +689,35 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(tap): accept a live QR as a channel`
 
+**Amaç.** Canlı QR dokunuşunu karar motoruna plaketsiz bir tap kanalı olarak sokmak; plaket varsayan her yeri (§5 satır 1,
+tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
+
 **Kabul kriterleri.**
 - `sun.Channel` / `tap.Channel` sözlüğüne `qr_live`; kanal **token doğrulamasından** türetilir, istek alanından değil.
 - Token doğrulaması sabit zamanlı karşılaştırma; süre dolmuş / imzası bozuk token Q39'un cevabına göre (kayıt kuralı
   §4.6 ile).
 - `sys:tap-freshness`'in `qr_live`'a uygulanıp uygulanmayacağı ölçülerek karar verilir (bugün NFC-only,
   `guardrails.go:479`) ve gerekçesi koda yazılır.
+- **Plaketsiz tap.** `tap.Input.Tag` bugün *"Always present for a resolved tap"*tir (`internal/domain/tap/types.go:471-473`);
+  `qr_live` satırının plaketi yoktur. Kart şunları açık kuralla karşılar (her biri bir `TestDecide_` vakası ya da DB
+  testi):
+  - **§5 satır 1'in eşi:** iptal edilmiş (`revoked_at` dolu) ya da lokasyonu pasif bir ekranın token'ı → sonuç
+    (öneri: `reject`, satır 1 gibi) **ve kaydın yazılıp yazılmadığı** (öneri: kimliği çözülmüş kişi için yazılır,
+    §4.6).
+  - **Lokasyon ve tenant token'dan türetilir** (`resolve_tag_by_uid`'in yerini ekran çözümü alır, `00004`); istekten
+    lokasyon alanı okunmaz.
+  - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
+    durumu (ADR 0027 — KM çalışanı KF ekranında) statik QR'ın holding kuralına (`sys:cross-tenant-qr-site-ip`) göre
+    ya açılır ya kapalı kalır, gerekçesiyle; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
+    üçüncü koluyla uyumlu.
+  - **`/v1` `tagId`:** `qr_live` olayında `null` (şema zaten `["string", "null"]`, `openapi.yaml:1130-1133`; açıklaması
+    *"also for a QR punch"* der) — anlamı açıklamaya yazılır (Q38).
 - `TestDecide_` önekli vakalar: `qr_live` + IP → `ok` · `qr_live` + GPS-only → `ok` (`base:gps-only-allow`) ·
-  `qr_live` + hiçbiri → `flag` · aynı kişi 60 sn içinde → `ignored` · farklı iki kişi aynı token'la art arda → ikisi
-  de kayıt · statik QR'ın sonuçları **aynen**.
+  `qr_live` + hiçbiri → `flag` · aynı kişi 60 sn içinde → `ignored` · **kanallar arası:** `nfc` dokunuşundan 60 sn
+  içinde `qr_live` → `ignored` (ve tersi) · **geriye tarihlenmiş** `occurred_at`'li `qr_live` öncülü 60 sn içinde
+  yazılmışsa → `ignored` (sunucu saati bacağı, `SecondsSinceLastRecordedTap` — DB testi) · farklı iki kişi aynı
+  token'la art arda → ikisi de kayıt · statik QR'ın sonuçları **aynen**.
+- **Log testi:** token, imza ve doğrulama hatasının metni log'a ve hata gövdesine girmez (CLAUDE.md §7).
 - Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0044 §2.5: büyük olasılıkla gerekmez); gerekirse
   `BaselineVersion` + duyuru.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
@@ -614,6 +731,8 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `feat(mobile): read plaque and live QR codes`
 
+**Amaç.** NFC'siz telefonda uygulamaya statik ve canlı QR'dan girilebilmesi.
+
 **Kabul kriterleri.**
 - Öneri (Q36 c): MVP'de uygulama içi tarayıcı **yok** — sistem kamerası QR'ı okur, App Link / Universal Link uygulamayı
   açar. Q36 başka seçenek seçerse: iOS AVFoundation (platform), Android yalnız onaylanan kütüphane.
@@ -622,15 +741,23 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 
 ## M16-23 — NFC'siz aktivasyon: canlı QR ve müdür onayı
 
-- **Bağımlılık:** M16-21
+- **Bağımlılık:** M16-21, M16-22 · uygulama yolu için M16-12, M16-16
 - **Kırmızı çizgi:** §4.5, §4.6, §5 (aktivasyon), §9 (aktivasyon ailesi)
 - **Araç:** yapıcı + agent `tappa-db-migrator` (bekleyen istek tablosu) · **Mercek: iki**
 - **Commit:** `feat(activate): activate a phone that cannot tap`
+
+**Amaç.** NFC'siz telefonu aktive etmek: lokasyonda canlı QR ekranı varsa onunla, yoksa müdür onayıyla (ADR 0026 Bedel 3'ün
+kalkışı).
 
 **Kabul kriterleri.**
 - **Canlı QR yolu:** onaylı (bağlı) aktivasyonu olan tarayıcı ya da uygulama, davetle **aynı tenant'taki** aktif bir
   ekranın geçerli token'ını okur → `CompleteByTap`'in sırası, `sun.Verify` yerine token doğrulaması; `transactions`
   satırı yok.
+- **Kapı (kullanıcı kararı):** müdür onayı yolu **yalnız** davetin lokasyonunda (öneri: çalışanın profil şubesi ya da
+  tenant'ın hiçbir lokasyonunda — kart ölçer ve seçer) aktif canlı QR ekranı **yoksa** sunulur; ekran varsa sihirbaz
+  canlı QR'ı ister. Test: ekranlı lokasyonda müdür onayı isteği açılamaz (sunucu reddeder, yalnız gizlenmez).
+- **Bekleyen istek tablosu** §6 beşlisiyle (`tenant_id`, ENABLE + FORCE RLS, politika, indeks) + en dar GRANT + RLS
+  izolasyon testi (M16-03'teki gibi); onay/ret tek yönlü.
 - **Müdür onayı yolu:** sihirbazda *"My phone can't tap"* → bekleyen istek (eşleşme kodu telefonda ve panelde) →
   müdür onaylar ya da reddeder → `audit_log` (kim, ne zaman, hangi çalışan; kod ve davet kodu log'a ve `detail`'e
   yazılmaz) → telefon bir sonraki durum sorgusunda oturumu/cihazı alır. Onay süreli; süresi dolan istek düşer.
@@ -643,6 +770,8 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Bağımlılık:** M16-19 … M16-23
 - **Araç:** yapıcı (kullanıcıyla) + üçüncü göz · **Mercek: iki**
 - **Commit:** `docs(liveqr): record the venue screen tour`
+
+**Amaç.** Faz D'yi gerçek bir ekran ve NFC'siz bir telefonla ölçmek ve fazın büyük testlerini bir kez koşmak.
 
 **Kabul kriterleri.**
 - Gerçek bir tablette canlı QR ekranı + NFC'siz telefon: tarayıcıyla ve uygulamayla aktivasyon (iki yol), giriş,
@@ -661,9 +790,13 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** yapıcı + agent `tappa-db-migrator` · **Mercek: iki**
 - **Commit:** `feat(appdevice): record device attestation as evidence`
 
+**Amaç.** App Attest ve Play Integrity sonucunu kararı etkilemeden kanıt olarak kaydetmek.
+
 **Kabul kriterleri.**
 - iOS App Attest (aktivasyonda attestation, tap'te assertion) ve Android Play Integrity; Go tarafı Q37'nin cevabıyla
   (öneri: yerel doğrulama, yeni bağımlılık yok ya da en küçüğü).
+- Kayıt yeri bir sütunsa yalnız INSERT ve NULL kabul eden CHECK (M16-04'ün kuralı); bir tabloysa §6 beşlisi + en dar
+  GRANT + RLS izolasyon testi (M16-03'teki gibi).
 - Sonuç kaydedilir (öneri: `device_attested`); **`policy_context`'e girmez**, güven puanını ve verdict'i değiştirmez
   (`TestDecide_` regresyonu: aynı girdiler, attestation var/yok → aynı karar).
 - Apple/Google'a giden her çağrı gizlilik bildirimine yazılır (M16-27).
@@ -672,14 +805,19 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 ## M16-26 — Raporlar ve panelde cihaz listesi; Faz E kapanışı
 
 - **Bağımlılık:** M16-25
-- **Kırmızı çizgi:** §4.5
-- **Araç:** yapıcı + skill `tappa-brand` · **Mercek: tek**
+- **Kırmızı çizgi:** §4.5 (tenant panelinde `app_devices` okuması + yazma yolu)
+- **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki** (tek cihaz iptali panelin yazma yoludur)
 - **Commit:** `feat(dashboard): show app, attested and mock-location ratios`
+
+**Amaç.** Müdüre uygulama/tarayıcı, attested, sahte konum ve canlı QR oranlarını ve çalışan başına cihaz listesini göstermek;
+tek cihazı iptal edebilmek.
 
 **Kabul kriterleri.**
 - M6-11 anomali raporuna oranlar: uygulama / tarayıcı · attested · sahte konum bildirimi · `qr_live` — çalışan ve
   lokasyon kırılımında; eksik veri (`client` NULL tarihsel satır) ayrı ve açıkça.
 - Çalışan kartında cihaz listesi (platform, kaba etiket, ilk/son kullanım, attested) ve tek cihaz iptali.
+- Tek cihaz iptali **tek yönlüdür** (`00099` deseni), `audit_log` yazar, başka tenant'ın cihaz kimliğiyle istek → 404
+  (RLS + açık `tenant_id` filtresi; DB testi); yetki policy motorundan (`base:authz-*`), CSRF panelin mevcut kapısıyla.
 - Fazın büyük testleri bir kez.
 
 ---
@@ -691,6 +829,8 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Bağımlılık:** M16-26 · Q42 · kullanıcı/hukukçu onayı
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `docs(legal): describe the staff app`
+
+**Amaç.** Uygulamanın topladığı ve toplamadığı veriyi hukuk metnine ve iki mağazanın gizlilik beyanına doğru yazmak.
 
 **Kabul kriterleri.**
 - `docs/legal/` taslağına uygulama paragrafı: toplanan veri (cihaz açık anahtarı, kaba cihaz etiketi, tap anında konum,
@@ -706,6 +846,9 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** yapıcı + kullanıcı · **Mercek: iki**
 - **Commit:** `docs(mobile): document signing and internal releases`
 
+**Amaç.** İmza anahtarlarını repo dışında tutarak iki mağazada iç test dağıtımını ve geri alınabilir bir sürüm sürecini
+kurmak.
+
 **Kabul kriterleri.**
 - Android: Play App Signing; yükleme anahtarı repoda değil (Infisical); `assetlinks.json` parmak izi Play App
   Signing sertifikasınınki (M16-08 env'i güncellenir).
@@ -720,10 +863,17 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Araç:** ana oturum + kullanıcı · **Mercek: tek**
 - **Commit:** `docs(plan): close M16`
 
+**Amaç.** Uygulamayı ve NFC'siz yolları KF/KM'de gerçek kadroyla ölçmek ve milestone'u kapatmak.
+
 **Kabul kriterleri.**
 - Pilot ölçüleri (salt okuma): P6 çalışanlarının `flag` oranı önce/sonra · uygulama benimseme oranı · `qr_live`
   kullanımı · müdür onaylı aktivasyon sayısı · sahte konum bildirimleri.
 - ADR 0044 *"Uygulandı"*; A3, P6, Q11 satırlarının durumu ölçüyle güncellenir; ADR 0005 risk tablosu son hâli.
+- **ADR 0005'e ek not** (append kuralı, satır silinmez): risk 1'in *"tek çözümü biyometri veya uygulama kurulumu —
+  ikisi de ürünün varlık sebebine aykırı"* gerekçesi (`docs/adr/0005-kabul-edilen-riskler.md:74`) ve risk 2'nin
+  *"attestation uygulama ister (app-less vaadi)"* gerekçesi (`:75`) isteğe bağlı uygulamayla yeniden okunur: uygulama
+  var ama buddy punching'i çözmez (cihaz anahtarı devretmeyi durdurmaz), attestation yalnız kanıttır (ADR 0044 §2.7).
+  `TestADR0005_TheAnchorCountsMatchTheProse` ve `TestADR0005_TheRiskCountMatchesTheTable` yeşil.
 - `state.md`: M16 bitti.
 
 ---

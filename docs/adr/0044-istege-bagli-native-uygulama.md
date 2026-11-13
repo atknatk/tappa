@@ -2,8 +2,12 @@
 
 - **Durum:** Önerildi (2026-11-13). Kabul M16-01'de, kullanıcı onayıyla; kabul edilmeden hiçbir M16 kod kartı başlamaz.
 - **Tarih:** 2026-11-13 · **Dal:** `plan/m16-mobil` (yalnız belge) · **Plan:** [docs/plan/m16-mobil.md](../plan/m16-mobil.md)
-- **Karar veren:** kullanıcı (ürün sahibi), 2026-11-12/13. Bu belge o kararları **kaydeder**; yeniden tartışmaz.
-  Kararın parçası olmayan, bu belgenin önerdiği her şey *"öneri"* diye işaretlidir ve kabulde (M16-01) onaylanır.
+- **Karar veren:** kullanıcı (ürün sahibi), 2026-11-12/13. Kullanıcının **açık** kararları yalnız beş tanedir ve bu
+  belge onları kaydeder, yeniden tartışmaz: (1) native uygulama **isteğe bağlı**, tarayıcı akışı kalır; (2) **tamamen
+  native** — Swift/SwiftUI, Kotlin/Compose, Node içeren yol (RN/Expo) dışarıda; (3) NFC'siz telefon için **statik ve
+  canlı QR birlikte**; (4) NFC'siz aktivasyon **canlı QR varsa onunla, yoksa müdür onayıyla**; (5) **attestation Faz E'de
+  yalnız rapor**. Geri kalan her şey — mekanizmalar, adlar, yerler, retler, faz sırası — **plan önerisidir**:
+  *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)* Bölümlerde *"karar"* ya da *"plan önerisi"* diye ayrıca işaretlidir.
 - **İlgili:** ADR 0001 (stack) · ADR 0004 (policy motoru; §8 *kanal sunucudan türetilir*) · ADR 0005 (kabul edilen
   riskler; risk 1 / A4 buddy punching) · ADR 0006 (debounce sunucu zamanı) · ADR 0017 (Android encode rölesi — repodaki
   ilk Kotlin/Gradle açılımı) · ADR 0026 (aktivasyon ilk NFC dokunuşunda; **Bedel 3**) · ADR 0032 (iş günü, tahmini yön) ·
@@ -37,7 +41,7 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 - Tarayıcı akışı **değişmez ve tam desteklenir**. Uygulamasız bir çalışan bugünkü her şeyi yapar.
 - **Aynı plaket, aynı URL.** Plaketin NDEF kaydı `TAPPA_BASE_URL` + `/t` taşır (`internal/handler/tap.go:282`,
-  `PlaqueTapBase` `:291`; üretimde `https://taptime.mt` — `deploy/k8s/43-redirect-ingress.yaml:7`). Uygulama kuruluysa
+  `PlaqueTapBase` `:290`; üretimde `https://taptime.mt` — `deploy/k8s/43-redirect-ingress.yaml:7`). Uygulama kuruluysa
   bu URL iOS Universal Link / Android App Link ile uygulamayı açar; değilse tarayıcıyı. Plaket yeniden kodlanmaz.
 - **Sunucu otoriterdir.** Aynı `tap.Decide` + policy motoru karar verir; uygulama ek kanıt taşıyan ince bir
   istemcidir, karar vermez, SUN doğrulamaz, yön hesaplamaz.
@@ -47,8 +51,10 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.2 Stack: tamamen native
 
-- iOS: **Swift + SwiftUI**. Android: **Kotlin + Jetpack Compose**.
-- **Reddedilenler:** React Native / Expo — Node ister, CLAUDE.md §1 Node'u yasaklar. Flutter / Kotlin Multiplatform —
+- **Karar (kullanıcı):** iOS **Swift + SwiftUI**, Android **Kotlin + Jetpack Compose**; React Native / Expo dışarıda —
+  Node ister, CLAUDE.md §1 Node'u yasaklar.
+- Bu alt bölümün geri kalanı **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)*
+- **Reddedilenler (öneri):** Flutter / Kotlin Multiplatform —
   NFC, App Attest ve Play Integrity yine native köprü ister, uygulama küçüktür; ortak katmanın kazancı ikinci bir
   toolchain'in bedelini karşılamaz.
 - **Yer:** bu repoda `mobile/ios/` ve `mobile/android/`. İkisi de Go modülünün **dışında**dır (`go build ./...`
@@ -62,6 +68,8 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.3 Kimlik: dışa aktarılamayan cihaz anahtarı, taşıyıcı token yok
 
+Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)*
+
 - Uygulama aktivasyonda bir **P-256 anahtar çifti** üretir: iOS Secure Enclave, Android Keystore (StrongBox varsa
   orada). Özel anahtar **cihazdan çıkamaz**; sunucu yalnız açık anahtarı saklar (`app_devices`, §6 beşlisiyle).
 - **Uygulamada taşıyıcı token yoktur.** Her durum değiştiren istek, sunucunun verdiği **tek kullanımlık nonce** dahil
@@ -72,7 +80,17 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 - **Anahtar erişim denetimi biyometri içermez** (§4.1, §3'te ayrıntı): iOS'ta `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
   izinli; `.biometryAny`, `.biometryCurrentSet`, `.userPresence` yasak. Android'de `setUserAuthenticationRequired`
   yasak. Telefonun ekran kilidi bizim katmanımız değildir; kilidi açık telefon anahtarı kullanabilir.
-- **Doğrulama ayrı bir pakette** yaşar (öneri: `internal/appdevice`). `internal/session` dokunulmaz: paket başlığı
+- **Tenant bilinmeden çözümleme.** İmzalı istek geldiğinde tenant henüz bilinmez ve FORCE RLS altında `tappa_app`
+  `app_devices`'ı göremez. Cihaz kimliğinin (ve Faz D'de ekran oturumunun, eşleşme kodunun) çözümü `00003`'ün
+  `resolve_session_by_token_hash` desenindeki dar bir SECURITY DEFINER fonksiyonudur: sahibi `tappa_resolver`, en çok 1
+  satır, sütun düzeyi GRANT, `SET search_path = pg_catalog, pg_temp`. Tenant çözüldükten sonra her şey `SET LOCAL
+  app.tenant_id` altında normal sorgudur.
+- **Aktivasyon iki adımdır:** *bağla* (davet kodu + onay + açık anahtar; ADR 0026'nın onay POST'u gibi tüketmez, cihazı
+  etkinleştirmez) ve *tamamla* (bağlı anahtarla imzalı, ilk gerçek NFC okumasının SUN URL'si): `CompleteByTap`'in sırası —
+  aynı tenant'ta aktif plaket → `sun.Verify` (atomik `ctr`, §4.4) → tek ifadeli tüketim. `transactions` satırı yazmaz.
+- **Doğrulama ayrı bir pakette** yaşar (öneri: `internal/appdevice`). CLAUDE.md §3'ün `internal/sun` için *"Kriptografi
+  SADECE burada"* cümlesi *"plaket kriptografisi"*ye daraltılır (M16-01): cihaz imzası (ECDSA) ve canlı QR token imzası
+  plaket kriptografisi değildir, kendi paketlerinde yaşar. `internal/session` dokunulmaz: paket başlığı
   *"no device probing, no attestation"* der (`internal/session/manager.go:18-22`) ve o söz tarayıcı oturumu için
   doğru kalır.
 - **Cihaz çözümlemesi oturumun gerçeklerini döndürür:** çalışan, tenant, iptal durumu — `deactivated` bir çalışanın
@@ -89,6 +107,8 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
   oturumun *kopyalanmasını* durdurur, telefonun *devredilmesini* değil.
 
 ### 2.4 Uygulamanın eklediği kanıt
+
+Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)*
 
 - **iOS Core NFC ön plan okuma.** iPhone 7–X'te uygulamanın tek düğmesi bir NDEF okuma oturumu açar; çipin yazdığı
   URL (taze `ctr` + CMAC) olduğu gibi sunucuya gider → `channel='nfc'`, gerçek SUN kanıtı. P6 bu telefonlar için
@@ -111,6 +131,9 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.5 NFC'siz telefonlar: statik QR **ve** canlı QR
 
+**Karar (kullanıcı):** statik QR ve canlı QR birlikte desteklenir. Biçimleri (ekran sayfası, ~20 sn token, varsayılan
+politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)*
+
 - **Statik QR** bugünkü `channel='qr'`dır; `base:qr-requires-ip` varsayılanı değişmez. Tarayıcı kamerasıyla ya da
   uygulamayla okunur.
 - **Canlı QR** (`channel='qr_live'`, yeni kanal değeri): Go ikilisinin sunduğu bir **ekran sayfası** — mekândaki
@@ -123,14 +146,23 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
     yalnız `channel == "qr"`'de eşleşir (`StringEquals`, `internal/policy/baseline.go:307-309`), `base:no-evidence-review`
     geriye kalanı `review`'a çeker. Yani canlı QR için **yeni baseline belgesi gerekmeyebilir**; M16-21 bunu
     `TestDecide_` vakalarıyla ölçer.
-  - **Kişi başına debounce geçerlidir** (§5 satır 5); sayaç yoktur, debounce bu kanalda da tek frendir.
+  - **Kişi başına debounce geçerlidir** (§5 satır 5); sayaç yoktur, debounce bu kanalda da tek frendir — **kanallar
+    arası** ve **sunucu saatiyle** (ADR 0006): `SecondsSinceLastRecordedTap` bugün `channel IN ('nfc', 'qr')` ile
+    süzer (`db/queries/transactions.sql:317`), `qr_live` oraya girmelidir.
+  - **Plaketsiz tap.** Motor her çözülmüş tap'te bir plaket varsayar (`internal/domain/tap/types.go:471-473`); §5 satır 1,
+    lokasyon/tenant çözümü (`resolve_tag_by_uid`), holding dokunuşunun site sütunları ve `/v1` `tagId`'si de öyle.
+    `qr_live`'da lokasyon ve tenant token'dan türer; iptal edilmiş ekran satır 1'in eşidir; token tenant'ı oturum
+    tenant'ıyla eşleşmelidir (holding istisnası statik QR'ın kuralına göre). Ayrıntı M16-21.
   - **Süre dolmuş / imzası bozuk token'ın sonucu** açık soru (Q39).
   - `/v1` punch akışındaki karşılığı açık soru (Q38).
-- **Reddedilenler:** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
+- **Reddedilenler (plan önerisi):** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
   (konum izni ister, IP kanıtı zaten aynı şeyi söyler) · paylaşılan kiosk + PIN (buddy punching'i kolaylaştırır —
   telefon artık kişinin değil mekânındır).
 
 ### 2.6 NFC'siz aktivasyon — ADR 0026 Bedel 3 kalkar
+
+**Karar (kullanıcı):** canlı QR ekranı varsa onunla, yoksa müdür onayıyla. Müdür onayı yolu yalnız ekran **yokken**
+sunulur (sunucu kapısı, M16-23). Eşleşme kodu ve tablo biçimi plan önerisidir.
 
 - Lokasyonda canlı QR ekranı varsa: onaylı (bağlı) aktivasyonu olan tarayıcı ya da uygulama canlı QR'ı okur →
   aktivasyon tamamlanır. `CompleteByTap`'in sırası korunur, `sun.Verify`'ın yerini canlı token doğrulaması alır.
@@ -144,6 +176,9 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.7 Attestation — yalnız kanıt ve rapor (Faz E)
 
+**Karar (kullanıcı):** yalnız kanıt + rapor, karar vermez. `policy_context` dışında tutulması ve kayıt biçimi plan
+önerisidir.
+
 - App Attest (iOS) / Play Integrity (Android) sonucu **kaydedilir** (öneri: `device_attested`) ve raporda görünür
   (M6-11 tarzı oranlar: uygulama / tarayıcı / attested / sahte konum).
 - **Güven puanını ve verdict'i değiştirmez.** Bu yüzden `policy_context`'e **girmez**: girerse tenant onunla kural
@@ -151,11 +186,11 @@ handoff §1). Kullanıcının kararı bu gerilimi **isteğe bağlılıkla** çö
 
 ### 2.8 Çevrimdışı kuyruk — ertelendi
 
-§4.6 ve ADR 0038 (yazılma anı veritabanınındır) gereği: kuyruktan gelen dokunuş sunucu saatini alır, bir gecikme
+**Plan önerisi** *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)* §4.6 ve ADR 0038 (yazılma anı veritabanınındır) gereği: kuyruktan gelen dokunuş sunucu saatini alır, bir gecikme
 eşiğinin ötesinde `flag`'lenir (bugünkü `base:queued-window`, 120 sn — `internal/policy/baseline.go:229`). M16'nın
 sonrasına bırakıldı (M9-01 ile birlikte düşünülür).
 
-### 2.9 Fazlar
+### 2.9 Fazlar (plan önerisi)
 
 0 Karar · A Sunucu temeli · B Android MVP · C iOS MVP (B ve C, A'dan sonra paralel worktree'lerde) · D NFC'siz ·
 E Kanıt + rapor · F Yayın + pilot · Sonra (çevrimdışı kuyruk, konumsuz unutulan çıkış bildirimi, *"saatlerim"*
@@ -172,7 +207,7 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
 | **4.5** tenant izolasyonu | `app_devices`, nonce ve ekran tabloları §6 beşlisiyle (tenant_id, ENABLE + FORCE RLS, politika, indeks, GRANT) | mevcut R5 |
 | **4.6** kayıt kaybolmaz | uygulama yolu ile tarayıcı yolu aynı `Record`'a iner; `qr_live` ve `client` kayıt yazan her okuyucuya (rapor, akış, liste) girer | kanal envanteri (M16-19) |
 | **4.7** AES anahtarı repoda yok | uygulama hiçbir plaket anahtarı taşımaz, SUN'u doğrulamaz; canlı QR imza anahtarı yalnız sunucu sırrıdır; mağaza imza anahtarları repoda yok | R7 / R7d `mobile/`'ı da tarar |
-| **§7 log** | uygulama log'u da token, imza, nonce, tam koordinat, davet kodu, e-posta yazmaz | R7 kalıpları Swift/Kotlin log çağrılarına genişler |
+| **§7 log** | uygulama ve sunucu log'u (hata mesajı ve `audit_log` `detail`'i dahil) cihaz imzası, istek nonce'u, canlı QR token'ı, ekran eşleşme kodu, ekran oturumu çerezi, canlı QR imza anahtarı, müdür onayı eşleşme kodu, tam koordinat, davet kodu, e-posta yazmaz — CLAUDE.md §7 listesi M16-01'de genişler | R7 kalıpları Swift/Kotlin log çağrılarına genişler |
 
 ## 4. Bedeller
 
@@ -194,7 +229,10 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
    `NEW.channel NOT IN ('nfc', 'qr')` satırını atlar (`00067:193`) ve Go aynası `feedEligible` aynı şeyi söyler
    (`internal/domain/checkin/checkin.go:1687-1689`); `/v1` şeması kanalı `enum: [nfc, qr]` diye kapatır
    (`internal/handler/api/openapi.yaml:1105`, `:1170`). Ayrıca `sys:tap-freshness` ve `sys:sun-invalid` yalnız NFC'de
-   koşar (`internal/policy/guardrails.go:396`, `:479`). Faz D bu envanteri tek kartta kapatır (M16-19, M16-21).
+   koşar (`internal/policy/guardrails.go:396`, `:479`). Debounce'un sunucu saati bacağı `SecondsSinceLastRecordedTap`
+   de `channel IN ('nfc', 'qr')` ile süzer (`db/queries/transactions.sql:317`): `qr_live` girmezse geriye tarihlenmiş
+   bir canlı QR dokunuşu debounce'u **sessizce** atlar. Motor da her tap'te bir plaket varsayar
+   (`internal/domain/tap/types.go:471-473`). Faz D bu envanteri tek kartta kapatır (M16-19, M16-21).
 7. **Müdür onaylı aktivasyon fiziksel dokunuş kanıtı taşımaz.** Sosyal mühendisliğe açıktır (davet linki başkasının
    elinde); eşleşme kodu ve `audit_log` bunu daraltır, kapatmaz. Kimliği müdür doğrular.
 8. **Kurulu uygulama plaket URL'sini yakalar.** Uygulama bozuk ya da eskiyse çalışanın tarayıcıya düşmesi bir
