@@ -75,8 +75,15 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
 
 - Uygulama aktivasyonda bir **P-256 anahtar çifti** üretir: iOS Secure Enclave, Android Keystore (StrongBox varsa
   orada). Özel anahtar **cihazdan çıkamaz**; sunucu yalnız açık anahtarı saklar (`app_devices`, §6 beşlisiyle).
-- **Uygulamada taşıyıcı token yoktur.** Her durum değiştiren istek, sunucunun verdiği **tek kullanımlık nonce** dahil
-  bir kanonik metin üzerinden imzalanır. Kopyalanan bir istek ya da çalınan bir dosya ikinci bir istek üretemez.
+- **Uygulamada taşıyıcı token yoktur.** Etkin bir cihazın her durum değiştiren isteği, sunucunun verdiği **tek
+  kullanımlık nonce** dahil bir kanonik metin üzerinden imzalanır. Kopyalanan bir istek ya da çalınan bir dosya ikinci
+  bir istek üretemez. **İki istisna, tekrar korumalarıyla:**
+  - *bağla* (`activate/bind`) henüz bir cihaz satırı yokken gelir; nonce `device_id`'ye bağlı olduğu için alamaz.
+    Tekrarı davetin kuralı karşılar: onay + bağ sunucuda saklanır ve sonraki bir bağ öncekini **taşır**, eski bağla
+    tamamlama reddedilir ve hiçbir şey tüketilmez (ADR 0026 *"Güvenlik değerlendirmesi"*, ilk madde).
+  - *tamamla* (`activate/complete`) bağlı ama etkin olmayan cihazdan gelir; etkin olmayan cihaza nonce verilmez. Tekrar
+    koruması SUN'un atomik `ctr`'ıdır — aynı okuma `sun.Verify`'dan ikinci kez geçemez (CLAUDE.md §4.4,
+    `internal/sun`) — ve davetin tek ifadeli tüketimidir; imza bağlı anahtarla.
   (Öneri: kanonik metin = yöntem, yol, gövde özeti, nonce, cihaz kimliği; nonce kısa ömürlü, tek ifadeli atomik
   tüketim — `ctr`'ın disiplini, CLAUDE.md §4.4'ün şekli: `UPDATE … WHERE consumed_at IS NULL … RETURNING`, 0 satır →
   ret.)
@@ -96,15 +103,22 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   plaket kriptografisi değildir, kendi paketlerinde yaşar. `internal/session` dokunulmaz: paket başlığı
   *"no device probing, no attestation"* der (`internal/session/manager.go:18-22`) ve o söz tarayıcı oturumu için
   doğru kalır.
-- **Cihaz çözümlemesi oturumun gerçeklerini döndürür:** çalışan, tenant, iptal durumu — `deactivated` bir çalışanın
-  cihazı yine çözülür ki §5 satır 4'ün kaydı ve güvenlik uyarısı yazılsın (`internal/session/manager.go:8-16`'nın
-  gerekçesi aynen).
+- **Cihaz çözümlemesi oturumun gerçeklerini döndürür, karar vermez** (`internal/session/manager.go:8-16`'nın kuralı
+  aynen): iptal edilmiş cihaz **§5 satır 3'ün ikizidir** — 401 / yeniden aktivasyon, **kayıt yok**, tarayıcının
+  *"a signed-out phone tapped"* uyarısının eşi (`internal/handler/tap.go:441-462`, `internal/domain/checkin/checkin.go:79`, `:548` (`OutcomeActivation`));
+  deaktive bir çalışanın cihazı ise iptal edilmemiştir, çözülür ve satır 4'ü `employees.status` +
+  `sys:employee-deactivated` üretir (`reject` + kayıt + güvenlik uyarısı).
 - **Kişi başına tek "kim" kimlik bilgisi (öneri, Q40).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
   (`internal/handler/activate.go:1068-1077`) uygulamaya genişler: uygulama aktivasyonu tarayıcı oturumlarını, tarayıcı
   aktivasyonu uygulama cihazlarını iptal eder.
-- **İptal yolları ilk günden uygulama cihazlarını da kapsar:** çalışan deaktivasyonu ve panelin *"telefonlarını
-  çıkar"* eylemi (T59, `internal/handler/employeeactions.go:690`). Handoff §2'nin *"offboarding: tek tık → oturum o
-  saniye ölür"* sözü uygulamada da doğru kalmalıdır.
+- **İptal yolları tarayıcınınkilerin aynısıdır:** panelin *"telefonlarını çıkar"* eylemi (T59,
+  `internal/handler/employeeactions.go:690`) ve tek cihaz iptali (M16-26) uygulama cihazını kapatır. **Deaktivasyon
+  hiçbir şeyi iptal etmez** — kullanıcı kararı 2026-08-07 (`db/queries/sessions.sql:85` *"DEACTIVATION MUST NOT CALL
+  THIS"*, `internal/domain/tenant/staff.go:40-43`, `internal/handler/employeeactions.go:563-567`); T59 deaktive bir
+  kişinin telefon çıkışını da reddeder (`ErrSignOutDeactivated`, `:661`). Sebep: deaktive kişinin dokunuşu satır 4'e
+  ulaşmalı ve **kaydedilmelidir**; iptal onu satır 3'ün kayıtsız yoluna iterdi (§4.6). Handoff §2'nin *"offboarding:
+  tek tık → oturum o saniye ölür"* cümlesi bu karardan önce yazılmıştır: deaktivasyonun etkisi oturumun ölmesi değil,
+  sonraki her dokunuşun **reddedilip kaydedilmesidir** — uygulamada da.
 - Bu, Q11'i **uygulama kullanıcıları için** çözer (çerez yok); tarayıcı kullanıcıları için Q11 açık kalır.
 - **Buddy punching değişmez** (ADR 0005 risk 1, A4): telefonunu arkadaşına veren çalışan yine geçer. Cihaz anahtarı
   oturumun *kopyalanmasını* durdurur, telefonun *devredilmesini* değil.
@@ -227,15 +241,24 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
    sayıyı tabloyla eşler).
 6. **Kanal sözlüğünü genişletmek geniş bir yüzeydir — ölçüldü (okundu, `70e8a016`).** `nfc|qr|manual` kapalı
    sözlüğü 10 migration'da (`00005`, `00043`, `00044`, `00046`, `00048`, `00049`, `00050`, `00067`, `00068`, `00095`),
-   2 sorgu dosyasında (`transactions.sql`, `daycutoff.sql`) ve ~12 Go dosyasında (`checkin.go`, `guardrails.go`,
-   `baseline.go`, `tap.go`, `sandbox/simulate.go` …) yazılı. İkisi sessiz kayıp üretir: akış tetikleyicisi
+   2 sorgu dosyasında (`transactions.sql`, `daycutoff.sql`) ve Go'da hem `nfc`/`qr`'yi sayan hem `manual`'ı dışlayan
+   biçimlerde yazılı. Go'da bugün bilinen pozitif karşılaştırmalar (her biri `qr_live`'ı dışarıda bırakır):
+   `internal/domain/checkin/checkin.go:1688` (`feedEligible`), `:1751` (`BusinessDayStart`), `:1815`, `:1869`
+   (`shiftColumns`), `:1899` (`directionSourceColumn`); `internal/domain/tap/directionsource.go:43`;
+   `internal/handler/tapcontext.go:388` (imzalı tap bağlamını `nfc`/`qr` dışında **reddeder**);
+   `internal/handler/claimqueue.go:615`; `internal/handler/tap.go:645`; `internal/sandbox/simulate.go:118`, `:353`;
+   `internal/policy/guardrails.go:396`, `:479`, `:586`; `internal/policy/baseline.go` (`channelQR`). `manual`'ı dışlayan
+   biçimler (`checkin.go:1154`, `:1777`, `:1796`; `daycutoff.sql:73`; `00068:336`) `qr_live`'ı sessizce kabul eder ya da
+   (`:1154`, plaketsiz istek) reddeder. **Bu liste bir başlangıçtır, eksiksizlik kanıtı değildir** — üç plan denetimi
+   üç kez yeni bir biçim buldu. Kanıt M16-21'in parite testidir: aynı fikstürde `qr` ve `qr_live` satırları kanal ve
+   plaket sütunları dışında aynı olmalıdır. İkisi sessiz kayıp üretir: akış tetikleyicisi
    `NEW.channel NOT IN ('nfc', 'qr')` satırını atlar (`00067:193`) ve Go aynası `feedEligible` aynı şeyi söyler
    (`internal/domain/checkin/checkin.go:1687-1689`); `/v1` şeması kanalı `enum: [nfc, qr]` diye kapatır
    (`internal/handler/api/openapi.yaml:1105`, `:1170`). Ayrıca `sys:tap-freshness` ve `sys:sun-invalid` yalnız NFC'de
    koşar (`internal/policy/guardrails.go:396`, `:479`). Debounce'un sunucu saati bacağı `SecondsSinceLastRecordedTap`
    de `channel IN ('nfc', 'qr')` ile süzer (`db/queries/transactions.sql:317`): `qr_live` girmezse geriye tarihlenmiş
    bir canlı QR dokunuşu debounce'u **sessizce** atlar. Motor da her tap'te bir plaket varsayar
-   (`internal/domain/tap/types.go:471-473`). Faz D bu envanteri tek kartta kapatır (M16-19, M16-21).
+   (`internal/domain/tap/types.go:471-473`). Faz D bu listeyi M16-19'da yazar ve M16-21'in parite testiyle sınar.
 7. **Müdür onaylı aktivasyon fiziksel dokunuş kanıtı taşımaz.** Sosyal mühendisliğe açıktır (davet linki başkasının
    elinde); eşleşme kodu ve `audit_log` bunu daraltır, kapatmaz. Kimliği müdür doğrular.
 8. **Kurulu uygulama plaket URL'sini yakalar.** Uygulama bozuk ya da eskiyse çalışanın tarayıcıya düşmesi bir

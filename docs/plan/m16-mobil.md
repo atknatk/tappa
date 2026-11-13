@@ -53,7 +53,7 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 |---|---|---|
 | Plaket URL'si sabit, uygulama aynı URL'yi alabilir | `internal/handler/tap.go:282` (`TapPath`), `:290` (`PlaqueTapBase`) | ✅ — plaket yeniden kodlanmaz |
 | Statik QR = SUN'suz `/t` | `internal/sun/params.go:188-192` | ✅ `ctr` ve `cmac` yoksa `ChannelQR` |
-| Kanal sözlüğü kapalı | `00005:114`, `00043:141`, `00046:137`, `00048:171`, `00067:193`, `00095:66` | ⚠️ **10 migration + 2 sorgu + ~12 Go dosyası** — `qr_live` geniş bir değişiklik (ADR 0044 Bedel 6) |
+| Kanal sözlüğü kapalı | `00005:114`, `00043:141`, `00046:137`, `00048:171`, `00067:193`, `00095:66` | ⚠️ **10 migration + 2 sorgu + Go'da çok sayıda karşılaştırma** (liste bir başlangıçtır; kanıt M16-21'in parite testi) — `qr_live` geniş bir değişiklik (ADR 0044 Bedel 6) |
 | Akış `qr_live`'ı görür mü | `00067:193`, `checkin.go:1687` (`feedEligible`), `openapi.yaml:1105` | ❌ bugün **sessizce atlar**; `/v1` enum'u kapalı → Q38 |
 | Canlı QR varsayılanı yeni baseline ister mi | `baseline.go:287-309` | ⚠️ **istemeyebilir:** yalnız `base:qr-requires-ip` kanal koşullu (`channel == "qr"`) |
 | Tazelik ve SUN guardrail'leri | `guardrails.go:396`, `:479` | NFC-only → `qr_live` için karar gerekir (M16-21) |
@@ -334,8 +334,11 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
   bağımlılık yok.
 - Kanonik metin tek fonksiyonda tanımlıdır (yöntem, yol, gövde özeti, nonce, cihaz kimliği — ADR 0044 §2.3) ve iki
   platformun uygulayacağı **bilinen cevap vektörleri** `test/fixtures` altında yayımlanır (sahte anahtarlarla; §4.7).
-- Çözümleme oturumun gerçeklerini döndürür: iptal edilmiş cihaz ayrı hata, ama çalışan/tenant yine döner
-  (`internal/session/manager.go:8-16`'nın gerekçesi; §5 satır 4 kaydı yazılabilsin).
+- Çözümleme oturumun gerçeklerini döndürür, **karar vermez** (`internal/session/manager.go:8-16`'nın kuralı): iptal
+  edilmiş cihaz ayrı bir sonuçtur ve çağıran onu **§5 satır 3'ün ikizi** olarak işler (401 / yeniden aktivasyon,
+  **kayıt yok**); deaktive bir çalışanın cihazı **iptal edilmemiştir** ve çözülür — satır 4'ü `employees.status` +
+  `sys:employee-deactivated` üretir. İki durum birbirine çevrilmez: çevrilirse ya bir kayıt kaybolur ya da bir
+  kayıtsız yol kayıt yazar (§4.6).
 - Tablo bazlı testler: geçerli imza · yanlış anahtar · bozuk imza · tekrar kullanılan nonce · süresi dolmuş nonce ·
   başka cihazın nonce'u · başka tenant'ın cihazı · iptal edilmiş cihaz.
 - Paket hiçbir log satırına imza, nonce, açık anahtar ya da gövde yazmaz (log testi; CLAUDE.md §7 listesi M16-01'de
@@ -432,20 +435,34 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu — M16-20 ekler) 
 - `/activate` uygulamaya **bağlanmaz** (öneri): davet linki tarayıcıda açılır, uygulama aktivasyonu kendi ekranından
   davet kodunu alır — tarayıcı aktivasyonu uygulama kurulu diye değişmesin (Q40 ile birlikte karar).
 
-## M16-09 — İptal yolları uygulama cihazlarını da kapatır
+## M16-09 — "Telefonlarını çıkar" uygulama cihazlarını da kapatır; deaktivasyon kapatmaz
 
 - **Bağımlılık:** M16-03, M16-05
 - **Kırmızı çizgi:** §4.5, §4.6, §5 satır 4
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(employees): sign out an employee's app devices too`
 
-**Amaç.** Handoff §2'nin *"offboarding: tek tık → oturum o saniye ölür"* sözü uygulama için de doğru olsun.
+**Amaç.** Tarayıcı oturumunun bugünkü iki kuralını uygulama cihazına aynen taşımak: müdürün *"telefonlarını çıkar"*ı
+cihazı da kapatır; **deaktivasyon hiçbir şeyi iptal etmez**.
+
+**Neden deaktivasyon iptal etmez (kullanıcı kararı 2026-08-07).** `db/queries/sessions.sql:85` *"DEACTIVATION MUST NOT
+CALL THIS"*; `internal/domain/tenant/staff.go:40-43`; `internal/handler/employeeactions.go:563-567`. Deaktive kişinin
+oturumu bilerek canlı kalır ki dokunuşu §5 satır 4'e ulaşsın ve **kaydedilsin** (`internal/handler/tap.go:446-454`);
+iptal o dokunuşu satır 3'ün kayıtsız yoluna iterdi. T59 deaktive bir kişinin telefon çıkışını da reddeder
+(`tenant.ErrSignOutDeactivated`, `employeeactions.go:661`). Handoff §2'nin *"offboarding: tek tık → oturum o saniye
+ölür"* cümlesi bu karardan önce yazılmıştır; deaktivasyonun etkisi oturumun ölmesi değil, sonraki her dokunuşun
+**reddedilip kaydedilmesidir**.
 
 **Kabul kriterleri.**
-- Çalışan deaktivasyonu (ADR 0010) ve panelin telefon çıkışı (`employeeactions.go:690`, T59) aynı transaction'da
-  uygulama cihazlarını da iptal eder; log satırı iki sayıyı da verir.
-- Deaktive çalışanın uygulamadan dokunuşu §5 satır 4: `reject` + kayıt + güvenlik uyarısı (DB testi, tarayıcı
-  ikiziyle aynı sonuç).
+- Panelin telefon çıkışı (`employeeactions.go:690`, T59) aynı transaction'da uygulama cihazlarını da iptal eder; log
+  satırı iki sayıyı da verir; deaktive kişide `ErrSignOutDeactivated` aynen (uygulama cihazı da dokunulmaz).
+- **Deaktivasyon (ADR 0010) uygulama cihazını iptal ETMEZ** — `tenant.Staff.Deactivate`'e çağrı eklenmez; bir test
+  deaktivasyondan sonra cihazın `revoked_at IS NULL` olduğunu ölçer.
+- Deaktive çalışanın uygulamadan dokunuşu §5 satır 4: `reject` + **kayıt** + güvenlik uyarısı — `employees.status` +
+  `sys:employee-deactivated`'dan (DB testi, tarayıcı ikiziyle aynı sonuç).
+- **İptal edilmiş cihazın dokunuşu §5 satır 3'ün ikizi:** 401 / yeniden aktivasyon, **kayıt yok**, tarayıcının
+  `"tap page: a signed-out phone tapped"` uyarısının eşi bir WARN satırı (yalnız tenant, çalışan, kanal —
+  `tap.go:446-454`) (DB testi: `transactions` sayısı değişmez).
 - İptal tek yönlüdür (`00099` deseni; tetikleyici ya da yetki).
 - Panel metni (§9 değil, panel): *"Sign out phones"* artık uygulamayı da kapsadığını söyler — metin değişikliği
   kullanıcıya gösterilir.
@@ -462,7 +479,7 @@ testlerini bir kez koşmak.
 **Kabul kriterleri.**
 - Go'da imzalı bir **sahte istemci** (test yardımcısı; M16-05'in vektörleriyle) gerçek Postgres'e karşı: aktivasyon
   (bind → complete) → nonce → tap/start → tap → kayıt (`client='app'`) → tekrar (60 sn, `ignored`) → telefon çıkışı →
-  `reject`. Aynı testte tarayıcı yolu bir satır yazar ve `client='browser'` okunur; manuel kayıt `client IS NULL`
+  401, **kayıt yok** (satır 3'ün ikizi) · ayrı bir kişide deaktivasyon → dokunuş `reject` + **kayıt** (satır 4). Aynı testte tarayıcı yolu bir satır yazar ve `client='browser'` okunur; manuel kayıt `client IS NULL`
   (M16-04'ün CHECK'siz kanıtı).
 - Bu fazın **büyük testleri bir kez:** tam `-race`, `go test ./...`, `make check`, `make audit`.
 - ADR 0044'e *"Faz A uygulandı"* notu (migration numaraları, ölçülen sapmalar).
@@ -551,8 +568,10 @@ kez koşmak.
 
 **Kabul kriterleri.**
 - NFC'li Android'de, staging ya da yerel sunucuya karşı gerçek bir test plaketiyle: aktivasyon · giriş · 60 sn tekrar
-  (`ignored`) · çıkış · uçak modu · konum izni reddi · sahte konum uygulamasıyla `flag` · telefon çıkışı sonrası ret.
-  Her biri DB satırıyla (`client`, `channel`, verdict) kanıtlanır. **Test plaketinin `tags` satırı hiçbir temizlikte silinmez** (silinirse çip kalıcı kilitlenir).
+  (`ignored`) · çıkış · uçak modu · konum izni reddi · sahte konum uygulamasıyla `flag` · telefon çıkışı sonrası
+  yeniden aktivasyon ekranı (**kayıt yok** — `transactions` sayısı değişmez) · deaktivasyon sonrası `reject` + kayıt.
+  Kayıt yazan her biri DB satırıyla (`client`, `channel`, verdict), kayıt yazmayanlar `transactions` sayısının
+  değişmediğiyle kanıtlanır. **Test plaketinin `tags` satırı hiçbir temizlikte silinmez** (silinirse çip kalıcı kilitlenir).
 - Tarayıcı yolu aynı telefonda uygulama kaldırılınca aynen çalışır.
 - Fazın büyük testleri bir kez: mobil JVM paketi tamamı, `make check`, `make audit`.
 - *Doğrula* maddelerinin sonuçları ADR 0044'e not.
@@ -670,9 +689,19 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   satırındadır), ve holding dokunuşunda oturumun tenant'ı token'ınkinden farklıdır — normal kapsam satırı göremez.
 - Üç çözümleyici için RLS testi (fonksiyonsuz `tappa_app` başka tenant'ın ekranını göremez) + definer yüzeyi envanteri
   (`TestResolverAccess_NoSqlcQueryNamesADefiner`, `TestResolverAccess_TheCallSitesAreTheOnesInventoried`) güncellenir.
-- **Envanter tablosu** kartın içine yazılır: `'nfc', 'qr'` / `channel IN` / `NOT IN` geçen **ve ters biçimdeki**
-  `<> 'manual'` / `!= 'manual'` / `!= ChannelManual` / `== ChannelManual` / `!= tap.ChannelManual` karşılaştırmalarının
-  geçtiği **her** migration fonksiyonu, CHECK, sorgu ve Go dosyası (ters biçim `qr_live`'ı **sessizce kabul eder** — bu
+- **Envanter tablosu bir başlangıç listesidir, eksiksizlik kanıtı değildir.** Üç denetim turunda üç kez yeni bir
+  biçim bulundu; bu yüzden eksiksizliğin kanıtı bir arama deseni değil **M16-21'in parite testidir** (aşağıda). Liste
+  kartın içine yazılır: SQL'de `'nfc', 'qr'` / `channel IN` / `NOT IN` / `<> 'manual'` / `!= 'manual'`; Go'da
+  `== Channel(NFC|QR)`, `!= Channel(NFC|QR)`, `case …ChannelNFC` / `case …ChannelQR`, `!= ChannelManual`,
+  `== ChannelManual` — geçtiği migration fonksiyonu, CHECK, sorgu ve Go dosyası. Pozitif Go karşılaştırmalarından
+  bugün bilinenler (her biri `qr_live`'ı **dışarıda bırakır**): `internal/domain/checkin/checkin.go:1751`
+  (`BusinessDayStart` — iş günü), `:1869` (`shiftColumns` — vardiya anlık görüntüsü), `:1899`
+  (`directionSourceColumn`), `:1688` (`feedEligible`), `:1815` (NFC-only); `internal/domain/tap/directionsource.go:43`
+  (`RecordedDirectionSource`); `internal/handler/tapcontext.go:388` — imzalı tap bağlamını `nfc`/`qr` dışında
+  `errTapContextMalformed` ile **reddeder** (M16-07 bu bağlamı yeniden kullanırsa kayıt kaybı, §4.6);
+  `internal/handler/claimqueue.go:615` (`claimChannelWord`); `internal/handler/tap.go:645` (önizleme kanalı);
+  `internal/sandbox/simulate.go:118` (API kanal alanı), `:353` (`InFeed`); `internal/policy/guardrails.go:396`,
+  `:479`, `:586`. (ters biçim `qr_live`'ı **sessizce kabul eder** — bu
   doğru olabilir, ama her biri için nedeni yazılır: ör. `db/queries/daycutoff.sql:73`, `00068:336`,
   `internal/domain/checkin/checkin.go:1777` (`SunValid` sütunu), `:1796` (site yazımı — `tagRow` varsayar, `qr_live`'da
   plaket satırı yoktur), ve `:1154` aşağıda) (başlangıç: ADR 0044 Bedel 6'nın listesi) — her biri için *"qr_live girer /
@@ -738,8 +767,14 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
   - **İstek doğrulaması plaket ister:** `internal/domain/checkin/checkin.go:1154`
     (`r.Channel != tap.ChannelManual && r.TagUID == ""` → `ErrInvalidRequest`, *"a tap needs a tag"*) bugün plaketsiz
     her `qr_live` isteğini reddeder — kayıt kaybolur (§4.6). Kural `qr_live`'ı ekran kimliğiyle karşılar; `:1796`'nın
-    site yazımı (`tagRow`) da öyle. **DB testi:** `qr_live` + IP → satır yazılır (`channel='qr_live'`, `tag_uid` NULL,
-    `site_location_id` dolu), verdict `ok`.
+    site yazımı (`tagRow`) da öyle. **İki DB testi**, çünkü site sütunları yalnız **başka tenant** için doludur
+    (`00043:133-136`: `transactions_site_needs_its_tenant`, `transactions_site_is_another_tenant`;
+    `checkin.go:1796-1813` site sütunlarını yalnız plaketin tenant'ı oturumunkinden farklıyken yazar):
+    - **yerel:** `qr_live` + IP → satır yazılır, verdict `ok`, `location_id` = ekranın lokasyonu, `tag_uid` NULL,
+      `site_tenant_id` / `site_location_id` / `site_tag_uid` NULL;
+    - **holding** (ADR 0027 kuralı açıksa): `site_tenant_id` = ekranın tenant'ı, `site_location_id` dolu, `site_tag_uid`
+      NULL, `location_id` / `tag_uid` NULL — `transactions_site_by_channel`'ın (`00043:139-142`) M16-19'da eklenen
+      `qr_live` kolu ve M16-19'un üçüncü çözümleyicisi.
   - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
     durumu (ADR 0027 — KM çalışanı KF ekranında) statik QR'ın holding kuralına (`sys:cross-tenant-qr-site-ip`) göre
     ya açılır ya kapalı kalır, gerekçesiyle; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
@@ -755,6 +790,14 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0044 §2.5: büyük olasılıkla gerekmez); gerekirse
   `BaselineVersion` + duyuru.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
+- **Eksiksizliğin kanıtı — parite testi (mekanizma, desen değil).** Gerçek yoldan uçtan uca bir DB testi: aynı
+  fikstürde (aynı çalışan, lokasyon, vardiya, gün dönümü, IP) bir `qr` dokunuşu ve bir `qr_live` dokunuşu, imzalı tap
+  bağlamı → `checkin` → satır yolundan geçirilir; iki satır **kanal ve plaket sütunları dışında aynı** olmalıdır —
+  özellikle `business_day_start`, vardiya anlık görüntüsü sütunları (`00095`), `direction_source`, `type`, `trust`,
+  `verdict`, `matched_sid`, akış olayı (Q38'in cevabına göre) ve debounce davranışı. Bir sütun `qr_live`'da NULL kalırsa
+  test kırmızıdır; envanterde adı geçmeyen bir yer de böyle yakalanır.
+- Parite testinin ulaşamadığı yerler (panel metni `claimChannelWord`, sandbox simülatörü gibi kayıt yazmayanlar) tek
+  satırlık bir takip maddesi olarak yazılır — yeni arama desenleri eklenmez.
 - CLAUDE.md §5 *"QR kanalı"*na canlı QR cümleleri (bu kartla). ADR 0005'e canlı QR aktarma riski (Bedel 5) —
   `TestADR0005_TheRiskCountMatchesTheTable` yeşil.
 
