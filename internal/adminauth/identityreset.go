@@ -132,7 +132,7 @@ func (r *Resets) IssueForPerson(ctx context.Context, email string) (PersonResets
 	out := PersonResets{Grants: grants, Kept: kept, Stalled: stalled}
 	if hasIdentity && ident.HasActiveMembership {
 		grant, identityKept, err := r.openForIdentity(ctx, recipientOf(ident))
-		if db.LockWaitExpired(err) {
+		if db.LockWaitExpired(err) || errors.Is(err, errOpeningCut) {
 			// A stall, not a failure (ResetMintLockWait): the opening was rolled back at the wait, so the
 			// identity holds nothing new, and the per-row grants above stay good to send.
 			out.Stalled = append(out.Stalled, StalledReset{IdentityID: ident.ID})
@@ -245,7 +245,16 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		return nil, nil, fmt.Errorf("adminauth: issue identity reset: %w", err)
 	}
 	expires := r.now().Add(r.ttl)
+	// Its wait for a connection out of the request's budget (mintStep). The withdrawals below run on
+	// withdrawContext, which drops the bound.
+	ctx, cut := r.mintStep(ctx)
 	o, err := r.data.OpenIdentityReset(ctx, who.id, h, expires, who.address, r.lockWaitFor(ctx, openIdentityResetWaits))
+	if cut() && err != nil {
+		// No connection inside the budget: the transaction never began, nothing was opened, nothing is
+		// to be withdrawn -- the lock wait's case below, and the caller reports it the same way. Only
+		// with an error: a call that returned a result committed, whatever the bound says.
+		return nil, nil, errOpeningCut
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such identity -- or (S-1, 00102) it no longer holds who.address: an address change committed
 		// after the resolver read it. Nothing was written; the answer is "no identity"'s.
@@ -284,6 +293,9 @@ func (r *Resets) openForIdentity(ctx context.Context, who identityRecipient) (*R
 		IdentityID: who.id,
 	}, nil, nil
 }
+
+// errOpeningCut is openForIdentity's stall waiting for a connection (mintStep): nothing was written.
+var errOpeningCut = errors.New("adminauth: issue identity reset: cut at the mint deadline")
 
 // WithdrawIdentity retires a per-identity link that could not be handed to its recipient (Withdraw's
 // reason, at the identity level: one live link per identity would otherwise turn a failed send into a

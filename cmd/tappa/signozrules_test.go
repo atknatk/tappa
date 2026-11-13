@@ -277,6 +277,10 @@ type ruleExpect struct {
 	// fields (TestSignozRules_FilterOnThePinnedNames).
 	eqs    []strEq
 	fields []string
+	// conj are exact pieces of the query, written from the constants: an arm whose
+	// equalities only count when they stand TOGETHER (rule 9's audit arm is msg AND
+	// level). The equality set alone cannot tell "msg AND level" from "msg OR level".
+	conj []string
 	// When the rule speaks, and how loudly (TestSignozRules_ConditionsAndLabelsArePinned).
 	evalWindow, frequency string
 	op, matchType         string
@@ -355,14 +359,25 @@ func signozRuleExpectations() map[int]ruleExpect {
 			// of: a lost withdrawal whose fate leaves the link live (RecoveryRetrying is left
 			// out, the list may still withdraw it), the drain's count of withdrawals still
 			// owed, the stalled mint, and a lost audit row (every caller of that msg pages).
+			// T282 added the flow's own failures (issue, delivery, spend, a panicked delivery,
+			// the drain's lost outcomes) and bound the audit arm to level ERROR: the panel's
+			// recordFirst writes the same msg at WARN for a request its client abandoned.
 			eqs: []strEq{
 				{handler.LogRecovery, handler.RecoveryListFull},
 				{handler.LogRecovery, handler.RecoveryClosing},
 				{handler.LogRecovery, handler.RecoveryNotRetried},
 				{msg, handler.EventMintStalled},
 				{msg, audit.EventWriteFailed},
+				{slog.LevelKey, slog.LevelError.String()},
+				{msg, handler.EventIssueFailed},
+				{msg, handler.EventDeliveryFailed},
+				{msg, handler.EventSpendFailed},
+				{msg, handler.EventDeliveryPanicked},
+				{msg, handler.EventOutcomesLost},
 			},
-			fields:     []string{msg, handler.LogRecovery, handler.LogOwedWithdrawals},
+			fields: []string{msg, slog.LevelKey, handler.LogRecovery, handler.LogOwedWithdrawals},
+			conj: []string{fmt.Sprintf("(JSONExtractString(body, '%s') = '%s' AND JSONExtractString(body, '%s') = '%s')",
+				msg, audit.EventWriteFailed, slog.LevelKey, slog.LevelError.String())},
 			evalWindow: "15m0s", frequency: "5m0s", op: "1", target: 0, matchType: "1", severity: "warning",
 		},
 	}
@@ -438,6 +453,12 @@ func TestSignozRules_FilterOnThePinnedNames(t *testing.T) {
 		}
 		if g, w := uniqueSorted(gotEqs), uniqueSorted(wantEqs); g != w {
 			t.Errorf("rule %d (%q) filters %s, want %s", n, r.Alert, g, w)
+		}
+		for _, c := range e.conj {
+			if !strings.Contains(q, c) {
+				t.Errorf("rule %d (%q) does not carry the arm %s as one conjunction; its equalities "+
+					"alone would page on what the arm exists to leave out:\n%s", n, r.Alert, c, q)
+			}
 		}
 	}
 	for n := range want {

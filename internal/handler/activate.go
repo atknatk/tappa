@@ -140,6 +140,10 @@ type Activation struct {
 	// activation on the same venue network needs.
 	statusLimiter *limiter
 
+	// now is injectable for tests; production leaves it nil and reads the wall
+	// clock (tapContexts' pattern). It dates the cookie-check marker.
+	now func() time.Time
+
 	log *slog.Logger
 }
 
@@ -282,14 +286,81 @@ var (
 		Message: "This phone hasn't agreed to the privacy notice yet, so the tap didn't activate it.",
 		Hint:    "Open your activation link again, go through the steps, then tap the plaque.",
 	}
+
+	// problemCookieLost answers the cookie check (cookieCheckURL): a VALID
+	// link moved its code into the activation cookie one response ago, and the
+	// redirected GET came back without it. The link is still good, so "ask your
+	// manager" is the wrong first advice — a re-sent invitation cancels the one in
+	// hand and the new one meets the same browser (the 2026-11-11 incident, ADR
+	// 0026). Which browsers do this was NOT measured; the copy names the remedy
+	// that works for all of them: a real browser that keeps cookies.
+	//
+	// THE HINT SENDS THE PERSON BACK TO THE MESSAGE, not to this page: the address
+	// bar here holds /activate?cookiecheck=…, and an in-app browser's "Open in
+	// Chrome/Safari" opens THAT address, which cannot work in a browser that never
+	// got the cookie.
+	problemCookieLost = pages.ProblemView{
+		Title:   "Open your activation link in your browser",
+		Message: "This window can't finish setup — it didn't keep what setup needs.",
+		Hint: "Go back to the message your workplace sent and copy the link from there — this page's address won't work. " +
+			"Paste it into your phone's main browser (for example Chrome or Safari) and follow the steps there. " +
+			"Your link still works — you don't need a new one. Already there? Allow cookies for this site and open the link again.",
+	}
 )
+
+// cookieCheckURL is where startActivation sends the browser after writing the
+// activation cookie: /activate?cookiecheck=<unix seconds>. The query is a MARKER,
+// not data: it carries no code and nothing secret, only the server's own time of
+// the response that set the cookie.
+//
+//   - With the cookie, Page redirects once more to the bare /activate, whatever the
+//     marker's age: the marker must not stay in the address bar.
+//   - Without the cookie, only a FRESH marker (freshCookieCheck) gets
+//     problemCookieLost. Its "your link still works" is true only right after a
+//     valid link set the cookie; a reload of an old tab, a bookmark or a hand-made
+//     URL — stale, garbage or from the future — gets the ordinary problemNoLink.
+func cookieCheckURL(at time.Time) string {
+	return "/activate?" + cookieCheckParam + "=" + strconv.FormatInt(at.Unix(), 10)
+}
+
+const (
+	cookieCheckParam = "cookiecheck"
+	// cookieCheckMaxAge is how old a marker may be and still mean "the previous
+	// response". The redirect is followed at once; two minutes covers a slow phone
+	// network with room to spare and is far short of any reload days later.
+	cookieCheckMaxAge = 2 * time.Minute
+	// cookieCheckSkew tolerates a marker slightly AHEAD of this server's clock
+	// (another replica's clock behind the same host). Further ahead is not ours.
+	cookieCheckSkew = 30 * time.Second
+)
+
+// freshCookieCheck reports whether r carries a cookie-check marker minted within
+// cookieCheckMaxAge of now (server clock only, cookieCheckSkew of slack ahead).
+func freshCookieCheck(r *http.Request, now time.Time) bool {
+	secs, err := strconv.ParseInt(r.URL.Query().Get(cookieCheckParam), 10, 64)
+	if err != nil {
+		return false
+	}
+	age := now.Sub(time.Unix(secs, 0))
+	return age >= -cookieCheckSkew && age <= cookieCheckMaxAge
+}
+
+func (a *Activation) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
+}
 
 // Page serves GET /activate.
 //
 // TWO SHAPES, ONE ROUTE:
 //
-//	/activate?code=…   validate, move the code into the cookie, 303 to /activate.
-//	/activate          read the cookie and render the form.
+//	/activate?code=…   validate, move the code into the cookie, 303 to
+//	                   /activate?cookiecheck=<unix seconds> (cookieCheckURL).
+//	/activate          read the cookie and render the form. With the marker it
+//	                   303s to the bare /activate first, or — when the cookie did
+//	                   not come back — says so (landWithoutLink).
 //
 // The redirect is what keeps the code out of the address bar, out of history and
 // out of any Referer (cookies.go explains the rest of the reasoning).
@@ -349,6 +420,12 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 		a.landWithoutLink(w, r)
 		return
 	}
+	if r.URL.Query().Has(cookieCheckParam) {
+		// The cookie came back: the check is done. Drop the marker before anything
+		// is drawn, fresh or not (cookieCheckURL says why it must not linger).
+		a.redirect(w, r, "/activate")
+		return
+	}
 	ictx, err := a.invites.Lookup(r.Context(), st.code)
 	if a.overInviteBudget(w, r, ip, ictx) {
 		return
@@ -382,6 +459,14 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 //	ran the wizard                    is not the one the link was opened in (the
 //	                                  in-app-browser case). The link still works —
 //	                                  open it HERE.
+//	a fresh marker, no cookie         ?cookiecheck=<recent unix seconds>
+//	                                  (cookieCheckURL): a response moments ago
+//	                                  set the cookie from a VALID link and this
+//	                                  request came without it. The link still
+//	                                  works — open it in the phone's main browser.
+//	                                  Checked AFTER the session, so a set-up
+//	                                  phone is still told it is set up. A stale
+//	                                  or malformed marker is "anybody else".
 //	anybody else                      the original "you need your activation link".
 func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 	held, err := a.heldBy(r)
@@ -402,7 +487,40 @@ func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusOK, problemSignedOut)
 		return
 	}
+	if freshCookieCheck(r, a.clock()) {
+		a.logCookieLost(r)
+		a.renderProblem(w, r, http.StatusOK, problemCookieLost)
+		return
+	}
 	a.renderProblem(w, r, http.StatusOK, problemNoLink)
+}
+
+// logCookieLost writes the one line that can tell, next time, which browsers end
+// up here — on 2026-11-11 the access log showed only that one did, because the
+// user agent is not logged. It carries the address and a coarse label from a
+// closed vocabulary (coarseDevice, embeddedBrowser), never the user agent itself,
+// the code or the cookie (§7, §4.1).
+//
+// WHAT THE LINE MEANS: a fresh marker arrived WITHOUT the cookie. That alone does
+// not prove this browser dropped a cookie it was given. An in-app browser's "Open
+// in Chrome/Safari" hand-off carries the marker URL into a browser that never got
+// the cookie, and that request logs here too — typically embedded_browser=false.
+//
+// It is bounded by the unknown budget, like anonFail: the marker is a public URL,
+// so without a bound a loop on it would be a free log writer. Past the budget the
+// answer is unchanged; only the line stops.
+func (a *Activation) logCookieLost(r *http.Request) {
+	ip := clientIP(r)
+	n := a.unknownLimiter.Charge(ip)
+	switch {
+	case n <= unknownLimit:
+		ua := r.UserAgent()
+		a.log.Info("activation cookie did not return", "ip", ip,
+			"device", coarseDevice(ua), "embedded_browser", embeddedBrowser(ua))
+	case a.unknownLimiter.FirstOverLimit(n):
+		a.log.Warn("activation: further unattributable refusals from this address will not be logged this window",
+			"ip", ip, "at", "activate_cookie_check", "limit", unknownLimit, "period", unknownPeriod.String())
+	}
 }
 
 // alreadySetUpFor handles a SPENT invitation opened on the phone that holds that
@@ -511,8 +629,8 @@ func (a *Activation) Continue(w http.ResponseWriter, r *http.Request) {
 }
 
 // startActivation mints a synchronizer token, parks it with the code in the
-// cookie and redirects to a clean URL. The cookie lives until the invitation
-// expires (ADR 0026).
+// cookie and redirects to a URL without the code (cookieCheckURL). The
+// cookie lives until the invitation expires (ADR 0026).
 //
 // IT ALWAYS STARTS UNCONSENTED: a fresh arrival writes "<csrf>.<code>" with no
 // binding, even when this browser had consented to the same invitation before.
@@ -531,7 +649,10 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 	}
 	a.codes.set(w, token, raw, "", expires)
 	a.codes.clearDone(w)
-	a.redirect(w, r, "/activate")
+	// The marker is added HERE, so both callers carry it: Page's ?code= arrival and
+	// Continue's confirmed switch each just wrote the cookie in this response.
+	// Submit's redirect does not: it ran only because the cookie DID come back.
+	a.redirect(w, r, cookieCheckURL(a.clock()))
 }
 
 // Submit serves POST /api/activate — the wizard's consent step (ADR 0026).
@@ -1483,6 +1604,8 @@ func (a *Activation) anonFail(ip, where, reason string) {
 // the request — but never swallows it either (§7): a trail that cannot be written
 // is an ERROR-level event, because it means §4.6 is not being kept.
 func (a *Activation) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx) // T284 (a): the client leaving does not take the row with it
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}

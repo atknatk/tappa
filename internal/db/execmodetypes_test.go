@@ -1053,6 +1053,9 @@ func TestConstructors_TheHookReachesOnlyThePin(t *testing.T) {
 // T98 (2026-11-06): openOperatorDB gained pinOperatorStatementTimeout and its read-back, the shape
 // newDB's pinFeedTimeouts already has -- no branch, no second parse, the pin and its check untouched;
 // the same two tests re-run green on the changed body.
+// T236 (a) (2026-11-11): newDB sets the pool's PrepareConn (connectionHandedOver, lockwait.go), which
+// runs no statement -- it only disarms a BoundAcquireWait bound on the acquiring context -- so no branch,
+// no second parse, the pin and its check untouched; the same two tests re-run green on the changed body.
 var reviewedBodies = map[string]string{
 	"newDB": `{
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL.Reveal())
@@ -1065,6 +1068,7 @@ var reviewedBodies = map[string]string{
 	}
 	pinLogParameters(poolCfg, "DATABASE_URL", before)
 	pinFeedTimeouts(poolCfg)
+	poolCfg.PrepareConn = connectionHandedOver
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, poolStepErr("new pool", err)

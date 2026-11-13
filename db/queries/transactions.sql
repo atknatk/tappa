@@ -1283,11 +1283,44 @@ WHERE tenant_id = @tenant_id
 -- from one statement and cannot disagree.
 --
 -- "CHECKED IN" IS GetLastOpenTransaction's PREDICATE, per person: a non-practice `in` with no
--- `out` of the same person after it. DISTINCT ON keeps each person's LATEST such `in` (by id, in
--- the subquery), so a person counts once, at the venue of their latest entry -- two unclosed
--- check-ins in a row (the pre-ADR-0008 shape) do not make one person two. A flagged `in` counts:
--- it is a record (§4.6), and whether it is approved is the review queue's business, not the
--- floor's.
+-- `out` of the same person after it. Each person counts once, at the venue of their LATEST such
+-- `in` (by occurred_at, then id), so two unclosed check-ins in a row (the pre-ADR-0008 shape) do
+-- not make one person two. A flagged `in` counts: it is a record (§4.6), and whether it is
+-- approved is the review queue's business, not the floor's.
+--
+-- 🔴 T272: THE LATEST ENTRY FIRST, THEN ONE PROBE PER HALF -- T245'S SHAPE, THE SAME ANSWER. The
+-- statement used to ask "each person's latest `in` with no later `out`" as one anti-join inside
+-- the DISTINCT ON, and the planner answered it with a Hash Anti Join whose inner side was a
+-- scan of EVERY `out` the business ever recorded -- read on each panel load, growing with the
+-- history, not with the window. Two rewrites, each PURE LOGIC (no fact about the data assumed):
+--   * e: "the latest `in` in the window with no later `out`" IS "the latest `in` in the window
+--     (e), if it has no later `out`". If an `out` O has O.occurred_at > e.occurred_at, it is
+--     later than every earlier `in` of the window too (each has occurred_at <= e's), so none of
+--     them qualifies either and the person is not on the floor -- exactly what the old
+--     statement answered. The comparison stays `>` on occurred_at alone, as it was: an `out` at
+--     the very instant of the entry closes nothing here, and this change does not move that.
+--   * o / p: NOT EXISTS (a later `out`) = NOT EXISTS (a non-practice one) AND NOT EXISTS (a
+--     practice one) -- practice is boolean NOT NULL (00005). The first is provable from
+--     00091's predicate and probes it per entry; the second reads 00092's (`WHERE practice`),
+--     where only historic practice rows live. Together they still see every `out`, practice
+--     or not, as the old anti-join did (a practice `out` should not exist -- ADR 0026 -- but
+--     no CHECK says so, and this statement does not lean on it).
+-- What is left is the window's own read (e): every row the business recorded since @since, or
+-- 00094's entries of the business -- the planner's pick. A flood of refused or ignored taps
+-- INSIDE the window is read there once per load (T298).
+-- Measured (lane DB, 2026-11-11; a temporary copy of transactions with its indexes and policy,
+-- as tappa_app, plan forced custom and generic; 20 people at 09:00 in / 17:00 out every day,
+-- 12 of them in since 6 h, 8 in and out today, 20 historic practice rows): 730 days of history
+-- 516-544 pages and 21-30 ms before, 120-122 pages and ~1.5 ms after; 60 days 50 before, 100
+-- after (both ~1-6 ms: a short history pays the per-entry probes); 60 days with 43 198
+-- refused/ignored taps inside the window 808 before, 118 after; 730 days with the same flood
+-- 2 249-2 472 before, 1 117-1 340 after (the window's read, see above). WHERE THE GAIN IS: the
+-- generic plan (pgx's statement cache settles on it) and the in-window burst. The old statement's
+-- custom plan is data-dependent: on these scratch shapes it hashed the outs too (516 pages), but
+-- on floor_test.go's own data it already probed per person (Nested Loop Anti Join, 104 pages --
+-- fewer than this statement's ~146) and only its generic plan read the history (Seq Scan + Hash
+-- Anti Join, 568-571; third-eye review's measurement, T272). The agreement and the plan are
+-- pinned by internal/db's floor_test.go.
 --
 -- 🔴 @since IS now - tap.StaleOpenIn, COMPUTED IN GO, and it is a bare parameter (no coalesce):
 -- a check-in older than the engine's own "forgotten checkout" horizon is not somebody on the
@@ -1308,43 +1341,53 @@ WHERE tenant_id = @tenant_id
 --
 -- NO LIMIT: the rows are bounded by the business's venues plus its peers', not by its history.
 --
--- TENANT SCOPE (§4.5): the explicit predicate on the outer row, the subquery's row, the
--- anti-join's row and the join's ON, beside RLS. The tenant comes from the panel session. (The
--- outer statement is over transactions rather than over a CTE of the picked rows because
--- internal/domain/tenant's TestTransactionsQueries_CarryAnExplicitTenantPredicate refuses a
--- statement that reads a tenant table with no WHERE -- the CTE shape's outer SELECT had none.)
+-- TENANT SCOPE (§4.5): the explicit predicate on the outer row, the entry's row (in its own scan
+-- and again on the derived table e, whose WHERE the panel belt reads as a statement of its own),
+-- both probes' rows and the join's ON, beside RLS -- each probe bound to @tenant_id, not to the
+-- outer alias.
+-- The tenant comes from the panel session. (The outer statement is over transactions rather than
+-- over a CTE of the picked rows because internal/domain/tenant's
+-- TestTransactionsQueries_CarryAnExplicitTenantPredicate refuses a statement that reads a tenant
+-- table with no WHERE -- the CTE shape's outer SELECT had none.)
 --
--- EXPLAIN (ANALYZE, BUFFERS), 2026-10-20, seed tenant 10000000-...-0001 after `make seed` and the
--- simulated days the test runs leave (72 rows, 70 inside the window; after ANALYZE; host load
--- average ~100, so the times are noise): Bitmap Index Scan on transactions_tenant_occurred_idx for
--- the outer window -> Hash Semi Join against the subquery (Bitmap Index Scan on
--- transactions_tenant_occurred_idx -> Hash Right Anti Join against the tenant's `out` rows ->
--- Sort + Unique for DISTINCT ON) -> Nested Loop Left Join to locations -> GroupAggregate -> Sort;
--- shared hit=78 every run, 1.1-6.2 ms warm. On a larger table the anti-join is expected to probe
--- transactions_tenant_employee_occurred_idx as GetLastOpenTransaction does -- re-measure rather
--- than believe this line.
+-- The 2026-10-20 plan (seed tenant, 72 rows) read 78 pages with the old anti-join; it is
+-- superseded by T272's numbers above.
 SELECT t.location_id, t.site_location_id, l.name AS location_name, count(*) AS people
 FROM transactions t
 LEFT JOIN locations l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @since
   AND t.id IN (
-      SELECT DISTINCT ON (x.employee_id) x.id
-      FROM transactions x
-      WHERE x.tenant_id = @tenant_id
-        AND x.employee_id IS NOT NULL
-        AND x.type = 'in'
-        AND NOT x.practice
-        AND x.occurred_at >= @since
+      SELECT e.id
+      FROM (
+          SELECT DISTINCT ON (x.employee_id) x.id, x.tenant_id, x.employee_id, x.occurred_at
+          FROM transactions x
+          WHERE x.tenant_id = @tenant_id
+            AND x.employee_id IS NOT NULL
+            AND x.type = 'in'
+            AND NOT x.practice
+            AND x.occurred_at >= @since
+          ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC
+      ) e
+      WHERE e.tenant_id = @tenant_id
         AND NOT EXISTS (
-            SELECT 1
-            FROM transactions o
-            WHERE o.tenant_id = @tenant_id
-              AND o.employee_id = x.employee_id
-              AND o.type = 'out'
-              AND o.occurred_at > x.occurred_at
-        )
-      ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC
+                SELECT 1
+                FROM transactions o
+                WHERE o.tenant_id = @tenant_id
+                  AND o.employee_id = e.employee_id
+                  AND o.type = 'out'
+                  AND NOT o.practice
+                  AND o.occurred_at > e.occurred_at
+            )
+        AND NOT EXISTS (
+                SELECT 1
+                FROM transactions p
+                WHERE p.tenant_id = @tenant_id
+                  AND p.employee_id = e.employee_id
+                  AND p.type = 'out'
+                  AND p.practice
+                  AND p.occurred_at > e.occurred_at
+            )
   )
 GROUP BY t.location_id, t.site_location_id, l.name
 ORDER BY count(*) DESC, l.name, t.location_id, t.site_location_id;

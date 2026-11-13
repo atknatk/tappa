@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
@@ -31,6 +32,21 @@ import (
 // §4.6 promises has a hole. An alert rule filters on this exact msg (deploy/README.md, M8-03
 // rule 9, T235), so every caller spells it with this constant rather than a literal.
 const EventWriteFailed = "audit write failed"
+
+// RecordGrace bounds an audit write that has been detached from its caller's cancellation
+// (Detached). 5 s is the bound the other detached trail writes already use
+// (handler.recordInvite, invite.EmailRecordGrace, handler.PasswordNoticeRecordGrace): one INSERT
+// in its own transaction takes milliseconds, so 5 s only ends a write against a database that
+// is not answering, and a request whose client has left holds its goroutine no longer than that.
+const RecordGrace = 5 * time.Second
+
+// Detached is the context an audit write on a request's behalf runs under: the request's values
+// without its cancellation or deadline, bounded by RecordGrace (T284 (a), user decision
+// 2026-11-12). A client that disconnects does not take the trail row with it (§4.6), and an
+// EventWriteFailed ERROR is left for a real failure rather than the client's own cancel.
+func Detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), RecordGrace)
+}
 
 // Database is the narrow slice of *db.DB this package needs, declared HERE at the
 // consumer (CLAUDE.md §7).

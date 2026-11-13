@@ -239,6 +239,10 @@ func allTestFuncs(t *testing.T) map[string]bool {
 			case ".git", ".tools", "node_modules":
 				return filepath.SkipDir
 			}
+			// A nested checkout (cmd/tappa's skipScanDir says why) is another tree's source.
+			if _, statErr := os.Lstat(filepath.Join(p, ".git")); statErr == nil && p != root {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(p, "_test.go") {

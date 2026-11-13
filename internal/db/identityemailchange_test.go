@@ -1288,12 +1288,19 @@ func TestOpenIdentityResetSQL_NamesTheRecipient(t *testing.T) {
 		t.Fatalf("openIdentityResetSQL = %q, want the four-argument call", openIdentityResetSQL)
 	}
 	var callers []string
-	err := filepath.Walk(filepath.Join("..", ".."), func(path string, info os.FileInfo, err error) error {
+	root := filepath.Join("..", "..")
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() && (info.Name() == ".git" || info.Name() == ".tools" || info.Name() == "node_modules") {
 			return filepath.SkipDir
+		}
+		// A nested checkout (cmd/tappa's skipScanDir says why) is another tree's source.
+		if info.IsDir() && path != root {
+			if _, statErr := os.Lstat(filepath.Join(path, ".git")); statErr == nil {
+				return filepath.SkipDir
+			}
 		}
 		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil

@@ -243,21 +243,24 @@ func TestRLS_Floor_AnotherTenantsPeopleAreNotOnThisFloor(t *testing.T) {
 	a.tap(passTap{who: a.person("A on the floor", "Door"), venue: "Door", at: now.Add(-time.Hour), kind: "in"})
 	b.tap(passTap{who: b.person("B on the floor", "Door"), venue: "Door", at: now.Add(-time.Hour), kind: "in"})
 
-	// CountOnTheFloorByVenue's own shape (the outer read over transactions, the DISTINCT ON
-	// subquery, the anti-join and the venue join) with every tenant predicate removed: the outer
-	// row's, the subquery's, the anti-join's and the join's ON.
+	// CountOnTheFloorByVenue's own shape since T272 (the outer read over transactions, the DISTINCT
+	// ON entry, the two probes and the venue join) with every tenant predicate removed: the outer
+	// row's, the entry's, both probes' and the join's ON.
 	const whereless = `
 		SELECT t.location_id, t.site_location_id, l.name AS location_name, count(*) AS people
 		FROM transactions t
 		LEFT JOIN locations l ON l.id = t.location_id
 		WHERE t.occurred_at >= $1
 		  AND t.id IN (
-		      SELECT DISTINCT ON (x.employee_id) x.id
-		      FROM transactions x
-		      WHERE x.employee_id IS NOT NULL AND x.type = 'in' AND NOT x.practice AND x.occurred_at >= $1
-		        AND NOT EXISTS (SELECT 1 FROM transactions o WHERE o.employee_id = x.employee_id
-		                          AND o.type = 'out' AND o.occurred_at > x.occurred_at)
-		      ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC)
+		      SELECT e.id
+		      FROM (SELECT DISTINCT ON (x.employee_id) x.id, x.employee_id, x.occurred_at
+		            FROM transactions x
+		            WHERE x.employee_id IS NOT NULL AND x.type = 'in' AND NOT x.practice AND x.occurred_at >= $1
+		            ORDER BY x.employee_id, x.occurred_at DESC, x.id DESC) e
+		      WHERE NOT EXISTS (SELECT 1 FROM transactions o WHERE o.employee_id = e.employee_id
+		                          AND o.type = 'out' AND NOT o.practice AND o.occurred_at > e.occurred_at)
+		        AND NOT EXISTS (SELECT 1 FROM transactions p WHERE p.employee_id = e.employee_id
+		                          AND p.type = 'out' AND p.practice AND p.occurred_at > e.occurred_at))
 		GROUP BY t.location_id, t.site_location_id, l.name`
 	venuesSeenBy := func(tenant uuid.UUID) map[uuid.UUID]bool {
 		seen := map[uuid.UUID]bool{}

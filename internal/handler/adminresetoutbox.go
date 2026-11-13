@@ -530,7 +530,7 @@ func (h *AdminReset) contain(j resetJob, f func()) (panicked bool) {
 	defer func() {
 		if recover() != nil {
 			panicked = true
-			h.log.ErrorContext(j.base, "panel recovery: a delivery panicked; the worker recovered and moved on",
+			h.log.ErrorContext(j.base, EventDeliveryPanicked,
 				grantIDs(j.g)...)
 		}
 	}()
@@ -594,7 +594,7 @@ func (h *AdminReset) Drain(ctx context.Context) error {
 		q.spendBudget()
 		// Said HERE, with the count: the worker's own ERROR for each write may not get out
 		// before the process does.
-		h.log.ErrorContext(ctx, "panel recovery: the drain ended with outcomes still waiting, and their writes are lost",
+		h.log.ErrorContext(ctx, EventOutcomesLost,
 			"queued_grants", len(q.jobs), "queued_outcomes", len(q.retries))
 		return fmt.Errorf("handler: the reset outbox did not drain within its budget: %w", ctx.Err())
 	}
