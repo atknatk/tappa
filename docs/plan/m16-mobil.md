@@ -796,13 +796,23 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
   hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
   - **Yalıtım:** iki kanal **aynı çalışanla art arda koşmaz** — ikinci dokunuş debounce'a (`ignored`) düşer ya da yönü
-    çevirir. Her kanal kendi, birebir aynı fikstüründe koşar (geri alınan ayrı bir transaction ya da klonlanmış
-    çalışan: aynı lokasyon, vardiya, gün dönümü, IP, saat).
+    çevirir. Her kanal kendi, birebir aynı fikstüründe koşar: **varsayılan klonlanmış çalışandır** (aynı lokasyon,
+    vardiya, gün dönümü, IP, saat). *Geri alınan ayrı transaction* yalıtımı çalışmaz: `checkin` kendi `WithTenant`
+    transaction'ını açıp commit eder, test onu dıştan geri alamaz.
   - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — dört hücre, çünkü akış tetikleyicisinin dört
-    kanal süzgeci var ve her biri `NOT IN ('nfc', 'qr')` ile sessizce atlar: `00067:193` (yerel `ok`), `:234` (yerel
-    `flag` → onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri ADR 0027 kuralı `qr_live`'a
-    açıksa koşar; kapalıysa iki kanalın **aynı reddi** verdiği karşılaştırılır.
-  - **Her hücrede karşılaştırılan:** `transactions` satırı (kanal ve plaket sütunları dışında aynı — özellikle
+    kanal süzgeci var ve her biri `qr_live`'ı bir `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlar: `00067:193`
+    (yerel `ok`, `NOT IN`), `:234` (yerel `flag` → onay, `NOT IN`), `:366` (holding `ok`, `v_event`'te `IN`), `:408`
+    (holding onayı, `v_event`'te `IN`). Holding hücreleri ADR 0027 kuralı `qr_live`'a **açıksa** parite ölçer.
+    **Kapalıysa parite değil şu ölçülür** — statik `qr` holding'de hiç reddedilmediği için (K-1g,
+    `sys:cross-tenant-qr-site-ip`: IP ile `ok`, IP'siz `flag`) bu dalda `qr` hücresi referans **değildir**: `qr_live`
+    reddi bir `transactions` satırı yazar (§4.6) · `punch_events`'e olay girmez · `site_punches` satırı yazılıyorsa
+    `outcome='refused'` ile (`00046:139-140`'ın kapalı kümesi, eşlemesi `:284-291`) **CHECK hatasız** yazılır
+    (`site_punches.channel` CHECK'i `00046:137` M16-19'da genişlemiş olmalı).
+  - **Karşılaştırmanın dışında kalanlar:** kimlik ve sıra sütunları (`seq`, satır id'leri, `punch_id` /
+    `transaction_id`, `recorded_at`, `created_at`), plaket sütunları (`tag_uid`, `site_tag_uid`), `channel`, ve çalışan
+    klonlandığı için çalışan kimlik sütunları (`employee_id`, `employee_ref`, `employee_code`, `employee_name` —
+    hangisi o tabloda varsa). Geri kalan her sütun eşit olmalıdır.
+  - **Her hücrede karşılaştırılan:** `transactions` satırı (yukarıdaki dışlamalar hariç aynı — özellikle
     `business_day_start`, vardiya anlık görüntüsü sütunları (`00095`), `direction_source`, `type`, `trust`, `verdict`,
     `matched_sid`), **`punch_events` satırları** (Q38'in cevabına göre eşlenmiş kanal dışında aynı) ve holding
     hücrelerinde **`site_punches` satırı** (tablo `00046`; bugünkü yazıcısı `00067:528-544`).
