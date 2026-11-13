@@ -112,7 +112,9 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   (`internal/handler/activate.go:1068-1077`) uygulamaya genişler: uygulama aktivasyonu tarayıcı oturumlarını, tarayıcı
   aktivasyonu uygulama cihazlarını iptal eder.
 - **İptal yolları tarayıcınınkilerin aynısıdır:** panelin *"telefonlarını çıkar"* eylemi (T59,
-  `internal/handler/employeeactions.go:690`) ve tek cihaz iptali (M16-26) uygulama cihazını kapatır. **Deaktivasyon
+  `internal/handler/employeeactions.go:690`) ve tek cihaz iptali (M16-26 — yeni bir yazma yolu) uygulama cihazını
+  kapatır; **ikisi de deaktive bir kişide reddedilir** (`tenant.ErrSignOutDeactivated`,
+  `internal/domain/tenant/staffsignout.go:103`, ve onun ikizi). **Deaktivasyon
   hiçbir şeyi iptal etmez** — kullanıcı kararı 2026-08-07 (`db/queries/sessions.sql:85` *"DEACTIVATION MUST NOT CALL
   THIS"*, `internal/domain/tenant/staff.go:40-43`, `internal/handler/employeeactions.go:563-567`); T59 deaktive bir
   kişinin telefon çıkışını da reddeder (`ErrSignOutDeactivated`, `:661`). Sebep: deaktive kişinin dokunuşu satır 4'e

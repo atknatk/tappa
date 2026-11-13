@@ -570,6 +570,8 @@ kez koşmak.
 - NFC'li Android'de, staging ya da yerel sunucuya karşı gerçek bir test plaketiyle: aktivasyon · giriş · 60 sn tekrar
   (`ignored`) · çıkış · uçak modu · konum izni reddi · sahte konum uygulamasıyla `flag` · telefon çıkışı sonrası
   yeniden aktivasyon ekranı (**kayıt yok** — `transactions` sayısı değişmez) · deaktivasyon sonrası `reject` + kayıt.
+  Deaktivasyon geri alınamaz (ADR 0010): bu adım **yalnız bu tur için açılan tek kullanımlık bir test çalışanıyla**
+  koşar, gerçek bir çalışanla asla.
   Kayıt yazan her biri DB satırıyla (`client`, `channel`, verdict), kayıt yazmayanlar `transactions` sayısının
   değişmediğiyle kanıtlanır. **Test plaketinin `tags` satırı hiçbir temizlikte silinmez** (silinirse çip kalıcı kilitlenir).
 - Tarayıcı yolu aynı telefonda uygulama kaldırılınca aynen çalışır.
@@ -653,7 +655,8 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 
 **Kabul kriterleri.**
 - iPhone XS+ **ve** iPhone 7–X üzerinde M16-14'ün senaryo listesi (sahte konum yerine: konum izni reddi ve *"Precise
-  Location"* kapalı); her biri DB satırıyla.
+  Location"* kapalı); kanıt kuralı M16-14'ünkü: kayıt yazan adım DB satırıyla, kayıt yazmayan adım (telefon çıkışı
+  sonrası) `transactions` sayısının değişmediğiyle; deaktivasyon adımı tek kullanımlık test çalışanıyla.
 - Q11 için yan ölçüm: aynı iPhone'da tarayıcı oturumu ile uygulama cihazının bir hafta sonraki durumu (bilgi, kabul
   kriteri değil).
 - Fazın büyük testleri bir kez; *doğrula* sonuçları ADR 0044'e not.
@@ -790,12 +793,22 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0044 §2.5: büyük olasılıkla gerekmez); gerekirse
   `BaselineVersion` + duyuru.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
-- **Eksiksizliğin kanıtı — parite testi (mekanizma, desen değil).** Gerçek yoldan uçtan uca bir DB testi: aynı
-  fikstürde (aynı çalışan, lokasyon, vardiya, gün dönümü, IP) bir `qr` dokunuşu ve bir `qr_live` dokunuşu, imzalı tap
-  bağlamı → `checkin` → satır yolundan geçirilir; iki satır **kanal ve plaket sütunları dışında aynı** olmalıdır —
-  özellikle `business_day_start`, vardiya anlık görüntüsü sütunları (`00095`), `direction_source`, `type`, `trust`,
-  `verdict`, `matched_sid`, akış olayı (Q38'in cevabına göre) ve debounce davranışı. Bir sütun `qr_live`'da NULL kalırsa
-  test kırmızıdır; envanterde adı geçmeyen bir yer de böyle yakalanır.
+- **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
+  hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
+  - **Yalıtım:** iki kanal **aynı çalışanla art arda koşmaz** — ikinci dokunuş debounce'a (`ignored`) düşer ya da yönü
+    çevirir. Her kanal kendi, birebir aynı fikstüründe koşar (geri alınan ayrı bir transaction ya da klonlanmış
+    çalışan: aynı lokasyon, vardiya, gün dönümü, IP, saat).
+  - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — dört hücre, çünkü akış tetikleyicisinin dört
+    kanal süzgeci var ve her biri `NOT IN ('nfc', 'qr')` ile sessizce atlar: `00067:193` (yerel `ok`), `:234` (yerel
+    `flag` → onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri ADR 0027 kuralı `qr_live`'a
+    açıksa koşar; kapalıysa iki kanalın **aynı reddi** verdiği karşılaştırılır.
+  - **Her hücrede karşılaştırılan:** `transactions` satırı (kanal ve plaket sütunları dışında aynı — özellikle
+    `business_day_start`, vardiya anlık görüntüsü sütunları (`00095`), `direction_source`, `type`, `trust`, `verdict`,
+    `matched_sid`), **`punch_events` satırları** (Q38'in cevabına göre eşlenmiş kanal dışında aynı) ve holding
+    hücrelerinde **`site_punches` satırı** (tablo `00046`; bugünkü yazıcısı `00067:528-544`).
+  - Debounce davranışı bu matrisin değil yukarıdaki `TestDecide_` / DB vakalarının (kanallar arası, geriye
+    tarihlenmiş) işidir; matris onlara atıf yapar.
+  - Bir sütun ya da satır `qr_live`'da eksik kalırsa test kırmızıdır; envanterde adı geçmeyen bir yer de böyle yakalanır.
 - Parite testinin ulaşamadığı yerler (panel metni `claimChannelWord`, sandbox simülatörü gibi kayıt yazmayanlar) tek
   satırlık bir takip maddesi olarak yazılır — yeni arama desenleri eklenmez.
 - CLAUDE.md §5 *"QR kanalı"*na canlı QR cümleleri (bu kartla). ADR 0005'e canlı QR aktarma riski (Bedel 5) —
@@ -898,6 +911,11 @@ tek cihazı iptal edebilmek.
 - M6-11 anomali raporuna oranlar: uygulama / tarayıcı · attested · sahte konum bildirimi · `qr_live` — çalışan ve
   lokasyon kırılımında; eksik veri (`client` NULL tarihsel satır) ayrı ve açıkça.
 - Çalışan kartında cihaz listesi (platform, kaba etiket, ilk/son kullanım, attested) ve tek cihaz iptali.
+- Tek cihaz iptali **yeni bir yazma yoludur** (panelde tarayıcı için tek oturum iptali yoktur) ve T59'un reddini
+  taşır: **deaktive bir kişinin cihazı iptal edilemez** — `tenant.ErrSignOutDeactivated`'ın
+  (`internal/domain/tenant/staffsignout.go:55-57`, `:103`) ikizi; aksi hâlde kişinin sonraki dokunuşları satır 3'ün
+  kayıtsız yoluna düşer (2026-08-07 kararının önlediği kayıp, §4.6). DB testi: deaktive kişide deneme reddedilir ve
+  sonra `revoked_at IS NULL`.
 - Tek cihaz iptali **tek yönlüdür** (`00099` deseni), `audit_log` yazar, başka tenant'ın cihaz kimliğiyle istek → 404
   (RLS + açık `tenant_id` filtresi; DB testi); yetki policy motorundan (`base:authz-*`), CSRF panelin mevcut kapısıyla.
 - Fazın büyük testleri bir kez.
