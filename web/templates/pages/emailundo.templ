@@ -1,0 +1,57 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// AdminEmailUndo is the page the undo link of a sign-in address change opens (T173, ADR 0044 §5.3, K-E2
+// (a), K-E11 (a)): the sign-in family's shell (layout.Auth, no script), one card. Before the press it
+// says what the press does -- the old address comes back, every device is signed out, a link to set a
+// new password goes to this address; after it, the result (K-E10 (viii)). A link that cannot be used
+// gets one sentence whatever the cause.
+//
+// It names nobody and no address: the person reading it is whoever holds the old mailbox.
+templ AdminEmailUndo(v EmailUndoView) {
+	@layout.Auth("Undo the email change — Taptime", "") {
+		@AuthHeader(v.SignInHref)
+		<main class="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-4 pb-10 pt-3 md:px-10 md:pb-14 md:pt-6 desk:px-14 desk:pb-[72px] desk:pt-8">
+			<div class="flex w-full max-w-[520px] flex-col gap-6">
+				@resetCard() {
+					switch  {
+						case v.Done:
+							<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Your sign-in email is back</h1>
+							<p class="text-[15px] leading-normal text-ink/85">
+								Your sign-in email is back. We sent a link to set a new password.
+							</p>
+							<p class="text-sm leading-normal text-ink/70">
+								You are signed out of Taptime everywhere. Until you set the new password, nobody can sign
+								in with the old one.
+							</p>
+						case v.Dead:
+							<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">That link can't be used</h1>
+							<p class="text-[15px] leading-normal text-ink/85">
+								An undo link works once, for 7 days. This one has been used, has run out, or can no
+								longer be used.
+							</p>
+							<p class="text-sm leading-normal text-ink/70">
+								If you can still sign in, check your sign-in email on your account page.
+							</p>
+						default:
+							<div class="flex flex-col gap-2">
+								<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[32px]">Undo the email change</h1>
+								<p class="text-[15px] leading-normal text-ink/70">
+									This puts your old sign-in email back. It signs you out of Taptime everywhere, and we
+									send this address a link to set a new password.
+								</p>
+							</div>
+							<form method="post" action="/admin/undo-email-change" class="flex flex-col gap-3">
+								<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+								<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Undo the change</button>
+							</form>
+							<p class="border-t border-dashed border-line pt-3.5 text-[13px] leading-normal text-ink/70">
+								Nothing has changed yet. Opening this page did not undo anything; only the button does.
+							</p>
+					}
+				}
+			</div>
+		</main>
+	}
+}

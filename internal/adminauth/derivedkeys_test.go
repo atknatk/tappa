@@ -41,6 +41,7 @@ func TestManagerAndResets_PrintNoDerivedKey(t *testing.T) {
 	var keys []derived
 	for name, derive := range map[string]func([]byte) ([]byte, error){
 		"session": deriveKey, "reset": deriveResetKey, "proof": deriveProofKey, "verify": deriveVerifyKey, "link": deriveLinkKey,
+		"change": deriveChangeKey, "undo": deriveUndoKey,
 	} {
 		k, err := derive(session)
 		if err != nil {

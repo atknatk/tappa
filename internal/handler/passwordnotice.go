@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/audit"
 )
 
@@ -272,8 +274,18 @@ type passwordChange struct {
 // passwordNotifier is what the Account section needs from the notice, declared at the
 // consumer (§7). *AdminReset is the implementation: it holds the channel, the address
 // reader and the recorder the notice needs, and the mode ("none" or "email") is its.
+//
+// T173 (ADR 0044) adds the sign-in address change's two letters, for the same reason they live with the
+// recovery flow: the old address's notice after a change (emailChanged) and the recovery link for the
+// address an undo gave back (addressRestored) -- emailchangenotice.go.
 type passwordNotifier interface {
 	passwordChanged(ctx context.Context, c passwordChange)
+	emailChanged(ctx context.Context, c adminauth.EmailChanged)
+	addressRestored(r *http.Request, address string)
+	// canNotify: this deployment can send the old address's notice (TAPPA_RESET_DELIVERY). The address
+	// change is refused without it -- a change with no notice and no undo link would silently close
+	// K-E2 (a) (EC-2 security review, ORTA).
+	canNotify() bool
 }
 
 // passwordNoticeDetail is the audit payload of a notice row.

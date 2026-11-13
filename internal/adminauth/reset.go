@@ -302,7 +302,9 @@ type ResetDatabase interface {
 	// secret -- the caller's type binds it to the address); the other three are keyed by a link's hash.
 	ResolveIdentityByEmail(ctx context.Context, email string) (db.ResolvedIdentity, error)
 	// lockWait bounds each lock wait inside the call (T219; ResetMintLockWait).
-	OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (db.OpenedIdentityReset, error)
+	// recipient is the address the link goes to; the database opens nothing unless the identity holds it
+	// (S-1, 00102).
+	OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, recipient string, lockWait time.Duration) (db.OpenedIdentityReset, error)
 	WithdrawIdentityReset(ctx context.Context, tokenHash string) (bool, error)
 	ConsumeIdentityReset(ctx context.Context, resetHash, newDigest string) (db.ConsumedIdentityReset, error)
 	GetIdentityResetByTokenHash(ctx context.Context, tokenHash string) (db.ResolvedIdentityReset, error)

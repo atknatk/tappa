@@ -146,10 +146,19 @@ func (silentDB) RequestIdentityLink(context.Context, string, string) (db.Identit
 func (silentDB) LinkByEmail(context.Context, string, string) (db.LinkedByEmail, error) {
 	return db.LinkedByEmail{}, errSilent
 }
+func (silentDB) RequestEmailChange(context.Context, string, db.PasswordHash, string, string) (db.EmailChangeRequest, error) {
+	return db.EmailChangeRequest{}, errSilent
+}
+func (silentDB) ChangeEmail(context.Context, string, string, string) (db.ChangedEmail, error) {
+	return db.ChangedEmail{}, errSilent
+}
+func (silentDB) RevertEmailChange(context.Context, string) (db.RevertedEmail, error) {
+	return db.RevertedEmail{}, errSilent
+}
 func (silentDB) ConsumeIdentityRowReset(context.Context, string, string) (db.ConsumedIdentityRowReset, error) {
 	return db.ConsumedIdentityRowReset{}, errSilent
 }
-func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time, time.Duration) (db.OpenedIdentityReset, error) {
+func (silentDB) OpenIdentityReset(context.Context, uuid.UUID, string, time.Time, string, time.Duration) (db.OpenedIdentityReset, error) {
 	return db.OpenedIdentityReset{}, errSilent
 }
 func (silentDB) WithdrawIdentityReset(context.Context, string) (bool, error) { return false, errSilent }
@@ -179,7 +188,7 @@ type appFeatures struct {
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 }
 
 func (f appFeatures) named() []struct {
@@ -190,7 +199,7 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"devtools", f.devTools},
@@ -442,6 +451,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// M14-15: the invitee's acceptance -- mounted beside the panel, outside its chains (no session
 		// of the inviting business), only with the panel identity flag on.
 		"POST /admin/invite": "invite",
+		// T173: the sign-in address change's undo -- sessionless (ADR 0044 §5.3), mounted beside the
+		// panel and outside its chains, only with the panel identity flag on.
+		"POST /admin/undo-email-change": "undo",
 	}
 	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
 	// chi's own method list, less the two reads: what a methodless route is reported under.

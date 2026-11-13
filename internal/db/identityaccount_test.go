@@ -392,6 +392,8 @@ func TestIdentityUnlink00079_AnUndoneRowStaysOnTheFirstVerifyListAndUnlinksAgain
 // properties and grants restated; the Up's body differs from it only by the 'account' literal.
 func TestIdentity00079_DownGivesTheUnlinkBodyBackByteForByte(t *testing.T) {
 	ctx, tx := opTx(t)
+	// T173: 00102 redefines identity_unlink_backfilled (the live undo link's refusal); "HEAD" below is 00101.
+	ecBelow00102(t, ctx, tx)
 	up, down := opMigrationSections(t, ia00079File)
 	src72, _ := opMigrationSections(t, ip00072File)
 	body := func(src string) string {

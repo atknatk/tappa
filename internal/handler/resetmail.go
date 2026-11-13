@@ -196,6 +196,38 @@ func (c *emailResetChannel) DeliverPasswordNotice(ctx context.Context, n Passwor
 	return nil
 }
 
+// DeliverEmailChangeNotice renders the old address's notice of a sign-in address change (T173, ADR 0044
+// §5.1 step 3) and sends it to n.Recipient -- the address identity_change_email returned as the one it
+// replaced. With an undo link (n.UndoLink, built by the caller from TAPPA_BASE_URL) the letter carries it;
+// without one its one link is the sign-in page, built here from the configured base. Like the password
+// notice it goes through SendExempt -- counted by the breaker, never refused (the letter that announces a
+// takeover must not be silenced by the anonymous traffic that fills the window) -- returns the relay's
+// *mail.SendError unwrapped, and writes ONE line on an accepted send: the identity's id and the relay's
+// message id, never an address, the link or the message.
+func (c *emailResetChannel) DeliverEmailChangeNotice(ctx context.Context, n EmailChangeNotice) error {
+	link := n.UndoLink
+	v := email.EmailChangedView{BaseURL: c.baseURL, Undo: link != "", ChangedAt: n.ChangedAt}
+	if v.Undo {
+		// Rounded to the minute (the verification letter's rule): the request's own milliseconds must not
+		// turn "within 7 days" into "within 6 days" (EC-2 third eye, ORTA).
+		v.ValidFor = time.Until(n.UndoExpiresAt).Round(time.Minute)
+	} else {
+		link = signInLink(c.baseURL)
+	}
+	m, err := email.RenderEmailChanged(ctx, link, v)
+	if err != nil {
+		return fmt.Errorf("handler: rendering the address change notice: %w", err)
+	}
+	m.To = n.Recipient
+	receipt, err := c.sender.SendExempt(ctx, m)
+	if err != nil {
+		return err
+	}
+	c.log.InfoContext(ctx, "panel address change notice: the relay accepted the e-mail",
+		"identity_id", n.IdentityID, "message_id", receipt.MessageID)
+	return nil
+}
+
 // DeliverReset renders the e-mail for d and sends it.
 //
 // THE LIFETIME IT STATES IS THE TIME LEFT WHEN IT IS SENT (d.ExpiresAt - now),

@@ -323,6 +323,85 @@ func signupKnownLetter(life string) letter {
 	}
 }
 
+// emailChangeLetter is the address change's link (T173, ADR 0044 §5.1 step 2): the person asked, from
+// their account page, to sign in with this address from now on. Opening the link changes nothing (R19);
+// the press on the page it opens does, in the browser where they are signed in (R2).
+func emailChangeLetter(life string) letter {
+	return letter{
+		subject: subjectEmailChange,
+		heading: "Confirm your new sign-in email",
+		before: []string{
+			greetingWithoutName,
+			"Someone signed in to Taptime asked to sign in with this email address from now on. If it was " +
+				"you, open the link below in the browser where you are signed in to Taptime, then press the " +
+				"button on the page it opens.",
+		},
+		action: "Use this email address",
+		after: []string{
+			"The link works once and stays valid for " + life + ". Opening it changes nothing until you " +
+				"press the button.",
+		},
+		closing: "If you did not ask for this, you can ignore this email — nothing changes unless the link is used.",
+	}
+}
+
+// emailChangeTakenLetter is the note a new address that already has a Taptime sign-in receives in place
+// of the link (K-E5 (a), ADR 0044 §5.4): the requester's answer is the same either way, and the address's
+// owner is told that nothing changed. Its one link is the sign-in page.
+func emailChangeTakenLetter() letter {
+	return letter{
+		subject: subjectEmailChangeTaken,
+		heading: "Nothing was changed",
+		before: []string{
+			"Someone asked to use this address for a Taptime sign-in. It already has one, so nothing changed.",
+		},
+		action: "Go to the sign-in page",
+		after: []string{
+			"If it was you, keep signing in with this address as you do now.",
+			"If it was not you, there is nothing to do: your sign-in stays as it is.",
+		},
+		closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
+	}
+}
+
+// emailChangedLetter is the old address's notice (ADR 0044 §5.1 step 3, K-E10 (vi)). With life set it
+// carries the undo link ("within" the link's time left); with life "" -- only when the change wrote no
+// undo link, which K-E9 (d) makes unreachable -- its one link is the sign-in page and it says so. It never
+// names the new address (K-E8 (a)).
+func emailChangedLetter(when, life string) letter {
+	if life == "" {
+		return letter{
+			subject: subjectEmailChanged,
+			heading: "Your sign-in email was changed",
+			before: []string{
+				"Your Taptime sign-in email was changed on " + when + ". If this wasn't you, this address " +
+					"can no longer undo it; the earlier change's undo link still works.",
+			},
+			action: "Go to the sign-in page",
+			after: []string{
+				"This address no longer signs in to Taptime.",
+				"If you made this change, there is nothing to do.",
+			},
+			closing: "This email is only a notice. Its one link opens the sign-in page and changes nothing.",
+		}
+	}
+	return letter{
+		subject: subjectEmailChanged,
+		heading: "Your sign-in email was changed",
+		before: []string{
+			"Your Taptime sign-in email was changed on " + when + ". If this wasn't you, press the button " +
+				"below within " + life + " to undo it.",
+		},
+		action: "Undo this change",
+		after: []string{
+			"Undoing it puts this address back, signs you out of Taptime everywhere and sends this address " +
+				"a link to set a new password.",
+			"If you made this change, there is nothing to do: this address no longer signs in to Taptime.",
+		},
+		closing: "The link works once. Opening it changes nothing until you press the button on the page it opens.",
+	}
+}
+
 // nameMarks is the punctuation a shown name may carry besides letters, marks,
 // digits, spaces and a sentence-ending ".".
 const nameMarks = "&'’-–—,()!"

@@ -103,7 +103,10 @@ func TestAdminInvites00077_TheAppReachIsTheFilesAndNothingMore(t *testing.T) {
 func TestAdminInvites00077_DownRefusesAnInvitationAndOtherwiseWalksBackAndUp(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, ai00077File)
-	lockForDowns(t, ctx, tx, downTables(down))
+	// T173: 00101 gives the definer UPDATE (email) on admin_users, which 00077's Up postcondition refuses
+	// ("no e-mail write" -- K-15 then); the walk below runs at 00100, where that is still so.
+	lockForDowns(t, ctx, tx, append(downTables(down), ecDownTables(t)...))
+	ecBelow00101(t, ctx, tx)
 	shape := func(q pgx.Tx) string {
 		t.Helper()
 		var s string

@@ -969,7 +969,11 @@ tarihsel olarak işaretlenir; **eski binary (M14-19 sürümü) bu binary'nin şe
    `identity_accept_invite_new`, `identity_claim_signup` ve (M14-22) `identity_link_by_email` artık
    satırlara digest kopyalamaz; yeni bağlı
    satırlar `password_hash NULL` doğar. **`identity_unlink_backfilled`** de (T3): contract sonrası çözülen
-   satıra nöbetçi değil `NULL` yazar. Her yeniden tanım `SECURITY DEFINER`, `search_path`, sahip ve
+   satıra nöbetçi değil `NULL` yazar. **`identity_revert_email_change`** de (T173, 00102 —
+   [ADR 0044](../adr/0044-panel-kimliginin-e-posta-degisikligi.md) §6, kullanıcı onaylı 2026-11-12): geri alma
+   bağlı satırlara nöbetçi digest kopyalar; contract B'den sonra satıra `NULL` yazar (kimliğin nöbetçisi
+   kalır). `identity_change_email` digest'e dokunmaz; yeni tetikleyici kuralıyla (*"`email` yalnız
+   `tappa_identitydefiner`"*) uyumludur. Her yeniden tanım `SECURITY DEFINER`, `search_path`, sahip ve
    yetkileri açıkça yeniden yazar (T5). İmza katalog testi değişmez.
 2. Bayat digest kopyaları `NULL` (yeni tetikleyiciyle uyumlu); `password_hash` NULL'lanabilir.
 3. `DROP FUNCTION resolve_admin_by_email`, `identity_create_for_signup` (R8) ve `identity_reconcile`

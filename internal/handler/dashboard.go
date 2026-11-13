@@ -293,6 +293,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 			r.Post(membersEnableHref, a.membersChange(adminauth.MemberEnable))
 			r.Post(membersMakeOwnerHref, a.membersChange(adminauth.MemberMakeOwner))
 		})
+		// 🔴 THE SIGN-IN ADDRESS CHANGE'S REQUEST AND PRESS (T173), HERE in the group a suspension stops
+		// (K-E15 (a), the user's decision of 2026-11-12): ADR 0025's closed list of exceptions does not
+		// grow; a person whose business is suspended changes the address from another business of theirs.
+		// The undo is sessionless and mounted in Mount (ADR 0044 §5.3).
+		a.mountGated(r, adminauth.SurfaceAccountIdentity, func(r chi.Router) {
+			r.Post(accountEmailHref, a.accountEmailRequest)
+			r.Post(accountEmailConfirmHref, a.accountEmailConfirm)
+		})
 		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
 		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
 		// nested group for the encode relay's reason below: its gate (brandupload.go)

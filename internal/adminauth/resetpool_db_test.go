@@ -203,9 +203,9 @@ type lateOpeningDB struct {
 	after time.Duration
 }
 
-func (l lateOpeningDB) OpenIdentityReset(_ context.Context, id uuid.UUID, h string, exp time.Time, wait time.Duration) (db.OpenedIdentityReset, error) {
+func (l lateOpeningDB) OpenIdentityReset(_ context.Context, id uuid.UUID, h string, exp time.Time, to string, wait time.Duration) (db.OpenedIdentityReset, error) {
 	time.Sleep(l.after)
-	return l.DB.OpenIdentityReset(context.Background(), id, h, exp, wait)
+	return l.DB.OpenIdentityReset(context.Background(), id, h, exp, to, wait)
 }
 
 // TestIssueForPerson_AnOpeningThatReturnedIsNotACut (third-eye review of T236 (a)): an opening that
