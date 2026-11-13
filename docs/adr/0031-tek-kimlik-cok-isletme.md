@@ -1475,7 +1475,10 @@ token'lar dışında).
       `identity_accept_invite_new`, `identity_claim_signup` artık satırlara digest **kopyalamaz**; yeni
       bağlı satırlar `password_hash NULL` doğar. **`identity_unlink_backfilled`** de listededir (T3):
       contract'tan sonra eski kol yoktur, nöbetçi digest gereksizdir → çözülen satıra `NULL` yazar; yeni
-      tetikleyici kuralı "bağlı satırda yalnız NULL" bu yüzden çözme ile çatışmaz. İmzalar aynı olduğundan contract A binary'si çalışmaya
+      tetikleyici kuralı "bağlı satırda yalnız NULL" bu yüzden çözme ile çatışmaz. **`identity_revert_email_change`**
+      de listededir (T173, 00102 — [ADR 0044](0044-panel-kimliginin-e-posta-degisikligi.md) §6, kullanıcı onaylı
+      2026-11-12): bağlı satırlara nöbetçi digest kopyalar, contract B'den sonra satıra `NULL` yazar;
+      `identity_change_email` digest'e dokunmaz. İmzalar aynı olduğundan contract A binary'si çalışmaya
       devam eder; imza katalog testi değişmez, gövde testleri "bağlı satırda digest NULL"a döner.
    2. Bayat digest kopyaları `NULL` (`tappa_owner`, yeni tetikleyiciyle uyumlu); `password_hash`
       NULL'lanabilir.

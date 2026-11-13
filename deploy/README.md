@@ -2800,11 +2800,15 @@ SELECT count(*)                         AS tenants_no_linked_active_owner,
 SELECT count(*) AS refused_rows, count(DISTINCT tenant_id) AS tenants_with_refused_rows
   FROM admin_users
  WHERE unlinked_at IS NOT NULL;
+-- 4. T173 (Deploy 18'den sonra): canlı e-posta değişikliği geri alma linkleri (yalnız sayı).
+SELECT count(*) AS live_undo_links_this_week
+  FROM admin_identity_verifications
+ WHERE purpose = 'revert' AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > clock_timestamp();
 ROLLBACK;
 SQL
 ```
 
-beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `ROLLBACK`. Contract A ancak `T = 0` iken konuşulur
+beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `L` · `ROLLBACK` (`L`: canlı e-posta değişikliği geri alma linki sayısı; Deploy 18'den önce 4. sorgu `purpose` değerini tanımayan bir şemada 0 döner). Contract A ancak `T = 0` iken konuşulur
 (ADR 0031 §8, plan M14-20a); `RT` ayrı raporlanır. Satır, adres, ad ya da kimlik id'si basılmaz
 (CLAUDE.md §7). `internal/db/adminflag_test.go` bu bölümün sorgularını yazıldıkları gibi bir dünyada koşar.
 
@@ -3099,6 +3103,162 @@ SQL
 `INVALID` indeksi düşürüp yeniden kurar).
 
 ---
+
+### T173 — panel kimliğinin e-posta değişikliği: `00101`–`00103` (Deploy 18)
+
+Bağlı bir kimlik oturumu kendi giriş adresini değiştirebilir: hesap sayfasında yeni adres + mevcut parola →
+yeni adrese tek kullanımlık link → aynı tarayıcıda basış → kimlik ve bütün işletmelerdeki ayna tek
+transaction'da değişir → eski adrese 7 günlük geri alma linkli bildirim → geri alma eski adresi geri koyar,
+parolayı kullanılamaz yapar, her oturumu kapatır ve eski adrese bir sıfırlama linki gönderir
+([ADR 0044](../docs/adr/0044-panel-kimliginin-e-posta-degisikligi.md), kart
+[t173](../docs/plan/t173-eposta-degistirme.md) EC-1/EC-2/EC-3; kullanıcı kararları 2026-11-12).
+
+**Migration'lar** (üç dosya, her biri kendi transaction'ında; `admin_users` ALTER edilmez):
+- **`00101`** — `admin_identity_verifications`'a `'change'`/`'revert'` amaçları, `address` ve `cancelled_at`
+  sütunları, amaç başına TTL tavanı (geri alma 7 gün); olay CHECK'ine `email_change_requested`,
+  `email_changed`, `email_reverted`; `tappa_identitydefiner`'a `UPDATE (email)` iki tabloda (`admin_users`
+  üzerindeki GRANT kendi `lock_timeout = '1s'`'iyle — aşılırsa 55P03, hiçbir şey yazılmaz, Job `Failed`,
+  sakin bir anda yeniden). `tappa_app` ve `tappa_resolver` yeni yetki almaz.
+- **`00102`** — üç yeni definer (`identity_request_email_change`, `identity_change_email`,
+  `identity_revert_email_change`); `identity_open_reset` dördüncü argümanla (`p_recipient text DEFAULT NULL`,
+  DROP + CREATE — S-1; `DEFAULT` geçicidir, T295); `identity_unlink_backfilled` aynı imzayla (canlı geri alma
+  linki varken 0 satır — K-E16).
+- **`00103`** — `identity_sweep_events` aynı imzayla: harcanmış/iptal/süresi geçmiş `'change'`/`'revert'`
+  satırlarını bir gün sonra da siler. Binary onu saatte bir çağırır (T294).
+
+**Rollout:** Migration Job önce koşar, eski pod (Deploy 17) yeni şemada çalışır: üç argümanlı
+`identity_open_reset` çağrısı `DEFAULT`'la çözülür (rollout dakikalarında alıcı denetimi yok — ADR 0044 §8
+risk 9, bilinen bedel), yeni fonksiyonları çağırmaz, eski `'verify'`/`'link'` satırları yeni CHECK'lerden
+geçer. **00100 ön koşuldur** (Deploy 17'yle canlıda, goose 100).
+
+**Yeni ortam değişkeni yok.** İki yeni link anahtarı `TAPPA_SESSION_HMAC_KEY`'den kendi etiketleriyle
+türetilir. Yeni adrese giden mektup `TAPPA_INVITE_DELIVERY=email`'i, eski adres bildirimi ve sıfırlama linki
+`TAPPA_RESET_DELIVERY=email`'i ister — ikisi de canlıda `email` (T314).
+
+**(a) Ön kontrol** (salt okuma, yalnız sayı; deploy'dan önce):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+SELECT count(*) FILTER (WHERE purpose NOT IN ('verify', 'link')) AS links_of_another_purpose
+  FROM admin_identity_verifications;
+SELECT count(*) FILTER (WHERE a.email IS DISTINCT FROM i.email)             AS mirror_differs,
+       count(*) FILTER (WHERE a.email::text IS DISTINCT FROM i.email::text) AS mirror_spelled_otherwise
+  FROM admin_users a
+  JOIN admin_identities i ON i.id = a.identity_id
+ WHERE a.unlinked_at IS NULL;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `100` · `0` · `0|0` · `ROLLBACK`. `100` değilse **DUR** (00100 canlıda değil — goose
+sırası 00100 ↔ 00101'e dayanır). `links_of_another_purpose > 0` → **DUR** (00101 başka bir yoldan koşmuş).
+`mirror_differs > 0` → **DUR**, kullanıcıya bildir: aynası kimliğinden ayrışmış bağlı satır hesap
+eylemlerinde `ErrNotLinked` verir (ADR 0044 §2). `mirror_spelled_otherwise > 0` (yalnız harf büyüklüğü) bir
+durdurucu değildir, raporlanır. Şerit DB'sinde (goose 103) aynı sorgu `103` · `0` · `0|0` verdi (ölçüldü,
+2026-11-13 — sayılar yalnız sorgunun koştuğunu gösterir).
+
+**(b) Deploy'dan sonra** (salt okuma; Job log'unda `OK   00101_…`, `OK   00102_…`, `OK   00103_…`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+SELECT f AS email_change_function,
+       pg_get_userbyid(p.proowner) AS owner,
+       p.prosecdef AS secdef,
+       array_to_string(p.proconfig, ';') AS config,
+       has_function_privilege('tappa_app', p.oid, 'EXECUTE') AS app,
+       has_function_privilege('public', p.oid, 'EXECUTE') AS everyone,
+       has_function_privilege('tappa_operator', p.oid, 'EXECUTE') AS operator
+  FROM unnest(ARRAY['public.identity_request_email_change(text,text,text,citext)',
+                    'public.identity_change_email(text,text,text)',
+                    'public.identity_revert_email_change(text)',
+                    'public.identity_open_reset(uuid,text,timestamptz,text)',
+                    'public.identity_unlink_backfilled(text,uuid)',
+                    'public.identity_sweep_events()']) WITH ORDINALITY AS u(f, n)
+  JOIN pg_proc p ON p.oid = to_regprocedure(u.f)
+ ORDER BY u.n;
+SELECT to_regprocedure('public.identity_open_reset(uuid,text,timestamptz)') IS NULL          AS three_arg_open_reset_gone,
+       has_column_privilege('tappa_app', 'admin_users', 'email', 'UPDATE')                  AS app_writes_the_mirror,
+       has_column_privilege('tappa_identitydefiner', 'admin_users', 'email', 'UPDATE')      AS definer_writes_the_mirror,
+       has_column_privilege('tappa_identitydefiner', 'admin_identities', 'email', 'UPDATE') AS definer_writes_the_address;
+SELECT position('''revert''' IN u.prosrc) > 0                  AS unlink_waits_for_the_undo,
+       position('admin_identity_verifications' IN s.prosrc) > 0 AS sweep_takes_the_links
+  FROM pg_proc u, pg_proc s
+ WHERE u.oid = to_regprocedure('public.identity_unlink_backfilled(text,uuid)')
+   AND s.oid = to_regprocedure('public.identity_sweep_events()');
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `103` · altı satır, her biri `…|tappa_identitydefiner|t|search_path=pg_catalog, pg_temp|t|f|f`
+(sırayla üç yeni fonksiyon, dört argümanlı `identity_open_reset`, `identity_unlink_backfilled`,
+`identity_sweep_events`; altıdan az satır = bir imza yok) · `t|f|t|t` (üç argümanlı eski tanım yok;
+`tappa_app` aynaya hâlâ yazamaz) · `t|t` (yeni gövdeler) · `ROLLBACK`. Şerit DB'sinde bu çıktı birebir
+alındı (ölçüldü, 2026-11-13). Başka bir sonuç → migration'ın koştuğu sürüm yanlış; incele. Pod açılışından
+sonra log'da bir kez `identity: identity events swept` satırı görünür (sayı yalnız silinen olay sayısıdır).
+
+**(c) Duman** (`https://taptime.mt/admin`, kullanıcının kendi hesabı: KF ve KM aynı kimlikte; kullanıcının
+**ikinci** bir posta kutusu gerekir). ⚠️ Duman `email_*` olayları yazar: o andan sonra 90 gün boyunca üç
+Down'ın hiçbiri koşmaz (aşağıdaki geri dönüş) — tasarım gereği; geri dönüş önceki imajdır.
+
+1. KF'de Hesap → **Change your sign-in email**: kartta *"Your new email will be visible to the admins of every
+   business you belong to."* uyarısı. İkinci adres + mevcut parola → *"Check your inbox at the new address. …"*
+   (adres sayfada ve adres çubuğunda **yok**).
+2. İkinci posta kutusunda *"Confirm your new Taptime sign-in email"*; linki **aynı tarayıcıda** aç → hesap
+   sayfası *"Change your sign-in email to the address this link was sent to?"* (açmak bir şey değiştirmez);
+   **Change my sign-in email** → *"Your sign-in email is changed. …"*.
+3. Salt okuma sayım (aşağıda) → `2|0|2` (iki işletmeye birer `admin.email.changed`). Hesap → Your businesses
+   KF ve KM'yi gösterir; Switch business çalışır.
+4. Eski posta kutusunda *"Your Taptime sign-in email was changed"* (yeni adres **anılmaz**); **Undo this
+   change** → *"Undo the email change"* sayfası (açmak bir şey değiştirmez) → **Undo the change** →
+   *"Your sign-in email is back. We sent a link to set a new password."*; tarayıcının panel oturumu bitmiştir.
+5. Eski posta kutusunda sıfırlama linki (*"every business"*) → yeni parola → eski adres + yeni parolayla gir →
+   KF ve KM listelenir. Sayım → `2|2|2`.
+6. Herhangi bir adım 5xx verirse → geri dönüş önceki binary'dir (şema 103'te kalır; eski binary ona uyar).
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT count(*) FILTER (WHERE action = 'admin.email.changed')  AS email_changed_rows,
+       count(*) FILTER (WHERE action = 'admin.email.reverted') AS email_reverted_rows,
+       count(DISTINCT tenant_id)                               AS businesses
+  FROM audit_log
+ WHERE action IN ('admin.email.changed', 'admin.email.reverted') AND at > now() - interval '2 hours';
+ROLLBACK;
+SQL
+```
+
+Satır, adres ya da kimlik id'si basılmaz (CLAUDE.md §7).
+
+**Geri dönüş.** Önceki imaj (Deploy 17'nin binary'si) bu şemada çalışır — geri dönüş budur. Down'lar
+(00103 → 00102 → 00101) **ancak sonraki bir deploy'da**, yeni fonksiyonları çağıran binary gittikten sonra
+konuşulur ve **iki durmanın ikisi de tutmuyorken**: canlı (harcanmamış, iptal edilmemiş, süresi geçmemiş) bir
+geri alma linki **yok** **ve** `admin_identity_events`'te `email_*` olayı **yok**. Üç Down'ın her biri en başta
+aynı bloğu koşar; ikisinden biri tutarsa sabit bir mesajla durur, hiçbir şey değiştirmez (ADR 0044 §6). Olaylar
+90 günlük süpürmeyle yaşlanır (T294 bağlandı), yani ilk değişimden sonra en az 90 gün Down yoktur. Salt okuma
+sayım (Down için beklenen `0` · `0`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT count(*) AS live_undo_links
+  FROM admin_identity_verifications
+ WHERE purpose = 'revert' AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > clock_timestamp();
+SELECT count(*) AS email_change_events
+  FROM admin_identity_events
+ WHERE event IN ('email_change_requested', 'email_changed', 'email_reverted');
+ROLLBACK;
+SQL
+```
+
+Değiştirilmiş adresler veridir, geri dönüşte yerinde kalır.
 
 ### T71 — eski domainin derin linkleri: `43-redirect-ingress.yaml`
 
