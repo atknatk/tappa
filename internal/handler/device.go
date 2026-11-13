@@ -83,3 +83,31 @@ func coarseDevice(ua string) string {
 		return browser
 	}
 }
+
+// embeddedBrowser reports whether a User-Agent has the SHAPE of a browser embedded
+// in another app (a mail or chat app's own window) rather than the phone's browser.
+// It exists for one log line (logCookieLost), so the next dropped activation cookie
+// says whether this was the cause; nothing branches on it.
+//
+// Two structural signals, no list of app names:
+//
+//   - Android WebView adds "; wv)" to the platform part of its agent;
+//   - on iPhone and iPad every real browser — Safari, and Chrome, Firefox, Edge,
+//     which are Safari's engine under their own name — ends its agent with a
+//     "Safari/" token, and an app's embedded WKWebView does not.
+//
+// A bool, so like coarseDevice no byte of the header reaches the log. It can be
+// wrong in both directions (an app may imitate a browser's agent); it is a hint for
+// a reader of the log, not a finding.
+func embeddedBrowser(ua string) bool {
+	if ua == "" || len(ua) > 2048 {
+		return false
+	}
+	if strings.Contains(ua, "Android") && strings.Contains(ua, "; wv)") {
+		return true
+	}
+	if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
+		return !strings.Contains(ua, "Safari/")
+	}
+	return false
+}
