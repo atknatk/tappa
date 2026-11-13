@@ -1,6 +1,7 @@
 # M16 — Personel mobil uygulaması (isteğe bağlı) + NFC'siz telefonlar
 
-> **Durum:** plan (2026-11-13, 3. sürüm — iki bağımsız denetim turunun bulguları işlendi; üçüncü tur bekliyor). Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
+> **Durum:** plan **onaylandı** — yedi bağımsız denetim turundan sonra ONAY (`407710bf`, 2026-11-13). Başlanmadı,
+> `main`'e birleştirilmedi; kullanıcının ADR 0044 kabulünü (M16-01) bekliyor. Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
 > bu dosyaya "yapıldı" yazılmaz.
 >
 > **Karar belgesi:** [ADR 0044](../adr/0044-istege-bagli-native-uygulama.md) (durum *Önerildi*). Kartlar ADR'nin
@@ -795,14 +796,13 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
   hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
-  - **Amaç:** `qr_live`, aynı kanıtla `qr`'nin yazdığı her şeyi yazar — `transactions`, `punch_events` ve holding'de
-    `site_punches`; bir şeyi eksik yazarsa test kırmızıdır ve envanterde adı geçmeyen bir yer de böyle yakalanır.
+  - **Amaç:** `qr_live`, aynı kanıtla `qr`'nin yazdığı her şeyi yazar — `transactions`, `punch_events` ve (holding
+    kuralı `qr_live`'a açıksa) holding'de `site_punches`; bir şeyi eksik yazarsa test kırmızıdır ve envanterde adı geçmeyen bir yer de böyle yakalanır.
   - **Yalıtım:** iki kanal aynı çalışanla art arda koşmaz (ikinci dokunuş debounce'a düşer ya da yönü çevirir);
-    **varsayılan, birebir aynı fikstürde klonlanmış çalışandır**. Gerekçe: gerçek yolun `*db.DB`'si kendi
-    transaction'ını commit eder; `checkin.Database` tüketici tarafı bir arayüz olduğu için (`checkin.go:141-144`) dış
-    bir transaction'da savepoint'le koşturulabilir — sandbox bunu yapar (`internal/sandbox/runner.go:96-107`,
-    `db.WithTenantIn`) — ama o bağdaştırıcı başka bir işletmenin bağlamını reddeder (`errAnotherBusiness`) ve holding
-    hücrelerine hizmet edemez.
+    **varsayılan, birebir aynı fikstürde klonlanmış çalışandır**. Gerekçe: gerçek yol commit eder; dış transaction
+    yolu (`checkin.Database` tüketici tarafı arayüzdür, `checkin.go:141-144`) **ayrı bir test bağdaştırıcısı** ister —
+    sandbox'ınki (`onRunner`, `internal/sandbox/runner.go:96-107`) dışa açık değildir ve `errAnotherBusiness` bir sandbox
+    kuralıdır, mekanizmanın sınırı değil.
   - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — akış tetikleyicilerinin `qr_live`'ı bir
     `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlayan dört kolu: `00067:193` (yerel `ok`), `:234` (yerel
     onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri ADR 0027 kuralı `qr_live`'a **açıksa**
@@ -813,8 +813,10 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     `holding_feed`'de, `00067:300`, `:357-363`; `site_punches.channel` CHECK'i `00046:137` M16-19'da genişlemiş olmalı).
   - **Bilinen yapısal farklar** (eşitlik beklenmez): kanal sütunu ve kanal eşlemesi; plaket sütunları; kimlik, sıra ve
     zaman damgası sütunları (`site_punches.bucket_hour` dahil — `now()`'ın saatidir; ya dışlanır ya iki koşu aynı saate
-    sabitlenir); klonlanmış çalışanın kimlik sütunları; `policy_context`'te `tap:channel` (`decide.go:93`). Plaket
-    anahtarları `tag:status`, `tag:locationId`, `location:id` yalnız `in.Tag != nil` iken yazılır (`decide.go:114-117`):
+    sabitlenir); klonlanmış çalışanın kimlik sütunları; `policy_context`'te `tap:channel` (`decide.go:93`) ve zamandan
+    türeyen `tap:pageAgeSeconds` (`decide.go:107-108`) — ya `checkin`'in enjekte edilebilir `now`'ı
+    (`checkin.go:308-316`) ve bağlamın `IssuedAt`'i iki koşuda sabitlenir ya da anahtar dışlanır. Plaket
+    anahtarları `tag:status`, `tag:locationId`, `location:id` yalnız `in.Tag != nil` iken yazılır (`decide.go:115-118`):
     `qr_live`'daki ekran karşılıklarını M16-21 açık bir kuralla tanımlar ve test o kurala göre karşılaştırır.
     `policy_context`'in geri kalan anahtarları (`tap:ipMatch`, `tap:gpsMatch` dahil) eşittir.
   - **Kesin sütun ve anahtar listesini yapıcı**, testi yazarken şemaya karşı sabitler; liste M16-21'in kendi
