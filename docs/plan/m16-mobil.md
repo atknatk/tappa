@@ -727,6 +727,10 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 - **Holding ret satırı (Q43 kapalı, 2026-11-14):** `site_punches.channel` CHECK'i (`00046:137`) `qr_live`'ı kabul
   edecek şekilde genişler ve `transactions_site_by_channel` (`00043:139-142`) `qr_live` için ret satırının site kolunu
   (`site_location_id` dolu, `site_tag_uid` NULL) kabul eder.
+  Site tarafı ayıklaması: `site_punches_other_refusal_hourly` (`00046:168-170`, `NULLS NOT DISTINCT`) `site_tag_uid`'i anahtar
+  alır; `qr_live` ret satırında NULL olduğu için bir çalışanın aynı saatte site tenant'ının **bütün** canlı QR ekranlarındaki
+  retleri tek `refused` satırına iner (plaketli retlerde plaket başına). Kart ya `site_location_id`'yi anahtara ekler ya da
+  farkı kabul edilen risk olarak yazar; parite/DB testi aynı saatteki ikinci reddin `ON CONFLICT DO NOTHING`'e düştüğünü bilir.
 - Akış tetikleyicisinin gövdesi (`00067`'nin `punch_feed` fonksiyonu) ve Go aynası `feedEligible` **aynı commit'te**
   Q38'in cevabına göre; parite testi.
 - `Down`: `qr_live` satırı varsa reddeder.
@@ -796,7 +800,7 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     - **holding** (Q43: kapalı — ret, kayıt yazılır): verdict `reject`, `site_tenant_id` = ekranın tenant'ı,
       `site_location_id` dolu, `site_tag_uid` NULL, `location_id` / `tag_uid` NULL — `transactions_site_by_channel`'ın (`00043:139-142`) M16-19'da eklenen
       `qr_live` kolu ve M16-19'un üçüncü çözümleyicisi.
-  - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
+  - **Token tenant'ı ↔ oturum tenant'ı:** başka (holding dışı) tenant'ın canlı QR'ı → `sys:tenant-mismatch`'in eşi (yönlendirme, kayıt yok); holding
     durumu (ADR 0027 — KM çalışanı KF ekranında) **kapalıdır** (Q43, kullanıcı kararı 2026-11-14): dokunuş
     reddedilir, kaydı yazılır (§4.6), ret satırı site sütunlarını taşır ve site tenant'ı onu `site_punches`'ta
     `refused` olarak görür (K-1h); retin sid'ini kart adlandırır (bir guardrail; `sys:tenant-mismatch` değil — o bir
@@ -808,7 +812,7 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
   `qr_live` + hiçbiri → `flag` · aynı kişi 60 sn içinde → `ignored` · **kanallar arası:** `nfc` dokunuşundan 60 sn
   içinde `qr_live` → `ignored` (ve tersi) · **geriye tarihlenmiş** `occurred_at`'li `qr_live` öncülü 60 sn içinde
   yazılmışsa → `ignored` (sunucu saati bacağı, `SecondsSinceLastRecordedTap` — DB testi) · farklı iki kişi aynı
-  token'la art arda → ikisi de kayıt · statik QR'ın sonuçları **aynen**.
+  token'la art arda → ikisi de kayıt · **holding** `qr_live` (Q43 kapalı) → `reject` + kartın adlandırdığı guardrail · statik QR'ın sonuçları **aynen**.
 - **Log testi:** token, imza ve doğrulama hatasının metni log'a ve hata gövdesine girmez (CLAUDE.md §7).
 - Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0045 §2.5: büyük olasılıkla gerekmez); gerekirse
   `BaselineVersion` + duyuru.
