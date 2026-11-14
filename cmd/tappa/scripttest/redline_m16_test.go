@@ -1,6 +1,8 @@
 package scripttest
 
 import (
+	"context"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -100,6 +102,14 @@ func TestRedline_M16_MobileR1PlatformAPIs(t *testing.T) {
 		m16Android + "kotlin/r1_create.kt":  "val r = CreatePublicKey~~CredentialRequest(json)\n",
 		m16Android + "r1_usebio.xml":        "<uses-permission android:name=\"android.permission.USE_BIO~~METRIC\"/>\n",
 		m16Android + "r1_finger.xml":        "<uses-permission android:name=\"android.permission.USE_FINGER~~PRINT\"/>\n",
+		// Review round: the old pre-filter phrase no longer launders an app line; FIDO2 and the
+		// face manager.
+		m16iOS + "r1_comment.swift":             "let ctx = LACon~~text() // result not stored\n",
+		m16Android + "kotlin/r1_fido.kt":        "val c = Fido.getFido2Api~~Client(context)\n",
+		"mobile/android/app/r1_fido.gradle.kts": "implementation(\"com.google.android.gms:play-services-fi~~do:20.0.0\")\n",
+		// A hidden directory under mobile/ is scanned too (rg --hidden).
+		"mobile/ios/.swiftpm/r1_hidden.swift": "import Local~~Authentication\n",
+		m16Android + "kotlin/r1_face.kt":      "val fm = context.getSystemService(FaceMan~~ager::class.java)\n",
 	}
 	green := map[string]string{
 		m16iOS + "DeviceKey.swift": "let access = SecAccessControlCreateWithFlags(nil,\n" +
@@ -111,6 +121,8 @@ func TestRedline_M16_MobileR1PlatformAPIs(t *testing.T) {
 		// Near misses: an identifier that only ends in the context class's letters, a word that
 		// only begins like the framework.
 		m16iOS + "Near.swift": "let formulaContext = 1\nlet localAuthority = \"x\"\n",
+		// Outside mobile/ and android/ the pre-filter still applies, as before M16-02.
+		"web/static/js/c_r1.js": "// no finger~~print is ever read\n",
 	}
 	m16RedGreen(t, "R1", red, green)
 }
@@ -148,6 +160,16 @@ func TestRedline_M16_MobileBackgroundLocation(t *testing.T) {
 		"mobile/ios/A.xcodeproj/r2_line": "INFOPLIST_KEY_UIBackground~~Modes = location;\n",
 		"mobile/ios/A.xcodeproj/r2_arr":  "UIBackground~~Modes = (\n\t\tfetch,\n\t\tlocation,\n\t);\n",
 		"mobile/ios/r2_project.yml":      "info:\n  properties:\n    UIBackground~~Modes:\n      - fetch\n      - location\n",
+		// Review round.
+		m16Android + "kotlin/r2_proximity.kt": "lm.addProximity~~Alert(lat, lng, 150f, -1L, intent)\n",
+		m16iOS + "r2_beacons.swift":           "manager.startRanging~~Beacons(satisfying: constraint)\n",
+		m16iOS + "r2_beaconregion.swift":      "let r = CLBeacon~~Region(uuid: u, identifier: \"door\")\n",
+		m16iOS + "r2_objc.m":                  "[manager startMonitoring~~ForRegion:region];\n",
+		m16iOS + "r2_service.swift":           "let s = CLServiceSession(\n    authorization: .al~~ways)\n",
+		m16iOS + "r2_split.swift":             "manager.startMonitoring~~(\n    for: region)\n",
+		m16Android + "r2_single.xml":          "<service android:foregroundServiceType='loc~~ation'/>\n",
+		"mobile/ios/r2_tuist.swift":           "let info: [String: Plist.Value] = [\n    \"UIBackground~~Modes\": [\n        \"location\",\n    ],\n]\n",
+		m16iOS + "r2_commented.plist":         "<key>UIBackground~~Modes</key>\n<!-- for the tap -->\n<array>\n\t<!-- fetch first -->\n\t<string>fetch</string>\n\t<string>location</string>\n</array>\n",
 	}
 	green := map[string]string{
 		m16iOS + "Locate.swift": "manager.requestWhenInUseAuthorization()\nmanager.requestLocation()\n" +
@@ -164,6 +186,9 @@ func TestRedline_M16_MobileBackgroundLocation(t *testing.T) {
 		m16iOS + "Near.swift": "manager.stopUpdatingLocation()\nmanager.stopMonitoringVisits()\n" +
 			"let r = MKCoordinateRegion(center: c, latitudinalMeters: 300, longitudinalMeters: 300)\n",
 		m16Android + "Near.xml": "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>\n",
+		// A Tuist dictionary whose modes array lacks location, followed by another key that has it.
+		"mobile/ios/Project.swift": "let info: [String: Plist.Value] = [\n    \"UIBackgroundModes\": [\n        \"remote-notification\",\n" +
+			"    ],\n    \"TTExample\": [\"location\"],\n]\n",
 	}
 	m16RedGreen(t, "R2", red, green)
 }
@@ -194,15 +219,45 @@ func TestRedline_M16_MobileLogCalls(t *testing.T) {
 		m16Android + "kotlin/r7_invite.kt":   "System.out.print~~ln(\"invite_~~code=\" + c)\n",
 		m16Android + "kotlin/r7_email.kt":    "Lo~~g.e(\n    TAG,\n    \"send failed for ${user.e~~mail}\",\n    e,\n)\n",
 		m16Android + "kotlin/r7_activate.kt": "Lo~~g.v(TAG, \"activation_~~code=$a\")\n",
+		// Review round. The location object itself, an unnamed code and QR value (the
+		// expression roots, mobile/ only), a SUN URL by name, a value one level deeper inside a
+		// format call, and the call shapes the first round missed.
+		m16iOS + "r7_locobj.swift":         "log~~ger.info(\"fix: \\(location)\")\n",
+		m16Android + "kotlin/r7_locobj.kt": "Lo~~g.d(TAG, \"fix=$location\")\n",
+		m16iOS + "r7_managerloc.swift":     "pri~~nt(manager.location)\n",
+		m16Android + "kotlin/r7_locstr.kt": "Lo~~g.i(TAG, \"at \" + location.toString())\n",
+		m16iOS + "r7_lastloc.swift":        "log~~ger.debug(\"\\(lastLocation)\")\n",
+		m16Android + "kotlin/r7_format.kt": "Lo~~g.d(TAG, String.format(Locale.US, \"%.6f\", loc.lati~~tude))\n",
+		m16Android + "kotlin/r7_fmt.kt":    "Lo~~g.d(TAG, \"%.6f\".format(loc.lati~~tude))\n",
+		m16iOS + "r7_sformat.swift":        "log~~ger.info(\"\\(String(format: \"%.6f\", lati~~tude))\")\n",
+		m16iOS + "r7_category.swift":       "Logger.tap.inf~~o(\"\\(to~~ken)\")\n",
+		m16Android + "kotlin/r7_lambda.kt": "log~~ger.info { \"token=$to~~ken\" }\n",
+		m16iOS + "r7_swiftprint.swift":     "Swift.pri~~nt(\"n=\\(non~~ce)\")\n",
+		m16iOS + "r7_fatal.swift":          "fatal~~Error(\"bad \\(non~~ce)\")\n",
+		m16Android + "kotlin/r7_timber.kt": "Tim~~ber.d(\"cm~~ac=%s\", c)\n",
+		m16Android + "kotlin/r7_napier.kt": "Nap~~ier.i(\"e~~mail=$e\")\n",
+		m16Android + "kotlin/r7_code.kt":   "Lo~~g.i(TAG, \"invite $code\")\n",
+		m16iOS + "r7_code.swift":           "log~~ger.debug(\"\\(code)\")\n",
+		m16iOS + "r7_qr.swift":             "pri~~nt(\"scanned \\(qrPayload)\")\n",
+		m16Android + "kotlin/r7_liveqr.kt": "Lo~~g.d(TAG, \"payload=$liveQr\")\n",
+		m16Android + "kotlin/r7_sunurl.kt": "Lo~~g.d(TAG, \"tap ${sun~~Url}\")\n",
 	}
 	green := map[string]string{
 		m16iOS + "Tap.swift": "logger.info(\"tap sent, verdict \\(verdict)\")\nprint(\"exchanges \\(count)\")\n" +
 			"os_log(\"tap screen shown\")\nlet token = try await api.activate()\n",
 		m16Android + "kotlin/Tap.kt": "Log.i(TAG, \"sign-out answered HTTP $status\")\n" +
-			"Log.i(TAG, \"server check: HTTP ${p.status} location=${p.location}\")\n" +
-			"Log.d(TAG, \"step ${step.name}\")\nval tokenUrl = base + \"/app/v1/activate\"\n",
+			"Log.d(TAG, \"step ${step.name}\")\nval tokenUrl = base + \"/app/v1/activate\"\n" +
+			"Log.i(TAG, \"HTTP code $status\")\nLog.d(TAG, \"sqrt $sqrtValue\")\n",
 		// Near misses for the word-bounded and whole-word triggers.
 		m16iOS + "Near.swift": "print(\"design \\(n)\")\nprint(\"flat \\(n)\")\nlogger.info(\"coordinator started\")\n",
+		// Near misses for the expression roots: a field of the location (not a coordinate), a
+		// status code, words and identifiers that merely contain the roots' letters.
+		// The expression roots run on mobile/ only: with mobile/ present, the relay's HTTP Location
+		// header line stays quiet.
+		"android/app/src/main/kotlin/zz/Relay.kt": "Log.i(TAG, \"server check: HTTP ${p.status} location=${p.location}\")\n",
+		m16iOS + "NearExpr.swift": "logger.info(\"accuracy \\(location.horizontalAccuracy)\")\n" +
+			"logger.info(\"status \\(response.statusCode)\")\nprint(prefix)\nprint(\"\\(hotFix)\")\n" +
+			"logger.info(\"allocation done\")\n",
 	}
 	m16RedGreen(t, "R7", red, green)
 }
@@ -222,7 +277,9 @@ func TestRedline_M16_AndroidRelayIsScanned(t *testing.T) {
 	}
 	green := map[string]string{
 		relay + "Main.kt": "Log.i(TAG, \"round: exchange $n after step $step\")\n" +
-			"Log.i(TAG, \"round: ended as ${outcome.javaClass.simpleName} after ${outcome.exchanges} exchanges\")\n",
+			"Log.i(TAG, \"round: ended as ${outcome.javaClass.simpleName} after ${outcome.exchanges} exchanges\")\n" +
+			// The HTTP Location header: the expression roots run on mobile/ only for this line.
+			"Log.i(TAG, \"server check: HTTP ${p.status} location=${p.location}\")\n",
 		"android/app/src/main/AndroidManifest.xml": "<uses-permission android:name=\"android.permission.NFC\"/>\n" +
 			"<uses-permission android:name=\"android.permission.INTERNET\"/>\n",
 	}
@@ -269,6 +326,8 @@ func TestRedline_M16_MobileB1(t *testing.T) {
 		m16iOS + "Base.lproj/LaunchScreen.storyboard":  "<scene>\n  <label text=\"Tappa\"/>\n</scene>\n",
 		"mobile/ios/Taptime.xcodeproj/project.pbxproj": "\t\t\t\tPRODUCT_NAME = Tappa;\n",
 		"web/static/mobile/zz.xml":                     "<!-- Tappa -->\n<x/>\n",
+		m16iOS + "en.lproj/Plurals.stringsdict":        "<dict>\n<key>NSStringLocalizedFormatKey</key>\n<string>%#@n@ Tappa</string>\n</dict>\n",
+		m16iOS + "RawText.swift":                       "let s = #\"x \"Tappa\" y\"#\n",
 	}
 	want := []string{
 		m16Android + "res/values/strings.xml:2:",
@@ -283,6 +342,8 @@ func TestRedline_M16_MobileB1(t *testing.T) {
 		m16iOS + "Base.lproj/LaunchScreen.storyboard:2:",
 		"mobile/ios/Taptime.xcodeproj/project.pbxproj:1:",
 		"web/static/mobile/zz.xml:1:",
+		m16iOS + "en.lproj/Plurals.stringsdict:3:",
+		m16iOS + "RawText.swift:1:",
 	}
 	green := map[string]string{
 		m16iOS + "Ok.swift": "// Tappa draws this\n/* Tappa\n   again */\nlet `Tappa` = 1\nenum Tappa {}\n" +
@@ -300,6 +361,9 @@ func TestRedline_M16_MobileB1(t *testing.T) {
 		"mobile/ios/TaptimeTests/X.swift":                "let s = \"Tappa\"\n",
 		"mobile/ios/TaptimeUITests/X.swift":              "let s = \"Tappa\"\n",
 		"mobile/android/settings.gradle.kts":             "rootProject.name = \"Tappa\"\n",
+		m16iOS + "en.lproj/Ok.stringsdict":               "<dict>\n<!-- Tappa -->\n<string>Taptime</string>\n</dict>\n",
+		// A raw string holding a quote, then a comment: read as one string, the comment stays one.
+		m16iOS + "OkRaw.swift": "let s = #\"a \" b\"# // Tappa\nlet t = ##\"c \"# d\"## /* Tappa */\n",
 	}
 
 	redOut, redCode := redlineRun(t, red)
@@ -318,5 +382,88 @@ func TestRedline_M16_MobileB1(t *testing.T) {
 	greenOut, greenCode := redlineRun(t, green)
 	if greenCode != 0 || failSection(greenOut, "B1") != "" {
 		t.Errorf("the exemptions' tree: want exit 0 and no B1 FAIL, got exit %d:\n%s", greenCode, greenOut)
+	}
+}
+
+// TestRedline_M16_AppSourceOutsideTheScannedRoots pins S1 (M16-02 review, HIGH-1): mobile/ is
+// optional BY NAME, so an app written anywhere else would be scanned by no rule and the run would
+// be green. S1 looks at file kinds instead: an app source outside android/ and mobile/ fails with
+// its path, whatever the directory is called -- including Mobile/, a different directory on the
+// case-sensitive CI. The controls: the same kinds under mobile/ and android/, a document that
+// only names such a path, and no app at all (every other test's tree).
+func TestRedline_M16_AppSourceOutsideTheScannedRoots(t *testing.T) {
+	t.Parallel()
+	red := map[string]string{
+		"apps/staff-ios/Taptime/App.swift":           "import SwiftUI\n",
+		"Mobile/ios/Tap.swift":                       "import SwiftUI\n",
+		"apps/staff-android/src/main/Main.kt":        "package zz\n",
+		"apps/staff-android/build.gradle.kts":        "plugins {}\n",
+		"apps/staff-android/AndroidManifest.xml":     "<manifest/>\n",
+		"apps/staff-ios/Info.plist":                  "<dict/>\n",
+		"apps/staff-ios/A.xcodeproj/project.pbxproj": "{}\n",
+		"apps/staff-ios/Base.xcconfig":               "SWIFT_VERSION = 6\n",
+		"apps/staff-ios/App.entitlements":            "<dict/>\n",
+		"apps/staff-ios/Legacy.m":                    "int x;\n",
+		"apps/staff-ios/Bridge.mm":                   "int y;\n",
+	}
+	green := map[string]string{
+		m16iOS + "App.swift":                     "import SwiftUI\n",
+		m16iOS + "Info.plist":                    "<dict/>\n",
+		"mobile/ios/A.xcodeproj/project.pbxproj": "{}\n",
+		m16Android + "AndroidManifest.xml":       "<manifest/>\n",
+		"android/app/src/main/kotlin/zz/Ok.kt":   "package zz\n",
+		"docs/plan/zz.md":                        "an app in apps/staff-ios/App.swift\n",
+	}
+	m16RedGreen(t, "S1", red, green)
+}
+
+// TestRedline_M16_MobilePeriodicOneShotLocation pins R2's narrow periodic net (M16-02 review): a
+// file under mobile/ that holds an allowed one-shot location call AND a repeating scheduler fails,
+// because a one-shot read on a timer is tracking. It is a net, not proof -- the controls name its
+// limit: the same two in different files pass, as do a one-shot read alone, a timer with no
+// location, and Kotlin's bounded repeat.
+func TestRedline_M16_MobilePeriodicOneShotLocation(t *testing.T) {
+	t.Parallel()
+	red := map[string]string{
+		m16iOS + "r2p_timer.swift":   "Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in\n    manager.requestLocation()\n}\n",
+		m16iOS + "r2p_publish.swift": "let t = Timer.publish(every: 30, on: .main, in: .common)\nfunc tick() { manager.requestLocation() }\n",
+		m16iOS + "r2p_source.swift":  "timer.schedule(deadline: .now(), repeating: 60)\nmanager.requestLocation()\n",
+		m16Android + "kotlin/r2p_worker.kt": "val req = PeriodicWorkRequestBuilder<FixWorker>(15, TimeUnit.MINUTES).build()\n" +
+			"class FixWorker { fun doWork() { client.getCurrentLocation(p, t) } }\n",
+		m16Android + "kotlin/r2p_exec.kt":  "exec.scheduleAtFixedRate({ lm.getLastKnownLocation(GPS) }, 0, 60, SECONDS)\n",
+		m16Android + "kotlin/r2p_while.kt": "while (true) {\n    val l = client.lastLocation\n    delay(60_000)\n}\n",
+		m16Android + "kotlin/r2p_alarm.kt": "am.setRepeating(RTC, t, 60_000, pi)\nlm.requestSingleUpdate(GPS, listener, null)\n",
+	}
+	green := map[string]string{
+		m16iOS + "Tap.swift":         "func tap() { manager.requestLocation() }\n",
+		m16iOS + "Ticker.swift":      "Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in redraw() }\n",
+		m16Android + "kotlin/Tap.kt": "client.getCurrentLocation(p, t)\nrepeat(3) { retry() }\n",
+		// LIMIT, pinned: the read and the timer in two files are not seen.
+		m16iOS + "Split/Read.swift":  "func read() { manager.requestLocation() }\n",
+		m16iOS + "Split/Clock.swift": "Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in read() }\n",
+	}
+	m16RedGreen(t, "R2", red, green)
+}
+
+// TestRedline_M16_AMissingRequiredRootIsAScanError pins the other half of mobile/'s optionality:
+// every other root stays required. A tree without android/ -- now in SRC -- is a scan error
+// (exit 2), not a clean run, so a renamed or deleted root cannot drop out of the scan silently.
+func TestRedline_M16_AMissingRequiredRootIsAScanError(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg is not installed; redline-check needs it (CI installs it)")
+	}
+	var roots []string
+	for _, r := range redlineRoots {
+		if !strings.HasPrefix(r, "android/") {
+			roots = append(roots, r)
+		}
+	}
+	out, code, err := redlineExecRoots(context.Background(), t.TempDir(), roots, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 2 || !strings.Contains(out, "ATLANDI") || !strings.Contains(out, "android") {
+		t.Errorf("no android/: want exit 2 with the scan error naming it, got exit %d:\n%s", code, out)
 	}
 }

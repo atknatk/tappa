@@ -34,6 +34,16 @@ func redlineRun(t *testing.T, files map[string]string) (string, int) {
 // script there, with env (NAME=value) added to this process's environment. A cancelled ctx ends
 // the script through its own TERM trap (TestRedline_ACancelledScanRunsItsExitTrap).
 func redlineExec(ctx context.Context, dir string, files map[string]string, env ...string) (string, int, error) {
+	return redlineExecRoots(ctx, dir, redlineRoots, files, env...)
+}
+
+// redlineRoots are the directories the script requires (each SRC and B1_SRC entry that is not
+// optional): a tree without one of them makes every rg call exit 2 and the script exit 2.
+var redlineRoots = []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github", "docs/api", "android/app/src/main"}
+
+// redlineExecRoots is redlineExec with the required roots chosen by the caller, so a test can
+// build a tree that lacks one (TestRedline_M16_AMissingRequiredRootIsAScanError).
+func redlineExecRoots(ctx context.Context, dir string, roots []string, files map[string]string, env ...string) (string, int, error) {
 	write := func(rel, body string) error {
 		p := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -58,7 +68,7 @@ func redlineExec(ctx context.Context, dir string, files map[string]string, env .
 			return "", 0, err
 		}
 	}
-	for _, d := range []string{"cmd", "internal", "db", "web/templates", "web/static/js", "test", "deploy", ".github", "docs/api", "android/app/src/main"} {
+	for _, d := range roots {
 		if err := write(d+"/keep.txt", "\n"); err != nil {
 			return "", 0, err
 		}

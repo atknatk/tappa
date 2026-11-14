@@ -43,7 +43,9 @@ module**: `go build ./...` never sees it and it is **not** part of `make check`.
 §4.1), R2 (§4.2), R3, R6 and the R7 family (§4.7 and §7: secrets, personal data and
 coordinates in log calls, Kotlin's `Log` calls included) cover this app as they cover
 the Go code; before that only B1 (`app/src/main`) and R7d did. Measured on the tree of
-that day: zero hits on this directory for every rule. Pin: `cmd/tappa/scripttest`
+that day: no FAIL on this directory from any rule — R7d's one existing waiver here
+(`app/src/test/.../RelayLoopTest.kt`, a synthetic credentialed URL) is unchanged and
+still prints as a WARN. Pin: `cmd/tappa/scripttest`
 `TestRedline_M16_AndroidRelayIsScanned`.
 
 ## Toolchain — measured on this machine (2026-09-18)

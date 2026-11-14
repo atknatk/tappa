@@ -281,6 +281,27 @@ eder):
 **Tuzaklar.** Kalıplar sözcükseldir: `startMonitoring(for:` gibi bir yazım Swift'in başka API'sini de yakalayabilir —
 muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 
+> **Denetim turu (2026-11-14, M16-02 iki mercek).** Kapatılanlar mekanizmayla: **S1** (uygulama kaynağı `android/` ve
+> `mobile/` dışında → FAIL; `mobile/`'ın *isimle* isteğe bağlı olması tek başına bir delikti) · R7'nin konum nesnesi,
+> adsız `code` ve QR değeri için **ifade kökleri** (yalnız `mobile/` — rölenin `location=${p.location}` satırı HTTP
+> başlığıdır) ve `.format(` / `String(format:` içine giren pencere · Apple'ın `Logger.<kategori>.info(` adeti · R1
+> ön-süzgeci `mobile/` ve `android/` altında uygulanmaz · R2: Tuist/JSON sözlük dizisi, yorumlu plist dizisi ve
+> **aynı dosyada tek seferlik konum + tekrarlayan zamanlayıcı** ağı. Ucuz ve 0 isabet ölçülen LOW eklemeler de girdi.
+> Aşağıdakiler **adıyla sınırdır**, kapatılmadı (betiğin sınır notlarında da yazılı):
+> - Periyodik ağ dosya bazlıdır: zamanlayıcı başka dosyadaysa, `Handler.postDelayed` kendini yeniden kuruyorsa,
+>   `Task { while !Task.isCancelled` ya da Combine `.timer(` kullanılıyorsa görünmez. Gerçek kapı M16-13/M16-17'nin
+>   çağrı-yeri izin listesi testidir.
+> - R7: ara değişken (`let t = token; print(t)`) · interpolasyonda ikinci seviye çağrı (`\(String(describing: token))`)
+>   · `Timber.tag(TAG).d(..)` · başka adlı logger örneği · çıplak `url` (API taban adresini loglamak olağan; NDEF/SUN
+>   URL'si `sunUrl`/`ndefUrl` adıyla taşınır) · `mobile/`'da HTTP `location` başlığı da konum kökü sayılır (uygulama
+>   başlık değişkenine başka ad verir).
+> - R2 kaynak metne bakar; derlenmiş Info.plist'i M16-15 ölçer (aşağıdaki kabul kriteri).
+> - **M16-11'e — bilinen yanlış pozitif:** bir kütüphanenin iznini söken
+>   `<uses-permission android:name="…ACCESS_BACKGROUND_LOCATION" tools:node="remove"/>` koruyucu bir satırdır ama R2'de
+>   FAIL verir. Bugün muafiyet **eklenmedi** (satır yok); gerekirse M16-11 onu **yola ve satıra bağlı**, gerekçeli bir
+>   muafiyetle yazar (R7d'nin sha256'lı satır muafiyeti deseni) — toplu bir `tools:node` süzgeci değil.
+> - R1/R2/R7 `mobile/**/*.md`'yi de tarar (muafiyet yok): `mobile/README.md` yasak API'yi birebir adıyla yazarsa FAIL.
+
 ## M16-03 — Şema: `app_devices` ve tek kullanımlık nonce
 
 - **Bağımlılık:** M16-01
@@ -575,6 +596,9 @@ taramasından geçen boş bir personel uygulaması.
 - Ağ hatası: dokunuş kaybolmaz mı? — MVP'de **kuyruk yok**; ekran *"tekrar dokun"* der ve plaket sayacı bir sonraki
   dokunuşta ilerler (A1'in sinyali `ctrGap` bunu sayar — bilinen bedel yazılır).
 - Log satırlarında koordinat, imza, nonce yok (JVM testi).
+- Konum çağrıları (`getCurrentLocation` / `requestSingleUpdate`) **yalnız tap akışı dosyasında**; bir çağrı-yeri izin
+  listesi testi bunu pinler (M16-02 denetimi: tek seferlik API bir zamanlayıcıyla periyodik takibe dönüşebilir ve
+  `redline-check.sh` R2'nin periyodik ağı yalnız aynı dosyayı görür).
 
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
@@ -621,6 +645,10 @@ kapsayan boş bir personel uygulaması.
   Tag Reading (yalnız NDEF), App Attest (Faz E'ye kadar kapalı).
 - Komut satırından derleme ve birim testi (`xcodebuild … test`) `make mobile-ios-test` hedefiyle; bu makinede ölçülür.
 - `bash scripts/redline-check.sh` yeşil.
+- **Derlenmiş** `Info.plist`'te arka plan modu ve *Always* izni yok: derleme çıktısında
+  `plutil -extract UIBackgroundModes raw <app>/Info.plist` anahtarı bulamaz (çıkış ≠ 0) ve `NSLocationAlways*` anahtarı
+  yok — `make mobile-ios-test` bunu ölçer (M16-02 denetimi: R2 kaynak metne bakar; xcconfig / `INFOPLIST_KEY_*` /
+  proje üreteci modları başka yazımla birleştirebilir).
 
 ## M16-16 — iOS cihaz anahtarı ve aktivasyon
 
@@ -663,6 +691,8 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
   .isSimulatedBySoftware` (iOS 15+) true ise bayrak (**doğrula**).
 - Sonuç ekranı düğmesiz; *"tarayıcıda aç"* çıkışı yalnız hata/aktive değil ekranında (ADR 0045 Bedel 8; §9 sorusu).
 - CLAUDE.md §9'a uygulama ekranlarının eşlik cümlesi (bu kartla ya da M16-13 ile — ilk biten).
+- Konum çağrısı (`requestLocation`) **yalnız tap akışı dosyasında**; bir çağrı-yeri izin listesi testi bunu pinler
+  (M16-02 denetimi: periyodik bir `requestLocation` takibe dönüşür, R2'nin periyodik ağı yalnız aynı dosyayı görür).
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 
