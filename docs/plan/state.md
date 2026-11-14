@@ -1753,6 +1753,10 @@ yazılır.
 
 ### M16 — [Personel mobil uygulaması + NFC'siz telefonlar](m16-mobil.md)
 
+> **Migration sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00104) `main`'e M16-04'ten (00105/00106) **önce ya da
+> onunla birlikte** ulaşır. 105/106'ya çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00104'ü sonradan **alamaz**
+> — depo goose'u `-allow-missing` ile koşmaz — ve yeniden kurulmalıdır.
+
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M16-01 | ADR 0045'ün kabulü ve CLAUDE.md / handoff metinleri | **done** | `0c47e7ed` + `2f913f2d` + `59c86827`; üçüncü göz RED → RED → ONAY, güvenlik merceği ONAY |

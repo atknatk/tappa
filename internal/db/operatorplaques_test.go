@@ -194,6 +194,11 @@ var opAtVersionSkips = map[int]string{
 	104: "app_devices, app_request_nonces, their two one-way triggers and resolve_app_device_by_id (M16-03) -- no " +
 		"operator object; its Down takes ACCESS EXCLUSIVE on both tables, tenants and employees (the DROPs' keys), and " +
 		"refuses while either table holds a row -- rows TestAppRequestNonces_ConcurrentConsumeExactlyOnce commits",
+	105: "transactions.client, its NOT VALID CHECK and tappa_app's INSERT on it (M16-04) -- no operator object; its " +
+		"Down takes ACCESS EXCLUSIVE on transactions and refuses while a row carries a client -- rows every tap the " +
+		"other packages' tests commit carries",
+	106: "the validation of 00105's CHECK (M16-04) -- no operator object; its Down drops and adds it again NOT VALID " +
+		"under ACCESS EXCLUSIVE on transactions",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

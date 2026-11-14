@@ -556,6 +556,7 @@ type Transaction struct {
 	ShiftEnd         pgtype.Time
 	ShiftOvernight   *bool
 	ShiftTimezone    *string
+	Client           *string
 }
 
 type TransactionReview struct {

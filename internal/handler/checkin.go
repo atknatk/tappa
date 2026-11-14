@@ -241,6 +241,9 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		Channel:      tap.Channel(tctx.Channel),
 		CMACVerified: tctx.CMACVerified,
 		TagTenantID:  tctx.TagTenantID,
+		// SERVER-DERIVED (ADR 0045 §2.4): this handler IS the tap page's endpoint, so the
+		// client is the browser by construction -- nothing in the request is read for it.
+		Client: tap.ClientBrowser,
 		// The page's own mint time, authenticated inside the context. It is what
 		// sys:tap-freshness measures, and it is READ FROM THE MAC rather than from
 		// a form field for the obvious reason: a caller that could state its page's

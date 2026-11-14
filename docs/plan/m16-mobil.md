@@ -121,8 +121,12 @@ numara değişikliği notu).
 | No (öneri) | Kart | İçerik | `Down` |
 |---|---|---|---|
 | 00104 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
-| 00105 | M16-04 | `transactions.client` + **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID` (NULL'u kabul eder — `00065` deseni) + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
-| 00106 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
+| 00105 | M16-04 | `transactions.client` + değer kümesi CHECK'i `client IS NULL OR client IN ('browser','app')` (NULL'u kabul eder — `00065` deseni) + manuel satır CHECK'i `channel <> 'manual' OR client IS NULL`, ikisi de `NOT VALID`; tap kanalında `client`'ı zorunlu kılan CHECK **yok** + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
+| 00106 | M16-04 | iki CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
+
+**Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00104) `main`'e M16-04'ten (00105/00106) **önce ya da onunla
+birlikte** ulaşır. 105/106'ya çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00104'ü sonradan **alamaz** — depo
+goose'u `-allow-missing` ile koşmaz — ve yeniden kurulmalıdır.
 | 00107 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
 | 00108 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
 | 00109 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
@@ -369,8 +373,11 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 **Amaç.** Her yeni tap satırının hangi istemciden geldiğini değişmez olarak yazmak.
 
 **Kabul kriterleri.**
-- `transactions.client text NULL`, **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID`;
-  tarihsel satırlar NULL, geri doldurma yok, `DEFAULT` yok.
+- `transactions.client text NULL`; **değer kümesine bir** CHECK `client IS NULL OR client IN ('browser','app')` (NULL'u
+  kabul eder) + **manuel satırın client taşımadığına bir** CHECK `channel <> 'manual' OR client IS NULL` (güvenlik
+  denetimi, 2026-11-14 — `clientColumn`'un manuel kuralının DB yarısı; eski ikili her yerde NULL yazdığı ve tarihsel
+  satırlar NULL olduğu için rollout'ta güvenli), ikisi de `NOT VALID`; tarihsel satırlar NULL, geri doldurma yok,
+  `DEFAULT` yok.
 - **"Tap kanalında `client` zorunlu" CHECK'i YOK.** `NOT VALID` bir CHECK yine her yeni INSERT'i bağlar: migration ile
   yeni pod'un yayılması arasındaki pencerede eski ikili `client` yazmaz ve her NFC/QR dokunuşu 23514 ile reddedilip
   **kaybolurdu** (§4.6); `VALIDATE`'i de geçmişi olan her veritabanında NULL'lu tarihsel satırlarda düşerdi. M15 aynı
@@ -817,7 +824,9 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   `== ChannelManual` — geçtiği migration fonksiyonu, CHECK, sorgu ve Go dosyası. Pozitif Go karşılaştırmalarından
   bugün bilinenler (her biri `qr_live`'ı **dışarıda bırakır**): `internal/domain/checkin/checkin.go:1751`
   (`BusinessDayStart` — iş günü), `:1869` (`shiftColumns` — vardiya anlık görüntüsü), `:1899`
-  (`directionSourceColumn`), `:1688` (`feedEligible`), `:1815` (NFC-only); `internal/domain/tap/directionsource.go:43`
+  (`directionSourceColumn`), `:1688` (`feedEligible`), `:1815` (NFC-only), `clientColumn` (M16-04 —
+`transactions.client`; **`qr_live` de client alır — onu uygulama ya da tarayıcı yazar**, ve 00105'in
+`transactions_manual_has_no_client` CHECK'i yalnız `manual`'a bakar); `internal/domain/tap/directionsource.go:43`
   (`RecordedDirectionSource`); `internal/handler/tapcontext.go:388` — imzalı tap bağlamını `nfc`/`qr` dışında
   `errTapContextMalformed` ile **reddeder** (M16-07 bu bağlamı yeniden kullanırsa kayıt kaybı, §4.6);
   `internal/handler/claimqueue.go:615` (`claimChannelWord`); `internal/handler/tap.go:645` (önizleme kanalı);
