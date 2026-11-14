@@ -21,7 +21,7 @@ Ana fikir (kritik — modelin tersine çevrilmiş hali): NFC etiketi çalışan�
 cebinde DEĞİL, **duvarda**. Her lokasyonun girişine markalı, A5 boyutlu,
 kameranın gördüğü bir noktaya monte edilen pasif bir plaket yapıştırılır
 (içinde NTAG 424 DNA çipi). Çalışan **kendi telefonunu** plakete değdirir →
-tarayıcı otomatik açılır (uygulama kurulumu YOK) → telefondaki kalıcı
+tarayıcı otomatik açılır (uygulama kurulumu gerekmez; isteğe bağlı uygulama — ADR 0044) → telefondaki kalıcı
 oturumdan tanınır → "Hello Maria" + tek buton → check-in/out biter.
 
 - **Slogan:** *No app. No device. No fingerprints. Just tap.*

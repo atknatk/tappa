@@ -3,7 +3,8 @@
 > **Tappa** — "Punchless time & attendance." NFC tabanlı, cihazsız mesai takip SaaS'ı.
 > NFC etiketi çalışanın cebinde değil **duvarda**: her lokasyon girişine pasif bir
 > plaket (NTAG 424 DNA) monte edilir. Çalışan kendi telefonunu değdirir → tarayıcı
-> açılır (uygulama kurulumu YOK) → kalıcı oturumdan tanınır → tek butonla check-in/out.
+> açılır (uygulama kurulumu **gerekmez**; isteğe bağlı native uygulama aynı URL'yi açar — ADR 0044) → kalıcı
+> oturumdan tanınır → tek butonla check-in/out.
 >
 > Ürün/pazar/marka detayı: **[docs/handoff.md](docs/handoff.md)** — kararların gerekçesi orada.
 > Bu dosya *nasıl çalışacağımızı* anlatır, *ne inşa ettiğimizi* değil.
@@ -22,9 +23,12 @@
 | HTML | **templ** (tip güvenli) + **HTMX** | tek binary, SPA yok |
 | CSS | **Tailwind standalone CLI** | **Node YOK** — `.tools/tailwindcss` ikilisi |
 | Deploy | tek VPS (AB bölgesi) + managed Postgres | mikroservis YOK |
+| Mobil (isteğe bağlı) | **iOS Swift/SwiftUI · Android Kotlin/Jetpack Compose** — `mobile/ios/`, `mobile/android/`, Go modülü dışında | tarayıcı akışının yerine geçmez; üçüncü parti SDK yok (Firebase, analitik, çökme SDK'sı yok), her bağımlılık önce sorulur (ADR 0044) |
+| Encode rölesi | Android Kotlin — `android/`, Go modülü dışında ayrı Gradle build | plaket kodlama aracı; Kotlin/Gradle zincirinin ilk açılımı (ADR 0017) |
 
 **Node/npm/node_modules bu repoda ASLA yer almaz.** Bir çözüm Node gerektiriyorsa, o
-çözüm yanlış çözümdür — alternatif ara veya sor.
+çözüm yanlış çözümdür — alternatif ara veya sor. Mobil derlemeler de Node'suzdur (React Native / Expo bu
+yüzden reddedildi, ADR 0044).
 
 Yeni bağımlılık eklemeden önce sor. `stdlib > küçük kütüphane > framework`.
 
@@ -73,8 +77,8 @@ internal/domain/claim/  eksik yarı talebi (ADR 0032 Faz C): çapa durumu okuyuc
                       (tap.ClassifyCheckout), pencere, ön dolgu, K4, bant; gönderim ve karar kişi
                       kilidi altında, karar manual.Recorder.Within ile tek işlem. Talep kayıt
                       değildir; saat yalnız onayın manuel satırıyla doğar.
-internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
-                      SADECE burada. Skill: `tappa-sun`
+internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. **Plaket** kriptografisi
+                      (AES-CMAC, SUN, `ctr`) SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
 internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
                       yalnız `identity_*` / `resolve_identity_*` ile gider
@@ -140,6 +144,10 @@ db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yeni
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
 web/static/           css/img/js — Go binary'sine embed edilir
+android/              plaket encode rölesi (ADR 0017) — personel uygulaması DEĞİL; Go modülü dışında ayrı Gradle build
+mobile/ios/           isteğe bağlı personel uygulaması, Swift/SwiftUI (ADR 0044); Go modülü dışında
+mobile/android/       isteğe bağlı personel uygulaması, Kotlin/Compose (ADR 0044); Go modülü dışında,
+                      `android/`'den ayrı build
 deploy/k8s/42-api-ingress.yaml  `api.taptime.mt` → yalnız `/v1` (M11 API-13a); `TAPPA_API_HOST` (05-config) ile
                       **aynı değişiklikte** gelir, rollout beklemesinden **sonra** uygulanır, DNS-only.
 docs/adr/             mimari kararlar (NNNN-baslik.md)
@@ -156,9 +164,11 @@ Bunlar tercih değil, ürünün varlık sebebi. Bir görev bunlardan birini ihla
 ediyorsa **dur ve sor**, sessizce uygulama.
 
 1. **Biyometrik veri asla toplanmaz/saklanmaz.** Parmak izi, yüz, ses — hiçbiri.
-   Telefonun kendi ekran kilidi bizim katmanımız değildir; ondan veri almayız.
+   Telefonun kendi ekran kilidi bizim katmanımız değildir; ondan veri almayız. Uygulamada
+   biyometri API'si ve biyometrik anahtar erişim denetimi yoktur (ADR 0044 §3).
 2. **GPS yalnızca tap anında okunur.** Arka plan konum, sürekli takip, geofence
-   izleme YOK. Bu hem GDPR gereği hem satış argümanı.
+   izleme YOK. Bu hem GDPR gereği hem satış argümanı. Uygulamada arka plan konum izni ve
+   modu da yoktur (ADR 0044 §3).
 3. **`transactions` immutable.** UPDATE/DELETE yok. Düzeltme = yeni kayıt +
    `audit_log`. Mesai kaydı hukuki delil olabilir. Dışa bakan izdüşümleri de append-only'dir:
    `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9). `site_punches`'ı yalnız `holding_feed`
@@ -477,7 +487,9 @@ başlayan bir test durumu olmalı.
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
   webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
-  audit `detail`'i dahil).
+  audit `detail`'i dahil); uygulama ve canlı QR tarafında cihaz imzası, istek nonce'u, canlı QR
+  token'ı, ekran eşleşme kodu, ekran oturumu çerezi, canlı QR imza anahtarı ve müdür onayı eşleşme
+  kodu (ADR 0044 §3 — hata mesajı ve `audit_log` `detail`'i dahil).
 - Webhook log ve audit satırları yalnız uç nokta/teslim **kimliği**, kapalı **hata sınıfı** ve **durum kodu**
   taşır — uzak sunucunun yanıt metni de saklanmaz (ADR 0028 §6).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
@@ -597,6 +609,7 @@ değişiklik yine önce sorulur.
 | Herhangi bir UI/templ/Tailwind işi | skill `tappa-brand` |
 | NTAG 424 DNA / SUN / CMAC / ctr | skill `tappa-sun` |
 | Demo veri, fixture, "bir günü simüle et" | skill `tappa-seed` |
+| iOS / Android personel uygulaması | `mobile/README.md` (Faz B/C'de doğar) + [ADR 0044](docs/adr/0044-istege-bagli-native-uygulama.md) |
 
 ## 12. Durum
 

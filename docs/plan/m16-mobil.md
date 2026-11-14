@@ -1,11 +1,11 @@
 # M16 — Personel mobil uygulaması (isteğe bağlı) + NFC'siz telefonlar
 
-> **Durum:** plan **onaylandı** — yedi bağımsız denetim turundan sonra ONAY (`407710bf`, 2026-11-13). Başlanmadı,
-> `main`'e birleştirilmedi; kullanıcının ADR 0044 kabulünü (M16-01) bekliyor. Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
+> **Durum:** plan **onaylandı** — yedi bağımsız denetim turundan sonra ONAY (`407710bf`, 2026-11-13). **ADR 0044 kabul
+> edildi (2026-11-14, M16-01).** `main`'e birleştirilmedi. Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
 > bu dosyaya "yapıldı" yazılmaz.
 >
-> **Karar belgesi:** [ADR 0044](../adr/0044-istege-bagli-native-uygulama.md) (durum *Önerildi*). Kartlar ADR'nin
-> sözlüğünü kullanır; ADR kabul edilmeden (M16-01) hiçbir kod kartı başlamaz.
+> **Karar belgesi:** [ADR 0044](../adr/0044-istege-bagli-native-uygulama.md) (durum *Kabul edildi (2026-11-14)*).
+> Kartlar ADR'nin sözlüğünü kullanır.
 >
 > **Atıf kuralı:** kırmızı çizgiler hep **"CLAUDE.md §4.x"**; `file:line` atıfları `origin/main` `70e8a016`'ya göredir
 > ve yapıcı kendi turunda yeniden okur. **Doğrula** = planı yazan doğrulayamadı; kart ölçer.
@@ -18,6 +18,9 @@
 > **Sevk:** her faz kendi dalında biter; `main`'e birleştirme bir **deploy kararıdır** ve kullanıcınındır (CLAUDE.md
 > §10). Faz A sunucu yüzeyi uygulamasız da zararsızdır (yeni uç noktalar, yeni sütun NULL) ve ayrı sevk edilebilir.
 > Mağazaya yükleme (Faz F) ayrı bir kullanıcı kararıdır.
+>
+> **Sıra (kullanıcı kararı, 2026-11-14):** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından
+> **D, E, F**.
 
 ## Kullanıcı kararları (2026-11-12/13) — bağlayıcı
 
@@ -30,10 +33,12 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 - NFC'siz aktivasyon: lokasyonda **canlı QR ekranı varsa onunla, yoksa müdür onayıyla**.
 - **Attestation** Faz E'de **yalnız kanıt + rapor**; güveni ve verdict'i değiştirmez.
 
-## Plan önerileri — M16-01'de ADR kabulüyle kesinleşir
+## ADR kabulüyle kesinleşen kararlar (2026-11-14)
 
-> **Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR
-> kabulüyle kesinleşir.** Aşağıdakilerin hiçbiri bir kullanıcı kararı diye alıntılanmaz.
+> **Kullanıcı 2026-11-14'te ADR 0044'ü olduğu gibi kabul etti; aşağıdakiler o kabulle karardır** (ADR 0044 *"Kabul
+> notu"*). Önceden *"plan önerisi"*ydiler: kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar
+> vermemişti. Önerilen **adlar** (ör. `base:mock-location-review`, `/app/v1` uç noktaları) kartlarda yine yapıcının
+> ölçümüyle kesinleşir.
 
 - Aynı plaket, aynı URL; uygulama kuruluysa Universal Link / App Link onu açar.
 - Sunucu otoriter: aynı `tap.Decide` + policy motoru; çalışan tap ekranı kuralları (§9) uygulamada da geçerli.
@@ -129,11 +134,11 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 
 | Ön koşul | Neden | İlk bloklandığı kart |
 |---|---|---|
-| **Apple Developer Program — kurum hesabı** (D-U-N-S numarası gerekir; başvuru günler sürebilir) | Team ID → `apple-app-site-association`; Associated Domains, NFC, App Attest yetkileri; App Store Connect | M16-08 (Team ID), M16-15 |
-| **Google Play Console** hesabı (kurum doğrulaması) | paket adı, Play App Signing sertifika parmak izi → `assetlinks.json`; Play Integrity; iç test kanalı | M16-08 (parmak izi), M16-11 |
-| **Uygulama adı ve paket/bundle kimliği** (Q35) | mağaza adı kullanılabilirliği; geri alınamaz | M16-08, M16-11, M16-15 |
-| **Gerçek cihazlar:** iPhone XS veya sonrası · iPhone 7–X arası bir telefon · NFC'li bir Android · NFC'siz bir telefon · canlı QR ekranı için bir tablet/eski telefon | Universal Link, Core NFC, Keystore/Secure Enclave, sahte konum ve canlı QR yalnız gerçek cihazda ölçülür | M16-14, M16-18, M16-24 |
-| **M8-07 telefon envanteri** (KF/KM çalışanlarının telefon modelleri) | P6'nın gerçek oranı; pilotta kimin uygulamaya ihtiyacı olduğu | M16-29 |
+| **Apple Developer Program — kurum hesabı** — ✅ **hazır** (kullanıcı, 2026-11-14); yayıncı **Everva Bilişim**. **Team ID kullanıcıdan alınacak.** | Team ID → `apple-app-site-association`; Associated Domains, NFC, App Attest yetkileri; App Store Connect | M16-08 (Team ID), M16-15 |
+| **Google Play Console** hesabı — ✅ **hazır** (kullanıcı, 2026-11-14); yayıncı **Everva Bilişim** | paket adı, Play App Signing sertifika parmak izi → `assetlinks.json`; Play Integrity; iç test kanalı | M16-08 (parmak izi), M16-11 |
+| **Uygulama adı ve paket/bundle kimliği** (Q35) — açık; yayıncı hesap Everva Bilişim | mağaza adı kullanılabilirliği; geri alınamaz | M16-08, M16-11, M16-15 |
+| **Gerçek cihazlar** (açık — hazır diye bildirilmedi): iPhone XS veya sonrası · iPhone 7–X arası bir telefon · NFC'li bir Android · NFC'siz bir telefon · canlı QR ekranı için bir tablet/eski telefon | Universal Link, Core NFC, Keystore/Secure Enclave, sahte konum ve canlı QR yalnız gerçek cihazda ölçülür | M16-14, M16-18, M16-24 |
+| **M8-07 telefon envanteri** (KF/KM çalışanlarının telefon modelleri) — açık, hazır diye bildirilmedi | P6'nın gerçek oranı; pilotta kimin uygulamaya ihtiyacı olduğu | M16-29 |
 | Güncel **Xcode** kurulu bir Mac (bu makinede ölçülmedi — **doğrula**) | iOS derlemesi | M16-15 |
 | Mağaza imza anahtarlarının **saklama yeri** (öneri: Play App Signing + yükleme anahtarı ve Apple sertifikaları Infisical'da) | §4.7'nin ruhu, depo PUBLIC | M16-28 |
 | Hukuk metni onayı (`/legal/privacy` değişikliği, mağaza gizlilik etiketleri) | GDPR Art. 13; mağaza beyanı yasal beyandır | M16-27 |
@@ -415,7 +420,8 @@ ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 
-- **Bağımlılık:** M16-01 · kullanıcı: Team ID, paket adı, imza sertifikası parmak izi (Q35)
+- **Bağımlılık:** M16-01 · kullanıcı: Apple Team ID (**kullanıcıdan alınacak** — hesap Everva Bilişim'in), paket
+  adı (Q35), imza sertifikası parmak izi
 - **Kırmızı çizgi:** — (plaket URL'sini hangi uygulamanın yakalayabildiğini belirler)
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `feat(app): publish the app association files`
@@ -585,7 +591,7 @@ kez koşmak.
 
 ## M16-15 — iOS iskeleti
 
-- **Bağımlılık:** M16-10 · Q35 (bundle kimliği), kullanıcı: Apple Team ID
+- **Bağımlılık:** M16-10 · Q35 (bundle kimliği), kullanıcı: Apple Team ID (**kullanıcıdan alınacak**)
 - **Kırmızı çizgi:** §1, §4.1, §4.2
 - **Araç:** yapıcı · **Mercek: tek**
 - **Commit:** `feat(ios): scaffold the staff app`

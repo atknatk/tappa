@@ -1,13 +1,15 @@
 # ADR 0044 — İsteğe bağlı native personel uygulaması ve NFC'siz telefonlar
 
-- **Durum:** Önerildi (2026-11-13). Kabul M16-01'de, kullanıcı onayıyla; kabul edilmeden hiçbir M16 kod kartı başlamaz.
+- **Durum:** Kabul edildi (2026-11-14) — kullanıcı, **olduğu gibi** (M16-01; aşağıdaki *"Kabul notu"*). Önerildi:
+  2026-11-13.
 - **Tarih:** 2026-11-13 · **Dal:** `plan/m16-mobil` (yalnız belge) · **Plan:** [docs/plan/m16-mobil.md](../plan/m16-mobil.md)
 - **Karar veren:** kullanıcı (ürün sahibi), 2026-11-12/13. Kullanıcının **açık** kararları yalnız beş tanedir ve bu
   belge onları kaydeder, yeniden tartışmaz: (1) native uygulama **isteğe bağlı**, tarayıcı akışı kalır; (2) **tamamen
   native** — Swift/SwiftUI, Kotlin/Compose, Node içeren yol (RN/Expo) dışarıda; (3) NFC'siz telefon için **statik ve
   canlı QR birlikte**; (4) NFC'siz aktivasyon **canlı QR varsa onunla, yoksa müdür onayıyla**; (5) **attestation Faz E'de
   yalnız rapor**. Geri kalan her şey — mekanizmalar, adlar, yerler, retler, faz sırası — **plan önerisidir**:
-  *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)* Bölümlerde *"karar"* ya da *"plan önerisi"* diye ayrıca işaretlidir.
+  *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)* Bölümlerde *"karar"* ya da *"plan önerisi"* diye ayrıca işaretlidir. **2026-11-14'ten beri plan önerileri de
+  karardır** — ADR olduğu gibi kabul edildi; işaretler tarih için yerinde bırakıldı.
 - **İlgili:** ADR 0001 (stack) · ADR 0004 (policy motoru; §8 *kanal sunucudan türetilir*) · ADR 0005 (kabul edilen
   riskler; risk 1 / A4 buddy punching) · ADR 0006 (debounce sunucu zamanı) · ADR 0017 (Android encode rölesi — repodaki
   ilk Kotlin/Gradle açılımı) · ADR 0026 (aktivasyon ilk NFC dokunuşunda; **Bedel 3**) · ADR 0032 (iş günü, tahmini yön) ·
@@ -298,3 +300,18 @@ Xcode sürümü ve iOS derlemesinin mümkünlüğü (M16-15) · Play Integrity y
 
 M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blokladıklarının yazılması), durum satırı
 *Kabul edildi (TARİH)*.
+
+### Kabul notu (2026-11-14, kullanıcı kararları)
+
+1. **ADR 0044 olduğu gibi kabul edildi.** Bu belgede *"plan önerisi"* diye işaretli maddeler bu kabulle karardır —
+   ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
+   `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2). Önerilen adlar (ör.
+   `base:mock-location-review`, `/app/v1` uç noktaları) kartlarda yine yapıcının ölçümüyle kesinleşir.
+2. **Dal `plan/m16-mobil` push edildi; `main`'e birleştirilmedi.**
+3. **Sıra:** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından **D, E, F**.
+4. **Ön koşullar:** Apple Developer ve Google Play hesapları **hazır**; uygulamalar **Everva Bilişim** hesaplarından
+   yayımlanır. Apple Team ID henüz bilinmiyor — **kullanıcıdan alınacak** (M16-08, M16-15). Paket/bundle kimliği açık
+   kalır (Q35). Test cihazları ve personel telefon envanteri (M8-07) **hazır diye bildirilmedi** — açık.
+5. Açık sorular Q35–Q42 bu kabulde **cevaplanmadı**; her biri blokladığı kartla `open-questions.md`'de *"açık —
+   bloklar M16-xx"* durumundadır. Q42 açık olduğu için `docs/handoff.md`'nin sloganı ve *"app-less akış"* cümleleri
+   değişmedi (M16-01 kartının kuralı).
