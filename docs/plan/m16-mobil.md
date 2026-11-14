@@ -248,7 +248,9 @@ eder):
   eksik yol davranışı ölçülüp ona uyulur).
 - R1 tetikleyicilerine platform kalıpları: `LocalAuthentication`, `LAContext`, `BiometricPrompt`, `androidx.biometric`,
   `USE_BIOMETRIC`, `USE_FINGERPRINT`, `biometryAny`, `biometryCurrentSet`, `userPresence`, `NSFaceIDUsageDescription`,
-  `setUserAuthenticationRequired`. (Mevcut `face[_-]?id` / `touch[_-]?id` zaten bir kısmını yakalar — ölç, tekrarlama.)
+  `setUserAuthenticationRequired`; passkey API'leri (platform kimlik doğrulayıcısı biyometriyi açar):
+  `ASAuthorizationPlatformPublicKeyCredentialProvider`, `androidx.credentials`, `CreatePublicKeyCredentialRequest`.
+  (Mevcut `face[_-]?id` / `touch[_-]?id` / `webauthn` zaten bir kısmını yakalar — ölç, tekrarlama.)
 - R2'ye: `ACCESS_BACKGROUND_LOCATION`, `foregroundServiceType="location"` (ve `FOREGROUND_SERVICE_LOCATION`),
   `requestLocationUpdates`, `GeofencingClient`, `requestAlwaysAuthorization`, `allowsBackgroundLocationUpdates`,
   `startMonitoringSignificantLocationChanges`, `startMonitoring(for:`, `CLCircularRegion`, `UIBackgroundModes` içinde
@@ -674,7 +676,7 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 
 ## M16-19 — Şema: canlı QR ekranları ve `qr_live` kanal envanteri
 
-- **Bağımlılık:** M16-10 · Q38, Q39
+- **Bağımlılık:** M16-10 · Q38, Q39, Q43 (holding `qr_live`)
 - **Kırmızı çizgi:** §4.3, §4.5, §4.6, §6
 - **Araç:** agent `tappa-db-migrator` · **Mercek: iki**
 - **Commit:** `feat(db): add live QR displays and the qr_live channel`
@@ -735,6 +737,10 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
 göstermesi.
 
 **Kabul kriterleri.**
+- **Eşleşme kodunun gücü:** kod ya en az **64 bit** rastgeledir, ya da kısa bir kodsa (yazılabilir olsun diye)
+  **IP başına ve tenant başına deneme sınırı** taşır — `internal/httpx/ratelimit.go`'da kendi limiter'ı — ve her
+  başarısız deneme `audit_log`'a yazılır (kod değeri yazılmadan, CLAUDE.md §7). Seçenek: ekran oturumunu lokasyonun
+  IP aralığına bağlamak (ADR 0044 Bedel 5) — kart ölçer, gerekçesiyle seçer.
 - Panel: lokasyon sayfasında *"Add a live QR screen"* → tek kullanımlık eşleşme kodu (kısa ömürlü); ekranlar listesi
   ve iptal; her eşleme ve iptal `audit_log`.
 - Ekran sayfası (Go ikilisinden, uygulama gerekmez): kodu girer → ekran oturumu (HttpOnly çerez, DB'de özet) → QR
@@ -752,7 +758,7 @@ göstermesi.
 
 ## M16-21 — `qr_live` karar motorunda
 
-- **Bağımlılık:** M16-20
+- **Bağımlılık:** M16-20 · Q43 (holding `qr_live`)
 - **Kırmızı çizgi:** §5 (normatif), §4.6, CLAUDE.md §8
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(tap): accept a live QR as a channel`
@@ -782,12 +788,13 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     `checkin.go:1796-1813` site sütunlarını yalnız plaketin tenant'ı oturumunkinden farklıyken yazar):
     - **yerel:** `qr_live` + IP → satır yazılır, verdict `ok`, `location_id` = ekranın lokasyonu, `tag_uid` NULL,
       `site_tenant_id` / `site_location_id` / `site_tag_uid` NULL;
-    - **holding** (ADR 0027 kuralı açıksa): `site_tenant_id` = ekranın tenant'ı, `site_location_id` dolu, `site_tag_uid`
+    - **holding** (Q43 *açık* cevaplanırsa): `site_tenant_id` = ekranın tenant'ı, `site_location_id` dolu, `site_tag_uid`
       NULL, `location_id` / `tag_uid` NULL — `transactions_site_by_channel`'ın (`00043:139-142`) M16-19'da eklenen
       `qr_live` kolu ve M16-19'un üçüncü çözümleyicisi.
   - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
-    durumu (ADR 0027 — KM çalışanı KF ekranında) statik QR'ın holding kuralına (`sys:cross-tenant-qr-site-ip`) göre
-    ya açılır ya kapalı kalır, gerekçesiyle; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
+    durumu (ADR 0027 — KM çalışanı KF ekranında) yapıcının seçimi **değildir**: **Q43'ün cevabına** bağlıdır. Açıksa
+    ADR 0027 §2 değişikliği (holding definer'ının kapsamı, CLAUDE.md §4.5'in *"kullanıcı onayı + ADR 0027 değişikliği
+    ister"* kuralı) **bu kartın teslimidir**; kapalıysa holding `qr_live` reddedilir ve aşağıdaki kapalı dal ölçülür; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
     üçüncü koluyla uyumlu.
   - **`/v1` `tagId`:** `qr_live` olayında `null` (şema zaten `["string", "null"]`, `openapi.yaml:1130-1133`; açıklaması
     *"also for a QR punch"* der) — anlamı açıklamaya yazılır (Q38).
@@ -811,7 +818,7 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     kuralıdır, mekanizmanın sınırı değil.
   - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — akış tetikleyicilerinin `qr_live`'ı bir
     `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlayan dört kolu: `00067:193` (yerel `ok`), `:234` (yerel
-    onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri ADR 0027 kuralı `qr_live`'a **açıksa**
+    onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri Q43 **açık** cevaplanırsa
     parite ölçer. **Kapalıysa parite değil şu ölçülür** — holding kuralı statik `qr`'yi hiç reddetmez (K-1g,
     `sys:cross-tenant-qr-site-ip`: IP ile `ok`, IP'siz `flag`), bu yüzden bu dalda `qr` hücresi referans değildir:
     `qr_live` reddi bir `transactions` satırı yazar (§4.6) · `punch_events`'e olay girmez · `site_punches` satırı
@@ -915,6 +922,10 @@ kalkışı).
 - Sonuç kaydedilir (öneri: `device_attested`); **`policy_context`'e girmez**, güven puanını ve verdict'i değiştirmez
   (`TestDecide_` regresyonu: aynı girdiler, attestation var/yok → aynı karar).
 - Apple/Google'a giden her çağrı gizlilik bildirimine yazılır (M16-27).
+- CLAUDE.md §7 *"Asla loglanmaz"* listesi genişler: Play Integrity çözme/doğrulama anahtarları (Q37 (b) seçilirse),
+  ham Play Integrity token'ı, App Attest attestation ve assertion nesneleri, cihaz açık anahtarı ve parmak izi; anahtar
+  env'leri `internal/config`'in `namedKeys()` kapısına girer; log testi bunları hiçbir log satırında ve `audit_log`
+  `detail`'inde bulamaz.
 - Attestation başarısızlığı dokunuşu bloklamaz (§4.6).
 
 ## M16-26 — Raporlar ve panelde cihaz listesi; Faz E kapanışı
@@ -957,7 +968,9 @@ tek cihazı iptal edebilmek.
   sahte konum bayrağı, attestation sonucu), **toplanmayan** (biyometri, arka plan konum, reklam kimliği, analitik).
   Yayın operatör yüzeyinden (`/operator/legal`) kullanıcı tarafından.
 - App Store gizlilik etiketi ve Play *Data safety* formunun cevap taslağı, her satır bir kod yerine bağlı.
-- Pazarlama cümleleri Q42'nin cevabına göre (`web/templates/pages/*view.go` olgu sistemi, `FactTapPageNeedsNoApp`).
+- Pazarlama cümleleri Q42'nin cevabına göre (`web/templates/pages/*view.go` olgu sistemi, `FactTapPageNeedsNoApp`);
+  `docs/handoff.md:27` (slogan), `:54-55` (Connecteam karşılaştırması) ve `:60` (*"app-less akış"* farkı) da Q42'nin
+  cevabıyla bu kartta güncellenir ya da *"kalsın"* ise aynen bırakıldığı yazılır (M16-01 onlara dokunmadı).
 
 ## M16-28 — İmza, iç test dağıtımı, sürüm süreci
 
@@ -993,6 +1006,8 @@ kurmak.
   ikisi de ürünün varlık sebebine aykırı"* gerekçesi (`docs/adr/0005-kabul-edilen-riskler.md:74`) ve risk 2'nin
   *"attestation uygulama ister (app-less vaadi)"* gerekçesi (`:75`) isteğe bağlı uygulamayla yeniden okunur: uygulama
   var ama buddy punching'i çözmez (cihaz anahtarı devretmeyi durdurmaz), attestation yalnız kanıttır (ADR 0044 §2.7).
+  Aynı ekle canlı QR aktarmasının iki kalıcı biçimi kabul edilen risk olarak girer (ADR 0044 Bedel 5): kopyalanan ekran
+  oturumu çerezi / yanlış eşlenmiş ekran ve canlı QR fotoğrafının bir davetliye iletilmesiyle uzaktan aktivasyon.
   `TestADR0005_TheAnchorCountsMatchTheProse` ve `TestADR0005_TheRiskCountMatchesTheTable` yeşil.
 - `state.md`: M16 bitti.
 

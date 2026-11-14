@@ -85,7 +85,9 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
     tamamlama reddedilir ve hiçbir şey tüketilmez (ADR 0026 *"Güvenlik değerlendirmesi"*, ilk madde).
   - *tamamla* (`activate/complete`) bağlı ama etkin olmayan cihazdan gelir; etkin olmayan cihaza nonce verilmez. Tekrar
     koruması SUN'un atomik `ctr`'ıdır — aynı okuma `sun.Verify`'dan ikinci kez geçemez (CLAUDE.md §4.4,
-    `internal/sun`) — ve davetin tek ifadeli tüketimidir; imza bağlı anahtarla.
+    `internal/sun`) — ve davetin tek ifadeli tüketimidir; imza bağlı anahtarla. **Canlı QR'la tamamlama (Faz D,
+    M16-23) bu varyantta `ctr` yoktur:** koruma yalnız davetin tek ifadeli tüketimidir; canlı QR token'ı **tek
+    kullanımlık değildir** (~20 sn içinde herkes okuyabilir).
   (Öneri: kanonik metin = yöntem, yol, gövde özeti, nonce, cihaz kimliği; nonce kısa ömürlü, tek ifadeli atomik
   tüketim — `ctr`'ın disiplini, CLAUDE.md §4.4'ün şekli: `UPDATE … WHERE consumed_at IS NULL … RETURNING`, 0 satır →
   ret.)
@@ -110,7 +112,7 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   *"a signed-out phone tapped"* uyarısının eşi (`internal/handler/tap.go:441-462`, `internal/domain/checkin/checkin.go:79`, `:548` (`OutcomeActivation`));
   deaktive bir çalışanın cihazı ise iptal edilmemiştir, çözülür ve satır 4'ü `employees.status` +
   `sys:employee-deactivated` üretir (`reject` + kayıt + güvenlik uyarısı).
-- **Kişi başına tek "kim" kimlik bilgisi (öneri, Q40).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
+- **Kişi başına tek "kim" kimlik bilgisi (öneri, Q40 açık — kabulle kararlaşmadı).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
   (`internal/handler/activate.go:1068-1077`) uygulamaya genişler: uygulama aktivasyonu tarayıcı oturumlarını, tarayıcı
   aktivasyonu uygulama cihazlarını iptal eder.
 - **İptal yolları tarayıcınınkilerin aynısıdır:** panelin *"telefonlarını çıkar"* eylemi (T59,
@@ -173,7 +175,8 @@ politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan öneris
   - **Plaketsiz tap.** Motor her çözülmüş tap'te bir plaket varsayar (`internal/domain/tap/types.go:471-473`); §5 satır 1,
     lokasyon/tenant çözümü (`resolve_tag_by_uid`), holding dokunuşunun site sütunları ve `/v1` `tagId`'si de öyle.
     `qr_live`'da lokasyon ve tenant token'dan, `00004`'ün `resolve_tag_by_uid`'inin eşi olan dar bir SECURITY DEFINER çözümleyiciyle türer (holding'de başka tenant'ın ekran satırını okuyabilmeli; iptal ekran satırındadır, token'da değil); iptal edilmiş ekran satır 1'in eşidir; token tenant'ı oturum
-    tenant'ıyla eşleşmelidir (holding istisnası statik QR'ın kuralına göre). Ayrıntı M16-21.
+    tenant'ıyla eşleşmelidir; holding dokunuşunun `qr_live`'a açık olup olmadığı **Q43'e bağlıdır** (açıksa ADR 0027
+    §2 değişikliği ve kullanıcı onayı gerekir — CLAUDE.md §4.5'in holding definer kuralı). Ayrıntı M16-21.
   - **Süre dolmuş / imzası bozuk token'ın sonucu** açık soru (Q39).
   - `/v1` punch akışındaki karşılığı açık soru (Q38).
 - **Reddedilenler (plan önerisi):** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
@@ -241,8 +244,11 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
    araç bildirmeyebilir; attestation (Faz E) bunu yalnız **raporlar**.
 5. **Canlı QR aktarılabilir.** ~20 sn içinde bir fotoğraf ya da görüntülü arama ekranı uzaktaki birine taşır.
    Varsayılan politika IP **veya** GPS ister; uzaktaki kişi mekânın IP'sini taşımaz ama GPS sahteleyebilir (A3) →
-   `ok` olabilir. Kabul edilen bir risk olarak ADR 0005'e eklenir (append kuralı; `TestADR0005_TheRiskCountMatchesTheTable`
-   sayıyı tabloyla eşler).
+   `ok` olabilir. Aynı ailenin iki kalıcı biçimi: **kopyalanan ekran oturumu çerezi ya da yanlış eşlenmiş bir ekran**
+   aktarmayı kalıcı yapar (ekran her yerde açılabilir); **canlı QR'ın fotoğrafını bir davetliye iletmek** NFC'siz
+   aktivasyonu uzaktan tamamlatır (M16-23). Seçenek olarak ekran oturumunu lokasyonun IP aralığına bağlamak (M16-20
+   ölçer). Kabul edilen riskler olarak ADR 0005'e eklenir (append kuralı; aktarma M16-21, iki kalıcı biçim M16-29;
+   `TestADR0005_TheRiskCountMatchesTheTable` sayıyı tabloyla eşler).
 6. **Kanal sözlüğünü genişletmek geniş bir yüzeydir — ölçüldü (okundu, `70e8a016`).** `nfc|qr|manual` kapalı
    sözlüğü 10 migration'da (`00005`, `00043`, `00044`, `00046`, `00048`, `00049`, `00050`, `00067`, `00068`, `00095`),
    2 sorgu dosyasında (`transactions.sql`, `daycutoff.sql`) ve Go'da hem `nfc`/`qr`'yi sayan hem `manual`'ı dışlayan
@@ -304,6 +310,8 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
 ### Kabul notu (2026-11-14, kullanıcı kararları)
 
 1. **ADR 0044 olduğu gibi kabul edildi.** Bu belgede *"plan önerisi"* diye işaretli maddeler bu kabulle karardır —
+   **açık bir soruya bağlı maddeler hariç** (Q35–Q43; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40, holding `qr_live`
+   → Q43): onlar soru cevaplanana kadar öneri kalır —
    ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
    `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2). Önerilen adlar (ör.
    `base:mock-location-review`, `/app/v1` uç noktaları) kartlarda yine yapıcının ölçümüyle kesinleşir.
@@ -312,6 +320,6 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
 4. **Ön koşullar:** Apple Developer ve Google Play hesapları **hazır**; uygulamalar **Everva Bilişim** hesaplarından
    yayımlanır. Apple Team ID henüz bilinmiyor — **kullanıcıdan alınacak** (M16-08, M16-15). Paket/bundle kimliği açık
    kalır (Q35). Test cihazları ve personel telefon envanteri (M8-07) **hazır diye bildirilmedi** — açık.
-5. Açık sorular Q35–Q42 bu kabulde **cevaplanmadı**; her biri blokladığı kartla `open-questions.md`'de *"açık —
+5. Açık sorular Q35–Q42 (ve M16-01 denetiminde eklenen Q43) bu kabulde **cevaplanmadı**; her biri blokladığı kartla `open-questions.md`'de *"açık —
    bloklar M16-xx"* durumundadır. Q42 açık olduğu için `docs/handoff.md`'nin sloganı ve *"app-less akış"* cümleleri
    değişmedi (M16-01 kartının kuralı).

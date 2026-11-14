@@ -23,7 +23,7 @@
 | HTML | **templ** (tip güvenli) + **HTMX** | tek binary, SPA yok |
 | CSS | **Tailwind standalone CLI** | **Node YOK** — `.tools/tailwindcss` ikilisi |
 | Deploy | tek VPS (AB bölgesi) + managed Postgres | mikroservis YOK |
-| Mobil (isteğe bağlı) | **iOS Swift/SwiftUI · Android Kotlin/Jetpack Compose** — `mobile/ios/`, `mobile/android/`, Go modülü dışında | tarayıcı akışının yerine geçmez; üçüncü parti SDK yok (Firebase, analitik, çökme SDK'sı yok), her bağımlılık önce sorulur (ADR 0044) |
+| Mobil (isteğe bağlı) | **iOS Swift/SwiftUI · Android Kotlin/Jetpack Compose** — `mobile/ios/`, `mobile/android/` (M16-15 / M16-11'de doğar), Go modülü dışında | tarayıcı akışının yerine geçmez; üçüncü parti SDK yok (Firebase, analitik, çökme SDK'sı yok), her bağımlılık önce sorulur (ADR 0044) |
 | Encode rölesi | Android Kotlin — `android/`, Go modülü dışında ayrı Gradle build | plaket kodlama aracı; Kotlin/Gradle zincirinin ilk açılımı (ADR 0017) |
 
 **Node/npm/node_modules bu repoda ASLA yer almaz.** Bir çözüm Node gerektiriyorsa, o
@@ -146,8 +146,9 @@ web/templates/        .templ dosyaları
 web/static/           css/img/js — Go binary'sine embed edilir
 android/              plaket encode rölesi (ADR 0017) — personel uygulaması DEĞİL; Go modülü dışında ayrı Gradle build
 mobile/ios/           isteğe bağlı personel uygulaması, Swift/SwiftUI (ADR 0044); Go modülü dışında
+                      (M16-15'te doğar)
 mobile/android/       isteğe bağlı personel uygulaması, Kotlin/Compose (ADR 0044); Go modülü dışında,
-                      `android/`'den ayrı build
+                      `android/`'den ayrı build (M16-11'de doğar)
 deploy/k8s/42-api-ingress.yaml  `api.taptime.mt` → yalnız `/v1` (M11 API-13a); `TAPPA_API_HOST` (05-config) ile
                       **aynı değişiklikte** gelir, rollout beklemesinden **sonra** uygulanır, DNS-only.
 docs/adr/             mimari kararlar (NNNN-baslik.md)
