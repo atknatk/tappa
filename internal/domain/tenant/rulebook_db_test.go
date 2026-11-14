@@ -485,3 +485,86 @@ func TestRulebookDB_AnUnreadableDocumentReportsTheWholeLayerAsSilenced(t *testin
 			clean.GuardrailsOnly, clean.Unreadable)
 	}
 }
+
+// TestRulebookDB_AnAddedRuleIsAnnouncedToABusinessSetUpBeforeIt is M16-06 / ADR 0045
+// Bedel 10 on the screen: a business whose stored baseline predates 2026-11-14 is told
+// about base:mock-location-review on the rule itself -- while it still reads "Not set up
+// yet" and after its next tap stored it -- and no other rule carries the sentence. A
+// business set up from this release, and one with nothing stored, are told nothing.
+func TestRulebookDB_AnAddedRuleIsAnnouncedToABusinessSetUpBeforeIt(t *testing.T) {
+	var mockName string
+	var mockDoc policy.Document
+	for _, d := range policy.Baseline() {
+		if d.Document.Statements[0].Sid == policy.SidMockLocationReview {
+			mockName, mockDoc = d.Name, d.Document
+		}
+	}
+	add, ok := policy.BaselineAddition(mockName)
+	if mockName == "" || !ok {
+		t.Fatal("this binary does not ship and announce the mock-location rule")
+	}
+	addedOn := func(t *testing.T, f *rulebookFixture, tenantID uuid.UUID) (map[string]string, map[string]RuleState) {
+		t.Helper()
+		screen, err := f.rules.Screen(context.Background(), tenantID)
+		if err != nil {
+			t.Fatalf("Screen: %v", err)
+		}
+		added, states := map[string]string{}, map[string]RuleState{}
+		for _, r := range screen.Baseline {
+			added[r.Name], states[r.Name] = r.Added, r.State
+		}
+		return added, states
+	}
+	store := func(t *testing.T, f *rulebookFixture, tenantID uuid.UUID, stamp string, withMock bool) {
+		t.Helper()
+		for _, d := range policy.Baseline() {
+			if d.Name == mockName && !withMock {
+				continue
+			}
+			doc := d.Document
+			doc.Version = stamp
+			raw, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			f.storePolicy(t, tenantID, d.Name, "baseline", true, raw, nil)
+		}
+	}
+
+	t.Run("set up before the addition", func(t *testing.T) {
+		f := newRulebookFixture(t)
+		store(t, f, f.tenantID, "2026-10-18", false)
+		added, states := addedOn(t, f, f.tenantID)
+		if states[mockName] != StateNotProvisioned || added[mockName] != add.Summary {
+			t.Fatalf("before the next tap: %q, added %q; want not provisioned and announced", states[mockName], added[mockName])
+		}
+		for name, a := range added {
+			if name != mockName && a != "" {
+				t.Fatalf("%q carries the addition's sentence", name)
+			}
+		}
+		// The next tap stores it, stamped with this release.
+		raw, err := json.Marshal(mockDoc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		f.storePolicy(t, f.tenantID, mockName, "baseline", true, raw, nil)
+		added, states = addedOn(t, f, f.tenantID)
+		if states[mockName] != StateActive || added[mockName] != add.Summary {
+			t.Fatalf("after the next tap: %q, added %q; want in force and still announced", states[mockName], added[mockName])
+		}
+	})
+	t.Run("set up from this release", func(t *testing.T) {
+		f := newRulebookFixture(t)
+		store(t, f, f.tenantID, policy.BaselineVersion, true)
+		if added, _ := addedOn(t, f, f.tenantID); added[mockName] != "" {
+			t.Fatalf("a business set up with the rule is told it was added: %q", added[mockName])
+		}
+	})
+	t.Run("nothing stored", func(t *testing.T) {
+		f := newRulebookFixture(t)
+		if added, _ := addedOn(t, f, f.tenantID); added[mockName] != "" {
+			t.Fatalf("a business with nothing stored is told the rule was added: %q", added[mockName])
+		}
+	})
+}

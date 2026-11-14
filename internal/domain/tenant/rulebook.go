@@ -297,6 +297,14 @@ type Rule struct {
 	// would change for THIS rule. Empty when the stored copy is current, when the
 	// newer baseline did not touch this document, and for a tenant-authored rule.
 	Changes []string
+	// Added is the announcement of a managed document a release ADDED to the
+	// baseline (policy.BaselineAddition) -- set only for a business that was set up
+	// BEFORE that release, i.e. that holds a stored baseline document stamped
+	// earlier than the addition. It is not a Change: an added document has no older
+	// copy to replace; it is materialised on the business's next tap without an
+	// accept step (ADR 0045 Bedel 10), so this is how the business is told. It is
+	// set both while the rule still reads "Not set up yet" and after.
+	Added string
 	// Statements are the rules in force, read from the STORED document -- never
 	// from the shipped one, even for a managed rule where both are to hand. The
 	// record pins a policy_version_id, so showing the binary's document beside the
@@ -738,6 +746,7 @@ func (r *Rulebook) assemble(
 	for _, doc := range policy.Baseline() {
 		out.Baseline = append(out.Baseline, r.baselineRule(doc, stored, containers, history, scope))
 	}
+	announceAdditions(out.Baseline)
 
 	// The tenant's own layer, ordered (name, id) -- the same tiebreak
 	// checkin.tenantPolicies applies, so the panel lists them in the order the
@@ -1034,6 +1043,30 @@ func (r *Rulebook) baselineRule(
 		}
 	}
 	return rule
+}
+
+// announceAdditions sets Rule.Added on every managed rule a release added after
+// this business was set up. "Set up before" is read from the stamps the business
+// holds: the oldest stamp inside a stored baseline document is when its baseline
+// was first written, so an addition shipped after it reached the business without
+// being there at the start. A business with nothing stored yet has no stamp and is
+// told nothing -- every rule reads "Not set up yet" and the next tap writes them all
+// at once, the new one among them.
+func announceAdditions(rules []Rule) {
+	oldest := ""
+	for _, r := range rules {
+		if r.StoredStamp != "" && (oldest == "" || r.StoredStamp < oldest) {
+			oldest = r.StoredStamp
+		}
+	}
+	if oldest == "" {
+		return
+	}
+	for i := range rules {
+		if a, ok := policy.BaselineAddition(rules[i].Name); ok && a.Version > oldest {
+			rules[i].Added = a.Summary
+		}
+	}
 }
 
 // storedRule renders one stored policy row.

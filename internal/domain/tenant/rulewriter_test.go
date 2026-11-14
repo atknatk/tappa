@@ -21,7 +21,7 @@ import (
 // fixedAuthority is a PolicyAuthority that hands back whatever Set the test names.
 type fixedAuthority struct{ set policy.Set }
 
-func (f fixedAuthority) StoredSet(context.Context, uuid.UUID) policy.Set { return f.set }
+func (f fixedAuthority) PanelSet(context.Context, uuid.UUID) policy.Set { return f.set }
 
 // errDatabaseReached is what a write returns when it got past the gate.
 //

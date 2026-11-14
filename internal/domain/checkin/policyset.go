@@ -358,6 +358,71 @@ func (s *Service) StoredSet(ctx context.Context, tenantID uuid.UUID) policy.Set 
 	return s.policies.stored(ctx, tenantID)
 }
 
+// PanelSet is the set the panel's authorisation gates read (tenant.PolicyAuthority):
+// StoredSet, after first completing a baseline this business ALREADY HOLDS with any
+// shipped document it is missing.
+//
+// 🔴 WHY THE PANEL WRITES AT ALL, WHEN StoredSet EXISTS SO IT DOES NOT. A release that
+// ADDS a baseline document (2026-11-14: base:mock-location-review, ADR 0045 Bedel 10)
+// leaves every existing business one document short, and stored() is all-or-nothing,
+// so from the deploy until that business's next tap its owner was refused policy:edit
+// and the manager invitation (measured: StoredSet returned 0 baseline policies for a
+// business holding the nine 2026-10-18 documents). A business that does not tap would
+// stay locked out. The tap path closes the gap with materialise; this runs the SAME
+// materialise -- the same statements, the same derived ids, the same T121 race
+// discipline -- so a panel request and a tap racing on one business write ONE row per
+// document (TestPolicySetDB_PanelAndTapCompletingTheBaselineTogetherWriteItOnce).
+//
+// 🔴 AND IT NEVER PROVISIONS A BUSINESS, which is the objection StoredSet answers. It
+// writes only when the business already holds at least one stored baseline document --
+// a business that has been set up, by a tap, and is short of what a later release
+// added. A business with nothing stored is left exactly as it is
+// (TestPolicySetDB_StoredSetProvisionsNobody and its PanelSet twin): setting it up is
+// sign-up provisioning's job (M7-03), not a page view's. What it writes is what the
+// next tap would write anyway, so it moves the moment, not the content.
+//
+// ALL-OR-NOTHING IS UNTOUCHED: whatever happens here, the answer is stored()'s. A
+// completion that fails is logged and the gate answers on what is stored -- the
+// guardrails alone for an incomplete rulebook, i.e. a refusal, which is the gate's
+// safe direction. It is a WARN, not EventPolicyFallback: no tap is involved, and
+// rule 8 counts taps (EventPolicyFallback's doc).
+func (s *Service) PanelSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
+	return s.policies.panel(ctx, tenantID)
+}
+
+func (p policySets) panel(ctx context.Context, tenantID uuid.UUID) policy.Set {
+	if rows, err := p.load(ctx, tenantID); err == nil && holdsBaseline(rows) {
+		if _, missing := assembleBaseline(rows); len(missing) > 0 {
+			if err := p.materialise(ctx, tenantID, missing); err != nil {
+				p.log.WarnContext(ctx, "checkin: completing a stored baseline for the panel failed; answering on what is stored",
+					append([]any{"tenant_id", tenantID, "missing", len(missing), "err", err}, pgErrorAttrs(err)...)...)
+			} else if after, err := p.load(ctx, tenantID); err == nil {
+				// SAID ONLY WHEN SOMETHING WAS WRITTEN. A stored document this release cannot
+				// parse also counts as missing, and writing it again is a no-op (version 1
+				// exists), so without the re-read this line would claim a completion on every
+				// page view of such a business. The count is what the re-read no longer misses.
+				if _, still := assembleBaseline(after); len(still) < len(missing) {
+					p.log.InfoContext(ctx, "checkin: completed a stored baseline for the panel",
+						"tenant_id", tenantID, "documents", len(missing)-len(still), "baseline_version", policy.BaselineVersion)
+				}
+			}
+		}
+	}
+	// A load failure above is not reported here: stored() loads again and says so.
+	return p.stored(ctx, tenantID)
+}
+
+// holdsBaseline reports whether the business has any stored baseline document -- the
+// line between completing a business that was set up and provisioning one that was not.
+func holdsBaseline(rows []store.ListPolicySetRow) bool {
+	for _, r := range rows {
+		if policy.Layer(r.Layer) == policy.LayerBaseline {
+			return true
+		}
+	}
+	return false
+}
+
 func (p policySets) stored(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	set := p.guardrailsOnly()
 	rows, err := p.load(ctx, tenantID)

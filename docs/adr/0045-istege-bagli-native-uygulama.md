@@ -291,6 +291,20 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
     uygulamanın gönderdiği bir anahtarda eşleştiği için uygulamasız tenant'ta hiçbir sonucu değiştirmez; yine de
     `BaselineVersion` artar ve `BaselineChanges` bir duyuru taşır (`TestBaseline_ContentIsPinnedToItsStamp` bunu
     zorlar).
+
+    > **M16-06 uygulama notu (2026-11-14) — karar (d), ana oturum.** Ölçüldü: panelin yetki okuması
+    > (`checkin.Service.StoredSet`) *hepsi ya da hiç* olduğu için, eklenen bir belge var olan her işletmede sahibin
+    > `policy:edit`'ini ve müdür davetini **bir sonraki dokunuşa kadar** reddettiriyordu (9 belgeli işletmede
+    > `StoredSet` 0 baseline politikası döndü). Karar: panelin sahip kapısı (`tenant.PolicyAuthority` →
+    > `checkin.Service.PanelSet`) önce eksik belgeleri **tap yolunun aynı materialiser'ıyla** (`materialise` — aynı
+    > ifadeler, aynı türetilmiş kimlikler, T121'in hedefsiz `ON CONFLICT`'i) yazar, sonra `stored()` ile cevaplar.
+    > Sınırlar: **yalnız saklı bir baseline'ı zaten olan** tenant'ta, **yalnız eksik** belgeler; müdür
+    > `sys:policy-edit-owner-only` guardrail aşamasında, **hiçbir okuma ve yazmadan önce** reddedilir; **hiçbir şeyi
+    > saklı olmayan** tenant provisioning görmez — M6-09'un *"panel materialise etmez"* kararı korunur
+    > (`docs/plan/m6-dashboard.md:5643`). Yazılan, bir sonraki dokunuşun yazacağı satırların aynısıdır; değişen
+    > yalnız an. Testler: `TestPolicySetDB_TheOwnerOfAnExistingBusinessIsNotLockedOutByAnAddedRule`,
+    > `TestPolicySetDB_PanelSetProvisionsNobody`, `TestPolicySetDB_PanelAndTapCompletingTheBaselineTogetherWriteItOnce`,
+    > `TestPolicySetDB_AManagersQuestionWritesNothing`.
 11. **Cihaz anahtarı kaybolur.** Telefon sıfırlama, yeni telefon ya da yedekten geri yükleme anahtarı taşımaz
     (bilinçli: *ThisDeviceOnly*). Çalışan yeniden aktive olur (yeni davet ya da müdür onayı).
 12. **Attestation dışa bağımlıdır.** App Attest Apple'a, Play Integrity Google'a bağlıdır; Play Integrity için

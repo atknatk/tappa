@@ -484,6 +484,28 @@ type Input struct {
 	// Channel is the SERVER-DERIVED arrival path (see Channel). Never a client flag.
 	Channel Channel
 
+	// Client is the SERVER-DERIVED client that wrote this tap (see Client): the
+	// endpoint that accepted the request names it, never the body. Decide hands it
+	// to the policy context as tap:client so a tenant can write a rule about it; on
+	// its own it changes no verdict and no trust score (M16-06). The zero value, or
+	// any value outside Clients, puts no key in the context -- the same "no client"
+	// the record's NULL says (checkin's clientColumn).
+	Client Client
+
+	// MockLocation is the native app's report of whether the position it sent came
+	// from a mock provider (Android Location.isMock, iOS isSimulatedBySoftware —
+	// ADR 0045 §2.4), or nil when no report was made. A browser cannot make one, so
+	// every browser tap is nil, and nil puts NO key in the policy context: a
+	// missing key never matches (M3-04), which is what keeps every browser outcome
+	// exactly as it was. A non-nil value is recorded as tap:mockLocation.
+	//
+	// ⚠️ IT IS A CLIENT REPORT, like the GPS fix it describes, and the one input
+	// here whose VALUE the server does not derive (the server only decides that the
+	// app's endpoint may carry it). It is therefore only ever read in the direction
+	// that hurts the claimant: base:mock-location-review sends true to review, and
+	// nothing treats false as evidence. Trust (20 + 50 + 30) does not read it.
+	MockLocation *bool
+
 	// SUN is the proof-of-moment fact (see SUNResult). For a QR/manual tap it is the
 	// zero value (Valid=false); §5 line 2 reads it only for the nfc channel.
 	SUN SUNResult

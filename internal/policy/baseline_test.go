@@ -9,7 +9,7 @@ import (
 )
 
 // This file proves the M3-06 acceptance criteria for the Tappa-managed baseline
-// (baseline.go): each of the eight tap-evidence statements yields its documented
+// (baseline.go): each of the nine tap-evidence statements yields its documented
 // effect when guardrails are present but do not match; the authorization allows
 // prevent the fail-closed panel lockout of a fresh tenant; base: is reserved from
 // tenant documents; ctr-gap-review is resource-scoped and overridable; a tenant
@@ -72,8 +72,8 @@ func benignTap(overlay map[ContextKey]any, resources ...string) Context {
 
 // --- (1) each baseline statement, guardrails present but not matching ---------
 
-// TestBaseline_EachStatementEffect proves every one of the seven DECIDING tap
-// statements produces its documented effect (the eighth, base:cross-location-note,
+// TestBaseline_EachStatementEffect proves every one of the eight DECIDING tap
+// statements produces its documented effect (the ninth, base:cross-location-note,
 // decides nothing -- TestBaseline_CrossLocationIsANoteNotAVerdict) when the full guardrail list runs
 // first and none of them match. Each case isolates ONE baseline document so the
 // deciding MatchedSid is unambiguous.
@@ -98,6 +98,8 @@ func TestBaseline_EachStatementEffect(t *testing.T) {
 			map[ContextKey]any{CtxTapCtrGap: float64(1)}, EffectReview},
 		{"gps conflict -> review", SidGPSConflictReview,
 			map[ContextKey]any{CtxTapGPSConflict: true}, EffectReview},
+		{"mock location reported -> review", SidMockLocationReview,
+			map[ContextKey]any{CtxTapMockLocation: true}, EffectReview},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,6 +197,24 @@ func TestBaseline_Composition(t *testing.T) {
 		{"clean ip tap -> allow", map[ContextKey]any{
 			CtxTapIPMatch: true, CtxTapGPSMatch: false},
 			EffectAllow, SidIPOrGPSOK},
+		// ADR 0045 §2.4: a mock-location report out-restricts BOTH evidence allows.
+		{"ip match + mock location -> review", map[ContextKey]any{
+			CtxTapIPMatch: true, CtxTapGPSMatch: false, CtxTapMockLocation: true},
+			EffectReview, SidMockLocationReview},
+		{"gps only + mock location -> review", map[ContextKey]any{
+			CtxTapIPMatch: false, CtxTapGPSMatch: true, CtxTapMockLocation: true},
+			EffectReview, SidMockLocationReview},
+		// A report of "not mock" is no evidence and changes nothing.
+		{"ip match + mock location false -> allow", map[ContextKey]any{
+			CtxTapIPMatch: true, CtxTapGPSMatch: false, CtxTapMockLocation: false},
+			EffectAllow, SidIPOrGPSOK},
+		{"gps only + mock location false -> allow", map[ContextKey]any{
+			CtxTapIPMatch: false, CtxTapGPSMatch: true, CtxTapMockLocation: false},
+			EffectAllow, SidGPSOnlyAllow},
+		// Both reviews match: the document order names the server's own measurement.
+		{"gps conflict + mock location -> review via the conflict", map[ContextKey]any{
+			CtxTapIPMatch: true, CtxTapGPSMatch: false, CtxTapGPSConflict: true, CtxTapMockLocation: true},
+			EffectReview, SidGPSConflictReview},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,7 +392,7 @@ func TestBaseline_AllSidsPresentOnce(t *testing.T) {
 	want := []string{
 		SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview, SidQRRequiresIP,
 		SidCrossLocationNote, SidQueuedWindow, SidCtrGapReview, SidGPSConflictReview,
-		SidAuthzOwner, SidAuthzManager,
+		SidMockLocationReview, SidAuthzOwner, SidAuthzManager,
 	}
 	seen := map[string]int{}
 	for _, bd := range Baseline() {
