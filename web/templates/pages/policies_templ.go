@@ -463,7 +463,7 @@ func policyIntro(v PoliciesView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "    <p class=\"text-sm text-ink/85\">You are seeing this page read-only: the rules engine does not currently grant you the <span class=\"font-mono\">policy:edit</span> authority, so no controls are shown. The rules below tell you which of three things it is: your business&#39;s rules may not have been set up yet (every one of them reads “Not set up yet”); one of them may be stored in a form this release cannot read, which stops the whole rulebook and is said at the top of this page; or they are fine and this authority is not yours. Only an organisation owner is ever granted it.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "    <p class=\"text-sm text-ink/85\">You are seeing this page read-only: the rules engine does not currently grant you the <span class=\"font-mono\">policy:edit</span> authority, so no controls are shown. The rules below tell you which of three things it is: your business&#39;s rules may not all have been set up yet (any that is not reads “Not set up yet”); one of them may be stored in a form this release cannot read, which stops the whole rulebook and is said at the top of this page; or they are fine and this authority is not yours. Only an organisation owner is ever granted it.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

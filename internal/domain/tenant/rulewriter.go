@@ -11,10 +11,12 @@ package tenant
 // MATERIALISES the managed baseline, so a panel request would have written rows
 // into an append-only table for any tenant somebody merely looked at.
 //
-// That objection is answered rather than argued with. checkin.Service.StoredSet
-// reads the SAME rulebook the tap path decides on and writes NOTHING, so the gate
-// costs one SELECT and cannot provision anybody. See authorise for the two stages
-// and for why the first one exists.
+// That objection is answered rather than argued with. checkin.Service.PanelSet
+// reads the SAME rulebook the tap path decides on (StoredSet's all-or-nothing read)
+// and cannot provision anybody: the one thing it writes is a document a later
+// release ADDED, for a business that already holds a baseline -- what its next tap
+// would write anyway (ADR 0045 Bedel 10). See authorise for the two stages and for
+// why the first one exists.
 //
 // 🔴 THE GATE IS HERE AND NOT IN internal/handler, WHICH IS A STRUCTURAL CHOICE.
 // A gate in the handler is a gate the NEXT handler can forget; a gate inside the
@@ -154,13 +156,17 @@ type Actor struct {
 // PolicyAuthority is the rulebook this package asks before it writes, declared
 // HERE at the consumer (§7).
 //
-// ONE METHOD, AND IT IS THE ONE THAT DOES NOT WRITE. The concrete type behind it
-// (checkin.Service) has a forTenant that materialises; that method is not on this
-// interface and cannot be reached through it, which is what keeps "a refused
-// request writes nothing" a property of the wiring rather than of the care taken
-// at the call site.
+// ONE METHOD, AND IT NEVER PROVISIONS A BUSINESS. The concrete type behind it
+// (checkin.Service) has a forTenant that materialises a whole baseline; that method
+// is not on this interface. PanelSet writes in ONE case only: a business that already
+// holds a stored baseline and is missing a document a later release added (ADR 0045
+// Bedel 10), which it completes with the tap path's own materialiser -- otherwise the
+// owner of every existing business would be refused policy:edit from a deploy until
+// the next tap (checkin.Service.PanelSet). A business with nothing stored is written
+// nothing, so "a refused request does not provision a business" stays a property of
+// the wiring.
 type PolicyAuthority interface {
-	StoredSet(ctx context.Context, tenantID uuid.UUID) policy.Set
+	PanelSet(ctx context.Context, tenantID uuid.UUID) policy.Set
 }
 
 // Audit actions for the rulebook. They follow the `<subject>.<past participle>`
@@ -292,8 +298,9 @@ func policyEditContext(tenantID uuid.UUID, actor Actor) policy.Context {
 // that call evaluates an EMPTY set on purpose (to print a default) and returns deny
 // for every action including this one.
 //
-// STAGE 2 -- THE STORED RULEBOOK, READ WITHOUT MATERIALISING. See
-// checkin.Service.StoredSet.
+// STAGE 2 -- THE STORED RULEBOOK, NEVER PROVISIONED FROM HERE. See
+// checkin.Service.PanelSet: it completes a baseline the business already holds with a
+// document a later release added, and writes nothing for a business with none.
 //
 // THE SENTINEL IS DERIVED, NOT SPELLED. "a guardrail actually fired" is told from
 // "nothing matched" by comparing the matched sid with the sid an EMPTY set returns
@@ -346,7 +353,7 @@ func (w *RuleWriter) refusalFor(ctx context.Context, tenantID uuid.UUID, actor A
 		// A guardrail matched. Terminal, so no stored set can widen it.
 		return &refusal{Stage: "guardrail", Sid: d.MatchedSid}
 	}
-	set := w.authority.StoredSet(ctx, tenantID)
+	set := w.authority.PanelSet(ctx, tenantID)
 	if d := policy.Evaluate(set, in); d.Effect != policy.EffectAllow {
 		return &refusal{
 			Stage:  "rulebook",
@@ -1320,8 +1327,9 @@ func isUniqueViolation(err error) bool {
 // May asks -- policy:edit on this business, the policy engine's -- with one difference the user decided
 // on 2026-10-27: a business whose stored rulebook is EMPTY (never materialised -- no tap yet) is asked
 // against the SHIPPED baseline, where the owner holds policy:edit, instead of being refused by the
-// fail-closed default. Nothing is written on this path (no materialisation from a panel request -- the
-// StoredSet rule), and no action is added to the closed vocabulary. A business with ANY stored row is
+// fail-closed default. Nothing is provisioned on this path (no business is set up from a panel request --
+// PanelSet's rule; it only completes a stored baseline with a later release's added document), and no
+// action is added to the closed vocabulary. A business with ANY stored row is
 // decided by what is stored, exactly as May: a rulebook with an unreadable document still refuses.
 //
 // The guardrail stage first, as in refusalFor: sys:policy-edit-owner-only refuses a non-owner
@@ -1336,7 +1344,7 @@ func (w *RuleWriter) MayInviteManager(ctx context.Context, tenantID uuid.UUID, a
 	if d := policy.Evaluate(policy.Set{Guardrails: guardrails}, in); d.MatchedSid != noPolicyAtAll.MatchedSid {
 		return false
 	}
-	if policy.Evaluate(w.authority.StoredSet(ctx, tenantID), in).Effect == policy.EffectAllow {
+	if policy.Evaluate(w.authority.PanelSet(ctx, tenantID), in).Effect == policy.EffectAllow {
 		return true
 	}
 	var stored int

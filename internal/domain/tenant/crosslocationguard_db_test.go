@@ -501,7 +501,7 @@ type lockoutProbeAuthority struct {
 	between func()
 }
 
-func (a *lockoutProbeAuthority) StoredSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
+func (a *lockoutProbeAuthority) PanelSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	a.n++
 	if a.n == a.at {
 		a.between()

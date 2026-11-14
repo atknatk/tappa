@@ -31,8 +31,9 @@ import (
 // including for a refusal. What is true of THIS file is that the section's GET renders
 // and asks the engine one question (panelScribe.May) and changes nothing. The point
 // worth stating is WHY rendering had to stay that way, and the gate reads through
-// checkin.Service.StoredSet — the non-materialising path — so even a REFUSED write
-// provisions nobody: the other assembler of a tenant's policy layer (internal/domain/checkin)
+// checkin.Service.PanelSet — which never provisions a business (it only completes a
+// stored baseline with a document a later release added, ADR 0045 Bedel 10) — so even a
+// REFUSED write provisions nobody: the other assembler of a tenant's policy layer (internal/domain/checkin)
 // MATERIALISES the managed baseline when it finds it missing — a policy, a version and
 // an attachment for every shipped document — because a tap that cannot name a policy_versions row
 // cannot be recorded. A panel screen that reused it would write those rows for any
@@ -101,6 +102,25 @@ var policiesHref = mustSectionHref(pages.TabPolicies)
 func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	id := httpx.AdminOf(r)
 
+	// 🔴 THE ENGINE IS ASKED ONCE PER RENDER, AND IT IS THE SAME QUESTION THE WRITE
+	// PATH ASKS. panelScribe.May evaluates `policy:edit` for this admin against the
+	// tenant's STORED rulebook (checkin.Service.PanelSet), so the controls a page
+	// offers and the acts the server will accept cannot disagree. Hiding a control is
+	// the courtesy; tenant.RuleWriter.authorise is the guarantee, and it runs again on
+	// every POST.
+	//
+	// IT IS ASKED BEFORE THE SCREEN IS READ (M16-06). PanelSet completes a stored
+	// baseline that is short of a document a later release added; read the screen first
+	// and the first visit after such a deploy grants the controls beside a rule still
+	// shown as "Not set up yet" -- a rule that, by then, is set up.
+	//
+	// ⚠️ IT COSTS ONE EXTRA SELECT — the same ListPolicySet the screen runs, in its own
+	// transaction. That is counted rather than optimised away: the alternative is
+	// re-deriving the answer from the screen's own parsed rules, which would be a
+	// second representation of the engine's decision on the one page whose job is to
+	// show what the engine decides.
+	mayEdit := a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
+
 	screen, err := a.rules.Screen(r.Context(), id.TenantID())
 	if err != nil {
 		// §4.6: say the read failed. Do NOT fall through to a page with no rules on it.
@@ -111,19 +131,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.PoliciesView{PanelChrome: a.chrome(r, pages.TabPolicies)}
 	v.Kicker = policiesKicker
-	// 🔴 THE ENGINE IS ASKED ONCE PER RENDER, AND IT IS THE SAME QUESTION THE WRITE
-	// PATH ASKS. panelScribe.May evaluates `policy:edit` for this admin against the
-	// tenant's STORED rulebook (the non-materialising read), so the controls a page
-	// offers and the acts the server will accept cannot disagree. Hiding a control is
-	// the courtesy; tenant.RuleWriter.authorise is the guarantee, and it runs again on
-	// every POST.
-	//
-	// ⚠️ IT COSTS ONE EXTRA SELECT — the same ListPolicySet the screen already ran, in
-	// its own transaction. That is counted rather than optimised away: the alternative
-	// is re-deriving the answer from the screen's own parsed rules, which would be a
-	// second representation of the engine's decision on the one page whose job is to
-	// show what the engine decides.
-	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
+	v.MayEdit = mayEdit
 	v.ProblemHeading, v.Problem, v.ProblemTone = policyProblem(r.URL.Query().Get("problem"))
 	fillPoliciesView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
@@ -176,10 +184,17 @@ func policyProblemSentence(word string) string {
 		// is refused and lands here. The page then said three different things at once:
 		// a document cannot be read (top), there are two reasons (intro), and this is
 		// reserved for owners (here).
+		//
+		// "ANY RULE", NOT "EVERY RULE" (M16-06). Every rule reads "Not set up yet" for a
+		// business with nothing stored, and that still reaches here (the panel provisions
+		// nobody). A business short only of a rule a later release ADDED is completed by
+		// the gate first (checkin.Service.PanelSet) and is not refused; if that completion
+		// fails, ONE rule reads "Not set up yet" and the incomplete rulebook is the reason --
+		// which "every" would have denied.
 		return "The rules engine does not grant you the policy:edit authority right now, so " +
 			"nothing was changed. There are two reasons that happens and the rules below tell " +
 			"them apart: your business's rules may not be set up yet, or they are and this " +
-			"authority is not yours — only an organisation owner is ever granted it. If every " +
+			"authority is not yours — only an organisation owner is ever granted it. If any " +
 			"rule below reads “Not set up yet”, or the page says one of them cannot be read, " +
 			"that is the reason rather than your role. The attempt has been written to your " +
 			"audit trail."
