@@ -83,6 +83,7 @@ var plainNotFoundRoots = []string{
 	firstPathSegment(httpx.HealthPath),     // healthz
 	firstPathSegment(httpx.ReadyPath),      // readyz
 	firstPathSegment(DevSimulateTapPath),   // dev: the dev-only tap simulator
+	firstPathSegment(AppTapPath),           // app: the native app's signed surface (M16-07)
 }
 
 // apiCheckinPath is the tap's JSON endpoint (tap.go mounts it; /api/activate shares its

@@ -181,3 +181,39 @@ DELETE FROM app_request_nonces
 WHERE tenant_id = @tenant_id
   AND device_id = @device_id
   AND (consumed_at IS NOT NULL OR expires_at <= now());
+
+-- name: LockAppDeviceForNonce :one
+-- The FIRST statement of IssueNonce's transaction (M16-07): it takes the device row's lock before
+-- any nonce row is touched -- the revocation's order (device row, then nonce rows; M16-03's D1) --
+-- and it is what makes the live-nonce cap atomic: two issues of one device queue here, so the
+-- drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
+-- FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
+-- closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
+-- UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00104).
+SELECT d.id
+FROM app_devices AS d
+WHERE d.id = @id
+  AND d.tenant_id = @tenant_id
+  AND d.revoked_at IS NULL
+FOR NO KEY UPDATE;
+
+-- name: DropOldestLiveAppRequestNonces :execrows
+-- The live-nonce cap (M16-07, appdevice.MaxLiveNonces): deletes every live nonce of one device
+-- but the @keep newest, so the insert that follows leaves at most @keep + 1. OVER THE CAP THE
+-- OLDEST GOES AND THE REQUEST IS NEVER REFUSED (M16-05 review: a refusal would let whoever can
+-- sign for the device keep the real phone from getting a nonce). Fail-closed like the dead sweep:
+-- a deleted nonce can only ever be a reject. ⚠️ ATOMIC ONLY AFTER LockAppDeviceForNonce in the
+-- same transaction -- on its own this is a read-then-write over the device's nonces.
+DELETE FROM app_request_nonces AS n
+WHERE n.tenant_id = @tenant_id
+  AND n.device_id = @device_id
+  AND n.id IN (
+      SELECT o.id
+      FROM app_request_nonces AS o
+      WHERE o.tenant_id = @tenant_id
+        AND o.device_id = @device_id
+        AND o.consumed_at IS NULL
+        AND o.expires_at > now()
+      ORDER BY o.created_at DESC, o.id DESC
+      OFFSET @keep::int
+  );

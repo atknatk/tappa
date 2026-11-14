@@ -296,12 +296,51 @@ func (c tapContexts) payload(t tapContext) string {
 // a context is usable only from the browser it was served to while the id stays
 // out of the page.
 func (c tapContexts) sign(payload string, sessionID uuid.UUID) []byte {
+	return c.signFor(payload, sessionID.String())
+}
+
+// signFor is sign over a HOLDER string: the browser's is the session id's canonical form (the
+// bytes sign always wrote, so a deployed context still verifies), the native app's is
+// appDeviceHolder's -- "app-device:" + the device id (M16-07). No UUID's string starts with that
+// prefix, so the two spaces are disjoint: a context minted for a device does not verify for a
+// session with the same 128 bits, nor the other way round.
+func (c tapContexts) signFor(payload, holder string) []byte {
 	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(tapContextMACLabel))
 	_, _ = m.Write([]byte(payload))
 	_, _ = m.Write([]byte("|"))
-	_, _ = m.Write([]byte(sessionID.String()))
+	_, _ = m.Write([]byte(holder))
 	return m.Sum(nil)
+}
+
+// appDeviceHolder is the holder a native-app tap context is bound to (POST /app/v1/tap/start
+// mints it, POST /app/v1/tap parses it): the VERIFIED device's id, behind a prefix no session id
+// can carry. The context is then usable only by a request that device signed -- the app's twin of
+// "only from the browser it was served to".
+func appDeviceHolder(deviceID uuid.UUID) string { return "app-device:" + deviceID.String() }
+
+// mintForDevice is mint for a native-app device (M16-07): the SAME payload, label, key, TTL and
+// clock -- the tap context is the browser's structure exactly, so sys:tap-freshness reads the same
+// stamp -- bound to appDeviceHolder instead of a session.
+func (c tapContexts) mintForDevice(t tapContext, deviceID uuid.UUID) (string, error) {
+	if c.key.Len() == 0 {
+		return "", errors.New("handler: tap contexts were not configured")
+	}
+	if deviceID == uuid.Nil {
+		return "", errors.New("handler: refusing to sign a tap context with no device")
+	}
+	t.IssuedAt = c.clock().Truncate(time.Second)
+	p := c.payload(t)
+	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." +
+		base64.RawURLEncoding.EncodeToString(c.signFor(p, appDeviceHolder(deviceID))), nil
+}
+
+// parseForDevice is parse for a native-app device: the same checks in the same order.
+func (c tapContexts) parseForDevice(v string, deviceID uuid.UUID) (tapContext, error) {
+	if deviceID == uuid.Nil {
+		return tapContext{}, errTapContextSignature
+	}
+	return c.parseHeld(v, appDeviceHolder(deviceID))
 }
 
 // mint stamps t with the server clock and returns the form-field value.
@@ -332,11 +371,19 @@ func (c tapContexts) mint(t tapContext, sessionID uuid.UUID) (string, error) {
 // unauthenticated value is ever acted on — and expiry comes before decoding for
 // the same reason in miniature.
 func (c tapContexts) parse(v string, sessionID uuid.UUID) (tapContext, error) {
+	if sessionID == uuid.Nil {
+		if c.key.Len() == 0 {
+			return tapContext{}, errors.New("handler: tap contexts were not configured")
+		}
+		return tapContext{}, errTapContextSignature
+	}
+	return c.parseHeld(v, sessionID.String())
+}
+
+// parseHeld is parse's body over a holder string (signFor).
+func (c tapContexts) parseHeld(v, holder string) (tapContext, error) {
 	if c.key.Len() == 0 {
 		return tapContext{}, errors.New("handler: tap contexts were not configured")
-	}
-	if sessionID == uuid.Nil {
-		return tapContext{}, errTapContextSignature
 	}
 	encoded, sig, ok := strings.Cut(v, ".")
 	if !ok || encoded == "" || sig == "" {
@@ -352,7 +399,7 @@ func (c tapContexts) parse(v string, sessionID uuid.UUID) (tapContext, error) {
 	}
 	// Constant time, never == or bytes.Equal (redline R7). ConstantTimeCompare
 	// returns 0 for differing lengths, so a truncated signature cannot match.
-	if subtle.ConstantTimeCompare(got, c.sign(string(raw), sessionID)) != 1 {
+	if subtle.ConstantTimeCompare(got, c.signFor(string(raw), holder)) != 1 {
 		return tapContext{}, errTapContextSignature
 	}
 

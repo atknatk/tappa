@@ -22,6 +22,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/appdevice"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
@@ -78,6 +79,9 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+func (silentDB) GetAppDeviceByID(context.Context, uuid.UUID) (db.ResolvedAppDevice, error) {
+	return db.ResolvedAppDevice{}, errSilent
+}
 
 // M14-17: the registration drafts' four calls (adminauth.SignupClaimDatabase).
 func (silentDB) OpenSignupClaim(context.Context, string, string, []byte, string, time.Time) (uuid.UUID, error) {
@@ -174,6 +178,7 @@ func (silentDB) GetIdentityResetByTokenHash(context.Context, string) (db.Resolve
 type appFeatures struct {
 	activation *handler.Activation
 	tap        *handler.Tap
+	app        *handler.App
 	panel      *handler.AdminAuth
 	logos      *handler.BrandLogos
 	marketing  *handler.Marketing
@@ -188,7 +193,7 @@ type appFeatures struct {
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
 }
 
 func (f appFeatures) named() []struct {
@@ -199,7 +204,7 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"app", f.app}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"devtools", f.devTools},
@@ -270,6 +275,10 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, log)
 	must(err)
+	devices, err := appdevice.New(data)
+	must(err)
+	app, err := handler.NewApp(devices, invites, verifier, directory, checkins, activation, trail, cfg, log)
+	must(err)
 	admins, err := adminauth.New(data, cfg)
 	must(err)
 	records, err := ledger.NewReader(data, log)
@@ -313,7 +322,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	ready, err := handler.NewHealth(data.Ping, log)
 	must(err)
 	f := appFeatures{
-		activation: activation, tap: tap, panel: panel, logos: logos,
+		activation: activation, tap: tap, app: app, panel: panel, logos: logos,
 		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
 	}
@@ -418,15 +427,24 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /admin/employees/sign-out": true,
 	}
 	outsidePanel := map[string]string{
-		"POST /activate":        "activation",
-		"POST /api/activate":    "activation",
-		"POST /api/checkin":     "tap",
-		"POST /api/claim":       "tap",
-		"POST /admin/reset":     "reset",
-		"POST /admin/reset/new": "reset",
-		"POST /signup":          "signup",
-		"POST /signup/places":   "signup",
-		"POST /signup/account":  "signup",
+		"POST /activate":     "activation",
+		"POST /api/activate": "activation",
+		"POST /api/checkin":  "tap",
+		"POST /api/claim":    "tap",
+		// M16-07: the native app's signed surface -- the tap's and the activation's twin, outside
+		// the panel and, like the tap, without a suspension gate (ADR 0025, ADR 0045 §2.3).
+		"POST " + handler.AppActivateLookupPath:   "app",
+		"POST " + handler.AppActivateBindPath:     "app",
+		"POST " + handler.AppActivateCompletePath: "app",
+		"POST " + handler.AppNoncePath:            "app",
+		"POST " + handler.AppTapStartPath:         "app",
+		"POST " + handler.AppTapPath:              "app",
+		"POST " + handler.AppRevokePath:           "app",
+		"POST /admin/reset":                       "reset",
+		"POST /admin/reset/new":                   "reset",
+		"POST /signup":                            "signup",
+		"POST /signup/places":                     "signup",
+		"POST /signup/account":                    "signup",
 		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.

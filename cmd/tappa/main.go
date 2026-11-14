@@ -43,6 +43,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/appdevice"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/buildinfo"
 	"github.com/atknatk/tappa/internal/config"
@@ -415,6 +416,18 @@ func run() error {
 		return err
 	}
 	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+	// The native app's signed surface (M16-07, ADR 0045 §2.3): the tap's and the activation's
+	// TWIN -- the same checkin service, the same directory, the same invitation manager and the
+	// same sun verifier (the activating tap advances the counter, as CompleteByTap does; the tap
+	// preview does not). The "who" is a device key, verified by internal/appdevice.
+	devices, err := appdevice.New(data)
+	if err != nil {
+		return err
+	}
+	app, err := handler.NewApp(devices, invites, verifier, directory, checkins, activation, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -1025,7 +1038,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

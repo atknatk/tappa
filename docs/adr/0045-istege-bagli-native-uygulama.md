@@ -113,9 +113,22 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   *"a signed-out phone tapped"* uyarısının eşi (`internal/handler/tap.go:441-462`, `internal/domain/checkin/checkin.go:79`, `:548` (`OutcomeActivation`));
   deaktive bir çalışanın cihazı ise iptal edilmemiştir, çözülür ve satır 4'ü `employees.status` +
   `sys:employee-deactivated` üretir (`reject` + kayıt + güvenlik uyarısı).
-- **Kişi başına tek "kim" kimlik bilgisi (öneri, Q40 açık — kabulle kararlaşmadı).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
+- **Kişi başına tek "kim" kimlik bilgisi — karar (kullanıcı, 2026-11-14, Q40 (a)).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
   (`internal/handler/activate.go:1068-1077`) uygulamaya genişler: uygulama aktivasyonu tarayıcı oturumlarını, tarayıcı
-  aktivasyonu uygulama cihazlarını iptal eder.
+  aktivasyonu uygulama cihazlarını iptal eder; **deaktivasyon hiçbirini iptal etmez** (2026-08-07). Davet linki
+  (`/activate`) uygulamaya **bağlanmaz**: tarayıcıda açılır, uygulama aktivasyonu kendi ekranından davet **kodunu** alır.
+
+  > **M16-07 uygulama notu (2026-11-14).** Ölçülen şekil: iki yarı da davetin **tüketildiği transaction'dadır** — geri
+  > alınan bir aktivasyon hiçbir şeyi iptal etmez. Tarayıcı yarısı: `invite.Manager.Activate` tüketimden sonra aynı
+  > transaction'da `RevokeAppDevicesForEmployee`'yi koşar (sayısı `activation.completed` satırının
+  > `app_devices_revoked`'ında). Uygulama yarısı: `invite.Manager.ActivateDevice` tek transaction'da tüketir, kişinin
+  > tarayıcı oturumlarını (`RevokeSessionsForEmployee`) ve eski uygulama cihazlarını iptal eder, sonra yeni cihazı
+  > `CreateAppDevice` ile **etkin** doğurur; `app_devices_key_digest_key` 23505'i bütün transaction'ı geri alır
+  > (`new_key_required`, davet harcanmaz). Bağ (`bind`) davetin var olan `consent_binding_hash`'ine yazılır — migration
+  > gerekmedi: bağ değeri, sunucunun çektiği 256 bitlik meydan okuma + aktivasyon kimliği + açık anahtardan türetilen
+  > 43 karakterlik bir değerdir (`appdevice.ActivationBinding`), tamamlamanın imzası o meydan okuma üzerindedir
+  > (`appdevice.VerifyActivation` — `CreateAppDevice`'tan önceki sahiplik kanıtı). Testler:
+  > `TestAppDB_OneWhoCredentialPerPerson`, `TestAppDB_ARegisteredKeyAsksForANewKeyAndSpendsNothing`.
 - **İptal yolları tarayıcınınkilerin aynısıdır:** panelin *"telefonlarını çıkar"* eylemi (T59,
   `internal/handler/employeeactions.go:690`) ve tek cihaz iptali (M16-26 — yeni bir yazma yolu) uygulama cihazını
   kapatır; **ikisi de deaktive bir kişide reddedilir** (`tenant.ErrSignOutDeactivated`,
@@ -335,7 +348,7 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
    ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
    `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2).
    **İstisna:** açık bir soruya bağlı maddeler (Q35–Q42; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40) o soru
-   cevaplanana kadar öneri kalır. Holding `qr_live` Q43'ün cevabıyla (2026-11-14) karardır: kapalı, site sütunları dolu. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
+   cevaplanana kadar öneri kalır. (Q40 2026-11-14'te **(a)** cevaplandı; §2.3'ün maddesi artık karardır — M16-07.) Holding `qr_live` Q43'ün cevabıyla (2026-11-14) karardır: kapalı, site sütunları dolu. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
    uç noktaları) kartlarda yine yapıcının ölçümüyle kesinleşir.
 2. **Dal `plan/m16-mobil` push edildi; `main`'e birleştirilmedi.**
 3. **Sıra:** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından **D, E, F**.

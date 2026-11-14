@@ -1170,6 +1170,8 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 			Device:       issued.Session.DeviceInfo,
 			TagUID:       tap.UID,
 			LocationID:   tap.LocationID.String(),
+			// Q40 (a): the consuming transaction signed the person's app out (invite.Activate).
+			AppDevicesRevoked: act.AppDevicesRevoked,
 		},
 	})
 
@@ -1332,6 +1334,14 @@ type activationDetail struct {
 	// SAME tenant as the row.
 	TagUID     string `json:"tag_uid,omitempty"`
 	LocationID string `json:"location_id,omitempty"`
+	// Client is "app" on a row the native app's activation wrote (M16-07); empty for the
+	// browser's, so every row written before the app existed reads the same.
+	Client string `json:"client,omitempty"`
+	// AppDevicesRevoked is how many of the person's app devices an activation revoked (Q40 (a),
+	// 2026-11-14: one "who" credential per person); AppDeviceID the device an app activation
+	// created.
+	AppDevicesRevoked int    `json:"app_devices_revoked,omitempty"`
+	AppDeviceID       string `json:"app_device_id,omitempty"`
 }
 
 // rejectCode is the single exit for every unusable-code outcome: it records the
@@ -1402,6 +1412,8 @@ var inviteFailureReasons = map[error]string{
 	invite.ErrCodeCancelled:  "cancelled",
 	invite.ErrNotActivatable: "employee_not_activatable",
 	invite.ErrConsentMissing: "consent_missing",
+	// M16-07: the app activation's key is already registered; nothing was consumed.
+	invite.ErrDeviceKeyTaken: "device_key_taken",
 }
 
 // inviteFailureReason resolves err against the table with errors.Is, so a wrapped
@@ -1510,6 +1522,18 @@ func (a *Activation) chargeInvite(ctx context.Context, key string) {
 // budget, and such attempts are bounded by the per-IP window alone (ratelimit.go
 // explains why that is sound only because the code is 256 bits).
 func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip string, ictx invite.Context) bool {
+	if !a.inviteBudgetSpent(r, ip, ictx) {
+		return false
+	}
+	a.renderProblem(w, r, http.StatusTooManyRequests, problemTooMany)
+	return true
+}
+
+// inviteBudgetSpent is overInviteBudget without the answer: the reservation, the once-per-window
+// row and log line, and true when the invitation is over its window. The browser's wizard renders
+// its page on true; the native app's /app/v1/activate/* routes (M16-07) answer JSON -- ONE budget
+// per invitation whichever client presents it.
+func (a *Activation) inviteBudgetSpent(r *http.Request, ip string, ictx invite.Context) bool {
 	if ictx.InviteID == uuid.Nil {
 		return false
 	}
@@ -1550,7 +1574,6 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 		})
 		a.log.Warn("activation rate limited", "scope", "invite", "invite_id", key, "ip", ip)
 	}
-	a.renderProblem(w, r, http.StatusTooManyRequests, problemTooMany)
 	return true
 }
 
@@ -1568,6 +1591,17 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 // floodLimit requests from the same address in the window, and behind a reverse
 // proxy "the same address" is everyone (clientIP; M5-03 owns the fix).
 func (a *Activation) flooded(w http.ResponseWriter, r *http.Request, ip, where string) bool {
+	if !a.floodSpent(ip, where) {
+		return false
+	}
+	a.renderProblem(w, r, http.StatusTooManyRequests, problemTooMany)
+	return true
+}
+
+// floodSpent is flooded without the answer: it charges the address and reports true when it is
+// over the ceiling (logging that once per window). The app's activation routes share this
+// ceiling with the wizard -- one address, one budget (M16-07).
+func (a *Activation) floodSpent(ip, where string) bool {
 	n := a.floodLimiter.Charge(ip)
 	if n <= floodLimit {
 		return false
@@ -1576,7 +1610,6 @@ func (a *Activation) flooded(w http.ResponseWriter, r *http.Request, ip, where s
 		a.log.Warn("activation flood ceiling reached", "ip", ip, "at", where,
 			"limit", floodLimit, "period", floodPeriod.String())
 	}
-	a.renderProblem(w, r, http.StatusTooManyRequests, problemTooMany)
 	return true
 }
 

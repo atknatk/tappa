@@ -555,6 +555,54 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
     - **Handler tarafı kemer:** Go tarafı redline R7 tetikleyicisi yeni handler dosyaları için `nonce`/`signature`'a
       genişletilir (önce gürültü ölçülür); bugün bu kelimeleri yalnız mobil kol (R7M) taşır.
 
+> **Kart düzeltmesi (2026-11-14, M16-07 uygulaması sırasında).** Uç noktalar kesinleşti; sapmalar ve ölçümler:
+> - **Uç noktalar:** `POST /app/v1/activate/lookup` (imzasız; `GET /activate`'in eşi — onay ekranının işvereni, kişiyi,
+>   mekânı ve markayı göstermesi için; **kartta yoktu, eklendi**: GDPR Art. 13'ün veri sorumlusu onaydan önce
+>   gösterilir, M16-12'nin *"onay ekranı (tarayıcı sihirbazının metni, tenant markası)"* maddesi onu ister) · `…/activate/bind`
+>   (imzasız) · `…/activate/complete` (bağlı anahtarla imzalı) · `POST /app/v1/nonce`, `POST /app/v1/tap/start`,
+>   `GET /app/v1/me` (**imzalı okuma**: nonce yerine `App-Timestamp`, kanonik önek `tappa-app-read-v1`, pencere sunucu
+>   saatine göre **±60 sn** — `appdevice.ReadWindow`; kenarlar tabloda ölçüldü) · `POST /app/v1/tap`, `POST /app/v1/revoke`
+>   (nonce'lu imza). Bütün imza retleri **401, boş gövde**; hata gövdesi kapalı sözlük (`internal/handler/app.go`
+>   `appErrors`, 14 kod); her yanıt `no-store`.
+> - **Bağ için migration GEREKMEDİ.** `bind` davetin var olan `consent_binding_hash`'ine yazar (ADR 0026 deseni). Bağ
+>   değeri sunucunun çektiği 32 baytlık meydan okuma + aktivasyon kimliği + açık anahtardan türetilir
+>   (`appdevice.ActivationBinding`, 43 karakter — `invite.Binding`'in şekli). `complete` mevcut `SignedRequest`
+>   biçimindedir: `App-Device-Id` = aktivasyon kimliği, `App-Nonce` = meydan okuma; imza gövdenin adlandırdığı anahtarla
+>   doğrulanır (`appdevice.VerifyActivation`, saf) ve aynı anahtarın bağını verir — **sahiplik kanıtı, sunucunun verdiği
+>   meydan okuma üzerinde, `CreateAppDevice`'tan önce**. 00107 kullanılmadı.
+> - **Sıra `CompleteByTap`'inkidir**, önüne yalnız saf imza denetimi girer: sel tavanı · sahiplik kanıtı · davet + davet
+>   bütçesi · yalnız NFC · ilerletmeyen ön kontrol (aynı tenant, aktif, duvarda) · `sun.Verify` · tek transaction'da
+>   tüketim + oturumlar + eski cihazlar + yeni cihaz (`invite.Manager.ActivateDevice`). `transactions` satırı yok.
+>   Ölçüm: 8 eşzamanlı aynı istek → tam 1 başarı, `last_ctr` +1, tek canlı cihaz
+>   (`TestAppDB_ConcurrentCompletesOfOneReadActivateExactlyOnce`). 23505 → `new_key_required`, davet harcanmaz
+>   (`TestAppDB_ARegisteredKeyAsksForANewKeyAndSpendsNothing`).
+> - **Q40 (a)** iki yarısıyla uygulandı, ikisi de tüketimin transaction'ında (ADR 0045 §2.3 notu).
+> - **Nonce üst sınırı** `appdevice.MaxLiveNonces` = 8: aşılınca en eski düşer, istek reddedilmez. Cihaz satırı önceki bir
+>   ifadede kilitlenir (`LockAppDeviceForNonce`, `FOR NO KEY UPDATE`), sonra `DropOldestLiveAppRequestNonces`, sonra veriş,
+>   sonra ölü süpürme. **Mutasyonla ölçüldü:** kilit ifadesi atlanınca 32 eşzamanlı verişte 20–21 canlı nonce kaldı (test
+>   kırmızı); kilitle ≤ 8. Nonce isteği imzalı olduğu için **yem nonce seçilmedi**; kalan durum kâhini M16-05'in sayılı
+>   sınırıdır (bilinmeyen/iptal edilmiş cihaz imzadan önce reddedilir — ~0,2 ms'lik imza denetimi farkı + DB gürültüsü).
+> - **Oran sınırı:** yüzeyin kendi `httpx.TapLimiter` örneği (JSON 429) — adres kovası her rotanın önünde (kaynak başına
+>   sınır, nonce dahil), cihaz kovası (`AllowDevice`, oturum bütçesi) **yalnız imza doğrulandıktan sonra** (iddia edilen bir
+>   kimliği yakmak gerçek telefonu kilitlerdi). Aktivasyonun üç rotası sihirbazın sel tavanını ve davet bütçesini
+>   **paylaşır** (bir davet, bir bütçe).
+> - **Yönlendirme:** `/app/v1` grubunda ve router'da yol yeniden yazan ara katman yok; gövde ham baytlardır;
+>   `Content-Type`/`Content-Encoding` okunmaz (`TestApp_TheSignedPathIsTheWirePath`, `httpx.NewRouter` üstünden).
+> - **R7'nin uygulama yüzeyi kolu** (`internal/handler/app*.go`: `signature`, `sig`, `nonce`, `challenge`, `public_key`,
+>   `binding`): gürültü önce ölçüldü — 2 isabet, ikisi de mesaj düzyazısı, mesajlar yeniden yazıldı
+>   (`TestRedline_M16_AppSurfaceLogCalls`).
+> - **Q41 ölçümü:** `GET /app/v1/me`'nin plaketsiz tahmini `tenant.Directory.AppHome` → `predictTap`'tir — `GET /t`'nin
+>   aynı fonksiyonu ve aynı kişi-ve-anahtar kapısı; plaket yarısı (`predictionAllowed`) uygulanamaz, gerekçesi
+>   `apphome.go`'da. `TestAppHomeDB_ThePredictionWithoutAPlaqueIsTheTapPagesOwn` her durumda (açık giriş yok/var/eski,
+>   anahtar kapalı/henüz değil, deaktive, işletmenin başka mekânı) `TapPage(predict=true)` ile **birebir aynı** sonucu ölçtü.
+> - **Devredilenler:** (1) iptal edilmiş cihazın WARN satırı **tenant ve çalışan taşımaz** — doğrulayıcı imzadan önce
+>   hiçbir şey atfetmez (M16-05); M16-09'un *"yalnız tenant, çalışan, kanal"* maddesi bu sınırla çelişir, M16-09 karar
+>   verir. (2) Logo baytlarının uygulamaya yolu bu kartta yok — `/me` ve `tap/start` logonun özetini ve kutusunu verir
+>   (M16-13/M16-17). (3) M15-17'nin talep kartı uygulamanın sonuç yanıtında yok (M16-13). (4) Tarayıcının *"Activation
+>   complete"* ekranındaki *"other phone signed out"* yalnız oturumları sayar; uygulama cihazı iptali ekran metnini
+>   değiştirmedi (§9 sorusu).
+> - **CLAUDE.md §5 *"Dört kanıt"* cümlesi** bu kartın işiydi; yapıcı CLAUDE.md'ye dokunmadı, metin ana oturuma önerildi.
+
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 
 - **Bağımlılık:** M16-01 · kullanıcı: Apple Team ID (**kullanıcıdan alınacak** — hesap Everva Bilişim'in), paket

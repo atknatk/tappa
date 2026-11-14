@@ -195,6 +195,42 @@ func (q *Queries) DeleteDeadAppRequestNonces(ctx context.Context, arg DeleteDead
 	return result.RowsAffected(), nil
 }
 
+const dropOldestLiveAppRequestNonces = `-- name: DropOldestLiveAppRequestNonces :execrows
+DELETE FROM app_request_nonces AS n
+WHERE n.tenant_id = $1
+  AND n.device_id = $2
+  AND n.id IN (
+      SELECT o.id
+      FROM app_request_nonces AS o
+      WHERE o.tenant_id = $1
+        AND o.device_id = $2
+        AND o.consumed_at IS NULL
+        AND o.expires_at > now()
+      ORDER BY o.created_at DESC, o.id DESC
+      OFFSET $3::int
+  )
+`
+
+type DropOldestLiveAppRequestNoncesParams struct {
+	TenantID uuid.UUID
+	DeviceID uuid.UUID
+	Keep     int32
+}
+
+// The live-nonce cap (M16-07, appdevice.MaxLiveNonces): deletes every live nonce of one device
+// but the @keep newest, so the insert that follows leaves at most @keep + 1. OVER THE CAP THE
+// OLDEST GOES AND THE REQUEST IS NEVER REFUSED (M16-05 review: a refusal would let whoever can
+// sign for the device keep the real phone from getting a nonce). Fail-closed like the dead sweep:
+// a deleted nonce can only ever be a reject. ⚠️ ATOMIC ONLY AFTER LockAppDeviceForNonce in the
+// same transaction -- on its own this is a read-then-write over the device's nonces.
+func (q *Queries) DropOldestLiveAppRequestNonces(ctx context.Context, arg DropOldestLiveAppRequestNoncesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, dropOldestLiveAppRequestNonces, arg.TenantID, arg.DeviceID, arg.Keep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const issueAppRequestNonce = `-- name: IssueAppRequestNonce :one
 INSERT INTO app_request_nonces (tenant_id, device_id, nonce_hash, expires_at)
 SELECT d.tenant_id, d.id, $1::text, now() + make_interval(secs => $2::int)
@@ -239,6 +275,34 @@ func (q *Queries) IssueAppRequestNonce(ctx context.Context, arg IssueAppRequestN
 	var i IssueAppRequestNonceRow
 	err := row.Scan(&i.ID, &i.ExpiresAt)
 	return i, err
+}
+
+const lockAppDeviceForNonce = `-- name: LockAppDeviceForNonce :one
+SELECT d.id
+FROM app_devices AS d
+WHERE d.id = $1
+  AND d.tenant_id = $2
+  AND d.revoked_at IS NULL
+FOR NO KEY UPDATE
+`
+
+type LockAppDeviceForNonceParams struct {
+	ID       uuid.UUID
+	TenantID uuid.UUID
+}
+
+// The FIRST statement of IssueNonce's transaction (M16-07): it takes the device row's lock before
+// any nonce row is touched -- the revocation's order (device row, then nonce rows; M16-03's D1) --
+// and it is what makes the live-nonce cap atomic: two issues of one device queue here, so the
+// drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
+// FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
+// closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
+// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00104).
+func (q *Queries) LockAppDeviceForNonce(ctx context.Context, arg LockAppDeviceForNonceParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockAppDeviceForNonce, arg.ID, arg.TenantID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const revokeAppDevice = `-- name: RevokeAppDevice :one

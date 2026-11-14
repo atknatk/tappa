@@ -32,6 +32,7 @@ import (
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Database is the narrow slice of *db.DB this package needs, declared HERE at
@@ -644,7 +645,38 @@ type Activation struct {
 	// this activation — a new phone (or an attacker with the link). The caller
 	// must revoke the older sessions; see the decision note on Activate.
 	SecondDeviceReplaced bool
+	// AppDevicesRevoked is how many of the person's native-app devices the consuming
+	// transaction revoked (Q40 (a), the user's decision of 2026-11-14: one "who"
+	// credential per person -- a browser activation signs the app out, an app
+	// activation signs the browser out). Zero for a person who had none.
+	AppDevicesRevoked int
 }
+
+// DeviceParams is the native-app device an app activation creates (ActivateDevice).
+// PublicKey is the raw uncompressed P-256 point the request's signature was ALREADY
+// verified under (appdevice.VerifyActivation) -- the proof of possession comes before
+// this package is reached, and CreateAppDevice only after it (the M16-03 review).
+type DeviceParams struct {
+	Platform  string
+	PublicKey []byte
+	// Label is the coarse label ("iPhone"), or nil.
+	Label *string
+}
+
+// DeviceActivation is a completed APP activation: the Activation, the device it
+// created, and the browser sessions it revoked.
+type DeviceActivation struct {
+	Activation
+	DeviceID        uuid.UUID
+	SessionsRevoked int
+}
+
+// ErrDeviceKeyTaken: the app activation's key is already registered -- live or
+// revoked, in any business (00104's global app_devices_key_digest_key). NOTHING was
+// consumed: the 23505 rolled the whole transaction back, the invitation and the
+// person's other credentials included. The app generates a NEW key pair and binds
+// again (the M16-03 review: "yeni anahtar üret").
+var ErrDeviceKeyTaken = errors.New("invite: this device key is already registered")
 
 // Activate spends the code and flips the employee to 'active'. Since ADR 0026 it
 // backs the FIRST NFC TAP (GET /t with a pending activation), not the consent
@@ -674,7 +706,101 @@ type Activation struct {
 // when it returns nothing, this function classifies the failure from the facts
 // the resolver already returned, purely so audit_log can say WHY. The visitor is
 // told the same thing either way.
+//
+// 🔴 Q40 (a) -- THE BROWSER HALF (the user's decision of 2026-11-14): the consuming
+// transaction also revokes every live native-app device of the person
+// (RevokeAppDevicesForEmployee), so "activated in this browser" implies "no app
+// device of theirs is live" -- one "who" credential per person. It is in the SAME
+// transaction as the consumption, so a rolled-back activation revokes nothing.
+// Deactivation still revokes nothing (2026-08-07): this runs only on a consumption,
+// and the consuming statement refuses a deactivated person.
 func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, error) {
+	return m.consume(ctx, c, b, func(ctx context.Context, q *store.Queries, out *Activation) error {
+		ids, e := q.RevokeAppDevicesForEmployee(ctx, store.RevokeAppDevicesForEmployeeParams{
+			TenantID: out.TenantID, EmployeeID: out.EmployeeID,
+		})
+		if e != nil {
+			return fmt.Errorf("invite: revoke the app devices: %w", e)
+		}
+		out.AppDevicesRevoked = len(ids)
+		return nil
+	})
+}
+
+// ActivateDevice is the APP activation (ADR 0045 §2.3, M16-07): Activate's consumption
+// -- the same statement, the same binding rule, the same classification -- and, IN THE
+// SAME TRANSACTION, Q40 (a)'s app half and the device's birth:
+//
+//	consume       the code and the binding the app's bind recorded (one statement)
+//	sessions      every live browser session of the person is revoked
+//	              (RevokeSessionsForEmployee): one "who" credential per person
+//	app devices   every live app device of the person is revoked too -- a new phone
+//	              replaces the old one, as ADR 0026's second device does
+//	device        CreateAppDevice: the new device, born ACTIVE (00104)
+//
+// One transaction, so either all of it happened or none: a 23505 on the key
+// (ErrDeviceKeyTaken) rolls the consumption back with the revocations, and the person
+// keeps the credentials they had. Order inside it is load-bearing in one place only:
+// the revocations run BEFORE the insert, so the new device is not among the revoked.
+//
+// The caller has verified the request's signature under d.PublicKey before calling
+// (appdevice.VerifyActivation); this function does not see a signature.
+func (m *Manager) ActivateDevice(ctx context.Context, c Code, b Binding, d DeviceParams) (DeviceActivation, error) {
+	var (
+		deviceID uuid.UUID
+		sessions int
+	)
+	act, err := m.consume(ctx, c, b, func(ctx context.Context, q *store.Queries, out *Activation) error {
+		sids, e := q.RevokeSessionsForEmployee(ctx, store.RevokeSessionsForEmployeeParams{
+			TenantID: out.TenantID, EmployeeID: out.EmployeeID,
+		})
+		if e != nil {
+			return fmt.Errorf("invite: revoke the sessions: %w", e)
+		}
+		sessions = len(sids)
+		ids, e := q.RevokeAppDevicesForEmployee(ctx, store.RevokeAppDevicesForEmployeeParams{
+			TenantID: out.TenantID, EmployeeID: out.EmployeeID,
+		})
+		if e != nil {
+			return fmt.Errorf("invite: revoke the app devices: %w", e)
+		}
+		out.AppDevicesRevoked = len(ids)
+		row, e := q.CreateAppDevice(ctx, store.CreateAppDeviceParams{
+			TenantID:    out.TenantID,
+			EmployeeID:  out.EmployeeID,
+			Platform:    d.Platform,
+			PublicKey:   d.PublicKey,
+			DeviceLabel: d.Label,
+		})
+		if e != nil {
+			var pg *pgconn.PgError
+			if errors.As(e, &pg) && pg.Code == "23505" && pg.ConstraintName == "app_devices_key_digest_key" {
+				return ErrDeviceKeyTaken
+			}
+			return fmt.Errorf("invite: create the app device: %w", e)
+		}
+		deviceID = row.ID
+		return nil
+	})
+	if err != nil {
+		return DeviceActivation{Activation: act}, err
+	}
+	return DeviceActivation{Activation: act, DeviceID: deviceID, SessionsRevoked: sessions}, nil
+}
+
+// afterConsumeError marks an error returned by consume's continuation, so it is never
+// mistaken for the consuming statement's "0 rows" (pgx.ErrNoRows) and classified as a
+// refused code.
+type afterConsumeError struct{ err error }
+
+func (e afterConsumeError) Error() string { return e.err.Error() }
+func (e afterConsumeError) Unwrap() error { return e.err }
+
+// consume is Activate's body, shared with ActivateDevice: the resolver, the label read,
+// the ONE consuming statement, and then -- in the same transaction, only after a row was
+// consumed -- the caller's continuation. A continuation error rolls the whole
+// transaction back (the invitation survives) and is returned as is.
+func (m *Manager) consume(ctx context.Context, c Code, b Binding, after func(ctx context.Context, q *store.Queries, out *Activation) error) (Activation, error) {
 	hash, res, err := m.resolve(ctx, c)
 	if err != nil {
 		return Activation{}, err
@@ -761,8 +887,23 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 		// out why: a caller that swallows it and commits spends the code in the
 		// one narrow race the file documents. Propagating rolls the transaction
 		// back and the invitation survives.
-		return e
+		if e != nil {
+			return e
+		}
+		if after != nil {
+			if e := after(ctx, q, &out); e != nil {
+				return afterConsumeError{err: e}
+			}
+		}
+		return nil
 	})
+	var ae afterConsumeError
+	if errors.As(err, &ae) {
+		if errors.Is(ae.err, ErrDeviceKeyTaken) {
+			return out, ErrDeviceKeyTaken
+		}
+		return out, fmt.Errorf("invite: activate: %w", ae.err)
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			out.Status = priorStatus

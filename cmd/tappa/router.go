@@ -39,6 +39,7 @@ import (
 func appRouter(cfg *config.Config, log *slog.Logger,
 	activation *handler.Activation,
 	tap *handler.Tap,
+	app *handler.App,
 	panel *handler.AdminAuth,
 	invite httpx.Mounter,
 	undo httpx.Mounter,
@@ -57,5 +58,5 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	// outside the panel's chains.
 	// undo is the sign-in address change's undo page (T173, the panel's EmailUndo): sessionless, outside
 	// the panel's chains, for the same reason.
-	return httpx.NewRouter(cfg, log, activation, tap, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools)
+	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools)
 }
