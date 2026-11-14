@@ -301,6 +301,21 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 >   FAIL verir. Bugün muafiyet **eklenmedi** (satır yok); gerekirse M16-11 onu **yola ve satıra bağlı**, gerekçeli bir
 >   muafiyetle yazar (R7d'nin sha256'lı satır muafiyeti deseni) — toplu bir `tools:node` süzgeci değil.
 > - R1/R2/R7 `mobile/**/*.md`'yi de tarar (muafiyet yok): `mobile/README.md` yasak API'yi birebir adıyla yazarsa FAIL.
+>
+> **İkinci denetim turu (2026-11-14) — kartın son sertleştirme turu.** Kapatılanlar: konum dizisinin elemanı
+> (`locations.last!`, `.first`, `.last()`) ve `"%s".format(location)` · `code` kökü yalnız **çıplak** (`${response.code}`,
+> `\(error.code)` FAIL değil) · argüman başlı kök (`, x` / `+ x` / ilk argüman) yalnız argüman sınırında biter
+> (`"…, fix acquired: $hasFix"` FAIL değil) · S1'in muafiyeti `android/`'in tamamı değil **röle modülü** (`android/app/` +
+> iki kök Gradle betiği) ve R2 `android/` altındaki her konum iznini FAIL eder (öncül artık mekanik) · S1 `.java` ve
+> `.gradle` · `rg --no-ignore-dot` (`.ignore`/`.rgignore` taramadan düşüremez) · XcodeGen tırnaklı liste
+> (`- "location"`) · Kotlin `while (isActive)`. Zorla eklenmiş ignore'lu dosyalar için ayrı `-ci` çağrısı **gerekmedi**:
+> `--cached` onları zaten listeler (ölçüldü). **Kalan, adıyla sınır:**
+> - Tuist `.array([.string("location")])` biçimi R2'ye görünmez — derlenmiş Info.plist denetimi (M16-15) kapatır.
+> - Bilinen yanlış pozitifler, **M16-11/M16-13 yeniden ölçer:** `mobile/`'da `location` adlı bir HTTP başlığı ·
+>   argüman olarak geçen çıplak `fix`/`loc`/`code`/`qr…` değeri (ör. bir sayaç için `code`) · dize içinde `$code`.
+> - Bilinen yanlış negatifler: alan yolu üzerinden gelen bir davet/eşleşme kodu (`${invite.code}`) — kod adını taşıyan
+>   değişkenler (`inviteCode`, `pairingCode`) tetikleyicilerle yakalanır; uygulama çıplak `code` alanı yerine adlı
+>   değişken kullanır.
 
 ## M16-03 — Şema: `app_devices` ve tek kullanımlık nonce
 
@@ -600,6 +615,10 @@ taramasından geçen boş bir personel uygulaması.
   listesi testi bunu pinler (M16-02 denetimi: tek seferlik API bir zamanlayıcıyla periyodik takibe dönüşebilir ve
   `redline-check.sh` R2'nin periyodik ağı yalnız aynı dosyayı görür).
 
+**Tuzaklar.** UI zamanlayıcıları (ör. `while (isActive)` / `while (true)` ile bir geri sayım coroutine'i,
+`scheduleAtFixedRate`) tap akışındaki konum çağrısıyla **aynı dosyada** olursa `redline-check.sh` R2'nin periyodik ağı
+FAIL verir (M16-02: dosya bazlı ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
+
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
 - **Bağımlılık:** M16-13
@@ -693,6 +712,10 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 - CLAUDE.md §9'a uygulama ekranlarının eşlik cümlesi (bu kartla ya da M16-13 ile — ilk biten).
 - Konum çağrısı (`requestLocation`) **yalnız tap akışı dosyasında**; bir çağrı-yeri izin listesi testi bunu pinler
   (M16-02 denetimi: periyodik bir `requestLocation` takibe dönüşür, R2'nin periyodik ağı yalnız aynı dosyayı görür).
+
+**Tuzaklar.** UI zamanlayıcıları (`Timer.publish(every:)`, `Timer.scheduledTimer(… repeats: true)`) tap akışındaki
+`requestLocation` ile **aynı dosyada** olursa `redline-check.sh` R2'nin periyodik ağı FAIL verir (M16-02: dosya bazlı
+ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 

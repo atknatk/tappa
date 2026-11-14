@@ -188,7 +188,11 @@ scan_in() {
   # agacinda (`.swiftpm/`, `.idea/` gibi) kaynak tasiyan gizli bir dizin taranmazdi.
   # OLCULDU (2026-11-14): bugunku SRC'de gizli dosya yalniz dort bos `.gitkeep` -- bedeli
   # sifir, kural ciktisi tabanla ayni. .gitignore yine uygulanir.
-  out=$(rg -n --no-heading --hidden "${GEN_EXCLUDE[@]}" "$@" "${paths[@]}" 2>&1)
+  # --no-ignore-dot (2. denetim, onceden var olan delik): rg git'in bilmedigi `.ignore` ve
+  # `.rgignore` dosyalarina da uyar; birinin oraya yazdigi bir satir bir dizini TARAMADAN
+  # dusururdu ve git ona hic bakmazdi. Artik yalniz .gitignore uygulanir. OLCULDU: agacta
+  # boyle bir dosya yok, cikti tabanla ayni.
+  out=$(rg -n --no-heading --hidden --no-ignore-dot "${GEN_EXCLUDE[@]}" "$@" "${paths[@]}" 2>&1)
   rc=$?
   if [[ $rc -gt 1 ]]; then
     { echo "${RED}ATLANDI${OFF}: ripgrep taramasi hata verdi (exit $rc) — TARAMA GUVENILIR DEGIL."
@@ -227,29 +231,49 @@ fi
 # mobile/ ISMIYLE istege bagli oldugu icin, ayni uygulama baska bir dizine yazilsa hicbir R
 # kurali onu gormez. Bu bekci isme degil DOSYA TURUNE bakar: commit'lenebilir her dosya
 # (`git ls-files --cached --others --exclude-standard`, R7d ile ayni kume) icinde bir
-# Swift/Kotlin/ObjC kaynagi (.swift .kt .kts .m .mm), bir Android manifesti, bir iOS
-# Info.plist'i ya da Xcode proje/ayar dosyasi (.pbxproj .xcconfig .entitlements) android/
-# ya da mobile/ DISINDAYSA FAIL. Cozum dosyayi tasimak ya da koku SRC'ye eklemektir --
-# muafiyet degil. Yol buyuk/kucuk harf DUYARLI karsilastirilir: `Mobile/` Linux'ta ayri
-# bir dizindir ve CI orada kosar. OLCULDU (2026-11-14): bugunku agacta 0 isabet.
+# Swift/Kotlin/Java/ObjC kaynagi (.swift .kt .kts .java .m .mm), bir Gradle betigi
+# (.gradle, Groovy), bir Android manifesti, bir iOS Info.plist'i ya da Xcode proje/ayar
+# dosyasi (.pbxproj .xcconfig .entitlements) mobile/ ve ROLE MODULUNUN DISINDAYSA FAIL.
+# Cozum dosyayi tasimak ya da koku SRC'ye eklemektir -- muafiyet degil. Yol buyuk/kucuk harf
+# DUYARLI karsilastirilir: `Mobile/` Linux'ta ayri bir dizindir ve CI orada kosar.
+# ROLE MODULU, android/'IN TAMAMI DEGIL (2. denetim): konum ve periyodik kurallar yalniz
+# mobile/'da kosar, cunku "rolede konum olamaz"; android/'in tamami muaf olsaydi
+# `android/staff/` altindaki bir personel uygulamasi yesil gecerdi. Muaf olan yalniz
+# rolenin bugunku duzeni: `android/app/` ve android/'in iki KOK Gradle betigi
+# (build.gradle.kts, settings.gradle.kts -- olculdu, `git ls-files android`). Ayrica R2'nin role kolu android/
+# altindaki her konum iznini FAIL eder; yani oncul artik mekanik.
+# ⚠️ Zorla eklenmis (`git add -f`) ama ignore edilen dosyalar AYRI bir `-ci` cagrisi istemez:
+# `--cached` izlenen her dosyayi --exclude-standard'a bakmadan listeler (olculdu, gecici bir
+# depoda: `build/` ignore, `git add -f build/App.swift` -> listede).
+# OLCULDU (2026-11-14): bugunku agacta 0 isabet; .java ve .gradle dosyasi 0.
 # Pin: cmd/tappa/scripttest TestRedline_M16_AppSourceOutsideTheScannedRoots.
 s1_hits=""
 if ! git ls-files -z --cached --others --exclude-standard >"$R7D_LIST"; then
   echo "${RED}ATLANDI${OFF}: S1 dosya listesi alinamadi (git ls-files) — TARAMA GUVENILIR DEGIL." >&2
   echo 2 >>"$SCAN_ERR"
 else
-  # awk -v kacislari yer: `\.` yerine `[.]`.
+  # Borunun HER iki ucunun cikis kodu okunur ($(...) icinde PIPESTATUS), yani patlayan bir
+  # `tr` bos ve "temiz" bir secim birakmaz.
   s1_hits=$(tr '\0' '\n' <"$R7D_LIST" | awk '
-    /^(android|mobile)\// { next }
-    /[.](swift|kt|kts|m|mm|pbxproj|xcconfig|entitlements)$/ || /(^|\/)(AndroidManifest[.]xml|Info[.]plist)$/ {
-      print $0 ": uygulama kaynagi android/ ve mobile/ disinda -- R1/R2/R7/B1 bu dosyayi taramaz"
-    }') || {
+    /^mobile\// || /^android\/app\// || /^android\/(build|settings)[.]gradle[.]kts$/ { next }
+    /[.](swift|kt|kts|java|gradle|m|mm|pbxproj|xcconfig|entitlements)$/ || /(^|\/)(AndroidManifest[.]xml|Info[.]plist)$/ {
+      print $0 ": uygulama kaynagi mobile/ ve role modulu (android/app/) disinda -- konum ve periyodik kurallar bu dosyayi taramaz"
+    }'; s=("${PIPESTATUS[@]}"); [[ ${s[0]} -eq 0 && ${s[1]} -eq 0 ]]) || {
     echo "${RED}ATLANDI${OFF}: S1 secimi hata verdi (tr/awk) — TARAMA GUVENILIR DEGIL." >&2
     echo 2 >>"$SCAN_ERR"
   }
 fi
-report FAIL S1 "Uygulama kaynagi taranan koklerin disinda — mobil uygulama mobile/ altinda yasar (ADR 0045), role android/ altinda (ADR 0017)" \
+report FAIL S1 "Uygulama kaynagi taranan koklerin disinda — mobil uygulama mobile/ altinda yasar (ADR 0045), role android/app/ altinda (ADR 0017)" \
   "$s1_hits"
+
+# R2'NIN ROLE KOLU (2. denetim): S1'in role muafiyeti ve R7'nin konum koklerinin yalniz
+# mobile/'da kosmasi "rolede konum izni yok" onculune dayanir; bu satir onu mekanik yapar.
+# android/ altindaki herhangi bir dosyada (manifest dahil) ince/kaba/arka plan konum izni
+# FAIL. mobile/android/ bu kola girmez (yol `^android/` ile bagli). OLCULDU: bugun 0 isabet
+# (role manifesti: NFC + INTERNET). Pin: TestRedline_M16_AndroidRelayIsScanned.
+r2_relay=$(scan -e 'ACCESS_(FINE|COARSE|BACKGROUND)_LOCATION' | awk '/^android\// { print }')
+report FAIL R2 "Rolede (android/, ADR 0017) konum izni — role konum okumaz; S1 ve R7'nin konum kurallari bu onculle mobile/'a sinirli" \
+  "$r2_relay"
 
 # --- R1: biyometrik veri -----------------------------------------------------
 #
@@ -447,10 +471,12 @@ R2_LINE='watchPosition|BackgroundGeolocation|(?i:geofenc)|ACCESS_BACKGROUND_LOCA
 # DENETIM EKLERI (M16-02): Swift/JSON sozluk dizisi satirlara bolunmus (Tuist
 # `"UIBackgroundModes": [\n "location",\n ]`) ve plist dizisinin ICINDE (ya da anahtarla
 # dizi arasinda) `<!-- -->` yorumu.
+# 2. denetim: XcodeGen tirnakli blok listesi (`- "location"`). Tuist'in
+# `.array([.string("location")])` yazimi GORUNMEZ (adiyla sinir).
 # ⚠️ SINIR: bu kaynak metne bakar. Derlenmis Info.plist'te (xcconfig, INFOPLIST_KEY_*,
 # Tuist/XcodeGen uretimi) modlar baska yazimla birlesebilir -- olcen sey derleme ciktisidir:
 # M16-15 `plutil -extract UIBackgroundModes` ile denetler (kart kabul kriteri).
-R2_MODES='UIBackgroundModes(?:</key>(?:\s*<!--(?:[^-]|-[^-])*-->)*\s*<array>(?:\s*(?:<string>[^<]*</string>|<!--(?:[^-]|-[^-])*-->))*\s*<string>\s*location\s*</string>|"?[ \t]*[=:][ \t]*[^;<\n]*\blocation\b|"?\s*=\s*\([^)]*\blocation\b|"?\s*[=:]\s*\[[^\]]*\blocation\b|"?:[ \t]*(?:\n[ \t]*-[ \t]*[\w-]+)*\n[ \t]*-[ \t]*location\b)'
+R2_MODES='UIBackgroundModes(?:</key>(?:\s*<!--(?:[^-]|-[^-])*-->)*\s*<array>(?:\s*(?:<string>[^<]*</string>|<!--(?:[^-]|-[^-])*-->))*\s*<string>\s*location\s*</string>|"?[ \t]*[=:][ \t]*[^;<\n]*\blocation\b|"?\s*=\s*\([^)]*\blocation\b|"?\s*[=:]\s*\[[^\]]*\blocation\b|"?:[ \t]*(?:\n[ \t]*-[ \t]*["\x27]?[\w-]+["\x27]?)*\n[ \t]*-[ \t]*["\x27]?location\b)'
 R2_MULTI='startMonitoring\(\s*for\s*:|CLServiceSession\(\s*authorization:\s*\.always'
 report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
   "$( { scan -e "$R2_LINE"; scan -U -e "$R2_MODES" -e "$R2_MULTI"; } || true)"
@@ -465,15 +491,18 @@ report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
 # requestSingleUpdate( · getLastKnownLocation( · lastLocation) VE tekrarlayan bir
 # zamanlayici (repeats: true · Timer.publish( · PeriodicWorkRequest · scheduleAtFixedRate ·
 # scheduleWithFixedDelay · setRepeating( · setInexactRepeating( · makeTimerSource ·
-# repeating: · fixedRateTimer · tickerFlow · ticker( · while (true) / while true) birlikteyse
+# repeating: · fixedRateTimer · tickerFlow · ticker( · while (true) / while true · Kotlin
+# while (isActive)) birlikteyse
 # FAIL. Gercek kapi M16-13/M16-17'nin kabul kriteridir: konum cagrisi yalniz tap akisi
 # dosyasinda, bir cagri-yeri izin listesi testi bunu pinler.
+# ⚠️ BILINEN YANLIS POZITIF: tap akisi dosyasindaki bir UI zamanlayicisi (geri sayim) da FAIL
+# verir -- zamanlayici ayri bir gorunum dosyasinda yasar (M16-13/M16-17 Tuzaklar).
 # ⚠️ SINIRLAR: baska dosyadaki zamanlayici · Handler.postDelayed'in kendini yeniden kurmasi
 # (UI zamanlayicisinda da olagan -- secilmedi) · `Task { while !Task.isCancelled` ·
 # Combine `.timer(`. mobile/ yokken kosmaz. Pin: cmd/tappa/scripttest
 # TestRedline_M16_MobilePeriodicOneShotLocation.
 R2P_ONESHOT='requestLocation\(|getCurrentLocation\(|requestSingleUpdate\(|getLastKnownLocation\(|\blastLocation\b'
-R2P_REPEAT='repeats:\s*true|Timer\.publish\(|PeriodicWorkRequest|scheduleAtFixedRate|scheduleWithFixedDelay|setRepeating\(|setInexactRepeating\(|makeTimerSource|\brepeating:|\bfixedRateTimer\b|\btickerFlow\b|\bticker\(|\bwhile\s*\(?\s*true\b'
+R2P_REPEAT='repeats:\s*true|Timer\.publish\(|PeriodicWorkRequest|scheduleAtFixedRate|scheduleWithFixedDelay|setRepeating\(|setInexactRepeating\(|makeTimerSource|\brepeating:|\bfixedRateTimer\b|\btickerFlow\b|\bticker\(|\bwhile\s*\(?\s*true\b|\bwhile\s*\(\s*isActive\s*\)'
 r2p_hits=""
 if [[ $mobile_present -eq 1 ]]; then
   r2p_one=$(scan_in MOBILE_SRC -l -e "$R2P_ONESHOT")
@@ -2532,22 +2561,33 @@ report FAIL R7 "Sir / kisisel veri mobil log cagrisinda (Swift os_log / Logger /
 #   KONUM NESNESININ KENDISI: `logger.info("fix: \(location)")`, `Log.d(TAG, "fix=$location")`,
 #     `print(lastLocation)` -- CLLocation/Location'in metni TAM koordinattir. Kok: adi
 #     `location(s)` · `loc` · `fix` olan ya da `...Location(s)` ile BITEN bir ifade (bir alan
-#     yolu dahil: `manager.location`), arkasinda istege bagli `.toString()`/`.description`.
-#     `location.horizontalAccuracy` gibi bir ALANI gormez -- bilerek (koordinat degil).
-#   KOD: ciplak `code` bir IFADE olarak (`$code`, `\(code)`, `, code)`) -- davet, eslesme ve
-#     onay kodlarinin adsiz hali. Duzyazidaki `HTTP code` ve `statusCode` FAIL DEGIL.
+#     yolu dahil: `manager.location`); arkasinda istege bagli `.last`/`.first`/`.last()` (dizinin
+#     ELEMANI yine bir konum nesnesidir -- 2. denetim) ve `.toString()`/`.description`.
+#     `location.horizontalAccuracy` gibi baska bir ALANI gormez -- bilerek (koordinat degil).
+#   KOD: CIPLAK `code` bir IFADE olarak (`$code`, `\(code)`, `, code)`) -- davet, eslesme ve
+#     onay kodlarinin adsiz hali. Alan yolu ONEKI ALMAZ (2. denetim): `${response.code}`,
+#     `\(error.code)` bir durum/hata kodudur, FAIL DEGIL. Duzyazidaki `HTTP code` ve
+#     `statusCode` da FAIL DEGIL.
 #   QR: `qr`/`QR` ile baslayan ya da `...Qr` iceren bir ifade (`\(qrPayload)`, `$liveQr`).
-# Ifade sayilan yer: Kotlin `$`/`${`, Swift `\(`, bir argumanin basi (`, x` ya da cagrinin
-# ilk argumani), dize birlestirme (`"at " + location`).
+# Ifade sayilan yer, IKI SINIF (2. denetim -- `"..., fix acquired: $hasFix"` duzyazisi
+# `, fix` yuzunden FAIL veriyordu):
+#   dize ICI bas: Kotlin `$`/`${`, Swift `\(`, `.format(` -- ardindan ifadenin sonu
+#   arguman bas: `, x` · `+ x` · cagrinin ilk argumani -- ardindan YALNIZ `)`, `,` ya da `+`
+#     (arguman sinirinda biten bir ifade; duzyazidaki `, fix acquired` bitmez).
 # 🔴 NEDEN YALNIZ mobile/: android/ rolesinin `location=${p.location}` satiri HTTP Location
 # BASLIGIDIR (sunucunun yonlendirmesi), koordinat degil -- ve role konum izni tasimaz
 # (manifest: NFC + INTERNET). Kok o satirda 1 isabet veriyordu (olculdu); rolede konum
 # OLAMAYACAGI icin kok orada anlamsizdir. Ayni ad mobile/'da HTTP basligi icin
 # kullanilirsa bu kok onu da FAIL sayar -- uygulama baslik degiskenine baska ad verir.
+# ⚠️ BILINEN YANLIS POZITIF / NEGATIF (2. denetim, M16-11/M16-13 yeniden olcer): arguman
+# olarak gecen ciplak `fix`/`loc`/`code`/`qr...` degeri (bir sayac icin `code`) FAIL verir;
+# alan yolundaki bir davet kodu (`${invite.code}`) GORUNMEZ -- uygulama adli degisken
+# (`inviteCode`, `pairingCode`) kullanir, onlari tetikleyiciler yakalar.
 # Pin: cmd/tappa/scripttest TestRedline_M16_MobileLogCalls.
-R7M_HEAD='(?:\$\{?|\\\(\s*|[,+]\s*)'
-R7M_EXPR='(?:[A-Za-z_]\w*[?!]?\.)*(?:(?:[a-z]\w*Locations?|locations?|loc|fix)[?!]?(?:\.(?:toString\(\)|description|debugDescription))?(?:[^\w.(?!]|$)|code(?:[^\w(]|$)|(?:qr|QR|[a-z]\w*Qr)\w*(?:[^\w(]|$))'
-R7M_EXPR_PATTERN="$R7M_CALLEE(?:$R7M_WINDOW$R7M_HEAD|\\s*)$R7M_EXPR"
+R7M_HEAD_IN='(?:\.format\(\s*|\$\{?|\\\(\s*)'
+R7M_HEAD_ARG='[,+]\s*'
+R7M_VALUE='(?:(?:[A-Za-z_]\w*[?!]?\.)*(?:(?:[a-z]\w*Locations?|locations?|loc|fix)(?:[?!]?\.(?:last|first)(?:\(\))?)?[?!]?(?:\.(?:toString\(\)|description|debugDescription))?|(?:qr|QR|[a-z]\w*Qr)\w*)|code)'
+R7M_EXPR_PATTERN="$R7M_CALLEE(?:$R7M_WINDOW$R7M_HEAD_IN$R7M_VALUE(?:[^\\w.(?!]|\$)|(?:$R7M_WINDOW$R7M_HEAD_ARG|\\s*)$R7M_VALUE\\s*[),+])"
 r7m_expr_hits=""
 if [[ $mobile_present -eq 1 ]]; then
   r7m_expr_hits=$(scan_in MOBILE_SRC -U -e "$R7M_EXPR_PATTERN")

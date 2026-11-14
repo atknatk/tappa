@@ -73,6 +73,19 @@ func TestRedline_M16_MobileIsScannedOnceItExists(t *testing.T) {
 		t.Errorf("mobile/ exists but the script still reports it absent:\n%s", out)
 	}
 
+	// rg honours .ignore and .rgignore, git does not: neither may drop a file from the scan.
+	out, code = redlineRun(t, m16Tree(map[string]string{
+		"mobile/ios/.ignore":       "Gate.swift\n",
+		"mobile/ios/Gate.swift":    "import Local~~Authentication\n",
+		"mobile/android/.rgignore": "Gate.kt\n",
+		"mobile/android/Gate.kt":   "val p = Bio~~metricPrompt(this, executor, callback)\n",
+	}))
+	for _, rel := range []string{"mobile/ios/Gate.swift:1:", "mobile/android/Gate.kt:1:"} {
+		if !strings.Contains(failSection(out, "R1"), rel) {
+			t.Errorf("a file named in a .ignore/.rgignore dropped out of R1 (%s), exit %d:\n%s", rel, code, out)
+		}
+	}
+
 	out, code = redlineRun(t, map[string]string{m16iOS + "App.swift": "import SwiftUI\n"})
 	if code != 0 || strings.Contains(out, absent) || strings.Contains(out, "ATLANDI") {
 		t.Errorf("a clean mobile/: want exit 0, no absence line and no scan error, got exit %d:\n%s", code, out)
@@ -170,6 +183,7 @@ func TestRedline_M16_MobileBackgroundLocation(t *testing.T) {
 		m16Android + "r2_single.xml":          "<service android:foregroundServiceType='loc~~ation'/>\n",
 		"mobile/ios/r2_tuist.swift":           "let info: [String: Plist.Value] = [\n    \"UIBackground~~Modes\": [\n        \"location\",\n    ],\n]\n",
 		m16iOS + "r2_commented.plist":         "<key>UIBackground~~Modes</key>\n<!-- for the tap -->\n<array>\n\t<!-- fetch first -->\n\t<string>fetch</string>\n\t<string>location</string>\n</array>\n",
+		"mobile/ios/r2_quoted.yml":            "info:\n  properties:\n    UIBackground~~Modes:\n      - \"fetch\"\n      - \"location\"\n",
 	}
 	green := map[string]string{
 		m16iOS + "Locate.swift": "manager.requestWhenInUseAuthorization()\nmanager.requestLocation()\n" +
@@ -241,6 +255,11 @@ func TestRedline_M16_MobileLogCalls(t *testing.T) {
 		m16iOS + "r7_qr.swift":             "pri~~nt(\"scanned \\(qrPayload)\")\n",
 		m16Android + "kotlin/r7_liveqr.kt": "Lo~~g.d(TAG, \"payload=$liveQr\")\n",
 		m16Android + "kotlin/r7_sunurl.kt": "Lo~~g.d(TAG, \"tap ${sun~~Url}\")\n",
+		// Second review: an element of the locations array is a location object; .format( is a head.
+		m16iOS + "r7_last.swift":             "log~~ger.info(\"got \\(locations.last!)\")\n",
+		m16iOS + "r7_first.swift":            "pri~~nt(locations.first)\n",
+		m16Android + "kotlin/r7_lastcall.kt": "Lo~~g.d(TAG, \"fix=${result.locations.last()}\")\n",
+		m16Android + "kotlin/r7_fmtloc.kt":   "Lo~~g.d(TAG, \"%s\".format(location))\n",
 	}
 	green := map[string]string{
 		m16iOS + "Tap.swift": "logger.info(\"tap sent, verdict \\(verdict)\")\nprint(\"exchanges \\(count)\")\n" +
@@ -258,6 +277,10 @@ func TestRedline_M16_MobileLogCalls(t *testing.T) {
 		m16iOS + "NearExpr.swift": "logger.info(\"accuracy \\(location.horizontalAccuracy)\")\n" +
 			"logger.info(\"status \\(response.statusCode)\")\nprint(prefix)\nprint(\"\\(hotFix)\")\n" +
 			"logger.info(\"allocation done\")\n",
+		// Second review: a status/error code on a field path, and prose after a comma.
+		m16Android + "kotlin/NearCode.kt": "Log.d(TAG, \"status ${response.code}\")\nLog.w(TAG, \"retry ${err.code}\")\n" +
+			"Log.i(TAG, \"tap sent, fix acquired: $hasFix\")\n",
+		m16iOS + "NearCode.swift": "logger.error(\"failed \\(error.code)\")\n",
 	}
 	m16RedGreen(t, "R7", red, green)
 }
@@ -274,6 +297,7 @@ func TestRedline_M16_AndroidRelayIsScanned(t *testing.T) {
 		"android/app/src/main/r2_manifest.xml":   "<uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_~~LOCATION\"/>\n",
 		relay + "r7.kt":                          "Lo~~g.d(TAG, \"round: cm~~ac=$c\")\n",
 		"android/app/src/main/r2_foreground.xml": "<service android:foregroundServiceType=\"loc~~ation\"/>\n",
+		"android/app/src/main/r2_fine.xml":       "<uses-permission android:name=\"android.permission.ACCESS_FINE_~~LOCATION\"/>\n",
 	}
 	green := map[string]string{
 		relay + "Main.kt": "Log.i(TAG, \"round: exchange $n after step $step\")\n" +
@@ -294,6 +318,9 @@ func TestRedline_M16_AndroidRelayIsScanned(t *testing.T) {
 		if !strings.Contains(failSection(out, rule), rel+":") {
 			t.Errorf("%s is not named under %s FAIL:\n%s", rel, rule, out)
 		}
+	}
+	if !strings.Contains(failSection(out, "R2"), "android/app/src/main/r2_fine.xml:") {
+		t.Errorf("a location permission in the relay is not named under R2 FAIL:\n%s", out)
 	}
 	if !strings.Contains(failSection(out, "R2"), "android/app/src/main/r2_foreground.xml:") {
 		t.Errorf("the relay's location foreground service is not named under R2 FAIL:\n%s", out)
@@ -405,6 +432,11 @@ func TestRedline_M16_AppSourceOutsideTheScannedRoots(t *testing.T) {
 		"apps/staff-ios/App.entitlements":            "<dict/>\n",
 		"apps/staff-ios/Legacy.m":                    "int x;\n",
 		"apps/staff-ios/Bridge.mm":                   "int y;\n",
+		// Second review: a staff app inside android/ but outside the relay module, Java and Groovy.
+		"android/staff/src/main/Main.kt":        "package zz\n",
+		"android/Staff.kt":                      "package zz\n",
+		"apps/staff-android/src/main/Main.java": "class Main {}\n",
+		"apps/staff-android/build.gradle":       "apply plugin: 'x'\n",
 	}
 	green := map[string]string{
 		m16iOS + "App.swift":                     "import SwiftUI\n",
@@ -412,6 +444,8 @@ func TestRedline_M16_AppSourceOutsideTheScannedRoots(t *testing.T) {
 		"mobile/ios/A.xcodeproj/project.pbxproj": "{}\n",
 		m16Android + "AndroidManifest.xml":       "<manifest/>\n",
 		"android/app/src/main/kotlin/zz/Ok.kt":   "package zz\n",
+		"android/build.gradle.kts":               "plugins {}\n",
+		"android/settings.gradle.kts":            "rootProject.name = \"relay\"\n",
 		"docs/plan/zz.md":                        "an app in apps/staff-ios/App.swift\n",
 	}
 	m16RedGreen(t, "S1", red, green)
@@ -430,9 +464,10 @@ func TestRedline_M16_MobilePeriodicOneShotLocation(t *testing.T) {
 		m16iOS + "r2p_source.swift":  "timer.schedule(deadline: .now(), repeating: 60)\nmanager.requestLocation()\n",
 		m16Android + "kotlin/r2p_worker.kt": "val req = PeriodicWorkRequestBuilder<FixWorker>(15, TimeUnit.MINUTES).build()\n" +
 			"class FixWorker { fun doWork() { client.getCurrentLocation(p, t) } }\n",
-		m16Android + "kotlin/r2p_exec.kt":  "exec.scheduleAtFixedRate({ lm.getLastKnownLocation(GPS) }, 0, 60, SECONDS)\n",
-		m16Android + "kotlin/r2p_while.kt": "while (true) {\n    val l = client.lastLocation\n    delay(60_000)\n}\n",
-		m16Android + "kotlin/r2p_alarm.kt": "am.setRepeating(RTC, t, 60_000, pi)\nlm.requestSingleUpdate(GPS, listener, null)\n",
+		m16Android + "kotlin/r2p_exec.kt":   "exec.scheduleAtFixedRate({ lm.getLastKnownLocation(GPS) }, 0, 60, SECONDS)\n",
+		m16Android + "kotlin/r2p_while.kt":  "while (true) {\n    val l = client.lastLocation\n    delay(60_000)\n}\n",
+		m16Android + "kotlin/r2p_alarm.kt":  "am.setRepeating(RTC, t, 60_000, pi)\nlm.requestSingleUpdate(GPS, listener, null)\n",
+		m16Android + "kotlin/r2p_active.kt": "while (isActive) {\n    client.getCurrentLocation(p, t)\n    delay(60_000)\n}\n",
 	}
 	green := map[string]string{
 		m16iOS + "Tap.swift":         "func tap() { manager.requestLocation() }\n",
@@ -463,7 +498,9 @@ func TestRedline_M16_AMissingRequiredRootIsAScanError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code != 2 || !strings.Contains(out, "ATLANDI") || !strings.Contains(out, "android") {
-		t.Errorf("no android/: want exit 2 with the scan error naming it, got exit %d:\n%s", code, out)
+	// "rg: android: " is SRC's own entry (R1/R2/R7 read it); B1_SRC's would read
+	// "rg: android/app/src/main: ", so this cannot pass on B1's error alone.
+	if code != 2 || !strings.Contains(out, "ATLANDI") || !strings.Contains(out, "rg: android: ") {
+		t.Errorf("no android/: want exit 2 with SRC's scan error naming it, got exit %d:\n%s", code, out)
 	}
 }
