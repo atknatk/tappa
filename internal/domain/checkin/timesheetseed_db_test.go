@@ -477,10 +477,19 @@ func seedCreate(ctx context.Context, owner *pgx.Conn, data *db.DB) error {
 		return fmt.Errorf("the business's API: %w", err)
 	}
 	return data.WithTenant(ctx, seedTenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-		        VALUES ($1, $2, 'Test Owner', $3, $4, 'owner', 'active') ON CONFLICT (id) DO NOTHING`,
-			seedOwner, seedTenant, seedOwnerEmail, fixtures.UnusablePasswordHash); err != nil {
+		// The owner is written ONCE, as one plain INSERT of a fresh row (cmd/opadmin's
+		// TestTablesLock_AdminRowsAreWrittenUnderTheHolder: no ON CONFLICT, no link column), after a
+		// read that finds the row a first run already wrote.
+		var have bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM admin_users WHERE tenant_id = $1 AND id = $2)`, seedTenant, seedOwner).Scan(&have); err != nil {
 			return fmt.Errorf("the owner: %w", err)
+		}
+		if !have {
+			if _, err := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+			        VALUES ($1, $2, 'Test Owner', $3, $4, 'owner', 'active')`,
+				seedOwner, seedTenant, seedOwnerEmail, fixtures.UnusablePasswordHash); err != nil {
+				return fmt.Errorf("the owner: %w", err)
+			}
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO locations (id, tenant_id, name, external_ref, static_ips)
 		        VALUES ($1, $2, $3, $4, '{203.0.113.0/24}') ON CONFLICT (id) DO NOTHING`, seedVenue, seedTenant, seedVenueName, seedVenueRef); err != nil {
