@@ -208,6 +208,10 @@ var keyFieldExemptions = map[string]string{
 	"store.AppDevice.PublicKey":             "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",
 	"store.CreateAppDeviceParams.PublicKey": "the device's P-256 PUBLIC key going in at activation; it verifies, it opens nothing",
 	"store.AppDevice.KeyDigest":             "SHA-256 of the device's PUBLIC key (the uniqueness column); a digest of nothing secret",
+	// The body digest of a signed app request (M16-05): it is line 4 of the canonical text the server rebuilds
+	// and checks the signature over, a comparison value like apikey.WriteRequest.RequestHash; it opens nothing.
+	"appdevice.signedRequest.bodyDigest": "SHA-256 of the signed app request's raw body, part of the canonical text the signature covers; " +
+		"a comparison value, it opens nothing",
 }
 
 // storeKeyFieldShape is what a key-named column of a sqlc row may be called. internal/store is generated
