@@ -109,12 +109,13 @@ type AdminUser struct {
 
 type ApiIdempotency struct {
 	TenantID    uuid.UUID
-	KeyID       uuid.UUID
+	KeyID       *uuid.UUID
 	IdemKey     string
 	RequestHash string
 	Status      *int16
 	ResultRef   *uuid.UUID
 	CreatedAt   time.Time
+	GrantID     *uuid.UUID
 }
 
 type ApiKey struct {
@@ -257,6 +258,60 @@ type Location struct {
 	ExternalRef *string
 	Active      bool
 	DayCutoff   pgtype.Time
+}
+
+type OauthClient struct {
+	ID              uuid.UUID
+	Name            string
+	RedirectUris    []string
+	AllowedScopes   []string
+	SecretHash      string
+	SecretHint      string
+	SecretRotatedAt *time.Time
+	CreatedAt       time.Time
+	CreatedBy       uuid.UUID
+	DisabledAt      *time.Time
+}
+
+type OauthCode struct {
+	TenantID      uuid.UUID
+	ID            uuid.UUID
+	CodeHash      string
+	ClientID      uuid.UUID
+	CreatedBy     uuid.UUID
+	RedirectUri   string
+	Scopes        []string
+	CodeChallenge string
+	CreatedAt     time.Time
+	ExpiresAt     time.Time
+	ConsumedAt    *time.Time
+	GrantID       *uuid.UUID
+}
+
+type OauthGrant struct {
+	TenantID      uuid.UUID
+	ID            uuid.UUID
+	ClientID      uuid.UUID
+	Scopes        []string
+	CreatedBy     uuid.UUID
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
+	RevokedReason *string
+	RevokedBy     *uuid.UUID
+}
+
+type OauthToken struct {
+	TenantID  uuid.UUID
+	ID        uuid.UUID
+	GrantID   uuid.UUID
+	Kind      string
+	TokenHash string
+	Scopes    []string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	RevokedAt *time.Time
 }
 
 type OperatorAuditLog struct {

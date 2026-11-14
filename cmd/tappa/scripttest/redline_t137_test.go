@@ -252,6 +252,9 @@ func TestRedline_T137_TheBodyWhitelistIsPinned(t *testing.T) {
 		"db/migrations/00077_invite_administrators.sql",
 		// M14-17 (ORTA-1): the Down's guarded REVOKE of the owner-row INSERT it shares with 00077.
 		"db/migrations/00078_verify_signups_by_e_mail.sql",
+		// Issue #37 phase 1 (ADR 0047 §14.4): 00063's shape -- the two kind CHECKs re-added NOT VALID or
+		// VALIDATED, in the Up and in the Down.
+		"db/migrations/00107_register_oauth_clients_from_the_operator.sql",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("the WARN names %v, want %v", got, want)

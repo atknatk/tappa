@@ -1485,3 +1485,27 @@ ADR'yi **bloklamayan**, uygulama turunun gerçek testleriyle doğrulanacak notla
   sonra uygulamadan *"Connect"*e yeniden basar.
 - **`expires_in`** yanıtta `expires_at - now()`'dan (saniye, aşağı yuvarlanmış) hesaplanır, sabit 3600 yazılmaz.
 
+
+**1. faz (veri katmanı) uygulamasının notları (2026-11-14):**
+
+- **Migration sırası §14.6'dan farklıdır (bilinçli).** Dört dosya: `00104` tablolar (`oauth_clients` +
+  üç tenant tablosu + tek yönlü tetikleyiciler), `00105` üç çözümleyici, `00106` `api_idempotency`,
+  `00107` kayıt tablosunun operatör yarısı (`tappa_opdefiner` yetkileri, `platform_admins` FK'si, dört
+  audit türü, `oauth_clients` okuma türü, `op_begin_read`/`op_read_audit` değişimi, beş `op_*`).
+  Gerekçe: `internal/db`'nin `opAtVersion`'ı operatör nesnesi adı geçen her migration'ın Down'ını test
+  işlemi içinde yürütür; `00104`–`00106` operatör nesnesi taşımaz ve `opAtVersionSkips`'tedir, böylece
+  operatör testleri yalnız tablo düşürmeyen `00107` Down'ını yürütür. ADR'nin gerçekten dayandığı tek
+  sıra (tablolar fonksiyonlardan önce) korunur. Numaralar `main`'e birleştirmede yeniden verilebilir.
+- **Kod tüketimi tek ifadede sınıflandırır.** `ConsumeOAuthCode` (`db/queries/oauth.sql`) yukarıdaki
+  `… WHERE id = (SELECT … FOR UPDATE SKIP LOCKED) AND consumed_at IS NULL AND expires_at > clock_timestamp()`
+  biçimini taşır ve her zaman bir satır döner: `reached=false` (satır kilitli — eşzamanlı takas sürüyor;
+  yalnız `invalid_grant`, grant'a dokunulmaz), `spent` (bu sunum tüketti), `reached ∧ ¬spent` +
+  `prior_grant_id` (ardışık sunum → §5.2 adım 4, grant iptali). "Tüket, sonra bak" iki ifade olsaydı
+  kazanan commit ettikten sonra bakan bir kaybeden yeni grant'ı iptal ederdi — ayrım kilitte, tüketen
+  ifadenin içinde yapılır.
+- **Kabul edilen sınır — süresi dolmuş refresh satırının silinmesi.** `oauth_tokens_delete_expired`
+  bir refresh satırını doğumundan 2160 saat sonra (süresi dolunca) silinebilir kılar. Sonuç: süresi
+  dolmuş, kullanılmış bir refresh tokenı silindikten sonra yeniden sunulursa **bilinmeyen token** sayılır
+  (`invalid_grant`) ve grant **iptal edilmez** (§5.3 adım 4'ün yeniden kullanım tespiti çalışmaz). Kabul
+  edildi: 90 gün boşta kalmış bağlantı zaten ölüdür (canlı refresh tokenı yoktur, *"Expired — reconnect"*),
+  yeniden kullanılan token da ölü bir tokendır; tespitin koruyacağı canlı bir şey kalmamıştır.

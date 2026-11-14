@@ -70,13 +70,14 @@ func TestApiCatalog_Idempotency(t *testing.T) {
 		 WHERE i.indrelid = 'public.api_idempotency'::regclass AND a.attname = 'tenant_id'`); n < 1 {
 		t.Error("no index leads with tenant_id")
 	}
+	// Since 00106 (issue #37, ADR 0047 §14.5) §8's UNIQUE is a PARTIAL unique index -- one namespace per
+	// API key -- beside the grant's twin; the primary key is gone (key_id may be NULL on a grant row).
 	var uniq string
-	if err := tx.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
-	                             WHERE conrelid = 'public.api_idempotency'::regclass AND contype = 'p'`).Scan(&uniq); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT pg_get_indexdef('public.api_idempotency_key_key'::regclass)`).Scan(&uniq); err != nil {
 		t.Fatal(err)
 	}
-	if uniq != "PRIMARY KEY (tenant_id, key_id, idem_key)" {
-		t.Errorf("the key is %q, want §8's (tenant_id, key_id, idem_key)", uniq)
+	if uniq != "CREATE UNIQUE INDEX api_idempotency_key_key ON public.api_idempotency USING btree (tenant_id, key_id, idem_key) WHERE (key_id IS NOT NULL)" {
+		t.Errorf("the key's namespace is %q, want §8's (tenant_id, key_id, idem_key) WHERE key_id IS NOT NULL", uniq)
 	}
 
 	a, b := newAPIKeyWorld(t, ctx, tx), newAPIKeyWorld(t, ctx, tx)

@@ -26,8 +26,12 @@ const (
 	op00042File = "00042_put_holdings_on_the_operator_surface.sql"
 )
 
-// opKindsAt42 is the closed set of read kinds at 00042 (HEAD): 00034's seven and 'holdings'.
+// opKindsAt42 is the closed set of read kinds at 00042 through 00106: 00034's seven and 'holdings'.
 var opKindsAt42 = append(append([]string{}, opKindsAt34...), "holdings")
+
+// opKindsAtHead is the closed set of read kinds at HEAD: 00042's eight and, since 00107 (issue #37,
+// ADR 0047 §10.2), 'oauth_clients' -- the registry's read.
+var opKindsAtHead = append(append([]string{}, opKindsAt42...), "oauth_clients")
 
 // opHoldingWriteShapeDef is operator_audit_log_holding_write_shape's text (pg_get_constraintdef,
 // 00042): a holding row names its holding in its detail and nothing else -- its tenant for the two

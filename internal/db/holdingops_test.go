@@ -239,7 +239,7 @@ func TestOperator00042_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 
 	for _, c := range []struct{ table, name, want string }{
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
-		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt42)},
+		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAtHead)},
 		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDefOf(opTenantWriteKinds)},
 		{"operator_audit_log", "operator_audit_log_holding_write_shape", opHoldingWriteShapeDef},
 	} {

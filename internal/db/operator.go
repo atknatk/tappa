@@ -900,6 +900,8 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditTenantAPIEnabled, OperatorAuditTenantAPIDisabled,
 	OperatorAuditHoldingCreated, OperatorAuditHoldingMemberAdded, OperatorAuditHoldingMemberRemoved,
 	OperatorAuditTenantSuspended, OperatorAuditTenantReinstated,
+	OperatorAuditOAuthClientRegistered, OperatorAuditOAuthClientSecretRotated,
+	OperatorAuditOAuthClientRedirectsChanged, OperatorAuditOAuthClientDisabled,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh

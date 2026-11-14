@@ -106,7 +106,22 @@ var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "loc
 	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
 	"tenant_api_enabled", "tenant_api_disabled",
 	"holding_created", "holding_member_added", "holding_member_removed",
+	"tenant_suspended", "tenant_reinstated",
+	"oauth_client_registered", "oauth_client_secret_rotated", "oauth_client_redirects_changed", "oauth_client_disabled"}
+
+// opAuditKinds63 is the set at 00063 through 00106 -- what 00107's Down gives back, and what a test
+// that reaches 00063 through opAtVersion pins.
+var opAuditKinds63 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked",
+	"tenant_api_enabled", "tenant_api_disabled",
+	"holding_created", "holding_member_added", "holding_member_removed",
 	"tenant_suspended", "tenant_reinstated"}
+
+// opOAuthClientKinds is operator_audit_log_oauth_client_shape's list (00107, issue #37): the rows of
+// the four registry writers, each naming its app in detail ({"client_id": ...}) and nothing else.
+var opOAuthClientKinds = []string{"oauth_client_registered", "oauth_client_secret_rotated", "oauth_client_redirects_changed",
+	"oauth_client_disabled"}
 
 // opAuditKinds42 is the set at 00042 through 00062 -- what 00063's Down gives back, and what a
 // test that reaches 00042-00062 through opAtVersion pins.
@@ -2122,6 +2137,13 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		{name: "holding_created {holding_id}", row: sess(string(OperatorAuditHoldingCreated), "", `{"holding_id": `+q(doc.String())+`}`), recog: true},
 		{name: "holding_member_added {holding_id}", row: opLogRow{kind: string(OperatorAuditHoldingMemberAdded), session: &session, actor: &a.id, tenant: &tenant, detail: `{"holding_id": ` + q(doc.String()) + `}`}, recog: true},
 		{name: "holding_member_removed {holding_id}", row: opLogRow{kind: string(OperatorAuditHoldingMemberRemoved), session: &session, actor: &a.id, tenant: &tenant, detail: `{"holding_id": ` + q(doc.String()) + `}`}, recog: true},
+		// 00107's four app rows (issue #37): the app in detail and nothing else -- no tenant
+		// (operator_audit_log_oauth_client_shape refuses any other shape, so there is no off-list case
+		// to write; nothing of the detail is read out).
+		{name: "oauth_client_registered {client_id}", row: sess(string(OperatorAuditOAuthClientRegistered), "", `{"client_id": `+q(doc.String())+`}`), recog: true},
+		{name: "oauth_client_secret_rotated {client_id}", row: sess(string(OperatorAuditOAuthClientSecretRotated), "", `{"client_id": `+q(doc.String())+`}`), recog: true},
+		{name: "oauth_client_redirects_changed {client_id}", row: sess(string(OperatorAuditOAuthClientRedirectsChanged), "", `{"client_id": `+q(doc.String())+`}`), recog: true},
+		{name: "oauth_client_disabled {client_id}", row: sess(string(OperatorAuditOAuthClientDisabled), "", `{"client_id": `+q(doc.String())+`}`), recog: true},
 		{name: "read tenants none", row: readOf(tenantsReadKind, `{"search": "none"}`), recog: true, scope: tenantsReadKind, search: "none"},
 		{name: "read tenants text", row: readOf(tenantsReadKind, `{"search": "text"}`), recog: true, scope: tenantsReadKind, search: "text"},
 		{name: "read tenants address", row: readOf(tenantsReadKind, `{"search": "address"}`), recog: true, scope: tenantsReadKind, search: "address"},
@@ -2171,7 +2193,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	// The read kinds the ticket CHECK names, each with its shipped detail.
 	shipped := map[string]string{legalVersionsReadKind: "", tenantsReadKind: `{"search": "text"}`, tenantDetailReadKind: "",
 		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: "", tenantVATReadKind: "",
-		holdingsReadKind: ""}
+		holdingsReadKind: "", oauthClientsReadKind: ""}
 	ticketKinds, _ := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
 	for _, arr := range opQuotedArrays(ticketKinds) {
 		for _, k := range arr {
