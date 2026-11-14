@@ -846,9 +846,12 @@ func TestResolveAppDevice_CarriesTheRevocation(t *testing.T) {
 }
 
 // TestAppRequestNonces_RevocationKillsTheNonces (M16-03 security review): issue -> revoke -> consume
-// is 0 rows, for the single revoke and for the bulk one, and the revoking statement leaves the
-// device no nonce at all; another person's device keeps its nonces. A revocation written WITHOUT the
-// nonce delete (here the owner's bare UPDATE) is still refused at consumption -- the belt.
+// is 0 rows, for the single revoke and for the bulk one, and in this SEQUENTIAL order the revoking
+// statement leaves the device no committed nonce; another person's device keeps its nonces. A
+// revocation written WITHOUT the nonce delete (here the owner's bare UPDATE) is still refused at
+// consumption -- the belt. ⚠️ The delete is not complete under a race: a nonce an issue in flight
+// commits behind the revoke's statement snapshot survives it (the security re-check measured it),
+// and only the belt refuses that one -- so the belt is load-bearing, never a redundant second check.
 func TestAppRequestNonces_RevocationKillsTheNonces(t *testing.T) {
 	ctx, tx := opTx(t)
 	w, other := newAppDeviceWorld(t, ctx, tx), newAppDeviceWorld(t, ctx, tx)

@@ -43,14 +43,25 @@ type ConsumeAppRequestNonceParams struct {
 // Two racing consumptions of one nonce: the second waits on the first's row lock and, after its
 // commit, re-checks consumed_at IS NULL against the committed row -- exactly one RETURNING row.
 //
-// THE BELT (M16-03 security review): the device must be unrevoked IN THIS STATEMENT, not only in the
-// resolver's earlier answer. The revocations delete the nonces (RevokeAppDevice), which is what
-// normally refuses here; the EXISTS refuses a nonce that survived a revocation written any other
-// way. FOR SHARE makes it hold under a race, not only after one: a consumption meeting an
-// uncommitted revocation waits for it and re-checks revoked_at on the committed row (without the
-// lock the subquery would read its snapshot and pass). Lock order is the revocation's -- the device
-// row, then the nonce row -- so the two cannot deadlock; two consumptions of one device take
-// compatible share locks. (TestAppRequestNonces_RevocationAndConsumptionRace measures all three.)
+// THE BELT (M16-03 security review) -- LOAD-BEARING, NOT REDUNDANT: the device must be unrevoked IN
+// THIS STATEMENT, not only in the resolver's earlier answer. The revocations delete the nonces
+// (RevokeAppDevice), which is what usually refuses here; the EXISTS refuses a nonce that survived a
+// revocation written any other way AND the nonce an in-flight issue commits behind the revoke's
+// snapshot (RevokeAppDevice's note -- the delete cannot see it, only this refuses it). FOR SHARE
+// makes it hold under a race, not only after one: a consumption meeting an uncommitted revocation
+// waits for it and re-checks revoked_at on the committed row (without the lock the subquery would
+// read its snapshot and pass). Within this one statement the order is the revocation's -- the device
+// row, then the nonce row -- and two consumptions of one device take compatible share locks.
+// (TestAppRequestNonces_RevocationAndConsumptionRace measures these.)
+//
+// ⚠️ A CALLER COMPOSING STATEMENTS CAN STILL DEADLOCK (measured by the M16-03 security re-check):
+// a request that consumes and THEN runs TouchAppDevice upgrades its share lock on the device row to
+// an update lock, and two such requests deadlock (40P01); DeleteDeadAppRequestNonces and then
+// IssueAppRequestNonce in one transaction take a nonce row before the device row, and a concurrent
+// revoke deadlocks with it -- the measured victim was the REVOKE, so a stolen phone could keep a
+// revocation failing. The rules, for M16-05 and M16-07: the device row first, then nonce rows;
+// Touch BEFORE consume; the dead-nonce sweep AFTER issuing or in its own transaction; the revoke's
+// caller retries on 40P01.
 func (q *Queries) ConsumeAppRequestNonce(ctx context.Context, arg ConsumeAppRequestNonceParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, consumeAppRequestNonce, arg.TenantID, arg.DeviceID, arg.NonceHash)
 	var id uuid.UUID
@@ -74,9 +85,11 @@ type CountLiveAppRequestNoncesParams struct {
 
 // How many unconsumed, unexpired nonces one device holds: a READ for M16-07's cap on live nonces per
 // device (the table cannot be inflated by a device asking without spending). ⚠️ It is NOT the cap:
-// this count and then IssueAppRequestNonce is read-then-write, and concurrent issues exceed it. The
-// cap has to be atomic -- a per-device advisory lock around the two, or one INSERT ... SELECT whose
-// WHERE carries the count (M16-07's card).
+// this count and then IssueAppRequestNonce is read-then-write, and concurrent issues exceed it.
+// Folding the count into the INSERT's WHERE does NOT fix it either: measured by the M16-03 security
+// re-check, with FOR SHARE OF d and with FOR UPDATE OF d two concurrent issues at a cap of 1 both
+// landed. The cap needs the device row locked in a PREVIOUS statement of the same transaction
+// (SELECT ... FOR NO KEY UPDATE) or a per-device advisory lock, before the count (M16-07's card).
 func (q *Queries) CountLiveAppRequestNonces(ctx context.Context, arg CountLiveAppRequestNoncesParams) (int32, error) {
 	row := q.db.QueryRow(ctx, countLiveAppRequestNonces, arg.TenantID, arg.DeviceID)
 	var live int32
@@ -264,8 +277,13 @@ type RevokeAppDeviceRow struct {
 // issued before the revoke would otherwise stay spendable for its lifetime. The DELETE runs in this
 // statement whatever the SELECT reads (a data-modifying CTE always runs once). A consumption that
 // already holds a nonce's row lock makes this DELETE wait for it, so that consumption commits BEFORE
-// the revocation; one that comes later finds the row gone (ConsumeAppRequestNonce's belt covers a
-// revocation written any other way).
+// the revocation; one that comes later finds the row gone.
+//
+// ⚠️ THE DELETE DOES NOT CATCH EVERY NONCE, SO ConsumeAppRequestNonce's BELT IS LOAD-BEARING. In the
+// order "issue in flight, then revoke" the UPDATE waits for the issue's FOR SHARE lock, but this
+// statement's snapshot predates the issue's commit, so the DELETE does not see that nonce and it
+// survives the revocation (measured by the M16-03 security re-check). Only the EXISTS ... FOR SHARE
+// in ConsumeAppRequestNonce refuses it. Neither half may be removed as redundant.
 func (q *Queries) RevokeAppDevice(ctx context.Context, arg RevokeAppDeviceParams) (RevokeAppDeviceRow, error) {
 	row := q.db.QueryRow(ctx, revokeAppDevice, arg.ID, arg.TenantID)
 	var i RevokeAppDeviceRow
