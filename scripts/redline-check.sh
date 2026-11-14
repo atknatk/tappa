@@ -30,7 +30,36 @@ fail=0
 # ve SIR SABLONLARINI (deploy/examples/secret.example.yaml) tasiyor — yani §4.7'nin
 # konusu tam olarak orada duruyor. M8-02 kartinin C4 maddesi bunu "acik bulgu" diye
 # birakmisti.
-SRC=(cmd internal db web/templates web/static/js scripts test deploy .github)
+#
+# `android` (ADR 0017 encode rolesi) M16-02'de EKLENDI. Oncesinde android/README.md
+# "redline'in SRC listesi onu taramaz" diyordu ve bu dogruydu: plaketin anahtar
+# degisimini tasiyan Kotlin uygulamasina R1/R2/R7 hic bakmiyordu (B1 ve R7d bakiyordu).
+# OLCULDU (2026-11-14, 923dfe16 agaci): R1 · R2 · R3 · R6 · R7 · R7b · R7c · R5c ve
+# asagidaki mobil kaliplarin hepsi android/ uzerinde 0 isabet, yani eklemenin bedeli
+# sifir; kazanci M16'nin Kotlin'e acilan kaliplarinin (R7'nin mobil log kolu) ayni dilde
+# yazilmis ve plaket anahtarina en yakin uygulamayi da gormesi. Zorunlu bir girdidir:
+# android/ yoksa tarama digerleri gibi HATA verir (exit 2).
+SRC=(cmd internal db web/templates web/static/js scripts test deploy .github android)
+
+# `mobile` (ADR 0045 personel uygulamasi, M16-02) ISTEGE BAGLI TEK girdidir: kart kapiyi
+# dizin BOSKEN kurar, ilk uygulama satiri yazildiginda tarama zaten aciktir.
+# OLCULDU: SRC'deki eksik bir yol rg'yi exit 2 ile dusurur ve betik "tarama HATA verdi"
+# + exit 2 doner (bilerek: yeniden adlandirilmis bir internal/ sessizce taramadan
+# dusmesin). mobile/ icin bu dogru olmaz -- dizin M16-11'e kadar YOK -- o yuzden yalniz
+# o girdi varliga baglanir ve yoklugu her kosuda bir satirla RAPORLANIR (asagida,
+# basliktan sonra). Var oldugu anda SRC'ye ve B1_SRC'ye girer; ayri bir anahtar yok.
+# Digerleri zorunlu kalir. Pin: cmd/tappa/scripttest TestRedline_M16_MobileIsScannedOnceItExists.
+# 🔴 ISIMLE ISTEGE BAGLI OLMAK TEK BASINA BIR DELIKTIR (M16-02 denetimi, HIGH-1): uygulama
+# `apps/staff-ios/` ya da `Mobile/` (Linux CI buyuk/kucuk harf duyarli) altina yazilsaydi
+# hic taranmaz ve kosu yesil biterdi. Kapanisi asagidaki S1 bekcisidir: android/ ve
+# mobile/ DISINDA bir uygulama kaynagi (Swift, Kotlin, ObjC, manifest, Info.plist, Xcode
+# proje/ayar dosyasi) FAIL verir. Yani "mobile/ yok" satiri ancak S1 temizken dogrudur.
+mobile_present=0
+MOBILE_SRC=(mobile)
+if [[ -e mobile ]]; then
+  mobile_present=1
+  SRC+=(mobile)
+fi
 
 # SRC_CODE = URUN KAYNAGI, dagitim yapilandirmasi HARIC. Tek bir kural bunu okur:
 # "uygulama migration rolu ile baglaniyor". Sebep olculdu — SRC'ye deploy/.github
@@ -155,7 +184,15 @@ scan_in() {
   local arr=$1; shift
   local out rc
   eval "local -a paths=(\"\${${arr}[@]}\")"
-  out=$(rg -n --no-heading "${GEN_EXCLUDE[@]}" "$@" "${paths[@]}" 2>&1)
+  # --hidden (M16-02 denetimi): rg gizli dizinleri varsayilanla ATLAR; bir Xcode/Gradle
+  # agacinda (`.swiftpm/`, `.idea/` gibi) kaynak tasiyan gizli bir dizin taranmazdi.
+  # OLCULDU (2026-11-14): bugunku SRC'de gizli dosya yalniz dort bos `.gitkeep` -- bedeli
+  # sifir, kural ciktisi tabanla ayni. .gitignore yine uygulanir.
+  # --no-ignore-dot (2. denetim, onceden var olan delik): rg git'in bilmedigi `.ignore` ve
+  # `.rgignore` dosyalarina da uyar; birinin oraya yazdigi bir satir bir dizini TARAMADAN
+  # dusururdu ve git ona hic bakmazdi. Artik yalniz .gitignore uygulanir. OLCULDU: agacta
+  # boyle bir dosya yok, cikti tabanla ayni.
+  out=$(rg -n --no-heading --hidden --no-ignore-dot "${GEN_EXCLUDE[@]}" "$@" "${paths[@]}" 2>&1)
   rc=$?
   if [[ $rc -gt 1 ]]; then
     { echo "${RED}ATLANDI${OFF}: ripgrep taramasi hata verdi (exit $rc) — TARAMA GUVENILIR DEGIL."
@@ -182,6 +219,61 @@ report() { # report <seviye> <kod> <baslik> <bulgular>
 
 echo "${DIM}tappa redline-check${OFF}"
 echo
+# Yokluk bir HATA degil ama SESSIZ de degil (M16-02): "mobil kod tarandi, temiz" ile
+# "mobil kod yoktu" ayni cikti olmasin.
+if [[ $mobile_present -eq 0 ]]; then
+  echo "${DIM}mobile/ yok — R1/R2/R7/B1'in mobil kaliplari taranacak dosya bulmadi (dizin olusunca kendiliginden taranir, ADR 0045).${OFF}"
+  echo
+fi
+
+# --- S1: uygulama kaynagi taranan koklerin DISINDA (M16-02 denetimi, HIGH-1) ---------
+#
+# mobile/ ISMIYLE istege bagli oldugu icin, ayni uygulama baska bir dizine yazilsa hicbir R
+# kurali onu gormez. Bu bekci isme degil DOSYA TURUNE bakar: commit'lenebilir her dosya
+# (`git ls-files --cached --others --exclude-standard`, R7d ile ayni kume) icinde bir
+# Swift/Kotlin/Java/ObjC kaynagi (.swift .kt .kts .java .m .mm), bir Gradle betigi
+# (.gradle, Groovy), bir Android manifesti, bir iOS Info.plist'i ya da Xcode proje/ayar
+# dosyasi (.pbxproj .xcconfig .entitlements) mobile/ ve ROLE MODULUNUN DISINDAYSA FAIL.
+# Cozum dosyayi tasimak ya da koku SRC'ye eklemektir -- muafiyet degil. Yol buyuk/kucuk harf
+# DUYARLI karsilastirilir: `Mobile/` Linux'ta ayri bir dizindir ve CI orada kosar.
+# ROLE MODULU, android/'IN TAMAMI DEGIL (2. denetim): konum ve periyodik kurallar yalniz
+# mobile/'da kosar, cunku "rolede konum olamaz"; android/'in tamami muaf olsaydi
+# `android/staff/` altindaki bir personel uygulamasi yesil gecerdi. Muaf olan yalniz
+# rolenin bugunku duzeni: `android/app/` ve android/'in iki KOK Gradle betigi
+# (build.gradle.kts, settings.gradle.kts -- olculdu, `git ls-files android`). Ayrica R2'nin role kolu android/
+# altindaki her konum iznini FAIL eder; yani oncul artik mekanik.
+# ⚠️ Zorla eklenmis (`git add -f`) ama ignore edilen dosyalar AYRI bir `-ci` cagrisi istemez:
+# `--cached` izlenen her dosyayi --exclude-standard'a bakmadan listeler (olculdu, gecici bir
+# depoda: `build/` ignore, `git add -f build/App.swift` -> listede).
+# OLCULDU (2026-11-14): bugunku agacta 0 isabet; .java ve .gradle dosyasi 0.
+# Pin: cmd/tappa/scripttest TestRedline_M16_AppSourceOutsideTheScannedRoots.
+s1_hits=""
+if ! git ls-files -z --cached --others --exclude-standard >"$R7D_LIST"; then
+  echo "${RED}ATLANDI${OFF}: S1 dosya listesi alinamadi (git ls-files) — TARAMA GUVENILIR DEGIL." >&2
+  echo 2 >>"$SCAN_ERR"
+else
+  # Borunun HER iki ucunun cikis kodu okunur ($(...) icinde PIPESTATUS), yani patlayan bir
+  # `tr` bos ve "temiz" bir secim birakmaz.
+  s1_hits=$(tr '\0' '\n' <"$R7D_LIST" | awk '
+    /^mobile\// || /^android\/app\// || /^android\/(build|settings)[.]gradle[.]kts$/ { next }
+    /[.](swift|kt|kts|java|gradle|m|mm|pbxproj|xcconfig|entitlements)$/ || /(^|\/)(AndroidManifest[.]xml|Info[.]plist)$/ {
+      print $0 ": uygulama kaynagi mobile/ ve role modulu (android/app/) disinda -- konum ve periyodik kurallar bu dosyayi taramaz"
+    }'; s=("${PIPESTATUS[@]}"); [[ ${s[0]} -eq 0 && ${s[1]} -eq 0 ]]) || {
+    echo "${RED}ATLANDI${OFF}: S1 secimi hata verdi (tr/awk) — TARAMA GUVENILIR DEGIL." >&2
+    echo 2 >>"$SCAN_ERR"
+  }
+fi
+report FAIL S1 "Uygulama kaynagi taranan koklerin disinda — mobil uygulama mobile/ altinda yasar (ADR 0045), role android/app/ altinda (ADR 0017)" \
+  "$s1_hits"
+
+# R2'NIN ROLE KOLU (2. denetim): S1'in role muafiyeti ve R7'nin konum koklerinin yalniz
+# mobile/'da kosmasi "rolede konum izni yok" onculune dayanir; bu satir onu mekanik yapar.
+# android/ altindaki herhangi bir dosyada (manifest dahil) ince/kaba/arka plan konum izni
+# FAIL. mobile/android/ bu kola girmez (yol `^android/` ile bagli). OLCULDU: bugun 0 isabet
+# (role manifesti: NFC + INTERNET). Pin: TestRedline_M16_AndroidRelayIsScanned.
+r2_relay=$(scan -e 'ACCESS_(FINE|COARSE|BACKGROUND)_LOCATION' | awk '/^android\// { print }')
+report FAIL R2 "Rolede (android/, ADR 0017) konum izni — role konum okumaz; S1 ve R7'nin konum kurallari bu onculle mobile/'a sinirli" \
+  "$r2_relay"
 
 # --- R1: biyometrik veri -----------------------------------------------------
 #
@@ -223,7 +315,34 @@ echo
 # TETIKLEYICILER TEK YERDE TANIMLI: hem taramaya hem de muafiyetin "artik baska
 # tetikleyici kalmadi mi" kontrolune AYNI ifade gider. Iki kopya olsaydi biri
 # digerinden sapabilir ve muafiyet tanimadigi bir terimi sessizce affederdi.
-R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn'
+#
+# M16-02 (ADR 0045 §3): MOBIL PLATFORM KALIPLARI. Kartin 14 adindan BESI ilk bes kokle
+# zaten yakalaniyordu ve TEKRARLANMADI (olculdu, -i): BiometricPrompt, androidx.biometric,
+# USE_BIOMETRIC (`biometric`) · USE_FINGERPRINT (`fingerprint`) · NSFaceIDUsageDescription
+# (`face[_-]?id`). Kalan dokuzu yedi kok olarak eklendi:
+#   localauthentication · lacontext ............ iOS LocalAuthentication cercevesi; `lacontext`
+#                                                SOLDAN SINIRLI (`(^|[^a-z0-9_])`): ciplak hali
+#                                                `formulaContext` gibi bir adin icinde eslesir
+#                                                (olculdu). `\b` DEGIL: BSD awk onu geri silme sayar.
+#   biometry ................................... biometryAny / biometryCurrentSet (Keychain
+#                                                erisim denetimi bayraklari; `biometric` degil)
+#   userpresence ............................... .userPresence (ayni bayrak ailesi)
+#   setuserauthenticationrequired .............. Android Keystore'un kullanici dogrulamasi
+#   asauthorizationplatformpublickeycredential . passkey (platform dogrulayicisi biyometriyi acar)
+#   createpublickeycredentialrequest ........... androidx.credentials passkey istegi
+#   androidx[.]credentials ..................... Credential Manager paketi
+# KUCUK HARF ZORUNLU: asagidaki muafiyet secimi (r1_select) satiri tolower() edip bu
+# ifadeyle awk'ta karsilastirir ve awk'in `~`'u buyuk/kucuk harf duyarlidir. `[.]` de
+# bilerek: `\.` awk -v'den gecerken kacis olarak yenir.
+# 🔴 CIPLAK `publickeycredential` OLCULDU VE SECILMEDI: bugunku agacta 3 isabet --
+# web/templates/pages/landingview.go'nun bir yorumu ve marketing_facts_test.go'nun
+# "landing bu API'yi cagirmaz" sondalari (tarayici WebAuthn'u orada zaten kendi testiyle
+# kapali). Iki tam ad ayni passkey yollarini 0 isabetle gorur.
+# DENETIM EKLERI (LOW, ucuz ve 0 isabet olculdu): getfido2apiclient · play-services-fido
+# (FIDO2 / passkey, platform dogrulayicisi) · facemanager (android.hardware.face).
+# Yeni kokler agacta 0 isabet (2026-11-14, android/ dahil). Pin: cmd/tappa/scripttest
+# TestRedline_M16_MobileR1PlatformAPIs (14 adin her biri ayri dosyada FAIL; kontroller temiz).
+R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn|localauthentication|(^|[^a-z0-9_])lacontext|biometry|userpresence|setuserauthenticationrequired|asauthorizationplatformpublickeycredential|createpublickeycredentialrequest|androidx[.]credentials|getfido2apiclient|play-services-fido|facemanager'
 # 🔴 BIR IFADE DEGIL BES IFADE (2026-09-15, ADR 0012 ek bolumu). Kullanicinin kendi
 # cizdigi landing (docs/design/landing-reference-2026-09-12.html) karsilastirma
 # tablosunu BASLIK, SUTUN BASLIGI ve IKI HUCRE olarak yaziyor ve dordu de terimi
@@ -237,8 +356,14 @@ R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn'
 R1_WAIVER_PHRASES='fingerprint terminal|retire the fingerprint box.|fingerprint / card devices|"biometric data"|fingerprints stored = gdpr weight'
 R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go):'
 
+# 🔴 ON-SUZGEC mobile/ ve android/ ALTINDA UYGULANMAZ (M16-02 denetimi): suzgec SATIRI
+# yoldan bagimsiz atiyordu, yani `let ctx = LAContext() // result not stored` gibi bir
+# uygulama satiri tek bir yorumla R1'den kacabiliyordu. Bu iki kokte biyometriyi ANLATAN
+# metne gerek yok (uygulama kodu, ilan metni degil); Go/web tarafindaki davranis aynen kalir.
+# Pin: cmd/tappa/scripttest TestRedline_M16_MobileR1PlatformAPIs (r1_comment.swift).
 r1_raw="$(scan -i -e "$R1_TRIGGERS" \
-    | grep -viE 'no.?fingerprint|biyometri|not stored|asla' || true)"
+    | awk '/^(mobile|android)\// { print; next }
+           { l = tolower($0) } l !~ /no.?fingerprint|biyometri|not stored|asla/ { print }' || true)"
 
 # r1_select <waived|fail>
 #
@@ -302,8 +427,92 @@ report WARN R1 "R1 muafiyeti kullanildi (yola sinirli, ADR 0012) — muafiyet se
   "$(r1_select waived)"
 
 # --- R2: surekli konum takibi ------------------------------------------------
+#
+# M16-02 (ADR 0045 §3): MOBIL KALIPLAR. Uygulama konumu YALNIZ tap aninda, tek seferlik
+# okur: iOS `requestLocation()` + When-In-Use izni, Android tek seferlik
+# `getCurrentLocation`. Asagidakilerin her biri ya surekli/arka plan okuma, ya bolge
+# izleme, ya da bunlarin izni/modudur -- hepsi FAIL:
+#   Android  ACCESS_BACKGROUND_LOCATION · FOREGROUND_SERVICE_LOCATION (izin) ve
+#            FOREGROUND_SERVICE_TYPE_LOCATION (sabit) · manifestte
+#            foregroundServiceType="...location..." (birlesik deger dahil) ·
+#            requestLocationUpdates · Geofenc* (GeofencingClient, GeofencingRequest,
+#            Geofence.Builder -- eski `geofence` kucuk harfli kokun buyuk harfli ailesi)
+#   iOS      requestAlwaysAuthorization · allowsBackgroundLocationUpdates ·
+#            startMonitoringSignificantLocationChanges · startMonitoringVisits ·
+#            startMonitoring(for: · CLCircularRegion · startUpdatingLocation · CLMonitor* ·
+#            CLLocationUpdate / .liveUpdates( · CLBackgroundActivitySession ·
+#            NSLocationAlways[AndWhenInUse]UsageDescription (Info.plist ya da
+#            INFOPLIST_KEY_ onekli derleme ayari)
+# ⚠️ `startUpdatingLocation` tek seferlik okuma icin de KULLANILABILIR; kural onu BILEREK
+# FAIL sayar (kart M16-02), uygulama `requestLocation` kullanir (M16-17 buna uyar).
+# ⚠️ KALIPLAR SOZCUKSELDIR: `startMonitoring(for:` Swift'te bolge izlemeden baska bir
+# API'nin yazimi da olabilir; muafiyet (R1_WAIVER_PHRASES deseni) gerekcesiz EKLENMEZ.
+# `\.liveUpdates\(` noktali: tip adi cikarimla yazilsa da (`.liveUpdates()`) gorur, ama
+# baska bir sinifin ayni adli yontemini de gorur -- bugun agacta 0.
+# Buyuk/kucuk harf DUYARLI (eski uc desen gibi); yalniz `geofenc` (?i) ile.
+# Yeni kaliplar agacta 0 isabet (2026-11-14, android/ dahil). Pin: cmd/tappa/scripttest
+# TestRedline_M16_MobileBackgroundLocation.
+# DENETIM EKLERI (LOW, 0 isabet olculdu): addProximityAlert (Android bolge uyarisi) ·
+# startRangingBeacons / CLBeaconRegion (iBeacon bolge izleme) · ObjC
+# startMonitoringForRegion: · tek tirnakli foregroundServiceType='location' · satira
+# bolunmus startMonitoring(\n for: ve CLServiceSession(authorization: .always) -- son ikisi
+# -U ile, R2_MULTI'de.
+# ⚠️ BILINEN YANLIS POZITIF, M16-11'E: bir kutuphanenin iznini SOKMEK icin yazilan
+# `<uses-permission android:name="...ACCESS_BACKGROUND_LOCATION" tools:node="remove"/>`
+# KORUYUCU bir satirdir ama burada FAIL verir. Muafiyet bugun EKLENMEDI (o satir yok);
+# M16-11 gerekirse yola VE satira bagli, gerekceli bir muafiyet yazar (kart Tuzaklar).
+R2_LINE='watchPosition|BackgroundGeolocation|(?i:geofenc)|ACCESS_BACKGROUND_LOCATION|FOREGROUND_SERVICE(_TYPE)?_LOCATION|foregroundServiceType\s*=\s*["\x27][^"\x27]*\blocation\b|requestLocationUpdates|requestAlwaysAuthorization|allowsBackgroundLocationUpdates|startMonitoringSignificantLocationChanges|startMonitoringVisits|startMonitoringForRegion:|CLCircularRegion|addProximityAlert|startRangingBeacons|CLBeaconRegion|startUpdatingLocation|CLMonitor|CLLocationUpdate|\.liveUpdates\(|CLBackgroundActivitySession|NSLocationAlways(AndWhenInUse)?UsageDescription'
+# UIBackgroundModes icinde `location`: Info.plist'te anahtar ile deger AYRI satirlardadir,
+# bu yuzden -U ile ayri bir tarama. Dort yazim: plist dizisi (<key> ... <array> ...
+# <string>location</string>, dizideki baska modlar dahil) · ayni satirda deger
+# (`INFOPLIST_KEY_UIBackgroundModes = location;`, JSON/YAML akis dizisi) · pbxproj dizisi
+# (`= ( ..., location, ... )`, satirlara bolunmus) · YAML blok listesi (`- location`).
+# Anahtarsiz bir `<string>location</string>` ya da baska bir anahtarin dizisi FAIL DEGIL.
+# DENETIM EKLERI (M16-02): Swift/JSON sozluk dizisi satirlara bolunmus (Tuist
+# `"UIBackgroundModes": [\n "location",\n ]`) ve plist dizisinin ICINDE (ya da anahtarla
+# dizi arasinda) `<!-- -->` yorumu.
+# 2. denetim: XcodeGen tirnakli blok listesi (`- "location"`). Tuist'in
+# `.array([.string("location")])` yazimi GORUNMEZ (adiyla sinir).
+# ⚠️ SINIR: bu kaynak metne bakar. Derlenmis Info.plist'te (xcconfig, INFOPLIST_KEY_*,
+# Tuist/XcodeGen uretimi) modlar baska yazimla birlesebilir -- olcen sey derleme ciktisidir:
+# M16-15 `plutil -extract UIBackgroundModes` ile denetler (kart kabul kriteri).
+R2_MODES='UIBackgroundModes(?:</key>(?:\s*<!--(?:[^-]|-[^-])*-->)*\s*<array>(?:\s*(?:<string>[^<]*</string>|<!--(?:[^-]|-[^-])*-->))*\s*<string>\s*location\s*</string>|"?[ \t]*[=:][ \t]*[^;<\n]*\blocation\b|"?\s*=\s*\([^)]*\blocation\b|"?\s*[=:]\s*\[[^\]]*\blocation\b|"?:[ \t]*(?:\n[ \t]*-[ \t]*["\x27]?[\w-]+["\x27]?)*\n[ \t]*-[ \t]*["\x27]?location\b)'
+R2_MULTI='startMonitoring\(\s*for\s*:|CLServiceSession\(\s*authorization:\s*\.always'
 report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
-  "$(scan -e 'watchPosition' -e 'BackgroundGeolocation' -e 'geofence' || true)"
+  "$( { scan -e "$R2_LINE"; scan -U -e "$R2_MODES" -e "$R2_MULTI"; } || true)"
+
+# --- R2, PERIYODIK TEK SEFERLIK OKUMA (M16-02 denetimi; yalniz mobile/) ------------
+#
+# Izin verilen tek seferlik API bir zamanlayiciyla tekrarlanirsa (`Timer ... repeats: true {
+# manager.requestLocation() }`, bir PeriodicWorkRequest isinde getCurrentLocation) on plan
+# takibi olur ve yukaridaki adlarin hicbiri gorunmez. grep bunu KAPATAMAZ (cagri baska
+# dosyadaki bir zamanlayicidan da gelebilir); bu DAR bir agdir, kanit degil: AYNI DOSYADA
+# bir tek seferlik konum cagrisi (requestLocation( · getCurrentLocation( ·
+# requestSingleUpdate( · getLastKnownLocation( · lastLocation) VE tekrarlayan bir
+# zamanlayici (repeats: true · Timer.publish( · PeriodicWorkRequest · scheduleAtFixedRate ·
+# scheduleWithFixedDelay · setRepeating( · setInexactRepeating( · makeTimerSource ·
+# repeating: · fixedRateTimer · tickerFlow · ticker( · while (true) / while true · Kotlin
+# while (isActive)) birlikteyse
+# FAIL. Gercek kapi M16-13/M16-17'nin kabul kriteridir: konum cagrisi yalniz tap akisi
+# dosyasinda, bir cagri-yeri izin listesi testi bunu pinler.
+# ⚠️ BILINEN YANLIS POZITIF: tap akisi dosyasindaki bir UI zamanlayicisi (geri sayim) da FAIL
+# verir -- zamanlayici ayri bir gorunum dosyasinda yasar (M16-13/M16-17 Tuzaklar).
+# ⚠️ SINIRLAR: baska dosyadaki zamanlayici · Handler.postDelayed'in kendini yeniden kurmasi
+# (UI zamanlayicisinda da olagan -- secilmedi) · `Task { while !Task.isCancelled` ·
+# Combine `.timer(`. mobile/ yokken kosmaz. Pin: cmd/tappa/scripttest
+# TestRedline_M16_MobilePeriodicOneShotLocation.
+R2P_ONESHOT='requestLocation\(|getCurrentLocation\(|requestSingleUpdate\(|getLastKnownLocation\(|\blastLocation\b'
+R2P_REPEAT='repeats:\s*true|Timer\.publish\(|PeriodicWorkRequest|scheduleAtFixedRate|scheduleWithFixedDelay|setRepeating\(|setInexactRepeating\(|makeTimerSource|\brepeating:|\bfixedRateTimer\b|\btickerFlow\b|\bticker\(|\bwhile\s*\(?\s*true\b|\bwhile\s*\(\s*isActive\s*\)'
+r2p_hits=""
+if [[ $mobile_present -eq 1 ]]; then
+  r2p_one=$(scan_in MOBILE_SRC -l -e "$R2P_ONESHOT")
+  r2p_rep=$(scan_in MOBILE_SRC -l -e "$R2P_REPEAT")
+  r2p_hits=$(awk 'NR == FNR { if (length) a[$0]; next }
+    ($0 in a) { print $0 ": tek seferlik konum cagrisi VE tekrarlayan zamanlayici ayni dosyada" }' \
+    <(printf '%s\n' "$r2p_one") <(printf '%s\n' "$r2p_rep"))
+fi
+report FAIL R2 "Tek seferlik konum okumasi tekrarlayan bir zamanlayiciyla ayni dosyada — periyodik okuma surekli takiptir (§4.2)" \
+  "$r2p_hits"
 
 # --- R3: transactions immutability ------------------------------------------
 # _test.go MUAFIYETI (DAR — yalniz bu tarama, yalniz test dosyalari): bu kural
@@ -2296,6 +2505,96 @@ report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / 
 report WARN R7 "R7 muafiyeti kullanildi (yola VE belirtece sinirli) — muafiyet sessiz kalamaz" \
   "$(r7_select waived)"
 
+# --- R7, MOBIL LOG KOLU (M16-02, ADR 0045 §3 + CLAUDE.md §7) -----------------
+#
+# NEDEN AYRI KOL. Yukaridaki R7_PATTERN Go'nun cagri sekline (`slog|log|fmt` + nokta)
+# baglidir. -i ile Kotlin'in `Log.d(` yazimini TESADUFEN gorur, ama Swift'in uc yolunu
+# (`os_log(`, bir `Logger` orneginin `logger.info(`'su, `print(`) ve Kotlin'in
+# `println(`'ini gormez. Ve §7'nin M16-01'de genisleyen listesi -- cihaz IMZASI, istek
+# NONCE'u, canli QR token'i, ekran/mudur onayi ESLESME KODU, ekran oturumu CEREZI, tam
+# KOORDINAT, E-POSTA, davet kodu -- R7'nin tetikleyicilerinde yok. Go tarafina `signature`
+# eklemek olculmus bir gurultudur (yukarida, API-3: yalin `signature` 35 satiri
+# kizartiyordu); bu kol o yuzden Go'nun cagri sekline DEGIL, Swift/Kotlin'inkine baglidir.
+#
+# CAGRI SEKILLERI (buyuk/kucuk harf DUYARLI -- Go'nun `log.Info(` / `slog.Error(` /
+# `log.Printf(`'i buyuk harfli yontem oldugu icin bu kola girmez):
+#   ciplak islev, oncesinde `.`/harf YOK: os_log( · NSLog( · print( · println( ·
+#     debugPrint( · dump(        (Swift; Kotlin println; Go'nun yerlesik println'i da)
+#   System.out|err.print[ln|f](   (Kotlin/JVM)
+#   <ad>log|Log|logger|Logger.<yontem>(  -- Swift Logger: trace debug info notice log
+#     warning error critical fault · android.util.Log: v d i w e wtf println
+# TETIKLEYICILER (-i): R7_TRIGGERS'in tamami + signature · `\bsig\b` · nonce ·
+#   (pair|pairing|approval|activation)_?code · e_?mail · latitude · longitude · coordinate
+#   · `\blat\b` · `\blng\b` · cookie.
+# PENCERE: R7 ile ayni bir seviye dengeli parantez, ARTI Swift interpolasyonunun acilisi
+# `\(` duz karakter sayilir -- yoksa `"t=\(token)"` icindeki deger bir parantez grubunun
+# ICINDE kalir ve pencere onu hic gormezdi (olculdu: o alternatif olmadan uc Swift
+# sondasindan ikisi exit 0). `privacy: .private` ile yazilmis bir interpolasyon da FAIL:
+# §7 "loglanmaz" der, "gizlenerek loglanir" demez.
+# OLCULDU (2026-11-14): agacta ve android/'de 0 isabet; muafiyet tablosu YOK. Pin:
+# cmd/tappa/scripttest TestRedline_M16_MobileLogCalls.
+# ⚠️ SINIRLAR: ara degisken (`let t = token; print(t)`) gorunmez (R7 ile ayni) ·
+# interpolasyon icinde ikinci seviye cagri (`\(String(describing: token))`) gorunmez ·
+# baska adli bir logger ornegi (`os.info(`, `tracer.debug(`) gorunmez.
+# DENETIM EKLERI (M16-02; olculdu, agacta ve android/'de 0 isabet):
+#   CAGRI: Apple'in kategori adeti `Logger.<kategori>.info(` (`(?:\.\w+)?`) · Kotlin lambda
+#     logger `logger.info { "..." }` (`\(` yerine `\s*\{`) · `Swift.print(` ·
+#     fatalError( / preconditionFailure( / assertionFailure( (mesaj cokus raporuna gider) ·
+#     Timber.<x>( / Napier.<x>( (ucuncu parti -- yasak, ama yazilirsa gorunsun).
+#   PENCERE: `.format(` (Kotlin `"%f".format(..)`, `String.format(..)`) ve Swift
+#     `String(format:` ICINE girilir -- tetikleyici bir seviye daha derinde de gorunur.
+#   TETIKLEYICI: (ndef|sun)_?url -- plaketin SUN URL'si CMAC'i tasir.
+# ⚠️ SINIRLAR: `Timber.tag(TAG).d(..)` (zincirdeki ilk parantez pencereyi kapatir) ·
+# `\burl\b` EKLENMEDI (API taban adresini loglamak olagan ve zararsiz; NDEF URL'si `url`
+# adli bir degiskende tasinirsa gorunmez -- adi `sunUrl`/`ndefUrl` koymak M16-13/M16-17'nin
+# isi).
+R7M_CALLEE='(?:(?:^|[^.\w])(?:os_log|NSLog|print|println|debugPrint|dump|fatalError|preconditionFailure|assertionFailure)|\bSwift\.(?:print|debugPrint|dump)|\bSystem\.(?:out|err)\.print(?:ln|f)?|\b(?:Timber|Napier)\.\w+|\b\w*(?:log|Log|logger|Logger)(?:\.\w+)?\.(?:trace|debug|info|notice|log|warning|error|critical|fault|v|d|i|w|e|wtf|println))(?:\(|\s*\{)'
+R7M_TRIGGERS="$R7_TRIGGERS|signature|\\bsig\\b|nonce|(pair(ing)?|approval|activation)_?code|e_?mail|latitude|longitude|coordinate|\\blat\\b|\\blng\\b|cookie|(ndef|sun)_?url"
+R7M_WINDOW='(?:[^()]|\([^()]*\)|\\\(|\.format\(|\(\s*format:)*'
+R7M_PATTERN="$R7M_CALLEE$R7M_WINDOW(?i:$R7M_TRIGGERS)"
+report FAIL R7 "Sir / kisisel veri mobil log cagrisinda (Swift os_log / Logger / print, Kotlin Log. / println) — imza, nonce, canli QR token'i, eslesme kodu, cerez, koordinat, e-posta, davet kodu loglanmaz (CLAUDE.md §7)" \
+  "$(scan -U -e "$R7M_PATTERN" || true)"
+
+# --- R7, MOBIL IFADE KOKLERI (M16-02 denetimi, HIGH-2 + ORTA; YALNIZ mobile/) ---------
+#
+# Yukaridaki tetikleyiciler bir ADA bakar; uc deger adsiz gelir:
+#   KONUM NESNESININ KENDISI: `logger.info("fix: \(location)")`, `Log.d(TAG, "fix=$location")`,
+#     `print(lastLocation)` -- CLLocation/Location'in metni TAM koordinattir. Kok: adi
+#     `location(s)` · `loc` · `fix` olan ya da `...Location(s)` ile BITEN bir ifade (bir alan
+#     yolu dahil: `manager.location`); arkasinda istege bagli `.last`/`.first`/`.last()` (dizinin
+#     ELEMANI yine bir konum nesnesidir -- 2. denetim) ve `.toString()`/`.description`.
+#     `location.horizontalAccuracy` gibi baska bir ALANI gormez -- bilerek (koordinat degil).
+#   KOD: CIPLAK `code` bir IFADE olarak (`$code`, `\(code)`, `, code)`) -- davet, eslesme ve
+#     onay kodlarinin adsiz hali. Alan yolu ONEKI ALMAZ (2. denetim): `${response.code}`,
+#     `\(error.code)` bir durum/hata kodudur, FAIL DEGIL. Duzyazidaki `HTTP code` ve
+#     `statusCode` da FAIL DEGIL.
+#   QR: `qr`/`QR` ile baslayan ya da `...Qr` iceren bir ifade (`\(qrPayload)`, `$liveQr`).
+# Ifade sayilan yer, IKI SINIF (2. denetim -- `"..., fix acquired: $hasFix"` duzyazisi
+# `, fix` yuzunden FAIL veriyordu):
+#   dize ICI bas: Kotlin `$`/`${`, Swift `\(`, `.format(` -- ardindan ifadenin sonu
+#   arguman bas: `, x` · `+ x` · cagrinin ilk argumani -- ardindan YALNIZ `)`, `,` ya da `+`
+#     (arguman sinirinda biten bir ifade; duzyazidaki `, fix acquired` bitmez).
+# 🔴 NEDEN YALNIZ mobile/: android/ rolesinin `location=${p.location}` satiri HTTP Location
+# BASLIGIDIR (sunucunun yonlendirmesi), koordinat degil -- ve role konum izni tasimaz
+# (manifest: NFC + INTERNET). Kok o satirda 1 isabet veriyordu (olculdu); rolede konum
+# OLAMAYACAGI icin kok orada anlamsizdir. Ayni ad mobile/'da HTTP basligi icin
+# kullanilirsa bu kok onu da FAIL sayar -- uygulama baslik degiskenine baska ad verir.
+# ⚠️ BILINEN YANLIS POZITIF / NEGATIF (2. denetim, M16-11/M16-13 yeniden olcer): arguman
+# olarak gecen ciplak `fix`/`loc`/`code`/`qr...` degeri (bir sayac icin `code`) FAIL verir;
+# alan yolundaki bir davet kodu (`${invite.code}`) GORUNMEZ -- uygulama adli degisken
+# (`inviteCode`, `pairingCode`) kullanir, onlari tetikleyiciler yakalar.
+# Pin: cmd/tappa/scripttest TestRedline_M16_MobileLogCalls.
+R7M_HEAD_IN='(?:\.format\(\s*|\$\{?|\\\(\s*)'
+R7M_HEAD_ARG='[,+]\s*'
+R7M_VALUE='(?:(?:[A-Za-z_]\w*[?!]?\.)*(?:(?:[a-z]\w*Locations?|locations?|loc|fix)(?:[?!]?\.(?:last|first)(?:\(\))?)?[?!]?(?:\.(?:toString\(\)|description|debugDescription))?|(?:qr|QR|[a-z]\w*Qr)\w*)|code)'
+R7M_EXPR_PATTERN="$R7M_CALLEE(?:$R7M_WINDOW$R7M_HEAD_IN$R7M_VALUE(?:[^\\w.(?!]|\$)|(?:$R7M_WINDOW$R7M_HEAD_ARG|\\s*)$R7M_VALUE\\s*[),+])"
+r7m_expr_hits=""
+if [[ $mobile_present -eq 1 ]]; then
+  r7m_expr_hits=$(scan_in MOBILE_SRC -U -e "$R7M_EXPR_PATTERN")
+fi
+report FAIL R7 "Konum nesnesi / kod / QR degeri mobil log cagrisinda (adsiz ifade) — CLAUDE.md §7" \
+  "$r7m_expr_hits"
+
 # --- R7c: TAM GPS KOORDINATI LOG'A DUSUYOR OLABILIR --------------------------
 #
 # 🔴 NEDEN AYRI BIR KURAL VAR: §4.7'NIN ALTI SINIFINDAN BESI ICIN MEKANIZMA
@@ -2527,13 +2826,40 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 # AYNI KALIP: rg dosyalari ON-SECER (scan_in: cikis kodu okunur, eksik yol = tarama
 # hatasi), lexer yalniz o dosyalari okur; awk hatasi SCAN_ERR'e yazilir — bos bir
 # secim "temiz" okunmasin diye (R1'in r1_select'i ile ayni gerekce).
+#
+# MOBIL (M16-02, ADR 0045): `mobile/` VARSA B1_SRC'ye girer (SRC ile ayni varlik
+# kurali; yoklugu basliktan sonra raporlanir). Kullanicinin okudugu metin orada:
+#   Kotlin ve Swift string literal'leri (.kt, .swift -- Swift de Kotlin gibi `"""` tasir,
+#     ters tirnak ve tek tirnak Swift'te dize DEGILDIR: tanimlayici kacisi / yok)
+#   Android res/ ve manifest (.xml), iOS Info.plist (.plist), storyboard / xib -- XML;
+#     `<!-- -->` yorumu uygulamaya derlenir, kimseye gosterilmez: android/app/src/main ile
+#     ayni yapisal muafiyet, YOLA bagli (`^mobile/`)
+#   iOS .stringsdict (cogul kurallari; plist XML, yorumu muaf -- denetim eki)
+#   iOS .strings (InfoPlist.strings dahil -- izin metni ve uygulama adi): C-benzeri,
+#     `//` ve `/* */` yorumdur, iki taraftaki dize de okunur
+#   iOS Localizable.xcstrings (JSON): ham, her sey metindir (cevirmen `comment`'i dahil)
+#   Xcode project.pbxproj: ham -- hedef/urun adi (`Tappa.app`) ana ekrandaki ad olur
+# MOBILDE TARANMAZ (glob, YOLA bagli): .md/.yaml/.yml/.json (belge ve yapilandirma --
+#   asset katalogunun Contents.json'u metin tasimaz) ve test kaynaklari: Android
+#   src/test, src/androidTest; iOS `*Tests/` dizinleri (XCTest adeti).
+# ⚠️ OLCU SINIRI: mobile/ bugun yok; kapsam Xcode ve Gradle'in standart sablon
+#   duzenine gore secildi ve fikstur agaciyla olculdu (TestRedline_M16_MobileB1). Ilk
+#   gercek iskelet (M16-11 / M16-15) bu listeyi gercek agacla yeniden olcer.
+# Swift genisletilmis sinirlayicili dize (`#"..."#`, `##"..."##`, `#"""..."""#`): icindeki `"`
+#   dizeyi KAPATMAZ (denetim eki) -- lexer `#` sayisini tutar ve yalniz `"` + ayni sayida `#`
+#   ile kapatir.
+# ⚠️ SWIFT SINIRLARI: ic ice blok yorum (`/* /* */ */`) ve interpolasyon icindeki dize
+#   (`"\(f("x"))"`) lexer'i yaniltabilir -- bedel yalniz `Tappa` iceren dosyalarla sinirli.
 B1_SRC=(web/templates web/static internal docs/api android/app/src/main)
+if [[ $mobile_present -eq 1 ]]; then B1_SRC+=(mobile); fi
 B1_GLOBS=(
-  --glob '*.{go,templ,html,js,css,kt,xml,md,yaml,yml,json}'
+  --glob '*.{go,templ,html,js,css,kt,xml,md,yaml,yml,json,swift,strings,stringsdict,xcstrings,plist,storyboard,xib,pbxproj}'
   # Sonraki glob oncekini ezer (rg), bu yuzden GEN_EXCLUDE'un iki uretilmis kumesi
   # dahil-etme globundan SONRA yeniden yazilir.
   --glob '!*_templ.go' --glob '!internal/store/*.go'
   --glob '!*_test.go' --glob '!**/testdata/**' --glob '!web/static/vendor/**'
+  --glob '!mobile/**/*.{md,yaml,yml,json}'
+  --glob '!mobile/**/src/test/**' --glob '!mobile/**/src/androidTest/**' --glob '!mobile/**/*Tests/**'
 )
 
 # b1_lex <dosya...> — her dosyada kullanicinin okudugu metni cikarir ve `Tappa`
@@ -2555,18 +2881,32 @@ b1_lex() {
     # lexc: C-benzeri kaynagin BIR satiri (Go, JS, Kotlin, CSS; ve .templ dosyasinin Go
     # bolgeleri). YALNIZ string literal icerigi okunur; durum (st, buf, at) satirlar
     # arasinda tasinir.
-    function lexc(line, lang,    n, i, c, c2) {
+    function lexc(line, lang,    n, i, j, c, c2, h) {
       n = length(line); i = 1
       while (i <= n) {
         c = substr(line, i, 1); c2 = substr(line, i, 2)
         if (st == "code") {
           if (c2 == "//" && lang != "css") break
           if (c2 == "/*") { st = "block"; i += 2; continue }
-          if (lang == "kt" && substr(line, i, 3) == "\"\"\"") { st = "tq"; buf = ""; at = FNR; i += 3; continue }
-          if (c == "\"" || c == "\047" || (c == "`" && lang != "kt")) { st = c; buf = ""; at = FNR; i++; continue }
+          # Swift `#"..."#`: kapanis `"` + ayni sayida `#` (rend, satirlar arasinda tasinir).
+          if (lang == "swift" && c == "#") {
+            j = i; while (substr(line, j, 1) == "#") j++
+            if (substr(line, j, 1) == "\"") {
+              h = substr(line, i, j - i)
+              if (substr(line, j, 3) == "\"\"\"") { rend = "\"\"\"" h; i = j + 3 } else { rend = "\"" h; i = j + 1 }
+              st = "raw"; buf = ""; at = FNR; continue
+            }
+            i = j; continue
+          }
+          if ((lang == "kt" || lang == "swift") && substr(line, i, 3) == "\"\"\"") { st = "tq"; buf = ""; at = FNR; i += 3; continue }
+          if (c == "\"" || (c == "\047" && lang != "swift") || (c == "`" && lang != "kt" && lang != "swift")) { st = c; buf = ""; at = FNR; i++; continue }
           i++; continue
         }
         if (st == "block") { if (c2 == "*/") { st = "code"; i += 2 } else i++; continue }
+        if (st == "raw") {
+          if (substr(line, i, length(rend)) == rend) { if (hit(buf)) emit(at, buf); st = "code"; i += length(rend); continue }
+          buf = buf c; i++; continue
+        }
         if (st == "tq") {
           if (substr(line, i, 3) == "\"\"\"") { if (hit(buf)) emit(at, buf); st = "code"; i += 3; continue }
           buf = buf c; i++; continue
@@ -2581,7 +2921,7 @@ b1_lex() {
       }
       # Tek satirlik bir literal satir sonunda kapanmamissa (JS, bozuk kaynak) orada biter.
       if (st == "\"" || st == "\047") { if (hit(buf)) emit(at, buf); st = "code" }
-      else if (st == "`" || st == "tq") buf = buf " "
+      else if (st == "`" || st == "tq" || st == "raw") buf = buf " "
     }
     # gostmt: satir bir Go kontrol satiri BICIMINDE mi (templ in sartina yakin, ama
     # switch baglamina bakmaz — basliktaki SINIRLAR 5). Ilk sozcuk yetmez:
@@ -2651,6 +2991,8 @@ b1_lex() {
       ext = FILENAME; sub(/^.*\./, "", ext)
     }
     ext == "go" || ext == "js" || ext == "kt" || ext == "css" { lexc($0, ext); next }
+    # Swift ve .strings: `"""` tasir, tek tirnak ve ters tirnak dize acmaz.
+    ext == "swift" || ext == "strings" { lexc($0, "swift"); next }
     # .templ: govdenin disi (package, import, Go bildirimleri) Go dur; `templ X(...) {`
     # ile sutun 0 daki `}` arasi govdedir.
     ext == "templ" {
@@ -2666,7 +3008,10 @@ b1_lex() {
     }
     # Android XML: `<!-- -->` yorumdur (servis edilmez, uygulamaya derlenir). Muafiyet YOLA
     # bagli: B1 kapsamindaki baska bir .xml servis edilen ham bayttir (asagidaki kol).
-    ext == "xml" && FILENAME ~ /^android\/app\/src\/main\// {
+    # mobile/ altinda ayni muafiyet plist, storyboard ve xib icin de gecerli (hepsi XML, hepsi
+    # uygulamaya derlenir); `^` ile bagli, `xmobile/` ya da `web/static/mobile/` degil.
+    (ext == "xml" && FILENAME ~ /^android\/app\/src\/main\//) ||
+    ((ext == "xml" || ext == "plist" || ext == "stringsdict" || ext == "storyboard" || ext == "xib") && FILENAME ~ /^mobile\//) {
       line = $0; out = ""; n = length(line); i = 1
       while (i <= n) {
         if (st == "html") { if (substr(line, i, 3) == "-->") { st = "code"; i += 3 } else i++; continue }
@@ -2676,7 +3021,8 @@ b1_lex() {
       if (hit(out)) emit(FNR, out)
       next
     }
-    # Servis edilen ham baytlar (.html, .md, .yaml, .yml, .json): yorum YOK, her sey metindir.
+    # Servis edilen ham baytlar (.html, .md, .yaml, .yml, .json) ve mobilin ham dosyalari
+    # (.xcstrings, .pbxproj): yorum YOK, her sey metindir.
     { if (hit($0)) emit(FNR, $0) }' "$@"
 }
 

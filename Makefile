@@ -182,8 +182,8 @@ simulate-day:
 
 # ------------------------------------------------------------------ android --
 # Plaket encode rolesi (android/, M8-05 FAZ B3): Go modulunun DISINDA ayri bir Gradle
-# derlemesi. `check`in PARCASI DEGIL -- Go CI'i ona dokunmaz ve redline-check'in SRC
-# listesi onu taramaz. Zincir: SISTEM Gradle'i (agacta wrapper JAR yok, repo ikili
+# derlemesi. `check`in PARCASI DEGIL -- Go CI'i onu derlemez; redline-check'in SRC
+# listesi ise M16-02'den beri onu TARAR (android/README.md). Zincir: SISTEM Gradle'i (agacta wrapper JAR yok, repo ikili
 # tasimaz) + JDK 21 + ANDROID_HOME altindaki SDK. Tam surumler: android/README.md.
 #
 # JAVA_HOME ACIKCA VERILIR, VARSAYILMAZ. Olculdu: JAVA_HOME'suz `gradle` bu makinede
