@@ -1763,7 +1763,7 @@ yazılır.
 | M16-02 | Kırmızı çizgi taraması `mobile/`'ı görür | **done** | `dc71d79c` + `407d9c3f` + `5f845abc`; üçüncü göz RED → ONAY, güvenlik RED → RED → ONAY (son tur daraltıldı; sınırlar kartın Tuzaklar'ında) |
 | M16-03 | Şema: `app_devices` ve tek kullanımlık nonce | **done** | `007bad76` + `f46f619d` + `e0106956` (merge `cac2be3d`); iki mercek ONAY, güvenlik ORTA (iptal ↔ uçuştaki nonce) düzeltildi + dar kontrol ONAY; migration 00104 |
 | M16-04 | Şema: `transactions.client` | **done** | `e15be4a0` + `cfdb2aee` (merge `2b13ae9b`); iki mercek ONAY; migration 00105–00106 (00104'ten sonra) |
-| M16-05 | `internal/appdevice`: imzalı istek doğrulaması | todo |  |
+| M16-05 | `internal/appdevice`: imzalı istek doğrulaması | **done** | `28cef5e1` + `dfcf5345` (CLAUDE.md §3) + `dc335edf`; iki mercek ONAY (yalnız DÜŞÜK; M16-07'ye devirler kartta) |
 | M16-06 | Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı | todo |  |
 | M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | todo |  |
 | M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | todo |  |
