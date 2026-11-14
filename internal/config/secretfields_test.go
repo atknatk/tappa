@@ -201,6 +201,13 @@ var keyFieldExemptions = map[string]string{
 		"a holder's unexported field still reaches it, see backlog T253",
 	// A signed value that travels to the browser anyway.
 	"handler.claimStep.token": "the signed moment in a confirmation form's hidden field; it is sent to the browser by design",
+	// The native app's device key (00104, M16-03, ADR 0045 §2.3): the PUBLIC half of a P-256 pair whose private
+	// half never leaves the phone's Secure Enclave / Keystore. It verifies a signature and opens nothing; it is
+	// kept out of logs by M16-25's list, not because it is secret. The digest is SHA-256 of that public key.
+	"db.ResolvedAppDevice.PublicKey":        "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",
+	"store.AppDevice.PublicKey":             "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",
+	"store.CreateAppDeviceParams.PublicKey": "the device's P-256 PUBLIC key going in at activation; it verifies, it opens nothing",
+	"store.AppDevice.KeyDigest":             "SHA-256 of the device's PUBLIC key (the uniqueness column); a digest of nothing secret",
 }
 
 // storeKeyFieldShape is what a key-named column of a sqlc row may be called. internal/store is generated

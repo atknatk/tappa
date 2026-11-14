@@ -308,6 +308,13 @@ column api_keys tappa_app INSERT tenant_id,name,token_hash,prefix_hint,created_b
 column api_keys tappa_app SELECT tenant_id,id,name,prefix_hint,created_by,created_at,last_used_at,revoked_at
 column api_keys tappa_app UPDATE last_used_at,revoked_at
 column api_keys tappa_resolver SELECT tenant_id,id,token_hash,revoked_at
+column app_devices tappa_app INSERT tenant_id,employee_id,platform,public_key,device_label
+column app_devices tappa_app SELECT id,tenant_id,employee_id,platform,device_label,created_at,last_used_at,revoked_at
+column app_devices tappa_app UPDATE last_used_at,revoked_at
+column app_devices tappa_resolver SELECT id,tenant_id,employee_id,public_key,revoked_at
+column app_request_nonces tappa_app INSERT tenant_id,device_id,nonce_hash,expires_at
+column app_request_nonces tappa_app SELECT id,tenant_id,device_id,nonce_hash,created_at,expires_at,consumed_at
+column app_request_nonces tappa_app UPDATE consumed_at
 column audit_log tappa_app INSERT id,tenant_id,actor_id,action,target,detail
 column audit_log tappa_identitydefiner INSERT tenant_id,actor_id,action,target,detail
 column audit_log tappa_opdefiner INSERT tenant_id,actor_id,action,target,detail,at
@@ -412,6 +419,8 @@ extension pgcrypto schema=public
 extension plpgsql schema=pg_catalog
 function admin_users_guard_identity_credentials() owner=tappa_owner definer=false execute=-
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
+function app_devices_revocation_is_one_way() owner=tappa_owner definer=false execute=-
+function app_request_nonces_consumption_is_one_way() owner=tappa_owner definer=false execute=-
 function feed_open_counter() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
 function holding_advance_tag_counter(character,integer) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
 function holding_directory(timestamp with time zone,uuid) owner=tappa_holdingdefiner definer=true execute=tappa_app,tappa_holdingdefiner
@@ -485,6 +494,7 @@ function resolve_admin_invite_by_token_hash(text) owner=tappa_resolver definer=t
 function resolve_admin_owners_by_tenant(uuid) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_admin_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_api_key_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_app_device_by_id(uuid) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_by_email(citext) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_verification_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -527,6 +537,8 @@ rel admin_sessions r owner=tappa_owner rls=enable,force
 rel admin_users r owner=tappa_owner rls=enable,force
 rel api_idempotency r owner=tappa_owner rls=enable,force
 rel api_keys r owner=tappa_owner rls=enable,force
+rel app_devices r owner=tappa_owner rls=enable,force
+rel app_request_nonces r owner=tappa_owner rls=enable,force
 rel audit_log r owner=tappa_owner rls=enable,force
 rel billing_periods r owner=tappa_owner rls=enable,force
 rel departments r owner=tappa_owner rls=enable,force
@@ -575,6 +587,7 @@ table admin_identity_verifications tappa_identitydefiner DELETE
 table admin_signup_claims tappa_identitydefiner DELETE
 table admin_sessions tappa_app SELECT
 table api_idempotency tappa_app DELETE
+table app_request_nonces tappa_app DELETE
 table audit_log tappa_app SELECT
 table billing_periods tappa_app SELECT,INSERT
 table departments tappa_app SELECT,INSERT,UPDATE,DELETE

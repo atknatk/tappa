@@ -348,6 +348,17 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 - Süresi dolmuş nonce'ların temizliği: kart karar verir (silme mi, bırakma mı); karar §4.3'e değmez (bu tablo
   `transactions` değil) ama `redline-check` R3 kapsamında mı ölçülür.
 
+> **Kart düzeltmesi (2026-11-14, M16-03 uygulaması sırasında).** İki madde metinden saptı, ikisi de ölçümle:
+> (1) *"anahtar parmak izi"* sütunu `key_digest` adını aldı — İngilizce karşılığı `redline-check` R1'in biyometri
+> tetikleyicisidir (ölçüldü: ilk taslak 11 satırla R1 FAIL verdi); kural kör tutulur, ad değişir (deponun her seferki
+> yönü). Sütun `public_key`'in hex SHA-256'sı, `GENERATED ALWAYS … STORED`, global UNIQUE. (2) Açık anahtar **ham
+> sıkıştırılmamış P-256 noktası** (65 bayt, `0x04‖X‖Y`) — SPKI değil: tek kanonik bayt dizisi, böylece özet ve UNIQUE
+> anahtarın kendisine aittir. Ek kararlar: cihaz satırı aktivasyonun **sonunda, etkin** doğar (bağ davette durur,
+> ADR 0026 deseni — *"bağlı ama etkin olmayan cihaz"* bu tablonun durumu değildir); nonce ömrü CHECK ile ≤ 5 dk;
+> ölü nonce'lar (tüketilmiş/süresi dolmuş) **silinir**, cihaz başına, yeni nonce verilmeden önce
+> (`DeleteDeadAppRequestNonces`) — silme fail-closed'dur (tüketim canlı satır ister) ve R3 kapsamı dışında kalır
+> (R3 yalnız `transactions`/`punch_events`'i tarar; bu tablo kanıt taşımaz). `consumed_at` da tek yönlüdür (tetikleyici).
+
 ## M16-04 — Şema: `transactions.client`
 
 - **Bağımlılık:** M16-01
@@ -400,6 +411,24 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 - CLAUDE.md §3 `internal/sun/` satırının *"Kriptografi SADECE burada"* ifadesi M16-01'de *"plaket kriptografisi"*ye
   daraltılmış olmalı; değilse bu kart onu düzeltir.
 - CLAUDE.md §3'e `internal/appdevice/` satırı (M16-01 tablosu).
+- **M16-03 incelemesinden devralınan (2026-11-14):**
+  - HTTP katmanı **bilinmeyen** ve **iptal edilmiş** cihazı imza doğrulamasından **önce** aynı yanıtla karşılar
+    (durum kâhini yok); iptal ile bilinmeyen ayrımı yalnız sunucu içinde, kayıtsız yolun seçiminde kullanılır.
+  - Nonce **sunucuda** üretilir: 32 bayt `crypto/rand`; istemciden gelen bir nonce asla kabul edilmez.
+    Saklanan, özetidir (`nonce_hash`, `00104`).
+  - Açık anahtar Go'da **eğri üstünde** doğrulanır (`ecdsa.ParseUncompressedPublicKey`); `00104`'ün CHECK'i yalnız
+    uzunluğu (65) ve önek baytını (`0x04`) sabitler, eğri aritmetiğini yapamaz.
+  - İptal, cihazın nonce'larını aynı ifadede siler ve tüketim cihazı `FOR SHARE` ile yeniden okur (`00104`,
+    `RevokeAppDevice`/`ConsumeAppRequestNonce`); Go tarafındaki iptal denetimi yine yapılır, ama tek savunma değildir.
+    ⚠️ **`EXISTS … FOR SHARE` kemeri yük taşır, gereksiz değildir:** *"issue uçuşta, sonra revoke"* sırasında bir
+    nonce iptalin DELETE'inden kurtulur (ifade anlık görüntüsü issue'nun commit'inden eskidir — M16-03 güvenlik
+    yeniden denetimi ölçtü) ve onu yalnız kemer reddeder. Kaldırılmaz.
+  - **Kilit sırası kuralları** (M16-03 güvenlik yeniden denetimi deadlock'ları ölçtü): **D1** — aynı transaction'da
+    `DeleteDeadAppRequestNonces` sonra `IssueAppRequestNonce`, eşzamanlı bir iptalle deadlock verdi ve kurban
+    **iptal** oldu (çalınan bir telefon iptali tekrar tekrar düşürebilirdi); **D2** — iki istek, her biri önce
+    tüketip sonra `TouchAppDevice`, kilit yükseltmesiyle 40P01 verdi. Kurallar: önce **cihaz satırı**, sonra
+    **nonce satırları**; temizlik **nonce verildikten sonra** ya da **kendi transaction'ında**; `TouchAppDevice`
+    **tüketimden önce**; iptali çağıran 40P01'de **yeniden dener**.
 
 ## M16-06 — Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı
 
@@ -465,6 +494,22 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 - Oran sınırı: tap yüzeyinin limiter'ı (`internal/httpx/ratelimit.go`) cihaz başına uygulanır; yanıtlar `no-store`.
 - Hata gövdesi kapalı sözlük; hiçbir yanıt ve log satırı imza, nonce, tam koordinat, davet kodu taşımaz.
 - CLAUDE.md §5 *"Dört kanıt"* cümlesi (bu kartla, M16-01 tablosu).
+- **M16-03 incelemesinden devralınan (2026-11-14):**
+  - `CreateAppDevice` yalnız **anahtara sahiplik kanıtından sonra** çağrılır (sunucunun verdiği meydan okuma
+    üzerinde imza): `key_digest` global UNIQUE olduğundan, kanıtsız bir kayıt başkasının açık anahtarını önceden
+    kaydedip onun aktivasyonunu kilitleyebilirdi.
+  - `app_devices_key_digest_key` ihlali (23505) kapalı sözlükte açık bir *"yeni anahtar üret"* yanıtına eşlenir;
+    uygulama her aktivasyonda **yeni bir anahtar çifti** üretir.
+  - Cihaz başına yaşayan nonce üst sınırı **atomik** olmalı: aynı transaction'da **önce cihaz satırını ayrı bir
+    ifadeyle kilitle** (`SELECT … FOR NO KEY UPDATE`) **ya da cihaz başına advisory kilit al**, sonra say ve ver.
+    `CountLiveAppRequestNonces` sonra `IssueAppRequestNonce` (say-sonra-yaz) eşzamanlı isteklerde sınırı aşar — `ctr`
+    dersinin aynısı (§4.4). Sayımı `INSERT … SELECT … WHERE (SELECT count(*) …) < N` içine katlamak **atomik
+    değildir**: M16-03 güvenlik yeniden denetimi `FOR SHARE OF d` ile de `FOR UPDATE OF d` ile de N=1'de iki eşzamanlı
+    verişin ikisinin de yazıldığını ölçtü.
+  - **Kilit sırası kuralları** (M16-05'teki D1/D2 ölçümleri): önce cihaz satırı, sonra nonce satırları; ölü nonce
+    temizliği verişten **sonra** ya da **kendi transaction'ında** (D1'de kurban iptaldi); `TouchAppDevice`
+    tüketimden **önce** (D2, 40P01); iptal çağıranı 40P01'de yeniden dener. `EXISTS … FOR SHARE` kemeri yük taşır,
+    kaldırılmaz.
 
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 

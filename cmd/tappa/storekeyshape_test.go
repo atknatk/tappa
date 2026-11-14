@@ -560,6 +560,18 @@ var storeSurface = map[string]string{
 	"ListAdminMembers":      "(context.Context, uuid.UUID) ([]ListAdminMembersRow{ID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
 	"SetAdminMemberStatus":  "(context.Context, SetAdminMemberStatusParams{Status string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 	"SetAdminMemberRole":    "(context.Context, SetAdminMemberRoleParams{Role string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
+	// M16-03 (migration 00104, ADR 0045 §2.3): the native app's devices and single-use request nonces
+	// (appdevices.sql). The device key goes IN (CreateAppDeviceParams.PublicKey) and is never handed
+	// back -- tappa_app cannot SELECT public_key or key_digest -- and the nonce's hash goes in and is
+	// never returned either; ids, instants, the platform, the coarse label and a count.
+	"CreateAppDevice":             "(context.Context, CreateAppDeviceParams{TenantID uuid.UUID; EmployeeID uuid.UUID; Platform string; PublicKey []byte; DeviceLabel *string}) (CreateAppDeviceRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; Platform string; DeviceLabel *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"TouchAppDevice":              "(context.Context, TouchAppDeviceParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAppDeviceRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
+	"RevokeAppDevice":             "(context.Context, RevokeAppDeviceParams{ID uuid.UUID; TenantID uuid.UUID}) (RevokeAppDeviceRow{ID uuid.UUID; RevokedAt *time.Time}, error)",
+	"RevokeAppDevicesForEmployee": "(context.Context, RevokeAppDevicesForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]uuid.UUID, error)",
+	"IssueAppRequestNonce":        "(context.Context, IssueAppRequestNonceParams{NonceHash string; TtlSeconds int32; DeviceID uuid.UUID; TenantID uuid.UUID}) (IssueAppRequestNonceRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
+	"ConsumeAppRequestNonce":      "(context.Context, ConsumeAppRequestNonceParams{TenantID uuid.UUID; DeviceID uuid.UUID; NonceHash string}) (uuid.UUID, error)",
+	"CountLiveAppRequestNonces":   "(context.Context, CountLiveAppRequestNoncesParams{TenantID uuid.UUID; DeviceID uuid.UUID}) (int32, error)",
+	"DeleteDeadAppRequestNonces":  "(context.Context, DeleteDeadAppRequestNoncesParams{TenantID uuid.UUID; DeviceID uuid.UUID}) (int64, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -986,6 +998,8 @@ var resolverCallSites = map[string][]string{
 	"internal/db/resolve.go": {
 		"resolve_admin_by_email",
 		"resolve_admin_session_by_token_hash",
+		// M16-03 (00104): GetAppDeviceByID's call -- the same file, no new caller.
+		"resolve_app_device_by_id",
 		"resolve_invite_by_code_hash",
 		"resolve_password_reset_by_token_hash",
 		"resolve_session_by_token_hash",
@@ -1083,11 +1097,14 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 29 -> 30 on 2026-10-27 (M14-16): db/queries/adminmembers.sql, the owner's side of a business's
 	// memberships over admin_users; none calls a definer. (M14's two were counted 27 -> 29 on their
 	// branch; the merge that brought main into M14 adds M15's one.)
-	if files != 30 {
-		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY were there when this was "+
-			"pinned (2026-10-27; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+	// 30 -> 31 on 2026-11-14 (M16-03, migration 00104): db/queries/appdevices.sql, eight named queries
+	// over app_devices and app_request_nonces; none calls a definer (the device resolver is called by
+	// hand from internal/db/resolve.go).
+	if files != 31 {
+		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-ONE were there when this was "+
+			"pinned (2026-11-14; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
 			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, "+
-			"punchclaims.sql, admininvites.sql and adminmembers.sql)", files)
+			"punchclaims.sql, admininvites.sql, adminmembers.sql and appdevices.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1223,14 +1240,18 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// own rows tells its 0 rows apart; neither calls a definer.
 	// 257 -> 258 on 2026-11-09 (T258): transactions.sql's ExistingManualRecord, a read of the caller's
 	// own business's manual rows under the person's lock; it calls no definer.
-	if named != 258 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND FIFTY-EIGHT were "+
-			"there when this was pinned (2026-11-09: 111 on 2026-08-24, + T73's three "+
+	// 258 -> 266 on 2026-11-14 (M16-03, migration 00104): appdevices.sql's eight (CreateAppDevice,
+	// TouchAppDevice, RevokeAppDevice, RevokeAppDevicesForEmployee, IssueAppRequestNonce,
+	// ConsumeAppRequestNonce, CountLiveAppRequestNonces, DeleteDeadAppRequestNonces), each over the
+	// caller's own business's rows; none calls a definer.
+	if named != 266 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND SIXTY-SIX were "+
+			"there when this was pinned (2026-11-14: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + M16-03's eight device and nonce queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1297,6 +1318,8 @@ func TestResolverAccess_TheCallSitesAreTheOnesInventoried(t *testing.T) {
 				"resolve_admin_by_email", "resolve_admin_session_by_token_hash",
 				"resolve_invite_by_code_hash", "resolve_password_reset_by_token_hash",
 				"resolve_session_by_token_hash", "resolve_tag_by_uid",
+				// M16-03 (00104): the device resolver, called by hand from internal/db/resolve.go.
+				"resolve_app_device_by_id",
 			} {
 				if strings.Contains(lit.Value, name) {
 					found = append(found, name)
@@ -1429,9 +1452,13 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// side of a business's memberships (five methods, in storeSurface); none carries bytes, none reads tags.
 	// (M14's two and M15's one were counted on separate branches; the merge that brought main into M14
 	// before Deploy 1 adds them up, 2026-10-27.)
-	if len(out) != 31 {
-		t.Fatalf("parsed %d file(s) under %s; THIRTY-ONE were generated when this floor was last set "+
-			"(2026-10-27). If sqlc genuinely emits a different number now, change this number "+
+	// 31 -> 32 (2026-11-14, M16-03, migration 00104): db/queries/appdevices.sql adds appdevices.sql.go --
+	// the native app's devices and request nonces (eight methods, in storeSurface). No RESULT carries
+	// bytes (the device key goes IN through CreateAppDeviceParams.PublicKey and is never returned --
+	// tappa_app cannot SELECT it); none reads tags.
+	if len(out) != 32 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY-TWO were generated when this floor was last set "+
+			"(2026-11-14). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

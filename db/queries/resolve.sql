@@ -252,3 +252,17 @@
 --   * tappa_resolver reads (id, api_enabled_at) of tenants and nothing else there.
 --   SELECT tenant_id, key_id, revoked_at, api_enabled_at
 --   FROM resolve_api_key_by_hash($1);
+
+-- GetAppDeviceByID (hand-written: internal/db.(*DB).GetAppDeviceByID, M16-03). Context-less; calls
+-- resolve_app_device_by_id (00104), never public.app_devices. At most one row (app_devices.id is the
+-- primary key). Fixed columns: id, tenant_id, employee_id, public_key, revoked_at.
+--   * The input is the device id, which is NOT a credential: what authenticates an app request is
+--     the signature over a single-use nonce, verified with the key this returns (ADR 0045 §2.3,
+--     internal/appdevice). The nonce is consumed afterwards under the resolved tenant's context
+--     (appdevices.sql ConsumeAppRequestNonce), never here.
+--   * revoked_at is returned but NOT filtered -- a revoked device is §5 row 3's twin (401, no
+--     record) and the caller decides; a deactivated person's device is not revoked.
+--   * platform, the label, the digest and the use stamps are not returned (nothing before
+--     authentication reads them); tappa_resolver cannot read them either.
+--   SELECT id, tenant_id, employee_id, public_key, revoked_at
+--   FROM resolve_app_device_by_id($1);

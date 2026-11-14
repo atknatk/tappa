@@ -58,7 +58,9 @@ import (
 // invite_requests (M11 API-1, migration 00037).
 // tenant_branding (00028) holds one row per tenant, so the write list's "own" control
 // would collide on its primary key -- the reason tenants has its own test below; its
-// isolation tests are in branding_test.go.
+// isolation tests are in branding_test.go. app_devices and app_request_nonces (00104, M16-03)
+// have theirs in appdevices_test.go (TestRLS_AppDevices_TenantIsolation), in the same
+// filterless shape with a positive control and an RLS-off control.
 
 // ---------------------------------------------------------------- pools -----
 

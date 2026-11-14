@@ -27,7 +27,10 @@ import (
 // NULL" RLS branch anywhere. "There are already five" is not an argument for a sixth
 // (the ADR says so in as many words); the sixth re-earns all five and
 // TestResolvePasswordReset_SecurityDefinerProperties measures them in the live
-// catalog.
+// catalog. M16-03 (migration 00104) adds the device resolver, GetAppDeviceByID: its
+// key is a device id rather than a secret hash -- the device id is not a credential,
+// the signature over the nonce is (ADR 0045 §2.3) -- and TestAppDevicesCatalog
+// measures the five for it.
 //
 // ONE OF THE FIVE CONSTRAINTS CHANGES SHAPE FOR GetAdminByEmail, and it is called
 // out rather than glossed: constraint (ii) is "at most ONE row", which holds for
@@ -54,7 +57,7 @@ import (
 // column-level SELECT on exactly these seven tables, and on tenants (id, api_enabled_at)
 // alone since 00051) -- NEVER public.tags / public.sessions / public.employee_invites /
 // public.admin_users / public.admin_sessions / public.password_resets /
-// public.api_keys directly. tappa_app holds EXECUTE on
+// public.api_keys / public.app_devices (00104) directly. tappa_app holds EXECUTE on
 // the functions but no
 // cross-tenant SELECT on the tables, so the blast radius is those functions, not
 // the whole DB. These accessors deliberately DO NOT call set_config: they establish
@@ -266,6 +269,31 @@ type ResolvedAPIKey struct {
 	APIEnabledAt *time.Time
 }
 
+// ResolvedAppDevice is the fixed column set returned by resolve_app_device_by_id (migration
+// 00104, M16-03, ADR 0045 §2.3): whose native-app device this is, the public key its requests are
+// signed with, and whether it was revoked.
+//
+// A CONTEXT-LESS LOOKUP for the reason the others are: a signed app request carries a device id
+// and no bearer token and no tenant, so the tenant is the RESULT. It earns ADR 0002 md.7's five
+// constraints itself (TestAppDevicesCatalog measures them): the device id as the only input, at
+// most one row (the primary key), these five columns and no others, EXECUTE to tappa_app alone,
+// and the standard NULLIF policy on the table.
+//
+// CARRIED, NOT APPLIED (internal/session/manager.go's rule): RevokedAt non-nil is §5 row 3's twin
+// -- the caller answers 401 / re-activation and writes no record. A DEACTIVATED person's device is
+// not revoked and resolves normally; §5 row 4 comes from employees.status under the tenant context.
+// The two are never turned into each other (§4.6).
+//
+// PublicKey is the raw uncompressed P-256 point (65 bytes, 0x04 || X || Y; 00104's CHECK). It is
+// public, but it is not logged (M16-25's list) and nothing but the verifier should hold it.
+type ResolvedAppDevice struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	PublicKey  []byte
+	RevokedAt  *time.Time
+}
+
 // ResolvedAdminSession is the fixed column set returned by
 // resolve_admin_session_by_token_hash (migration 00011): the twin of
 // ResolvedSession over the SEPARATE admin table. An employee cookie can never
@@ -331,6 +359,9 @@ FROM resolve_password_reset_by_token_hash($1)`
 
 const getAPIKeyByHashSQL = `SELECT tenant_id, key_id, revoked_at, api_enabled_at
 FROM resolve_api_key_by_hash($1)`
+
+const getAppDeviceByIDSQL = `SELECT id, tenant_id, employee_id, public_key, revoked_at
+FROM resolve_app_device_by_id($1)`
 
 // GetTagByUID resolves a wall-plaque uid to its tag WITHOUT a tenant context.
 // Returns pgx.ErrNoRows when the uid is unknown (the caller rejects the tap).
@@ -602,4 +633,23 @@ func (d *DB) GetAPIKeyByHash(ctx context.Context, tokenHash string) (ResolvedAPI
 		return ResolvedAPIKey{}, fmt.Errorf("db: resolve integration credential by hash: %w", err)
 	}
 	return k, nil
+}
+
+// GetAppDeviceByID resolves a native-app device id to its device (tenant, employee, public key,
+// revocation) WITHOUT a tenant context. Returns pgx.ErrNoRows when the id is unknown (the caller
+// answers 401 and writes no record).
+//
+// It answers "whose device is this and what key signs for it", NOT "may this request proceed":
+// internal/appdevice (M16-05) verifies the signature with the key, and the single-use nonce is
+// consumed afterwards under the resolved tenant's context (store.ConsumeAppRequestNonce).
+func (d *DB) GetAppDeviceByID(ctx context.Context, deviceID uuid.UUID) (ResolvedAppDevice, error) {
+	var a ResolvedAppDevice
+	err := d.quiet().QueryRow(ctx, getAppDeviceByIDSQL, deviceID).Scan(
+		&a.ID, &a.TenantID, &a.EmployeeID, &a.PublicKey, &a.RevokedAt,
+	)
+	if err != nil {
+		// The argument is not interpolated and %w wraps only the DB error.
+		return ResolvedAppDevice{}, fmt.Errorf("db: resolve app device: %w", err)
+	}
+	return a, nil
 }
