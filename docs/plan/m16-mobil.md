@@ -437,6 +437,32 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
     **nonce satırları**; temizlik **nonce verildikten sonra** ya da **kendi transaction'ında**; `TouchAppDevice`
     **tüketimden önce**; iptali çağıran 40P01'de **yeniden dener**.
 
+> **Uygulama notu (2026-11-14, M16-05 uygulaması sırasında).** Kartın bıraktığı biçim kararları, ölçümle:
+> - **Kanonik metin** altı satır, her biri tek LF ile biter: `tappa-app-request-v1` (alan ayırma öneki) · yöntem
+>   (büyük harf) · yol (kablodaki kaçışlı yol; **sorgu dizesi reddedilir**, imzalanmaz — uygulamanın yolları sabit,
+>   veri gövdede) · ham gövde baytlarının küçük harf hex SHA-256'sı · nonce (verildiği base64url dizesi) · cihaz
+>   kimliği (yalnız kanonik küçük harf biçim). Tek tanım `internal/appdevice/canonical.go` `canonical`; vektörler
+>   `test/fixtures/appdevice_vectors.json` (metinler printf ile yazıldı, imzalar **OpenSSL** ile üretilip doğrulandı —
+>   Go kendi çıktısını doğrulamıyor).
+> - **İmza** ECDSA P-256 / SHA-256, ASN.1 DER (iki platformun ürettiği biçim), başlıkta katı dolgusuz base64url.
+>   Başlıklar: `App-Device-Id`, `App-Nonce`, `App-Signature` (her biri tam bir kez). **Yüksek S kabul edilir**: Secure
+>   Enclave ve Keystore düşük S'ye normalize etmez; tekrar koruması nonce'tur, imzanın tekliği değil
+>   (`TestVerify_HighSTwinOfASpentRequestIsRefused`).
+> - **Nonce** 32 bayt `crypto/rand`, kabloda 43 karakter katı base64url; `nonce_hash` ham baytların hex SHA-256'sı.
+>   Ömür `NonceTTL` = 60 sn. Ölü nonce süpürmesi verişten **sonra**, aynı transaction'da (D1).
+> - **Retler:** bilinmeyen, iptal edilmiş, kötü imza ve harcanmış/yabancı/süresi dolmuş nonce **aynı metni** basar
+>   (`appdevice: request not authenticated`) ve aynı durumu (401) alır; ayrım yalnız `errors.Is` ve `Reason()` ile,
+>   sunucu içinde. İptal edilmiş cihaz imzadan **önce** reddedilir ve `Device` **boş** döner (oturumun `ErrRevoked`'ından
+>   farklı: cihaz kimliği kimlik bilgisi değildir, imza doğrulanmadan hiçbir şey atfedilmez; deaktivasyon iptal etmediği
+>   için satır 4'e bu yoldan hiç gidilmez). Veritabanı arızası 401 değil 500'dür.
+> - **Sayılan sınır, M16-07'ye:** nonce isteği imzalanamaz (imzanın ihtiyacı odur), bu yüzden `IssueNonce` cihaz
+>   kimliğini bilen herkese *"bu kimlik canlı mı"* sorusunu cevaplar. Kimlik yalnız TLS üstünden giden rastgele bir
+>   UUID'dir; yetmezse handler canlı olmayan kimliğe saklamadığı bir **yem nonce** dönebilir. Cihaz başına canlı nonce
+>   üst sınırı (M16-07) `IssueNonce`'un transaction'ına, cihaz satırını önce ayrı bir ifadeyle kilitleyerek girer.
+> - **Ölçülen sızıntı, kapatıldı:** `*struct` / `*[32]byte` alanlı bir değer, çağıranın dışa kapalı alanında `%s`/`%d` ile
+>   basılınca fmt'nin kötü-fiil yolu hedefi derinlik 0'da açıp imza ve nonce baytlarını onluk yazdı. `SignedRequest`
+>   artık `**signedRequest`, `Nonce` `*string` taşır (`TestSignedRequest_NoLeakOnAnyRenderingPath`).
+
 ## M16-06 — Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı
 
 - **Bağımlılık:** M16-04
@@ -517,6 +543,17 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
     temizliği verişten **sonra** ya da **kendi transaction'ında** (D1'de kurban iptaldi); `TouchAppDevice`
     tüketimden **önce** (D2, 40P01); iptal çağıranı 40P01'de yeniden dener. `EXISTS … FOR SHARE` kemeri yük taşır,
     kaldırılmaz.
+  - **M16-05 incelemesinden devralınan (2026-11-14):**
+    - **Nonce üst sınırı:** `IssueNonce` kaynak başına hız sınırlıdır; sınır aşılınca **en eski canlı nonce düşürülür,
+      istek asla reddedilmez** — reddetmek, cihaz kimliğini bilen herkesin gerçek telefonu kilitlemesine izin verirdi.
+      Sınır, cihaz satırı **önceki bir ifadede** kilitliyken koşar (yukarıdaki madde).
+    - **Yem nonce seçilirse:** canlı olmayan kimliğe yem nonce dönülecekse bilinmeyen/iptal edilmiş dallar da sabit bir
+      anahtarla sahte bir `ParsePublicKey` + `VerifyASN1` koşar; yoksa ~0,2 ms'lik zaman farkı onları yine ayırır.
+    - **Yönlendirme:** `FromHTTP`'den önce `r.URL.Path`/`RawPath`'i yeniden yazan ara katman yok (`StripSlashes`,
+      `CleanPath`, `http.StripPrefix`); `FromHTTP`'ye giden gövde kablodaki **ham** baytlardır (önünde açma/decompress
+      yok); imzalanmayan başlıklar (`Content-Type`, `Content-Encoding`) isteğin anlamını değiştirmez.
+    - **Handler tarafı kemer:** Go tarafı redline R7 tetikleyicisi yeni handler dosyaları için `nonce`/`signature`'a
+      genişletilir (önce gürültü ölçülür); bugün bu kelimeleri yalnız mobil kol (R7M) taşır.
 
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 
