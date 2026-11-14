@@ -312,7 +312,7 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 | 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026) |
 | 4 | Çalışan `deactivated` | `reject` + denemeyi logla + güvenlik uyarısı |
 | 5 | Aynı **kişi** 60 sn içinde tekrar | `ignored` |
-| 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`) |
+| 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`; uygulama sahte konum bildirdiyse `flag` — `base:mock-location-review`) |
 | 7 | ikisi de yok | `flag` — kayıt alınır, onay kuyruğuna düşer |
 
 **Holding (ADR 0027) — tablonun numaraları değişmez, iki ek kural.** Tablonun önünde §4.5'in
@@ -343,6 +343,7 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   kapatıyordu) · eşzamanlılık. Sonuncusu için karar + kayıt **kişi başına advisory
   kilit** altında tek transaction'da koşar. **QR'da bu tek frendir** — sayaç yok.
 - **Güven puanı:** `20 (taban) + 50 (IP eşleşti) + 30 (GPS eşleşti)`.
+- **Sahte konum** (`base:mock-location-review`, ADR 0045 §2.4): isteğe bağlı uygulama, işletim sisteminin konumu sahte bir sağlayıcıdan geldi dediğini bildirirse (`tap:mockLocation`), satır 6 sağlansa bile — IP ya da GPS eşleşse de — sonuç `flag`'dir; kayıt yazılır (§4.6). Bu bir **istemci beyanıdır** (GPS'in kendisi gibi): yalnız aleyhe okunur, *"sahte değil"* bildirimi de bildirimin yokluğu da hiçbir şey kanıtlamaz. Tarayıcı bunu okuyamaz ve anahtarı taşımaz; eksik anahtar eşleşmez, yani tarayıcı yolunun her sonucu aynen kalır (`TestDecide_MockLocationAbsentLeavesEveryOutcomeAsItWas`, `TestDecide_MockLocationReported`). Baseline'dır, tenant değiştirebilir; güven puanını değiştirmez. `tap:client` (`browser` | `app`) isteği kabul eden uç noktadan, sunucuda türetilir ve tek başına sonucu değiştirmez (`TestDecide_ClientAloneChangesNoOutcome`). Yeni belge var olan işletmeye onaysız girer: ilk dokunuşta ya da panelin ilk yetki sorusunda, hangisi önce gelirse; ikisi de aynı materialiser'ı kullanır ve hiçbir şeyi saklı olmayan işletmeyi panel kurmaz (ADR 0045 Bedel 10).
 - **Yön (in/out):** kişinin **son açık girişi** (dokunuşun anında açık olan), bu dokunuşun
   **iş günü başlangıcından önce değilse** ve `StaleOpenIn`'den (18 sa) yeniyse bu dokunuş onu
   kapatır (`out`); değilse bu dokunuş `in`'dir ve eski giriş *"çıkış eksik"* anomalisi olarak
