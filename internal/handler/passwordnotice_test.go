@@ -38,12 +38,32 @@ import (
 type fakeNotices struct {
 	mu      sync.Mutex
 	changes []passwordChange
+	// emails are the sign-in address changes it was told about, restored the addresses an undo gave
+	// back (T173).
+	emails   []adminauth.EmailChanged
+	restored []string
+	// cannotNotify: the deployment sends no recovery e-mail (TAPPA_RESET_DELIVERY=none).
+	cannotNotify bool
 }
 
 func (f *fakeNotices) passwordChanged(_ context.Context, c passwordChange) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.changes = append(f.changes, c)
+}
+
+func (f *fakeNotices) emailChanged(_ context.Context, c adminauth.EmailChanged) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.emails = append(f.emails, c)
+}
+
+func (f *fakeNotices) canNotify() bool { return !f.cannotNotify }
+
+func (f *fakeNotices) addressRestored(_ *http.Request, address string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.restored = append(f.restored, address)
 }
 
 func (f *fakeNotices) all() []passwordChange {

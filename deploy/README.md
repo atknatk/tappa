@@ -1284,7 +1284,7 @@ else
     DOCKER_HOST="${EP:-${DOCKER_HOST:-unix:///var/run/docker.sock}}" \
     bash "$DRILL_DIR/drill.sh" > "$DRILL_DIR/drill.log" 2>&1; rc=$?
   echo "drill exit: $rc in $(( $(date +%s) - start )) s"
-  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | cut -c1-300
+  grep -E '^(sha256 |restore exit|verify exit|pg-restore-verify: |  (ok|FAIL|--) )|ERROR:' "$DRILL_DIR/drill.log" | grep -v -E 'CONTEXT:|DETAIL:' | sed -E 's/(ERROR:[^:]*):.*/\1: (cut)/' | cut -c1-300
   echo "left behind: containers $(docker ps -aq --filter name=tappa-drill | wc -l | tr -d ' '), networks $(docker network ls -q --filter name=tappa-drill | wc -l | tr -d ' '), dump dirs $(ls -A "$DRILL_DIR/tmp" | wc -l | tr -d ' '), volumes $vols -> $(docker volume ls -q | wc -l | tr -d ' ')"
 fi
 ```
@@ -1300,7 +1300,11 @@ kendisi durdurmaz (bir `echo`'dur), ama `(d4)`'ün aracı aynı sha256'yı 1. b�
 ⚠️ **Kayıt yalnız yeşil bir koşuda sırsız ve satırsızdır** (araç yalnız sayı ve ad basar). Kırmızı
 bir koşuda psql'in `DETAIL:` ve `CONTEXT:` satırları bir döküm satırını (bir çalışanın mesai kaydını)
 taşıyabilir. Bu yüzden blok yalnız süzülmüş satırları basar, ikisini atar, kaydın tamamı okunmaz ve
-çağrı biterken silinir.
+çağrı biterken silinir. Bir `ERROR:` satırı da değer taşıyabilir (`invalid input syntax for type
+uuid: "…"`): blok onu `ERROR:`'dan sonraki ilk `:`'da keser ve yerine `(cut)` yazar (T289). Sayılı
+sınır: iki nokta üst üsteden **önce** duran bir değer (`value "…" is out of range`) kesilmez. Yalnız
+SQLSTATE basmak psql'in komut satırını (`-v VERBOSITY=sqlstate`) değiştirmeyi isterdi, o satır da B YOLU
+ile bayt bayt aynı tutulan metindir; bu yüzden seçilmedi.
 
 **4. Checkout'u kaldır.** `DRILL_DIR` 3. adımın tuzağıyla gitti; geriye 2. adımın worktree'si kalır:
 
@@ -1605,8 +1609,9 @@ SigNoz `v4`'ü **reddediyor** (ölçüldü).
 1–8 ve kanal `tappa-healthchecks` zaten var; yukarıdaki döngü dosyanın tamamını gönderir ve 1–8'in
 **ikinci kopyalarını** doğurur. Bu yüzden yalnız dizinin **dokuzuncu** elemanı (`.[8]`) gönderilir,
 kanal yeniden kurulmaz. Önce SigNoz → *Alerts*'te `tappa 9:` ile başlayan bir kural **olmadığına**
-bak (varsa bu blok ikincisini yaratır). Oturum satırları (2)'nin aynısıdır; blok bu repodan
-**koşulmadı**:
+bak (varsa bu blok ikincisini yaratır). Gönderilen `.[8]`, T282'nin eklediği kolları da taşır (akışın beş
+ERROR'u, audit kolunun `level = "ERROR"` şartı); ad ve beklenen çıktı değişmedi. Oturum satırları
+(2)'nin aynısıdır; blok bu repodan **koşulmadı**:
 
 ```bash
 umask 077
@@ -2795,11 +2800,15 @@ SELECT count(*)                         AS tenants_no_linked_active_owner,
 SELECT count(*) AS refused_rows, count(DISTINCT tenant_id) AS tenants_with_refused_rows
   FROM admin_users
  WHERE unlinked_at IS NOT NULL;
+-- 4. T173 (Deploy 18'den sonra): canlı e-posta değişikliği geri alma linkleri (yalnız sayı).
+SELECT count(*) AS live_undo_links_this_week
+  FROM admin_identity_verifications
+ WHERE purpose = 'revert' AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > clock_timestamp();
 ROLLBACK;
 SQL
 ```
 
-beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `ROLLBACK`. Contract A ancak `T = 0` iken konuşulur
+beklenen: `BEGIN` · `A|U|X` · `T|S` · `R|RT` · `L` · `ROLLBACK` (`L`: canlı e-posta değişikliği geri alma linki sayısı). 4. sorgu yalnız Deploy 18'den sonra (goose 103) koşar; öncesinde `cancelled_at` sütunu yoktur, sorgu hata verir ve `ON_ERROR_STOP` bloğu durdurur — Deploy 18'den önce 4. satır silinerek koşulur. Contract A ancak `T = 0` iken konuşulur
 (ADR 0031 §8, plan M14-20a); `RT` ayrı raporlanır. Satır, adres, ad ya da kimlik id'si basılmaz
 (CLAUDE.md §7). `internal/db/adminflag_test.go` bu bölümün sorgularını yazıldıkları gibi bir dünyada koşar.
 
@@ -3094,6 +3103,162 @@ SQL
 `INVALID` indeksi düşürüp yeniden kurar).
 
 ---
+
+### T173 — panel kimliğinin e-posta değişikliği: `00101`–`00103` (Deploy 18)
+
+Bağlı bir kimlik oturumu kendi giriş adresini değiştirebilir: hesap sayfasında yeni adres + mevcut parola →
+yeni adrese tek kullanımlık link → aynı tarayıcıda basış → kimlik ve bütün işletmelerdeki ayna tek
+transaction'da değişir → eski adrese 7 günlük geri alma linkli bildirim → geri alma eski adresi geri koyar,
+parolayı kullanılamaz yapar, her oturumu kapatır ve eski adrese bir sıfırlama linki gönderir
+([ADR 0044](../docs/adr/0044-panel-kimliginin-e-posta-degisikligi.md), kart
+[t173](../docs/plan/t173-eposta-degistirme.md) EC-1/EC-2/EC-3; kullanıcı kararları 2026-11-12).
+
+**Migration'lar** (üç dosya, her biri kendi transaction'ında; `admin_users` ALTER edilmez):
+- **`00101`** — `admin_identity_verifications`'a `'change'`/`'revert'` amaçları, `address` ve `cancelled_at`
+  sütunları, amaç başına TTL tavanı (geri alma 7 gün); olay CHECK'ine `email_change_requested`,
+  `email_changed`, `email_reverted`; `tappa_identitydefiner`'a `UPDATE (email)` iki tabloda (`admin_users`
+  üzerindeki GRANT kendi `lock_timeout = '1s'`'iyle — aşılırsa 55P03, hiçbir şey yazılmaz, Job `Failed`,
+  sakin bir anda yeniden). `tappa_app` ve `tappa_resolver` yeni yetki almaz.
+- **`00102`** — üç yeni definer (`identity_request_email_change`, `identity_change_email`,
+  `identity_revert_email_change`); `identity_open_reset` dördüncü argümanla (`p_recipient text DEFAULT NULL`,
+  DROP + CREATE — S-1; `DEFAULT` geçicidir, T295); `identity_unlink_backfilled` aynı imzayla (canlı geri alma
+  linki varken 0 satır — K-E16).
+- **`00103`** — `identity_sweep_events` aynı imzayla: harcanmış/iptal/süresi geçmiş `'change'`/`'revert'`
+  satırlarını bir gün sonra da siler. Binary onu saatte bir çağırır (T294).
+
+**Rollout:** Migration Job önce koşar, eski pod (Deploy 17) yeni şemada çalışır: üç argümanlı
+`identity_open_reset` çağrısı `DEFAULT`'la çözülür (rollout dakikalarında alıcı denetimi yok — ADR 0044 §8
+risk 9, bilinen bedel), yeni fonksiyonları çağırmaz, eski `'verify'`/`'link'` satırları yeni CHECK'lerden
+geçer. **00100 ön koşuldur** (Deploy 17'yle canlıda, goose 100).
+
+**Yeni ortam değişkeni yok.** İki yeni link anahtarı `TAPPA_SESSION_HMAC_KEY`'den kendi etiketleriyle
+türetilir. Yeni adrese giden mektup `TAPPA_INVITE_DELIVERY=email`'i, eski adres bildirimi ve sıfırlama linki
+`TAPPA_RESET_DELIVERY=email`'i ister — ikisi de canlıda `email` (T314).
+
+**(a) Ön kontrol** (salt okuma, yalnız sayı; deploy'dan önce):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+SELECT count(*) FILTER (WHERE purpose NOT IN ('verify', 'link')) AS links_of_another_purpose
+  FROM admin_identity_verifications;
+SELECT count(*) FILTER (WHERE a.email IS DISTINCT FROM i.email)             AS mirror_differs,
+       count(*) FILTER (WHERE a.email::text IS DISTINCT FROM i.email::text) AS mirror_spelled_otherwise
+  FROM admin_users a
+  JOIN admin_identities i ON i.id = a.identity_id
+ WHERE a.unlinked_at IS NULL;
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `100` · `0` · `0|0` · `ROLLBACK`. `100` değilse **DUR** (00100 canlıda değil — goose
+sırası 00100 ↔ 00101'e dayanır). `links_of_another_purpose > 0` → **DUR** (00101 başka bir yoldan koşmuş).
+`mirror_differs > 0` → **DUR**, kullanıcıya bildir: aynası kimliğinden ayrışmış bağlı satır hesap
+eylemlerinde `ErrNotLinked` verir (ADR 0044 §2). `mirror_spelled_otherwise > 0` (yalnız harf büyüklüğü) bir
+durdurucu değildir, raporlanır. Şerit DB'sinde (goose 103) aynı sorgu `103` · `0` · `0|0` verdi (ölçüldü,
+2026-11-13 — sayılar yalnız sorgunun koştuğunu gösterir).
+
+**(b) Deploy'dan sonra** (salt okuma; Job log'unda `OK   00101_…`, `OK   00102_…`, `OK   00103_…`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT max(version_id) AS schema_version FROM goose_db_version WHERE is_applied;
+SELECT f AS email_change_function,
+       pg_get_userbyid(p.proowner) AS owner,
+       p.prosecdef AS secdef,
+       array_to_string(p.proconfig, ';') AS config,
+       has_function_privilege('tappa_app', p.oid, 'EXECUTE') AS app,
+       has_function_privilege('public', p.oid, 'EXECUTE') AS everyone,
+       has_function_privilege('tappa_operator', p.oid, 'EXECUTE') AS operator
+  FROM unnest(ARRAY['public.identity_request_email_change(text,text,text,citext)',
+                    'public.identity_change_email(text,text,text)',
+                    'public.identity_revert_email_change(text)',
+                    'public.identity_open_reset(uuid,text,timestamptz,text)',
+                    'public.identity_unlink_backfilled(text,uuid)',
+                    'public.identity_sweep_events()']) WITH ORDINALITY AS u(f, n)
+  JOIN pg_proc p ON p.oid = to_regprocedure(u.f)
+ ORDER BY u.n;
+SELECT to_regprocedure('public.identity_open_reset(uuid,text,timestamptz)') IS NULL          AS three_arg_open_reset_gone,
+       has_column_privilege('tappa_app', 'admin_users', 'email', 'UPDATE')                  AS app_writes_the_mirror,
+       has_column_privilege('tappa_identitydefiner', 'admin_users', 'email', 'UPDATE')      AS definer_writes_the_mirror,
+       has_column_privilege('tappa_identitydefiner', 'admin_identities', 'email', 'UPDATE') AS definer_writes_the_address;
+SELECT position('''revert''' IN u.prosrc) > 0                  AS unlink_waits_for_the_undo,
+       position('admin_identity_verifications' IN s.prosrc) > 0 AS sweep_takes_the_links
+  FROM pg_proc u, pg_proc s
+ WHERE u.oid = to_regprocedure('public.identity_unlink_backfilled(text,uuid)')
+   AND s.oid = to_regprocedure('public.identity_sweep_events()');
+ROLLBACK;
+SQL
+```
+
+beklenen: `BEGIN` · `103` · altı satır, her biri `…|tappa_identitydefiner|t|search_path=pg_catalog, pg_temp|t|f|f`
+(sırayla üç yeni fonksiyon, dört argümanlı `identity_open_reset`, `identity_unlink_backfilled`,
+`identity_sweep_events`; altıdan az satır = bir imza yok) · `t|f|t|t` (üç argümanlı eski tanım yok;
+`tappa_app` aynaya hâlâ yazamaz) · `t|t` (yeni gövdeler) · `ROLLBACK`. Şerit DB'sinde bu çıktı birebir
+alındı (ölçüldü, 2026-11-13). Başka bir sonuç → migration'ın koştuğu sürüm yanlış; incele. Pod açılışından
+sonra log'da bir kez `identity: identity events swept` satırı görünür (sayı yalnız silinen olay sayısıdır).
+
+**(c) Duman** (`https://taptime.mt/admin`, kullanıcının kendi hesabı: KF ve KM aynı kimlikte; kullanıcının
+**ikinci** bir posta kutusu gerekir). ⚠️ Duman `email_*` olayları yazar: o andan sonra 90 gün boyunca üç
+Down'ın hiçbiri koşmaz (aşağıdaki geri dönüş) — tasarım gereği; geri dönüş önceki imajdır.
+
+1. KF'de Hesap → **Change your sign-in email**: kartta *"Your new email will be visible to the admins of every
+   business you belong to."* uyarısı. İkinci adres + mevcut parola → *"Check your inbox at the new address. …"*
+   (adres sayfada ve adres çubuğunda **yok**).
+2. İkinci posta kutusunda *"Confirm your new Taptime sign-in email"*; linki **aynı tarayıcıda** aç → hesap
+   sayfası *"Change your sign-in email to the address this link was sent to?"* (açmak bir şey değiştirmez);
+   **Change my sign-in email** → *"Your sign-in email is changed. …"*.
+3. Salt okuma sayım (aşağıda) → `2|0|2` (iki işletmeye birer `admin.email.changed`). Hesap → Your businesses
+   KF ve KM'yi gösterir; Switch business çalışır.
+4. Eski posta kutusunda *"Your Taptime sign-in email was changed"* (yeni adres **anılmaz**); **Undo this
+   change** → *"Undo the email change"* sayfası (açmak bir şey değiştirmez) → **Undo the change** →
+   *"Your sign-in email is back. We sent a link to set a new password."*; tarayıcının panel oturumu bitmiştir.
+5. Eski posta kutusunda sıfırlama linki (*"every business"*) → yeni parola → eski adres + yeni parolayla gir →
+   KF ve KM listelenir. Sayım → `2|2|2`.
+6. Herhangi bir adım 5xx verirse → geri dönüş önceki binary'dir (şema 103'te kalır; eski binary ona uyar).
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT count(*) FILTER (WHERE action = 'admin.email.changed')  AS email_changed_rows,
+       count(*) FILTER (WHERE action = 'admin.email.reverted') AS email_reverted_rows,
+       count(DISTINCT tenant_id)                               AS businesses
+  FROM audit_log
+ WHERE action IN ('admin.email.changed', 'admin.email.reverted') AND at > now() - interval '2 hours';
+ROLLBACK;
+SQL
+```
+
+Satır, adres ya da kimlik id'si basılmaz (CLAUDE.md §7).
+
+**Geri dönüş.** Önceki imaj (Deploy 17'nin binary'si) bu şemada çalışır — geri dönüş budur. Down'lar
+(00103 → 00102 → 00101) **ancak sonraki bir deploy'da**, yeni fonksiyonları çağıran binary gittikten sonra
+konuşulur ve **iki durmanın ikisi de tutmuyorken**: canlı (harcanmamış, iptal edilmemiş, süresi geçmemiş) bir
+geri alma linki **yok** **ve** `admin_identity_events`'te `email_*` olayı **yok**. Üç Down'ın her biri en başta
+aynı bloğu koşar; ikisinden biri tutarsa sabit bir mesajla durur, hiçbir şey değiştirmez (ADR 0044 §6). Olaylar
+90 günlük süpürmeyle yaşlanır (T294 bağlandı), yani ilk değişimden sonra en az 90 gün Down yoktur. Salt okuma
+sayım (Down için beklenen `0` · `0`):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+BEGIN TRANSACTION READ ONLY;
+SELECT count(*) AS live_undo_links
+  FROM admin_identity_verifications
+ WHERE purpose = 'revert' AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > clock_timestamp();
+SELECT count(*) AS email_change_events
+  FROM admin_identity_events
+ WHERE event IN ('email_change_requested', 'email_changed', 'email_reverted');
+ROLLBACK;
+SQL
+```
+
+Değiştirilmiş adresler veridir, geri dönüşte yerinde kalır.
 
 ### T71 — eski domainin derin linkleri: `43-redirect-ingress.yaml`
 
@@ -8623,7 +8788,7 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 >
 > **T235 (2026-11-11) — 9. kural dosyada ve tabloda, kümede DEĞİL.** Kurtarma akışının (panel
 > parola sıfırlama) habersiz kalan ERROR'ları: canlı kalan link, yapılmayan mint, yazılmayan audit
-> satırı. Kurulum bir küme yazmasıdır ve **kullanıcı onayı** ister: adım 10 (f)'nin sonundaki
+> satırı; T282 (2026-11-11) akışın kendi beş ERROR'unu ekledi ve audit kolunu `level = "ERROR"`'a bağladı. Kurulum bir küme yazmasıdır ve **kullanıcı onayı** ister: adım 10 (f)'nin sonundaki
 > *"Yalnız 9. kural (T235)"* bloğu. O koşulana dek bu satır **haber vermez**; sorgusu ClickHouse'a
 > karşı **koşulmadı** (yapıcı SigNoz'a istek atmadı). Filtreleri koddaki sabitlere bağlı
 > (`TestSignozRules_FilterOnThePinnedNames`, `TestObservability_AlertSignalNames`).
@@ -8702,7 +8867,7 @@ T122'de; 9. kural T235'te, kümede henüz yok):
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
 | 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
 | 8 | **dokunuş yalnız guardrail'lerle karar verdi** (T122) | `policy.guardrails_alone` | olayın kendisi | 15 dk'lık pencerede **≥ 1** olay = uyarı | `forTenant` işletmenin politika kümesini kuramadı (okuyamadı, yazamadı ya da yazdıktan sonra tamamlayamadı/ayrıştıramadı) ve dokunuşa **yalnız guardrail'lerle** karar verdi. Hiçbir baseline ifadesi eşleşemediği için `ok` olacak dokunuş **çoğunlukla `flag` olarak yazılır** ve müdür kuyruğuna düşer (§4.6). ⚠️ Veritabanına **bütünüyle** ulaşılamıyorsa kaydı yazacak `WithTenant` da düşer: kayıt yazılmaz, kişiye yeniden dokunması söylenir — o durumda 6. kural da ateşler. T121'den (`f2c7771`) sonra bilinen zararsız kaynağı yok — eşzamanlı ilk dokunuşların 23505'i kapandı —, yani tek satır gerçek bir sorundur. ⚠️ Panelin `StoredSet` okuması bu olayı **basmaz**: oradaki geri düşüş bir yetki reddidir ve hiç dokunulmamış bir işletmede beklenen durumdur. ⚠️ İsteğin **kendi** bağlamı bittiyse (istemci gitti ya da `httpx.RequestTimeout` doldu) olay da **basılmaz**: o dokunuş zaten kaydedilmez (kaydı yazacak `WithTenant` aynı ölü bağlamla düşer); yerine sayfalamayan bir WARN cümlesi yazılır (`reason` taşır). İstek canlıyken sürücünün kendi zaman aşımı ise sayfalar. | `tenant_id` (hangi işletme) ve `reason` (hangi yol): `load_failed` / `reload_failed` = politika katmanı okunamadı (önce 6. kural ve `sqlstate`; `42501` bir GRANT kaymasıdır) · `materialise_failed` = eksik baseline yazılamadı (`sqlstate` + `constraint` hangi ifadenin düştüğünü söyler; örnekler: `23505` = bir benzersiz indekste çakışma — T121'in kapattığı sınıf geri gelmiş olabilir —, `23503` = aynı adla ama türetilmemiş bir id'yle duran bir `policies` satırı, `db/queries/policies.sql`'in *foreign-id container* notu) · `incomplete_after_materialise` = yazıldı, geri okundu, hâlâ eksik; SQL hatası yok, çoğu zaman saklı bir baseline belgesini bu sürüm okuyamıyor (ör. bir kod geri alımından sonra) — panelin kural sayfası onu gösterir. `sqlstate` ve `constraint` yalnız bir PostgreSQL hatası varsa yazılır; `Detail` **bilerek yazılmaz** (satır değeri taşır) |
-| 9 | **kurtarma akışı bir linki canlı, bir mint'i yapılmamış ya da bir izi yazılmamış bıraktı** (T235) | `panel recovery: minting a link waited too long for a lock, so none was made` · `audit write failed` · geri çekme kaybı ve boşaltma özeti olay adıyla değil **alanla** seçilir | `recovery = "list_full"` · `recovery = "closing"` · `recovery = "not_retried"` · `owed_withdrawals > 0` · ya da yukarıdaki iki olaydan biri | 15 dk'lık pencerede **≥ 1** olay = uyarı | **Dört ayrı arıza, hepsi ERROR ve hiçbiri kendiliğinden kimseye görünmez.** (a) **Geri çekme kaybı** (`recovery` alanı; T212): teslim edilemeyen bir sıfırlama linki geri çekilemedi ve süresi (`ResetTTL`, 1 saat) dolana dek canlı; sahibinin o sürede istediği her link `kept` sayılır, yani kişi yeni link alamaz. Kimlik linkinde (`identity_id` taşıyan satır) bu kişiyi **bütün işletmelerinde** kilitler. `retrying` bilerek **sayfalamaz**: link listededir ve veritabanı düzelince geri çekilir; listede süresi dolan girdi WARN yazar. (b) **Boşaltma özeti** (`owed_withdrawals`): süreç durdu ve listedeki geri çekmeler bellekle gitti; o linkler de süreleri dolana dek canlı. (c) **Duran mint** (T219, T236 (b)): bir hesabın ya da kimliğin link basımı kilit beklerken `ResetMintLockWait` (150 ms) bütçesini aştı; link basılmadı, kişi kayıtsız adresin sayfasını gördü ve yeniden istemesi gerekir. Satırı hesap bütçesi sınırlar, yani bir sel ERROR seline dönmez. (d) **`audit write failed`**: bir audit satırı yazılamadı, §4.6'nın izi delindi. Bu msg'yi yazan **her yer** sayfalar, kurtarmanın iki yeri ve ayrıca panel girişi, aktivasyon ve tap hız sınırlayıcısı (hepsi `audit.EventWriteFailed`). ⚠️ `checkin: audit write failed` ve girişin `audit write failed; the act it records was refused` satırı **başka msg'lerdir**, bu kurala girmez (T282). Veritabanı bütünüyle gittiyse (a), (c) ve (d) birlikte gelir ve 6. kural da ateşler. | Önce 6. kural: çoğu zaman aynı veritabanı arızasıdır. Sonra satırın `msg`'i ve `recovery`'si hangi yol olduğunu, `admin_user_id` ya da `identity_id` ile `reset_id` hangi link olduğunu, `action` hangi audit olayının kaybolduğunu söyler; adres ve link satırda **yoktur** (§7). Canlı kalan kimlik linklerini beklemeden öldürmek gerekirse: *"Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali"* (bir küme yazmasıdır, kullanıcı onayı) |
+| 9 | **kurtarma akışı bir linki canlı, bir mint'i yapılmamış ya da bir izi yazılmamış bıraktı** (T235, T282) | `panel recovery: minting a link waited too long for a lock, so none was made` · `audit write failed` · `panel recovery: issuing failed` · `panel recovery: delivery failed` · `panel recovery: spending the link failed` · `panel recovery: a delivery panicked; the worker recovered and moved on` · `panel recovery: the drain ended with outcomes still waiting, and their writes are lost` · geri çekme kaybı ve boşaltma özeti olay adıyla değil **alanla** seçilir | `recovery = "list_full"` · `recovery = "closing"` · `recovery = "not_retried"` · `owed_withdrawals > 0` · `audit write failed` yalnız `level = "ERROR"` ile birlikte · ya da yukarıdaki öteki olaylardan biri | 15 dk'lık pencerede **≥ 1** olay = uyarı | **Dört ayrı arıza, hepsi ERROR ve hiçbiri kendiliğinden kimseye görünmez.** (a) **Geri çekme kaybı** (`recovery` alanı; T212): teslim edilemeyen bir sıfırlama linki geri çekilemedi ve süresi (`ResetTTL`, 1 saat) dolana dek canlı; sahibinin o sürede istediği her link `kept` sayılır, yani kişi yeni link alamaz. Kimlik linkinde (`identity_id` taşıyan satır) bu kişiyi **bütün işletmelerinde** kilitler. `retrying` bilerek **sayfalamaz**: link listededir ve veritabanı düzelince geri çekilir; listede süresi dolan girdi WARN yazar. (b) **Boşaltma özeti** (`owed_withdrawals`): süreç durdu ve listedeki geri çekmeler bellekle gitti; o linkler de süreleri dolana dek canlı. (c) **Duran mint** (T219, T236 (b)): bir hesabın ya da kimliğin link basımı kilit beklerken `ResetMintLockWait` (150 ms) bütçesini aştı; link basılmadı, kişi kayıtsız adresin sayfasını gördü ve yeniden istemesi gerekir. Satırı hesap bütçesi sınırlar, yani bir sel ERROR seline dönmez. (d) **`audit write failed`**: bir audit satırı yazılamadı, §4.6'nın izi delindi. Bu msg'yi ERROR seviyesinde yazan **her yer** sayfalar: kurtarmanın iki yeri, panel girişi, aktivasyon, tap hız sınırlayıcısı, dokunuşun kendi audit satırı (`checkin`), panelin dışa aktarma kapısı (`refused=true`: iz yazılamadığı için iş reddedildi) ve T284'ün bulduğu üç panel yeri (yönetici daveti, askıdaki işletmenin reddedilen yazması, ekrandaki davetin reddi) — hepsi `audit.EventWriteFailed`; `TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg` bunu tutar. Dışa aktarma kapısı aynı msg'yi istemci isteği bıraktığında **WARN** ile yazar; kol bu yüzden `level = "ERROR"` ister (T282). İsteğin adına yazılan audit satırları `audit.Detached` ile yazılır (T284 (a), kullanıcı kararı 2026-11-12): istemci giderse satır yine yazılır ve bu kol yalnız gerçek bir arızada sayfalar; sınır `audit.RecordGrace` (5 sn). (e) **Akışın kendi arızaları** (T282): basım (`issuing failed`) ya da harcama (`spending the link failed`) veritabanında düştü, kanal linki almadı (`delivery failed`; satırın `err_type`'ı, e-postada `class` ve `smtp_code`'u), bir teslim panikledi, ya da kapanıştaki boşaltma bütçesi biterken sonuç satırları yazılmadı (`queued_grants`, `queued_outcomes`; §4.6). Gürültüleri **ölçülmedi**; basım ve harcama isteğin bağlamıyla koşar, yani istemci iptali de bu satırı yazabilir (T302). Veritabanı bütünüyle gittiyse (a), (c), (d) ve (e) birlikte gelir ve 6. kural da ateşler. | Önce 6. kural: çoğu zaman aynı veritabanı arızasıdır. Sonra satırın `msg`'i ve `recovery`'si hangi yol olduğunu, `admin_user_id` ya da `identity_id` ile `reset_id` hangi link olduğunu, `action` hangi audit olayının kaybolduğunu söyler; adres ve link satırda **yoktur** (§7). Canlı kalan kimlik linklerini beklemeden öldürmek gerekirse: *"Kimlik başına sıfırlama (M14-14) — `00075` ve canlı kimlik linklerinin acil iptali"* (bir küme yazmasıdır, kullanıcı onayı) |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
@@ -8737,8 +8902,8 @@ body.operator_surface = "unavailable"
 # 8 — dokunus yalniz guardrail'lerle karar verdi (tek satir bile uyaridir) — yolu reason soyler
 body.msg = "policy.guardrails_alone"                     # group by body.reason, body.sqlstate
 
-# 9 — kurtarma akisi: canli kalan link, yapilmayan mint, yazilmayan audit satiri (tek satir bile uyaridir)
-body.recovery IN ("list_full", "closing", "not_retried") OR body.owed_withdrawals > 0 OR body.msg = "panel recovery: minting a link waited too long for a lock, so none was made" OR body.msg = "audit write failed"
+# 9 — kurtarma akisi: canli kalan link, yapilmayan mint, yazilmayan audit satiri, akisin kendi arizalari (tek satir bile uyaridir)
+body.recovery IN ("list_full", "closing", "not_retried") OR body.owed_withdrawals > 0 OR body.msg = "panel recovery: minting a link waited too long for a lock, so none was made" OR (body.msg = "audit write failed" AND body.level = "ERROR") OR body.msg IN ("panel recovery: issuing failed", "panel recovery: delivery failed", "panel recovery: spending the link failed", "panel recovery: a delivery panicked; the worker recovered and moved on", "panel recovery: the drain ended with outcomes still waiting, and their writes are lost")
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR

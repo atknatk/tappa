@@ -580,7 +580,9 @@ func (t *TapLimiter) refuse(w http.ResponseWriter, r *http.Request, l *Limiter, 
 			"ip", RateKey(ClientIP(r)), "limit", l.Limit(), "period", l.Period().String(),
 			"employee_id", id.EmployeeID())
 		if t.audit != nil && id.TenantID() != uuid.Nil {
-			if _, err := t.audit.Record(r.Context(), audit.Event{
+			// T284 (a): the client leaving does not take the refusal's row with it.
+			rctx, cancel := audit.Detached(r.Context())
+			_, err := t.audit.Record(rctx, audit.Event{
 				TenantID: id.TenantID(),
 				Action:   ActionTapRateLimited,
 				Target:   id.EmployeeID().String(),
@@ -589,7 +591,9 @@ func (t *TapLimiter) refuse(w http.ResponseWriter, r *http.Request, l *Limiter, 
 					Limit:  l.Limit(),
 					Period: l.Period().String(),
 				},
-			}); err != nil {
+			})
+			cancel()
+			if err != nil {
 				// Never swallowed (§7): a trail that cannot be written means
 				// §4.6 is not being kept, even though the refusal itself stands.
 				t.log.Error(audit.EventWriteFailed, "action", ActionTapRateLimited, "err", err)

@@ -105,6 +105,8 @@ type panelHarness struct {
 	// claims is the punch claim service the panel's "Time claims" is wired with (M15-18), nil
 	// unless the harness was built with panelHarnessOptions.claims.
 	claims *claim.Service
+	// panel is the AdminAuth the harness mounts (T173: a test reaches its address change budget).
+	panel *AdminAuth
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -355,7 +357,16 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	}
 	h.Mount(r)
 	h.MountInviteAcceptance(r)
+	h.MountEmailUndo(r)
 	registerPanel(r, h)
+	ph.panel = h
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.Drain(ctx); err != nil {
+			t.Errorf("drain the panel's letters: %v", err)
+		}
+	})
 
 	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so
 	// one harness can drive the WHOLE loop a manager and an employee share: press

@@ -225,7 +225,7 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    / `resolve_signup_claim_*` çözümleyicileriyle (`tappa_resolver`, ADR 0002 md.7) ve işletmenin kendi
    bağlamında oturum alabilen owner'larının yalnız id'lerini veren `resolve_admin_owners_by_tenant`'la
    (`tappa_resolver`, ADR 0031 §5.2'nin M14-16b notu) olur. Kimliği yazan
-   her fonksiyon kimliği bir **sırdan** bulur (canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı;
+   her fonksiyon kimliği bir **sırdan** bulur (canlı oturum, sıfırlama/davet/kayıt/doğrulama token'ı; e-posta değişikliğinin geri alma linki;
    `identity_link_by_email` doğrulama token'ı **ve** aynı kimliğin canlı oturumuyla);
    adlandırılmış dört istisna `identity_open_session` (Go tipiyle bağlı, 00011 YÜKÜMLÜLÜK 5'in
    karşılığı), geçici `identity_create_for_signup` (kendi transaction'ında yazılmış tek satır; M14-17'den

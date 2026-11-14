@@ -2142,7 +2142,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"admin_invites":       "00077's Down drops its own table",
 		"admin_users":         "00077's Down: admin_invites' composite FK to admin_users",
 		"tenants":             "00077's Down: admin_invites' FK to tenants",
-		"tags":                "00089's Down puts the key-envelope CHECK back NOT VALID and 00090's sets status's DEFAULT (ALTER TABLE tags)",
+		"tags":                "00089's Down puts the key-envelope CHECK back NOT VALID, 00090's sets status's DEFAULT (ALTER TABLE tags) and 00100's drops tags_is_born_in_stock (DROP TRIGGER ON tags)",
 		"transactions":        "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152)",
 		"tenant_plan_history": "00098's Down drops its key to platform_admins and 00097's drops the table",
 		"platform_admins":     "00098's Down: tenant_plan_history's key to platform_admins",

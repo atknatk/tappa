@@ -241,6 +241,14 @@ type AccountIdentityView struct {
 	UndoHref      string
 	WindowNotice  string
 	WindowProblem string
+
+	// The sign-in address change (T173, ADR 0044): EmailHref is the request's form (linked sign-ins
+	// only); EmailConfirmHref the press -- drawn when this browser holds a change link it opened. The
+	// notices are the handler's sentences; nothing typed is echoed (the new address never comes back).
+	EmailHref        string
+	EmailConfirmHref string
+	EmailNotice      string
+	EmailProblem     string
 }
 
 // AccountBusiness is one business of the person, for display.
@@ -364,3 +372,15 @@ func (v AccountView) ShowBilling() bool { return v.BillingHref != "" }
 
 // ShowDevelopers reports whether the owner-only Developers card is drawn.
 func (v AccountView) ShowDevelopers() bool { return v.DevelopersHref != "" }
+
+// EmailUndoView is the undo link's page (T173, ADR 0044 §5.3): sessionless, reached from the letter to
+// the OLD address. It carries no address and no token -- the token travels in an HttpOnly cookie between
+// the link's GET and the press (internal/handler/accountemail.go); CSRFToken is the synchronizer value the
+// form echoes, not a secret.
+type EmailUndoView struct {
+	CSRFToken  string
+	SignInHref string
+	// Dead: the link cannot be used (one sentence for every cause). Done: the change was undone.
+	Dead bool
+	Done bool
+}

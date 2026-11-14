@@ -251,11 +251,13 @@ func newLogoPeerFixture(t *testing.T, vies any) *logoPeerFixture {
 			{`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status) VALUES ($1, $2, 'api1b-owner', $3, $4, 'owner', 'active')`,
 				[]any{adm, id, "api1b-" + uuid.NewString() + "@iso.example", fixtures.UnusablePasswordHash}},
 			{`INSERT INTO locations (id, tenant_id, name) VALUES ($1, $2, 'Venue')`, []any{venue, id}},
-			{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 1, 'active')`, []any{uid, id, venue, key}},
 		} {
 			if _, err := owner.Exec(ctx, s.sql, s.args...); err != nil {
 				t.Fatalf("%s: %v", s.sql, err)
 			}
+		}
+		if err := fixtures.LoadPlaque(ctx, owner, fixtures.Plaque{UID: uid, TenantID: id, Wall: venue, Key: key, LastCtr: 1}); err != nil {
+			t.Fatal(err)
 		}
 		return id, adm, uid
 	}

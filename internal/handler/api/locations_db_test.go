@@ -841,8 +841,7 @@ func (r *dbRig) plaqueAndPerson(biz, venue uuid.UUID) (uid string, emp uuid.UUID
 	}
 	uid = strings.ToUpper(hex.EncodeToString(b))
 	ctx := context.Background()
-	if _, err := r.owner.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status) VALUES ($1, $2, $3, $4, 100, 'active')`,
-		uid, biz, venue, key); err != nil {
+	if err := fixtures.LoadPlaque(ctx, r.owner, fixtures.Plaque{UID: uid, TenantID: biz, Wall: venue, Key: key, LastCtr: 100}); err != nil {
 		r.t.Fatal(err)
 	}
 	emp = uuid.New()

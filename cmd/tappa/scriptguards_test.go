@@ -1151,6 +1151,41 @@ func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
 		{"(d3) ", "docker run --rm -e PGHOST=tappa-db" + net},
 		{"(d3) ", "kubectl -n tappa get pods"},
 		{"(d3) ", "docker exec -i tappa-db true"},
+		// T289: the forms the 2026-11-11 auditors listed as passing step 0.
+		{"(d3) ", "docker run --rm --volumes-from tappa-db" + net},
+		{"(d3) ", `docker cp tappa-db:/var/lib/postgresql/data "$RESTORE/" && docker exec tappa-drill-db true`},
+		{"(d3) ", "docker cp tappa-drill-db:/tmp/x other-db:/tmp/x"},
+		{"(d3) ", "docker exec -i tappa-drill-db psql -htappa-db -U tappa_owner -d tappa"},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "host=tappa-db dbname=tappa"`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "hostaddr=10.0.0.1 dbname=tappa"`},
+		{"(d3) ", "docker exec -i tappa-drill-db psql postgresql://tappa_owner@tappa-db:5432/tappa"},
+		{"(d3) ", "docker exec -i tappa-drill-db psql postgres://tappa-db/tappa"},
+		{"(d3) ", "docker run --rm --env-file /tmp/other.env" + net},
+		{"(d3) ", "docker exec -i tappa-drill-db pg_isready -h ::1"},
+		{"(d3) ", "docker run --rm --dns ::1" + net},
+		{"(d3) ", "docker run --rm --dns 2001:db8::1" + net},
+		{"(d3) ", "docker run --rm -e PGURL=[::1]:5432" + net},
+		{"(d3) ", "docker run --rm -p 5432:5432" + net},
+		{"(d3) ", "docker run --rm -p5432:5432" + net},
+		{"(d3) ", "docker run --rm --publish=5432:5432" + net},
+		{"(d3) ", "docker create --rm -P" + net},
+		// T289 round 2: a quoted value (both reviews), spaces around =, a quoted container, a
+		// short flag cluster and a quoted publish.
+		{"(d3) ", `docker exec -i tappa-drill-db psql -h "tappa-db" -U tappa_owner -d tappa`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql -h 'db.example.com' -U tappa_owner -d tappa`},
+		{"(d3) ", `docker run --rm -e PGHOST="tappa-db"` + net},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "host='tappa-db' dbname=tappa"`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "dbname=tappa host = tappa-db"`},
+		{"(d3) ", `docker cp "tappa-db":/var/lib/postgresql/data "$RESTORE/" && docker exec tappa-drill-db true`},
+		{"(d3) ", "docker run --rm -itp 5432:5432" + net},
+		{"(d3) ", `docker run --rm -p"5432:5432"` + net},
+		// Security re-review of round 2: an image found by shape let these through.
+		{"(d3) ", "docker run --rm --user 70:70 -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm -u 999:999 -P --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --label a:b -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "ID=$(docker run -d -p 5432:5432 --network tappa-drill postgres:17-alpine)"},
+		{"(d3) ", "true;docker run -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
+		{"(d3) ", "docker run --rm --network tappa-drill postgres:17-alpine true && docker run --rm -p 5432:5432 --network tappa-drill postgres:17-alpine true"},
 		{"(d5) ", "rm -rf /"},
 		{"(d1) ", `rclone --config "$CONF" delete tappa-backup:prod`},
 		{"(d1) ", `rclone --config "$CONF" purge tappa-backup:prod`},
@@ -1169,6 +1204,91 @@ func TestRestoreChain_TheDrillBlocksAreHeldToTheirOwnContainer(t *testing.T) {
 		var ee *exec.ExitError
 		if !errors.As(err, &ee) || ee.ExitCode() != 1 || !strings.Contains(out, "the drill block") || strings.Contains(out, "lint only") {
 			t.Errorf("%s %q: want refused before anything starts (exit 1, \"the drill block ...\"); got %v:\n%s", c.marker, c.line, err, out)
+		}
+	}
+
+	// And T289's rules do not refuse what an honest edit writes: an SQL cast is not an IPv6
+	// address, openssl's -hex is not psql's -h, initdb's --auth-host= is not a host, and a
+	// docker cp into the drill's own container is (d2)'s.
+	for _, c := range []struct{ marker, line string }{
+		{"(d3) ", `docker exec -i tappa-drill-db psql -X -c "SELECT 'public.tags'::regclass"`},
+		{"(d3) ", "docker exec -i tappa-drill-db psql -h127.0.0.1 -U tappa_owner -d tappa -c 'SELECT 1'"},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "host=127.0.0.1 dbname=tappa" -c 'SELECT 1'`},
+		{"(d3) ", "docker exec -i tappa-drill-db psql postgresql://tappa_owner@127.0.0.1:5432/tappa -c 'SELECT 1'"},
+		{"(d3) ", "X=$(openssl rand -hex 8); docker exec tappa-drill-db true"},
+		{"(d3) ", "docker cp scripts/db-init/01-roles.sql tappa-drill-db:/tmp/01-roles.sql"},
+		// Round 2: a quoted allowed host and a clock time in SQL. (psql's own -p after the image on a
+		// docker run line is refused again: the publish rule reads the whole line, T289.)
+		{"(d3) ", `docker exec -i tappa-drill-db psql -h "127.0.0.1" -U tappa_owner -d tappa -c 'SELECT 1'`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql -h"127.0.0.1" -U tappa_owner -d tappa -c 'SELECT 1'`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql "host=127.0.0.1 dbname=tappa" -c 'SELECT 1'`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql -c "SELECT count(*) FROM transactions WHERE created_at < '2026-11-11 03:00:00'"`},
+		{"(d3) ", `docker exec -i tappa-drill-db psql -c "SELECT '12:00:00'::time"`},
+	} {
+		if out, err := run(t, insert(t, c.marker, c.line)); err != nil || !strings.Contains(out, "lint only: the runbook's blocks pass") {
+			t.Errorf("%s %q: an honest line is refused (%v):\n%s", c.marker, c.line, err, out)
+		}
+	}
+}
+
+// TestRestoreChain_TheRehearsalDriverCutsTheErrorLine (T289) runs the monthly rehearsal driver's
+// own filter line, cut out of deploy/README.md, over a drill log a red run could leave: an ERROR
+// line that carries a value after its message, the DETAIL/CONTEXT lines that carry a dump row, and
+// the lines the rehearsal row is written from. The value must not be printed; the message, the
+// tool's lines and the verdict must.
+func TestRestoreChain_TheRehearsalDriverCutsTheErrorLine(t *testing.T) {
+	t.Parallel()
+	runbook, err := os.ReadFile(filepath.Join(repoRoot, "deploy", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const opener = `  grep -E '^(sha256 |restore exit|`
+	var filter string
+	for _, l := range strings.Split(string(runbook), "\n") {
+		if strings.HasPrefix(l, opener) {
+			if filter != "" {
+				t.Fatalf("deploy/README.md has the driver's filter line twice (%q)", opener)
+			}
+			filter = l
+		}
+	}
+	if filter == "" {
+		t.Fatalf("deploy/README.md has no driver filter line starting %q; the rehearsal block was reworded", opener)
+	}
+	const value = "PROBE-VALUE-0f3a"
+	dir := t.TempDir()
+	log := strings.Join([]string{
+		"sha256 OK 20261111T0300Z",
+		`psql:<stdin>:12: ERROR:  invalid input syntax for type uuid: "` + value + `"`,
+		`pg_restore: error: could not execute query: ERROR:  permission denied for table tags`,
+		"DETAIL:  Key (id)=(" + value + ") already exists.",
+		"CONTEXT:  COPY transactions, line 3: \"" + value + "\"",
+		"restore exit: 0",
+		"pg-restore-verify: FAIL",
+		"  FAIL  section 3",
+		"verify exit: 1",
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "drill.log"), []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-c", "set -o pipefail\n"+filter)
+	cmd.Env = append(os.Environ(), "DRILL_DIR="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the driver's filter line failed: %v\n%s", err, out)
+	}
+	got := string(out)
+	if strings.Contains(got, value) {
+		t.Errorf("the driver prints a value an ERROR, DETAIL or CONTEXT line carried:\n%s", got)
+	}
+	for _, want := range []string{
+		"sha256 OK 20261111T0300Z",
+		"ERROR:  invalid input syntax for type uuid: (cut)",
+		"ERROR:  permission denied for table tags",
+		"restore exit: 0", "pg-restore-verify: FAIL", "  FAIL  section 3", "verify exit: 1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the driver's output does not carry %q:\n%s", want, got)
 		}
 	}
 }

@@ -2927,6 +2927,36 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 				"once a minute.",
 		},
 		{
+			"adminEmailChangeLimit", adminEmailChangeLimit, 5,
+			"sign-in address change requests per PERSON per hour (T173, ADR 0044 §5.8): the verification " +
+				"link's number; each request is one letter to a typed address, charged before the comparison.",
+		},
+		{
+			"adminEmailNoticeLimit", adminEmailNoticeLimit, 5,
+			"the old address's notices per PERSON per hour (ADR 0044 §5.8): passwordNoticeLimit's twin.",
+		},
+		{
+			"adminEmailUndoLimit", adminEmailUndoLimit, 10,
+			"undo presses per client address per 10 minutes (ADR 0044 §5.8): adminResetSubmitLimit's pattern.",
+		},
+		{
+			"emailLetterQueueSize", emailLetterQueueSize, 16,
+			"the address change letters' own queue (card EC-2 item 5), never the reset outbox.",
+		},
+		{
+			"emailChangeRequestFloor (ms)", int(emailChangeRequestFloor / time.Millisecond), 600,
+			"every request's floor (ADR 0044 §5.4): one cost-12 bcrypt (~0.38 s) + three round trips; signupClaimFloor's number.",
+		},
+		{
+			"adminEmailChangePeriod (min)", int(adminEmailChangePeriod / time.Minute), 60, "an hour.",
+		},
+		{
+			"adminEmailNoticePeriod (min)", int(adminEmailNoticePeriod / time.Minute), 60, "an hour.",
+		},
+		{
+			"adminEmailUndoPeriod (min)", int(adminEmailUndoPeriod / time.Minute), 10, "ten minutes.",
+		},
+		{
 			"adminAccountLimit", adminAccountLimit, 10,
 			"bounds audit_log writes per account per window and gates NOTHING (a per-account " +
 				"gate would be an account lockout an attacker triggers with a known email). " +

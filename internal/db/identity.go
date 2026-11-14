@@ -325,8 +325,15 @@ func (d *DB) ConsumeIdentityRowReset(ctx context.Context, resetHash, newDigest s
 // caller's type binds it to the address the link goes to), an undelivered link is withdrawn by its own
 // hash, and a link is spent by its hash (identity_consume_reset, 00075's shape: it returns the
 // identity's registered address for the "your password was changed" notice).
+//
+// T173 (00102, ADR 0044 §5.3, S-1): the open names the address the link will be mailed to as its FOURTH
+// argument, and the function writes nothing unless the identity still holds it under its lock -- an
+// address change committed between the resolver and this call would otherwise send the link to the
+// mailbox the identity just left. Four placeholders, always: the DEFAULT NULL of the fourth is the
+// rollout's (the previous binary's three-argument call), and T295 takes it away
+// (TestOpenIdentityResetSQL_NamesTheRecipient pins the text).
 const openIdentityResetSQL = `SELECT reset_id, expires_at, issued
-FROM identity_open_reset($1, $2, $3)`
+FROM identity_open_reset($1, $2, $3, $4)`
 
 const withdrawIdentityResetSQL = `SELECT identity_withdraw_reset($1)`
 
@@ -345,8 +352,10 @@ type OpenedIdentityReset struct {
 }
 
 // OpenIdentityReset opens a reset link for an identity, unless it holds a live one (ADR 0031 §5.9,
-// EM-7C): tokenHash is the hash of the token the caller just drew. pgx.ErrNoRows: no such identity.
-// The hash never reaches an error.
+// EM-7C): tokenHash is the hash of the token the caller just drew, recipient the address the caller
+// will mail it to -- the identity's registered address as the resolver returned it (S-1, 00102).
+// pgx.ErrNoRows: no such identity, or the identity no longer holds recipient (byte for byte) -- nothing
+// was written either way. Neither the hash nor the address ever reaches an error.
 //
 // lockWait bounds EACH lock wait inside the call (BoundLockWaits; T219): identity_open_reset takes the
 // identity's advisory lock and its INSERT takes the identity row's key-share lock -- two waits, so the
@@ -354,7 +363,7 @@ type OpenedIdentityReset struct {
 // until its own deadline. Past it the call fails with
 // LockWaitExpired and the transaction is rolled back, so nothing was opened. The function sets no
 // lock_timeout of its own (00072), so the transaction's applies inside its body.
-func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, lockWait time.Duration) (o OpenedIdentityReset, err error) {
+func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenHash string, expiresAt time.Time, recipient string, lockWait time.Duration) (o OpenedIdentityReset, err error) {
 	tx, err := d.quiet().Begin(ctx)
 	if err != nil {
 		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: begin: %w", quietErr(err))
@@ -371,7 +380,7 @@ func (d *DB) OpenIdentityReset(ctx context.Context, identityID uuid.UUID, tokenH
 	// The transaction's own errors through quietErr (backlog T208): a reset connection names both ends'
 	// addresses; a lock_timeout's 55P03 is not a connection failure and passes as the same value, so
 	// LockWaitExpired reads it.
-	if err = tx.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
+	if err = tx.QueryRow(ctx, openIdentityResetSQL, identityID, tokenHash, expiresAt, recipient).Scan(&o.ResetID, &o.ExpiresAt, &o.Issued); err != nil {
 		return OpenedIdentityReset{}, fmt.Errorf("db: open identity reset: %w", quietErr(err))
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -675,4 +684,141 @@ func OpenRowSession(ctx context.Context, tx pgx.Tx, adminUserID, tenantID uuid.U
 		return IdentitySession{}, fmt.Errorf("db: open row session: %w", err)
 	}
 	return s, nil
+}
+
+// ------------------------------------------------------------------ T173 --
+
+// The sign-in address change (ADR 0044 §5.3; T173 EC-1, migration 00102): the request writes the link
+// the new address receives, the confirmation spends it with the clicking browser's live session of the
+// same identity, and the undo spends the link the old address received. Each finds the identity from a
+// secret's hash; none takes an address as a key. The addresses they return are personal data -- the
+// letters' recipients and nothing else (CLAUDE.md §7: never logged, never in an error).
+const requestEmailChangeSQL = `SELECT change_id, expires_at, refusal
+FROM identity_request_email_change($1, $2, $3, $4::citext)`
+
+const changeEmailSQL = `SELECT old_email, new_email, revoked_sessions, revert_expires_at
+FROM identity_change_email($1, $2, $3)`
+
+const revertEmailChangeSQL = `SELECT restored_email, revoked_sessions
+FROM identity_revert_email_change($1)`
+
+const sweepIdentityEventsSQL = `SELECT deleted FROM identity_sweep_events()`
+
+// EmailChangeRefusal is identity_request_email_change's refusal: a CLOSED set (00102) that speaks only of
+// the person's own state or of the shape of the address they typed -- never of whether the new address
+// belongs to anybody (the function never asks).
+type EmailChangeRefusal string
+
+// The seven refusals, as 00102 writes them. TestEmailChange00102_TheRequestNeverAsksWhoHoldsTheNewAddress
+// holds this list to the function's body.
+const (
+	EmailChangeInvalidAddress EmailChangeRefusal = "invalid_address"
+	EmailChangeStale          EmailChangeRefusal = "stale"
+	EmailChangeSameAddress    EmailChangeRefusal = "same_address"
+	EmailChangeUnverified     EmailChangeRefusal = "unverified"
+	EmailChangeWindowOpen     EmailChangeRefusal = "window_open"
+	EmailChangeUnlinkedRows   EmailChangeRefusal = "unlinked_rows"
+	EmailChangeRevertLive     EmailChangeRefusal = "revert_live"
+)
+
+// EmailChangeRefusals is the closed set, in 00102's order.
+var EmailChangeRefusals = []EmailChangeRefusal{
+	EmailChangeInvalidAddress, EmailChangeStale, EmailChangeSameAddress, EmailChangeUnverified,
+	EmailChangeWindowOpen, EmailChangeUnlinkedRows, EmailChangeRevertLive,
+}
+
+// EmailChangeRequest is identity_request_email_change's one row. Refusal empty: the link was written
+// (ChangeID, ExpiresAt -- 24 hours). Refusal set: nothing was written and ChangeID is uuid.Nil;
+// ExpiresAt is the end of the person's live undo link for EmailChangeRevertLive (K-E18 (a)) and zero
+// otherwise.
+type EmailChangeRequest struct {
+	ChangeID  uuid.UUID
+	ExpiresAt time.Time
+	Refusal   EmailChangeRefusal
+}
+
+// RequestEmailChange writes the 'change' link for newEmail, bound to the identity behind the live,
+// linked session sessionHash; verified is the identity's digest the caller compared the typed password
+// with (identity_password_for_session's), re-checked under the identity's lock. linkHash is the hash of
+// the token the caller drew for the letter. pgx.ErrNoRows: the session is not live or not linked (or the
+// link hash is malformed) -- nothing was written.
+func (d *DB) RequestEmailChange(ctx context.Context, sessionHash string, verified PasswordHash, linkHash, newEmail string) (EmailChangeRequest, error) {
+	var (
+		r       EmailChangeRequest
+		id      *uuid.UUID
+		expires *time.Time
+		refusal *string
+	)
+	if err := d.quiet().QueryRow(ctx, requestEmailChangeSQL, sessionHash, verified.RevealForPasswordComparison(), linkHash, newEmail).Scan(&id, &expires, &refusal); err != nil {
+		return EmailChangeRequest{}, fmt.Errorf("db: request email change: %w", err)
+	}
+	if id != nil {
+		r.ChangeID = *id
+	}
+	if expires != nil {
+		r.ExpiresAt = *expires
+	}
+	if refusal != nil {
+		r.Refusal = EmailChangeRefusal(*refusal)
+	}
+	return r, nil
+}
+
+// ChangedEmail is identity_change_email's row: the two addresses (the old one receives the notice, the
+// new one the answer), the sessions it ended in the confirming browser's business, and the end of the
+// undo link it wrote for the old address (nil: none was written).
+type ChangedEmail struct {
+	OldEmail        string
+	NewEmail        string
+	RevokedSessions int
+	RevertExpiresAt *time.Time
+}
+
+// ChangeEmail spends the 'change' link linkHash with the clicking browser's session sessionHash (a live
+// session of the link's identity) and moves the identity -- and every linked row of it -- to the
+// link's address; revertHash is the hash of the undo token the caller drew for the old address's
+// letter. pgx.ErrNoRows: refused, nothing written (the one refusal; its causes are not told apart).
+func (d *DB) ChangeEmail(ctx context.Context, linkHash, sessionHash, revertHash string) (ChangedEmail, error) {
+	var (
+		c ChangedEmail
+		n int32
+	)
+	if err := d.quiet().QueryRow(ctx, changeEmailSQL, linkHash, sessionHash, revertHash).Scan(&c.OldEmail, &c.NewEmail, &n, &c.RevertExpiresAt); err != nil {
+		return ChangedEmail{}, fmt.Errorf("db: change email: %w", err)
+	}
+	c.RevokedSessions = int(n)
+	return c, nil
+}
+
+// RevertedEmail is identity_revert_email_change's row: the address given back (the reset link's
+// recipient, K-E11) and how many sessions ended in all the person's businesses together.
+type RevertedEmail struct {
+	RestoredEmail   string
+	RevokedSessions int
+}
+
+// RevertEmailChange spends the undo link revertHash: the old address back, the password a sentinel,
+// every session ended, every live link cancelled. It opens no session. pgx.ErrNoRows: refused, nothing
+// written.
+func (d *DB) RevertEmailChange(ctx context.Context, revertHash string) (RevertedEmail, error) {
+	var (
+		r RevertedEmail
+		n int32
+	)
+	if err := d.quiet().QueryRow(ctx, revertEmailChangeSQL, revertHash).Scan(&r.RestoredEmail, &n); err != nil {
+		return RevertedEmail{}, fmt.Errorf("db: revert email change: %w", err)
+	}
+	r.RevokedSessions = int(n)
+	return r, nil
+}
+
+// SweepIdentityEvents runs identity_sweep_events: the event log's 90 days (R17) and, since 00103, the
+// address change links one day after they were spent, cancelled or expired. It returns how many EVENTS
+// went (the function's answer since 00072). Its periodic caller is EC-2's (T294).
+func (d *DB) SweepIdentityEvents(ctx context.Context) (int64, error) {
+	var n int64
+	if err := d.quiet().QueryRow(ctx, sweepIdentityEventsSQL).Scan(&n); err != nil {
+		return 0, fmt.Errorf("db: sweep identity events: %w", err)
+	}
+	return n, nil
 }

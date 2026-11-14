@@ -1182,6 +1182,26 @@ func cookieNotice() []pages.CookieRow {
 			Scope:    adminauth.CookiePath,
 			Flags:    flags,
 		},
+		// T173: the sign-in address change's link, between the e-mail and the press.
+		{
+			Name: accountEmailCookieName,
+			Purpose: "Carries the link that changes your sign-in email, from the email to the button that " +
+				"confirms it, so the link stays out of the address bar and out of browser history. Cleared " +
+				"when the button is pressed.",
+			Lifetime: humanSeconds(accountEmailCookieMaxAge),
+			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
+		// T173: the undo link of a sign-in address change, on its own page.
+		{
+			Name: emailUndoCookieName,
+			Purpose: "Carries the link that undoes a change of your sign-in email while you decide, so the " +
+				"link stays out of the address bar and out of browser history, and protects that page " +
+				"against being submitted from another site. Cleared when the button is pressed.",
+			Lifetime: humanSeconds(emailUndoCookieMaxAge),
+			Scope:    emailUndoPath,
+			Flags:    flags,
+		},
 		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.
 		{
 			Name: adminInviteCookieName,

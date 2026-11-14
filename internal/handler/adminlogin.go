@@ -67,6 +67,10 @@ type adminAuthenticator interface {
 	LinkBucket(ctx context.Context, s adminauth.Resolved) (string, error)
 	RequestLink(ctx context.Context, s adminauth.Resolved, current adminauth.Token) (adminauth.IssuedLink, error)
 	LinkByEmail(ctx context.Context, raw string, current adminauth.Token) (adminauth.LinkedBusinesses, error)
+	// The sign-in address change (T173, accountemail.go): the request, the press, the undo.
+	RequestEmailChange(ctx context.Context, s adminauth.Resolved, current adminauth.Token, password, newEmail string) (adminauth.EmailChangeRequested, error)
+	ConfirmEmailChange(ctx context.Context, s adminauth.Resolved, raw string, current adminauth.Token) (adminauth.EmailChanged, error)
+	UndoEmailChange(ctx context.Context, raw string) (adminauth.EmailRestored, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by
@@ -367,8 +371,17 @@ type AdminAuth struct {
 	// accountidentity.go): verification links asked for, and link / unlink / Undo presses.
 	verifyLimiter      *limiter
 	identityActLimiter *limiter
-	sessionLimiter     *limiter
-	logoutLimiter      *limiter
+	// emailChangeLimiter is the address change request's per-PERSON budget and emailUndoLimiter the undo
+	// press's per-address one (T173, adminratelimit.go).
+	emailChangeLimiter *limiter
+	emailUndoLimiter   *limiter
+	// emailFloor is emailChangeRequestFloor, a field so a test can measure the exits without its wait;
+	// emailLetters the change letters' own queue (nil when invitations are not e-mailed -- the letters go
+	// through the same per-mailbox cap and breaker).
+	emailFloor     time.Duration
+	emailLetters   *emailLetterQueue
+	sessionLimiter *limiter
+	logoutLimiter  *limiter
 	// switchLimiter is the switch's budget, keyed by the person and the address
 	// (adminSwitchLimit says why not the session).
 	switchLimiter *limiter
@@ -565,6 +578,9 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 
 		verifyLimiter:      newLimiter(adminVerifyRequestLimit, adminVerifyRequestPeriod),
 		identityActLimiter: newLimiter(adminIdentityActLimit, adminIdentityActPeriod),
+		emailChangeLimiter: newLimiter(adminEmailChangeLimit, adminEmailChangePeriod),
+		emailUndoLimiter:   newLimiter(adminEmailUndoLimit, adminEmailUndoPeriod),
+		emailFloor:         emailChangeRequestFloor,
 		sessionLimiter:     newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:      newLimiter(adminLogoutLimit, adminLogoutPeriod),
 		switchLimiter:      newLimiter(adminSwitchLimit, adminSwitchPeriod),
@@ -586,6 +602,11 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	}
 	if err := invitationMode(cfg.InviteDelivery, a.inviteMail); err != nil {
 		return nil, err
+	}
+	// The address change letters' queue and its worker (T173): only where the panel e-mails, and only
+	// where the identity surface exists.
+	if a.inviteMail != nil && a.identityGate.Open(adminauth.SurfaceAccountIdentity) {
+		a.emailLetters = newEmailLetterQueue(emailLetterQueueSize, a.inviteMail, log)
 	}
 	// 🔴 A CONFIGURATION THAT HOLDS THE API KEY'S HMAC KEY IS ONE THAT ISSUES KEYS (M11 API-3, the
 	// second round's D3): config.Load makes TAPPA_API_KEY_HMAC_KEY required, so every production
@@ -645,6 +666,9 @@ func (a *AdminAuth) Mount(r chi.Router) {
 		r.With(a.floodGate("admin_verify_link")).Get(verifyLinkPath, a.verifyLinkLanding)
 		// M14-22: the link by e-mail's landing -- the same shape (a cookie and a redirect, nothing spent).
 		r.With(a.floodGate("admin_link_landing")).Get(linkLandingPath, a.linkLanding)
+		// T173: the address change link's landing -- the same shape (a cookie and a redirect, nothing
+		// spent). The UNDO link's page and press are mounted by their own call (MountEmailUndo).
+		r.With(a.floodGate("admin_email_change_link")).Get(emailChangeLandingPath, a.emailChangeLanding)
 	})
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
@@ -1950,6 +1974,8 @@ func (a *AdminAuth) sameOrigin(r *http.Request) bool {
 // the request — but never swallows it either (section 7): a trail that cannot be
 // written is an ERROR, because it means section 4.6 is not being kept.
 func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
+	ctx, cancel := audit.Detached(ctx)
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		a.log.Error(audit.EventWriteFailed, "action", e.Action, "err", err)
 	}
@@ -1965,15 +1991,23 @@ func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
 // error's text: T208 already reduces a connection failure to its class, but this line is on a
 // path any signed-in manager can drive, so it does not depend on every wrap below being right.
 // A request the client itself abandoned (class "canceled") is a WARN: nothing failed on our
-// side, and a manager cancelling a download must not be able to write ERROR lines.
+// side, and a manager cancelling a download must not be able to write ERROR lines. Since T284 (a)
+// the write runs under audit.Detached, so a client leaving no longer cancels it; the WARN stays for
+// a cancellation that still reaches the driver. The refusal is unchanged: a failed write refuses.
+//
+// The msg is audit.EventWriteFailed (T282; it was "audit write failed; the act it records was
+// refused", which no rule read) and "refused" says the act did not happen. M8-03 rule 9 pages on
+// that msg at level ERROR only, so the cancelled request's WARN stays off the pager.
 func (a *AdminAuth) recordFirst(ctx context.Context, e audit.Event) error {
+	ctx, cancel := audit.Detached(ctx)
+	defer cancel()
 	if _, err := a.audit.Record(ctx, e); err != nil {
 		class, cause := readinessFailure(err)
 		level := slog.LevelError
 		if class == errClassCanceled {
 			level = slog.LevelWarn
 		}
-		a.log.Log(ctx, level, "audit write failed; the act it records was refused", "action", e.Action,
+		a.log.Log(ctx, level, audit.EventWriteFailed, "action", e.Action, "refused", true,
 			LogErrClassKey, class, LogErrCauseKey, cause)
 		return err
 	}

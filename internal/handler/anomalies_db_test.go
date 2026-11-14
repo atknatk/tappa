@@ -34,6 +34,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // anomalyFixture is one tenant's worth of odd shapes.
@@ -166,10 +167,7 @@ func seedAnomalyTenant(t *testing.T, p *panelHarness, tenantID uuid.UUID, label 
 			f.locationID, tenantID, f.location); e != nil {
 			return fmt.Errorf("location: %w", e)
 		}
-		if _, e := tx.Exec(ctx,
-			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 100, 'active')`,
-			f.tagUID, tenantID, f.locationID); e != nil {
+		if e := fixtures.LoadPlaque(ctx, tx, fixtures.Plaque{UID: f.tagUID, TenantID: tenantID, Wall: f.locationID, LastCtr: 100}); e != nil {
 			return fmt.Errorf("tag: %w", e)
 		}
 		if _, e := tx.Exec(ctx,

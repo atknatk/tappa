@@ -487,9 +487,10 @@ func TestAdminSessionLifetime_EverySessionLookupInADefinerIsBounded(t *testing.T
 		}
 		guardedAll += guarded
 	}
-	// identitySessionKeyLookups' session rows (identitybelt_test.go): twelve guarded, four fresh-bounded.
-	if guardedAll != 12 || freshAll != 4 {
-		t.Errorf("anti-vacuity: %d guarded and %d fresh-bounded session lookups, want 12 and 4 (00085's count)", guardedAll, freshAll)
+	// identitySessionKeyLookups' session rows (identitybelt_test.go): twelve guarded (00085) and T173's two
+	// (00102: the address change's request and its confirmation), four fresh-bounded.
+	if guardedAll != 14 || freshAll != 4 {
+		t.Errorf("anti-vacuity: %d guarded and %d fresh-bounded session lookups, want 14 and 4 (00085's twelve and 00102's two)", guardedAll, freshAll)
 	}
 }
 
@@ -587,6 +588,10 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 							// session too (it is its own case: ...ASwitchThatWaitsPastTheEndWritesNothing).
 							aslRecreate(t, ctx, v, fn, regexp.MustCompile(regexp.QuoteMeta(aslSwitchRecheck)), "    IF NOT FOUND THEN\n")
 						}
+						if fn == "identity_request_email_change" || fn == "identity_change_email" {
+							// T173 (00102): the same second guard after the locks (ecLifetimeRecheck).
+							aslRecreate(t, ctx, v, fn, regexp.MustCompile(regexp.QuoteMeta(ecLifetimeRecheck)), "    IF v_found IS NOT TRUE THEN\n")
+						}
 						aslAge(t, ctx, v, hash, AdminSessionLifetime)
 						n, err := identityStepRows(t, ctx, v, s)
 						if err != nil || n == 0 {
@@ -599,10 +604,10 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 		}
 	}
 	want := []string{
-		"identity_accept_invite.p_session_hash", "identity_claim_signup.p_session_hash", "identity_confirm_window.p_session_hash",
+		"identity_accept_invite.p_session_hash", "identity_change_email.p_session_hash", "identity_claim_signup.p_session_hash", "identity_confirm_window.p_session_hash",
 		"identity_keep_all.p_session_hash", "identity_link_by_email.p_session_hash", "identity_link_legacy.p_identity_session_hash",
 		"identity_link_legacy.p_legacy_session_hash", "identity_memberships.p_session_hash", "identity_password_for_session.p_session_hash",
-		"identity_relink_refused.p_session_hash", "identity_request_verification.p_session_hash", "identity_revoke_sessions.p_session_hash",
+		"identity_relink_refused.p_session_hash", "identity_request_email_change.p_session_hash", "identity_request_verification.p_session_hash", "identity_revoke_sessions.p_session_hash",
 		"identity_set_password.p_session_hash", "identity_switch_session.p_session_hash", "identity_unlink_backfilled.p_session_hash",
 		"identity_verify_email.p_session_hash",
 	}
@@ -612,7 +617,7 @@ func TestAdminSessionLifetime_EveryDefinerRefusesAnEndedSession(t *testing.T) {
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		t.Errorf("the session lookups reached:\n  %v\nwant all sixteen:\n  %v", got, want)
+		t.Errorf("the session lookups reached:\n  %v\nwant all eighteen:\n  %v", got, want)
 	}
 }
 
@@ -646,6 +651,9 @@ func TestAdminSessionLifetime00085_DownGivesBackWhatItFoundAndUpHEAD(t *testing.
 	if tables := downTables(up + down); len(tables) > 0 {
 		t.Fatalf("PREMISE: 00085 locks %v", tables)
 	}
+	// T173: 00102 adds two definers that carry 00085's predicate (and leaves 00085's work alone); "HEAD"
+	// below is 00101, where 00085's thirteen bodies are the only ones.
+	ecBelow00102(t, ctx, tx)
 	head := aslCatalogue(t, ctx, tx)
 	bodies := func(q pgx.Tx) map[string]string {
 		t.Helper()
@@ -823,6 +831,10 @@ var aslSessionFunctions = map[string]string{
 	"identity_open_session": "births", "identity_consume_reset": "revokes", "identity_consume_row_reset": "revokes",
 	// T187 (00086, ADR 0036): the single-row sign-in's birth, its proof now().
 	"identity_open_row_session": "births",
+	// T173 (00102, ADR 0044): the address change's request and confirmation carry the predicate; its undo
+	// takes no session and ends every one.
+	"identity_request_email_change": "guarded", "identity_change_email": "guarded",
+	"identity_revert_email_change": "revokes",
 }
 
 // TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified: the functions whose body
@@ -866,7 +878,7 @@ func TestAdminSessionLifetime_EveryFunctionThatReadsTheSessionsIsClassified(t *t
 			t.Errorf("%s is classified %q but the lifetime predicate is %v in its body", n, class, guarded)
 		}
 	}
-	if len(got) != 20 || len(aslSessionFunctions) != 20 {
-		t.Errorf("anti-vacuity: %d functions read admin_sessions and %d are classified, want 20 and 20", len(got), len(aslSessionFunctions))
+	if len(got) != 23 || len(aslSessionFunctions) != 23 {
+		t.Errorf("anti-vacuity: %d functions read admin_sessions and %d are classified, want 23 and 23", len(got), len(aslSessionFunctions))
 	}
 }

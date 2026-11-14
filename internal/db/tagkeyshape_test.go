@@ -49,10 +49,12 @@ func TestTags00021_KeyRefMustHaveTheEnvelopeShape(t *testing.T) {
 			// decode(repeat('de', n), 'hex') yields exactly n bytes -- the length is
 			// the variable under test, so it is computed in SQL rather than hidden in
 			// a Go literal a reader would have to count.
+			// The row is born in stock (00100, T76): the key's length is the variable, and a
+			// CHECK is evaluated after every BEFORE trigger, so only a stock row reaches it.
 			_, err := execAs(t, app, fx.tenantID,
 				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-				 VALUES ($1, $2, $3, decode(repeat('de', $4::int), 'hex'), 0, 'active')`,
-				uid, fx.tenantID, fx.locationID, tc.bytes)
+				 VALUES ($1, $2, NULL, decode(repeat('de', $3::int), 'hex'), 0, 'unassigned')`,
+				uid, fx.tenantID, tc.bytes)
 
 			if tc.ok {
 				if err != nil {
@@ -209,7 +211,7 @@ func TestTags00021_CanonicalUidConstraintIsValidated(t *testing.T) {
 	fx := newTagTenant(t, app)
 	_, err := execAs(t, app, fx.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-		 VALUES ('04ac7e55aaaa01', $1, $2, decode(repeat('dead', 22), 'hex'), 0, 'active')`,
-		fx.tenantID, fx.locationID)
+		 VALUES ('04ac7e55aaaa01', $1, NULL, decode(repeat('dead', 22), 'hex'), 0, 'unassigned')`,
+		fx.tenantID)
 	wantSQLSTATE(t, err, sqlstateCheckViolation, "INSERT a lower-case uid")
 }

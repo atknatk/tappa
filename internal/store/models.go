@@ -44,13 +44,15 @@ type AdminIdentityReset struct {
 }
 
 type AdminIdentityVerification struct {
-	ID         uuid.UUID
-	IdentityID uuid.UUID
-	TokenHash  string
-	CreatedAt  time.Time
-	ExpiresAt  time.Time
-	UsedAt     *time.Time
-	Purpose    string
+	ID          uuid.UUID
+	IdentityID  uuid.UUID
+	TokenHash   string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	Purpose     string
+	Address     *string
+	CancelledAt *time.Time
 }
 
 type AdminInvite struct {
