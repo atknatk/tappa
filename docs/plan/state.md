@@ -1756,9 +1756,9 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M16-01 | ADR 0045'ün kabulü ve CLAUDE.md / handoff metinleri | **done** | `0c47e7ed` + `2f913f2d` + `59c86827`; üçüncü göz RED → RED → ONAY, güvenlik merceği ONAY |
-| M16-02 | Kırmızı çizgi taraması `mobile/`'ı görür | todo |  |
+| M16-02 | Kırmızı çizgi taraması `mobile/`'ı görür | **done** | `dc71d79c` + `407d9c3f` + `5f845abc`; üçüncü göz RED → ONAY, güvenlik RED → RED → ONAY (son tur daraltıldı; sınırlar kartın Tuzaklar'ında) |
 | M16-03 | Şema: `app_devices` ve tek kullanımlık nonce | todo |  |
-| M16-04 | Şema: `transactions.client` | todo |  |
+| M16-04 | Şema: `transactions.client` | **onaylı — merge bekliyor** | `e15be4a0` + `cfdb2aee` (dal `m16-04-client`); iki mercek ONAY; 00104 (M16-03) önce girmeli |
 | M16-05 | `internal/appdevice`: imzalı istek doğrulaması | todo |  |
 | M16-06 | Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı | todo |  |
 | M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | todo |  |

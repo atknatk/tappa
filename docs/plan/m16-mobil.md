@@ -558,6 +558,7 @@ taramasından geçen boş bir personel uygulaması.
 - Ayrı Gradle build `mobile/android/`; toolchain `android/README.md`'nin **ölçülmüş** sürümleri (JDK 21, Gradle 9.7.1,
   AGP 9.4.1, compileSdk 36, minSdk 26) — sapma varsa ölçülerek yazılır; wrapper JAR yok (*"bu repo ikili taşımaz"*).
 - Bağımlılıklar yalnız Q36'da onaylananlar; `debugRuntimeClasspath` dökümü `mobile/android/README.md`'de.
+- **M16-02 son güvenlik kontrolünün devri (DÜŞÜK, 2026-11-14):** `rg` git index'ine bakmadan `.gitignore`'a uyar; `mobile/` altında ignore'a takılıp `git add -f` ile izlenen bir dosya (ör. `mobile/.idea/Leak.kt`) hiçbir mobil kural tarafından taranmaz, S1 de `mobile/`'ı muaf tuttuğu için görmez. Bu kart `mobile/android/` kendi ignore kalıplarını getirdiğinde bekçiyi ekler: `git ls-files -ci --exclude-standard -- mobile android` boş değilse FAIL (ya da adıyla sınır olarak yazar). Aynı özellik SRC'nin geneli için tabanda da vardı.
 - Manifest yalnız: `NFC`, `INTERNET`, `ACCESS_FINE_LOCATION` (+ `ACCESS_COARSE_LOCATION`). **Birleştirilmiş**
   manifestte (`processDebugManifest` çıktısı) başka izin yok — bir JVM testi ya da betik bunu ölçer.
 - `allowBackup=false` (anahtar zaten yedeklenmez; uygulama verisi de taşınmasın).
