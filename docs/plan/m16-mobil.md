@@ -1,10 +1,10 @@
 # M16 — Personel mobil uygulaması (isteğe bağlı) + NFC'siz telefonlar
 
-> **Durum:** plan **onaylandı** — yedi bağımsız denetim turundan sonra ONAY (`407710bf`, 2026-11-13). **ADR 0044 kabul
+> **Durum:** plan **onaylandı** — yedi bağımsız denetim turundan sonra ONAY (`407710bf`, 2026-11-13). **ADR 0045 kabul
 > edildi (2026-11-14, M16-01).** `main`'e birleştirilmedi. Kod yok. Canlı durum yalnız [state.md](state.md)'dedir;
 > bu dosyaya "yapıldı" yazılmaz.
 >
-> **Karar belgesi:** [ADR 0044](../adr/0044-istege-bagli-native-uygulama.md) (durum *Kabul edildi (2026-11-14)*).
+> **Karar belgesi:** [ADR 0045](../adr/0045-istege-bagli-native-uygulama.md) (durum *Kabul edildi (2026-11-14)*).
 > Kartlar ADR'nin sözlüğünü kullanır.
 >
 > **Atıf kuralı:** kırmızı çizgiler hep **"CLAUDE.md §4.x"**; `file:line` atıfları `origin/main` `70e8a016`'ya göredir
@@ -24,7 +24,7 @@
 
 ## Kullanıcı kararları (2026-11-12/13) — bağlayıcı
 
-Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışılmaz (ADR 0044 §2'de *"karar"* diye işaretli):
+Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışılmaz (ADR 0045 §2'de *"karar"* diye işaretli):
 
 - Native uygulama **isteğe bağlı**; tarayıcı akışı kalır ve tam desteklenir.
 - **Tamamen native:** iOS Swift/SwiftUI, Android Kotlin/Jetpack Compose — Node içeren yol (React Native / Expo)
@@ -35,7 +35,7 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 
 ## ADR kabulüyle kesinleşen kararlar (2026-11-14)
 
-> **Kullanıcı 2026-11-14'te ADR 0044'ü olduğu gibi kabul etti; aşağıdakiler o kabulle karardır** (ADR 0044 *"Kabul
+> **Kullanıcı 2026-11-14'te ADR 0045'ü olduğu gibi kabul etti; aşağıdakiler o kabulle karardır** (ADR 0045 *"Kabul
 > notu"*). Önceden *"plan önerisi"*ydiler: kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar
 > vermemişti. Önerilen **adlar** (ör. `base:mock-location-review`, `/app/v1` uç noktaları) kartlarda yine yapıcının
 > ölçümüyle kesinleşir.
@@ -59,14 +59,14 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 |---|---|---|
 | Plaket URL'si sabit, uygulama aynı URL'yi alabilir | `internal/handler/tap.go:282` (`TapPath`), `:290` (`PlaqueTapBase`) | ✅ — plaket yeniden kodlanmaz |
 | Statik QR = SUN'suz `/t` | `internal/sun/params.go:188-192` | ✅ `ctr` ve `cmac` yoksa `ChannelQR` |
-| Kanal sözlüğü kapalı | `00005:114`, `00043:141`, `00046:137`, `00048:171`, `00067:193`, `00095:66` | ⚠️ **10 migration + 2 sorgu + Go'da çok sayıda karşılaştırma** (liste bir başlangıçtır; kanıt M16-21'in parite testi) — `qr_live` geniş bir değişiklik (ADR 0044 Bedel 6) |
+| Kanal sözlüğü kapalı | `00005:114`, `00043:141`, `00046:137`, `00048:171`, `00067:193`, `00095:66` | ⚠️ **10 migration + 2 sorgu + Go'da çok sayıda karşılaştırma** (liste bir başlangıçtır; kanıt M16-21'in parite testi) — `qr_live` geniş bir değişiklik (ADR 0045 Bedel 6) |
 | Akış `qr_live`'ı görür mü | `00067:193`, `checkin.go:1687` (`feedEligible`), `openapi.yaml:1105` | ❌ bugün **sessizce atlar**; `/v1` enum'u kapalı → Q38 |
 | Canlı QR varsayılanı yeni baseline ister mi | `baseline.go:287-309` | ⚠️ **istemeyebilir:** yalnız `base:qr-requires-ip` kanal koşullu (`channel == "qr"`) |
 | Tazelik ve SUN guardrail'leri | `guardrails.go:396`, `:479` | NFC-only → `qr_live` için karar gerekir (M16-21) |
 | Debounce'un sunucu saati bacağı | `db/queries/transactions.sql:317` (`SecondsSinceLastRecordedTap`) | ❌ `channel IN ('nfc', 'qr')` → `qr_live` girmezse geriye tarihlenmiş bir `qr_live` dokunuşu debounce'u **sessizce** atlar (M16-19, M16-21) |
 | Motor her tap'te plaket varsayar | `internal/domain/tap/types.go:471-473` (`Tag` *"Always present for a resolved tap"*), `/v1` `tagId` (`openapi.yaml:1130-1133`) | ❌ `qr_live` satırının plaketi yok → M16-21 |
 | Tenant bilinmeden çözümleme | `00003` `resolve_session_by_token_hash` (`tappa_resolver`, SECURITY DEFINER, sabit `search_path`) | cihaz, ekran oturumu ve eşleşme kodu aynı desenle; dokunuş anındaki ekran `00004` `resolve_tag_by_uid` deseniyle çözülür (M16-03, M16-19) |
-| Yeni baseline belgesi var olan tenant'a nasıl girer | `checkin/policyset.go:422`, `:529` | ilk dokunuşta **onaysız** materialize edilir (ADR 0044 Bedel 10) |
+| Yeni baseline belgesi var olan tenant'a nasıl girer | `checkin/policyset.go:422`, `:529` | ilk dokunuşta **onaysız** materialize edilir (ADR 0045 Bedel 10) |
 | `transactions` INSERT yetkisi | ADR 0038 | **sütun listesi** → `client` için ayrı GRANT |
 | İkinci cihaz ilkini iptal eder | `activate.go:1068-1077` | ✅ → uygulamaya genişler (Q40) |
 | Panelin *"telefonlarını çıkar"* eylemi | `employeeactions.go:690` (T59) | ✅ var → uygulama cihazlarını da kapsamalı (M16-09) |
@@ -74,7 +74,7 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 | Repoda Android var mı | `android/` (ADR 0017 encode rölesi, `mt.taptime.relay`) | ⚠️ **başka uygulama**; yerinde kalır, toolchain ölçüsü oradan alınır (`android/README.md`) |
 | Kırmızı çizgi taraması mobil kodu görür mü | `scripts/redline-check.sh:33` (`SRC`), `:2530` (`B1_SRC`) | ❌ `mobile/` yok → M16-02 kod kartlarından **önce** |
 | CI mobil derler mi | `.github/workflows/*.yml` | ❌ hayır → Q36 (d) |
-| Son migration / ADR | `db/migrations/00099_*`, `docs/adr/0043-*` | ✅ sıradaki 00100, ADR 0044 (state.md Deploy 13 notuyla aynı) |
+| Son migration / ADR | `db/migrations/00099_*`, `docs/adr/0043-*` | ✅ `70e8a016`'da sıradaki 00100, ADR 0044 idi; `origin/main` birleşmesinden (`ca8b94d4`, 2026-11-14) sonra son migration **00103**, son ADR **0044** (e-posta değiştirme, T173) → M16'nın ADR'si **0045**, migration'ları **00104**'ten |
 
 ## Çalışma modu (CLAUDE.md §10) — her kart için
 
@@ -111,22 +111,24 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 
 ## Migration ve ADR numaraları
 
-`main`'in son migration'ı **00099**, son ADR'si **0043** (`0040` hiç kullanılmadı). Aşağıdaki dağıtım **öneridir**;
+`main`'in son migration'ı **00103**, son ADR'si **0044** (`docs/adr/0044-panel-kimliginin-e-posta-degisikligi.md`,
+T173; `0040` hiç kullanılmadı) — `origin/main` `c89c3b5b` birleşmesinden (`ca8b94d4`, 2026-11-14) sonra. Bu yüzden
+M16'nın ADR'si **0045**'tir (yeniden numaralandı; planın ilk sürümleri onu 0044 diye anar). Aşağıdaki dağıtım **öneridir**;
 her kart açılırken `main`'in o anki son numarası **yeniden okunur** ve numara oradan alınır (başka dallar araya
 girebilir; goose, uygulanmış en yüksek sürümün altındaki bir dosyayı sonradan *missing* sayar — M15'in 2026-10-22
 numara değişikliği notu).
 
 | No (öneri) | Kart | İçerik | `Down` |
 |---|---|---|---|
-| 00100 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
-| 00101 | M16-04 | `transactions.client` + **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID` (NULL'u kabul eder — `00065` deseni) + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
-| 00102 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
-| 00103 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
-| 00104 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
-| 00105 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
-| 00106 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
+| 00104 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
+| 00105 | M16-04 | `transactions.client` + **tek** CHECK `client IS NULL OR client IN ('browser','app')` `NOT VALID` (NULL'u kabul eder — `00065` deseni) + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
+| 00106 | M16-04 | CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
+| 00107 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
+| 00108 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
+| 00109 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
+| 00110 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
 
-ADR: **0044** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
+ADR: **0045** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
 
 ## Kullanıcı tarafı ön koşulları
 
@@ -147,7 +149,7 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 
 | Faz | Kart | Başlık | Mercek |
 |---|---|---|---|
-| 0 | M16-01 | ADR 0044'ün kabulü ve CLAUDE.md / handoff metinleri | iki |
+| 0 | M16-01 | ADR 0045'ün kabulü ve CLAUDE.md / handoff metinleri | iki |
 | A | M16-02 | Kırmızı çizgi taraması `mobile/`'ı görür | iki |
 | A | M16-03 | Şema: `app_devices` ve tek kullanımlık nonce | iki |
 | A | M16-04 | Şema: `transactions.client` | iki |
@@ -181,30 +183,30 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 
 # Faz 0 — Karar
 
-## M16-01 — ADR 0044'ün kabulü ve CLAUDE.md / handoff metinleri
+## M16-01 — ADR 0045'ün kabulü ve CLAUDE.md / handoff metinleri
 
 - **Bağımlılık:** —
 - **Kırmızı çizgi:** §4.1, §4.2, §4.5, §4.7 (ADR'nin analizi), §1 (stack), §5, §9
 - **Araç:** ana oturum; kullanıcı onayı · **Mercek: iki** (ADR bir güvenlik sınırı tanımlar: taşıyıcı tokensız kimlik)
 - **Commit:** `docs(adr): accept the optional native staff app`
 
-**Amaç.** ADR 0044'ü *Kabul edildi*'ye geçirmek; Q35–Q42'yi sormak (cevap ya da hangi kartı blokladığı yazılır);
+**Amaç.** ADR 0045'ü *Kabul edildi*'ye geçirmek; Q35–Q42'yi sormak (cevap ya da hangi kartı blokladığı yazılır);
 ürün ve stack cümlelerini kabul edilen karara eşitlemek.
 
 **Bu kartta değişen cümleler** (satırlar `70e8a016`'ya göre; yapıcı yeniden okur):
 
 | Dosya | Bugün | Olacak |
 |---|---|---|
-| `CLAUDE.md:6` | *"tarayıcı açılır (uygulama kurulumu YOK)"* | *"tarayıcı açılır (uygulama kurulumu **gerekmez**; isteğe bağlı native uygulama aynı URL'yi açar — ADR 0044)"* |
-| `CLAUDE.md` §1 tablosu (`:15-24`) | mobil satırı yok | iki satır: *Mobil (isteğe bağlı)* — iOS Swift/SwiftUI, Android Kotlin/Compose, `mobile/`, Go modülü dışında, üçüncü parti SDK yok (ADR 0044); ve mevcut `android/` rölesinin ADR 0017 açılımı |
-| `CLAUDE.md:26-27` | *"Node/npm/node_modules bu repoda ASLA yer almaz"* | **değişmez** — yanına: *"mobil derlemeler de Node'suzdur (RN/Expo bu yüzden reddedildi, ADR 0044)"* |
+| `CLAUDE.md:6` | *"tarayıcı açılır (uygulama kurulumu YOK)"* | *"tarayıcı açılır (uygulama kurulumu **gerekmez**; isteğe bağlı native uygulama aynı URL'yi açar — ADR 0045)"* |
+| `CLAUDE.md` §1 tablosu (`:15-24`) | mobil satırı yok | iki satır: *Mobil (isteğe bağlı)* — iOS Swift/SwiftUI, Android Kotlin/Compose, `mobile/`, Go modülü dışında, üçüncü parti SDK yok (ADR 0045); ve mevcut `android/` rölesinin ADR 0017 açılımı |
+| `CLAUDE.md:26-27` | *"Node/npm/node_modules bu repoda ASLA yer almaz"* | **değişmez** — yanına: *"mobil derlemeler de Node'suzdur (RN/Expo bu yüzden reddedildi, ADR 0045)"* |
 | `CLAUDE.md` §3 dizin haritası (`:50-150`) | `android/` ve `mobile/` yok | `android/` (encode rölesi, ADR 0017) · `mobile/ios/` · `mobile/android/` · `internal/appdevice/` (cihaz anahtarı doğrulaması — kart M16-05 yazınca) |
-| `CLAUDE.md:158-159` (§4.1) | *"Telefonun kendi ekran kilidi bizim katmanımız değildir"* | aynen + *"uygulamada biyometri API'si ve biyometrik anahtar erişim denetimi yoktur (ADR 0044 §3)"* |
+| `CLAUDE.md:158-159` (§4.1) | *"Telefonun kendi ekran kilidi bizim katmanımız değildir"* | aynen + *"uygulamada biyometri API'si ve biyometrik anahtar erişim denetimi yoktur (ADR 0045 §3)"* |
 | `CLAUDE.md:160-161` (§4.2) | *"Arka plan konum, sürekli takip, geofence izleme YOK"* | aynen + *"uygulamada arka plan konum izni ve modu da yoktur"* |
 | `CLAUDE.md` §3 `internal/sun/` satırı (`:76-77`) | *"Kriptografi SADECE burada"* | *"**Plaket** kriptografisi (AES-CMAC, SUN, `ctr`) SADECE burada"* — `internal/appdevice`'in ECDSA doğrulaması (M16-05) ve canlı QR token imzası (M16-20) bu cümleyle çelişmesin; yeni iki yer §3'e kendi satırıyla girer (`internal/appdevice/` M16-05, canlı QR paketi M16-20) |
 | `CLAUDE.md` §7 *"Asla loglanmaz"* listesi (`:474-` paragrafı) | oturum token'ı, CMAC, AES anahtarı, davet kodu, e-posta, tam GPS; operatör ve dış API tarafı | listeye eklenir: **cihaz imzası, istek nonce'u, canlı QR token'ı, ekran eşleşme kodu, ekran oturumu çerezi, canlı QR imza anahtarı**, müdür onayı eşleşme kodu (hata mesajı ve `audit_log` `detail`'i dahil) |
-| `CLAUDE.md` §11 tablosu (`:589-600`) | mobil satırı yok | *"iOS / Android personel uygulaması — `mobile/README.md` + ADR 0044"* |
-| `docs/handoff.md:24` | *"tarayıcı otomatik açılır (uygulama kurulumu YOK)"* | *"… (uygulama kurulumu gerekmez; isteğe bağlı uygulama — ADR 0044)"* |
+| `CLAUDE.md` §11 tablosu (`:589-600`) | mobil satırı yok | *"iOS / Android personel uygulaması — `mobile/README.md` + ADR 0045"* |
+| `docs/handoff.md:24` | *"tarayıcı otomatik açılır (uygulama kurulumu YOK)"* | *"… (uygulama kurulumu gerekmez; isteğe bağlı uygulama — ADR 0045)"* |
 | `docs/handoff.md:27` slogan · `:54-55` Connecteam karşılaştırması · `:60` *"app-less akış"* farkı | — | **Q42'nin cevabına göre**; cevap *"kalsın"* ise değişmez |
 | `docs/plan/roadmap.md` *"MVP kapsamı dışında"* | *"mobil uygulama"* | *"mobil uygulama (→ M16, isteğe bağlı)"* |
 
@@ -222,13 +224,13 @@ eder):
 | §3 `internal/appdevice/` | M16-05 |
 
 **Kabul kriterleri.**
-- ADR 0044 durum satırı *Kabul edildi (TARİH)*; Q35–Q42 her biri ya *cevaplandı (TARİH)* ya da *"açık — bloklar
+- ADR 0045 durum satırı *Kabul edildi (TARİH)*; Q35–Q42 her biri ya *cevaplandı (TARİH)* ya da *"açık — bloklar
   M16-xx"*.
 - Yukarıdaki ilk tablonun her satırı uygulandı; ikinci tablonun satırları bu kartta **uygulanmadı** (diff'te §5/§9
   değişikliği yok).
 - `go test -run 'TestEveryNamedTestExists|TestClaudeMD_TheIdentityExceptionIsADR0031sSection61' ./cmd/tappa/` yeşil
   (CLAUDE.md'ye dokunan kart CLAUDE.md'yi okuyan testi koşar).
-- `state.md` M16 satırı: *"ADR 0044 kabul edildi, Faz A açık"*.
+- `state.md` M16 satırı: *"ADR 0045 kabul edildi, Faz A açık"*.
 
 ---
 
@@ -340,7 +342,7 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 **Kabul kriterleri.**
 - Yalnız stdlib (`crypto/ecdsa`, `crypto/elliptic` ya da `crypto/ecdh`'nin uygun yolu, `crypto/sha256`); yeni
   bağımlılık yok.
-- Kanonik metin tek fonksiyonda tanımlıdır (yöntem, yol, gövde özeti, nonce, cihaz kimliği — ADR 0044 §2.3) ve iki
+- Kanonik metin tek fonksiyonda tanımlıdır (yöntem, yol, gövde özeti, nonce, cihaz kimliği — ADR 0045 §2.3) ve iki
   platformun uygulayacağı **bilinen cevap vektörleri** `test/fixtures` altında yayımlanır (sahte anahtarlarla; §4.7).
 - Çözümleme oturumun gerçeklerini döndürür, **karar vermez** (`internal/session/manager.go:8-16`'nın kuralı): iptal
   edilmiş cihaz ayrı bir sonuçtur ve çağıran onu **§5 satır 3'ün ikizi** olarak işler (401 / yeniden aktivasyon,
@@ -363,7 +365,7 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 - **Commit:** `feat(policy): review a tap whose phone reports a mock location`
 
 **Amaç.** `tap.Input`'a `Client` ve `MockLocation`; bağlam anahtarları (öneri: `tap:client`, `tap:mockLocation` —
-mevcut `tap:*` adlandırması, `internal/domain/tap/decide.go:93`); yeni baseline `base:mock-location-review` (ADR 0044
+mevcut `tap:*` adlandırması, `internal/domain/tap/decide.go:93`); yeni baseline `base:mock-location-review` (ADR 0045
 §2.4 — ad M16-01'de kesinleşir).
 
 **Kabul kriterleri.**
@@ -377,7 +379,7 @@ mevcut `tap:*` adlandırması, `internal/domain/tap/decide.go:93`); yeni baselin
 - CLAUDE.md §5: satır 6 altına sahte konum cümlesi + baseline adı (bu kartla).
 
 **Tuzaklar.** Yeni belge var olan tenant'lara **ilk dokunuşta onaysız** girer (`checkin/policyset.go:422`, `:529`;
-ADR 0044 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `MockLocation` yalnız `/app/v1` yolunda dolar.
+ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `MockLocation` yalnız `/app/v1` yolunda dolar.
 
 ## M16-07 — `/app/v1` JSON yüzeyi: activate / tap / me / revoke
 
@@ -491,7 +493,7 @@ testlerini bir kez koşmak.
   401, **kayıt yok** (satır 3'ün ikizi) · ayrı bir kişide deaktivasyon → dokunuş `reject` + **kayıt** (satır 4). Aynı testte tarayıcı yolu bir satır yazar ve `client='browser'` okunur; manuel kayıt `client IS NULL`
   (M16-04'ün CHECK'siz kanıtı).
 - Bu fazın **büyük testleri bir kez:** tam `-race`, `go test ./...`, `make check`, `make audit`.
-- ADR 0044'e *"Faz A uygulandı"* notu (migration numaraları, ölçülen sapmalar).
+- ADR 0045'e *"Faz A uygulandı"* notu (migration numaraları, ölçülen sapmalar).
 - `state.md`: Faz A done; sevk kararı kullanıcıya sorulur.
 
 ---
@@ -585,7 +587,7 @@ kez koşmak.
   değişmediğiyle kanıtlanır. **Test plaketinin `tags` satırı hiçbir temizlikte silinmez** (silinirse çip kalıcı kilitlenir).
 - Tarayıcı yolu aynı telefonda uygulama kaldırılınca aynen çalışır.
 - Fazın büyük testleri bir kez: mobil JVM paketi tamamı, `make check`, `make audit`.
-- *Doğrula* maddelerinin sonuçları ADR 0044'e not.
+- *Doğrula* maddelerinin sonuçları ADR 0045'e not.
 
 ---
 
@@ -651,7 +653,7 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 - Konum: *When-In-Use*, düğmeye basınca tek seferlik (`requestLocation`; `startUpdatingLocation` ve
   `CLLocationUpdate` M16-02'nin R2'sine takılır); `sourceInformation
   .isSimulatedBySoftware` (iOS 15+) true ise bayrak (**doğrula**).
-- Sonuç ekranı düğmesiz; *"tarayıcıda aç"* çıkışı yalnız hata/aktive değil ekranında (ADR 0044 Bedel 8; §9 sorusu).
+- Sonuç ekranı düğmesiz; *"tarayıcıda aç"* çıkışı yalnız hata/aktive değil ekranında (ADR 0045 Bedel 8; §9 sorusu).
 - CLAUDE.md §9'a uygulama ekranlarının eşlik cümlesi (bu kartla ya da M16-13 ile — ilk biten).
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
@@ -668,7 +670,7 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
   sonrası) `transactions` sayısının değişmediğiyle; deaktivasyon adımı tek kullanımlık test çalışanıyla.
 - Q11 için yan ölçüm: aynı iPhone'da tarayıcı oturumu ile uygulama cihazının bir hafta sonraki durumu (bilgi, kabul
   kriteri değil).
-- Fazın büyük testleri bir kez; *doğrula* sonuçları ADR 0044'e not.
+- Fazın büyük testleri bir kez; *doğrula* sonuçları ADR 0045'e not.
 
 ---
 
@@ -716,7 +718,7 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   `:479`, `:586`. (ters biçim `qr_live`'ı **sessizce kabul eder** — bu
   doğru olabilir, ama her biri için nedeni yazılır: ör. `db/queries/daycutoff.sql:73`, `00068:336`,
   `internal/domain/checkin/checkin.go:1777` (`SunValid` sütunu), `:1796` (site yazımı — `tagRow` varsayar, `qr_live`'da
-  plaket satırı yoktur), ve `:1154` aşağıda) (başlangıç: ADR 0044 Bedel 6'nın listesi) — her biri için *"qr_live girer /
+  plaket satırı yoktur), ve `:1154` aşağıda) (başlangıç: ADR 0045 Bedel 6'nın listesi) — her biri için *"qr_live girer /
   girmez, neden"*. `transactions_site_by_channel` (`00043:139-142`) için üçüncü kol (ekranın lokasyonu dolu, plaket
   uid'i boş — öneri). Envanter en az şunları adlandırır: `00005`, `00043`, `00044`, `00046`, `00048`, `00049`, `00050`,
   `00067`, `00068`, `00095`; `db/queries/transactions.sql` — **`SecondsSinceLastRecordedTap`'in `channel IN ('nfc',
@@ -740,7 +742,7 @@ göstermesi.
 - **Eşleşme kodunun gücü:** kod ya en az **64 bit** rastgeledir, ya da kısa bir kodsa (yazılabilir olsun diye)
   **IP başına ve tenant başına deneme sınırı** taşır — `internal/httpx/ratelimit.go`'da kendi limiter'ı — ve her
   başarısız deneme `audit_log`'a yazılır (kod değeri yazılmadan, CLAUDE.md §7). Seçenek: ekran oturumunu lokasyonun
-  IP aralığına bağlamak (ADR 0044 Bedel 5) — kart ölçer, gerekçesiyle seçer.
+  IP aralığına bağlamak (ADR 0045 Bedel 5) — kart ölçer, gerekçesiyle seçer.
 - Panel: lokasyon sayfasında *"Add a live QR screen"* → tek kullanımlık eşleşme kodu (kısa ömürlü); ekranlar listesi
   ve iptal; her eşleme ve iptal `audit_log`.
 - Ekran sayfası (Go ikilisinden, uygulama gerekmez): kodu girer → ekran oturumu (HttpOnly çerez, DB'de özet) → QR
@@ -804,7 +806,7 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
   yazılmışsa → `ignored` (sunucu saati bacağı, `SecondsSinceLastRecordedTap` — DB testi) · farklı iki kişi aynı
   token'la art arda → ikisi de kayıt · statik QR'ın sonuçları **aynen**.
 - **Log testi:** token, imza ve doğrulama hatasının metni log'a ve hata gövdesine girmez (CLAUDE.md §7).
-- Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0044 §2.5: büyük olasılıkla gerekmez); gerekirse
+- Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0045 §2.5: büyük olasılıkla gerekmez); gerekirse
   `BaselineVersion` + duyuru.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
@@ -1001,12 +1003,12 @@ kurmak.
 **Kabul kriterleri.**
 - Pilot ölçüleri (salt okuma): P6 çalışanlarının `flag` oranı önce/sonra · uygulama benimseme oranı · `qr_live`
   kullanımı · müdür onaylı aktivasyon sayısı · sahte konum bildirimleri.
-- ADR 0044 *"Uygulandı"*; A3, P6, Q11 satırlarının durumu ölçüyle güncellenir; ADR 0005 risk tablosu son hâli.
+- ADR 0045 *"Uygulandı"*; A3, P6, Q11 satırlarının durumu ölçüyle güncellenir; ADR 0005 risk tablosu son hâli.
 - **ADR 0005'e ek not** (append kuralı, satır silinmez): risk 1'in *"tek çözümü biyometri veya uygulama kurulumu —
   ikisi de ürünün varlık sebebine aykırı"* gerekçesi (`docs/adr/0005-kabul-edilen-riskler.md:74`) ve risk 2'nin
   *"attestation uygulama ister (app-less vaadi)"* gerekçesi (`:75`) isteğe bağlı uygulamayla yeniden okunur: uygulama
-  var ama buddy punching'i çözmez (cihaz anahtarı devretmeyi durdurmaz), attestation yalnız kanıttır (ADR 0044 §2.7).
-  Aynı ekle canlı QR aktarmasının iki kalıcı biçimi kabul edilen risk olarak girer (ADR 0044 Bedel 5): kopyalanan ekran
+  var ama buddy punching'i çözmez (cihaz anahtarı devretmeyi durdurmaz), attestation yalnız kanıttır (ADR 0045 §2.7).
+  Aynı ekle canlı QR aktarmasının iki kalıcı biçimi kabul edilen risk olarak girer (ADR 0045 Bedel 5): kopyalanan ekran
   oturumu çerezi / yanlış eşlenmiş ekran ve canlı QR fotoğrafının bir davetliye iletilmesiyle uzaktan aktivasyon.
   `TestADR0005_TheAnchorCountsMatchTheProse` ve `TestADR0005_TheRiskCountMatchesTheTable` yeşil.
 - `state.md`: M16 bitti.

@@ -1,4 +1,4 @@
-# ADR 0044 — İsteğe bağlı native personel uygulaması ve NFC'siz telefonlar
+# ADR 0045 — İsteğe bağlı native personel uygulaması ve NFC'siz telefonlar
 
 - **Durum:** Kabul edildi (2026-11-14) — kullanıcı, **olduğu gibi** (M16-01; aşağıdaki *"Kabul notu"*). Önerildi:
   2026-11-13.
@@ -296,7 +296,7 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
 **Okundu (`70e8a016`):** yukarıdaki her `file:line` · `transactions` INSERT'i sütun listesidir (ADR 0038) → yeni
 sütun yeni bir sütun GRANT'ı ister · `redline-check.sh` `SRC` listesi `mobile/`'ı içermez (`scripts/redline-check.sh:33`),
 B1 marka kuralı `android/app/src/main`'i tarar (`:2530`) · CI hiçbir mobil derleme koşmaz (`.github/workflows/*.yml`'de
-`gradle`/`xcode` yok) · son migration `00099`, son ADR `0043` (`0040` numarası hiç kullanılmamış).
+`gradle`/`xcode` yok) · son migration `00099`, son ADR `0043` (`0040` numarası hiç kullanılmamış). **Yeniden numaralandırma (2026-11-14):** `origin/main` birleşmesiyle (`ca8b94d4`) `main`'e e-posta değiştirme ADR'si 0044 (T173) ve migration 00100–00103 girdi; bu belge 0044'ten **0045**'e taşındı, M16 migration'ları 00104'ten başlar (plan, *"Migration ve ADR numaraları"*).
 
 **Doğrula (ilgili kart ölçer):** iPhone XS+ arka plan okumasının Universal Link ile kurulu uygulamayı açması (M16-17) ·
 Android NFC dağıtımının `NDEF_DISCOVERED` filtresiyle uygulamayı tarayıcıdan önce seçmesi (M16-13) · iOS sahte konum
@@ -310,7 +310,7 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
 
 ### Kabul notu (2026-11-14, kullanıcı kararları)
 
-1. **ADR 0044 olduğu gibi kabul edildi.** Bu belgede *"plan önerisi"* diye işaretli maddeler bu kabulle karardır;
+1. **ADR 0045 olduğu gibi kabul edildi.** Bu belgede *"plan önerisi"* diye işaretli maddeler bu kabulle karardır;
    ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
    `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2).
    **İstisna:** açık bir soruya bağlı maddeler (Q35–Q43; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40, holding
