@@ -180,6 +180,40 @@ db-reset:
 simulate-day:
 	go test -race -count=1 -v -run TestSeedDB_ADayAtKFStJulians ./internal/handler
 
+## seed-timesheets: Malta Calculator Test Ltd -- bir haftalik kayit, karar motorundan (API-14, ADR 0046)
+# Yalniz dev ya da sandbox veritabani (TAPPA_ENV + loopback DSN + veritabaninin kendisi; ayrinti
+# internal/domain/checkin/timesheetseed_db_test.go). Build tag'in arkasinda: `make test`/`make check`
+# onu ne derler ne kosar. ~10 dk surer -- ADR 0006'nin veritabani saatine gore 60 sn'si her kisinin
+# ardisik dokunuslari arasinda gercek zamanda beklenir. Bir veritabaninda bir kez kosar (kayit
+# degismez, §4.3); dolu bir isletmeyi reddeder. TAPPA_TIMESHEET_SEED_TENANT=<id>: sandbox panelinden
+# acilmis bir test isletmesini doldurur. Kullanim: deploy/README.md "Sandbox (API-11)".
+seed-timesheets: require-db-env
+	go test -tags timesheetseed -count=1 -timeout=30m -v -run '^TestSeedDB_MaltaCalculatorTestWeek$$' ./internal/domain/checkin
+
+## sandbox-local: yerel sandbox -- yeni veritabani + yetkiler + migration + .sandbox-local/<db>.env (API-14)
+# Yalniz loopback; var olan veritabanini ya da env dosyasini reddeder (hicbir sey silinmez). Anahtarlar
+# taze uretilir, hicbiri basilmaz. Tarif: deploy/README.md "Sandbox (API-11)" §9.
+SANDBOX_DB   ?= tappa_sbx_local
+SANDBOX_PORT ?= 8090
+sandbox-local: require-db-env
+	APP_DSN="$$DATABASE_URL" OWNER_DSN="$$DATABASE_MIGRATE_URL" SANDBOX_DB="$(SANDBOX_DB)" SANDBOX_PORT="$(SANDBOX_PORT)" \
+	  GOOSE="$(GOOSE)" ./scripts/sandbox-local.sh
+
+## sandbox-local-run: sandbox ikilisini derle ve .sandbox-local/<db>.env ile on planda calistir
+sandbox-local-run: build-sandbox
+	@test -f .sandbox-local/$(SANDBOX_DB).env || { echo "no .sandbox-local/$(SANDBOX_DB).env -- run make sandbox-local SANDBOX_DB=$(SANDBOX_DB) first"; exit 1; }
+	set -a; . ./.sandbox-local/$(SANDBOX_DB).env; set +a; exec ./$(BIN_SANDBOX)
+
+## sandbox-local-flow: yerel sandbox'ta isletme kaydi + operator + API'yi acma + tt_test_ anahtari (curl ile; sirlar .sandbox-local/<db>.secrets/)
+sandbox-local-flow:
+	SANDBOX_DB="$(SANDBOX_DB)" ./scripts/sandbox-local-flow.sh
+
+## sandbox-local-seed: yerel sandbox'taki bir test isletmesine haftalik kaydi yaz (seed-timesheets, TAPPA_ENV=sandbox)
+sandbox-local-seed:
+	@test -f .sandbox-local/$(SANDBOX_DB).env || { echo "no .sandbox-local/$(SANDBOX_DB).env -- run make sandbox-local SANDBOX_DB=$(SANDBOX_DB) first"; exit 1; }
+	set -a; . ./.sandbox-local/$(SANDBOX_DB).env; set +a; export DATABASE_MIGRATE_URL="$$SANDBOX_OWNER_DSN"; \
+	  go test -tags timesheetseed -count=1 -timeout=30m -v -run '^TestSeedDB_MaltaCalculatorTestWeek$$' ./internal/domain/checkin
+
 # ------------------------------------------------------------------ android --
 # Plaket encode rolesi (android/, M8-05 FAZ B3): Go modulunun DISINDA ayri bir Gradle
 # derlemesi. `check`in PARCASI DEGIL -- Go CI'i ona dokunmaz ve redline-check'in SRC
@@ -562,5 +596,5 @@ hooks:
 	@echo "hooks: core.hooksPath=$$(git config --get core.hooksPath)"
 
 .PHONY: help tools gen templ sqlc css up down dev build build-sandbox check-sandbox migrate migrate-down \
-        migrate-status migrate-new seed restore-check db-reset simulate-day test test-short \
+        migrate-status migrate-new seed restore-check db-reset simulate-day seed-timesheets sandbox-local sandbox-local-run sandbox-local-flow sandbox-local-seed test test-short \
         cover lint fmt check audit hooks require-db-env android android-test

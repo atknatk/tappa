@@ -4,8 +4,8 @@ info:
   version: "1"
   description: |
     The integration API of Taptime (punchless time and attendance). A business's HR or ERP system
-    writes the business's own locations and employees and reads its punches and its directory; a
-    webhook tells it of a punch as it happens.
+    writes the business's own locations and employees and reads its punches, its directory and its
+    employees' counted working time (the timesheet); a webhook tells it of a punch as it happens.
 
     The integration guide explains the whole contract in prose, with the story these examples come
     from: GET /v1/guide.md (English) and GET /v1/guide.tr.md (Turkish), on this host, without a key.
@@ -56,6 +56,7 @@ info:
     requestTimeoutSeconds: 30
     feedWindowPositions: 10000
     historyMaxHours: 745
+    timesheetMaxDays: 31
     directoryOverlapMinutes: 10
     webhookTimeoutSeconds: 10
     webhookAttempts: 6
@@ -726,6 +727,112 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/timesheets:
+    get:
+      operationId: listTimesheets
+      summary: A pay period's counted working time of this business's own employees, per local day.
+      description: |
+        Payroll-grade working time: for each of this business's own employees with a record in the
+        period, the time Taptime's report counts -- the same numbers the Taptime panel's report
+        shows, computed by the same engine, never a pairing of punches. Manual records a manager
+        entered count, and so does a flagged tap a manager approved; time waiting for a manager's
+        approval is `awaitingMinutes`, never `workedMinutes`; a refused flag and a practice tap do not
+        count. A check-in with no check-out is `openEntries` and counts no time (Taptime does not
+        guess a check-out); a check-out with no check-in is `checkInMissing`.
+
+        The period: `from` and `to`, both required, are calendar dates (`YYYY-MM-DD`) in the
+        business's time zone (`period.timeZone`), both inclusive -- `to` on or after `from`, at most
+        31 days in all; anything else is 400 with `details.parameters` and `details.maxDays`. A shift
+        counts on the local day it STARTED: an 18:00-02:00 night shift is the first day's, and one
+        that starts on the period's last day counts in full in this period; one that started before
+        `from` belongs to the previous period. Minutes are whole and rounded down, each figure from
+        its own exact time: a person's days can add up to less than their `workedMinutes`, by under
+        a minute a day. `days` holds every day of the period, in order.
+
+        Who: this business's own employees only, a deactivated one included when the period holds
+        their records. A group partner's employee who worked at this business's locations is not
+        here: their time is their employer's (read it with the employer's key). An employee with no
+        record in the period is not listed -- their counted time is zero.
+
+        `complete` is true when no employee on THIS PAGE has time awaiting approval, an open entry
+        or a missing check-in, and the page is not `truncated`; a period is complete when every page
+        of the walk says so. It describes the records as they are when read: a manager's later
+        correction, an approval or a tap still to come changes the answer -- read again right before
+        you pay. `truncated` true: one employee's records alone exceeded what one request reads, so
+        that employee's figures are a floor, not a total.
+
+        Order and paging: employees come in `employee.id` order, at most `limit` (default 500, at
+        most 1000) a page; a page can hold fewer while `hasMore` is true. Pass `nextCursor` as
+        `cursor` with the SAME `from` and `to` -- a cursor with another range, or from another
+        business, is 400. `nextCursor` is present exactly when `hasMore` is true (null at the end of
+        the walk).
+
+        Only `from`, `to`, `cursor` and `limit` are accepted, each at most once; any other parameter,
+        and a query string that does not parse, is 400. No answer carries an e-mail address, a
+        coordinate, a network address, a note or the reason of a decision. While the business is
+        suspended this endpoint stays open.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: "The period's first day (YYYY-MM-DD), in the business's time zone, inclusive."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The period's last day (YYYY-MM-DD), inclusive: on or after `from`, at most 31 days in all."
+          schema:
+            type: string
+            format: date
+        - name: cursor
+          in: query
+          required: false
+          description: "The `nextCursor` of the previous page of this walk, sent with the same `from` and `to`."
+          schema:
+            type: string
+            pattern: "^tms_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9a-f]{16}$"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimesheetPage"
+              examples:
+                kf:
+                  summary: KF's day -- Jane checked in and has not checked out; KM's Joe, who also checked in at Valletta, is KM's.
+                  value: {"period": {"from": "2026-10-16", "to": "2026-10-16", "timeZone": "Europe/Malta"},
+                    "complete": false, "truncated": false,
+                    "data": [
+                      {"employee": {"id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91", "externalRef": "E-1042", "employeeCode": "1042",
+                          "firstName": "Jane", "lastName": "Example", "fullName": "Jane Example"},
+                        "workedMinutes": 0, "awaitingMinutes": 0, "shifts": 0, "openEntries": 1, "checkInMissing": 0, "manualShifts": 0,
+                        "days": [{"date": "2026-10-16", "workedMinutes": 0, "manual": false, "open": true, "checkInMissing": false}]}],
+                    "nextCursor": null, "hasMore": false}
+                km:
+                  summary: KM's day -- Joe's shift from KF's Valletta to KM's Production, a little over a minute.
+                  value: {"period": {"from": "2026-10-16", "to": "2026-10-16", "timeZone": "Europe/Malta"},
+                    "complete": true, "truncated": false,
+                    "data": [
+                      {"employee": {"id": "emp_42f028c7-242a-4903-89df-8fde6176926b", "externalRef": "M-2001", "employeeCode": "2001",
+                          "firstName": "Joe", "lastName": "Sample", "fullName": "Joe Sample"},
+                        "workedMinutes": 1, "awaitingMinutes": 0, "shifts": 1, "openEntries": 0, "checkInMissing": 0, "manualShifts": 0,
+                        "days": [{"date": "2026-10-16", "workedMinutes": 1, "manual": false, "open": false, "checkInMissing": false}]}],
+                    "nextCursor": null, "hasMore": false}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 webhooks:
   punch:
     post:
@@ -1288,6 +1395,124 @@ components:
           type: string
           format: date-time
           description: The walk's clock (UTC), the same on each of its pages. After the last page, the next walk's `updatedSince`.
+    TimesheetPeriod:
+      type: object
+      additionalProperties: true
+      required: [from, to, timeZone]
+      properties:
+        from:
+          type: string
+          format: date
+          description: The request's `from`.
+        to:
+          type: string
+          format: date
+          description: The request's `to`.
+        timeZone:
+          type: string
+          description: The business's time zone (IANA), in which the days are counted.
+    TimesheetEmployee:
+      type: object
+      additionalProperties: true
+      required: [id, externalRef, employeeCode, firstName, lastName, fullName]
+      properties:
+        id:
+          type: string
+          pattern: "^emp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        externalRef:
+          type: ["string", "null"]
+          description: null for an employee not bound to a reference yet.
+        employeeCode:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+          description: null for an employee the panel created and no integration named yet.
+        lastName:
+          type: ["string", "null"]
+        fullName:
+          type: string
+          description: The name Taptime shows -- always present.
+    TimesheetDay:
+      type: object
+      additionalProperties: true
+      required: [date, workedMinutes, manual, open, checkInMissing]
+      properties:
+        date:
+          type: string
+          format: date
+          description: A local day of the period.
+        workedMinutes:
+          type: integer
+          minimum: 0
+          description: The counted time of the shifts that STARTED this day, in whole minutes (rounded down).
+        manual:
+          type: boolean
+          description: One of those shifts has a check-in or a check-out a manager entered by hand.
+        open:
+          type: boolean
+          description: A check-in of this day has no check-out.
+        checkInMissing:
+          type: boolean
+          description: A check-out of this day has no check-in.
+    Timesheet:
+      type: object
+      additionalProperties: true
+      required: [employee, workedMinutes, awaitingMinutes, shifts, openEntries, checkInMissing, manualShifts, days]
+      properties:
+        employee:
+          $ref: "#/components/schemas/TimesheetEmployee"
+        workedMinutes:
+          type: integer
+          minimum: 0
+          description: The counted time of the period, in whole minutes (rounded down) -- the figure to pay.
+        awaitingMinutes:
+          type: integer
+          minimum: 0
+          description: Time waiting for a manager's approval, in whole minutes (rounded down); not in workedMinutes.
+        shifts:
+          type: integer
+          minimum: 0
+          description: The shifts behind workedMinutes.
+        openEntries:
+          type: integer
+          minimum: 0
+          description: Check-ins with no check-out; their time is in no figure.
+        checkInMissing:
+          type: integer
+          minimum: 0
+          description: Check-outs with no check-in; their time is in no figure.
+        manualShifts:
+          type: integer
+          minimum: 0
+          description: The shifts (of `shifts`) with a check-in or a check-out a manager entered by hand.
+        days:
+          type: array
+          description: Every day of the period, in order.
+          items:
+            $ref: "#/components/schemas/TimesheetDay"
+    TimesheetPage:
+      type: object
+      additionalProperties: true
+      required: [period, complete, truncated, data, nextCursor, hasMore]
+      properties:
+        period:
+          $ref: "#/components/schemas/TimesheetPeriod"
+        complete:
+          type: boolean
+          description: No employee on this page has time awaiting approval, an open entry or a missing check-in, and the page is not truncated.
+        truncated:
+          type: boolean
+          description: One employee's records exceeded what one request reads; that employee's figures are a floor.
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Timesheet"
+        nextCursor:
+          type: ["string", "null"]
+          description: Pass as `cursor` (with the same `from` and `to`) for the walk's next page; null at its end.
+        hasMore:
+          type: boolean
+          description: The walk goes on; read the next page.
     Error:
       type: object
       additionalProperties: true
@@ -1342,6 +1567,9 @@ components:
         maxHours:
           type: integer
           description: The longest history range accepted, in hours.
+        maxDays:
+          type: integer
+          description: The longest timesheet period accepted, in days.
         retryAfterSeconds:
           type: integer
           description: The same as Retry-After.

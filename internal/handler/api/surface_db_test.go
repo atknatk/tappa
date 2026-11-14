@@ -28,6 +28,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/test/fixtures"
@@ -107,8 +108,12 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	timesheets, err := ledger.NewReader(d, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work,
-		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Log: slog.New(slog.DiscardHandler)}
+		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Timesheets: timesheets, Log: slog.New(slog.DiscardHandler)}
 	for _, o := range opts {
 		o(&cfg)
 	}

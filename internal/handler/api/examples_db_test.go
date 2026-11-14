@@ -7,7 +7,7 @@ package api
 // level, the same values except where a value is this run's own (an id, an instant, a cursor -- there
 // the same kind of value: the same prefix, the same JSON type).
 //
-// THE STORY (the guide's, sections 4 to 9): two companies of one group, KF and KM. KF puts its
+// THE STORY (the guide's, sections 4 to 10): two companies of one group, KF and KM. KF puts its
 // location KF-VLT ("Valletta") and KM its department DEP-1 ("Production" -- a KM department is a
 // location, plan §1's mapping note); KF puts two employees -- E-1042 with an address (its activation
 // e-mail is queued) and E-1043 without one, then deactivates E-1043; KM puts M-2001. Each company has
@@ -16,7 +16,8 @@ package api
 // (checkin.Service.Record), so every punch of the examples is one the decision engine judged ok; the
 // story waits about a minute for Joe's out (the repeat window). KF reads its location scope (Jane's in, Joe's in), KM its
 // employer scope as a history range (Joe's in at KF's Valletta, his out at KM's Production), KF its
-// directory (its two and KM's one). KF's sender posts Jane's punch; KF sends a test message.
+// directory (its two and KM's one); each company reads its timesheet of the day (Jane's open entry at
+// KF, Joe's shift at KM). KF's sender posts Jane's punch; KF sends a test message.
 //
 // With -v the test prints every answer: that is how the examples were made (a fresh container,
 // 2026-10-16) and how they are remade after a contract change.
@@ -291,7 +292,26 @@ func runExampleStory(t *testing.T) exampleStory {
 	must("listDirectory", dir.Code, http.StatusOK, dir.Body.String())
 	record("listDirectory 200", dir, dir.Body.Bytes(), nil, "")
 
-	// The webhook (section 9): KF's sender posts its deliveries; KF sends a test message.
+	// The timesheet (section 9): each company's day -- the business-local day of Joe's check-in
+	// (Jane's is milliseconds later), read rather than assumed so a story run across a local midnight
+	// asks for the day the shifts are on. KF lists Jane, checked in and not out; KM lists Joe, whose
+	// shift began at KF's Valletta and ended at KM's Production -- KM's time, not KF's.
+	var day string
+	if err := r.owner.QueryRow(ctx, `SELECT to_char(t.occurred_at AT TIME ZONE n.timezone, 'YYYY-MM-DD')
+	                                    FROM transactions t JOIN tenants n ON n.id = t.tenant_id WHERE t.id = $1`, joeIn).Scan(&day); err != nil {
+		t.Fatal(err)
+	}
+	tq := "from=" + day + "&to=" + day
+	for _, c := range []struct {
+		b    punchBiz
+		name string
+	}{{kf, "listTimesheets 200 kf"}, {km, "listTimesheets 200 km"}} {
+		rec := r.do(http.MethodGet, "/v1/timesheets?"+tq, c.b.raw, "")
+		must(c.name, rec.Code, http.StatusOK, rec.Body.String())
+		record(c.name, rec, rec.Body.Bytes(), nil, tq)
+	}
+
+	// The webhook (section 10): KF's sender posts its deliveries; KF sends a test message.
 	job, err := delivery.New(kek, r.d, sender, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
@@ -332,6 +352,8 @@ func runExampleStory(t *testing.T) exampleStory {
 var volatileExampleKeys = map[string]bool{
 	"id": true, "createdAt": true, "updatedAt": true, "activatedAt": true, "at": true, "punchTime": true,
 	"recordedAt": true, "asOf": true, "nextCursor": true, "tagId": true, "deliveryId": true, "sentAt": true,
+	// The timesheet's days are the run's own day (the story runs live).
+	"from": true, "to": true, "date": true,
 }
 
 // sameExample compares an example with an answer (both in the subset's types), path naming where.
@@ -430,6 +452,8 @@ var storyExamples = map[string]struct{ request, answer []string }{
 	"listPunches 200 feed":    {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "feed", "value"}},
 	"listPunches 200 history": {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "history", "value"}},
 	"listDirectory 200":       {answer: []string{"paths", "/v1/directory", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"listTimesheets 200 kf":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"listTimesheets 200 km":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "km", "value"}},
 	"webhook punch":           {answer: []string{"webhooks", "punch", "post", "requestBody", "content", "application/json", "examples", "jane", "value"}},
 	"webhook ping":            {answer: []string{"webhooks", "ping", "post", "requestBody", "content", "application/json", "examples", "ping", "value"}},
 }

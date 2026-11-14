@@ -1773,6 +1773,66 @@ func (q *Queries) ListRollEmployees(ctx context.Context, arg ListRollEmployeesPa
 	return items, nil
 }
 
+const listTimesheetEmployees = `-- name: ListTimesheetEmployees :many
+SELECT e.id, e.external_ref, e.employee_code, e.first_name, e.last_name, e.full_name
+FROM employees e
+WHERE e.tenant_id = $1
+  AND e.id = ANY($2::uuid[])
+ORDER BY e.id
+`
+
+type ListTimesheetEmployeesParams struct {
+	TenantID    uuid.UUID
+	EmployeeIds []uuid.UUID
+}
+
+type ListTimesheetEmployeesRow struct {
+	ID           uuid.UUID
+	ExternalRef  *string
+	EmployeeCode *string
+	FirstName    *string
+	LastName     *string
+	FullName     string
+}
+
+// GET /v1/timesheets' second read (M11 API-14, ADR 0046): who the page's employees are, on the API's
+// own identifiers -- the integrator's reference, the employee code and the names, the columns
+// GET /v1/directory answers for the business's own staff (ListDirectoryEmployees).
+//
+// 🔴 NO e.email (ADR 0028 §8, K-24: no address leaves the API) and NO e.location_id: the home venue
+// is not a payroll fact, and ListTimesheetShiftEvents' rows (the hours) never meet this statement's,
+// so a person's home venue cannot reach the shift resolution (section 5 / Q17) through it.
+//
+// NO STATUS PREDICATE: a deactivated person's hours of the period are still payable. Every id is the
+// tenant's own (ListTimesheetShiftEvents' employee_id); a foreign id matches nothing -- the explicit
+// predicate and RLS both refuse it (section 4.5).
+func (q *Queries) ListTimesheetEmployees(ctx context.Context, arg ListTimesheetEmployeesParams) ([]ListTimesheetEmployeesRow, error) {
+	rows, err := q.db.Query(ctx, listTimesheetEmployees, arg.TenantID, arg.EmployeeIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTimesheetEmployeesRow{}
+	for rows.Next() {
+		var i ListTimesheetEmployeesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ExternalRef,
+			&i.EmployeeCode,
+			&i.FirstName,
+			&i.LastName,
+			&i.FullName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockEmployeeForAPI = `-- name: LockEmployeeForAPI :one
 SELECT id, external_ref, employee_code, first_name, last_name, full_name, status,
        (email IS NOT NULL)::boolean AS has_email,

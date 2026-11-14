@@ -992,14 +992,14 @@ func run() error {
 	}
 
 	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
-	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5) and
-	// the panel's employee domain (API-6); api.go says the rest.
+	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5), the
+	// panel's employee domain (API-6) and the panel's report reader (API-14); api.go says the rest.
 	// The sandbox build's simulation (sandbox.go); none in the production build (nosandbox.go).
 	extensions, err := sandboxExtensions(cfg, data, work, slog.Default())
 	if err != nil {
 		return err
 	}
-	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, slog.Default())
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, records, slog.Default())
 	if err != nil {
 		return err
 	}

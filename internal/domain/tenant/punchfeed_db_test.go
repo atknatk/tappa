@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/httpx"
 )
 
@@ -508,7 +509,7 @@ func (b *boundProbe) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.T
 
 // TestAPIRead_EveryReadCarriesTheBound (API-7b review, G-ORTA's extra guard): each read the
 // integration API makes -- the feed, the history query, the employee list, one employee by ref and
-// by id, and (API-8) a page of the directory -- runs its statements under APIReadTimeout (5 s) and,
+// by id, (API-8) a page of the directory and (API-14) a page of the timesheet -- runs its statements under APIReadTimeout (5 s) and,
 // since API-8, with JIT off (db.BoundStatements); two of them fit in the request's own deadline. The
 // pool's default stays unbounded (the server's 0) and JIT the server's: both are the API read's alone.
 // MUTANT (measured): the bound removed from one read -- red, naming it.
@@ -530,6 +531,16 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// API-14: the timesheet is the panel report's reader (internal/domain/ledger), handed the bound by
+	// the API handler (tenant.APIReadTimeout) -- the value internal/handler/api passes.
+	timesheets, err := ledger.NewReader(probe, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := timesheets.Timesheet(f.ctx, f.km, ledger.TimesheetQuery{From: ledger.Date{Year: 2026, Month: time.November, Day: 2},
+		To: ledger.Date{Year: 2026, Month: time.November, Day: 8}, Limit: 10}); !errors.Is(err, ledger.ErrTimesheetUnbounded) {
+		t.Errorf("a timesheet read with no bound: %v, want ErrTimesheetUnbounded", err)
+	}
 	alone := uuid.New()
 	f.exec(`INSERT INTO tenants (id, name, vat_number, business_type, structure) VALUES ($1, 'api8 alone', $2, 'restaurant', 'multi')`,
 		alone, "VAT-API8-ALONE-"+alone.String())
@@ -550,6 +561,11 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 		// business in no holding: a member's page costs the peer set (T124's member half), which on a
 		// database of tens of thousands of tenants under load can itself pass the 5 s this test checks.
 		{"DirectoryPage", func() error { _, err := directory.DirectoryPage(f.ctx, alone, DirectoryQuery{}, 10); return err }},
+		{"Timesheet", func() error {
+			_, err := timesheets.Timesheet(f.ctx, f.km, ledger.TimesheetQuery{From: ledger.Date{Year: 2026, Month: time.November, Day: 2},
+				To: ledger.Date{Year: 2026, Month: time.November, Day: 8}, Limit: 10, Bound: APIReadTimeout})
+			return err
+		}},
 	}
 	for _, r := range reads {
 		before := len(probe.seen)

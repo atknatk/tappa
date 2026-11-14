@@ -173,11 +173,21 @@ type Period struct {
 	From, To time.Time
 	// FirstDay is the local calendar day From begins.
 	FirstDay Date
+	// days is how many local days the period holds: ReportDays for a WeekOf, anything from 1 to
+	// TimesheetMaxDays for a RangeOf (M11 API-14, ADR 0046). Zero -- a Period built by hand, as the
+	// group window and a few tests do -- reads as ReportDays, which is what Days() answered for
+	// every Period before the field existed.
+	days int
 }
 
-// Days is how many local days the period holds. It is a constant today; the method
-// exists so callers ask the period rather than repeat the number.
-func (p Period) Days() int { return ReportDays }
+// Days is how many local days the period holds. Callers ask the period rather than repeat the
+// number; the panel's week is ReportDays, the timesheet's range its own length (RangeOf).
+func (p Period) Days() int {
+	if p.days > 0 {
+		return p.days
+	}
+	return ReportDays
+}
 
 // HoursState says whether an interval's hours are in the total, and if not, why.
 //
@@ -260,6 +270,15 @@ type PersonHours struct {
 	// tapped" is a different question and would need both ends; this answers "how many
 	// times did somebody's arrival get typed for them".
 	ManualArrivals int
+	// ManualShifts counts the COUNTED shifts (a subset of Shifts) at least one of whose ends a manager
+	// typed (channel='manual') -- what GET /v1/timesheets answers as manualShifts (M11 API-14, ADR
+	// 0046). It is NOT ManualArrivals under another name, and the paragraph above is why: that figure
+	// counts typed check-ins, closed or not, and misses a typed checkout. This one counts shifts, as its
+	// name says: a typed pair is one, a tapped check-in closed by a typed checkout is one, a typed
+	// check-in nobody closed is none (it is an Open entry and in no shift). It is tallied in
+	// accumulate's counted branch, on the interval the hours come from -- the same pass, not a second
+	// pairing.
+	ManualShifts int
 	// LateShifts and LateBy describe ARRIVALS, not intervals: lateness is a property
 	// of turning up. LateBy is the sum of the positive lateness only, so somebody who
 	// is ten minutes early one day and ten late the next is not "on time on average".
@@ -292,6 +311,11 @@ type DayMarks struct {
 	// reconciled (two typed arrivals on one day are one mark and a tally of two). A typed
 	// CHECKOUT does not set it, for the reason ManualArrivals gives.
 	Manual bool
+	// ManualShift: a COUNTED shift attributed to this day (it started this day -- Daily's rule) has an
+	// end a manager typed: the day mark of PersonHours.ManualShifts (M11 API-14), so the timesheet's
+	// days[].manual and its manualShifts reconcile. Manual above is the panel Roll's mark, of typed
+	// check-ins; the two differ exactly where ManualShifts and ManualArrivals do.
+	ManualShift bool
 	// Open: one of this person's check-ins this day has no checkout (an OpenEntry, Q18) -- on
 	// a day with hours too, which is a different cell from a day with none.
 	Open bool
@@ -641,6 +665,7 @@ func WeekOf(d Date, zone *time.Location) Period {
 		From:     from,
 		To:       from.AddDate(0, 0, ReportDays),
 		FirstDay: Date{Year: y, Month: m, Day: day},
+		days:     ReportDays,
 	}
 }
 
@@ -1191,6 +1216,12 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 			}
 			if approvedFlag(in) || approvedFlag(e) {
 				out.Totals.Approved++
+			}
+			if in.Manual || e.Manual {
+				ph.ManualShifts++
+				if d >= 0 && d < len(ph.Marks) {
+					ph.Marks[d].ManualShift = true
+				}
 			}
 			v, ok := venues[in.LocationID]
 			if !ok {

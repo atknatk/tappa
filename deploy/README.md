@@ -3762,6 +3762,140 @@ bozuk biçimle aynı cevap — veritabanına gitmeden). Sunucunun açılış sat
    `/v1` yazma koşucusunun tek işleminde koşar; eşzamanlı simülasyon sayısı havuzu aşarsa fazlası havuzda
    **sıra bekler**, kilitlenmez (ölçüm ADR 0028'in API-11 notunda).
 
+### 8. Çizelge deneme işletmesi — `make seed-timesheets` (API-14)
+
+**Ne:** Malta Calculator'ın `GET /v1/timesheets`'i (ADR 0046) gerçek rakamlarla deneyeceği bir test işletmesine
+**geçen haftanın** (Europe/Malta, Pazartesi–Pazar) kayıtlarını yazar. Kayıtları **karar motoru** yazar:
+her dokunuş `checkin.Service.Record`'dan geçer (plaket çözümü, atomik `ctr`, politika motoru, iş günü,
+INSERT, akış tetikleyicileri), motorun saati dokunuşun anına kurulur; müdürün yazdığı iki kayıt panelin
+kendi yazıcısından (`manual.Recorder`) geçer. Altı uydurma çalışan (`MCT-001`…`MCT-006`, e-postasız):
+sıradan hafta, QR'lı bir gün, Salı–Cumartesi 18:00–02:00 gece vardiyası, Cuma'sı müdür tarafından elle
+girilmiş biri (`manualShifts`), Perşembe girişi açık kalan biri (`openEntries`) ve Cuma girişi ağ dışından,
+GPS'siz gelip onay bekleyen biri (`awaitingMinutes` → `complete: false`). Lokasyon `MCT-VLT`, ağı
+belgeleme aralığı `203.0.113.0/24`; plaket **sanal**dır (`0053…`) ve anahtarı veritabanının
+`TAPPA_TAG_KEK`'iyle sarılır — sandbox'ın `POST /v1/sandbox/taps`'i aynı plaketi kullanır.
+
+**Kapılar** (yazmadan önce, hepsi): `TAPPA_ENV` `dev` ya da `sandbox`; iki DSN de loopback host'ta
+(compose ya da `kubectl port-forward`); veritabanının kendisi — `dev`'de dev seed'in KF işletmesi vardır,
+`sandbox`'ta her plaket sanaldır. Üretim veritabanı üçüne de takılır. Hiçbir şey silinmez; kaydı olan bir
+işletme reddedilir (hafta veritabanı başına bir kez yazılır, §4.3). Dosya bir build tag'in arkasındadır
+(`timesheetseed`): `make test`/`make check` onu derlemez, hiçbir ikilide yoktur. **~10 dakika sürer:**
+ADR 0006'nın veritabanı saatiyle ölçülen 60 saniyesi her kişinin ardışık dokunuşları arasında gerçek
+zamanda beklenir.
+
+**Sandbox'ta** işletmeyi sandbox'ın kendi paneli açar ki sahibi bir `tt_test_` anahtarı üretebilsin:
+(1) panelden adında "Test" geçen bir işletme kaydı (öneri: *Malta Calculator Test Ltd*); (2) sandbox
+operatörü API'sini açar (§5, şirket kodu); (3) sahibi panelde bir anahtar üretir ve Malta Calculator'a
+verir; (4) sandbox Postgres'ine `port-forward` ve seed, değerler ekrana ve komut satırına düşmeden
+(`read -rs`; `make -e` ortamı `.env`'in önüne koyar):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa-sandbox port-forward statefulset/tappa-postgres 55432:5432 &
+read -rs APP_DSN; read -rs OWNER_DSN; read -rs TAG_KEK
+DATABASE_URL="$APP_DSN" DATABASE_MIGRATE_URL="$OWNER_DSN" TAPPA_TAG_KEK="$TAG_KEK" TAPPA_ENV=sandbox \
+  TAPPA_TIMESHEET_SEED_TENANT='<isletmenin-id>' make -e seed-timesheets
+unset APP_DSN OWNER_DSN TAG_KEK
+```
+
+`APP_DSN` ve `OWNER_DSN` `127.0.0.1:55432`'yi gösteren `tappa_app` ve `tappa_owner` DSN'leridir,
+`TAG_KEK` sandbox Secret'ının `TAPPA_TAG_KEK`'i. Çıktı işletmeyi, çalışan ve kayıt sayısını, haftayı ve
+çalışan başına sayıları yazar; sır yazmaz. Sonra: `GET /v1/timesheets?from=<Pazartesi>&to=<Pazar>`.
+
+**Yerelde** (`TAPPA_ENV=dev`, `make seed` yapılmış veritabanı) `TAPPA_TIMESHEET_SEED_TENANT` verilmezse seed
+işletmeyi kendisi açar: *Malta Calculator Test Ltd*, API açık, şirket kodu `MCT`; sahibinin parolası
+kullanılamaz (oturum açılmaz), yani yerel deneme API testleri ya da bağlanılmış bir işletme üzerindendir.
+
+**Bekleme ve durma.** Bir kişinin ardışık iki dokunuşu arasında, o kişinin son kaydının **veritabanı
+saatiyle** yaşı 65 saniyeyi geçene kadar beklenir (debounce'un sunucu ayağı budur — ADR 0006); yavaş bir
+bağlantı (port-forward) süreyi uzatır, bir dokunuşu `ignored` yapmaz. Bir dokunuş haftanın istediği
+kararı almazsa seed **hemen durur** ve tek bir mesajla ne kadarının yazıldığını, işletmenin neden artık
+kullanılamadığını (kayıtlar silinmez, ikinci koşu kayıtlı işletmeyi reddeder) ve yeni bir işletmeyle
+nasıl yeniden başlanacağını söyler. Sahip DSN'inin rolü süper kullanıcı ya da `BYPASSRLS` değilse seed
+hiç başlamaz (RLS kapıların saydığı satırları gizlerdi).
+
+### 9. Yerel sandbox — Malta Calculator'ın kendi makinesinde (API-14)
+
+**Neden burada:** canlı sandbox yok; kullanıcının seçimi, Malta Calculator'ın uçtan uca denemesinin
+**yerel bir sandbox derlemesine** karşı olmasıdır. Tarif bir dağıtım tarifidir (veritabanı, roller,
+ortam, ikili, operatör hesabı), entegrasyon sözleşmesi değil: rehber (`docs/api/`) API'nin kendisinden
+anahtarsız sunulur, iki dilde birebir tutulur ve hiçbir yerel komut taşımaz — bu bölüm sandbox
+runbook'unun (§1–§8) yanındadır.
+
+**Ön koşul:** bu depo, Go, `psql`, `openssl`, `python3`, `curl`; `make up && make migrate && make seed`
+ile kalkmış compose geliştirme kümesi ve onun `.env`'i (`.env.example`'dan). **Platform:** macOS ve
+Linux (glibc ya da musl); `script(1)` gerekmez — `opadmin`'in terminal ihtiyacı `python3`'ün standart `pty`
+modülüyle karşılanır (Linux'ta `python:3.12-slim-bookworm` içinde ölçüldü, macOS'ta uçtan uca). Betik
+hiçbir şey yazmadan önce bütün ön koşulları sınar. Node yok, yeni bağımlılık yok;
+her şey loopback'tedir (`localhost`, `api.localhost`, `ops.localhost` — RFC 6761, curl da onları
+loopback'e çözer).
+
+**1. Veritabanı ve ortam** — yeni bir veritabanı, `01-roles.sql`'in veritabanı başına yarısı (CONNECT,
+USAGE, sahibin varsayılan yetkileri, `pgcrypto`, `citext`; `03-dev-…`'nin hiçbir şeyi: sandbox üretim
+biçimlidir), migration ve `.sandbox-local/<db>.env` (600; yedi taze anahtar, hiçbiri basılmaz;
+`TAPPA_WEBHOOK_BLOCKED_ADDRESSES` belgeleme adresi `192.0.2.1` — boş liste sandbox'ı açtırmaz; sahip DSN'i
+sunucunun okumadığı `SANDBOX_OWNER_DSN` adıyla). Var olan bir veritabanı ya da dosya reddedilir:
+
+```bash
+make sandbox-local SANDBOX_DB=tappa_sbx_mc SANDBOX_PORT=8090
+```
+
+**2. Sunucu** — ayrı bir terminalde, ön planda (`Ctrl-C` durdurur):
+
+```bash
+make sandbox-local-run SANDBOX_DB=tappa_sbx_mc
+```
+
+Açılış satırları: `"sandbox":"on"`, `integration_api=on api_host=api.localhost`,
+`operator_surface=configured operator_host=ops.localhost`, `msg=listening addr=127.0.0.1:8090 env=sandbox`.
+
+**3. İşletme, operatör, API, anahtar** — panelde ve operatör yüzeyinde bir insanın yaptığı dört iş,
+curl ile, ürünün kendi formlarından:
+
+```bash
+make sandbox-local-flow SANDBOX_DB=tappa_sbx_mc
+```
+
+Sırasıyla: `/signup`'ın üç adımı ve sandbox'ın e-posta yerine ekranda gösterdiği onay bağlantısı (sihirbaz
+8 saniyeden hızlı bir kaydı reddeder; betik bekler); `cmd/opadmin create` + SQL'in sahip olarak
+uygulanması + `/operator/enroll` (parola ve TOTP; kod kayıt sayfasının anahtarından hesaplanır); operatör
+olarak işletmenin API'sini açmak (şirket kodu `MCT`); sahibin panel girişi ve `/admin/api-keys`'ten bir
+`tt_test_` anahtarı. Çıktı işletmenin id'sini yazar; anahtar, iki parola, TOTP anahtarı, kayıt bağlantısı,
+oturum çerezleri ve anahtarın `Authorization` başlık dosyası `.sandbox-local/<db>.secrets/`'tadır (700, git
+dışı) ve terminale hiç gelmez. **Hiçbir sır bir komut satırına da düşmez** (`ps` her argv'yi gösterir): form
+değerleri `--data-urlencode ad@dosya`, başlıklar `-H @dosya`, jeton taşıyan URL'ler `curl -K <dosya>` ile
+gider; dosyaları kabuğun `printf` yerleşiği yazar.
+
+**Neden tarayıcı değil (ölçülen):** sandbox sertleştirilmiştir — `TAPPA_BASE_URL` https olmak zorunda,
+her çerez `Secure`, operatörünki `__Host-`; yerel sunucu düz HTTP konuşur. Formlar tarayıcının kendi
+fetch üst verisini kabul eder (`Origin: null` + `Sec-Fetch-Site: same-origin`; sayfaların no-referrer
+politikasının ürettiği biçim) ve betik onu gönderir; `Origin: http://localhost:8090` gönderen bir istemci
+"not same-origin" ile reddedilir (taban URL'si https'tir). curl `Secure` çerezleri `localhost` için tutar,
+`ops.localhost` için tutmaz — operatörün oturum çerezini betik elle taşır. Panelin gösterdiği bağlantılar
+`https://localhost:8090/…` diye yazılır; düz HTTP'de `http://` ile açılır. `*.localhost`'u güvenli bağlam
+sayan bir tarayıcı aynı adımları yapabilir — **ölçülmedi**; ölçülen yol bu betiktir.
+`opadmin` bağlantısını yalnız stderr bir karakter aygıtıyken basar (terminal; ya da onu yutan `/dev/null`) ve
+bağlantıyı başka bir yoldan vermez (SQL sırrın özetini taşır, kendisini değil). Betik ona `python3`'ün
+`os.openpty()`'siyle bir sözde-terminal verir ve okuduğunu sırlar dizinine yazar; terminalinize bir şey
+gelmez. `script(1)` kullanılmaz: BSD ile util-linux biçimleri farklıdır, busybox'ta yoktur (üretimde kayıt
+yapan terminal yasaktır, O9-2 — burası atılacak bir yerel sandbox'tır).
+
+**4. Haftalık kayıt** — çıktının verdiği id ile (§8; ~10 dk):
+
+```bash
+make sandbox-local-seed SANDBOX_DB=tappa_sbx_mc TAPPA_TIMESHEET_SEED_TENANT=<isletme-id>
+```
+
+**5. Okuma:**
+
+```bash
+curl -sS -H @.sandbox-local/tappa_sbx_mc.secrets/api-auth.header "http://api.localhost:8090/v1/timesheets?from=<Pazartesi>&to=<Pazar>"
+```
+
+`<Pazartesi>`/`<Pazar>` seed'in yazdığı haftadır (son satırı: `GET /v1/timesheets?from=…&to=…`). Aynı anahtarla
+`POST /v1/sandbox/taps` (rehber §1.4) canlı dokunuş simüle eder; seed'in plaketi o simülasyonun sanal
+plaketidir. Yeniden başlamak = yeni bir `SANDBOX_DB` adı (eski veritabanı ve dosyaları silinmez; elle
+`DROP DATABASE` ve `rm -r .sandbox-local/<db>*` sizindir).
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**

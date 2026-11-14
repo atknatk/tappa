@@ -1,12 +1,12 @@
 # Taptime entegrasyon API'si — entegrasyon rehberi
 
-Rehber 3. baskı (2026-10-22), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
+Rehber 4. baskı (2026-11-14), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
 `GET /v1/guide.tr.md` adresinde sunar; asıl metin olan İngilizcesi — bölüm bölüm aynı belge —
 `GET /v1/guide.md` adresindedir. Makinenin okuduğu sözleşme `GET /v1/openapi.yaml` adresindeki
 OpenAPI 3.1 belgesidir; bu rehber onu açıklar ve ikisinin aynı şeyi söylediği her yerde ikisi
 birbirini tutar.
 
-Bu rehberdeki her örnek cevap, API'nin verdiği bir cevaptır: hepsi 4. ile 9. bölümlerde anlatılan,
+Bu rehberdeki her örnek cevap, API'nin verdiği bir cevaptır: hepsi 4. ile 10. bölümlerde anlatılan,
 gerçek servise karşı koşturulmuş tek bir hikâyeden gelir.
 
 <a id="contents"></a>
@@ -20,10 +20,11 @@ gerçek servise karşı koşturulmuş tek bir hikâyeden gelir.
 - [6. Punch akışı](#feed)
 - [7. Geçmiş sorgusu](#history)
 - [8. Rehber (directory)](#directory)
-- [9. Webhook'lar](#webhooks)
-- [10. Askıya alma](#suspension)
-- [11. Sözleşme farkları](#differences)
-- [12. Bu rehberdeki değişiklikler](#changes)
+- [9. Çalışma süresi çizelgesi](#timesheets)
+- [10. Webhook'lar](#webhooks)
+- [11. Askıya alma](#suspension)
+- [12. Sözleşme farkları](#differences)
+- [13. Bu rehberdeki değişiklikler](#changes)
 
 <a id="overview"></a>
 ## 1. Genel bakış
@@ -39,6 +40,8 @@ telefonuyla dokunur. Entegrasyon API'si bir işletmenin İK ya da ERP sistemine 
 - işletmenin **punch**'larını hiçbirini kaybetmeyen bir akıştan okumak (`GET /v1/punches`) ya da bir
   zaman aralığını okumak (geçmiş sorgusu);
 - işletmenin bilebileceği çalışanların **rehberini** okumak (`GET /v1/directory`);
+- işletmenin kendi çalışanlarının bir bordro dönemindeki **sayılan çalışma süresini** okumak —
+  Taptime'ın kendi raporunun rakamları (`GET /v1/timesheets`);
 - her punch'ı olduğu anda **webhook** ile almak.
 
 Bir istek **yalnız tek bir işletmeyi — anahtarın ait olduğu işletmeyi —** okur ve yazar. Hiçbir
@@ -225,6 +228,7 @@ OpenAPI belgesinin her işlemi, cevaplayabildiği kodları tam olarak `x-error-c
 | `max` | En büyük `limit`. |
 | `maxBytes` | En büyük gövde. |
 | `maxHours` | En uzun geçmiş aralığı, saat olarak. |
+| `maxDays` | En uzun çizelge dönemi, gün olarak. |
 | `retryAfterSeconds` | `Retry-After` ile aynı. |
 | `businessTimezone` | İşletmenin kendi saat dilimi (`timezone_mismatch`). |
 
@@ -256,7 +260,7 @@ kayıt taşır. Başka her şey — 0, 1001, bir işaret, bir kesir — **400 `i
 `details.parameter` `limit` ile; ikinci bir `limit` tekrarlanan bir parametredir ve öyle cevaplanır
 ([3.7](#query)). Her listenin kendi imleci ve son sayfa
 için kendi kuralı vardır; listelerle birlikte anlatılmıştır ([5.6](#employees-read),
-[6.4](#feed-paging), [7](#history), [8.2](#directory-walk)).
+[6.4](#feed-paging), [7](#history), [8.2](#directory-walk), [9.3](#timesheets-paging)).
 
 <a id="idempotency"></a>
 ### 3.3 Idempotency-Key
@@ -313,6 +317,7 @@ Bunlar OpenAPI belgesinin `info.x-limits`'idir ve servisin kendi değerleridir.
 | `requestTimeoutSeconds` | 30 | O zamana kadar cevaplanmayan istek 503 alır. |
 | `feedWindowPositions` | 10000 | Bir sayfanın okuduğu en çok akış konumu. |
 | `historyMaxHours` | 745 | En uzun geçmiş aralığı (31 gün ve bir saat). |
+| `timesheetMaxDays` | 31 | En uzun çizelge dönemi, gün olarak. |
 | `directoryOverlapMinutes` | 10 | Rehberin `updatedSince`'ten ne kadar önceden okuduğu. |
 | `webhookTimeoutSeconds` | 10 | Bir webhook denemesinin cevabı ne kadar beklediği. |
 | `webhookAttempts` | 6 | Bir webhook tesliminin deneme sayısı. |
@@ -356,7 +361,8 @@ Sorgu dizgesindeki anlar (`from`, `to`, `updatedSince`) RFC 3339'dur —
 `YYYY-MM-DDThh:mm:ss`, isteğe bağlı olarak noktadan sonra bir kesir (`.fraction`), ardından `Z` ya da bir saat
 farkı `±hh:mm` — büyük harf `T` ve `Z` ile ve en çok mikrosaniye hassasiyetle (daha ince bir an
 reddedilir, yuvarlanmaz). **Saat farkının `+`'sını `%2B` olarak kodlayın**: kodlanmazsa boşluk
-olarak gelir ve cevap `reason` `unencoded_plus` ile 400'dür.
+olarak gelir ve cevap `reason` `unencoded_plus` ile 400'dür. Çizelgenin `from` ve `to`'su an değil
+takvim günüdür, `YYYY-MM-DD` ([9.1](#timesheets-period)).
 
 <a id="identifiers"></a>
 ### 3.8 Kimlikler, referanslar ve zamanlar
@@ -369,8 +375,8 @@ olarak gelir ve cevap `reason` `unencoded_plus` ile 400'dür.
   referans yüzde kodlanabilir: **bir kez** çözülür ve sonra kalıba uymalıdır (`%41BC`, `ABC`'dir;
   kodlanmış bir `/`, bir kontrol karakteri ya da `%2541` gibi çift kodlama `field` `ref` ile 422
   alır).
-- API'nin cevapladığı her an **UTC**'de RFC 3339'dur. Bir işletmenin saat dilimi raporları için
-  önemlidir, API için değil.
+- API'nin cevapladığı her an **UTC**'de RFC 3339'dur. Bir işletmenin saat dilimi raporları ve
+  çizelgesinin günleri için önemlidir ([9.1](#timesheets-period)), hiçbir an için değil.
 - Değeri olmayan bir alan `null`'dır, asla eksik değildir.
 
 <a id="headers"></a>
@@ -420,7 +426,7 @@ günceller.
   U+200D) ya da bir bayrağın dışında bir etiket karakteri de taşıyamaz: 422 `validation_failed`,
   `reason` `hidden_character` (uzunluk reddi `invalid`'dir). Kayıtlı bir ad olduğu gibi kabul
   edilir.
-- İşletme askıdayken bu uç 403 `tenant_suspended` alır ([bölüm 10](#suspension)).
+- İşletme askıdayken bu uç 403 `tenant_suspended` alır ([bölüm 11](#suspension)).
 
 Hikâyede KF lokasyonunu yazar:
 
@@ -588,7 +594,7 @@ dokunuşları reddedilir, geçmişi kalır.
   ve işletmenin hiç tutmadığı bir referans için de —; var olan bir çalışana denk gelen,
   `active: false` ile her `PUT` de öyle, zaten pasifleştirilmiş bir çalışan dahil. İşletmenin hiç tutmadığı
   bir referansa `active: false` ile `PUT` hiçbir çalışana denk gelmez: 404 kalır
-  ([bölüm 10](#suspension)).
+  ([bölüm 11](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
@@ -731,7 +737,8 @@ anından itibaren reddedilir.
   18 saatten eskidir ve açık kalır. İki durumda da Taptime ona süre saymaz. Sonradan yazılan bir kayıt
   bunu değiştirebilir — çoğunlukla bir müdürün `out`'tan önceye girdiği manuel bir giriş; ondan sonra
   Taptime süreyi sayar — ve manuel bir kayıt akışta yoktur ([6.1](#feed-what)). Böyle bir `in` önceki
-  girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat için Taptime'ın raporu esastır. Örnek,
+  girişi çıkışsız bırakır ve Taptime ona da süre saymaz. Saat için Taptime'ın raporu esastır — onu
+  `GET /v1/timesheets` ile okuyun ([9](#timesheets)). Örnek,
   işverenin iş günü 05:00'te başlarken: dün 15:00'te bir `in`, sonra bugün 07:00'de "Not right? Clock
   out". Taptime 0 saat sayar ve 07:00 `out`'unu "Check-in missing" olarak listeler; ikisini eşleyen
   bir sistem 16 saat öder.
@@ -768,7 +775,7 @@ repeat:
   Taptime'ın verisi sayaçları ileri alınmadan bir yedekten geri yüklendiğinde olur: durun ve
   Taptime'a bildirin — sessizce beklemeyin.
 - `id` + `version` ile tekilleştirin: akış her punch'ı kapsam başına bir kez verir, ama bir webhook
-  onu yeniden teslim edebilir ([bölüm 9.7](#webhook-duplicates)).
+  onu yeniden teslim edebilir ([bölüm 10.7](#webhook-duplicates)).
 
 Hikâyede KF `location` kapsamını okur: bir KM çalışanı olan Joe Valletta'da giriş yaptı, Jane (KF)
 de.
@@ -864,7 +871,8 @@ okur ve ikisini de görür:
 ```
 
 Lokasyonun şirketinin (KF) Taptime paneli bir grup çalışanının kendi plaketlerindeki dokunuşlarını
-listeler, ama onların çalışma süresini o da hesaplamaz: çalışma süresi işverenindir.
+listeler, ama onların çalışma süresini o da hesaplamaz: çalışma süresi işverenindir ve onu
+işverenin çizelgesi sayar ([9](#timesheets)).
 
 <a id="history"></a>
 ## 7. Geçmiş sorgusu
@@ -958,11 +966,194 @@ deneyin**; 400 sürerse yürüyüşü aynı `updatedSince` ile baştan alın. He
 (yeni yürüyüş aynı kayda varır); engel saatin geri adımı kadar sürer ve hiçbir şey kaybolmaz.
 İşletme askıdayken rehber açıktır.
 
+<a id="timesheets"></a>
+## 9. Çalışma süresi çizelgesi
+
+`GET /v1/timesheets?from=…&to=…` bir bordro dönemi için, işletmenin kendi her çalışanının Taptime'ın
+**saydığı** çalışma süresini yerel gün gün cevaplar: Taptime'ın kendi raporunun, aynı motorla
+hesaplanan rakamları. Bordronun okuması budur. Akış ([6](#feed)) değildir: müdürün girdiği manuel bir
+kayıt punch değildir ([6.1](#feed-what)), ama süresi burada sayılır.
+
+```sh
+curl -sS "$TAPTIME_API/v1/timesheets?from=2026-11-01&to=2026-11-30" \
+  -H "Authorization: Bearer $TAPTIME_KEY"
+```
+
+Sayılan, Taptime'ın raporunun saydığıdır:
+
+- bir girişten bir çıkışa vardiya, iki ucu da `ok` — ya da işaretlenmiş ve bir müdür tarafından
+  **onaylanmış**;
+- girişini ya da çıkışını bir müdürün elle girdiği (bir **manuel kayıt**) vardiya — sayılır ve
+  ayrıca `manualShifts`'tedir;
+- bir müdürün onayını bekleyen vardiya (süresi `awaitingMinutes`'tadır), reddedilmiş olan ve
+  practice dokunuşu **sayılmaz**;
+- çıkışı olmayan bir giriş **sayılmaz**: Taptime çıkış tahmin etmez; giriş `openEntries`'tedir ve
+  bir müdür çıkışı girene kadar süresi hiçbir rakamda yoktur. Girişinden 18 saatten sonra gelen bir
+  çıkış da vardiya değildir: giriş açık kalır;
+- girişi olmayan bir çıkış (`checkInMissing`) **sayılmaz**.
+
+Giriş ile çıkış, dokunuşta olduğu gibi çalışanın son açık girişine göre eşlenir — takvim gününe göre
+değil.
+
+<a id="timesheets-period"></a>
+### 9.1 Dönem
+
+- `from` ve `to` işletmenin saat dilimindeki (`period.timeZone`) takvim günleridir, `YYYY-MM-DD`, ve
+  **ikisi de dahildir**: `from=2026-11-01&to=2026-11-30` kasımdır.
+- `to`, `from` ile aynı ya da ondan sonraki gündür ve bir dönem en çok **31 gündür**. Başka her şey —
+  eksik bir tarih, `2026-11-31`, saatli bir tarih, daha uzun bir dönem — **400 `invalid_request`**
+  alır; `details.parameters` `from` ve `to`'dur, `details.maxDays` 31'dir.
+- **Bir vardiya başladığı yerel günde sayılır.** 18:00–02:00 gece vardiyası ilk günündür; dönemin
+  son gününde başlayan vardiya bu dönemde tamamıyla sayılır (Taptime çıkışı için dönemin sonundan
+  ötesini okur); `from`'dan önce başlayan vardiya, bu dönemin içinde bitse de önceki dönemindir.
+  Birbirine değen iki dönem her vardiyayı bir kez sayar.
+- Girişi olmayan bir çıkış kendi gününde `checkInMissing`'tedir. Sınırda bir istisna var: `from`
+  günü işletmenin günü başlamadan önce yapılmış (iş günü bir önceki gün başlamış) ve girişi olmayan
+  bir çıkış iki dönemin de rakamlarında yoktur; Taptime paneli onu "Check-in missing" olarak listeler.
+- Dakikalar **tam dakikadır, aşağı yuvarlanır**; her rakam kendi kesin süresinden. Bir kişinin
+  günleri `workedMinutes`'ından gün başına bir dakikadan az eksik toplanabilir; ödenecek rakam
+  `workedMinutes`'tır.
+
+<a id="timesheets-answer"></a>
+### 9.2 Cevap
+
+| Alan | |
+|---|---|
+| `period` | İstendiği gibi `from` ve `to`, ve `timeZone`: günlerin sayıldığı, işletmenin saat dilimi. |
+| `complete` | Bkz. [9.3](#timesheets-paging). |
+| `truncated` | Tek bir çalışanın kayıtları tek başına bir isteğin okuduğundan fazlaysa `true`: o çalışanın rakamları bir toplam değil bir tabandır ve `complete` `false`'tur. |
+| `employee` | `id` (`emp_…`), `externalRef`, `employeeCode`, `firstName`, `lastName` ve `fullName` — rehberin kimlikleri ([8.1](#directory-entry)). |
+| `workedMinutes` | Dönemin sayılan süresi. |
+| `awaitingMinutes` | Bir müdürün onayını bekleyen süre — `workedMinutes`'ta değildir. |
+| `shifts` | `workedMinutes`'ın arkasındaki vardiyalar. |
+| `openEntries` | Çıkışı olmayan girişler. |
+| `checkInMissing` | Girişi olmayan çıkışlar. |
+| `manualShifts` | Girişini ya da çıkışını bir müdürün elle girdiği vardiyalar (`shifts`'ten). |
+| `days` | Dönemin **her** günü, sırayla: `date`, `workedMinutes` (o gün başlayan vardiyaların), `manual` (biri elle girilmiş), `open` (o günün bir girişinin çıkışı yok) ve `checkInMissing` (o günün bir çıkışının girişi yok). |
+
+- Yalnız işletmenin **kendi** çalışanları listelenir — dönemde kayıtları varsa pasifleştirilmiş biri
+  de. Lokasyonlarınızda çalışmış bir grup ortağı çalışanı burada yoktur: o süre işverenindir ve
+  işverenin çizelgesi onu sayar ([6.5](#feed-working-time)). Kendi çalışanınızın bir ortağın
+  lokasyonundaki vardiyası sizindir ve buradadır.
+- Dönemde kaydı olmayan çalışan listelenmez: sayılan süresi sıfırdır.
+- Bir kaydın başka hiçbir şeyi cevapta yoktur: ağ adresi, koordinat, not ya da bir kararın gerekçesi
+  yok, e-posta adresi de yok.
+
+Hikâyede KM günün çizelgesini okur. Joe'nun vardiyası KF'nin Valletta'sında başladı ve bir dakikadan
+biraz fazla sonra KM'nin Production'ında bitti: aşağı yuvarlanmış bir dakika — ve KM'nin süresi:
+
+<!-- example: listTimesheets 200 km -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": true,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_42f028c7-242a-4903-89df-8fde6176926b",
+        "externalRef": "M-2001",
+        "employeeCode": "2001",
+        "firstName": "Joe",
+        "lastName": "Sample",
+        "fullName": "Joe Sample"
+      },
+      "workedMinutes": 1,
+      "awaitingMinutes": 0,
+      "shifts": 1,
+      "openEntries": 0,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 1,
+          "manual": false,
+          "open": false,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+KF aynı günü okur. Jane Valletta'da giriş yaptı ve çıkış yapmadı: girişi açıktır ve süre saymaz, bu
+yüzden KF'nin sayfası tam değildir. Joe orada yoktur — süresi KM'nindir:
+
+<!-- example: listTimesheets 200 kf -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": false,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
+        "externalRef": "E-1042",
+        "employeeCode": "1042",
+        "firstName": "Jane",
+        "lastName": "Example",
+        "fullName": "Jane Example"
+      },
+      "workedMinutes": 0,
+      "awaitingMinutes": 0,
+      "shifts": 0,
+      "openEntries": 1,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 0,
+          "manual": false,
+          "open": true,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+<a id="timesheets-paging"></a>
+### 9.3 Sayfalar ve `complete`
+
+- Çalışanlar `employee.id` sırasıyla gelir, sayfada en çok `limit` kadar (varsayılan 500, en çok 1000
+  — [3.2](#paging)). `hasMore` `true` iken bir sayfa daha azını taşıyabilir: bir istek sınırlı sayıda
+  kayıt okur ve sayfa, kayıtları sığmayacak bir çalışandan önce biter.
+- `hasMore` `false` olana kadar `nextCursor`'u **aynı** `from` ve `to` ile `cursor` olarak gönderin;
+  `nextCursor` tam olarak `hasMore` `true` iken vardır (sonda `null`). Başka bir dönemle ya da başka
+  bir işletme tarafından gönderilen bir imleç **400 `invalid_request`** alır (`details.parameter`
+  `cursor`).
+- `complete`, **sayfadaki hiçbir çalışanın** onay bekleyen süresi, açık bir girişi ya da eksik bir
+  girişi yoksa ve sayfa `truncated` değilse `true`'dur. Bir dönem, yürüyüşün **her** sayfası öyle
+  dediğinde tamdır. Tam olmayan bir dönemi ödemeden önce işletmeden eksik olanı Taptime'da
+  onaylamasını, düzeltmesini ya da girmesini isteyin.
+- Cevap kayıtları **okuduğunuz andaki hâlleriyle** anlatır: bir müdürün düzeltmesi, bir onay ya da
+  bitmemiş bir dönemde henüz gelecek bir dokunuş onu değiştirir. Ödemeden hemen önce dönemi yeniden
+  okuyun.
+- Yalnız `from`, `to`, `cursor` ve `limit` kabul edilir ([3.7](#query)). İşletme askıdayken bu uç
+  açık kalır ([11](#suspension)).
+
 <a id="webhooks"></a>
-## 9. Webhook'lar
+## 10. Webhook'lar
 
 <a id="webhook-setup"></a>
-### 9.1 Uç noktayı kurmak
+### 10.1 Uç noktayı kurmak
 
 Bir işletmenin **tek** bir webhook uç noktası vardır. Onu işletmenin **sahibi** Taptime panelinde
 kurar (API keys bölümü, Webhook kısmı); API kuramaz. Adres şöyle olmalıdır:
@@ -983,16 +1174,16 @@ başarısız olur — panel ve teslim günlüğü bunu başarısız bir güvenli
 Yönlendirmeler **izlenmez**; cevap **10 saniye** içinde gelmelidir; cevabın gövdesi okunmaz.
 
 <a id="webhook-key"></a>
-### 9.2 İmza anahtarı
+### 10.2 İmza anahtarı
 
 Taptime her isteği uç noktanın **imza anahtarıyla** imzalar: `tt_whsec_` ve ardından 43 karakter.
 Panel onu **bir kez** gösterir — uç nokta oluşturulduğunda ve anahtar döndürüldüğünde — bir daha
 asla. Bir döndürmeden sonra **eski anahtarla imzalanmış istek artık gelmez**: alıcınızı hemen yeni
 anahtara geçirin (yeni imzayı reddeden bir alıcı teslimleri başarısız kılar ve teslimler
-[bölüm 9.6](#webhook-retries)'nın takvimiyle yeniden denenir).
+[bölüm 10.6](#webhook-retries)'nın takvimiyle yeniden denenir).
 
 <a id="webhook-verify"></a>
-### 9.3 İmzayı doğrulamak
+### 10.3 İmzayı doğrulamak
 
 Her istek `X-Taptime-Signature: sha256=<hex>` taşır: istek gövdesinin **ham baytları** üzerinde,
 imza anahtarının **metniyle** (`tt_whsec_` öneki dahil) anahtarlanmış HMAC-SHA256'nın küçük harfli
@@ -1041,7 +1232,7 @@ hesaplayın — onun standart HMAC-SHA256'sıyla, anahtar sır deponuzdan okunar
 karşılaştırın.
 
 <a id="webhook-requests"></a>
-### 9.4 İstekler
+### 10.4 İstekler
 
 Her istek üç başlıklı bir `POST`'tur — `Content-Type: application/json`,
 `User-Agent: Taptime-Webhooks/1` ve `X-Taptime-Signature` — ve `event`'i ne olduğunu söyleyen bir
@@ -1058,14 +1249,14 @@ gövdesidir, aynı başlıklarla ve aynı imzayla. Sahip onu panelden gönderir,
 "Send again now"ın harcadığı aynı 10. Hiçbir punch'ı adlandırmaz: **onu punch saymayın**.
 
 <a id="webhook-answer"></a>
-### 9.5 Cevap vermek
+### 10.5 Cevap vermek
 
 **Her 2xx "teslim edildi"dir.** Başka her şey başarısız bir denemedir: başka bir durum — **3xx
 dahil** (yönlendirmeler izlenmez) —, 10 saniye içinde gelmeyen cevap, bir TLS ya da bağlantı hatası.
 Hızlı cevap verin, sakladıktan sonra; işinizin geri kalanını sonra yapın.
 
 <a id="webhook-retries"></a>
-### 9.6 Yeniden denemeler
+### 10.6 Yeniden denemeler
 
 İlk deneme hemendir. Başarısız bir denemeden sonra bir sonraki 1 dakika, 5 dakika, 30 dakika, 2 saat,
 6 saat bekler; **altıncı** başarısız deneme teslimi **başarısız** (`dead`) yapar ve kendiliğinden
@@ -1092,7 +1283,7 @@ göstermez; teslim, işletmenizin teslimleri daha sonra koşarken silinir ve ba�
 yeniden gönderilemez. Hâlâ bekleyen bir teslim asla silinmez. Punch'ın kendisi akışta kalır.
 
 <a id="webhook-duplicates"></a>
-### 9.7 Tekrarlar ve sıra
+### 10.7 Tekrarlar ve sıra
 
 - **Bir punch birden çok kez gelebilir**: bir yeniden deneme, Taptime yeniden başlarken uçuşta kalmış
   bir istek, bir "Send again now". Bir teslimin her denemesi aynı `deliveryId`'yi ve **aynı
@@ -1101,14 +1292,14 @@ yeniden gönderilemez. Hâlâ bekleyen bir teslim asla silinmez. Punch'ın kendi
   bir punch iki uç noktaya giden iki bağımsız teslimdir.
 
 <a id="webhook-delays"></a>
-### 9.8 Gecikmeler ve boşluklar
+### 10.8 Gecikmeler ve boşluklar
 
 - **Taptime yeniden başladıktan sonra** (her deploy dahil) bekleyen yeniden denemeler — ve kuyruktaki
   aktivasyon e-postaları — işletmenin bir sonraki dokunuşuna, onayına ya da API isteğine kadar bekler.
   Akış etkilenmez.
 - **Uç nokta kapatılmış**: zaten kuyrukta olan teslimler **bekler** (düşürülmez) ve sahip uç noktayı
   yeniden açınca (ya da adresini değiştirince, ya da anahtarını döndürünce) hemen gider — işletme
-  askıdayken sahip bunların hiçbirini yapamaz ([bölüm 10](#suspension)). **Kapalıyken** kaydedilen
+  askıdayken sahip bunların hiçbirini yapamaz ([bölüm 11](#suspension)). **Kapalıyken** kaydedilen
   punch'lar hiç teslim edilmez.
 - **API Taptime tarafından kapatılmış**: aynısı — kuyruktaki teslimler bekler ve API yeniden
   açıldıktan sonra 15 dakika içinde gider (Taptime arada yeniden başladıysa işletmenin bir sonraki
@@ -1116,7 +1307,7 @@ yeniden gönderilemez. Hâlâ bekleyen bir teslim asla silinmez. Punch'ın kendi
 - Bir uç nokta, oluşturulduktan sonra kaydedilen punch'ları alır.
 
 <a id="webhook-source"></a>
-### 9.9 Kesin kaynak akıştır
+### 10.9 Kesin kaynak akıştır
 
 Bir webhook hızlı bir haberdir, kayıt değildir: uç nokta kapalıyken kaydedilen punch'lar hiç teslim
 edilmez ve `dead` bir teslim kendiliğinden geri gelmez. **Akışı** imleciyle ([bölüm 6.4](#feed-paging))
@@ -1124,14 +1315,14 @@ edilmez ve `dead` bir teslim kendiliğinden geri gelmez. **Akışı** imleciyle 
 ikisi bir punch'ı asla iki kez saymaz.
 
 <a id="suspension"></a>
-## 10. Askıya alma
+## 11. Askıya alma
 
 Taptime bir işletmeyi askıya alabilir (ör. faturalandırma yüzünden). Askı, okumaya — ve kayıtlara —
 dokunmayan bir **yazma kilididir**:
 
 | Askıda açık | Askıda 403 `tenant_suspended` |
 |---|---|
-| her `GET` — akış, geçmiş sorgusu, rehber, çalışanlar | `PUT /v1/locations/{ref}` |
+| her `GET` — akış, geçmiş sorgusu, rehber, çalışanlar, çizelge | `PUT /v1/locations/{ref}` |
 | **yeni** bir çalışan oluşturan `PUT /v1/employees/{ref}`, yeniden işe alım dahil | var olan bir çalışana denk gelen her `PUT /v1/employees/{ref}` — bir değişiklik, adresle bağlama, `active: false` (zaten pasifleştirilmiş bir çalışana da) ve hiçbir şeyi değiştirmeyen bir istek |
 | `POST /v1/employees/{ref}/resend-activation` | her `DELETE /v1/employees/{ref}`, zaten pasifleştirilmiş bir çalışana ya da hiç tutulmamış bir referansa da |
 | webhook teslimleri ve aktivasyon e-postalarının kuyruğu | panelde: anahtar oluşturmak; uç noktayı oluşturmak, adresini değiştirmek, anahtarını döndürmek ya da açmak; test mesajları; "Send again now" |
@@ -1139,7 +1330,7 @@ dokunmayan bir **yazma kilididir**:
 | panelde: bir anahtarı iptal etmek, uç noktayı kapatmak | |
 
 <a id="differences"></a>
-## 11. Sözleşme farkları
+## 12. Sözleşme farkları
 
 Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıklandığı yere bağlanır.
 
@@ -1158,11 +1349,11 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 13. Aktive olmuş bir çalışana `resend-activation` 409 `already_activated` alır. ([5.4](#employees-resend))
 14. Aktive olmuş bir çalışanın e-posta adresi değişirse aktivasyon e-postası gönderilmez. ([5.1](#employees-put))
 15. Aktivasyon yalnız NFC iledir (QR kod aktive edemez). ([5.2](#employees-activation))
-16. Webhook'larda sıra garantisi yoktur; `id` + `version` ile tekilleştirin. ([9.7](#webhook-duplicates))
+16. Webhook'larda sıra garantisi yoktur; `id` + `version` ile tekilleştirin. ([10.7](#webhook-duplicates))
 17. Manuel kayıtlar akışa girmez. ([6.1](#feed-what))
 18. Geçmiş sorgusu (`from`/`to`) en çok 31 gün ve bir saati kapsar (bir yerel takvim ayı, yaz saati geçişi dahil), sayfalıdır ve bir anlık görüntüdür — geç gelen punch'lar yalnız akışta kesin görünür. ([7](#history))
 19. `updatedSince` (rehber) 10 dakikalık bir örtüşmeyle okur; tekrar gelen kayıtlar `id` ile ezilir. ([8.2](#directory-walk))
-20. Taptime yeniden başladığında (her deploy dahil), bekleyen webhook yeniden denemeleri ve kuyruktaki aktivasyon e-postaları işletmenin bir sonraki dokunuşuna ya da API isteğine kadar bekler. Akış etkilenmez. ([9.8](#webhook-delays))
+20. Taptime yeniden başladığında (her deploy dahil), bekleyen webhook yeniden denemeleri ve kuyruktaki aktivasyon e-postaları işletmenin bir sonraki dokunuşuna ya da API isteğine kadar bekler. Akış etkilenmez. ([10.8](#webhook-delays))
 21. Henüz bir referansa bağlanmamış bir çalışanın punch'ı `employee.externalRef: null` ile gelir. ([6.3](#feed-punch))
 22. Pasifleştirme anahtar başına saatlik bir bütçeyle sınırlıdır; aşılınca cevap 429'dur. ([5.5](#employees-deactivate))
 23. API ve webhook, Taptime'ın işletme için açtığı erişimle çalışır. ([2.1](#auth-enable))
@@ -1176,10 +1367,11 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 31. **`scope=location` ile çalışma süresi hesaplayan entegrasyon dikkat:** bir ortak şirketin çalışanının sizin lokasyonlarınızdaki punch'ları işverenin aradaki olaylarını (öbür şirketin plaketlerindeki dokunuşları) içermez; giriş ve çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Bu `direction` ile de geçerlidir:** her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — sizin lokasyonunuzdaki bir `in`'in eşi orada hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır. ([6.5](#feed-working-time))
 
 <a id="changes"></a>
-## 12. Bu rehberdeki değişiklikler
+## 13. Bu rehberdeki değişiklikler
 
 | Baskı | Tarih | Değişiklikler |
 |---|---|---|
 | 1 | 2026-10-16 | API sürüm 1 için ilk baskı. |
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
 | 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ı kimin: Taptime'ın dokunuş anında hesapladığı yön mü, değil mi. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |
+| 4 | 2026-11-14 | §9 yeni: `GET /v1/timesheets`, işletmenin kendi çalışanlarının bir bordro dönemindeki sayılan çalışma süresi, yerel gün gün — Taptime'ın kendi raporunun rakamları. 9 ile 12 arasındaki bölümler artık 10 ile 13 arasıdır. §3.1: `details.maxDays`; §3.5: `timesheetMaxDays`. |

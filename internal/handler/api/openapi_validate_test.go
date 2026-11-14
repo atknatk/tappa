@@ -42,6 +42,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -211,6 +212,11 @@ func (c schemaChecker) check(schema, val any, where string) []string {
 			case "uuid":
 				if _, err := uuid.Parse(str); err != nil || len(str) != 36 {
 					fail("%q is not a uuid", str)
+				}
+			case "date":
+				// RFC 3339's full-date (the timesheet's days, API-14): exactly YYYY-MM-DD, a real day.
+				if _, err := time.Parse("2006-01-02", str); err != nil || len(str) != 10 {
+					fail("%q is not an RFC 3339 full-date", str)
 				}
 			default:
 				fail("a format the checker does not know: %v", f)
@@ -695,6 +701,26 @@ func (probeDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.Directory
 	return tenant.DirectoryPage{AsOf: time.Now()}, nil
 }
 
+// probeTimesheets answers one employee's period: every figure and every day mark set, so the answer
+// exercises the whole Timesheet schema.
+type probeTimesheets struct{}
+
+func (probeTimesheets) Timesheet(_ context.Context, _ uuid.UUID, q ledger.TimesheetQuery) (ledger.TimesheetPage, error) {
+	period, err := ledger.RangeOf(q.From, q.To, time.UTC)
+	if err != nil {
+		return ledger.TimesheetPage{}, err
+	}
+	ref, code, first, last := "E-1042", "1042", "Jane", "Example"
+	h := ledger.PersonHours{Worked: 8*time.Hour + 30*time.Second, Awaiting: time.Hour, Shifts: 1, Open: 1, OutWithoutIn: 1, ManualShifts: 1,
+		Daily: make([]time.Duration, period.Days()), Marks: make([]ledger.DayMarks, period.Days())}
+	h.Daily[0] = h.Worked
+	h.Marks[0] = ledger.DayMarks{ManualShift: true, Open: true, InMissing: true}
+	next := uuid.New()
+	return ledger.TimesheetPage{Period: period, Zone: time.UTC, HasMore: true, Next: &next, People: []ledger.TimesheetPerson{{
+		Employee: ledger.TimesheetEmployee{ID: next, ExternalRef: &ref, EmployeeCode: &code, FirstName: &first, LastName: &last, FullName: "Jane Example"},
+		Hours:    h}}}, nil
+}
+
 // probe is one request against the shipped surface with fakes set up for one outcome.
 type probe struct {
 	name   string
@@ -724,6 +750,7 @@ func (p probe) run(t *testing.T) *httptest.ResponseRecorder {
 	r := newRig(t, answer, func(c *Config) {
 		c.Writes = &fakeWrites{}
 		c.Locations, c.Employees, c.Punches, c.Directory = probeLocations{created: true}, probeEmployees{created: true}, probePunches{}, probeDirectory{}
+		c.Timesheets = probeTimesheets{}
 		if p.cfg != nil {
 			p.cfg(c)
 		}
@@ -799,7 +826,7 @@ func surfaceProbes() []probe {
 	type route struct{ method, path, body string }
 	routes := []route{{"PUT", "/v1/locations/KF-VLT", locBody}, {"GET", "/v1/employees", ""}, {"GET", "/v1/employees/E-1042", ""},
 		{"PUT", "/v1/employees/E-1042", empBody}, {"DELETE", "/v1/employees/E-1042", ""}, {"POST", "/v1/employees/E-1042/resend-activation", ""},
-		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}}
+		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}, {"GET", "/v1/timesheets?from=2026-11-02&to=2026-11-08", ""}}
 	for _, rt := range routes {
 		out = append(out,
 			probe{name: "no key", method: rt.method, path: rt.path, body: rt.body, want: 401, code: CodeUnauthorized},
@@ -863,6 +890,11 @@ func surfaceProbes() []probe {
 		probe{name: "the directory", method: "GET", path: "/v1/directory", auth: k, want: 200},
 		probe{name: "an unknown parameter", method: "GET", path: "/v1/directory?since=x", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "a query string that does not parse", method: "GET", path: "/v1/directory?li%mit=1", auth: k, want: 400, code: CodeInvalidRequest},
+		// GET /v1/timesheets
+		probe{name: "a timesheet page", method: "GET", path: "/v1/timesheets?from=2026-11-02&to=2026-11-08", auth: k, want: 200},
+		probe{name: "no period", method: "GET", path: "/v1/timesheets", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "an unknown parameter", method: "GET", path: "/v1/timesheets?from=2026-11-02&to=2026-11-08&scope=employer", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "a query string that does not parse", method: "GET", path: "/v1/timesheets?from=2026-11-02&%zz", auth: k, want: 400, code: CodeInvalidRequest},
 	)
 	return out
 }
@@ -1064,6 +1096,7 @@ func TestOpenAPI_EveryRouteAndErrorDocumented(t *testing.T) {
 		"requestTimeoutSeconds":       httpx.RequestTimeout.Seconds(),
 		"feedWindowPositions":         tenant.PunchFeedWindow,
 		"historyMaxHours":             tenant.MaxHistoryRange.Hours(),
+		"timesheetMaxDays":            ledger.TimesheetMaxDays,
 		"directoryOverlapMinutes":     tenant.DirectoryOverlap.Minutes(),
 		"webhookTimeoutSeconds":       egress.TotalTimeout.Seconds(),
 		"webhookAttempts":             delivery.MaxAttempts,
