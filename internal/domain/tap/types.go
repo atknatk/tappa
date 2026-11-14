@@ -68,6 +68,26 @@ const (
 	ChannelManual Channel = "manual" // manager-entered: entered_by set, SUN not sought
 )
 
+// Client is WHICH CLIENT wrote a tap — the value of transactions.client (migration
+// 00105, ADR 0045 §2.4). Like Channel it is SERVER-DERIVED: the endpoint that
+// accepted the request names it (POST /api/checkin → browser, /app/v1 → app), never
+// a body field, a header or a user agent. It is provenance, not evidence: it changes
+// no verdict and no trust score here (M16-06 hands it to the policy context).
+//
+// The zero value is "no client recorded" and is written as NULL — a manual record,
+// and a tap no client wrote (the API sandbox). Writing a value the CHECK does not
+// know would refuse the INSERT with 23514 and lose the record (§4.6), so the write
+// path writes only the values in Clients and NULL for anything else.
+type Client string
+
+const (
+	ClientBrowser Client = "browser" // the tap page in the phone's browser (POST /api/checkin)
+	ClientApp     Client = "app"     // the optional native app's signed surface (/app/v1, M16-07)
+)
+
+// Clients is the closed list, in the CHECK's order (internal/db pins the two together).
+var Clients = []Client{ClientBrowser, ClientApp}
+
 // Verdict is the tap's outcome — the value written to transactions.verdict. It is
 // the Decision's headline field and maps 1:1 from the policy effect in M4-03
 // (allow->ok, review->flag, deny->reject, ignore->ignored).

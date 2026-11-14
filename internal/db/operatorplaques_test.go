@@ -191,6 +191,11 @@ var opAtVersionSkips = map[int]string{
 		"their operator half and IS walked); its Down takes ACCESS EXCLUSIVE on tenants and refuses while a plan " +
 		"change is recorded -- rows the billing tests commit -- and the tenant's own billing statements call " +
 		"tappa_plan_in_force at every version the walk reaches",
+	105: "transactions.client, its NOT VALID CHECK and tappa_app's INSERT on it (M16-04) -- no operator object; its " +
+		"Down takes ACCESS EXCLUSIVE on transactions and refuses while a row carries a client -- rows every tap the " +
+		"other packages' tests commit carries",
+	106: "the validation of 00105's CHECK (M16-04) -- no operator object; its Down drops and adds it again NOT VALID " +
+		"under ACCESS EXCLUSIVE on transactions",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

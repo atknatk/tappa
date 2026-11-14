@@ -431,6 +431,11 @@ var m11Columns = []m11Column{
 	{"transactions", "shift_end", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_overnight", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_timezone", map[string]string{"tappa_app": "SI"}},
+	// 00105 (M16-04, ADR 0045 §2.4): which client wrote a tap. tappa_app reads it through its
+	// table-level SELECT (00005) and inserts it by name (00105's column GRANT -- ADR 0038's rule),
+	// never updates it (§4.3). Neither feed writer reads it: the punch event, /v1 and the site
+	// projection carry no client (the card: carrying it there is a separate decision).
+	{"transactions", "client", map[string]string{"tappa_app": "SI"}},
 	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
 	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
 	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it

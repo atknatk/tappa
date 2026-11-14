@@ -464,6 +464,15 @@ type Request struct {
 	Ctr          uint32
 	Channel      tap.Channel
 	CMACVerified bool
+
+	// Client is which client wrote this tap (transactions.client, migration 00105,
+	// ADR 0045 §2.4), SERVER-DERIVED: the HTTP handler that accepted the request
+	// names it — the tap page's POST /api/checkin passes tap.ClientBrowser, the app's
+	// /app/v1 will pass tap.ClientApp (M16-07). It is never read from the request.
+	// The zero value records NULL ("no client"): a manual record, and the API
+	// sandbox's simulated tap. insertParams forces NULL on the manual channel and on
+	// any value outside tap.Clients (clientColumn).
+	Client tap.Client
 	// TagTenantID is what the TAG resolved to when the page was built. It is
 	// compared against a FRESH resolve here, and the fresh one is what decides —
 	// see Record.
@@ -1766,6 +1775,11 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	// later edit of the venue's or department's hours does not rewrite this week's late count.
 	// Same rule as the two columns above: a DIRECTED nfc/qr decision only.
 	shiftColumns(&p, req.Channel, dec, f)
+	// WHICH CLIENT WROTE THE TAP (M16-04, migration 00105, ADR 0045 §2.4): the handler's
+	// server-derived answer, on every nfc/qr row whatever its verdict -- a refused or ignored
+	// tap was written by a client too. NULL on the manual channel and for a value 00105's CHECK
+	// does not know (clientColumn).
+	p.Client = clientColumn(req.Channel, req.Client)
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was
 	// judged — false on a QR arrival is the M5-08 criterion and a fact, not an
@@ -1902,6 +1916,28 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 	switch src := dec.DirectionSource; src {
 	case tap.DirectionAuto, tap.DirectionEmployee:
 		return &src
+	}
+	return nil
+}
+
+// clientColumn is transactions.client for a request (M16-04, migration 00105):
+//
+//	nfc or qr, a known client   the handler's server-derived value, browser or app
+//	manual                      nil: a manager's record is not a tap, no client touched a plaque
+//	the zero value              nil: no client recorded (the API sandbox's simulated tap)
+//
+// A value outside tap.Clients is nil too, never written: 00105's CHECK would refuse it with
+// 23514 and the record would be lost (§4.6). The handlers pass a constant; this does not rely
+// on it. Unlike the business day and the direction source it does not depend on the decision:
+// a refused or ignored tap still came through a client.
+func clientColumn(channel tap.Channel, client tap.Client) *string {
+	if channel != tap.ChannelNFC && channel != tap.ChannelQR {
+		return nil
+	}
+	switch client {
+	case tap.ClientBrowser, tap.ClientApp:
+		v := string(client)
+		return &v
 	}
 	return nil
 }
