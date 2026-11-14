@@ -270,6 +270,14 @@ eder):
 - Mevcut `android/` rölesi bu kartın kapsamı **dışında** kalır mı içinde mi — ölçülür, gerekçesiyle yazılır
   (`android/README.md` *"redline'ın SRC listesi onu taramaz"* der).
 
+> **Kart düzeltmesi (2026-11-14, M16-02 uygulaması sırasında).** *"Fikstür `testdata` altında"* maddesi, kartın
+> örnek gösterdiği desenle (`redline_b1_test.go`) çelişiyordu ve o desen izlendi: fikstürler test dosyasındaki Go
+> literal'leridir, her koşuda `t.TempDir()` altındaki geçici bir ağaca yazılır (`redlineRun`). Gerekçe ölçülebilir:
+> `cmd/` `SRC`'nin içindedir ve `testdata/`'yı yalnız B1 dışlar — `cmd/tappa/scripttest/testdata/` altına konan bir
+> `LocalAuthentication` satırı gerçek depoyu R1'de kırmızıya çevirirdi. Aynı sebeple test dosyasının kendi metni de
+> ihlali yazmaz: her fikstür `~~` ile maskelidir ve koşuda açılır (`redline_api3_test.go`'nun kuralı). Gerçek
+> `mobile/`'a dosya konmadı. Testler: `cmd/tappa/scripttest/redline_m16_test.go`.
+
 **Tuzaklar.** Kalıplar sözcükseldir: `startMonitoring(for:` gibi bir yazım Swift'in başka API'sini de yakalayabilir —
 muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 

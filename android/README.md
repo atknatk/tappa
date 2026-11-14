@@ -37,8 +37,14 @@ businesses lands on the last one used (ADR 0031 K-4), and the app used to close 
 WebView on the first panel page and arm the reader without saying which business.
 
 This directory is a separate Gradle build at the repository root, **outside the Go
-module**: `go build ./...` never sees it and `scripts/redline-check.sh`'s fixed `SRC`
-list does not scan it. It is **not** part of `make check`.
+module**: `go build ./...` never sees it and it is **not** part of `make check`. But
+`scripts/redline-check.sh` (`make audit`, and CI's audit step) **does** scan it:
+`android` joined the script's `SRC` list in M16-02 (2026-11-14), so R1 (CLAUDE.md
+§4.1), R2 (§4.2), R3, R6 and the R7 family (§4.7 and §7: secrets, personal data and
+coordinates in log calls, Kotlin's `Log` calls included) cover this app as they cover
+the Go code; before that only B1 (`app/src/main`) and R7d did. Measured on the tree of
+that day: zero hits on this directory for every rule. Pin: `cmd/tappa/scripttest`
+`TestRedline_M16_AndroidRelayIsScanned`.
 
 ## Toolchain — measured on this machine (2026-09-18)
 
