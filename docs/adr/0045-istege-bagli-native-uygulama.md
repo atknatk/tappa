@@ -10,7 +10,7 @@
   yalnız rapor**. Geri kalan her şey — mekanizmalar, adlar, yerler, retler, faz sırası — **plan önerisidir**:
   *(Plan önerisi — kullanıcı 2026-11-12'de planı gördü ve yazılmasını onayladı, ayrıca karar vermedi; M16-01'de ADR kabulüyle kesinleşir.)* Bölümlerde *"karar"* ya da *"plan önerisi"* diye ayrıca işaretlidir. **2026-11-14'ten beri plan önerileri de
   karardır** — ADR olduğu gibi kabul edildi; işaretler tarih için yerinde bırakıldı — **açık bir soruya bağlı maddeler
-  hariç** (Q35–Q43; bkz. *Kabul notu* md. 1).
+  hariç** (Q35–Q42; bkz. *Kabul notu* md. 1).
 - **İlgili:** ADR 0001 (stack) · ADR 0004 (policy motoru; §8 *kanal sunucudan türetilir*) · ADR 0005 (kabul edilen
   riskler; risk 1 / A4 buddy punching) · ADR 0006 (debounce sunucu zamanı) · ADR 0017 (Android encode rölesi — repodaki
   ilk Kotlin/Gradle açılımı) · ADR 0026 (aktivasyon ilk NFC dokunuşunda; **Bedel 3**) · ADR 0032 (iş günü, tahmini yön) ·
@@ -176,8 +176,11 @@ politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan öneris
   - **Plaketsiz tap.** Motor her çözülmüş tap'te bir plaket varsayar (`internal/domain/tap/types.go:471-473`); §5 satır 1,
     lokasyon/tenant çözümü (`resolve_tag_by_uid`), holding dokunuşunun site sütunları ve `/v1` `tagId`'si de öyle.
     `qr_live`'da lokasyon ve tenant token'dan, `00004`'ün `resolve_tag_by_uid`'inin eşi olan dar bir SECURITY DEFINER çözümleyiciyle türer (holding'de başka tenant'ın ekran satırını okuyabilmeli; iptal ekran satırındadır, token'da değil); iptal edilmiş ekran satır 1'in eşidir; token tenant'ı oturum
-    tenant'ıyla eşleşmelidir; holding dokunuşunun `qr_live`'a açık olup olmadığı **Q43'e bağlıdır** (açıksa ADR 0027
-    §2 değişikliği ve kullanıcı onayı gerekir — CLAUDE.md §4.5'in holding definer kuralı). Ayrıntı M16-21.
+    tenant'ıyla eşleşmelidir. **Holding dokunuşu canlı QR'a kapalıdır** (Q43, kullanıcı kararı 2026-11-14): KM çalışanı
+    KF'nin canlı QR ekranını okursa dokunuş **reddedilir ama kaydı yazılır** (§4.6); ret satırı site sütunlarını taşır,
+    yani site tenant'ı (KF) `site_punches`'ta bugünkü plaket holding retleri gibi `refused` satırını görür (K-1h: sonucu
+    görür, sebebi değil); ADR 0027 değişmez; `site_punches.channel` CHECK'i `qr_live` için M16-19'da genişler. İleride
+    açmak kullanıcı onayı + ADR 0027 §2 değişikliği ister (CLAUDE.md §4.5'in holding definer kuralı). Ayrıntı M16-21.
   - **Süre dolmuş / imzası bozuk token'ın sonucu** açık soru (Q39).
   - `/v1` punch akışındaki karşılığı açık soru (Q38).
 - **Reddedilenler (plan önerisi):** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
@@ -262,7 +265,7 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
    biçimler (`checkin.go:1154`, `:1777`, `:1796`; `daycutoff.sql:73`; `00068:336`) `qr_live`'ı sessizce kabul eder ya da
    (`:1154`, plaketsiz istek) reddeder. **Bu liste bir başlangıçtır, eksiksizlik kanıtı değildir** — üç plan denetimi
    üç kez yeni bir biçim buldu. Kanıt M16-21'in parite matrisidir: `qr_live` aynı kanıtla `qr`'nin yazdığı her şeyi
-   yazmalıdır (holding'de, Q43 *açık* cevaplanırsa); amacı, bilinen yapısal farkları ve karşılaştırmanın tanımı M16-21'dedir. İkisi sessiz kayıp üretir: akış tetikleyicisi
+   yazmalıdır (holding'de yazdığı şey ret satırıdır — Q43 kapalı); amacı, bilinen yapısal farkları ve karşılaştırmanın tanımı M16-21'dedir. İkisi sessiz kayıp üretir: akış tetikleyicisi
    `NEW.channel NOT IN ('nfc', 'qr')` satırını atlar (`00067:193`) ve Go aynası `feedEligible` aynı şeyi söyler
    (`internal/domain/checkin/checkin.go:1687-1689`); `/v1` şeması kanalı `enum: [nfc, qr]` diye kapatır
    (`internal/handler/api/openapi.yaml:1105`, `:1170`). Ayrıca `sys:tap-freshness` ve `sys:sun-invalid` yalnız NFC'de
@@ -313,14 +316,15 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
 1. **ADR 0045 olduğu gibi kabul edildi.** Bu belgede *"plan önerisi"* diye işaretli maddeler bu kabulle karardır;
    ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
    `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2).
-   **İstisna:** açık bir soruya bağlı maddeler (Q35–Q43; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40, holding
-   `qr_live` → Q43) o soru cevaplanana kadar öneri kalır. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
+   **İstisna:** açık bir soruya bağlı maddeler (Q35–Q42; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40) o soru
+   cevaplanana kadar öneri kalır. Holding `qr_live` Q43'ün cevabıyla (2026-11-14) karardır: kapalı, site sütunları dolu. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
    uç noktaları) kartlarda yine yapıcının ölçümüyle kesinleşir.
 2. **Dal `plan/m16-mobil` push edildi; `main`'e birleştirilmedi.**
 3. **Sıra:** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından **D, E, F**.
 4. **Ön koşullar:** Apple Developer ve Google Play hesapları **hazır**; uygulamalar **Everva Bilişim** hesaplarından
    yayımlanır. Apple Team ID henüz bilinmiyor — **kullanıcıdan alınacak** (M16-08, M16-15). Paket/bundle kimliği açık
    kalır (Q35). Test cihazları ve personel telefon envanteri (M8-07) **hazır diye bildirilmedi** — açık.
-5. Açık sorular Q35–Q42 (ve M16-01 denetiminde eklenen Q43) bu kabulde **cevaplanmadı**; her biri blokladığı kartla `open-questions.md`'de *"açık —
+5. Açık sorular Q35–Q42 bu kabulde **cevaplanmadı**; M16-01 denetiminde eklenen **Q43 aynı gün cevaplandı** (kapalı, site
+   sütunları dolu — §2.5); her biri blokladığı kartla `open-questions.md`'de *"açık —
    bloklar M16-xx"* durumundadır. Q42 açık olduğu için `docs/handoff.md`'nin sloganı ve *"app-less akış"* cümleleri
    değişmedi (M16-01 kartının kuralı).

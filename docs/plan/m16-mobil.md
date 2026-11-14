@@ -678,7 +678,7 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 
 ## M16-19 — Şema: canlı QR ekranları ve `qr_live` kanal envanteri
 
-- **Bağımlılık:** M16-10 · Q38, Q39, Q43 (holding `qr_live`)
+- **Bağımlılık:** M16-10 · Q38, Q39 · Q43 cevaplandı (2026-11-14: holding `qr_live` kapalı, site sütunları dolu)
 - **Kırmızı çizgi:** §4.3, §4.5, §4.6, §6
 - **Araç:** agent `tappa-db-migrator` · **Mercek: iki**
 - **Commit:** `feat(db): add live QR displays and the qr_live channel`
@@ -724,6 +724,9 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   `00067`, `00068`, `00095`; `db/queries/transactions.sql` — **`SecondsSinceLastRecordedTap`'in `channel IN ('nfc',
   'qr')` filtresi (`:317`) dahil**: debounce'un sunucu saati bacağıdır (ADR 0006); `qr_live` oraya girmezse geriye
   tarihlenmiş bir `qr_live` dokunuşu debounce'u sessizce atlar — ve `daycutoff.sql`.
+- **Holding ret satırı (Q43 kapalı, 2026-11-14):** `site_punches.channel` CHECK'i (`00046:137`) `qr_live`'ı kabul
+  edecek şekilde genişler ve `transactions_site_by_channel` (`00043:139-142`) `qr_live` için ret satırının site kolunu
+  (`site_location_id` dolu, `site_tag_uid` NULL) kabul eder.
 - Akış tetikleyicisinin gövdesi (`00067`'nin `punch_feed` fonksiyonu) ve Go aynası `feedEligible` **aynı commit'te**
   Q38'in cevabına göre; parite testi.
 - `Down`: `qr_live` satırı varsa reddeder.
@@ -760,7 +763,7 @@ göstermesi.
 
 ## M16-21 — `qr_live` karar motorunda
 
-- **Bağımlılık:** M16-20 · Q43 (holding `qr_live`)
+- **Bağımlılık:** M16-20 · Q43 cevaplandı (2026-11-14: holding `qr_live` kapalı, site sütunları dolu)
 - **Kırmızı çizgi:** §5 (normatif), §4.6, CLAUDE.md §8
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(tap): accept a live QR as a channel`
@@ -790,14 +793,15 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     `checkin.go:1796-1813` site sütunlarını yalnız plaketin tenant'ı oturumunkinden farklıyken yazar):
     - **yerel:** `qr_live` + IP → satır yazılır, verdict `ok`, `location_id` = ekranın lokasyonu, `tag_uid` NULL,
       `site_tenant_id` / `site_location_id` / `site_tag_uid` NULL;
-    - **holding** (Q43 *açık* cevaplanırsa): `site_tenant_id` = ekranın tenant'ı, `site_location_id` dolu, `site_tag_uid`
-      NULL, `location_id` / `tag_uid` NULL — `transactions_site_by_channel`'ın (`00043:139-142`) M16-19'da eklenen
+    - **holding** (Q43: kapalı — ret, kayıt yazılır): verdict `reject`, `site_tenant_id` = ekranın tenant'ı,
+      `site_location_id` dolu, `site_tag_uid` NULL, `location_id` / `tag_uid` NULL — `transactions_site_by_channel`'ın (`00043:139-142`) M16-19'da eklenen
       `qr_live` kolu ve M16-19'un üçüncü çözümleyicisi.
   - **Token tenant'ı ↔ oturum tenant'ı:** başka tenant'ın canlı QR'ı → ret (`sys:tenant-mismatch`'in eşi); holding
-    durumu (ADR 0027 — KM çalışanı KF ekranında) yapıcının seçimi **değildir**: **Q43'ün cevabına** bağlıdır. Açıksa
-    ADR 0027 §2 değişikliği (holding definer'ının kapsamı, CLAUDE.md §4.5'in *"kullanıcı onayı + ADR 0027 değişikliği
-    ister"* kuralı) **bu kartın teslimidir**; kapalıysa holding `qr_live` reddedilir ve aşağıdaki kapalı dal ölçülür; site sütunları (`site_tag_uid` NULL, `site_location_id` dolu) M16-19'un
-    üçüncü koluyla uyumlu.
+    durumu (ADR 0027 — KM çalışanı KF ekranında) **kapalıdır** (Q43, kullanıcı kararı 2026-11-14): dokunuş
+    reddedilir, kaydı yazılır (§4.6), ret satırı site sütunlarını taşır ve site tenant'ı onu `site_punches`'ta
+    `refused` olarak görür (K-1h); retin sid'ini kart adlandırır (bir guardrail; `sys:tenant-mismatch` değil — o bir
+    yönlendirmedir ve kayıt yazmaz). ADR 0027 değişmez. Site sütunları (`site_tag_uid` NULL, `site_location_id` dolu)
+    M16-19'un üçüncü koluyla uyumlu. *İleride açmak kullanıcı onayı + ADR 0027 §2 değişikliği ister.*
   - **`/v1` `tagId`:** `qr_live` olayında `null` (şema zaten `["string", "null"]`, `openapi.yaml:1130-1133`; açıklaması
     *"also for a QR punch"* der) — anlamı açıklamaya yazılır (Q38).
 - `TestDecide_` önekli vakalar: `qr_live` + IP → `ok` · `qr_live` + GPS-only → `ok` (`base:gps-only-allow`) ·
@@ -811,8 +815,8 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
   hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
-  - **Amaç:** `qr_live`, aynı kanıtla `qr`'nin yazdığı her şeyi yazar — `transactions`, `punch_events` ve (Q43 *açık*
-    cevaplanırsa) holding'de `site_punches`; bir şeyi eksik yazarsa test kırmızıdır ve envanterde adı geçmeyen bir yer de böyle yakalanır.
+  - **Amaç:** `qr_live`, aynı kanıtla `qr`'nin yazdığı her şeyi yazar — `transactions`, `punch_events`; holding'de (Q43
+    kapalı) yazdığı şey ret satırı ve `site_punches`'taki `refused` satırıdır; bir şeyi eksik yazarsa test kırmızıdır ve envanterde adı geçmeyen bir yer de böyle yakalanır.
   - **Yalıtım:** iki kanal aynı çalışanla art arda koşmaz (ikinci dokunuş debounce'a düşer ya da yönü çevirir);
     **varsayılan, birebir aynı fikstürde klonlanmış çalışandır**. Gerekçe: gerçek yol commit eder; dış transaction
     yolu (`checkin.Database` tüketici tarafı arayüzdür, `checkin.go:141-144`) **ayrı bir test bağdaştırıcısı** ister —
@@ -820,11 +824,11 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     kuralıdır, mekanizmanın sınırı değil.
   - **Matris {yerel, holding} × {`ok` dokunuş, `flag` → müdür onayı}** — akış tetikleyicilerinin `qr_live`'ı bir
     `NOT IN` / `IN ('nfc', 'qr')` süzgeciyle sessizce atlayan dört kolu: `00067:193` (yerel `ok`), `:234` (yerel
-    onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri Q43 **açık** cevaplanırsa
-    parite ölçer. **Kapalıysa parite değil şu ölçülür** — holding kuralı statik `qr`'yi hiç reddetmez (K-1g,
+    onay), `:366` (holding `ok`), `:408` (holding onayı). Holding hücreleri **parite değil** şunu ölçer
+    (Q43 kapalı, 2026-11-14) — holding kuralı statik `qr`'yi hiç reddetmez (K-1g,
     `sys:cross-tenant-qr-site-ip`: IP ile `ok`, IP'siz `flag`), bu yüzden bu dalda `qr` hücresi referans değildir:
     `qr_live` reddi bir `transactions` satırı yazar (§4.6) · `punch_events`'e olay girmez · `site_punches` satırı
-    yazılıyorsa `outcome='refused'` ile **CHECK hatasız** yazılır (kapalı küme `00046:139-140`; bugünkü eşleme
+    `outcome='refused'` ile **CHECK hatasız** yazılır (kapalı küme `00046:139-140`; bugünkü eşleme
     `holding_feed`'de, `00067:300`, `:357-363`; `site_punches.channel` CHECK'i `00046:137` M16-19'da genişlemiş olmalı).
   - **Bilinen yapısal farklar** (eşitlik beklenmez): kanal sütunu ve kanal eşlemesi; plaket sütunları; kimlik, sıra ve
     zaman damgası sütunları (`site_punches.bucket_hour` dahil — `now()`'ın saatidir; ya dışlanır ya iki koşu aynı saate
