@@ -1777,8 +1777,8 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	shiftColumns(&p, req.Channel, dec, f)
 	// WHICH CLIENT WROTE THE TAP (M16-04, migration 00105, ADR 0045 §2.4): the handler's
 	// server-derived answer, on every nfc/qr row whatever its verdict -- a refused or ignored
-	// tap was written by a client too. NULL on the manual channel and for a value 00105's CHECK
-	// does not know (clientColumn).
+	// tap was written by a client too. NULL on the manual channel and for a value 00105's CHECKs
+	// do not admit (clientColumn).
 	p.Client = clientColumn(req.Channel, req.Client)
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
 	// "NULL = not evaluated for this channel"). An NFC or QR tap really was
@@ -1924,10 +1924,11 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 //
 //	nfc or qr, a known client   the handler's server-derived value, browser or app
 //	manual                      nil: a manager's record is not a tap, no client touched a plaque
+//	                            (00105's transactions_manual_has_no_client is the second safety)
 //	the zero value              nil: no client recorded (the API sandbox's simulated tap)
 //
-// A value outside tap.Clients is nil too, never written: 00105's CHECK would refuse it with
-// 23514 and the record would be lost (§4.6). The handlers pass a constant; this does not rely
+// A value outside tap.Clients is nil too, never written: 00105's transactions_client_is_known
+// would refuse it with 23514 and the record would be lost (§4.6). The handlers pass a constant; this does not rely
 // on it. Unlike the business day and the direction source it does not depend on the decision:
 // a refused or ignored tap still came through a client.
 func clientColumn(channel tap.Channel, client tap.Client) *string {

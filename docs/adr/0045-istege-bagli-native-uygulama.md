@@ -150,6 +150,10 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   tarihsel satırlar NULL kalır, geri doldurma yok. Değer **sunucudan türetilir** — hangi uç noktanın isteği
   kabul ettiği (`/api/checkin` → `browser`, `/app/v1` → `app`); gövde, başlık ya da user-agent okunmaz (ADR 0004 §8'in
   kanal kuralıyla aynı ilke, `internal/domain/tap/types.go:57`).
+  Şema (M16-04, 00105/00106): değer kümesine **bir** CHECK (`client IS NULL OR client IN ('browser','app')`, NULL'u
+  kabul eder) + manuel satırın client taşımadığına **bir** CHECK (`channel <> 'manual' OR client IS NULL`); tap
+  kanalında `client`'ı **zorunlu kılan CHECK yoktur** — rollout penceresinde eski ikilinin her dokunuşunu 23514 ile
+  reddedip kaybettirirdi (§4.6). Yeni tap satırının dolu olduğunun kanıtı Go testlerindedir.
 - **Policy bağlamı:** `Client` ve `MockLocation` `tap.Input`'a ve `policy_context`'e girer; tenant bunlarla kural
   yazabilir. **Güven puanı formülü değişmez** (`20 + 50 + 30`).
 

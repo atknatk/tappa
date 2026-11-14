@@ -17,17 +17,22 @@
 -- would turn this ADD COLUMN from a catalogue change into a stored default the old rows read back as
 -- 'browser'.
 --
--- ONE CHECK, AND IT ADMITS NULL (the M16-04 card; 00065:22-29 and :57's reasoning). It refuses only a
--- value outside the vocabulary. There is deliberately NO "a tap channel must carry a client" CHECK:
+-- TWO CHECKS, AND BOTH ADMIT NULL (the M16-04 card; 00065:22-29 and :57's reasoning):
+--   transactions_client_is_known       the value set: NULL, 'browser' or 'app', nothing else;
+--   transactions_manual_has_no_client  a manual row carries none (a manager's record is not a tap).
+-- The second is the database's half of clientColumn's manual rule (the M16-04 security review): the
+-- Go write path forces NULL there, and a slip would now be 23514 instead of a false claim on an
+-- immutable row. It is safe during the rollout: the previous binary writes NULL everywhere, and every
+-- historical row is NULL. There is deliberately NO "a tap channel must carry a client" CHECK:
 -- a NOT VALID CHECK still binds every NEW row, so in the window between this migration and the new
 -- pod's rollout the previous binary -- which does not name the column -- would have every NFC and QR
 -- tap refused with 23514, and a refused INSERT is a lost record (§4.6). Its VALIDATE (00106) would also
 -- fail on every database with history. That new rows carry a value is proved in code, not here: the
 -- Go tests (browser path 'browser', manual path NULL; the app path 'app' when M16-07 writes it) and
--- M16-10's end-to-end DB test. The CHECK is written `client IS NULL OR ...` although a NULL already
--- passes `client IN (...)`, so the reader does not have to know that CHECK's NULL rule to see it.
+-- M16-10's end-to-end DB test. The value-set CHECK is written `client IS NULL OR ...` although a NULL
+-- already passes `client IN (...)`, so the reader does not have to know that CHECK's NULL rule to see it.
 --
--- NOT VALID HERE, VALIDATED IN 00106 (00044's pattern): a validating ADD CONSTRAINT CHECK scans every
+-- BOTH NOT VALID HERE, VALIDATED IN 00106 (00044's pattern): a validating ADD CONSTRAINT CHECK scans every
 -- row under the ACCESS EXCLUSIVE this ALTER takes; ADD COLUMN with no default scans nothing. Every old
 -- row is NULL and passes; NOT VALID is chosen for the lock, not for them, and still binds every new
 -- row (internal/db's txclient_test.go measures both).
@@ -53,7 +58,9 @@ SET LOCAL lock_timeout = '1s';
 ALTER TABLE transactions
     ADD COLUMN client text,
     ADD CONSTRAINT transactions_client_is_known
-        CHECK (client IS NULL OR client IN ('browser', 'app')) NOT VALID;
+        CHECK (client IS NULL OR client IN ('browser', 'app')) NOT VALID,
+    ADD CONSTRAINT transactions_manual_has_no_client
+        CHECK (channel <> 'manual' OR client IS NULL) NOT VALID;
 
 GRANT INSERT (client) ON transactions TO tappa_app;
 
@@ -106,5 +113,6 @@ $$;
 
 -- The column grant goes with the column.
 ALTER TABLE transactions
+    DROP CONSTRAINT transactions_manual_has_no_client,
     DROP CONSTRAINT transactions_client_is_known,
     DROP COLUMN client;

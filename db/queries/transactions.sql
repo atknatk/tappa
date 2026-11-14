@@ -414,10 +414,11 @@ LIMIT 1;
 -- Client, set by the handler -- never a body field, header or user agent). NULL on every
 -- row before 00105, on the manual channel (insertParams forces it: a manager's record is
 -- not a tap) and on a row no client wrote (the API sandbox). The three manual statements
--- do not name the column and it has no default, so their rows are NULL. 00105's CHECK
--- (validated by 00106) admits NULL and the two values and nothing else -- there is no
--- "a tap must carry a client" CHECK, because it would refuse the previous binary's taps
--- during the rollout and lose them (section 4.6).
+-- do not name the column and it has no default, so their rows are NULL. 00105's two
+-- CHECKs (validated by 00106): the value set admits NULL and the two values and nothing
+-- else, and a manual row carries no client -- there is no "a tap must carry a client"
+-- CHECK, because it would refuse the previous binary's taps during the rollout and lose
+-- them (section 4.6).
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,

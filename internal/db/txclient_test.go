@@ -1,32 +1,35 @@
 package db
 
 // txclient_test.go -- migrations 00105 and 00106 (M16-04, ADR 0045 §2.4): transactions.client, which
-// client wrote a tap ('browser' | 'app'), and its one CHECK.
+// client wrote a tap ('browser' | 'app'), and its two CHECKs.
 //
 // What is pinned, and why each half:
 //   - the column's shape: nullable, no default, no stored missing value -- a default would be a claim
 //     on every old row (§4.3), NOT NULL would refuse every manual INSERT;
-//   - ONE CHECK names the column, it admits NULL, and at HEAD it is validated (00106). There is no
+//   - TWO CHECKs name the column -- the value set (admits NULL) and "a manual row carries none" --
+//     and at HEAD both are validated (00106). There is no
 //     "a tap channel must carry a client" CHECK: it would refuse the previous binary's taps during
 //     the rollout and lose them (§4.6). The proof that a new tap carries a client is the Go side's
 //     (internal/handler's client_db_test.go, internal/domain/checkin's client_test.go);
 //   - the CHECK through the tap's own statement as tappa_app: NULL and every tap.Clients value land,
-//     everything else is 23514 on the one constraint -- the Go vocabulary and the CHECK's are one;
+//     every other value is 23514 on the value-set CHECK -- the Go vocabulary and the CHECK's are one --
+//     and any client on a manual row is 23514 on the manual CHECK;
 //   - the previous binary's InsertTransaction (no client) still lands on the new schema, nfc and qr,
 //     and reads NULL -- the expand half of the deploy;
 //   - of the shipped INSERTs only InsertTransaction names the column (the three manual statements
 //     write NULL);
 //   - tappa_app inserts it by name (ADR 0038), never updates it; no other role reads it (the punch
 //     feed, /v1 and the holding projection do not carry it -- the card);
-//   - 00105's ALTER scans nothing and 00106's VALIDATE scans, over historical NULL rows, and succeeds;
+//   - 00105's ALTER scans nothing and 00106's VALIDATEs scan, over historical NULL rows, and succeed;
 //     00106 holds SHARE UPDATE EXCLUSIVE and a tap is written while it does;
 //   - both files open with the lock_timeout; 00105's Down locks before it looks, refuses while a row
-//     carries a client and otherwise gives back 00104's catalogue; 00106's Down gives back NOT VALID by
-//     the same text; the Ups take HEAD again.
+//     carries a client and otherwise gives back 00104's catalogue; 00106's Down gives back both NOT
+//     VALID by the same text; the Ups take HEAD again.
 //
 // ⚠️ 00104 IS NOT IN THIS BRANCH (M16-03 takes it, in parallel). goose applies 00103, 00105, 00106 on a
-// fresh database without complaint; a database already at 00106 that later meets 00104 needs goose's
-// allow-missing or a fresh database. The tests read the files from db/migrations and run their sections
+// fresh database without complaint; a database already at 00105/00106 cannot take 00104 later (the
+// repo does not run goose with -allow-missing) and must be rebuilt -- so M16-03 reaches main before or
+// together with M16-04 (docs/plan/m16-mobil.md, "Migration ve ADR numaraları"). The tests read the files from db/migrations and run their sections
 // by name, so the gap changes none of them; "00104's catalogue" below means "every file under 00105".
 
 import (
@@ -51,10 +54,14 @@ import (
 
 const (
 	clientFile         = "00105_record_which_client_wrote_a_tap.sql"
-	clientValidateFile = "00106_validate_the_client_check.sql"
+	clientValidateFile = "00106_validate_the_client_checks.sql"
 	clientCheck        = "transactions_client_is_known"
-	// clientCheckDef is the CHECK as pg_get_constraintdef prints it.
+	// clientCheckDef is the value-set CHECK as pg_get_constraintdef prints it.
 	clientCheckDef = "CHECK (((client IS NULL) OR (client = ANY (ARRAY['browser'::text, 'app'::text]))))"
+	// clientManualCheck is the second CHECK: a manual row carries no client (the M16-04 security
+	// review -- the database's half of clientColumn's manual rule).
+	clientManualCheck    = "transactions_manual_has_no_client"
+	clientManualCheckDef = "CHECK (((channel <> 'manual'::text) OR (client IS NULL)))"
 	// clientMigration is 00105's number.
 	clientMigration = 105
 )
@@ -129,18 +136,19 @@ func clRead(t *testing.T, ctx context.Context, q opQuerier) clSurface {
 	return s
 }
 
-// TestTxClient00105_TheColumnIsNullableWithNoDefaultAndOneValidatedCheck: at HEAD the column is a
-// nullable text with no default and no stored missing value, exactly one constraint names it -- the
-// CHECK that admits NULL, validated by 00106 -- tappa_app inserts it by name and updates nothing, and
-// no other role reads it.
-func TestTxClient00105_TheColumnIsNullableWithNoDefaultAndOneValidatedCheck(t *testing.T) {
+// TestTxClient00105_TheColumnIsNullableWithNoDefaultAndTwoValidatedChecks: at HEAD the column is a
+// nullable text with no default and no stored missing value, exactly two constraints name it -- the
+// value set (admits NULL) and "a manual row carries none", both validated by 00106; no CHECK forces a
+// client on a tap channel -- tappa_app inserts it by name and updates nothing, and no other role
+// reads it.
+func TestTxClient00105_TheColumnIsNullableWithNoDefaultAndTwoValidatedChecks(t *testing.T) {
 	ctx, tx := opTx(t)
 	got := clRead(t, ctx, tx)
 	if want := "text notnull=false default=- missing=false"; got.column != want {
 		t.Errorf("transactions.client at HEAD: %q, want %q", got.column, want)
 	}
-	if want := clientCheck + " validated=true " + clientCheckDef; got.checks != want {
-		t.Errorf("the constraints naming client at HEAD:\n %s\nwant exactly one, validated\n %s", got.checks, want)
+	if want := clientCheck + " validated=true " + clientCheckDef + " | " + clientManualCheck + " validated=true " + clientManualCheckDef; got.checks != want {
+		t.Errorf("the constraints naming client at HEAD:\n %s\nwant exactly these two, validated\n %s", got.checks, want)
 	}
 	if !slices.Contains(strings.Split(got.appInsert, ","), "client") {
 		t.Errorf("tappa_app's INSERT on transactions %q does not carry client (ADR 0038: a new column is granted by name)", got.appInsert)
@@ -175,9 +183,10 @@ func clString(t *testing.T, ctx context.Context, q opQuerier, sql string, args .
 // TestTxClient00105_TheCheckAdmitsNullAndTheTwoClientsAndRefusesEveryOther goes through the tap's own
 // statement as tappa_app under RLS, each write rolled back. NULL lands on every channel and verdict --
 // the previous binary's rows, the manual rows, the sandbox's -- and every tap.Clients value lands on
-// nfc and qr (so a Go constant the CHECK refuses is red here); every other value is 23514 on the one
-// constraint. A client on a MANUAL row lands too: the CHECK does not judge the channel (that would be
-// the rejected "tap channel" CHECK's twin), the write path forces NULL there (clientColumn).
+// nfc and qr (so a Go constant the CHECK refuses is red here); every other value is 23514 on the
+// value-set CHECK. Any client on a MANUAL row -- each tap.Clients value -- is 23514 on the manual
+// CHECK, by name (the database's half of clientColumn's manual rule). A tap channel with NULL lands:
+// there is no "tap channel must carry a client" CHECK.
 func TestTxClient00105_TheCheckAdmitsNullAndTheTwoClientsAndRefusesEveryOther(t *testing.T) {
 	d := appDB(t)
 	w := bdNewWorld(t, d)
@@ -187,30 +196,32 @@ func TestTxClient00105_TheCheckAdmitsNullAndTheTwoClientsAndRefusesEveryOther(t 
 		name, verdict, channel string
 		direction              *string
 		client                 *string
-		refused                bool
+		refusedBy              string // "" = it lands
 	}
 	tests := []row{
-		{"NULL on an nfc ok (every row before 00105)", "ok", "nfc", ptrStr("in"), nil, false},
-		{"NULL on a qr flag", "flag", "qr", ptrStr("out"), nil, false},
-		{"NULL on an nfc reject", "reject", "nfc", nil, nil, false},
-		{"NULL on a manual row", "ok", "manual", ptrStr("in"), nil, false},
-		{"a client on a manual row is the code's to refuse, not the CHECK's", "ok", "manual", ptrStr("in"), ptrStr("browser"), false},
-		{"an unknown client", "ok", "nfc", ptrStr("in"), ptrStr("ios"), true},
-		{"android is no client", "ok", "nfc", ptrStr("in"), ptrStr("android"), true},
-		{"web is no client", "ok", "qr", ptrStr("in"), ptrStr("web"), true},
-		{"a capital is no client", "ok", "nfc", ptrStr("in"), ptrStr("Browser"), true},
-		{"an upper-case app is no client", "ok", "nfc", ptrStr("in"), ptrStr("APP"), true},
-		{"a padded value is no client", "ok", "nfc", ptrStr("in"), ptrStr(" browser"), true},
-		{"the empty string is no client", "reject", "nfc", nil, ptrStr(""), true},
-		{"an unknown client on a manual row", "ok", "manual", ptrStr("in"), ptrStr("kiosk"), true},
+		{"NULL on an nfc ok (every row before 00105)", "ok", "nfc", ptrStr("in"), nil, ""},
+		{"NULL on a qr flag", "flag", "qr", ptrStr("out"), nil, ""},
+		{"NULL on an nfc reject", "reject", "nfc", nil, nil, ""},
+		{"NULL on a manual row", "ok", "manual", ptrStr("in"), nil, ""},
+		{"an unknown client", "ok", "nfc", ptrStr("in"), ptrStr("ios"), clientCheck},
+		{"android is no client", "ok", "nfc", ptrStr("in"), ptrStr("android"), clientCheck},
+		{"web is no client", "ok", "qr", ptrStr("in"), ptrStr("web"), clientCheck},
+		{"a capital is no client", "ok", "nfc", ptrStr("in"), ptrStr("Browser"), clientCheck},
+		{"an upper-case app is no client", "ok", "nfc", ptrStr("in"), ptrStr("APP"), clientCheck},
+		{"a padded value is no client", "ok", "nfc", ptrStr("in"), ptrStr(" browser"), clientCheck},
+		{"the empty string is no client", "reject", "nfc", nil, ptrStr(""), clientCheck},
+		// Both CHECKs refuse it; PostgreSQL reports the first by name (measured), and the row is
+		// refused either way.
+		{"an unknown client on a manual row", "ok", "manual", ptrStr("in"), ptrStr("kiosk"), clientCheck},
 	}
 	for _, c := range tap.Clients {
 		v := string(c)
 		tests = append(tests,
-			row{"an nfc ok from the " + v, "ok", "nfc", ptrStr("in"), &v, false},
-			row{"a qr flag from the " + v, "flag", "qr", ptrStr("out"), &v, false},
-			row{"an nfc reject from the " + v, "reject", "nfc", nil, &v, false},
-			row{"an nfc ignored from the " + v, "ignored", "nfc", nil, &v, false})
+			row{"an nfc ok from the " + v, "ok", "nfc", ptrStr("in"), &v, ""},
+			row{"a qr flag from the " + v, "flag", "qr", ptrStr("out"), &v, ""},
+			row{"an nfc reject from the " + v, "reject", "nfc", nil, &v, ""},
+			row{"an nfc ignored from the " + v, "ignored", "nfc", nil, &v, ""},
+			row{"a manual row naming the " + v, "ok", "manual", ptrStr("in"), &v, clientManualCheck})
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -233,10 +244,10 @@ func TestTxClient00105_TheCheckAdmitsNullAndTheTwoClientsAndRefusesEveryOther(t 
 			})
 			code, name := m11Constraint(err)
 			switch {
-			case !tc.refused && !errors.Is(err, rollback):
+			case tc.refusedBy == "" && !errors.Is(err, rollback):
 				t.Errorf("refused: %v", err)
-			case tc.refused && (code != "23514" || name != clientCheck):
-				t.Errorf("answered %v, want 23514 on %s", err, clientCheck)
+			case tc.refusedBy != "" && (code != "23514" || name != tc.refusedBy):
+				t.Errorf("answered %v, want 23514 on %s", err, tc.refusedBy)
 			}
 		})
 	}
@@ -409,8 +420,9 @@ func TestTxClient00105_OnlyTheTapsInsertNamesTheClient(t *testing.T) {
 // can see: every section's first statement is the lock_timeout (the hot-table rule), 00105's Down's
 // next is the LOCK TABLE, before the DO block's EXISTS (without it a tap's uncommitted client is
 // invisible to the check and the DROP COLUMN then erases it), the two files name transactions alone,
-// 00105 adds the column with no DEFAULT and no NOT NULL and exactly one CHECK, NOT VALID, and no Up
-// writes a row (no back-fill, §4.3).
+// 00105 adds the column with no DEFAULT and no NOT NULL and exactly two CHECKs, NOT VALID -- the
+// value set and "a manual row carries none", neither demanding a client anywhere (no `client IS NOT
+// NULL`) -- and no Up writes a row (no back-fill, §4.3).
 func TestTxClient00105And00106_OpenWithALockTimeoutAndTheDownLocksBeforeItLooks(t *testing.T) {
 	statements := func(section string) []string {
 		var out []string
@@ -439,11 +451,19 @@ func TestTxClient00105And00106_OpenWithALockTimeoutAndTheDownLocksBeforeItLooks(
 	if col := regexp.MustCompile(`ADD COLUMN client[^,;]*`).FindString(body); strings.TrimSpace(col) != "ADD COLUMN client text" {
 		t.Errorf("00105 adds %q, want exactly %q -- no DEFAULT (a claim on every old row), no NOT NULL", col, "ADD COLUMN client text")
 	}
-	if n := strings.Count(body, "CHECK ("); n != 1 {
-		t.Errorf("00105's Up adds %d CHECKs, want one -- a CHECK forcing a client on a tap channel loses the previous binary's taps (§4.6)", n)
+	if n := strings.Count(body, "CHECK ("); n != 2 {
+		t.Errorf("00105's Up adds %d CHECKs, want two: the value set and the manual rule", n)
 	}
-	if !regexp.MustCompile(`(?s)CHECK \(client IS NULL OR client IN \('browser', 'app'\)\) NOT VALID;`).MatchString(body) {
-		t.Error("00105's CHECK is not `client IS NULL OR client IN ('browser', 'app')` NOT VALID")
+	for _, want := range []string{
+		`ADD CONSTRAINT ` + clientCheck + `\s+CHECK \(client IS NULL OR client IN \('browser', 'app'\)\) NOT VALID,`,
+		`ADD CONSTRAINT ` + clientManualCheck + `\s+CHECK \(channel <> 'manual' OR client IS NULL\) NOT VALID;`,
+	} {
+		if !regexp.MustCompile(`(?s)` + want).MatchString(body) {
+			t.Errorf("00105's Up does not carry %s", want)
+		}
+	}
+	if strings.Contains(body, "client IS NOT NULL") {
+		t.Error("00105's Up demands a client somewhere -- a CHECK forcing a client on a tap channel loses the previous binary's taps (§4.6)")
 	}
 	for name, section := range map[string]string{"00105 Up": up105, "00106 Up": up106} {
 		if m := regexp.MustCompile(`(?i)\b(UPDATE|INSERT INTO|DELETE FROM)\s+(public\.)?transactions\b`).FindString(opStatementsOnly(section)); m != "" {
@@ -456,16 +476,20 @@ func TestTxClient00105And00106_OpenWithALockTimeoutAndTheDownLocksBeforeItLooks(
 // read (TestDirectionSource00065_TheAlterScansNothingAnd00066Scans' method): 00105's ALTER, run
 // against a scratch copy of transactions' shape without the column and holding history, scans it ZERO
 // times (pg_stat_xact_user_tables.seq_scan) and leaves every old row NULL; 00106's VALIDATE over that
-// history -- every row NULL -- scans it and succeeds. CONTROL: the same ALTER with NOT VALID removed
+// history -- every row NULL, manual rows among them -- scans it and succeeds, for each of the two. CONTROL: the same ALTER with NOT VALID removed
 // scans -- the measure can tell a scan.
 func TestTxClient00105_TheAlterScansNothingAnd00106ScansHistory(t *testing.T) {
 	ctx, tx := opTx(t)
 	up105, _ := opMigrationSections(t, clientFile)
 	up106, _ := opMigrationSections(t, clientValidateFile)
 	alter := regexp.MustCompile(`(?s)ALTER TABLE transactions\s+ADD COLUMN client.*?NOT VALID;`).FindString(up105)
-	validate := regexp.MustCompile(`ALTER TABLE transactions VALIDATE CONSTRAINT \w+;`).FindString(up106)
-	if alter == "" || validate == "" {
-		t.Fatalf("00105's ALTER (%q) or 00106's VALIDATE (%q) not found", alter, validate)
+	validates := regexp.MustCompile(`ALTER TABLE transactions VALIDATE CONSTRAINT (\w+);`).FindAllStringSubmatch(up106, -1)
+	var validated []string
+	for _, m := range validates {
+		validated = append(validated, m[1])
+	}
+	if alter == "" || strings.Join(validated, ",") != clientCheck+","+clientManualCheck {
+		t.Fatalf("00105's ALTER (%q) not found, or 00106 validates %v, want %s and %s", alter, validated, clientCheck, clientManualCheck)
 	}
 	const rows = 50000
 	scratch := strings.NewReplacer("ALTER TABLE transactions", "ALTER TABLE zz_m1604_tx",
@@ -475,7 +499,7 @@ func TestTxClient00105_TheAlterScansNothingAnd00106ScansHistory(t *testing.T) {
 		`ALTER TABLE zz_m1604_tx DROP COLUMN client`,
 		fmt.Sprintf(`INSERT INTO zz_m1604_tx (tenant_id, occurred_at, verdict, channel, type)
 		             SELECT gen_random_uuid(), now(), CASE WHEN g %% 2 = 0 THEN 'ok' ELSE 'reject' END,
-		                    CASE WHEN g %% 3 = 0 THEN 'qr' ELSE 'nfc' END, CASE WHEN g %% 2 = 0 THEN 'in' END
+		                    CASE WHEN g %% 5 = 0 THEN 'manual' WHEN g %% 3 = 0 THEN 'qr' ELSE 'nfc' END, CASE WHEN g %% 2 = 0 THEN 'in' END
 		               FROM generate_series(1, %d) AS g`, rows),
 	} {
 		if _, err := tx.Exec(ctx, s); err != nil {
@@ -498,11 +522,14 @@ func TestTxClient00105_TheAlterScansNothingAnd00106ScansHistory(t *testing.T) {
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM zz_m1604_tx WHERE client IS NOT NULL`); n != 0 {
 			t.Errorf("after 00105's ALTER %d of %d old rows carry a client, want 0 -- the column back-fills nothing (§4.3)", n, rows)
 		}
-		if n := scans(sp, scratch.Replace(validate)); n == 0 {
-			t.Errorf("00106's VALIDATE scanned nothing -- a VALIDATE reads every row; the measure cannot tell a scan")
+		for _, m := range validates {
+			if n := scans(sp, scratch.Replace(m[0])); n == 0 {
+				t.Errorf("%s scanned nothing -- a VALIDATE reads every row; the measure cannot tell a scan", m[0])
+			}
 		}
-		if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_constraint WHERE conrelid = 'zz_m1604_tx'::regclass AND conname = 'zz_m1604_client_is_known' AND convalidated`); n != 1 {
-			t.Error("00106's VALIDATE over historical NULL rows left the CHECK unvalidated")
+		if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_constraint WHERE conrelid = 'zz_m1604_tx'::regclass
+		                             AND conname IN ('zz_m1604_client_is_known', 'zz_m1604_manual_has_no_client') AND convalidated`); n != 2 {
+			t.Errorf("00106's VALIDATEs over historical NULL rows left %d of the two CHECKs validated, want 2", n)
 		}
 	})
 	holdingInSavepoint(t, tx, func(sp pgx.Tx) {
@@ -591,7 +618,8 @@ func TestTxClient00105And00106_DownsRefuseAClientAndOtherwiseGiveBack(t *testing
 	up106, down106 := opMigrationSections(t, clientValidateFile)
 	lockForDowns(t, ctx, tx, []string{"transactions"})
 	head := clRead(t, ctx, tx)
-	notValid := clientCheck + " validated=false " + clientCheckDef + " NOT VALID"
+	notValid := clientCheck + " validated=false " + clientCheckDef + " NOT VALID | " +
+		clientManualCheck + " validated=false " + clientManualCheckDef + " NOT VALID"
 
 	fixture := func(sp pgx.Tx) (tenant, venue, person uuid.UUID) {
 		t.Helper()
@@ -622,13 +650,18 @@ func TestTxClient00105And00106_DownsRefuseAClientAndOtherwiseGiveBack(t *testing
 			opRunSection(t, ctx, sp, down106, "00106 Down")
 			at105 := clRead(t, ctx, sp)
 			if at105.checks != notValid || at105.column != head.column || at105.appInsert != head.appInsert {
-				t.Errorf("after 00106's Down:\n %+v\nwant the CHECK by the same text, NOT VALID (%q), the rest HEAD's", at105, notValid)
+				t.Errorf("after 00106's Down:\n %+v\nwant both CHECKs by the same text, NOT VALID (%q), the rest HEAD's", at105, notValid)
 			}
 			tenant, venue, person := fixture(sp)
 			err := ssTry(t, ctx, sp, fmt.Sprintf(`INSERT INTO transactions (tenant_id, employee_id, location_id, type, occurred_at, verdict, channel, client)
 			                                      VALUES ('%s', '%s', '%s', 'in', now(), 'ok', 'nfc', 'ios')`, tenant, person, venue))
 			if code, name := m11Constraint(err); code != "23514" || name != clientCheck {
 				t.Errorf("a NEW 'ios' under the NOT VALID CHECK answered %v, want 23514 on %s", err, clientCheck)
+			}
+			err = ssTry(t, ctx, sp, fmt.Sprintf(`INSERT INTO transactions (tenant_id, employee_id, location_id, type, occurred_at, verdict, channel, entered_by, client)
+			                                     VALUES ('%s', '%s', '%s', 'in', now(), 'ok', 'manual', '%s', 'browser')`, tenant, person, venue, person))
+			if code, name := m11Constraint(err); code != "23514" || name != clientManualCheck {
+				t.Errorf("a NEW manual row with a client under the NOT VALID CHECK answered %v, want 23514 on %s", err, clientManualCheck)
 			}
 			for _, c := range tap.Clients {
 				dsSavepoint(t, ctx, sp, func(one pgx.Tx) {

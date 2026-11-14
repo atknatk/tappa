@@ -75,7 +75,7 @@ const (
 // no verdict and no trust score here (M16-06 hands it to the policy context).
 //
 // The zero value is "no client recorded" and is written as NULL — a manual record,
-// and a tap no client wrote (the API sandbox). Writing a value the CHECK does not
+// and a tap no client wrote (the API sandbox). Writing a value the CHECKs do not
 // know would refuse the INSERT with 23514 and lose the record (§4.6), so the write
 // path writes only the values in Clients and NULL for anything else.
 type Client string
