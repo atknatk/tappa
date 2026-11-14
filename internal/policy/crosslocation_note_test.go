@@ -157,11 +157,13 @@ func sameVersion(a, b *uuid.UUID) bool {
 }
 
 // tapShapes enumerates every combination of the inputs the tap-evidence baseline
-// reads: channel, IP, GPS, GPS conflict, a queued skew, a counter gap and the
-// cross-location fact -- 2^7 = 128 contexts.
+// reads: channel, IP, GPS, GPS conflict, a queued skew, a counter gap, the
+// cross-location fact and the app's mock-location report (absent or true -- a
+// browser has none, and false matches nothing a missing key does not) -- 2^8 = 256
+// contexts.
 func tapShapes() []map[ContextKey]any {
 	var out []map[ContextKey]any
-	for bits := 0; bits < 1<<7; bits++ {
+	for bits := 0; bits < 1<<8; bits++ {
 		on := func(i int) bool { return bits&(1<<i) != 0 }
 		channel, skew, gap := channelNFC, float64(5), float64(0)
 		if on(0) {
@@ -173,10 +175,14 @@ func tapShapes() []map[ContextKey]any {
 		if on(5) {
 			gap = 1
 		}
-		out = append(out, map[ContextKey]any{
+		keys := map[ContextKey]any{
 			CtxTapChannel: channel, CtxTapIPMatch: on(1), CtxTapGPSMatch: on(2), CtxTapGPSConflict: on(3),
 			CtxTapOccurredAtSkewSeconds: skew, CtxTapCtrGap: gap, CtxEmployeeCrossLocation: on(6),
-		})
+		}
+		if on(7) {
+			keys[CtxTapMockLocation] = true
+		}
+		out = append(out, keys)
 	}
 	return out
 }
@@ -184,11 +190,11 @@ func tapShapes() []map[ContextKey]any {
 // TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline is T125's behaviour
 // inventory, as a test. Under the FULL default baseline (a tenant that changed
 // nothing), the old allow and the new note give the same effect, sid, layer and
-// reason on all 128 input shapes: the old allow never won (the evidence allows
+// reason on all 256 input shapes: the old allow never won (the evidence allows
 // precede it in document order; every review out-restricts it). So a customer who
 // switched nothing sees no verdict change -- only the note on the record.
 //
-// Then every one of the 2^7 ways to switch the SEVEN other tap documents off is
+// Then every one of the 2^8 ways to switch the EIGHT other tap documents off is
 // walked: wherever the outcome differs, the old one was an allow decided by the
 // cross-location note and the new one is a review -- the change only ever TIGHTENS,
 // and only where a tenant switched an evidence rule off.
@@ -204,7 +210,7 @@ func TestBaseline_NoteOnlyChangesNoOutcomeUnderTheDefaultBaseline(t *testing.T) 
 	}
 
 	others := []string{SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview, SidQRRequiresIP,
-		SidQueuedWindow, SidCtrGapReview, SidGPSConflictReview}
+		SidQueuedWindow, SidCtrGapReview, SidGPSConflictReview, SidMockLocationReview}
 	diffsBySubset := map[string]int{}
 	for mask := 0; mask < 1<<len(others); mask++ {
 		var off []string
@@ -390,6 +396,50 @@ func TestBaseline_EveryBumpIsAnnounced(t *testing.T) {
 	}
 }
 
+// TestBaseline_TheMockLocationRuleIsAnnouncedAsAnAddition: 2026-11-14 ships ONE new
+// document (M16-06, ADR 0045 Bedel 10) and announces it as an addition -- never as
+// a change to a stored copy, because a stored copy of it was materialised from that
+// very release -- and the only documents that carry an addition are the ones that
+// did not exist at the first stamp.
+func TestBaseline_TheMockLocationRuleIsAnnouncedAsAnAddition(t *testing.T) {
+	var mockDoc string
+	for _, d := range Baseline() {
+		if d.Document.Statements[0].Sid == SidMockLocationReview {
+			mockDoc = d.Name
+		}
+	}
+	if mockDoc == "" {
+		t.Fatal("no shipped document carries base:mock-location-review")
+	}
+	add, ok := BaselineAddition(mockDoc)
+	if !ok || add.Version != "2026-11-14" || !add.Added {
+		t.Fatalf("BaselineAddition(%q) = %+v, %v; want the 2026-11-14 addition", mockDoc, add, ok)
+	}
+	for _, word := range []string{"app", "browser", "Switch it off"} {
+		if !strings.Contains(add.Summary, word) {
+			t.Fatalf("the announcement does not say %q: %s", word, add.Summary)
+		}
+	}
+	if got := BaselineChangesSince(mockDoc, "2026-07-26"); len(got) != 0 {
+		t.Fatalf("an addition is reported as a change to a stored copy: %+v", got)
+	}
+	added := 0
+	for _, d := range Baseline() {
+		if _, ok := BaselineAddition(d.Name); ok {
+			added++
+			if d.Name != mockDoc {
+				t.Fatalf("%q is announced as added but shipped at the first stamp", d.Name)
+			}
+		}
+	}
+	if added != 1 {
+		t.Fatalf("%d shipped documents carry an addition, want 1", added)
+	}
+	if _, ok := BaselineAddition("no such document"); ok {
+		t.Fatal("an unknown document has an addition")
+	}
+}
+
 // shippedDigests pins the managed baseline's CONTENT to its stamp: the sha256 of
 // Baseline() serialised with every document's Version blanked. A change to any
 // effect, condition, action, resource, reason or name changes the digest; the
@@ -398,6 +448,7 @@ func TestBaseline_EveryBumpIsAnnounced(t *testing.T) {
 // Add a line per bump; never edit an old one.
 var shippedDigests = map[string]string{
 	"2026-10-18": "4fbc6395db2cb3829f934883d180f84a4981a0d25ef7e75955d15e2aba4758d9",
+	"2026-11-14": "f717a10390cebbcfe1200acecbbea07a49ca6fe149bab3be7d4eb0e3d597ebb4",
 }
 
 func TestBaseline_ContentIsPinnedToItsStamp(t *testing.T) {

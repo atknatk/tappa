@@ -595,6 +595,13 @@ templ policyRule(r PolicyRuleView) {
 					<p class="text-sm text-ink">{ r.Outdated }</p>
 				</div>
 			}
+			if r.Added != "" {
+				// M16-06 / ADR 0045 Bedel 10: a rule a newer release added, told on the rule itself.
+				<div class="flex flex-col gap-1 rounded-xl border border-dashed border-saffron bg-saffron-lite px-3.5 py-3">
+					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">New · added by a newer baseline</p>
+					<p class="text-sm text-ink">{ r.Added }</p>
+				</div>
+			}
 			if r.Problem != "" {
 				@components.PanelNotice(components.ToneAlert, "This rule is not being applied") {
 					<p>

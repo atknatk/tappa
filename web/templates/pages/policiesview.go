@@ -159,6 +159,11 @@ type PolicyRuleView struct {
 	// an error, and it says so.
 	Stamp    string
 	Outdated string
+	// Added is the sentence shown on a rule a newer release ADDED to the baseline
+	// after this business was set up (tenant.Rule.Added). Unlike a change, an
+	// addition does reach the business on its own -- on its next tap, with no
+	// accept step (ADR 0045 Bedel 10) -- so it is said, not left to be noticed.
+	Added string
 	// Problem explains an unreadable document in the parser's own words.
 	Problem     string
 	Statements  []PolicyStatementView

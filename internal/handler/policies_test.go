@@ -804,6 +804,7 @@ var policyBranchWitness = map[string]string{
 	`r.Version != ""@1`:         "version 4241",
 	`r.Stamp != ""@1`:           "zz-branch-stamp",
 	`r.Outdated != ""@1`:        "zz-branch-shipped",
+	`r.Added != ""@1`:           "zz-branch-added",
 	`r.Problem != ""@1`:         "This rule is not being applied",
 	`i > 0 && s.Reason != ""@1`: "zz-branch-second-reason",
 	`r.Lead != ""@1`:            "zz-branch-reason",
@@ -1963,6 +1964,11 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 			Name: "zz-branch-stale-rule", State: tenant.StateActive, VersionNo: 1,
 			StoredStamp: "zz-branch-old", ShippedStamp: "zz-branch-shipped",
 			Changes: []string{"zz-branch-change"},
+		},
+		{
+			// Added: a rule a newer release added after this business was set up (M16-06).
+			Name: "zz-branch-added-rule", Managed: true, State: tenant.StateNotProvisioned,
+			ShippedStamp: "zz-branch-shipped", Added: "zz-branch-added",
 		},
 	}
 	for i := range sentinels.Authorities {
@@ -3145,5 +3151,32 @@ func TestPolicyRuleView_AnnouncesABaselineChangeOnlyWhereItChangesTheRule(t *tes
 	}
 	if got := policyRuleView(untouched, time.UTC, false, policyEditor{}); got.Outdated != "" {
 		t.Errorf("a rule the release did not change announces %q", got.Outdated)
+	}
+}
+
+// TestPolicyRuleView_AnnouncesAnAddedRuleInItsOwnWords is the 2026-11-14 bump on the
+// page (M16-06, ADR 0045 Bedel 10): an added rule carries its announcement as Added,
+// never through the Outdated sentence -- whose "Nothing changes on its own" is false
+// for a rule the next tap writes -- in both states it can be in.
+func TestPolicyRuleView_AnnouncesAnAddedRuleInItsOwnWords(t *testing.T) {
+	add, ok := policy.BaselineAddition("Taptime baseline — mock location review")
+	if !ok {
+		t.Fatal("the shipped baseline announces no added mock-location rule")
+	}
+	for _, st := range []tenant.RuleState{tenant.StateNotProvisioned, tenant.StateActive} {
+		r := tenant.Rule{
+			Name: "Taptime baseline — mock location review", Managed: true, State: st,
+			ShippedStamp: policy.BaselineVersion, Added: add.Summary,
+		}
+		if st == tenant.StateActive {
+			r.StoredStamp = policy.BaselineVersion
+		}
+		got := policyRuleView(r, time.UTC, false, policyEditor{})
+		if got.Added != add.Summary {
+			t.Errorf("%s: Added = %q, want the announcement", st, got.Added)
+		}
+		if got.Outdated != "" {
+			t.Errorf("%s: an added rule says it is outdated: %q", st, got.Outdated)
+		}
 	}
 }

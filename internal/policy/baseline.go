@@ -111,7 +111,27 @@ import "github.com/google/uuid"
 // missing: the shipped documents' bytes (stamp excluded) are pinned per stamp, so a
 // change to an effect, condition or reason that does not bump this constant -- or a
 // bump that does not record a BaselineChange -- is red.
-const BaselineVersion = "2026-10-18"
+//
+// 🟢 2026-11-14 IS THE SECOND BUMP, AND THE FIRST THAT ADDS A DOCUMENT RATHER THAN
+// CHANGING ONE (M16-06, ADR 0045 §2.4 and Bedel 10): base:mock-location-review.
+// An addition reaches tenants differently from a change, and that difference is the
+// part to read:
+//
+//   - A CHANGED document never reaches an existing tenant on its own: their stored
+//     version 1 stands (above). An ADDED document does. checkin.assembleBaseline
+//     pairs shipped documents with stored rows BY NAME, finds no row for the new
+//     name, and the tap path materialises it as that tenant's version 1 on their
+//     next tap -- with no accept step, because none exists (ADR 0045 Bedel 10).
+//   - That is acceptable for THIS document only because of what it reads:
+//     tap:mockLocation, which only the native app's endpoint fills. A browser tap
+//     carries no such key, a missing key never matches (M3-04), so a tenant without
+//     the app sees no verdict change at all (TestDecide_MockLocationAbsentLeavesEveryOutcomeAsItWas).
+//     An app tap that reports a mock position goes to review, which is a tightening
+//     and writes the record (§4.6).
+//   - The announcement is a BaselineChange with Added set; tenant.Rulebook shows it
+//     on the rule to a business that was set up before it shipped, both before the
+//     next tap (the rule reads "Not set up yet") and after.
+const BaselineVersion = "2026-11-14"
 
 // BaselineChange is one shipped change to one managed document: the announcement a
 // tenant whose stored copy predates Version reads on the policies screen.
@@ -125,6 +145,12 @@ type BaselineChange struct {
 	// and what the customer can do about their stored copy. It never names a sid or
 	// an effect keyword; the screen prints the rule's statements beside it.
 	Summary string
+	// Added reports that Version shipped Document for the FIRST time, rather than
+	// changing a document a tenant already holds. The difference is how it arrives:
+	// a change waits for a stored copy to be replaced (it never is, yet), while an
+	// addition is materialised on the tenant's next tap (BaselineVersion's doc), so
+	// its Summary describes a rule already in force or about to be.
+	Added bool
 }
 
 // BaselineChanges is every change since the first stamp (2026-07-26, which is the
@@ -146,16 +172,43 @@ func BaselineChanges() []BaselineChange {
 				"rule off gives you the new outcome today; the location is still recorded and still " +
 				"shown in your reports.",
 		},
+		{
+			Version:  "2026-11-14",
+			Document: mockLocationDocName,
+			Added:    true,
+			Summary: "A new rule, for the optional Taptime phone app. When the app reports that the " +
+				"phone's position came from a mock-location setting -- a tool that makes a phone claim " +
+				"to be somewhere it is not -- the tap is still recorded, and it is sent to The Spike " +
+				"for approval instead of being let through. Taps made in the phone's browser cannot " +
+				"report this, so nothing changes for them. The rule was added to your business's " +
+				"rules without a step for you to accept it: it is set up on your next tap, if it is " +
+				"not already. Switch it off and an app tap is judged by your other rules alone; the " +
+				"report is still kept on the record.",
+		},
 	}
+}
+
+// BaselineAddition returns the change that shipped document for the first time,
+// when this binary ships it, and whether there is one. Only documents added after
+// the first stamp (2026-07-26) have one.
+func BaselineAddition(document string) (BaselineChange, bool) {
+	for _, c := range BaselineChanges() {
+		if c.Added && c.Document == document && c.Version <= BaselineVersion {
+			return c, true
+		}
+	}
+	return BaselineChange{}, false
 }
 
 // BaselineChangesSince returns the changes to the named document shipped AFTER the
 // stamp a tenant has stored, up to this binary's BaselineVersion, oldest first.
-// Stamps are ISO dates, so their string order is their time order.
+// Stamps are ISO dates, so their string order is their time order. An addition
+// (Added) is never one: a stored copy of an added document was materialised from
+// that very release, so there is nothing "since" -- BaselineAddition reports it.
 func BaselineChangesSince(document, stored string) []BaselineChange {
 	var out []BaselineChange
 	for _, c := range BaselineChanges() {
-		if c.Document == document && c.Version > stored && c.Version <= BaselineVersion {
+		if !c.Added && c.Document == document && c.Version > stored && c.Version <= BaselineVersion {
 			out = append(out, c)
 		}
 	}
@@ -200,6 +253,10 @@ func IsOldCrossLocationAllow(st Statement) bool {
 // document and its change entry so the two cannot drift apart.
 const crossLocationDocName = "Taptime baseline — cross-location note"
 
+// mockLocationDocName is base:mock-location-review's document name, shared by the
+// document and the change entry that announces it.
+const mockLocationDocName = "Taptime baseline — mock location review"
+
 // Baseline statement sids (base: namespace, reserved from tenant documents in
 // validate.go). Exported so the panel (M6-09) can render "managed by Tappa"
 // controls and M7-03 can reference them by name. Their effects and conditions are
@@ -215,6 +272,13 @@ const (
 	SidGPSConflictReview = "base:gps-conflict-review" // Y-E — an on-site proxy (IP ok, GPS far)
 	SidAuthzOwner        = "base:authz-owner"         // panel authority for the owner
 	SidAuthzManager      = "base:authz-manager"       // restricted panel authority for a manager
+
+	// SidMockLocationReview is ADR 0045 §2.4's rule: the app reported a mock position.
+	// The ADR proposed it, M16-06 kept it: the -review suffix names the effect the way
+	// base:ctr-gap-review and base:gps-conflict-review do, where the user's working
+	// name base:mock-location-flag would have named a verdict (flag), which a baseline
+	// statement never produces -- it produces an effect the tap engine maps.
+	SidMockLocationReview = "base:mock-location-review"
 )
 
 // BaselineQueuedSkewSeconds is base:queued-window's review threshold: a tap whose
@@ -273,8 +337,9 @@ type BaselineDoc struct {
 	Attachments []string
 }
 
-// Baseline returns the complete Tappa-managed baseline: the eight tap-evidence
-// documents (M3-06 card table) followed by the authorization document. This is the
+// Baseline returns the complete Tappa-managed baseline: the nine tap-evidence
+// documents (the M3-06 card table's eight, then M16-06's mock-location review)
+// followed by the authorization document. This is the
 // SOURCE OF TRUTH and the exact input M7-03 provisioning consumes — one
 // policies/policy_versions(/policy_attachments) set per BaselineDoc, per tenant.
 // It is pure and deterministic (stable order, no DB, no time), so the returned
@@ -403,6 +468,27 @@ func Baseline() []BaselineDoc {
 		tapDoc("Taptime baseline — GPS conflict review", SidGPSConflictReview, EffectReview,
 			Condition{OpBool: {CtxTapGPSConflict: true}},
 			"GPS was read and puts the device outside this location's radius"),
+
+		// --- ADR 0045 §2.4 (M16-06): the native app reported that the position it
+		// sent came from a mock provider -> review (the record is written, §4.6). A
+		// tenant may switch it off or override it at one branch, like every baseline
+		// statement.
+		//
+		// It reads ONE key and only its POSITIVE value. tap:mockLocation is a client
+		// report (document.go): believed when it goes against the employee, worth
+		// nothing when it does not. So nothing here treats false as evidence, and a
+		// browser tap -- which has no way to report it and therefore carries no key --
+		// never matches: a missing key is not false (M3-04). Review out-restricts the
+		// evidence allows at equal specificity (location/*), so a mock report holds
+		// a tap for approval even with an IP match: the network may well be the
+		// venue's, but the employee's phone was set up to lie about where it is.
+		//
+		// It is AFTER the GPS conflict review in document order, so when both match
+		// the record names the conflict -- the server's own measurement -- rather than
+		// the phone's report. Either way the outcome is the same review.
+		tapDoc(mockLocationDocName, SidMockLocationReview, EffectReview,
+			Condition{OpBool: {CtxTapMockLocation: true}},
+			"the phone reported that its position came from a mock-location setting"),
 
 		// --- Authorization: role-based panel allows. ONE document (two statements)
 		// because it is a single unit — the fail-closed-lockout preventer. Owner

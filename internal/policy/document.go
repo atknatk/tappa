@@ -194,6 +194,18 @@ func (a Action) Valid() bool { return validActions[a] }
 // ContextKey is a namespaced evaluation input (ADR 0004 §8). Every key is
 // derived on the SERVER; none comes from a client-declared body flag (ADR 0004
 // §8, "Tüm bağlam anahtarları SUNUCUDA türetilir"). The set is CLOSED.
+//
+// ⚠️ ONE KEY CARRIES A CLIENT REPORT, AND IT IS NAMED HERE RATHER THAN HIDDEN:
+// tap:mockLocation (ADR 0045 §2.4) is what the native app's operating system said
+// about the position it handed over (Android Location.isMock, iOS
+// sourceInformation.isSimulatedBySoftware) -- a claim of the same kind as the GPS
+// fix itself, which also comes from the phone. The server derives WHETHER it is
+// present (only the app's endpoint fills it; a browser cannot read it, so a browser
+// tap carries no such key) but not its value. That is why the shipped rule reading
+// it can only TIGHTEN (base:mock-location-review sends a positive report to
+// review): a report of "mock" is believed against the employee's interest, and the
+// absence of one -- or a report of "not mock" -- proves nothing. tap:client, beside
+// it, is server-derived in full: the endpoint that accepted the request names it.
 type ContextKey string
 
 const (
@@ -210,6 +222,8 @@ const (
 	CtxTapDirection             ContextKey = "tap:direction"
 	CtxTapQueued                ContextKey = "tap:queued"
 	CtxTapOccurredAtSkewSeconds ContextKey = "tap:occurredAtSkewSeconds"
+	CtxTapClient                ContextKey = "tap:client"       // browser | app (ADR 0045 §2.4); absent when no client wrote the tap
+	CtxTapMockLocation          ContextKey = "tap:mockLocation" // the app's mock-location report; absent from a browser
 	CtxTagStatus                ContextKey = "tag:status"
 	CtxTagLocationID            ContextKey = "tag:locationId"
 	CtxEmployeeStatus           ContextKey = "employee:status"
@@ -228,7 +242,8 @@ var validContextKeys = map[ContextKey]bool{
 	CtxTapGPSMatch: true, CtxTapGPSDistanceM: true, CtxTapGPSConflict: true,
 	CtxTapTrust: true, CtxTapCtrGap: true, CtxTapPageAgeSeconds: true,
 	CtxTapPractice: true, CtxTapDirection: true, CtxTapQueued: true,
-	CtxTapOccurredAtSkewSeconds: true, CtxTagStatus: true, CtxTagLocationID: true,
+	CtxTapOccurredAtSkewSeconds: true, CtxTapClient: true, CtxTapMockLocation: true,
+	CtxTagStatus: true, CtxTagLocationID: true,
 	CtxEmployeeStatus: true, CtxEmployeeLocationID: true, CtxEmployeeDepartmentID: true,
 	CtxEmployeeCrossLocation: true, CtxLocationID: true, CtxTimeLocalHour: true,
 	CtxTimeWithinShift: true, CtxTimeMinutesLate: true, CtxActorRole: true,

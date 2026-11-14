@@ -579,6 +579,12 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed 
 			" Nothing changes on its own, on purpose — a rule that changed under you would change " +
 			"what past taps meant."
 	}
+	// AN ADDITION IS SAID IN ITS OWN WORDS, NOT THROUGH THE OUTDATED SENTENCE above,
+	// whose "nothing changes on its own" is false for it: an added rule is written for
+	// the business on its next tap (ADR 0045 Bedel 10).
+	if r.Added != "" {
+		row.Added = r.Added
+	}
 	if len(r.Statements) > 0 {
 		row.Lead = r.Statements[0].Reason
 	}

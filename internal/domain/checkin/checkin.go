@@ -488,6 +488,14 @@ type Request struct {
 	// one costs trust rather than the record.
 	GPS *geo.Point
 
+	// MockLocation is the native app's report that the position came from a mock
+	// provider (ADR 0045 §2.4), or nil for no report. ONLY the app's /app/v1
+	// handler sets it (M16-07); the browser's POST /api/checkin cannot read such a
+	// flag and leaves it nil, which puts no key in the policy context and so
+	// changes no browser outcome. It reaches tap.Input as is -- a client report,
+	// read only in the direction that hurts the claimant (tap.Input.MockLocation).
+	MockLocation *bool
+
 	// PageIssuedAt is when GET /t minted the signed context — a SERVER clock
 	// reading, authenticated, carried back by the browser. It feeds
 	// sys:tap-freshness (guardrail #6), which an audit found INERT because
@@ -912,7 +920,12 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			OccurredAtFromClient: fromClient,
 			PageIssuedAt:         req.PageIssuedAt,
 			Channel:              req.Channel,
-			SUN:                  tap.SUNResult{Valid: adv.sunValid, CtrGap: int(adv.gap)},
+			// The same value transactions.client records, so the policy context and
+			// the column cannot disagree (clientColumn: nil on manual and on anything
+			// outside tap.Clients).
+			Client:       inputClient(req.Channel, req.Client),
+			MockLocation: req.MockLocation,
+			SUN:          tap.SUNResult{Valid: adv.sunValid, CtrGap: int(adv.gap)},
 			Tag: &tap.Tag{
 				Status:   tap.TagStatus(status),
 				Location: tappedWall(tagRow.LocationID),
@@ -1941,6 +1954,14 @@ func clientColumn(channel tap.Channel, client tap.Client) *string {
 		return &v
 	}
 	return nil
+}
+
+// inputClient is clientColumn's answer as a tap.Client, the zero value for its nil.
+func inputClient(channel tap.Channel, client tap.Client) tap.Client {
+	if c := clientColumn(channel, client); c != nil {
+		return tap.Client(*c)
+	}
+	return ""
 }
 
 // record appends an audit event, never failing the tap over it.

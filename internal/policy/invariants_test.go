@@ -79,8 +79,11 @@ var reviewGuardrails = map[string]string{
 // which scans PRODUCTION code. Pinning the surface here means this test needs to
 // name no forbidden term itself, and any drift in the input surface fails loudly.
 func TestInvariant_NoBodyDerivedContextKey(t *testing.T) {
-	// (a) the closed context-key vocabulary is EXACTLY these 24 keys (ADR 0004 §8),
+	// (a) the closed context-key vocabulary is EXACTLY these 26 keys (ADR 0004 §8),
 	// every one a place/time/status/role/tap signal — none a body attribute (§4.1).
+	// tap:client and tap:mockLocation are ADR 0045 §2.4's (M16-06): which endpoint
+	// accepted the tap, and whether the app's OS called the position it sent a mock
+	// one -- provenance of a position, read only at the tap (§4.2), never a body.
 	wantKeys := map[ContextKey]bool{
 		CtxTapChannel: true, CtxTapSunValid: true, CtxTapIPMatch: true,
 		CtxTapGPSMatch: true, CtxTapGPSDistanceM: true, CtxTapGPSConflict: true,
@@ -90,9 +93,10 @@ func TestInvariant_NoBodyDerivedContextKey(t *testing.T) {
 		CtxEmployeeStatus: true, CtxEmployeeLocationID: true, CtxEmployeeDepartmentID: true,
 		CtxEmployeeCrossLocation: true, CtxLocationID: true, CtxTimeLocalHour: true,
 		CtxTimeWithinShift: true, CtxTimeMinutesLate: true, CtxActorRole: true,
+		CtxTapClient: true, CtxTapMockLocation: true,
 	}
-	if len(wantKeys) != 24 {
-		t.Fatalf("the golden key set itself must list 24 keys (ADR 0004 §8), lists %d", len(wantKeys))
+	if len(wantKeys) != 26 {
+		t.Fatalf("the golden key set itself must list 26 keys (ADR 0004 §8, ADR 0045 §2.4), lists %d", len(wantKeys))
 	}
 	if len(validContextKeys) != len(wantKeys) {
 		t.Fatalf("closed context-key vocabulary has %d keys, expected %d — a new key needs an ADR (ADR 0004 §8) and review it is not body-derived (§4.1)",

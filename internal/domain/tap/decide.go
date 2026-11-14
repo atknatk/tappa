@@ -99,6 +99,19 @@ func Decide(in Input) Decision {
 		policy.CtxTapOccurredAtSkewSeconds: skewSeconds,
 		policy.CtxTapQueued:                queued,
 	}
+	// Which client wrote the tap and what the app said about its position (ADR 0045
+	// §2.4, M16-06). Both are set ONLY when there is something to say: a tap no
+	// client wrote (manual, the API sandbox) has no tap:client, and a browser --
+	// which cannot read a mock-location flag -- has no tap:mockLocation. That
+	// absence is load-bearing rather than tidy: base:mock-location-review reads the
+	// key, a missing key never matches (M3-04), and "false" for a browser would be
+	// a claim nobody made. Neither feeds Trust.
+	if knownClient(in.Client) {
+		keys[policy.CtxTapClient] = string(in.Client)
+	}
+	if in.MockLocation != nil {
+		keys[policy.CtxTapMockLocation] = *in.MockLocation
+	}
 	// The page's age, for sys:tap-freshness (guardrail #6). Set ONLY when there is
 	// a page behind this tap: a manual record has none, and a zero PageIssuedAt
 	// read literally would report a fifty-six-year-old page and deny it. Absent is
@@ -1145,4 +1158,15 @@ func tapResources(tag *Tag) []string {
 		return nil
 	}
 	return []string{"location/" + tag.Location.String()}
+}
+
+// knownClient reports whether c is one of Clients -- the values transactions.client
+// accepts. Anything else is "no client" here exactly as it is NULL on the record.
+func knownClient(c Client) bool {
+	for _, k := range Clients {
+		if c == k {
+			return true
+		}
+	}
+	return false
 }
