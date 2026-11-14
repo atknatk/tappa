@@ -429,6 +429,42 @@ func mustDecode(t *testing.T, s string) []byte {
 	return b
 }
 
+// TestParse_RefusesEmbeddedLineBreaks: Go's base64 decoder skips CR and LF even in Strict mode
+// (M16-05 review), so each strict parse also round-trips. A signature with a line break inside
+// decodes to the SAME bytes and was accepted before the round trip (measured); for the nonce the
+// length check already refused it, and the round trip is the belt that does not depend on it.
+func TestParse_RefusesEmbeddedLineBreaks(t *testing.T) {
+	key := testKey(t)
+	device := uuid.New()
+	nonce := randomNonceWire(t)
+	sig := sign(t, key, defaultParts(device, nonce))
+	if _, err := ParseNonce(nonce); err != nil {
+		t.Fatalf("positive control, nonce: %v", err)
+	}
+	if _, err := parseSignature(sig); err != nil {
+		t.Fatalf("positive control, signature: %v", err)
+	}
+	for _, br := range []string{"\n", "\r", "\r\n"} {
+		mid := len(nonce) / 2
+		nonces := []string{
+			nonce[:mid] + br + nonce[mid+len(br):], // same length, one data character short
+			nonce[:mid] + br + nonce[mid:],         // every data character kept
+			br + nonce, nonce + br,
+		}
+		for i, n := range nonces {
+			if _, err := ParseNonce(n); !errors.Is(err, ErrMalformed) {
+				t.Errorf("nonce shape %d with %q: %v, want ErrMalformed", i, br, err)
+			}
+		}
+		smid := len(sig) / 2
+		for i, s := range []string{sig[:smid] + br + sig[smid:], br + sig, sig + br} {
+			if _, err := parseSignature(s); !errors.Is(err, ErrMalformed) {
+				t.Errorf("signature shape %d with %q: %v, want ErrMalformed", i, br, err)
+			}
+		}
+	}
+}
+
 // TestNew_RefusesNilDatabase keeps the constructor honest.
 func TestNew_RefusesNilDatabase(t *testing.T) {
 	if _, err := New(nil); err == nil {

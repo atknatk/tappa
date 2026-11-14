@@ -76,6 +76,13 @@ func ParseNonce(s string) (Nonce, error) {
 	if err != nil || len(raw) != nonceBytes {
 		return Nonce{}, ErrMalformed
 	}
+	// The ROUND TRIP is the canonical-form check, not the length: Go's base64 decoder skips CR
+	// and LF even in Strict mode, so a 43-character string carrying a line break around 42
+	// characters of base64 can decode (M16-05 review). Only the string this server would have
+	// written is accepted -- which also keeps every LF out of the canonical text.
+	if nonceEncoding.EncodeToString(raw) != s {
+		return Nonce{}, ErrMalformed
+	}
 	return Nonce{w: &s}, nil
 }
 

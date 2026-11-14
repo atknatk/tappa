@@ -140,6 +140,11 @@ func parseSignature(s string) ([]byte, error) {
 	if err != nil || len(raw) < minSignatureLen || len(raw) > maxSignatureLen {
 		return nil, ErrMalformed
 	}
+	// Round trip, as ParseNonce: the decoder skips CR/LF even in Strict mode, and one signature
+	// has one header spelling.
+	if signatureEncoding.EncodeToString(raw) != s {
+		return nil, ErrMalformed
+	}
 	return raw, nil
 }
 
