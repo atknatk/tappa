@@ -367,6 +367,15 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 - CLAUDE.md §3 `internal/sun/` satırının *"Kriptografi SADECE burada"* ifadesi M16-01'de *"plaket kriptografisi"*ye
   daraltılmış olmalı; değilse bu kart onu düzeltir.
 - CLAUDE.md §3'e `internal/appdevice/` satırı (M16-01 tablosu).
+- **M16-03 incelemesinden devralınan (2026-11-14):**
+  - HTTP katmanı **bilinmeyen** ve **iptal edilmiş** cihazı imza doğrulamasından **önce** aynı yanıtla karşılar
+    (durum kâhini yok); iptal ile bilinmeyen ayrımı yalnız sunucu içinde, kayıtsız yolun seçiminde kullanılır.
+  - Nonce **sunucuda** üretilir: 32 bayt `crypto/rand`; istemciden gelen bir nonce asla kabul edilmez.
+    Saklanan, özetidir (`nonce_hash`, `00104`).
+  - Açık anahtar Go'da **eğri üstünde** doğrulanır (`ecdsa.ParseUncompressedPublicKey`); `00104`'ün CHECK'i yalnız
+    uzunluğu (65) ve önek baytını (`0x04`) sabitler, eğri aritmetiğini yapamaz.
+  - İptal, cihazın nonce'larını aynı ifadede siler ve tüketim cihazı `FOR SHARE` ile yeniden okur (`00104`,
+    `RevokeAppDevice`/`ConsumeAppRequestNonce`); Go tarafındaki iptal denetimi yine yapılır, ama tek savunma değildir.
 
 ## M16-06 — Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı
 
@@ -432,6 +441,15 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 - Oran sınırı: tap yüzeyinin limiter'ı (`internal/httpx/ratelimit.go`) cihaz başına uygulanır; yanıtlar `no-store`.
 - Hata gövdesi kapalı sözlük; hiçbir yanıt ve log satırı imza, nonce, tam koordinat, davet kodu taşımaz.
 - CLAUDE.md §5 *"Dört kanıt"* cümlesi (bu kartla, M16-01 tablosu).
+- **M16-03 incelemesinden devralınan (2026-11-14):**
+  - `CreateAppDevice` yalnız **anahtara sahiplik kanıtından sonra** çağrılır (sunucunun verdiği meydan okuma
+    üzerinde imza): `key_digest` global UNIQUE olduğundan, kanıtsız bir kayıt başkasının açık anahtarını önceden
+    kaydedip onun aktivasyonunu kilitleyebilirdi.
+  - `app_devices_key_digest_key` ihlali (23505) kapalı sözlükte açık bir *"yeni anahtar üret"* yanıtına eşlenir;
+    uygulama her aktivasyonda **yeni bir anahtar çifti** üretir.
+  - Cihaz başına yaşayan nonce üst sınırı **atomik** olmalı: cihaz başına advisory kilit ya da `INSERT … SELECT …
+    WHERE (SELECT count(*) …) < N` tek ifadesi. `CountLiveAppRequestNonces` sonra `IssueAppRequestNonce` (say-sonra-
+    yaz) eşzamanlı isteklerde sınırı aşar — `ctr` dersinin aynısı (§4.4).
 
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 

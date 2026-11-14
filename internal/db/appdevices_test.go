@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -802,4 +803,398 @@ func TestAppDevices00104_DownRefusesWithRowsAndRoundTrips(t *testing.T) {
 	                            AND pg_get_userbyid(proowner) = 'tappa_resolver'`); n != 1 {
 		t.Fatal("the resolver is not back as tappa_resolver's definer")
 	}
+}
+
+// TestResolveAppDevice_CarriesTheRevocation: the resolver returns a revoked device -- one row, with
+// RevokedAt set -- rather than hiding it. A resolver that filtered on revoked_at would answer
+// "unknown device" for a revoked one and the caller could not tell §5 row 3's twin from noise (the
+// M16-03 review's mutant `AND d.revoked_at IS NULL` survived every test before this one).
+func TestResolveAppDevice_CarriesTheRevocation(t *testing.T) {
+	ctx, tx := opTx(t)
+	w := newAppDeviceWorld(t, ctx, tx)
+	device := w.addDevice(t, ctx, tx, appTestKey(t))
+	if err := w.asApp(t, ctx, tx, w.tenant, func(sp pgx.Tx) error {
+		_, err := store.New(sp).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: device, TenantID: w.tenant})
+		return err
+	}); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if err := w.asApp(t, ctx, tx, uuid.Nil, func(sp pgx.Tx) error {
+		rows, err := sp.Query(ctx, getAppDeviceByIDSQL, device)
+		if err != nil {
+			return err
+		}
+		got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ResolvedAppDevice, error) {
+			var a ResolvedAppDevice
+			err := r.Scan(&a.ID, &a.TenantID, &a.EmployeeID, &a.PublicKey, &a.RevokedAt)
+			return a, err
+		})
+		if err != nil {
+			return err
+		}
+		if len(got) != 1 {
+			t.Fatalf("a revoked device resolves to %d rows, want 1 (the resolver carries revoked_at, it does not filter on it)", len(got))
+		}
+		if got[0].ID != device || got[0].TenantID != w.tenant || got[0].RevokedAt == nil {
+			t.Fatalf("the revoked device resolved as %v/%v with RevokedAt set = %v; want it, its tenant and a stamp",
+				got[0].ID, got[0].TenantID, got[0].RevokedAt != nil)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("resolve the revoked device: %v", err)
+	}
+}
+
+// TestAppRequestNonces_RevocationKillsTheNonces (M16-03 security review): issue -> revoke -> consume
+// is 0 rows, for the single revoke and for the bulk one, and the revoking statement leaves the
+// device no nonce at all; another person's device keeps its nonces. A revocation written WITHOUT the
+// nonce delete (here the owner's bare UPDATE) is still refused at consumption -- the belt.
+func TestAppRequestNonces_RevocationKillsTheNonces(t *testing.T) {
+	ctx, tx := opTx(t)
+	w, other := newAppDeviceWorld(t, ctx, tx), newAppDeviceWorld(t, ctx, tx)
+	single, bulk1, bulk2, bare := w.addDevice(t, ctx, tx, appTestKey(t)), w.addDevice(t, ctx, tx, appTestKey(t)),
+		w.addDevice(t, ctx, tx, appTestKey(t)), w.addDevice(t, ctx, tx, appTestKey(t))
+	otherDevice := other.addDevice(t, ctx, tx, appTestKey(t))
+	q := func(fn func(q *store.Queries) error) error {
+		return w.asApp(t, ctx, tx, w.tenant, func(sp pgx.Tx) error { return fn(store.New(sp)) })
+	}
+	consume := func(dev uuid.UUID, hash string) error {
+		return q(func(q *store.Queries) error {
+			_, err := q.ConsumeAppRequestNonce(ctx, store.ConsumeAppRequestNonceParams{TenantID: w.tenant, DeviceID: dev, NonceHash: hash})
+			return err
+		})
+	}
+	nonces := func(dev uuid.UUID) int64 {
+		return opInt(t, ctx, tx, `SELECT count(*) FROM app_request_nonces WHERE device_id = $1`, dev)
+	}
+	singleHash, _ := w.issueNonce(t, ctx, tx, single), w.issueNonce(t, ctx, tx, single)
+	bulk1Hash, bulk2Hash := w.issueNonce(t, ctx, tx, bulk1), w.issueNonce(t, ctx, tx, bulk2)
+	bareHash := w.issueNonce(t, ctx, tx, bare)
+	otherHash := other.issueNonce(t, ctx, tx, otherDevice)
+
+	if err := q(func(q *store.Queries) error {
+		_, err := q.RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: single, TenantID: w.tenant})
+		return err
+	}); err != nil {
+		t.Fatalf("revoke one device: %v", err)
+	}
+	if n := nonces(single); n != 0 {
+		t.Fatalf("the revoked device still holds %d nonce(s), want 0", n)
+	}
+	if err := consume(single, singleHash); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("issue -> revoke -> consume: %v, want pgx.ErrNoRows", err)
+	}
+	if n := nonces(bulk1) + nonces(bulk2); n != 2 {
+		t.Fatalf("revoking one device touched the person's other devices' nonces (%d left, want 2)", n)
+	}
+
+	// The bare revocation: the owner stamps revoked_at with no nonce delete. Its nonce survives the
+	// write and is still refused -- the EXISTS in ConsumeAppRequestNonce.
+	if _, err := tx.Exec(ctx, `UPDATE app_devices SET revoked_at = now() WHERE id = $1`, bare); err != nil {
+		t.Fatal(err)
+	}
+	if n := nonces(bare); n != 1 {
+		t.Fatalf("CONTROL: the bare revocation left %d nonce(s), want its 1 (the belt would not be tested)", n)
+	}
+	if err := consume(bare, bareHash); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("a surviving nonce of a revoked device: %v, want pgx.ErrNoRows (the belt)", err)
+	}
+
+	var revoked []uuid.UUID
+	if err := q(func(q *store.Queries) error {
+		var err error
+		revoked, err = q.RevokeAppDevicesForEmployee(ctx, store.RevokeAppDevicesForEmployeeParams{TenantID: w.tenant, EmployeeID: w.employee})
+		return err
+	}); err != nil {
+		t.Fatalf("the bulk revoke: %v", err)
+	}
+	if len(revoked) != 2 {
+		t.Fatalf("the bulk revoke returned %d id(s), want the 2 live devices", len(revoked))
+	}
+	if n := nonces(bulk1) + nonces(bulk2); n != 0 {
+		t.Fatalf("the bulk revoke left %d nonce(s), want 0", n)
+	}
+	for _, c := range []struct {
+		dev  uuid.UUID
+		hash string
+	}{{bulk1, bulk1Hash}, {bulk2, bulk2Hash}} {
+		if err := consume(c.dev, c.hash); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("issue -> bulk revoke -> consume: %v, want pgx.ErrNoRows", err)
+		}
+	}
+	if err := other.asApp(t, ctx, tx, other.tenant, func(sp pgx.Tx) error {
+		_, err := store.New(sp).ConsumeAppRequestNonce(ctx, store.ConsumeAppRequestNonceParams{TenantID: other.tenant, DeviceID: otherDevice, NonceHash: otherHash})
+		return err
+	}); err != nil {
+		t.Fatalf("POSITIVE CONTROL: another business's live device's nonce: %v, want it consumable", err)
+	}
+}
+
+// appCommittedDevice commits a tenant, an active employee and one device, and returns the tenant and
+// the device (the rls_test.go convention: fresh ids, the rows stay inert).
+func appCommittedDevice(t *testing.T, d *DB) (tenant, device uuid.UUID) {
+	t.Helper()
+	tenant, venue := m11Tenant(t, d)
+	employee := uuid.New()
+	if err := d.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx, `INSERT INTO employees (id, tenant_id, location_id, full_name, status)
+		                          VALUES ($1, $2, $3, 'Maria Borg', 'active')`, employee, tenant, venue); e != nil {
+			return e
+		}
+		row, e := store.New(tx).CreateAppDevice(ctx, store.CreateAppDeviceParams{TenantID: tenant, EmployeeID: employee, Platform: "android", PublicKey: appTestKey(t)})
+		device = row.ID
+		return e
+	}); err != nil {
+		t.Fatalf("committed device: %v", err)
+	}
+	return tenant, device
+}
+
+// appCommittedNonce commits one live nonce for the device and returns its hash.
+func appCommittedNonce(t *testing.T, d *DB, tenant, device uuid.UUID) string {
+	t.Helper()
+	hash := opRandHex(t)
+	if err := d.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).IssueAppRequestNonce(ctx, store.IssueAppRequestNonceParams{NonceHash: hash, TtlSeconds: 120, DeviceID: device, TenantID: tenant})
+		return e
+	}); err != nil {
+		t.Fatalf("committed nonce: %v", err)
+	}
+	return hash
+}
+
+// appOpenTx begins a tappa_app transaction in tenant's context on its own pooled connection and
+// leaves it open for the caller to commit -- the "in flight" half of an interleaving.
+func appOpenTx(t *testing.T, d *DB, tenant uuid.UUID) pgx.Tx {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := d.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '20s'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenant.String()); err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+// appStillWaiting reports whether done has not fired after a grace period: the other side is
+// blocked on a lock the open transaction holds.
+func appStillWaiting(done <-chan error) bool {
+	select {
+	case <-done:
+		return false
+	case <-time.After(300 * time.Millisecond):
+		return true
+	}
+}
+
+// TestAppRequestNonces_RevocationAndConsumptionRace (M16-03 security review) measures the lock
+// behaviour on real connections, committed, under -race:
+//
+//	revoke in flight, then consume   the consume WAITS for the revoke and then finds nothing (0 rows)
+//	bare revoke in flight, consume   the same, through the belt alone: the EXISTS ... FOR SHARE waits
+//	                                 on the device row and re-checks revoked_at once it commits
+//	consume in flight, then revoke   the revoke WAITS for the consume, which therefore commits first;
+//	                                 afterwards the device is revoked and holds no nonce
+//	revoke in flight, then issue     the issue waits and inserts nothing (FOR SHARE OF d)
+//
+// and then races the two N times with no ordering imposed: no error but pgx.ErrNoRows on either side
+// (no deadlock, no 23001), afterwards every device is revoked with no nonce left, and a consume that
+// STARTED after the revoke's commit had returned never succeeded.
+//
+// MUTANTS (measured 2026-11-14 on the lane database, generated query edited and restored): FOR SHARE
+// removed from ConsumeAppRequestNonce's EXISTS -> the "bare revoke" case is red (the consume does not
+// wait for the revocation); FOR SHARE OF d removed from IssueAppRequestNonce -> the issue case is red
+// (a nonce is issued after the revocation committed); the nonce delete removed from RevokeAppDevice
+// -> "consume in flight, then revoke" here and TestAppRequestNonces_RevocationKillsTheNonces are red;
+// `AND d.revoked_at IS NULL` added to the resolver -> TestResolveAppDevice_CarriesTheRevocation is red.
+func TestAppRequestNonces_RevocationAndConsumptionRace(t *testing.T) {
+	d := appDB(t)
+	ctx := context.Background()
+	consumeAsync := func(tenant, device uuid.UUID, hash string) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+				_, err := store.New(tx).ConsumeAppRequestNonce(ctx, store.ConsumeAppRequestNonceParams{TenantID: tenant, DeviceID: device, NonceHash: hash})
+				return err
+			})
+		}()
+		return done
+	}
+	liveNonces := func(tenant, device uuid.UUID) int32 {
+		var n int32
+		if err := d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT count(*)::int FROM app_request_nonces WHERE tenant_id = $1 AND device_id = $2`, tenant, device).Scan(&n)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	t.Run("revoke in flight, then consume", func(t *testing.T) {
+		tenant, device := appCommittedDevice(t, d)
+		hash := appCommittedNonce(t, d, tenant, device)
+		r := appOpenTx(t, d, tenant)
+		if _, err := store.New(r).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: device, TenantID: tenant}); err != nil {
+			t.Fatal(err)
+		}
+		done := consumeAsync(tenant, device, hash)
+		if !appStillWaiting(done) {
+			t.Fatal("the consume did not wait for the in-flight revocation")
+		}
+		if err := r.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("the consume after the revocation committed: %v, want pgx.ErrNoRows", err)
+		}
+		got, err := d.GetAppDeviceByID(ctx, device)
+		if err != nil || got.RevokedAt == nil {
+			t.Fatalf("the resolver after the revocation: RevokedAt set %v (%v), want set", got.RevokedAt != nil, err)
+		}
+	})
+
+	t.Run("bare revoke in flight, then consume", func(t *testing.T) {
+		tenant, device := appCommittedDevice(t, d)
+		hash := appCommittedNonce(t, d, tenant, device)
+		r := appOpenTx(t, d, tenant)
+		if _, err := r.Exec(ctx, `UPDATE app_devices SET revoked_at = now() WHERE id = $1 AND tenant_id = $2`, device, tenant); err != nil {
+			t.Fatal(err)
+		}
+		done := consumeAsync(tenant, device, hash)
+		if !appStillWaiting(done) {
+			t.Fatal("the consume did not wait for the in-flight bare revocation (EXISTS ... FOR SHARE)")
+		}
+		if err := r.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("the consume after the bare revocation committed: %v, want pgx.ErrNoRows (the belt)", err)
+		}
+		if n := liveNonces(tenant, device); n != 1 {
+			t.Fatalf("CONTROL: the bare revocation left %d nonce(s), want 1 -- the belt alone refused it", n)
+		}
+	})
+
+	t.Run("consume in flight, then revoke", func(t *testing.T) {
+		tenant, device := appCommittedDevice(t, d)
+		hash := appCommittedNonce(t, d, tenant, device)
+		c := appOpenTx(t, d, tenant)
+		if _, err := store.New(c).ConsumeAppRequestNonce(ctx, store.ConsumeAppRequestNonceParams{TenantID: tenant, DeviceID: device, NonceHash: hash}); err != nil {
+			t.Fatalf("the in-flight consume: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+				_, err := store.New(tx).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: device, TenantID: tenant})
+				return err
+			})
+		}()
+		if !appStillWaiting(done) {
+			t.Fatal("the revocation did not wait for the in-flight consume, so the consume could commit after it")
+		}
+		if err := c.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("the revocation after the consume committed: %v", err)
+		}
+		if n := liveNonces(tenant, device); n != 0 {
+			t.Fatalf("after the revocation the device holds %d nonce(s), want 0", n)
+		}
+	})
+
+	t.Run("revoke in flight, then issue", func(t *testing.T) {
+		tenant, device := appCommittedDevice(t, d)
+		r := appOpenTx(t, d, tenant)
+		if _, err := store.New(r).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: device, TenantID: tenant}); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+				_, err := store.New(tx).IssueAppRequestNonce(ctx, store.IssueAppRequestNonceParams{NonceHash: opRandHex(t), TtlSeconds: 60, DeviceID: device, TenantID: tenant})
+				return err
+			})
+		}()
+		if !appStillWaiting(done) {
+			t.Fatal("the issue did not wait for the in-flight revocation (FOR SHARE OF d)")
+		}
+		if err := r.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("the issue after the revocation committed: %v, want pgx.ErrNoRows", err)
+		}
+		if n := liveNonces(tenant, device); n != 0 {
+			t.Fatalf("a revoked device was issued %d nonce(s)", n)
+		}
+	})
+
+	t.Run("unordered race", func(t *testing.T) {
+		const rounds = 40
+		wins, refusals, late := 0, 0, 0
+		for i := range rounds {
+			tenant, device := appCommittedDevice(t, d)
+			hash := appCommittedNonce(t, d, tenant, device)
+			var (
+				wg                  sync.WaitGroup
+				revokeErr, consErr  error
+				revokedAt, consFrom time.Time
+				start               = make(chan struct{})
+			)
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-start
+				revokeErr = d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+					_, err := store.New(tx).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: device, TenantID: tenant})
+					return err
+				})
+				revokedAt = time.Now()
+			}()
+			go func() {
+				defer wg.Done()
+				<-start
+				// A small, varying head start for either side across the rounds.
+				time.Sleep(time.Duration(i%5) * 200 * time.Microsecond)
+				consFrom = time.Now()
+				consErr = d.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+					_, err := store.New(tx).ConsumeAppRequestNonce(ctx, store.ConsumeAppRequestNonceParams{TenantID: tenant, DeviceID: device, NonceHash: hash})
+					return err
+				})
+			}()
+			close(start)
+			wg.Wait()
+			if revokeErr != nil {
+				t.Fatalf("round %d: the revocation failed: %v", i, revokeErr)
+			}
+			switch {
+			case consErr == nil:
+				wins++
+				if consFrom.After(revokedAt) {
+					t.Fatalf("round %d: a consume that started after the revocation committed SUCCEEDED", i)
+				}
+			case errors.Is(consErr, pgx.ErrNoRows):
+				refusals++
+			default:
+				t.Fatalf("round %d: the consume failed for another reason (a deadlock or a trigger?): %v", i, consErr)
+			}
+			if n := liveNonces(tenant, device); n != 0 {
+				t.Fatalf("round %d: after the race the revoked device holds %d nonce(s)", i, n)
+			}
+			if err := <-consumeAsync(tenant, device, hash); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("round %d: a consume after both finished: %v, want pgx.ErrNoRows", i, err)
+			} else {
+				late++
+			}
+		}
+		t.Logf("%d unordered rounds: %d consume(s) won the race (committed before the revocation), %d refused, %d late consumes refused",
+			rounds, wins, refusals, late)
+	})
 }

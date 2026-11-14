@@ -46,22 +46,48 @@ RETURNING id, last_used_at;
 -- M16-26). COALESCE keeps the FIRST stamp, so a repeat is idempotent and never rewrites when the
 -- device died. The row is matched whatever its state, so pgx.ErrNoRows means "no such device in
 -- this tenant" -- a different answer from "already revoked".
-UPDATE app_devices
-SET revoked_at = COALESCE(revoked_at, now())
-WHERE id = @id
-  AND tenant_id = @tenant_id
-RETURNING id, revoked_at;
+--
+-- 🔴 THE REVOCATION KILLS THE DEVICE'S NONCES IN THE SAME STATEMENT (M16-03 security review): a nonce
+-- issued before the revoke would otherwise stay spendable for its lifetime. The DELETE runs in this
+-- statement whatever the SELECT reads (a data-modifying CTE always runs once). A consumption that
+-- already holds a nonce's row lock makes this DELETE wait for it, so that consumption commits BEFORE
+-- the revocation; one that comes later finds the row gone (ConsumeAppRequestNonce's belt covers a
+-- revocation written any other way).
+WITH r AS (
+    UPDATE app_devices AS d
+    SET revoked_at = COALESCE(d.revoked_at, now())
+    WHERE d.id = @id
+      AND d.tenant_id = @tenant_id
+    RETURNING d.id, d.revoked_at
+), killed AS (
+    DELETE FROM app_request_nonces AS n
+    USING r
+    WHERE n.device_id = r.id
+      AND n.tenant_id = @tenant_id
+    RETURNING n.id
+)
+SELECT r.id, r.revoked_at FROM r;
 
 -- name: RevokeAppDevicesForEmployee :many
 -- Revokes EVERY live device of one person and returns the ids it revoked (empty when none was live
 -- -- idempotent): the panel's "Sign out their phones" (T59) reaching the app (ADR 0045 §2.3). The
 -- caller refuses it for a deactivated person (tenant.ErrSignOutDeactivated) -- see the header.
-UPDATE app_devices
-SET revoked_at = now()
-WHERE tenant_id = @tenant_id
-  AND employee_id = @employee_id
-  AND revoked_at IS NULL
-RETURNING id;
+-- Like RevokeAppDevice it deletes the revoked devices' nonces in the same statement.
+WITH r AS (
+    UPDATE app_devices AS d
+    SET revoked_at = now()
+    WHERE d.tenant_id = @tenant_id
+      AND d.employee_id = @employee_id
+      AND d.revoked_at IS NULL
+    RETURNING d.id
+), killed AS (
+    DELETE FROM app_request_nonces AS n
+    USING r
+    WHERE n.device_id = r.id
+      AND n.tenant_id = @tenant_id
+    RETURNING n.id
+)
+SELECT r.id FROM r;
 
 -- name: IssueAppRequestNonce :one
 -- Records a nonce for a LIVE device and returns when it expires. The INSERT reads the device row in
@@ -69,12 +95,19 @@ RETURNING id;
 -- and the caller sees pgx.ErrNoRows -- "a device that is not active is given no nonce" (ADR 0045
 -- §2.3) is the statement's shape, not a check before it. ttl_seconds is the caller's; the table's
 -- CHECK caps it at 5 minutes (23514 above that). created_at is the database's now().
+--
+-- FOR SHARE OF d: an issue racing a revocation waits for the revoking transaction and then re-reads
+-- the committed device row (READ COMMITTED re-checks a locked row's qual on its newest version), so
+-- it inserts nothing -- instead of inserting a live nonce AFTER the revocation deleted the others.
+-- FOR SHARE needs UPDATE on some column of app_devices, which tappa_app holds (last_used_at,
+-- revoked_at); it does not conflict with another FOR SHARE, so two issues do not wait for each other.
 INSERT INTO app_request_nonces (tenant_id, device_id, nonce_hash, expires_at)
 SELECT d.tenant_id, d.id, @nonce_hash::text, now() + make_interval(secs => @ttl_seconds::int)
 FROM app_devices AS d
 WHERE d.id = @device_id
   AND d.tenant_id = @tenant_id
   AND d.revoked_at IS NULL
+FOR SHARE OF d
 RETURNING id, expires_at;
 
 -- name: ConsumeAppRequestNonce :one
@@ -84,18 +117,37 @@ RETURNING id, expires_at;
 -- the caller does not need to tell them apart, and must never read the row first and write later.
 -- Two racing consumptions of one nonce: the second waits on the first's row lock and, after its
 -- commit, re-checks consumed_at IS NULL against the committed row -- exactly one RETURNING row.
-UPDATE app_request_nonces
+--
+-- THE BELT (M16-03 security review): the device must be unrevoked IN THIS STATEMENT, not only in the
+-- resolver's earlier answer. The revocations delete the nonces (RevokeAppDevice), which is what
+-- normally refuses here; the EXISTS refuses a nonce that survived a revocation written any other
+-- way. FOR SHARE makes it hold under a race, not only after one: a consumption meeting an
+-- uncommitted revocation waits for it and re-checks revoked_at on the committed row (without the
+-- lock the subquery would read its snapshot and pass). Lock order is the revocation's -- the device
+-- row, then the nonce row -- so the two cannot deadlock; two consumptions of one device take
+-- compatible share locks. (TestAppRequestNonces_RevocationAndConsumptionRace measures all three.)
+UPDATE app_request_nonces AS n
 SET consumed_at = now()
-WHERE tenant_id = @tenant_id
-  AND device_id = @device_id
-  AND nonce_hash = @nonce_hash
-  AND consumed_at IS NULL
-  AND expires_at > now()
-RETURNING id;
+WHERE n.tenant_id = @tenant_id
+  AND n.device_id = @device_id
+  AND n.nonce_hash = @nonce_hash
+  AND n.consumed_at IS NULL
+  AND n.expires_at > now()
+  AND EXISTS (
+      SELECT 1 FROM app_devices AS d
+      WHERE d.id = n.device_id
+        AND d.tenant_id = n.tenant_id
+        AND d.revoked_at IS NULL
+      FOR SHARE
+  )
+RETURNING n.id;
 
 -- name: CountLiveAppRequestNonces :one
--- How many unconsumed, unexpired nonces one device holds: M16-07's cap on live nonces per device
--- (the table cannot be inflated by a device asking without spending).
+-- How many unconsumed, unexpired nonces one device holds: a READ for M16-07's cap on live nonces per
+-- device (the table cannot be inflated by a device asking without spending). ⚠️ It is NOT the cap:
+-- this count and then IssueAppRequestNonce is read-then-write, and concurrent issues exceed it. The
+-- cap has to be atomic -- a per-device advisory lock around the two, or one INSERT ... SELECT whose
+-- WHERE carries the count (M16-07's card).
 SELECT count(*)::int AS live
 FROM app_request_nonces
 WHERE tenant_id = @tenant_id

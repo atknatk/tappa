@@ -54,6 +54,12 @@
 --     consumed_at IS NULL against the committed row, and matches nothing.
 --   * consumed_at is ONE WAY too (its own trigger): un-consuming a nonce would re-open it to a
 --     replay, and tappa_app holds UPDATE on that column.
+--   * A REVOCATION KILLS THE DEVICE'S NONCES (M16-03 security review): RevokeAppDevice and
+--     RevokeAppDevicesForEmployee delete them in the revoking statement, and ConsumeAppRequestNonce
+--     and IssueAppRequestNonce re-read the device row FOR SHARE, so neither passes a revocation that
+--     committed first or was in flight. This needs no grant beyond the ones below: DELETE on the
+--     nonces; SELECT (id, tenant_id, revoked_at) and UPDATE on a column of app_devices, which FOR
+--     SHARE requires.
 --   * Lifetime: at most 5 minutes from issue (CHECK). created_at is not writable by tappa_app, so it
 --     is the database's now() and the bound is the database's clock.
 --   * CLEANUP DECISION: dead nonces (consumed, or expired) are DELETED, by the issuing path, per

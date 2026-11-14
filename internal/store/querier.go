@@ -353,6 +353,15 @@ type Querier interface {
 	// the caller does not need to tell them apart, and must never read the row first and write later.
 	// Two racing consumptions of one nonce: the second waits on the first's row lock and, after its
 	// commit, re-checks consumed_at IS NULL against the committed row -- exactly one RETURNING row.
+	//
+	// THE BELT (M16-03 security review): the device must be unrevoked IN THIS STATEMENT, not only in the
+	// resolver's earlier answer. The revocations delete the nonces (RevokeAppDevice), which is what
+	// normally refuses here; the EXISTS refuses a nonce that survived a revocation written any other
+	// way. FOR SHARE makes it hold under a race, not only after one: a consumption meeting an
+	// uncommitted revocation waits for it and re-checks revoked_at on the committed row (without the
+	// lock the subquery would read its snapshot and pass). Lock order is the revocation's -- the device
+	// row, then the nonce row -- so the two cannot deadlock; two consumptions of one device take
+	// compatible share locks. (TestAppRequestNonces_RevocationAndConsumptionRace measures all three.)
 	ConsumeAppRequestNonce(ctx context.Context, arg ConsumeAppRequestNonceParams) (uuid.UUID, error)
 	// THE activation statement, and the most critical query in M5-02. ONE statement
 	// does BOTH halves -- consume the invite and flip the employee to 'active' -- so
@@ -738,8 +747,11 @@ type Querier interface {
 	// answer "in use" for a department that is not. Measured: sqlc v1.28 emitted exactly
 	// that before the cast was added.
 	CountDepartmentReferences(ctx context.Context, arg CountDepartmentReferencesParams) (CountDepartmentReferencesRow, error)
-	// How many unconsumed, unexpired nonces one device holds: M16-07's cap on live nonces per device
-	// (the table cannot be inflated by a device asking without spending).
+	// How many unconsumed, unexpired nonces one device holds: a READ for M16-07's cap on live nonces per
+	// device (the table cannot be inflated by a device asking without spending). ⚠️ It is NOT the cap:
+	// this count and then IssueAppRequestNonce is read-then-write, and concurrent issues exceed it. The
+	// cap has to be atomic -- a per-device advisory lock around the two, or one INSERT ... SELECT whose
+	// WHERE carries the count (M16-07's card).
 	CountLiveAppRequestNonces(ctx context.Context, arg CountLiveAppRequestNoncesParams) (int32, error)
 	// What still points at this venue, so the screen can say WHY it cannot be deleted.
 	//
@@ -3789,6 +3801,12 @@ type Querier interface {
 	// and the caller sees pgx.ErrNoRows -- "a device that is not active is given no nonce" (ADR 0045
 	// §2.3) is the statement's shape, not a check before it. ttl_seconds is the caller's; the table's
 	// CHECK caps it at 5 minutes (23514 above that). created_at is the database's now().
+	//
+	// FOR SHARE OF d: an issue racing a revocation waits for the revoking transaction and then re-reads
+	// the committed device row (READ COMMITTED re-checks a locked row's qual on its newest version), so
+	// it inserts nothing -- instead of inserting a live nonce AFTER the revocation deleted the others.
+	// FOR SHARE needs UPDATE on some column of app_devices, which tappa_app holds (last_used_at,
+	// revoked_at); it does not conflict with another FOR SHARE, so two issues do not wait for each other.
 	IssueAppRequestNonce(ctx context.Context, arg IssueAppRequestNonceParams) (IssueAppRequestNonceRow, error)
 	// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 	// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
@@ -6374,10 +6392,18 @@ type Querier interface {
 	// M16-26). COALESCE keeps the FIRST stamp, so a repeat is idempotent and never rewrites when the
 	// device died. The row is matched whatever its state, so pgx.ErrNoRows means "no such device in
 	// this tenant" -- a different answer from "already revoked".
+	//
+	// 🔴 THE REVOCATION KILLS THE DEVICE'S NONCES IN THE SAME STATEMENT (M16-03 security review): a nonce
+	// issued before the revoke would otherwise stay spendable for its lifetime. The DELETE runs in this
+	// statement whatever the SELECT reads (a data-modifying CTE always runs once). A consumption that
+	// already holds a nonce's row lock makes this DELETE wait for it, so that consumption commits BEFORE
+	// the revocation; one that comes later finds the row gone (ConsumeAppRequestNonce's belt covers a
+	// revocation written any other way).
 	RevokeAppDevice(ctx context.Context, arg RevokeAppDeviceParams) (RevokeAppDeviceRow, error)
 	// Revokes EVERY live device of one person and returns the ids it revoked (empty when none was live
 	// -- idempotent): the panel's "Sign out their phones" (T59) reaching the app (ADR 0045 §2.3). The
 	// caller refuses it for a deactivated person (tenant.ErrSignOutDeactivated) -- see the header.
+	// Like RevokeAppDevice it deletes the revoked devices' nonces in the same statement.
 	RevokeAppDevicesForEmployee(ctx context.Context, arg RevokeAppDevicesForEmployeeParams) ([]uuid.UUID, error)
 	// K3: when a password changes, every OTHER live session of that admin is revoked, but
 	// the session that made the change survives -- the user stays signed in on this device
