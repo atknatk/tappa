@@ -243,6 +243,70 @@ func TestPolicySetDB_TheOwnerOfAnExistingBusinessIsNotLockedOutByAnAddedRule(t *
 	assertCompletedOnce(t, data, tenantID, added, before) // the tap found nothing to write
 }
 
+// TestPolicySetDB_AManagersQuestionWritesNothing measures the production path (the tenant
+// package's storedAuthority fake equates PanelSet with StoredSet): a manager asking first, on
+// a business one added document short, is refused at the guardrail stage and the three
+// tables stay where they were; the owner's question then completes it.
+func TestPolicySetDB_AManagersQuestionWritesNothing(t *testing.T) {
+	data, tenantID, sets := newPolicyHarness(t)
+	ctx := context.Background()
+	seedPreAdditionBaseline(t, sets, tenantID)
+	w := writerOver(t, data, &Service{policies: sets})
+	short := len(policy.Baseline()) - 1
+	counts := func() [3]int {
+		return [3]int{countRows(t, data, tenantID, "policies"), countRows(t, data, tenantID, "policy_versions"),
+			countRows(t, data, tenantID, "policy_attachments")}
+	}
+	if got := counts(); got != [3]int{short, short, short} {
+		t.Fatalf("fixture: %v, want %d in each table", got, short)
+	}
+	manager := tenant.Actor{ID: uuid.New(), Role: "manager"}
+	if w.May(ctx, tenantID, manager) || w.MayInviteManager(ctx, tenantID, manager) {
+		t.Fatal("a manager passes the policy:edit gate")
+	}
+	if got := counts(); got != [3]int{short, short, short} {
+		t.Fatalf("a manager's question wrote: %v, want %d in each table", got, short)
+	}
+	if !w.May(ctx, tenantID, tenant.Actor{ID: uuid.New(), Role: "owner"}) {
+		t.Fatal("the owner is refused")
+	}
+	if want := len(policy.Baseline()); counts() != [3]int{want, want, want} {
+		t.Fatalf("the owner's question did not complete the baseline: %v", counts())
+	}
+}
+
+// TestPolicySetDB_ThePanelSaysItCompletedOnlyWhenItWrote: the INFO line is a claim that rows
+// were written. A business whose stored document cannot be parsed has it "missing" on every
+// read, and writing it again does nothing, so the line must not appear; the real completion
+// says it once and the next question says nothing.
+func TestPolicySetDB_ThePanelSaysItCompletedOnlyWhenItWrote(t *testing.T) {
+	data := openPolicyDB(t)
+	logs := &lockedBuffer{}
+	sets := policySets{data: data, params: policy.DefaultParams(),
+		log: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}
+	svc := &Service{policies: sets}
+	ctx := context.Background()
+	const line = "completed a stored baseline for the panel"
+
+	short := newPolicyTenant(t, data)
+	seedPreAdditionBaseline(t, sets, short)
+	svc.PanelSet(ctx, short)
+	svc.PanelSet(ctx, short)
+	if n := strings.Count(logs.String(), line); n != 1 {
+		t.Fatalf("a completion and a second question logged %d completion lines, want 1:\n%s", n, logs.String())
+	}
+
+	unreadable := newPolicyTenant(t, data)
+	sets.forTenant(ctx, unreadable)
+	corruptLatestVersion(t, data, unreadable, policy.Baseline()[0].Name)
+	before := strings.Count(logs.String(), line)
+	svc.PanelSet(ctx, unreadable)
+	svc.PanelSet(ctx, unreadable)
+	if n := strings.Count(logs.String(), line) - before; n != 0 {
+		t.Fatalf("an unreadable document produced %d completion lines; nothing was written:\n%s", n, logs.String())
+	}
+}
+
 // TestPolicySetDB_PanelSetProvisionsNobody is StoredSetProvisionsNobody for the gate's read: a
 // business with NOTHING stored is not set up by a panel question -- not by policy:edit (still
 // refused, the policies screen's state) and not by the invitation gate (decided on the shipped

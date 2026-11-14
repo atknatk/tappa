@@ -29,11 +29,13 @@ import (
 // in mountWriting for this section, they DO take the ProtectWriting chain, they DO
 // carry a synchronizer token (confirmField), and they DO write audit_log rows —
 // including for a refusal. What is true of THIS file is that the section's GET renders
-// and asks the engine one question (panelScribe.May) and changes nothing. The point
-// worth stating is WHY rendering had to stay that way, and the gate reads through
-// checkin.Service.PanelSet — which never provisions a business (it only completes a
-// stored baseline with a document a later release added, ADR 0045 Bedel 10) — so even a
-// REFUSED write provisions nobody: the other assembler of a tenant's policy layer (internal/domain/checkin)
+// and asks the engine one question (panelScribe.May), and that question writes in ONE
+// case only: an owner's GET on a business whose stored baseline is missing a document a
+// later release ADDED completes it -- the rows its next tap would write, through the tap
+// path's own materialiser (checkin.Service.PanelSet, ADR 0045 Bedel 10). A manager is
+// refused at the guardrail stage before anything is read, and a business with nothing
+// stored is never provisioned, so even a REFUSED write provisions nobody. The point
+// worth stating is WHY rendering had to stay that way: the other assembler of a tenant's policy layer (internal/domain/checkin)
 // MATERIALISES the managed baseline when it finds it missing — a policy, a version and
 // an attachment for every shipped document — because a tap that cannot name a policy_versions row
 // cannot be recorded. A panel screen that reused it would write those rows for any
@@ -119,7 +121,13 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	// re-deriving the answer from the screen's own parsed rules, which would be a
 	// second representation of the engine's decision on the one page whose job is to
 	// show what the engine decides.
-	mayEdit := a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
+	//
+	// THE VIEW IS BUILT FIRST SO THE QUESTION STAYS ONE LINE: the product-facts tests read
+	// this file for `v.MayEdit = a.scribe.May(` (FactOnlyAnOwnerChangesARule), and
+	// TestPoliciesSection_AsksTheGateBeforeItReadsTheScreen holds the order.
+	v := pages.PoliciesView{PanelChrome: a.chrome(r, pages.TabPolicies)}
+	v.Kicker = policiesKicker
+	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
 
 	screen, err := a.rules.Screen(r.Context(), id.TenantID())
 	if err != nil {
@@ -129,10 +137,9 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v := pages.PoliciesView{PanelChrome: a.chrome(r, pages.TabPolicies)}
-	v.Kicker = policiesKicker
-	v.MayEdit = mayEdit
-	v.ProblemHeading, v.Problem, v.ProblemTone = policyProblem(r.URL.Query().Get("problem"))
+	owner := id.Admin.Role == adminRoleOwner
+	v.ReadOnlyWhy = readOnlyWhy(owner)
+	v.ProblemHeading, v.Problem, v.ProblemTone = policyProblem(r.URL.Query().Get("problem"), owner)
 	fillPoliciesView(&v, screen)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
 }
@@ -149,9 +156,9 @@ const policiesKicker = "Guardrails first · then your rules, weighed together"
 // a caller can type reaches the page. An unknown word produces no notice at all
 // rather than a generic one: a banner that fires for any junk in the query string is
 // a banner somebody can make a customer see.
-func policyProblem(raw string) (heading, sentence string, tone components.Tone) {
+func policyProblem(raw string, owner bool) (heading, sentence string, tone components.Tone) {
 	word := oneOfWords(strings.TrimSpace(raw), policyProblemWords...)
-	sentence = policyProblemSentence(word)
+	sentence = policyProblemSentence(word, owner)
 	if sentence == "" {
 		return "", "", ""
 	}
@@ -171,9 +178,34 @@ func policyProblem(raw string) (heading, sentence string, tone components.Tone) 
 	return "That change was not made", sentence, components.ToneAlert
 }
 
-func policyProblemSentence(word string) string {
+// readOnlyWhy is the read-only arm's explanation (pages.PoliciesView.ReadOnlyWhy).
+//
+// 🔴 IT IS ROLE-AWARE BECAUSE THE ENGINE IS (M16-06 review). For a MANAGER the refusal is
+// sys:policy-edit-owner-only, a guardrail that denies them whatever the rulebook says, so
+// pointing them at a rule that reads "Not set up yet" would name the wrong reason. For an
+// OWNER the guardrail steps aside and the stored rulebook answers, so the rules below are
+// where the reason is. This decides only WORDS: whether controls are shown is still the
+// engine's MayEdit, never this role test.
+func readOnlyWhy(owner bool) string {
+	if !owner {
+		return "That is your role, not the rules below: a guardrail no rule can change refuses " +
+			"it to a manager, whatever the rules say."
+	}
+	return "The rules below tell you which of three things it is: your business's rules may not " +
+		"all have been set up yet (any that is not reads “Not set up yet”); one of them may be " +
+		"stored in a form this release cannot read, which stops the whole rulebook and is said " +
+		"at the top of this page; or they are fine and this authority is not yours."
+}
+
+func policyProblemSentence(word string, owner bool) string {
 	switch word {
 	case "not-permitted":
+		// A MANAGER is refused by the guardrail, so their reason is the role (readOnlyWhy).
+		if !owner {
+			return "Changing these rules is reserved for an organisation owner — a guardrail no " +
+				"rule can change refuses it to a manager — so nothing was changed. The attempt has " +
+				"been written to your audit trail."
+		}
 		// 🔴 IT DOES NOT NAME A ROLE, AND THE SIBLING SENTENCE ON THIS SCREEN ALREADY
 		// KNEW WHY. policyIntro's read-only arm was corrected in an earlier round for
 		// exactly this: "telling an owner 'only owners may change these' when they ARE

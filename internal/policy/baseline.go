@@ -176,14 +176,15 @@ func BaselineChanges() []BaselineChange {
 			Version:  "2026-11-14",
 			Document: mockLocationDocName,
 			Added:    true,
-			Summary: "A new rule, for the optional Taptime phone app. When the app reports that the " +
-				"phone's position came from a mock-location setting -- a tool that makes a phone claim " +
-				"to be somewhere it is not -- the tap is still recorded, and it is sent to The Spike " +
-				"for approval instead of being let through. Taps made in the phone's browser cannot " +
-				"report this, so nothing changes for them. The rule was added to your business's " +
-				"rules without a step for you to accept it: it is set up on your next tap, if it is " +
-				"not already. Switch it off and an app tap is judged by your other rules alone; the " +
-				"report is still kept on the record.",
+			// Neutral on purpose: the public pages do not name the app before it ships (Q42,
+			// M16-27); the security page says it the same way.
+			Summary: "A new rule: a tap whose phone reports a simulated location is still recorded, " +
+				"and it is sent to The Spike for approval instead of being let through. A phone's " +
+				"browser cannot report this, so nothing changes for taps made there. The rule was " +
+				"added to your business's rules without a step for you to accept it: it is set up on " +
+				"your next tap, or the next time an owner opens these rules, if it is not already. " +
+				"Switch it off and such a tap is judged by your other rules alone; the report is " +
+				"still kept on the record.",
 		},
 	}
 }

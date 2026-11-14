@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -415,10 +416,14 @@ func TestBaseline_TheMockLocationRuleIsAnnouncedAsAnAddition(t *testing.T) {
 	if !ok || add.Version != "2026-11-14" || !add.Added {
 		t.Fatalf("BaselineAddition(%q) = %+v, %v; want the 2026-11-14 addition", mockDoc, add, ok)
 	}
-	for _, word := range []string{"app", "browser", "Switch it off"} {
+	for _, word := range []string{"simulated location", "browser", "Switch it off"} {
 		if !strings.Contains(add.Summary, word) {
 			t.Fatalf("the announcement does not say %q: %s", word, add.Summary)
 		}
+	}
+	// Q42 / M16-27: customer copy does not name the app before it ships.
+	if regexp.MustCompile(`(?i)\bapp\b|\bapplication\b`).MatchString(add.Summary) {
+		t.Fatalf("the announcement names the app: %s", add.Summary)
 	}
 	if got := BaselineChangesSince(mockDoc, "2026-07-26"); len(got) != 0 {
 		t.Fatalf("an addition is reported as a change to a stored copy: %+v", got)

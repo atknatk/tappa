@@ -297,3 +297,49 @@ func TestDecide_TenantRuleCanReadClient(t *testing.T) {
 		}
 	}
 }
+
+// TestDecide_MockLocationLeavesTheGuardrailsAsTheyWere: §5 rows 1-5 are guardrails and
+// terminal, so a mock-location report changes none of them -- lost, retired, SUN invalid,
+// no session, deactivated and the per-person repeat each come back as the same Decision
+// (verdict, sid, layer, trust, redirect, security alert) with or without the report; only
+// the frozen context carries it.
+func TestDecide_MockLocationLeavesTheGuardrailsAsTheyWere(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mutate  func(*Input)
+		wantSid string
+	}{
+		{"row1_lost_tag", func(in *Input) { in.Tag.Status = TagLost }, "sys:tag-not-active"},
+		{"row1_retired_tag", func(in *Input) { in.Tag.Status = TagRetired }, "sys:tag-not-active"},
+		{"row2_sun_invalid", func(in *Input) { in.SUN = SUNResult{Valid: false} }, "sys:sun-invalid"},
+		{"row3_no_session", func(in *Input) { in.Employee = nil }, "sys:no-session"},
+		{"row4_deactivated", func(in *Input) { in.Employee.Status = EmployeeDeactivated }, "sys:employee-deactivated"},
+		{"row5_person_debounce", func(in *Input) {
+			in.LastForPerson = &Transaction{OccurredAt: in.Now.Add(-20 * time.Second), Direction: TypeIn}
+		}, "sys:person-debounce"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, client := range []Client{ClientApp, ClientBrowser} {
+				in := onSiteInput()
+				in.Client = client
+				tc.mutate(&in)
+				want := Decide(in)
+				if want.MatchedSid != tc.wantSid {
+					t.Fatalf("precondition: %q, want %q", want.MatchedSid, tc.wantSid)
+				}
+				in.MockLocation = boolp(true)
+				got := Decide(in)
+				if got.PolicyContext[policy.CtxTapMockLocation] != true {
+					t.Fatalf("the report is missing from the context")
+				}
+				if !reflect.DeepEqual(withoutKeys(got, policy.CtxTapMockLocation), want) {
+					t.Fatalf("client=%q: a mock report changed a guardrail's decision: %q via %q (trust %d), want %q via %q (trust %d)",
+						client, got.Verdict, got.MatchedSid, got.Trust, want.Verdict, want.MatchedSid, want.Trust)
+				}
+			}
+		})
+	}
+}

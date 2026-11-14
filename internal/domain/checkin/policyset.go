@@ -396,9 +396,15 @@ func (p policySets) panel(ctx context.Context, tenantID uuid.UUID) policy.Set {
 			if err := p.materialise(ctx, tenantID, missing); err != nil {
 				p.log.WarnContext(ctx, "checkin: completing a stored baseline for the panel failed; answering on what is stored",
 					append([]any{"tenant_id", tenantID, "missing", len(missing), "err", err}, pgErrorAttrs(err)...)...)
-			} else {
-				p.log.InfoContext(ctx, "checkin: completed a stored baseline for the panel",
-					"tenant_id", tenantID, "documents", len(missing), "baseline_version", policy.BaselineVersion)
+			} else if after, err := p.load(ctx, tenantID); err == nil {
+				// SAID ONLY WHEN SOMETHING WAS WRITTEN. A stored document this release cannot
+				// parse also counts as missing, and writing it again is a no-op (version 1
+				// exists), so without the re-read this line would claim a completion on every
+				// page view of such a business. The count is what the re-read no longer misses.
+				if _, still := assembleBaseline(after); len(still) < len(missing) {
+					p.log.InfoContext(ctx, "checkin: completed a stored baseline for the panel",
+						"tenant_id", tenantID, "documents", len(missing)-len(still), "baseline_version", policy.BaselineVersion)
+				}
 			}
 		}
 	}

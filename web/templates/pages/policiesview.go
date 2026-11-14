@@ -375,6 +375,10 @@ type PoliciesView struct {
 	// rulebook has never been materialised is refused, and the page has to say so
 	// rather than showing controls that would fail.
 	MayEdit bool
+	// ReadOnlyWhy is the read-only arm's explanation, by the asker's role: an owner is
+	// pointed at the rules below (the stored rulebook decides for them), a manager at the
+	// guardrail that refuses them whatever it says. Words only -- MayEdit decides.
+	ReadOnlyWhy string
 	// Action is where the controls post: the confirmation step, never the write.
 	Action string
 	// ProblemHeading is the notice's TITLE for a refused change, and it is a field

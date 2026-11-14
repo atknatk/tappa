@@ -555,8 +555,10 @@ func run() error {
 	}
 	// 🔴 THE WRITER'S AUTHORITY IS THE DECIDING SERVICE ITSELF (M6-09 phase B). The
 	// panel asks the policy engine before it changes a rulebook, and it asks through
-	// checkin.Service.StoredSet — the NON-materialising read — so an admin who is
-	// about to be refused leaves no rows behind in an append-only table. Passing
+	// checkin.Service.PanelSet — StoredSet's all-or-nothing read, after completing a
+	// stored baseline with any document a later release ADDED (ADR 0045 Bedel 10) — so
+	// it never provisions a business, and a manager, refused at the guardrail stage,
+	// leaves no rows behind in an append-only table. Passing
 	// `checkins` here rather than building a second assembler is what keeps the gate
 	// and the tap path deciding on the same rulebook.
 	ruleWriter, err := tenant.NewRuleWriter(data, trail, checkins, checkins.Params(), slog.Default())
