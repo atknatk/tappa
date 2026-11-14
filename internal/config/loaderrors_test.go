@@ -56,6 +56,8 @@ var loadErrorVariables = map[string]bool{
 	"TAPPA_FRESHNESS_SECONDS":         true,
 	"TAPPA_BUSINESS_DAY_FROM":         true,
 	"TAPPA_ADMIN_IDENTITY":            true,
+	"TAPPA_APP_APPLE_TEAM_ID":         true,
+	"TAPPA_APP_ANDROID_SIGNER_SHA256": true,
 }
 
 // Two fixture values, built into their URLs below so no line of this file is a URL with a credential in

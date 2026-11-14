@@ -190,3 +190,28 @@ Sondalar tekrar koşturuldu: temiz ağaç exit 0 · boş giriş exit 2, asılmı
 Denetçinin doğrulayamadığı: **gawk/mawk** yerelde yok; POSIX'in tek-karakter FS
 kuralı gereği `split(phs, ph, "|")` ikisinde de literal beklenir. CI'ın ilk koşusu
 bunun ölçümüdür.
+
+## Ek (2026-11-14, M16-08) — altıncı ifade: bir protokol anahtarı
+
+M16-08 Android'in App Link dosyasını (`/.well-known/assetlinks.json`) sunar. Google'ın Digital Asset Links
+biçimi imza **sertifikasının** SHA-256 özetini tek bir anahtar adıyla ister: `"sha256_cert_fingerprints"`
+(*"Configure the assetlinks.json file"*, developer.android.com). Bu bir parmağın değil bir X.509 sertifikasının
+özetidir — §4.1'in konusu değildir — ama R1'in `fingerprint` kökü onu yakalar (ölçüldü: ilk taslak 38 satırla
+R1 FAIL).
+
+**Önce ad değişti, M16-03'ün yönüyle:** alan, fonksiyon, test ve yorumlarda kelime yerine *certificate
+digest / CertSHA256* yazıldı; 38 satır 2'ye indi. Kalan ikisi anahtarın kendisidir (`internal/handler/applinks.go`'nun
+struct etiketi ve `applinks_test.go`'nun altın satırı) ve değiştirilemez — başka yazımı yoktur.
+
+**Muafiyet, mevcut desenle:** ifade **tırnaklı** anahtardır (`"sha256_cert_fingerprints"`, tırnaksız kelime muaf
+değil), yol `internal/handler/applinks[^:]*\.go`. `r1_select`'in üçüncü koşulu aynen işler: ifade çıkarılınca
+satırda başka tetikleyici kalırsa FAIL. Her koşuda `[R1 · WARN]` olarak basılır.
+
+**Bilinen genişleme, kabul:** ifade listesi ile yol listesi eşlenmiş değil, çarpımdır — yeni ifade pazarlama
+dosyalarında da, beş eski ifade `applinks*.go`'da da muaf olur. İkisi de bir toplama değil bir ilan/protokol
+metnidir; eşlemeli bir tabloya geçmek bu kartın işi değildi.
+
+**Sondalar** (`cmd/tappa/scripttest` `TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver`): anahtar muaf
+olmayan bir yolda → FAIL · tırnaksız kelime muaf dosyada → FAIL · kelimeyi taşıyan bir tanımlayıcı muaf dosyada →
+FAIL · anahtar + `webauthn` aynı satırda → FAIL · struct etiketi ve altın satır → muaf, WARN'da adlı. Mutant: yol
+girdisi silinince ve ifade silinince test kırmızı (ölçüldü, geri alındı).

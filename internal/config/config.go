@@ -132,6 +132,29 @@ type Config struct {
 	// API host (either surface would be redirected away instead of served).
 	RedirectHosts []string
 
+	// AppAppleTeamID and AppAndroidSignerSHA256 are the native app's two identities as the two stores
+	// know them (M16-08, ADR 0045; TAPPA_APP_APPLE_TEAM_ID, TAPPA_APP_ANDROID_SIGNER_SHA256). They are
+	// what internal/handler's AppLinks writes into /.well-known/apple-app-site-association and
+	// /.well-known/assetlinks.json, the files that let the app open the plaque URL instead of the
+	// browser. EACH IS OPTIONAL ON ITS OWN, and not a set: the app is optional (ADR 0045), and the
+	// two platforms ship at different times (Android first). Unset, that platform's file is not
+	// served (404) and the server starts as before -- a plaque then opens the browser, which is
+	// exactly today's product. Set, the value must be valid or Load refuses to start (the
+	// TAPPA_TAG_KEK_PREVIOUS rule: an optional value that is SET and wrong is not "unset").
+	//
+	// Configuration, not secrets: both values are published, by these very files, to anyone who
+	// asks. They are still never written into this repository (user decision 2026-11-14, Q35):
+	// the repository holds no Team ID or certificate it has not been given.
+	//
+	// AppAppleTeamID is the Apple Developer Team ID: ten upper-case letters or digits. The app ID
+	// the file names is this, a dot, and the bundle ID internal/handler fixes (Q35: mt.taptime.app).
+	AppAppleTeamID string
+	// AppAndroidSignerSHA256 are the SHA-256 digests of the certificates the Android app is
+	// signed with, in the form Play Console shows them: 32 upper-case hex pairs joined by colons.
+	// More than one is allowed (Play App Signing's key, an upload or internal-test key -- the
+	// Digital Asset Links format takes a list), comma-separated, no duplicates.
+	AppAndroidSignerSHA256 []string
+
 	// ResetDelivery names the transport that carries an admin password-reset link
 	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY):
 	// ResetDeliveryNone or ResetDeliveryEmail. Since M10 EM-9 the same value decides
@@ -487,6 +510,12 @@ func Load() (*Config, error) {
 	if c.AdminIdentity, err = adminIdentityFlag(os.Getenv(EnvAdminIdentity)); err != nil {
 		push(err)
 	}
+	if c.AppAppleTeamID, err = appleTeamID(os.Getenv(EnvAppAppleTeamID)); err != nil {
+		push(err)
+	}
+	if c.AppAndroidSignerSHA256, err = androidCertDigests(os.Getenv(EnvAppAndroidSignerSHA256)); err != nil {
+		push(err)
+	}
 	for _, err := range sandboxSettings(c) {
 		push(err)
 	}
@@ -592,7 +621,76 @@ const (
 	AdminIdentityOn  = "on"
 )
 
-// adminIdentityFlag parses TAPPA_ADMIN_IDENTITY: "off" or "on", empty = off. Exact spelling --
+// EnvAppAppleTeamID and EnvAppAndroidSignerSHA256 are the native app's association variables
+// (M16-08; Config.AppAppleTeamID, Config.AppAndroidSignerSHA256).
+const (
+	EnvAppAppleTeamID         = "TAPPA_APP_APPLE_TEAM_ID"
+	EnvAppAndroidSignerSHA256 = "TAPPA_APP_ANDROID_SIGNER_SHA256"
+)
+
+// appleTeamID validates TAPPA_APP_APPLE_TEAM_ID: empty is "no iOS app" and is not an error;
+// anything else is exactly ten characters from [A-Z0-9], the shape of an Apple Team ID. ONE
+// SPELLING, refused rather than normalised (operatorHost's reason): the value is copied into the
+// app ID a phone compares with its own, and a lower-case or padded copy would publish a file that
+// matches no app -- which reads, on the phone, exactly like "no app installed".
+func appleTeamID(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	if len(v) != 10 || strings.IndexFunc(v, func(r rune) bool { return (r < 'A' || r > 'Z') && (r < '0' || r > '9') }) >= 0 {
+		return "", fmt.Errorf("%s: must be an Apple Developer Team ID -- exactly ten upper-case letters or digits "+
+			"(Apple Developer account, Membership details) -- or unset, which serves no "+
+			"apple-app-site-association%s", EnvAppAppleTeamID, valueNotRepeated)
+	}
+	return v, nil
+}
+
+// androidCertDigests parses TAPPA_APP_ANDROID_SIGNER_SHA256: empty (or blanks) is "no Android
+// app" and is not an error; otherwise a comma-separated list, each entry trimmed and then exactly
+// a certificate SHA-256 in Play Console's spelling -- 32 upper-case hex pairs joined by colons
+// (95 characters). An empty entry and a duplicate are refused: either is a paste gone wrong, and
+// the file would carry it to every phone. Entries are named by position, never by value.
+func androidCertDigests(v string) ([]string, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	var out []string
+	for i, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if !isCertSHA256(part) {
+			return nil, fmt.Errorf("%s: entry %d is not a certificate SHA-256 -- 32 upper-case hex pairs "+
+				"joined by colons, as Play Console shows it (Setup, App signing)%s", EnvAppAndroidSignerSHA256, i+1, valueNotRepeated)
+		}
+		if slices.Contains(out, part) {
+			return nil, fmt.Errorf("%s: entry %d repeats an earlier entry%s", EnvAppAndroidSignerSHA256, i+1, valueNotRepeated)
+		}
+		out = append(out, part)
+	}
+	return out, nil
+}
+
+// isCertSHA256 reports whether s is 32 upper-case hex pairs joined by single colons.
+func isCertSHA256(s string) bool {
+	const pairs = 32
+	if len(s) != pairs*3-1 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if i%3 == 2 {
+			if c != ':' {
+				return false
+			}
+			continue
+		}
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// adminIdentityFlag parses TAPPA_ADMIN_IDENTITY:"off" or "on", empty = off. Exact spelling --
 // unlike the delivery modes it forgives no case and no blank, because it is a security boundary
 // with a two-word vocabulary and every other spelling is somebody's guess (Config.AdminIdentity).
 // The value is not repeated in the error.

@@ -353,8 +353,16 @@ R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn|localauthen
 # Metin bir harf degisirse muafiyet DUSER ve R1 yeniden FAIL verir — dogru yon,
 # cunku yeni cumleyi birinin bilerek muaf tutmasi gerekir. Eslesme HARFI HARFINE
 # (index), regex degil; `|` ayirici.
-R1_WAIVER_PHRASES='fingerprint terminal|retire the fingerprint box.|fingerprint / card devices|"biometric data"|fingerprints stored = gdpr weight'
-R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go):'
+# M16-08 (2026-11-14, ADR 0012 ek bolumu): ALTINCI IFADE, BIR PROTOKOL ADI. Android'in
+# Digital Asset Links bicimi imza SERTIFIKASININ SHA-256'sini `"sha256_cert_fingerprints"`
+# anahtariyla ister (Google'in belgesi; baska yazimi yok) -- bir parmagin degil bir X.509
+# sertifikasinin ozeti, yani §4.1'in konusu degil. Kelime degistirilemedigi icin (M16-03'un
+# "kural kor tutulur, ad degisir" yonu burada isleyemez) muafiyet TIRNAKLI anahtarin
+# KENDISINE ve YALNIZ internal/handler/applinks*.go'ya baglidir; o dosyalarin geri kalani
+# kelimeyi kullanmaz. Satirdaki baska her tetikleyici yine FAIL'dir (r1_select'in 3. kosulu).
+# Pin: cmd/tappa/scripttest TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver.
+R1_WAIVER_PHRASES='fingerprint terminal|retire the fingerprint box.|fingerprint / card devices|"biometric data"|fingerprints stored = gdpr weight|"sha256_cert_fingerprints"'
+R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go|internal/handler/applinks[^:]*\.go):'
 
 # 🔴 ON-SUZGEC mobile/ ve android/ ALTINDA UYGULANMAZ (M16-02 denetimi): suzgec SATIRI
 # yoldan bagimsiz atiyordu, yani `let ctx = LAContext() // result not stored` gibi bir

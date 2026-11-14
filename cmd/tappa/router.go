@@ -51,11 +51,14 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	operatorSurface *operator.Surface,
 	integrationAPI httpx.Mounter,
 	devTools httpx.Mounter,
+	appLinks *handler.AppLinks,
 ) http.Handler {
 	// invite is the manager invitation's page (M14-15, the panel's InviteAcceptance), mounted beside the
 	// panel like the recovery flow: it is reached without a session of the inviting business, so it is
 	// outside the panel's chains.
 	// undo is the sign-in address change's undo page (T173, the panel's EmailUndo): sessionless, outside
 	// the panel's chains, for the same reason.
-	return httpx.NewRouter(cfg, log, activation, tap, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools)
+	// appLinks is the native app's two association files (M16-08): it mounts only the files whose
+	// platform is configured, so with neither it mounts nothing.
+	return httpx.NewRouter(cfg, log, activation, tap, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools, appLinks)
 }
