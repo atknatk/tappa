@@ -875,6 +875,11 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			// them aside first, inside the same rolled-back transaction (ssSetAside's statements).
 			down = ssSetAsideSQL + "\n" + down
 		}
+		if n == appDevicesMigration {
+			// M16-03: 00104's Down refuses while a device or a nonce exists, and the nonce replay test
+			// commits both. The walk sets them aside first, inside the same rolled-back transaction.
+			down = appDevicesSetAsideSQL + "\n" + down
+		}
 		out = append(out, aiLaterMigration{e.Name(), up, down})
 	}
 	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })

@@ -129,6 +129,29 @@ type ApiKey struct {
 	RevokedAt  *time.Time
 }
 
+type AppDevice struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	EmployeeID  uuid.UUID
+	Platform    string
+	PublicKey   []byte
+	KeyDigest   *string
+	DeviceLabel *string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	RevokedAt   *time.Time
+}
+
+type AppRequestNonce struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	DeviceID   uuid.UUID
+	NonceHash  string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+}
+
 type AuditLog struct {
 	ID       uuid.UUID
 	TenantID uuid.UUID

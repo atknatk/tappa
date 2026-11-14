@@ -304,6 +304,17 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
 - Süresi dolmuş nonce'ların temizliği: kart karar verir (silme mi, bırakma mı); karar §4.3'e değmez (bu tablo
   `transactions` değil) ama `redline-check` R3 kapsamında mı ölçülür.
 
+> **Kart düzeltmesi (2026-11-14, M16-03 uygulaması sırasında).** İki madde metinden saptı, ikisi de ölçümle:
+> (1) *"anahtar parmak izi"* sütunu `key_digest` adını aldı — İngilizce karşılığı `redline-check` R1'in biyometri
+> tetikleyicisidir (ölçüldü: ilk taslak 11 satırla R1 FAIL verdi); kural kör tutulur, ad değişir (deponun her seferki
+> yönü). Sütun `public_key`'in hex SHA-256'sı, `GENERATED ALWAYS … STORED`, global UNIQUE. (2) Açık anahtar **ham
+> sıkıştırılmamış P-256 noktası** (65 bayt, `0x04‖X‖Y`) — SPKI değil: tek kanonik bayt dizisi, böylece özet ve UNIQUE
+> anahtarın kendisine aittir. Ek kararlar: cihaz satırı aktivasyonun **sonunda, etkin** doğar (bağ davette durur,
+> ADR 0026 deseni — *"bağlı ama etkin olmayan cihaz"* bu tablonun durumu değildir); nonce ömrü CHECK ile ≤ 5 dk;
+> ölü nonce'lar (tüketilmiş/süresi dolmuş) **silinir**, cihaz başına, yeni nonce verilmeden önce
+> (`DeleteDeadAppRequestNonces`) — silme fail-closed'dur (tüketim canlı satır ister) ve R3 kapsamı dışında kalır
+> (R3 yalnız `transactions`/`punch_events`'i tarar; bu tablo kanıt taşımaz). `consumed_at` da tek yönlüdür (tetikleyici).
+
 ## M16-04 — Şema: `transactions.client`
 
 - **Bağımlılık:** M16-01

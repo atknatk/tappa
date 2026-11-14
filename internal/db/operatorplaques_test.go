@@ -191,6 +191,9 @@ var opAtVersionSkips = map[int]string{
 		"their operator half and IS walked); its Down takes ACCESS EXCLUSIVE on tenants and refuses while a plan " +
 		"change is recorded -- rows the billing tests commit -- and the tenant's own billing statements call " +
 		"tappa_plan_in_force at every version the walk reaches",
+	104: "app_devices, app_request_nonces, their two one-way triggers and resolve_app_device_by_id (M16-03) -- no " +
+		"operator object; its Down takes ACCESS EXCLUSIVE on both tables, tenants and employees (the DROPs' keys), and " +
+		"refuses while either table holds a row -- rows TestAppRequestNonces_ConcurrentConsumeExactlyOnce commits",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
