@@ -80,6 +80,10 @@ internal/domain/claim/  eksik yarı talebi (ADR 0032 Faz C): çapa durumu okuyuc
 internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. **Plaket** kriptografisi
                       (AES-CMAC, SUN, `ctr`) SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
+internal/appdevice/   native uygulama isteğinin "kim"i (ADR 0045 §2.3): cihaz açık anahtarı
+                      (ham P-256 noktası, eğri üstünde doğrulanır), sunucu nonce'u ver/tüket,
+                      ECDSA P-256 imza doğrulaması. Plaket kriptografisi DEĞİL. Karar vermez,
+                      log yazmaz. Kanonik metin vektörleri: test/fixtures/appdevice_vectors.json
 internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
                       yalnız `identity_*` / `resolve_identity_*` ile gider
 internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,
