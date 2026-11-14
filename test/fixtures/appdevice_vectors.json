@@ -1,0 +1,251 @@
+{
+  "_label": "FAKE keys -- generated for these vectors (OpenSSL 3.6.4, prime256v1), never registered anywhere. The private halves were not kept in this repository.",
+  "_what": [
+    "Known-answer vectors for the native app's signed requests (ADR 0045 §2.3, M16-05). internal/appdevice's tests read this file; the iOS and Android request builders (M16-12, M16-16) are to read it too, so the three implementations are held to ONE byte string.",
+    "canonical_text is the exact signed byte string: six lines, each ended by LF -- the prefix tappa-app-request-v1, the method, the path, the lower-case hex SHA-256 of the raw body bytes, the nonce as issued, the device id in canonical lower-case form.",
+    "Signature: ECDSA P-256 with SHA-256 over canonical_text (the signer hashes it: iOS .ecdsaSignatureMessageX962SHA256, Android SHA256withECDSA), ASN.1 DER, sent as unpadded base64url in the App-Signature header. The nonce goes in App-Nonce, the device id in App-Device-Id.",
+    "public_point_hex is a device's public key in the stored form: the raw uncompressed point 04 || X || Y, 65 bytes (00104). It is named for the point so that redline R7d's key-context rule (that word plus a long hex string on one line) is not tripped by a PUBLIC value: the rule stays blunt and the name is reworded, this repository's direction."
+  ],
+  "_provenance": [
+    "Every canonical_text was written with printf and hashed with shasum, independently of the Go builder; internal/appdevice's test asserts its builder reproduces each one byte for byte.",
+    "Every signature was made by OpenSSL (openssl dgst -sha256 -sign), NOT by Go, and every 'valid: true' one was verified by OpenSSL as well -- so the verifier is checked against a second implementation, not against its own output. tap-low-s-twin is tap-high-s with s replaced by n-s (computed outside Go), and OpenSSL verifies it.",
+    "LIMIT: the canonical format itself is this repository's definition; the vectors prove the implementations agree with it, not that the format is right."
+  ],
+  "keys": {
+    "A": {
+      "public_point_hex": "048005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32f"
+    },
+    "B": {
+      "public_point_hex": "0412fd251ba7bc3704bdc831b6b341ab827528e71ded818105819669b3bfc6aefc176b2f14ac090dedaedad7111dec747b5f8d7dc361e559d00e5ff52681976828"
+    }
+  },
+  "requests": [
+    {
+      "name": "tap",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "body_utf8": "{\"plaque\":\"04A1B2C3D4E5F6\",\"ctr\":17,\"note\":\"Örnek\"}",
+      "body_sha256_hex": "5c1cf9cd3b81d86fa652277fffd4d32b2e14330a85bcfcd2cc9f26c45fc1c03c",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b",
+      "canonical_text": "tappa-app-request-v1\nPOST\n/app/v1/tap\n5c1cf9cd3b81d86fa652277fffd4d32b2e14330a85bcfcd2cc9f26c45fc1c03c\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b\n",
+      "canonical_sha256_hex": "df15da87be27da6bfc453578a01718d8a7602b2a5a991c10f7e1ef7b96254c25",
+      "note": "a JSON body with a non-ASCII character: the digest is over the raw UTF-8 bytes as sent"
+    },
+    {
+      "name": "revoke-empty-body",
+      "method": "POST",
+      "path": "/app/v1/revoke",
+      "body_utf8": "",
+      "body_sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nonce": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b",
+      "canonical_text": "tappa-app-request-v1\nPOST\n/app/v1/revoke\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA\n6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b\n",
+      "canonical_sha256_hex": "532fdbc0b6b64ac21865fb8113b9bb61d6665625c5472194473f6867ff0d5c89",
+      "note": "an empty body hashes to SHA-256 of zero bytes, it is not omitted"
+    },
+    {
+      "name": "me-get",
+      "method": "GET",
+      "path": "/app/v1/me",
+      "body_utf8": "",
+      "body_sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nonce": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b",
+      "canonical_text": "tappa-app-request-v1\nGET\n/app/v1/me\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo\n6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b\n",
+      "canonical_sha256_hex": "f3c041ff10f4ea01cb298a3648639b8662bd667fc3a12793579bf33ea8920b1e"
+    },
+    {
+      "name": "tap-tampered-body",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "body_utf8": "{\"plaque\":\"04A1B2C3D4E5F6\",\"ctr\":18,\"note\":\"Örnek\"}",
+      "body_sha256_hex": "e80a8e5b14ffe6049007e054c1147e5a2e449421187b16352133a1d94d355172",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b",
+      "canonical_text": "tappa-app-request-v1\nPOST\n/app/v1/tap\ne80a8e5b14ffe6049007e054c1147e5a2e449421187b16352133a1d94d355172\nAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8\n6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b\n",
+      "canonical_sha256_hex": "c58fc6b42efa6e3ce641d622fd388c52e0dc6a2c9776bf0e6dc2e57a3568dc0d",
+      "note": "the tap request with one body byte changed (ctr 17 -> 18); the tap signatures must NOT verify over it"
+    }
+  ],
+  "signatures": [
+    {
+      "name": "tap-high-s",
+      "request": "tap",
+      "key": "A",
+      "signature_b64url": "MEUCIHPEy6gB7wOWCev4iz7WOGICb7dy1s9kdEgV_l8kRemZAiEA0kbOJqD-i2ZfTpAzczhJJEtbEqnP1nr4HmwJYEArMEg",
+      "valid": true,
+      "note": "s > n/2 as OpenSSL emitted it; high S is accepted (Secure Enclave and Keystore do not normalise)"
+    },
+    {
+      "name": "tap-low-s-twin",
+      "request": "tap",
+      "key": "A",
+      "signature_b64url": "MEQCIHPEy6gB7wOWCev4iz7WOGICb7dy1s9kdEgV_l8kRemZAiAtuTHYXwF0mqCxb8yMx7bbcYvoA9dBI4zVTcFivDf1CQ",
+      "valid": true,
+      "note": "(r, n-s) of tap-high-s: the malleable twin verifies too; replay protection is the single-use nonce, not signature uniqueness"
+    },
+    {
+      "name": "revoke",
+      "request": "revoke-empty-body",
+      "key": "A",
+      "signature_b64url": "MEUCIQDGJXfZjuiR-Oq5HaYxd2OKO9QK3rYg7THlVg1Nltdf0QIgL1xb1ue-Mwh4BHFzr6gPBQ4ommUp0jDzn2GQzK4lrgI",
+      "valid": true
+    },
+    {
+      "name": "me",
+      "request": "me-get",
+      "key": "A",
+      "signature_b64url": "MEUCIQDrLO4ACrXkbKpoIVbMKkCJbvJesVrN7pbyIBsXknNQ1AIgGWIGX0TfGTXtpZNK2HV0BFR98cc7DJaYIKt9tDWrkps",
+      "valid": true
+    },
+    {
+      "name": "tap-by-B",
+      "request": "tap",
+      "key": "B",
+      "signature_b64url": "MEUCIQDtMpFIpFZRavsrEUgclhXea61bvXjSj-bd83fOGfmguwIgOL9vfOl6SnceEyUPWPjCeVS4veru7o8gOVqhmFnRE0Y",
+      "valid": true
+    },
+    {
+      "name": "tap-by-B-under-A",
+      "request": "tap",
+      "key": "A",
+      "signature_b64url": "MEUCIQDtMpFIpFZRavsrEUgclhXea61bvXjSj-bd83fOGfmguwIgOL9vfOl6SnceEyUPWPjCeVS4veru7o8gOVqhmFnRE0Y",
+      "valid": false,
+      "note": "wrong key: B signed, A's key verifies"
+    },
+    {
+      "name": "tap-over-tampered-body",
+      "request": "tap-tampered-body",
+      "key": "A",
+      "signature_b64url": "MEUCIHPEy6gB7wOWCev4iz7WOGICb7dy1s9kdEgV_l8kRemZAiEA0kbOJqD-i2ZfTpAzczhJJEtbEqnP1nr4HmwJYEArMEg",
+      "valid": false
+    },
+    {
+      "name": "revoke-over-me",
+      "request": "me-get",
+      "key": "A",
+      "signature_b64url": "MEUCIQDGJXfZjuiR-Oq5HaYxd2OKO9QK3rYg7THlVg1Nltdf0QIgL1xb1ue-Mwh4BHFzr6gPBQ4ommUp0jDzn2GQzK4lrgI",
+      "valid": false,
+      "note": "a valid signature over another request's canonical text"
+    }
+  ],
+  "invalid_public_keys": [
+    {
+      "name": "compressed",
+      "public_point_hex": "038005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570"
+    },
+    {
+      "name": "off-curve",
+      "public_point_hex": "048005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32e",
+      "note": "key A with the last bit of Y flipped: right length and prefix, not on P-256 -- passes 00104's CHECK"
+    },
+    {
+      "name": "hybrid-prefix",
+      "public_point_hex": "068005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32f"
+    },
+    {
+      "name": "x-equals-p",
+      "public_point_hex": "04ffffffff00000001000000000000000000000000ffffffffffffffffffffffffbd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32f"
+    },
+    {
+      "name": "zero-point",
+      "public_point_hex": "0400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "infinity",
+      "public_point_hex": "00"
+    },
+    {
+      "name": "spki",
+      "public_point_hex": "3059301306072a8648ce3d020106082a8648ce3d030107034200048005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32f",
+      "note": "key A as SPKI DER: the app strips the 26-byte prefix (00104); the server never accepts the wrapper"
+    }
+  ],
+  "malformed_requests": [
+    {
+      "name": "device-id-upper-case",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6F1C2A9E-3B4D-4E5F-8A7B-0C1D2E3F4A5B"
+    },
+    {
+      "name": "device-id-braces",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "{6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b}"
+    },
+    {
+      "name": "device-id-nil",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "name": "nonce-padded",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "nonce-std-alphabet",
+      "method": "POST",
+      "path": "/app/v1/revoke",
+      "nonce": "//79/Pv6+fj39vX08/Lx8O/u7ezr6uno5+bl5OPi4eA",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "nonce-nonzero-spare-bits",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "nonce-short",
+      "method": "POST",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "method-lower-case",
+      "method": "post",
+      "path": "/app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "path-with-query",
+      "method": "POST",
+      "path": "/app/v1/tap?x=1",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "path-with-space",
+      "method": "POST",
+      "path": "/app/v1/t ap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "path-with-lf",
+      "method": "POST",
+      "path": "/app/v1/tap\nGET",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    },
+    {
+      "name": "path-relative",
+      "method": "POST",
+      "path": "app/v1/tap",
+      "nonce": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "device_id": "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b"
+    }
+  ]
+}
