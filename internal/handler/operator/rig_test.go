@@ -1164,6 +1164,7 @@ type fixture struct {
 type rig struct {
 	t       *testing.T
 	store   *fakeStore
+	apps    *fakeApps // the app registry's store (issue #37, apps_test.go)
 	vies    *fakeVIES
 	texts   *fakeTexts
 	auth    *operatorauth.Authenticator
@@ -1255,7 +1256,7 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // newRigAt is newRig with its process and access log at level.
 func newRigAt(t *testing.T, level slog.Level) *rig {
 	t.Helper()
-	g := &rig{t: t, store: newFakeStore(), kek: randBytes(t, 32), now: time.Unix(1_900_000_005, 0), logs: &bytes.Buffer{}}
+	g := &rig{t: t, store: newFakeStore(), apps: &fakeApps{}, kek: randBytes(t, 32), now: time.Unix(1_900_000_005, 0), logs: &bytes.Buffer{}}
 	g.texts = newFakeTexts(g.store)
 	g.vies = &fakeVIES{store: g.store}
 	log := captureAt(&lockedWriter{w: g.logs}, level)
@@ -1266,7 +1267,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, opHost, opBase,
+	s, err := operator.New(auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.apps, testSecrets, g.vies, g.texts, opHost, opBase,
 		log)
 	if err != nil {
 		t.Fatal(err)

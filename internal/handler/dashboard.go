@@ -271,6 +271,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// the sibling group at the end of this function (K-26: a suspension does not stop a
 		// defence).
 		r.Post(apiKeysHref, a.apiKeyCreate)
+		// 🔴 THE APP CONSENT'S APPROVAL (issue #37, ADR 0047 §4.5): a new grant is a write, so a
+		// suspended business is refused it here (route class 1). It answers a 303 to the app's
+		// REGISTERED redirect URI -- S14's named exception (oauthconsent.go).
+		r.Post(oauthAuthorizeHref, a.oauthApprove)
 		// 🔴 THE WEBHOOK'S WRITES (M11 API-9, API-10). Here for the ordinary reason -- the
 		// Origin check runs AHEAD of the resolver (GATE-1) -- and owner-only inside the
 		// handlers. The test ping and the resend are the panel writes that make an outbound
@@ -388,6 +392,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
 		// exactly that reason: the two must never share a gate.
 		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// THE APP CONSENT'S REFUSAL (issue #37, ADR 0047 §4.5, DÜŞÜK-1): it writes no row -- only the
+		// pending request cookie is cleared -- so a suspension does not stop it, and the app hears
+		// access_denied from a suspended business too (ADR 0025's exception list, by name).
+		r.Post(oauthDenyHref, a.oauthDeny)
 		// SIGN OUT EVERYWHERE (M14-11): the person's own sessions, beside their own password
 		// (ADR 0025's M14 note). Mounted only while TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8);
 		// any live admin, like the password.

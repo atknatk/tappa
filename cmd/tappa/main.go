@@ -838,6 +838,13 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.IntegrationKeys(apiKeys))
+	// THE "CONNECTED APPS" AUTHORIZATION SERVER (issue #37, ADR 0047): the panel's consent and the
+	// token endpoint's surface share one server over the pool and the trail (oauth.go).
+	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.OAuthConsent(oauthServer))
 	// THE WEBHOOK ENDPOINT (M11 API-9, ADR 0028 §6, §7): the owner's one endpoint and its test ping,
 	// sent through internal/egress -- the SSRF-safe client, the only defence while egress is open. It
 	// is built whenever TAPPA_WEBHOOK_KEK is set, which config.Load requires outside dev; a dev
@@ -1023,7 +1030,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

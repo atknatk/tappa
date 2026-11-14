@@ -44,6 +44,10 @@
 #   tappa-key   Tappa'nin KENDI onekli degerleri (M11 API-3, ADR 0028 §3, K-10): entegrasyon
 #               API anahtari `tt_live_` / `tt_test_` ve webhook uc noktasinin imza anahtari
 #               `tt_whsec_` (oneki API-3 secti, API-9 onu uretir), ardindan >=32 base64url.
+#               Issue #37 (ADR 0047 §7.1): OAuth'un dort degeri de -- client secret
+#               `tt_cs_`, yetki kodu `tt_ac_`, erisim `tt_at_`, refresh `tt_rt_`, ardindan
+#               `live_`/`test_` -- ayni sinifta: `tt_((cs|ac|at|rt)_)?(live|test)_|tt_whsec_`
+#               (on-suzgec, eslesme ve govde soyma UCU birlikte degisir).
 #               Tam bir anahtarin govdesi 43 karakterdir; esik 32'ye cekildi (API-3 2. tur,
 #               iki mercek): KIRPILMIS bir anahtar (42 karakter -- 4 bilinmeyen bit) da
 #               sizintidir. Solunda harf/rakam/_ olan eslesme bir kelimenin ortasidir --
@@ -483,7 +487,7 @@ R7D_KEYCAMEL='[a-z0-9](Key|KEY|KEK|Kek|HMAC|Hmac|Aes|AES)'
 # R7D_PREFILTER — rg'nin ucuz on-suzgeci: her sinifin OLMAZSA OLMAZ parcasi. Bir
 # satir buradan gecmezse hicbir sinif onu eslestiremez; gecmesi hicbir sey
 # kanitlamaz, karari awk verir. Yeni bir sinif eklenirse cipasi BURAYA da girer.
-R7D_PREFILTER="$R7D_TRIGGERS|kek|hmac|aes|key|anahtar|://|AKIA|ASIA|PRIVATE KEY|[\$]2|pass|pwd|api.?key|access.?key|auth.?token|identified|curl|gh[pousr]_|github_pat_|k_live_|xox[bpa]-|glpat-|AIza|eyJ|tt_(live|test|whsec)_"
+R7D_PREFILTER="$R7D_TRIGGERS|kek|hmac|aes|key|anahtar|://|AKIA|ASIA|PRIVATE KEY|[\$]2|pass|pwd|api.?key|access.?key|auth.?token|identified|curl|gh[pousr]_|github_pat_|k_live_|xox[bpa]-|glpat-|AIza|eyJ|tt_((cs|ac|at|rt)_)?(live|test)_|tt_whsec_"
 
 # R7D_WAIVERS — MUAFIYET TABLOSU (7. tur): muafiyet SATIRIN TAMAMINA baglidir.
 # Satir basina:  <yol ERE>;<sha256>;<kisa aciklama>
@@ -895,12 +899,12 @@ r7d_awk() {
     }
     function c_tappa(t,    s, tok, pre, body) {
       s = t
-      while (match(s, /tt_(live|test|whsec)_[A-Za-z0-9_-]+/)) {
+      while (match(s, /tt_((cs|ac|at|rt)_)?(live|test)_[A-Za-z0-9_-]+|tt_whsec_[A-Za-z0-9_-]+/)) {
         tok = substr(s, RSTART, RLENGTH)
         pre = (RSTART > 1) ? substr(s, RSTART - 1, 1) : " "
         if (pre ~ /[A-Za-z0-9_]/ && !tappa_escaped(t, s, RSTART)) { s = substr(s, RSTART + RLENGTH); continue }
         s = substr(s, RSTART + RLENGTH)
-        body = tok; sub(/^tt_(live|test|whsec)_/, "", body)
+        body = tok; sub(/^tt_((cs|ac|at|rt)_)?(live|test)_|^tt_whsec_/, "", body)
         if (length(body) >= 32 && distinct(body) > 4) return 1
       }
       return 0

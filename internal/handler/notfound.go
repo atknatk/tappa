@@ -83,7 +83,12 @@ var plainNotFoundRoots = []string{
 	firstPathSegment(httpx.HealthPath),     // healthz
 	firstPathSegment(httpx.ReadyPath),      // readyz
 	firstPathSegment(DevSimulateTapPath),   // dev: the dev-only tap simulator
+	firstPathSegment(oauthTokenPath),       // oauth: the authorization server's endpoints (issue #37)
 }
+
+// oauthTokenPath is internal/handler/oauthapi's token endpoint (TokenPath), named here for its root:
+// this package does not import that surface.
+const oauthTokenPath = "/oauth/token"
 
 // apiCheckinPath is the tap's JSON endpoint (tap.go mounts it; /api/activate shares its
 // root). staticRoot is the asset route's prefix (internal/httpx registers it; the

@@ -71,6 +71,14 @@ type Config struct {
 	// other key here (keysSeparation).
 	APIKeyHMACKey Key
 
+	// OAuthHMACKey keys every stored OAuth value of the "Connected apps" authorization server (issue
+	// #37, ADR 0047 §7.2, TAPPA_OAUTH_HMAC_KEY): a client secret's, an authorization code's and an
+	// access or refresh token's hash, the pending request cookie's signature and the consent page's
+	// request digest -- each under its own domain label (internal/oauth). REQUIRED -- the token
+	// endpoint and the consent page are always mounted, and a deployment that could not hash a token
+	// must not start -- 32 bytes, and different from every other key here (keysSeparation).
+	OAuthHMACKey Key
+
 	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK;
 	// internal/webhook/endpoints). REQUIRED outside TAPPA_ENV=dev since M11 API-9 (webhookSettings):
 	// a production or staging panel offers the webhook to every owner whose API the operator opened,
@@ -413,6 +421,10 @@ func Load() (*Config, error) {
 		push(err)
 	}
 	if c.WebhookKEK, err = optionalKey32(envWebhookKEK); err != nil {
+		push(err)
+	}
+	// The OAuth authorization server's one key (issue #37, ADR 0047 §7.2): required everywhere.
+	if c.OAuthHMACKey, err = key32(envOAuthHMACKey); err != nil {
 		push(err)
 	}
 	if c.WebhookBlockedAddresses, err = blockedAddresses(os.Getenv(envWebhookBlocked)); err != nil {
@@ -1140,6 +1152,9 @@ const (
 	envWebhookKEK    = "TAPPA_WEBHOOK_KEK"
 )
 
+// envOAuthHMACKey is the OAuth authorization server's key variable (issue #37, ADR 0047 §7.2).
+const envOAuthHMACKey = "TAPPA_OAUTH_HMAC_KEY"
+
 // envWebhookBlocked is the node/ingress address list (M11 API-9, ADR 0028 §7).
 const envWebhookBlocked = "TAPPA_WEBHOOK_BLOCKED_ADDRESSES"
 
@@ -1218,6 +1233,7 @@ func (c *Config) namedKeys() []namedKey {
 		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
 		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
 		{envAPIKeyHMACKey, c.APIKeyHMACKey},
+		{envOAuthHMACKey, c.OAuthHMACKey},
 		{envWebhookKEK, c.WebhookKEK},
 		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
 		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},

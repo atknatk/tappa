@@ -2649,6 +2649,8 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_verify": {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	// M14-22: the link by e-mail's cookie, through the same setter.
 	"tappa_admin_link": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// Issue #37: the app connection request's cookie, through the short setter (ADR 0047 §4.2).
+	"tappa_oauth_request": {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	// M14-15: the invitation link's cookie (its own narrow path, like the recovery link's).
 	"tappa_admin_invite": {[]string{"internal", "handler", "admininvites.go"}, "setInviteLink"},
 	// T173: the address change link's cookie (the short setter) and the undo page's (its own path).

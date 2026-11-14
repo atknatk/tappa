@@ -171,6 +171,9 @@ etcd'dir.
 üretim (yalnız bu iki komut, çıktıyı bir yere yapıştırmadan):
 
 - `openssl rand -base64 32`: TAPPA_SESSION_HMAC_KEY / TAPPA_TAG_KEK / TAPPA_INVITE_HMAC_KEY
+  (sonradan eklenenler, her biri ayrı üretilir: TAPPA_API_KEY_HMAC_KEY ve TAPPA_WEBHOOK_KEK —
+  M11; **TAPPA_OAUTH_HMAC_KEY — issue #37, ADR 0047 §7.2, zorunlu**: `config.Load` onsuz ya da
+  başka bir anahtara eşitken başlamaz; `tappa-secrets`'a imaj sevk edilmeden **önce** yazılır)
 - `openssl rand -hex 32`: POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giriyorlar)
 
 ```bash
@@ -3631,8 +3634,8 @@ for h in "$D" "api.$D" "ops.$D"; do printf '%s ' "$h"; dig +short A "$h"; done
 
 Infisical'da **ayrı bir yol** (öneri: `shared-infra/prod:/tappa-sandbox`; `/tappa` ile **asla** ortak
 değil). `deploy/sandbox/secret.example.yaml`'ın her anahtarı **yeniden üretilir**, prod'dan kopyalanmaz:
-yedi 32 baytlık anahtar (`TAPPA_SESSION_HMAC_KEY`, `TAPPA_TAG_KEK`, `TAPPA_INVITE_HMAC_KEY`,
-`TAPPA_API_KEY_HMAC_KEY`, `TAPPA_WEBHOOK_KEK`, `TAPPA_OPERATOR_TOTP_KEK`,
+sekiz 32 baytlık anahtar (`TAPPA_SESSION_HMAC_KEY`, `TAPPA_TAG_KEK`, `TAPPA_INVITE_HMAC_KEY`,
+`TAPPA_API_KEY_HMAC_KEY`, `TAPPA_OAUTH_HMAC_KEY` (issue #37), `TAPPA_WEBHOOK_KEK`, `TAPPA_OPERATOR_TOTP_KEK`,
 `TAPPA_OPERATOR_TOKEN_HMAC_KEY`) her biri ayrı bir `openssl rand -base64 32` ile; üç parola
 (`POSTGRES_PASSWORD`, `TAPPA_APP_PASSWORD`, `tappa_operator`'ın) ve onlardan kurulan üç DSN;
 `TAPPA_OPERATOR_HOST` = `ops.$D`. SMTP anahtarı **yoktur** (sandbox e-posta göndermez;
@@ -3645,7 +3648,7 @@ Sırlar canlı Secret'a yazıldıktan sonra **prod'la hiçbirinin eşit olmadı�
 ölçülür — çıktı yalnız ad ve `differ`/`SAME` yazar:
 
 ```bash
-for k in TAPPA_SESSION_HMAC_KEY TAPPA_TAG_KEK TAPPA_INVITE_HMAC_KEY TAPPA_API_KEY_HMAC_KEY TAPPA_WEBHOOK_KEK TAPPA_OPERATOR_TOTP_KEK TAPPA_OPERATOR_TOKEN_HMAC_KEY; do
+for k in TAPPA_SESSION_HMAC_KEY TAPPA_TAG_KEK TAPPA_INVITE_HMAC_KEY TAPPA_API_KEY_HMAC_KEY TAPPA_OAUTH_HMAC_KEY TAPPA_WEBHOOK_KEK TAPPA_OPERATOR_TOTP_KEK TAPPA_OPERATOR_TOKEN_HMAC_KEY; do
   a=$(kubectl --context hetzner-k8s-1 -n tappa get secret tappa-secrets -o "jsonpath={.data.$k}" | shasum -a 256)
   b=$(kubectl --context hetzner-k8s-1 -n tappa-sandbox get secret tappa-secrets -o "jsonpath={.data.$k}" | shasum -a 256)
   if [ "$a" = "$b" ]; then echo "$k SAME"; else echo "$k differ"; fi

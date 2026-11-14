@@ -239,7 +239,7 @@ func newE2E(t *testing.T) *e2e {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(g.auth, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noVIES{}, noTexts{},
+	s, err := operator.New(g.auth, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noStore{}, noApps{}, testSecrets, noVIES{}, noTexts{},
 		opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)

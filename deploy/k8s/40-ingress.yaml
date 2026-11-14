@@ -193,6 +193,12 @@ spec:
 # everything else stays on `tappa`, logged as before (the shape 41's console and legal
 # pair already uses for one host).
 #
+# ISSUE #37 (ADR 0047 §3): the authorization server's /oauth prefix is here too, for the same
+# reason. GET /oauth/authorize carries the app's state and PKCE challenge in its query, and the
+# state is not to be in our log (§3, §7.4); POST /oauth/token and /oauth/revoke carry nothing in
+# the URL but are routed with it so the prefix has one rule. Longest prefix wins: /oauth beats
+# `tappa`'s "/".
+#
 # EVERYTHING ELSE IS THE `tappa` INGRESS'S, field for field: host, TLS block (the same
 # secret), class, backend, the two HTTPS redirects and the 1m body limit -- the logo
 # upload, /admin/account/brand/logo, is a panel route. ONE DIFFERENCE, deliberate: no
@@ -235,6 +241,13 @@ spec:
       http:
         paths:
           - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+          - path: /oauth
             pathType: Prefix
             backend:
               service:

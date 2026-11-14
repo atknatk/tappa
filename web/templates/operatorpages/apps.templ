@@ -1,0 +1,125 @@
+package operatorpages
+
+import (
+	"strings"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
+
+// Apps is /operator/apps (issue #37, ADR 0047 §10.3, OA-7): the apps a business may connect to.
+//
+// THE SECRET IS ON THIS PAGE ONCE. The register and rotate answers draw the client_id and the secret
+// in the card at the top; every other render -- a reload included -- draws the secret's hint alone.
+// There is no way to show it again: a lost secret is rotated.
+//
+// THE NAME AND THE RETURN HOST ARE WHAT THE CONSENT PAGE SHOWS A BUSINESS'S OWNER (O-17: no logo in
+// this delivery), so the form asks for the name the owner will recognise. A redirect URI is https://
+// with a lower-case host, no query, no fragment, no port but 443 -- one per line, at most five; the
+// sandbox build also takes http://localhost:<port>/... A turned-off app stays listed, with its time.
+templ Apps(v AppsView) {
+	@screen("Connected apps", true, navConsole) {
+		<section class="op-card">
+			<p class="op-label">Connected apps</p>
+			<h1 class="font-display text-[26px] font-bold leading-[1.1] tracking-[-0.03em] md:text-[28px] desk:text-[32px]">Apps</h1>
+			<p class="text-[15px] leading-[1.55]">
+				The apps a business's owner can connect to their business. Registering an app does not connect
+				it anywhere: each owner approves it for their own business, with the scopes listed here as the
+				most it can ask for.
+			</p>
+			<p class="text-sm">
+				<a href="/operator" class="op-link">Back to the console</a>
+			</p>
+		</section>
+		if v.Secret != nil {
+			@opNotice(components.ToneOK, v.Secret.Heading) {
+				<p>Copy the secret now. It is shown on this page once and cannot be shown again; if it is lost, rotate it.</p>
+				<p class="op-label">Client ID</p>
+				<p class="op-key">{ v.Secret.ClientID }</p>
+				<p class="op-label">Client secret</p>
+				<p class="op-key">{ v.Secret.Secret }</p>
+			}
+		}
+		if v.Notice.Text != "" {
+			if v.Notice.Alert {
+				@opNotice(components.ToneAlert, "Not done") {
+					<p>{ v.Notice.Text }</p>
+				}
+			} else {
+				@opNotice(components.ToneOK, "Done") {
+					<p>{ v.Notice.Text }</p>
+				}
+			}
+		}
+		<section class="op-card" aria-labelledby="app-register">
+			<h2 id="app-register" class="op-heading">Register an app</h2>
+			<form method="post" action="/operator/apps" class="flex flex-col gap-3">
+				<label for="app-name" class="op-label">Name shown to owners</label>
+				<input id="app-name" type="text" name="name" maxlength="64" required autocomplete="off" spellcheck="false" class="op-input max-w-[520px]"/>
+				<label for="app-redirects" class="op-label">Redirect URIs, one per line</label>
+				<textarea id="app-redirects" name="redirect_uris" rows="3" required spellcheck="false" class="op-input max-w-[620px] font-mono text-sm"></textarea>
+				<fieldset class="flex flex-col gap-1.5">
+					<legend class="op-label">Allowed scopes</legend>
+					for _, s := range v.Scopes {
+						<label class="flex min-h-11 items-center gap-2 text-sm">
+							<input type="checkbox" name="scope" value={ s.Word } class="h-5 w-5 shrink-0 accent-tappa-green"/>
+							<span class="font-mono">{ s.Word }</span>
+							<span class="text-ink/70">— { s.Label }</span>
+						</label>
+					}
+				</fieldset>
+				<p class="text-xs text-ink/70">Give the app only the scopes it asks for. The secret is shown once, on the next page.</p>
+				<button type="submit" class="btn btn--primary self-start">Register</button>
+			</form>
+		</section>
+		<section class="docket" aria-labelledby="app-list">
+			<h2 id="app-list" class="docket-label">Newest first</h2>
+			if len(v.Apps) == 0 {
+				<p class="pt-[22px] pb-2 font-display text-[15px] leading-normal">No app is registered yet.</p>
+			} else {
+				<ol>
+					for _, a := range v.Apps {
+						@appEntry(a)
+					}
+				</ol>
+			}
+		</section>
+	}
+}
+
+templ appEntry(a AppRow) {
+	<li class="op-row flex flex-col gap-2 py-4">
+		<p class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<bdi class="font-display text-[17px] font-bold">{ a.Name }</bdi>
+			if a.Disabled {
+				<span class="tally tally--withdrawn">Turned off { a.DisabledAt }</span>
+			}
+		</p>
+		<p class="font-mono text-xs">{ a.ClientID }</p>
+		<p class="text-xs text-ink/70">Registered <span class="font-mono">{ a.CreatedAt }</span> · secret <span class="font-mono">{ a.SecretHint }…</span></p>
+		<p class="font-mono text-xs">{ strings.Join(a.Scopes, " ") }</p>
+		<ul class="flex flex-col gap-0.5">
+			for _, u := range a.RedirectURIs {
+				<li class="op-uri">{ u }</li>
+			}
+		</ul>
+		if !a.Disabled {
+			<form method="post" action={ templ.URL(a.RedirectsPath) } class="flex flex-col gap-1.5">
+				<label for={ "app-redirects-" + a.ID } class="op-label">Edit redirect URIs</label>
+				<textarea id={ "app-redirects-" + a.ID } name="redirect_uris" rows="2" required spellcheck="false" class="op-input max-w-[620px] font-mono text-sm">{ strings.Join(a.RedirectURIs, "\n") }</textarea>
+				<button type="submit" class="btn btn--quiet self-start">Save redirect URIs</button>
+			</form>
+			<div class="flex flex-wrap gap-2.5">
+				<form method="post" action={ templ.URL(a.RotatePath) }>
+					<button type="submit" class="btn btn--quiet">Rotate secret</button>
+				</form>
+				<form method="post" action={ templ.URL(a.DisablePath) } class="flex flex-wrap items-center gap-2.5">
+					<label class="flex min-h-11 items-center gap-2 text-sm">
+						<input type="checkbox" name="confirm" value="yes" required class="h-5 w-5 shrink-0 accent-tappa-green"/>
+						<span>No business can connect to it again</span>
+					</label>
+					<button type="submit" class="btn btn--quiet">Turn off</button>
+				</form>
+			</div>
+		}
+	</li>
+}

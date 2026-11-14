@@ -15,6 +15,9 @@ import (
 // (40-ingress.yaml, M14-10a).
 const panelIngressName = "tappa-panel"
 
+// oauthPrefix is the authorization server's path prefix (internal/handler/oauthapi; ADR 0047 §3).
+const oauthPrefix = "/oauth"
+
 const (
 	accessLogAnnotation = "nginx.ingress.kubernetes.io/enable-access-log"
 	issuerAnnotation    = "cert-manager.io/cluster-issuer"
@@ -57,6 +60,9 @@ func TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog(t *testing.T) {
 		all = append(all, ingressesIn(t, filepath.Base(path))...)
 	}
 
+	// Issue #37 (ADR 0047 §3): the authorization server's prefix rides on the same object -- its
+	// front door's query carries the app's state.
+	prefixes := []string{prefix, oauthPrefix}
 	var panelRoutes []string
 	var panel, customer ingressObject
 	for _, o := range all {
@@ -71,18 +77,21 @@ func TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog(t *testing.T) {
 				continue
 			}
 			for _, p := range r.paths {
-				if p.path == prefix || strings.HasPrefix(p.path, prefix+"/") {
-					panelRoutes = append(panelRoutes, o.name+" "+p.path+" ("+p.pathType+")")
-					if o.annotations[accessLogAnnotation] != "false" {
-						t.Errorf("%s routes the panel's %s on %s with the access log on: the binding in the query is "+
-							"written to the controller's log", o.name, p.path, base.Host)
+				for _, pre := range prefixes {
+					if p.path == pre || strings.HasPrefix(p.path, pre+"/") {
+						panelRoutes = append(panelRoutes, o.name+" "+p.path+" ("+p.pathType+")")
+						if o.annotations[accessLogAnnotation] != "false" {
+							t.Errorf("%s routes %s on %s with the access log on: its query is written to the "+
+								"controller's log", o.name, p.path, base.Host)
+						}
 					}
 				}
 			}
 		}
 	}
-	if want := panelIngressName + " " + prefix + " (Prefix)"; len(panelRoutes) != 1 || panelRoutes[0] != want {
-		t.Errorf("the panel's paths on %s are routed as %v, want exactly [%s]", base.Host, panelRoutes, want)
+	sort.Strings(panelRoutes)
+	if want := []string{panelIngressName + " " + prefix + " (Prefix)", panelIngressName + " " + oauthPrefix + " (Prefix)"}; strings.Join(panelRoutes, "|") != strings.Join(want, "|") {
+		t.Errorf("the panel's and the authorization server's paths on %s are routed as %v, want exactly %v", base.Host, panelRoutes, want)
 	}
 	if panel.name == "" || customer.name == "" {
 		t.Fatalf("CONTROL FAILED: %s or tappa is missing from %s", panelIngressName, customerIngressFile)
@@ -111,13 +120,23 @@ func TestPackaging_ThePanelPathsAreRoutedWithoutAnAccessLog(t *testing.T) {
 		t.Errorf("%s's TLS %+v is not tappa's %+v: two secrets for one host make the controller pick one", panel.name,
 			panel.tls, customer.tls)
 	}
-	if len(panel.rules) != 1 || len(panel.rules[0].paths) != 1 || len(customer.rules) != 1 || len(customer.rules[0].paths) != 1 {
-		t.Fatalf("%s or tappa is not one rule with one path: %+v / %+v", panel.name, panel.rules, customer.rules)
+	if len(panel.rules) != 1 || len(panel.rules[0].paths) != 2 || len(customer.rules) != 1 || len(customer.rules[0].paths) != 1 {
+		t.Fatalf("%s is not one rule with two paths (/admin, /oauth), or tappa not one rule with one path: %+v / %+v", panel.name, panel.rules, customer.rules)
 	}
-	pp, cp := panel.rules[0].paths[0], customer.rules[0].paths[0]
-	if panel.rules[0].host != customer.rules[0].host || pp.service != cp.service || pp.port != cp.port {
-		t.Errorf("%s routes %s to %s:%s, want tappa's %s to %s:%s", panel.name, panel.rules[0].host, pp.service,
-			pp.port, customer.rules[0].host, cp.service, cp.port)
+	cp := customer.rules[0].paths[0]
+	for _, pp := range panel.rules[0].paths {
+		if panel.rules[0].host != customer.rules[0].host || pp.service != cp.service || pp.port != cp.port {
+			t.Errorf("%s routes %s%s to %s:%s, want tappa's %s to %s:%s", panel.name, panel.rules[0].host, pp.path, pp.service,
+				pp.port, customer.rules[0].host, cp.service, cp.port)
+		}
+	}
+	// THE PRECEDENCE, proved from the objects (ingress-nginx sends a request to the LONGEST matching
+	// Prefix across the host's Ingresses): `tappa`'s one path is "/", so every path of the panel object
+	// is strictly longer and wins for its own subtree -- /oauth/token is the panel object's, never "/"'s.
+	for _, pp := range panel.rules[0].paths {
+		if pp.pathType != "Prefix" || len(pp.path) <= len(cp.path) || !strings.HasPrefix(pp.path, cp.path) {
+			t.Errorf("%s's %s (%s) does not out-match tappa's %s: its requests could stay on the logging object", panel.name, pp.path, pp.pathType, cp.path)
+		}
 	}
 	if cp.path != "/" || cp.pathType != "Prefix" {
 		t.Errorf("tappa routes %s (%s), want / (Prefix): everything that is not the panel", cp.path, cp.pathType)

@@ -2130,9 +2130,15 @@ R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"c
 # (R7_VALUE_NAMES, R7_AUTH_HEADER); ONCE AGACTA SAYILDI: log/fmt cagrisi icinde 0 isabet.
 # `\b` awk ERE'sinde yoktur (BSD awk onu geri silme sayar), o yuzden awk'a yine daha GENIS
 # kelimeler gider (`revealtotheowneronce`, `new_?key`).
-R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b'
+# ISSUE #37 (ADR 0047 §7.4): the OAuth values' four exits by name (RevealInRedirect -- the code,
+# RevealInTokenResponse -- the tokens, RevealToTheOperatorOnce -- the client secret,
+# RevealToTheDatabase -- a hash), the PKCE verifier, the pending request's seal and digest, and the
+# client's state as the request carries it (`req.State`, `Request.State`). A bare `state` is NOT a
+# trigger: counted in the tree, it is a webhook delivery's and a tap session's state in log calls
+# (internal/webhook/delivery, internal/handler/checkin.go) -- the dotted field is narrow enough.
+R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b|RevealInRedirect|RevealInTokenResponse|RevealToTheOperatorOnce|RevealToTheDatabase|code_?verifier|RequestDigest|SealRequest|\b(req|Request)\.State\b'
 R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]|Header\.Values\("Authorization"\)'
-R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key"
+R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key|revealinredirect|revealintokenresponse|revealtotheoperatoronce|revealtothedatabase|code_?verifier|requestdigest|sealrequest|req[.]state|request[.]state"
 # Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
 R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_VALUE_NAMES|$R7_AUTH_HEADER)"
 

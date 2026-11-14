@@ -477,7 +477,9 @@ başlayan bir test durumu olmalı.
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
   webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
-  audit `detail`'i dahil).
+  audit `detail`'i dahil); OAuth tarafında client secret, yetki kodu, erişim ve refresh token'ı ve
+  hash'leri, `code_verifier`, `state`, bekleyen istek çerezinin değeri ve `rd` (ADR 0047 §7.4 —
+  hata mesajı ve audit `detail`'i dahil).
 - Webhook log ve audit satırları yalnız uç nokta/teslim **kimliği**, kapalı **hata sınıfı** ve **durum kodu**
   taşır — uzak sunucunun yanıt metni de saklanmaz (ADR 0028 §6).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın

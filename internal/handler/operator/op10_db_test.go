@@ -311,7 +311,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 	}
 	live := &liveStore{conn: l.op}
 	l.live, l.vies = live, &liveVIES{}
-	s, err := operator.New(auth, live, live, live, live, live, live, live, live, l.vies, l.texts, opHost, opBase, log)
+	s, err := operator.New(auth, live, live, live, live, live, live, live, live, noApps{}, testSecrets, l.vies, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1069,7 +1069,7 @@ func TestOAuthOp_EveryWriteLeavesItsAuditRow(t *testing.T) {
 			return err
 		},
 		"a bidi override in the name": func(sp pgx.Tx) error {
-			_, err := RegisterOAuthClient(ctx, sp, hash, "Malta‮Calc", []string{oauthGoodRedirect}, []string{"timesheets:read"}, randHash(t), "tt_cs_live_AbCd")
+			_, err := RegisterOAuthClient(ctx, sp, hash, "Malta\u202eCalc", []string{oauthGoodRedirect}, []string{"timesheets:read"}, randHash(t), "tt_cs_live_AbCd")
 			return err
 		},
 		"a 65-character name": func(sp pgx.Tx) error {

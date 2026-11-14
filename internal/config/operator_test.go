@@ -189,7 +189,7 @@ func TestLoad_OperatorKeysDifferFromEveryOtherKey(t *testing.T) {
 	setDistinct := func(t *testing.T) {
 		t.Helper()
 		setRequired(t)
-		for _, n := range []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"} {
+		for _, n := range []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_OAUTH_HMAC_KEY", "TAPPA_WEBHOOK_KEK"} {
 			k, _ := randKey(t)
 			t.Setenv(n, k)
 		}
@@ -199,12 +199,12 @@ func TestLoad_OperatorKeysDifferFromEveryOtherKey(t *testing.T) {
 	t.Run("control: all distinct loads", func(t *testing.T) {
 		setDistinct(t)
 		if _, err := config.Load(); err != nil {
-			t.Fatalf("eight distinct keys must load: %v", err)
+			t.Fatalf("nine distinct keys must load: %v", err)
 		}
 	})
 
 	operatorKeys := []string{"TAPPA_OPERATOR_TOTP_KEK", "TAPPA_OPERATOR_TOKEN_HMAC_KEY"}
-	others := []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
+	others := []string{"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_OAUTH_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
 	for _, op := range operatorKeys {
 		for _, other := range append(slices.Clone(others), operatorKeys...) {
 			if other == op {

@@ -25,6 +25,7 @@ func setRequired(t *testing.T) {
 	// bytes here rather than sharing `key`.
 	t.Setenv("TAPPA_TAG_KEK", tagKey)
 	t.Setenv("TAPPA_API_KEY_HMAC_KEY", apiKeyHMACKey)
+	t.Setenv("TAPPA_OAUTH_HMAC_KEY", oauthHMACKey)
 	// Required outside dev since API-9 (TestConfig_WebhookSettingsAreRequiredOutsideDev), so the
 	// fixture sets both -- the tests that move TAPPA_ENV to prod or staging still load.
 	t.Setenv("TAPPA_WEBHOOK_KEK", webhookKEK)
@@ -74,7 +75,9 @@ var otherKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 var (
 	tagKey        = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{11}, 32))
 	apiKeyHMACKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{13}, 32))
-	webhookKEK    = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{17}, 32))
+	// oauthHMACKey is TAPPA_OAUTH_HMAC_KEY's (issue #37), distinct from every other fixture key.
+	oauthHMACKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{19}, 32))
+	webhookKEK   = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{17}, 32))
 )
 
 // TestLoad_InviteKeyMustDifferFromSessionKey measures the domain-separation

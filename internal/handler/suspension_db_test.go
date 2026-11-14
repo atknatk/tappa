@@ -587,7 +587,9 @@ func TestPanelSuspensionDB_NoPanelReadWritesBusinessData(t *testing.T) {
 			res, _ = p.get(t, path)
 		}
 		got := written(from, nextXID())
-		if bare == adminLoginPath || bare == "/admin/login/choose" {
+		// The app consent's GET validates the request BEFORE the session (ADR 0047 §4.2): with no
+		// valid request it answers Taptime's page without resolving anybody, and writes nothing.
+		if bare == adminLoginPath || bare == "/admin/login/choose" || bare == oauthAuthorizeHref {
 			if len(got) != 0 {
 				t.Errorf("GET %s wrote %v", path, got)
 			}
