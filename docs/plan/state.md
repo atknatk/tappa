@@ -1789,6 +1789,11 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-14 (M16-01, dal `plan/m16-mobil`, worktree `../tappa-m16`) — ADR 0044 kabul edildi, kurallar güncellendi (**denetimde**)
+
+- **Ne:** kullanıcı ADR 0044'ü **olduğu gibi** kabul etti (2026-11-14); plan önerileri karar oldu, açık soruya bağlı olanlar (Q35–Q43) hariç. CLAUDE.md (giriş, §1, §3, §4.1, §4.2, §7, §11) ve `docs/handoff.md` §1 güncellendi; §5/§9 normatif cümleleri kod kartlarına kaldı. Sıra A → B + C paralel → D, E, F; Apple/Google hesapları hazır (Everva Bilişim), Team ID kullanıcıdan alınacak.
+- **Denetim:** iki mercek (üçüncü göz RED → düzeltildi; güvenlik ONAY, notları plana işlendi, Q43 eklendi) + yeniden denetim (bir ORTA + dört DÜŞÜK, bu kayıtla kapandı). Commit'ler `0c47e7ed`, `2f913f2d` ve bu düzeltme. **Durum: denetimde** — dar kontrolden sonra `done`.
+
 ### 2026-11-11 (M14 parti 6, dal `m14-legal`) — `m10-a1`'de kalmış iki kayıt ana hatta taşındı (T285)
 
 - **Neden:** `19c7177d` (T119 canlı kaydı) ve `2ef582ea` (Q28 (b) cevabı) yalnız `origin/m10-a1`'deydi; `main`'de ve M14 dalında Q28 hâlâ *"(b) açık"* görünüyordu. İçerik bugünkü metne elle taşındı (cherry-pick dört dosyada çakışıyordu); aşağıdaki iki madde o commit'lerin kaydıdır, bu oturumun işi değil.
