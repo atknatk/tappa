@@ -1793,6 +1793,11 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-14 gece (M16 Faz A) — M16-05, M16-06 done; Q35/Q36/Q40/Q41 cevaplandı
+
+- **Ne:** M16-05 (`internal/appdevice`) ve M16-06 (sahte konum baseline'ı + panel eksik baseline'ı tamamlar, karar (d)) birleşti. Kullanıcı dört soruyu öneriyle cevapladı: Q35 *Taptime* · `mt.taptime.app`; Q36 Compose (material3 yok), QR kütüphanesi yok, Play Integrity yalnız Faz E, Android JVM CI'da / iOS yerelde; Q40 (a) kişi başına tek kimlik, `/activate` uygulamaya bağlanmaz; Q41 (a) eski iPhone'da tek ekran tek düğme. Açık kalanlar: Q37, Q38, Q39, Q42.
+- **Sıradaki:** M16-07 (`/app/v1`), M16-08 (`/.well-known`, Team ID config'ten), M16-09 (iptal yolları) paralel; sonra M16-10 Faz A kapanışı.
+
 ### 2026-11-14 gece (M16 Faz A, dal `plan/m16-mobil`) — M16-02, M16-03, M16-04 done
 
 - **Ne:** üç paralel şerit (worktree `tappa-m16-02/03/04`) bitti ve birleşti: M16-02 kırmızı çizgi taraması `mobile/` + `android/` (S1 bekçisi dahil; sınırlar kartın Tuzaklar'ında), M16-03 `app_devices` + nonce + çözümleyici (00104), M16-04 `transactions.client` (00105–00106). Birleşmede iki test dosyasında "ikisini de tut" çakışması; taze özel DB'de entegre doğrulama: migrate ↔ down×3 ↔ migrate temiz, `make gen` farksız, `-race` 9092 geçti / 5 kırmızı (3 worktree VCS damgası, 2 seed'siz DB — ikisi de ortam), redline temiz.
