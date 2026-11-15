@@ -1228,15 +1228,15 @@ tek cihazı iptal edebilmek.
   (RLS + açık `tenant_id` filtresi; DB testi); yetki policy motorundan (`base:authz-*`), CSRF panelin mevcut kapısıyla.
 - Fazın büyük testleri bir kez.
 
----
-
-# Faz F — Yayın + pilot
-
 > **Bilinen sıra (M16-07 güvenlik incelemesi, DÜŞÜK, 2026-11-14).** Kişinin canlı oturumu yok, yalnız cihaz D1 var; bir
 > uygulama aktivasyonu uçuşta (D1'i iptal edip D2'yi doğuracak). Aynı anda müdürün *"telefonlarını çıkar"*ı koşarsa ve
 > aktivasyonun transaction'ından **önce** biterse 0 satır görür — ekran *"no phones signed in"* der — ama aktivasyon
 > commit edince D2 yaşar. Kilit sırası aynı (oturumlar → cihazlar → nonce'lar), deadlock yok; bu bir **sıra** sonucudur.
 > Seçenek: panel 0 sonucunda bir kez yeniden dener, ya da metin *"şu an"* der. Cihaz listesi (bu kart) D2'yi gösterir.
+
+---
+
+# Faz F — Yayın + pilot
 
 ## M16-27 — Gizlilik: `/legal/privacy`, mağaza etiketleri
 
