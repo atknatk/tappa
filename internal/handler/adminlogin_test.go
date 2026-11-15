@@ -3223,22 +3223,28 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 // Both routes now sit behind a.floodGate, mounted AHEAD of Protect — the order
 // tap.go uses and httpx/router.go defends.
 func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
+	// resolves marks the rows whose handler resolves the cookie when served (T318: the
+	// sign-in page resolves a present panel cookie). On those rows the positive control
+	// asserts the resolver DID run for a fresh address, which is what makes "0 on an
+	// exhausted address" a measurement of the shield's position and not a blind counter.
 	routes := []struct {
 		name, method, path string
 		form               url.Values
+		resolves           bool
 	}{
-		{"GET /admin/login", http.MethodGet, "/admin/login", nil},
-		{"POST /admin/login", http.MethodPost, "/admin/login", url.Values{}},
-		{"GET /admin/login/choose", http.MethodGet, "/admin/login/choose", nil},
-		{"POST /admin/login/choose", http.MethodPost, "/admin/login/choose", url.Values{}},
-		{"GET /admin (behind Protect)", http.MethodGet, "/admin", nil},
+		{"GET /admin/login", http.MethodGet, "/admin/login", nil, true},
+		{"POST /admin/login", http.MethodPost, "/admin/login", url.Values{}, false},
+		{"GET /admin/login/choose", http.MethodGet, "/admin/login/choose", nil, false},
+		{"POST /admin/login/choose", http.MethodPost, "/admin/login/choose", url.Values{}, false},
+		{"GET /admin (behind Protect)", http.MethodGet, "/admin", nil, true},
 	}
 	// ⚠️ POST /admin/logout IS DELIBERATELY ABSENT and it is not an omission: it is
 	// METERED but never REFUSED, because a third party must not be able to stop
 	// somebody ending their own session. TestAdminLogout_CannotBeBlockedByAThirdParty
 	// is the invariant that replaces a row here.
 
-	h := newAdminRouter(t, &fakeAdmins{}, &fakeTrail{})
+	admins := &fakeAdmins{}
+	h := newAdminRouter(t, admins, &fakeTrail{})
 
 	// ⚠️ THE BUDGET IS BURNT ONCE, NOT ONCE PER ROUTE, and the reason is cost. The
 	// ceiling moved from 200 to 3000 in round 14 (adminratelimit.go re-derives it),
@@ -3271,9 +3277,17 @@ func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
 			b := newBrowser(t, h)
 			b.ip = "198.51.100.1:1234"
 			b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			before := admins.verifiedCount()
 			if got := b.do(tc.method, tc.path, tc.form).Code; got != http.StatusTooManyRequests {
 				t.Fatalf("with the address budget exhausted, %s answered %d, want 429 — this "+
 					"route is not behind the flood ceiling", tc.name, got)
+			}
+			// COST, NOT OUTCOME (TestSameOriginGate_RefusesBeforeTheResolver's rule): a 429
+			// returned AFTER the resolver ran is the right answer bought at the wrong price,
+			// and it is what an exhausted address could then buy once per request.
+			if got := admins.verifiedCount() - before; got != 0 {
+				t.Fatalf("with the address budget exhausted, %s still resolved the cookie %d time(s), "+
+					"want 0 — the shield is not ahead of the resolver", tc.name, got)
 			}
 
 			// POSITIVE CONTROL per route: a FRESH address is served, so the 429
@@ -3281,8 +3295,13 @@ func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
 			fresh := newBrowser(t, h)
 			fresh.ip = "198.51.100.200:1234"
 			fresh.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			before = admins.verifiedCount()
 			if got := fresh.do(tc.method, tc.path, tc.form).Code; got == http.StatusTooManyRequests {
 				t.Fatalf("control: %s refused a FRESH address with 429", tc.name)
+			}
+			if got := admins.verifiedCount() - before; tc.resolves && got != 1 {
+				t.Fatalf("control: %s resolved the cookie %d time(s) for a FRESH address, want 1 — "+
+					"the counter above would be blind", tc.name, got)
 			}
 		})
 	}
