@@ -99,6 +99,10 @@ type Surface struct {
 	// suspensionStore is the overview's two writes' (suspension.go): suspending the tenant and
 	// lifting the suspension, one statement each.
 	suspensionStore SuspensionStore
+	// appStore and secrets are the app registry's (apps.go, issue #37): the registry's read and four
+	// writes, and the client secret's minting and hash under TAPPA_OAUTH_HMAC_KEY.
+	appStore OAuthClientStore
+	secrets  ClientSecrets
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -145,7 +149,7 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 // host, a base URL it can take the operator origin's scheme and port from, and a logger.
 func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, plaqueStore PlaqueStore,
 	auditStore AuditStore, billingStore BillingStore, vatStore VATStore, holdingStore HoldingStore,
-	suspensionStore SuspensionStore, vies VATChecker,
+	suspensionStore SuspensionStore, appStore OAuthClientStore, secrets ClientSecrets, vies VATChecker,
 	texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
@@ -173,6 +177,12 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 	}
 	if suspensionStore == nil {
 		return nil, errors.New("operator: a configured surface needs its suspension store (the operator database)")
+	}
+	if appStore == nil {
+		return nil, errors.New("operator: a configured surface needs its app registry store (the operator database)")
+	}
+	if secrets == nil {
+		return nil, errors.New("operator: a configured surface needs the client secret minter (TAPPA_OAUTH_HMAC_KEY)")
 	}
 	if vies == nil {
 		return nil, errors.New("operator: a configured surface needs its VIES client")
@@ -202,6 +212,8 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore Te
 		vies:            vies,
 		holdingStore:    holdingStore,
 		suspensionStore: suspensionStore,
+		appStore:        appStore,
+		secrets:         secrets,
 		host:            host,
 		origin:          origin,
 		log:             log,

@@ -79,6 +79,12 @@ var operatorRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/operator/holdings"},
 	{http.MethodPost, "/operator/holdings/{id}/members"},
 	{http.MethodPost, "/operator/holdings/{id}/members/{tenant}/remove"},
+	// Issue #37: the app registry (apps.go).
+	{http.MethodGet, "/operator/apps"},
+	{http.MethodPost, "/operator/apps"},
+	{http.MethodPost, "/operator/apps/{id}/rotate"},
+	{http.MethodPost, "/operator/apps/{id}/redirects"},
+	{http.MethodPost, "/operator/apps/{id}/disable"},
 }
 
 // tenantOverviewPath, tenantPlaquesPath, tenantBillingPath, tenantVATPath and tenantSuspensionPath
@@ -116,8 +122,12 @@ func mountedPath(v string) bool {
 	}
 	return tenantOverviewPath.MatchString(p) || tenantPlaquesPath.MatchString(p) || tenantBillingPath.MatchString(p) ||
 		tenantVATPath.MatchString(p) || holdingMembersPath.MatchString(p) || holdingRemovePath.MatchString(p) ||
-		tenantAPIPath.MatchString(p) || tenantAPIClosePath.MatchString(p) || tenantSuspensionPath.MatchString(p)
+		tenantAPIPath.MatchString(p) || tenantAPIClosePath.MatchString(p) || tenantSuspensionPath.MatchString(p) ||
+		appWritePath.MatchString(p)
 }
+
+// appWritePath is a concrete path of the app registry's three per-app writes (issue #37).
+var appWritePath = regexp.MustCompile(`^/operator/apps/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(rotate|redirects|disable)$`)
 
 // ingressHosts reads the hosts deploy/k8s/40-ingress.yaml and 43-redirect-ingress.yaml route to
 // this Service -- the customer host and, since T71, the two redirect hosts; a host added to either
@@ -558,7 +568,7 @@ func TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend(t *testing.T) {
 }
 
 // screens renders the fourteen exported screen constructors of operatorpages
-// (operatorScreens, pinned against the package's API) in the 49 variants below (and the
+// (operatorScreens, pinned against the package's API) in the 50 variants below (and the
 // tenant chrome with a name). The first load of the enrollment screen carries a QR code
 // of its view's URI (ADR 0020 §3, QR note).
 func screens(t *testing.T) map[string]string {
@@ -783,6 +793,22 @@ func screens(t *testing.T) map[string]string {
 		"holdings, added":                         operatorpages.Holdings(holdingsAdded),
 		"holdings, not added":                     operatorpages.Holdings(holdingsNotAdded),
 		"holdings, unnamed":                       operatorpages.Holdings(holdingsUnnamed),
+		// Issue #37: the app registry, one live and one turned-off app.
+		"apps": operatorpages.Apps(operatorpages.AppsView{Scopes: []operatorpages.AppScopeOption{{Word: "timesheets:read", Label: "Read the hours"}},
+			Apps: []operatorpages.AppRow{
+				{ID: "70000000-0000-4000-8000-000000000001", ClientID: "app_70000000-0000-4000-8000-000000000001", Name: "Malta Calculator",
+					RedirectURIs: []string{"https://maltacalculator.com/api/integrations/taptime/callback"}, Scopes: []string{"timesheets:read"},
+					SecretHint: "tt_cs_live_AbCd", CreatedAt: "2026-11-14 09:30 UTC",
+					RotatePath:    "/operator/apps/70000000-0000-4000-8000-000000000001/rotate",
+					RedirectsPath: "/operator/apps/70000000-0000-4000-8000-000000000001/redirects",
+					DisablePath:   "/operator/apps/70000000-0000-4000-8000-000000000001/disable"},
+				{ID: "70000000-0000-4000-8000-000000000002", ClientID: "app_70000000-0000-4000-8000-000000000002", Name: "Old App",
+					RedirectURIs: []string{"https://old.example/cb"}, Scopes: []string{"employees:read"}, SecretHint: "tt_cs_live_WxYz",
+					CreatedAt: "2026-11-01 09:30 UTC", Disabled: true, DisabledAt: "2026-11-02 09:30 UTC",
+					RotatePath:    "/operator/apps/70000000-0000-4000-8000-000000000002/rotate",
+					RedirectsPath: "/operator/apps/70000000-0000-4000-8000-000000000002/redirects",
+					DisablePath:   "/operator/apps/70000000-0000-4000-8000-000000000002/disable"},
+			}}),
 	} {
 		var b bytes.Buffer
 		if err := c.Render(context.Background(), &b); err != nil {
@@ -809,7 +835,7 @@ var operatorNavHrefs = []string{"/operator", "/operator/tenants", "/operator/hol
 // page, which is no section.
 func navCurrentOf(render string) string {
 	switch {
-	case render == "home":
+	case render == "home", render == "apps":
 		return "/operator"
 	case render == "problem, signed in":
 		return ""
@@ -842,23 +868,23 @@ func subNavCurrentOf(render string) string {
 	return ""
 }
 
-// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 49 renders screens()
-// makes (fourteen exported screen constructors; the "Every" of the name is these 49) opens
+// TestOperatorScreens_EveryOneWearsTheOperatorChrome: each of the 50 renders screens()
+// makes (fifteen exported screen constructors; the "Every" of the name is these 50) opens
 // with the operator bar -- the "TAPTIME OPERATOR" lockup on the ink band -- and none of
-// the 49 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
-// sign-out control is on the forty signed-in renders and absent from the other nine.
+// the 50 carries the restaurant panel's chrome (its tab bar, its green wordmark). The
+// sign-out control is on the 41 signed-in renders and absent from the other nine.
 //
-// THE NAVIGATION (M13-01, user decision OP-1). Each of the forty signed-in renders carries
+// THE NAVIGATION (M13-01, user decision OP-1). Each of the 41 signed-in renders carries
 // exactly one <nav class="op-nav"> (one element for the three widths), between the bar and
 // <main, whose links are exactly the five sections in order; the nine signed-out renders
 // carry none. In it, aria-current="true" marks exactly one item -- the render's section,
-// navCurrentOf -- on the 39 renders other than "problem, signed in", which marks none; the
+// navCurrentOf -- on the 40 renders other than "problem, signed in", which marks none; the
 // nav carries no other aria-current (never "page": the nav names the section, not the
 // page). Each of the 19 one-tenant renders (the 18 overview, plaques, billing and VAT
 // fixtures and the bare "tenant screen") carries exactly one <nav class="op-subnav"> INSIDE
 // the tenant banner, after its name and before <main, whose links are exactly the tenant's
 // four paths and whose one aria-current="page" marks subNavCurrentOf's tab; no other render
-// carries a sub-nav. PREMISE: 19 one-tenant renders, 39 with a current section.
+// carries a sub-nav. PREMISE: 19 one-tenant renders, 40 with a current section.
 func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 	signedIn := map[string]bool{"home": true, "problem, signed in": true, "tenant screen": true, "legal": true, "legal, published": true,
 		"tenants": true, "tenants, a page": true, "tenants, searched": true, "tenants, a later page": true, "tenants, past the end": true,
@@ -870,10 +896,10 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 		"tenant VAT": true, "tenant VAT, never asked": true, "tenant VAT, no answer": true, "tenant VAT, not found": true,
 		"tenant VAT, odd number": true, "tenant VAT, a notice": true,
 		"holdings": true, "holdings, empty": true, "holdings, past the end": true, "holdings, added": true,
-		"holdings, not added": true, "holdings, unnamed": true}
+		"holdings, not added": true, "holdings, unnamed": true, "apps": true}
 	all := screens(t)
-	if len(all) != 49 || len(signedIn) != 40 {
-		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 49 and 40", len(all), len(signedIn))
+	if len(all) != 50 || len(signedIn) != 41 {
+		t.Fatalf("PREMISE: %d render(s), %d signed in; the comment says 50 and 41", len(all), len(signedIn))
 	}
 	oneTenant, withCurrent := 0, 0
 	for name, html := range all {
@@ -974,8 +1000,8 @@ func TestOperatorScreens_EveryOneWearsTheOperatorChrome(t *testing.T) {
 			t.Errorf("%s: the sub-nav's current tabs are %v (%d aria-current), want exactly %q", name, cur, strings.Count(seg, "aria-current"), tab)
 		}
 	}
-	if oneTenant != 19 || withCurrent != 39 {
-		t.Fatalf("PREMISE: %d one-tenant render(s), %d with a current section; the comment says 19 and 39", oneTenant, withCurrent)
+	if oneTenant != 19 || withCurrent != 40 {
+		t.Fatalf("PREMISE: %d one-tenant render(s), %d with a current section; the comment says 19 and 40", oneTenant, withCurrent)
 	}
 }
 
@@ -1121,7 +1147,7 @@ var (
 	subNavCurrent = regexp.MustCompile(`class="op-subnav-item" aria-current="page">([^<]*)</a>`)
 )
 
-// TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand (M13-01): none of the 49 renders
+// TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand (M13-01): none of the 50 renders
 // screens() makes carries a marker of the restaurant panel's shell (its sidebar, rail, tab
 // and bottom-bar classes, its More sheet, its content well and accent stripe, the
 // "punchless" line, the green "taptime" wordmark) or of a tenant's brand (a /brand/ path --
@@ -1143,8 +1169,8 @@ func TestOperatorScreens_CarryNoPanelShellAndNoTenantBrand(t *testing.T) {
 		return out
 	}
 	all := screens(t)
-	if len(all) != 49 {
-		t.Fatalf("PREMISE: %d render(s), the comment says 49", len(all))
+	if len(all) != 50 {
+		t.Fatalf("PREMISE: %d render(s), the comment says 50", len(all))
 	}
 	for name, html := range all {
 		if got := found(html, panelMarkers); len(got) != 0 {
@@ -1261,7 +1287,7 @@ func TestTenantScreen_RefusesToRenderWithoutAName(t *testing.T) {
 	}
 }
 
-// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 49 renders screens()
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute: on the 50 renders screens()
 // makes (the "Every" of the name is these 49), each form action and link is a relative
 // path of a route the surface mounts (operatorRoutes; a tenant overview's, a tenant's
 // plaques', a tenant's billing, a tenant's VAT and a tenant's two suspension paths are their {id}
@@ -1533,7 +1559,7 @@ func TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator(t *test
 		t.Fatalf("PREMISE: %s is not an ingress host any more; pick one that is", collide)
 	}
 	g := newRig(t)
-	s, err := operator.New(g.auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.vies, g.texts, collide,
+	s, err := operator.New(g.auth, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.store, g.apps, testSecrets, g.vies, g.texts, collide,
 		opBase, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

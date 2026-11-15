@@ -176,18 +176,18 @@ Signed-in shell, current = Console. Title `Console`.
 |---|---|
 | label | Operator console |
 | h1 | You are signed in |
-| list | **Tenants** — find a business, and see what it has live · **Legal texts** — Taptime's privacy policy, terms, company details and cookie notice · **Holdings** — group businesses that work in one timezone, and see who is in each · **Audit log** — every sign-in, read and publication on this surface |
+| list | **Tenants** — find a business, and see what it has live · **Legal texts** — Taptime's privacy policy, terms, company details and cookie notice · **Holdings** — group businesses that work in one timezone, and see who is in each · **Audit log** — every sign-in, read and publication on this surface · **Apps** — the apps a business may connect to with OAuth: register, rotate a secret, disable (issue #37 phase 3) |
 | footer | A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done. |
 
 Layout (polished boards = the code's shape): **one `op-card`** (`home.templ:22-47`) — mono label,
-`<h1>` 28 px at every width, the four link + gloss pairs as a **two-column grid** on
+`<h1>` 28 px at every width, the five link + gloss pairs (four until issue #37 phase 3 added Apps) as a **two-column grid** on
 tablet/desktop and **stacked 44 px links** on the phone, the session sentence as the card's
 footer **inside the card** (README §6.1 "Home hub"). Not a docket.
 
-Links: `/operator/tenants`, `/operator/legal`, `/operator/holdings`, `/operator/audit`, each
+Links: `/operator/tenants`, `/operator/legal`, `/operator/holdings`, `/operator/audit`, `/operator/apps`, each
 `class="op-link"`. **No icon tiles:** an earlier board drew a 48 px icon tile beside each link;
 the tiles were removed from `OpHome` / `T-OpHome` / `M-OpHome` and are not ported (D1 — Home has
-none, and the only SVGs a signed-in page may carry are the nav's five). The order on Home stays Tenants, Legal texts, Holdings, Audit log (the nav's
+none, and the only SVGs a signed-in page may carry are the nav's five). The order on Home stays Tenants, Legal texts, Holdings, Audit log, then Apps (the nav's
 order is OP-1's).
 
 **Not shown:** the operator's name or e-mail (no definer reads an operator's e-mail,

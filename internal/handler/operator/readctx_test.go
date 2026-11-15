@@ -70,7 +70,7 @@ func (p *readCtxProbe) Holdings(ctx context.Context, h string, page int32) ([]db
 func TestScreens_EveryReadRunsOnTheRequestsContext(t *testing.T) {
 	g := newRig(t)
 	probe := &readCtxProbe{fakeStore: g.store, seen: map[string]context.Context{}}
-	s, err := operator.New(g.auth, probe, probe, probe, probe, probe, probe, probe, probe, g.vies, g.texts, opHost, opBase, captureAt(g.logs, 0))
+	s, err := operator.New(g.auth, probe, probe, probe, probe, probe, probe, probe, probe, g.apps, testSecrets, g.vies, g.texts, opHost, opBase, captureAt(g.logs, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

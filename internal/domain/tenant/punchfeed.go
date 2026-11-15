@@ -109,8 +109,11 @@ func NewPunchFeed(data Database) (*PunchFeed, error) {
 	return &PunchFeed{data: data, window: PunchFeedWindow}, nil
 }
 
-// PunchPage reads the events of role after the position after, at most limit of them.
-func (f *PunchFeed) PunchPage(ctx context.Context, tenantID uuid.UUID, role FeedRole, after int64, limit int) (PunchPage, error) {
+// PunchPage reads the events of role after the position after, at most limit of them. ownOnly
+// (an OAuth token's read -- issue #37, ADR 0047 §8.5) answers the business's own punches alone: the
+// events whose roles are both employer and location, so no holding peer's employee or location
+// leaves through a third-party app. The cursor and the window are the same either way.
+func (f *PunchFeed) PunchPage(ctx context.Context, tenantID uuid.UUID, role FeedRole, after int64, limit int, ownOnly bool) (PunchPage, error) {
 	switch {
 	case tenantID == uuid.Nil:
 		return PunchPage{}, errors.New("tenant: tenant id is required")
@@ -149,7 +152,7 @@ func (f *PunchFeed) PunchPage(ctx context.Context, tenantID uuid.UUID, role Feed
 		// long stretch is crossed in one step) and ends at the counter at the latest.
 		upto := min(head.LastSeq, head.NextSeq-1+f.window)
 		rows, err := q.ListPunchEvents(ctx, store.ListPunchEventsParams{
-			TenantID: tenantID, AfterSeq: after, UptoSeq: upto, Role: string(role), PageSize: int32(limit + 1),
+			TenantID: tenantID, AfterSeq: after, UptoSeq: upto, Role: string(role), OwnOnly: ownOnly, PageSize: int32(limit + 1),
 		})
 		if err != nil {
 			return err
@@ -211,10 +214,12 @@ type HistoryPosition struct {
 }
 
 // HistoryQuery is one page's request. First: no cursor yet -- S0 is read now and At is ignored.
+// OwnOnly is PunchPage's ownOnly (an OAuth token's read, ADR 0047 §8.5).
 type HistoryQuery struct {
 	From, To time.Time
 	First    bool
 	At       HistoryPosition
+	OwnOnly  bool
 }
 
 // HistoryPage is one page of a history walk.
@@ -287,7 +292,7 @@ func (f *PunchFeed) HistoryPage(ctx context.Context, tenantID uuid.UUID, role Fe
 		}
 		rows, err := qs.ListPunchHistory(ctx, store.ListPunchHistoryParams{
 			TenantID: tenantID, S0: at.S0, FromTime: from, ToTime: to, AfterTime: at.Time, AfterSeq: at.Seq,
-			EndTime: win.EndTime, EndSeq: win.EndSeq, Role: string(role), PageSize: int32(limit + 1),
+			EndTime: win.EndTime, EndSeq: win.EndSeq, Role: string(role), OwnOnly: q.OwnOnly, PageSize: int32(limit + 1),
 		})
 		if err != nil {
 			return err

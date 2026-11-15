@@ -239,8 +239,16 @@ SELECT line FROM (
 // admin_identity_verifications SELECT (address, cancelled_at), INSERT (address), UPDATE (cancelled_at)
 // and the table-level DELETE of its widened sweep, added identity_request_email_change,
 // identity_change_email and identity_revert_email_change (EXECUTE tappa_app and the owner) and gave
-// identity_open_reset its fourth argument; tappa_app and tappa_resolver gained nothing -- and READ
-// line by line before
+// identity_open_reset its fourth argument; tappa_app and tappa_resolver gained nothing; 00104-00107 --
+// issue #37 phase 1, ADR 0047 §14 (OAuth "Connected apps") -- added the tenant-scope-less oauth_clients
+// (ENABLE + FORCE, no policy, nothing to tappa_app) and the three tenant tables oauth_grants /
+// oauth_codes / oauth_tokens (the RLS five; tappa_app's column lists, no hash column readable, DELETE on
+// codes and tokens alone under their restrictive delete policies), their four INVOKER one-way trigger
+// functions (execute=-); the three resolvers
+// (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's named columns of the four tables and
+// tenants SELECT (api_code); api_idempotency's grant_id (tappa_app SELECT and INSERT); and
+// tappa_opdefiner's columns of oauth_clients and the five op_*_oauth_client* (EXECUTE tappa_operator)
+// -- and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
 //   - nine pre-M11 trigger functions (tappa_forbid_*, tappa_check_transaction_review,
@@ -301,8 +309,8 @@ column admin_users tappa_identitydefiner SELECT id,tenant_id,email,password_hash
 column admin_users tappa_identitydefiner UPDATE email,password_hash,status,last_login_at,identity_id,linked_via,linked_at,unlinked_at
 column admin_users tappa_opdefiner SELECT tenant_id,email,status
 column admin_users tappa_resolver SELECT id,tenant_id,email,password_hash,role,status,created_at,identity_id,unlinked_at
-column api_idempotency tappa_app INSERT tenant_id,key_id,idem_key,request_hash
-column api_idempotency tappa_app SELECT tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at
+column api_idempotency tappa_app INSERT tenant_id,key_id,idem_key,request_hash,grant_id
+column api_idempotency tappa_app SELECT tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at,grant_id
 column api_idempotency tappa_app UPDATE status,result_ref
 column api_keys tappa_app INSERT tenant_id,name,token_hash,prefix_hint,created_by
 column api_keys tappa_app SELECT tenant_id,id,name,prefix_hint,created_by,created_at,last_used_at,revoked_at
@@ -340,6 +348,22 @@ column legal_documents tappa_opdefiner SELECT id,slug,body,published_at,publishe
 column locations tappa_feedwriter SELECT id,tenant_id,name,external_ref
 column locations tappa_holdingdefiner SELECT id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref
 column locations tappa_opdefiner SELECT id,tenant_id,name
+column oauth_clients tappa_opdefiner INSERT name,redirect_uris,allowed_scopes,secret_hash,secret_hint,created_by
+column oauth_clients tappa_opdefiner SELECT id,name,redirect_uris,allowed_scopes,secret_hint,secret_rotated_at,created_at,created_by,disabled_at
+column oauth_clients tappa_opdefiner UPDATE redirect_uris,secret_hash,secret_hint,secret_rotated_at,disabled_at
+column oauth_clients tappa_resolver SELECT id,name,redirect_uris,allowed_scopes,secret_hash,disabled_at
+column oauth_codes tappa_app INSERT tenant_id,code_hash,client_id,created_by,redirect_uri,scopes,code_challenge
+column oauth_codes tappa_app SELECT tenant_id,id,client_id,created_by,redirect_uri,scopes,code_challenge,created_at,expires_at,consumed_at,grant_id
+column oauth_codes tappa_app UPDATE consumed_at,grant_id
+column oauth_codes tappa_resolver SELECT tenant_id,id,code_hash,client_id,expires_at,consumed_at,grant_id
+column oauth_grants tappa_app INSERT tenant_id,client_id,scopes,created_by
+column oauth_grants tappa_app SELECT tenant_id,id,client_id,scopes,created_by,created_at,last_used_at,revoked_at,revoked_reason,revoked_by
+column oauth_grants tappa_app UPDATE last_used_at,revoked_at,revoked_reason,revoked_by
+column oauth_grants tappa_resolver SELECT tenant_id,id,client_id,revoked_at
+column oauth_tokens tappa_app INSERT tenant_id,grant_id,kind,token_hash,scopes,expires_at
+column oauth_tokens tappa_app SELECT tenant_id,id,grant_id,kind,scopes,created_at,expires_at,used_at,revoked_at
+column oauth_tokens tappa_app UPDATE used_at,revoked_at
+column oauth_tokens tappa_resolver SELECT tenant_id,id,grant_id,kind,token_hash,scopes,expires_at,used_at,revoked_at
 column operator_audit_log tappa_opdefiner INSERT kind,session_id,actor_admin_id,target_admin_id,target_tenant_id,target_scope,page_number,page_size,detail
 column operator_audit_log tappa_opdefiner SELECT id,at,kind,session_id,actor_admin_id,target_admin_id,target_tenant_id,target_scope,page_number,page_size,detail
 column operator_read_tickets tappa_opdefiner INSERT ticket_hash,session_id,kind,target_tenant_id,audit_id,expires_at
@@ -386,7 +410,7 @@ column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_ena
 column tenants tappa_identitydefiner SELECT id,name,vat_number,created_at,suspended_at
 column tenants tappa_opdefiner SELECT id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
 column tenants tappa_opdefiner UPDATE vat_verified,vat_checked_at,api_enabled_at,api_code,suspended_at,suspension_reason
-column tenants tappa_resolver SELECT id,api_enabled_at
+column tenants tappa_resolver SELECT id,api_enabled_at,api_code
 column transactions tappa_app INSERT tenant_id,employee_id,location_id,department_id,tag_uid,ctr,type,occurred_at,source_ip,ip_match,gps_lat,gps_lng,gps_match,sun_valid,trust,verdict,note,channel,entered_by,practice,queued,policy_version_id,matched_sid,policy_layer,policy_context,site_tenant_id,site_location_id,site_tag_uid,business_day_start,direction_source,shift_source,shift_start,shift_end,shift_overnight,shift_timezone
 column transactions tappa_feedwriter SELECT id,tenant_id,employee_id,location_id,tag_uid,type,occurred_at,verdict,channel,practice,site_tenant_id,direction_source
 column transactions tappa_holdingdefiner SELECT id,tenant_id,employee_id,ctr,type,occurred_at,sun_valid,verdict,channel,practice,site_tenant_id,site_location_id,site_tag_uid,direction_source
@@ -456,11 +480,16 @@ function identity_switch_session(text,uuid,text) owner=tappa_identitydefiner def
 function identity_unlink_backfilled(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_verify_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_withdraw_reset(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function oauth_clients_disabling_is_one_way() owner=tappa_owner definer=false execute=-
+function oauth_codes_spending_is_one_way() owner=tappa_owner definer=false execute=-
+function oauth_grants_revocation_is_one_way() owner=tappa_owner definer=false execute=-
+function oauth_tokens_state_is_one_way() owner=tappa_owner definer=false execute=-
 function op_add_holding_member(text,uuid,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_begin_read(text,text,jsonb) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_close_session(text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_complete_enrollment(uuid,text,text,bytea,bigint,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_create_holding(text,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_disable_oauth_client(text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_disable_tenant_api(text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_enable_tenant_api(text,uuid,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_open_session(uuid,text,bigint) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
@@ -468,6 +497,7 @@ function op_publish_legal(text,text,text) owner=tappa_opdefiner definer=true exe
 function op_read_audit(text,text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_read_holdings(text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_read_legal_versions(text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_read_oauth_clients(text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_read_tenant_billing(text,text,uuid,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_read_tenant_detail(text,text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_read_tenant_plaques(text,text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
@@ -475,8 +505,11 @@ function op_read_tenant_vat(text,text,uuid) owner=tappa_opdefiner definer=true e
 function op_read_tenants(text,text,text,integer,integer) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_record_auth_event(text,text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_record_vat_check(text,uuid,text,boolean) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_register_oauth_client(text,text,text[],text[],text,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_reinstate_tenant(text,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_remove_holding_member(text,uuid,uuid) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_rotate_oauth_client_secret(text,uuid,text,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
+function op_set_oauth_client_redirects(text,uuid,text[]) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_suspend_tenant(text,uuid,text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function op_touch_session(text) owner=tappa_opdefiner definer=true execute=tappa_opdefiner,tappa_operator
 function punch_feed() owner=tappa_feedwriter definer=true execute=tappa_feedwriter
@@ -489,6 +522,9 @@ function resolve_identity_by_email(citext) owner=tappa_resolver definer=true exe
 function resolve_identity_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_verification_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_invite_by_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_oauth_client(uuid,text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_oauth_code_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_oauth_token_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_password_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_signup_claim_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_session_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -539,6 +575,10 @@ rel holdings r owner=tappa_owner rls=enable,force
 rel invite_requests r owner=tappa_owner rls=enable,force
 rel legal_documents r owner=tappa_owner rls=enable,force
 rel locations r owner=tappa_owner rls=enable,force
+rel oauth_clients r owner=tappa_owner rls=enable,force
+rel oauth_codes r owner=tappa_owner rls=enable,force
+rel oauth_grants r owner=tappa_owner rls=enable,force
+rel oauth_tokens r owner=tappa_owner rls=enable,force
 rel operator_audit_log r owner=tappa_owner rls=enable,force
 rel operator_read_tickets r owner=tappa_owner rls=enable,force
 rel password_resets r owner=tappa_owner rls=enable,force
@@ -582,6 +622,8 @@ table employee_invites tappa_app SELECT,INSERT
 table employees tappa_app SELECT,INSERT,UPDATE
 table invite_requests tappa_app SELECT,DELETE
 table locations tappa_app SELECT,INSERT,UPDATE,DELETE
+table oauth_codes tappa_app DELETE
+table oauth_tokens tappa_app DELETE
 table password_resets tappa_app SELECT
 table policies tappa_app SELECT,INSERT,UPDATE
 table policy_attachments tappa_app SELECT,INSERT,UPDATE,DELETE

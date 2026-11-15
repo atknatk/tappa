@@ -291,3 +291,34 @@
 -- `at` the call's one wall-clock read) -- whether or not it was suspended; on every accepted
 -- call the operator's 'tenant_reinstated' row.
 --   SELECT public.op_reinstate_tenant($1, $2);
+
+-- ============================================================================
+-- Issue #37 phase 1 (migration 00107; ADR 0047 §10.2): the OAuth app registry. Four one-phase
+-- writes and one two-phase read, mirrored by internal/db/operatoroauth.go. No secret value is ever
+-- an argument: $5/$3 is the hex HMAC of the secret, $6/$4 its hint.
+--
+-- RegisterOAuthClient -- $2 the name (1..64, trimmed, 00093's isolate rule), $3 the redirect list
+-- (1..5 addresses, each https-with-a-DNS-name or loopback, no query/fragment/userinfo, <= 512
+-- bytes, no repeats), $4 the scopes (a non-empty subset of the closed five), $5 the secret's hash,
+-- $6 its hint. Else 22023 before anything is written. The new app and the operator's
+-- 'oauth_client_registered' row; the answer is the app's id.
+--   SELECT public.op_register_oauth_client($1, $2, $3, $4, $5, $6);
+--
+-- RotateOAuthClientSecret -- $2 the app, $3/$4 the new hash and hint. The secret is replaced
+-- unless the app is disabled; the operator's 'oauth_client_secret_rotated' row on every accepted call.
+--   SELECT public.op_rotate_oauth_client_secret($1, $2, $3, $4);
+--
+-- SetOAuthClientRedirects -- $2 the app, $3 the whole new list (the rule above). Replaced unless
+-- the app is disabled; the 'oauth_client_redirects_changed' row on every accepted call.
+--   SELECT public.op_set_oauth_client_redirects($1, $2, $3);
+--
+-- DisableOAuthClient -- $2 the app. disabled_at, one way, unless already set; the
+-- 'oauth_client_disabled' row on every accepted call. No tenant row is written.
+--   SELECT public.op_disable_oauth_client($1, $2);
+--
+-- ReadOAuthClients -- phase one is BeginOperatorRead with kind 'oauth_clients' and
+-- {page_number, page_size}; phase two consumes the ticket and returns the page, newest app first,
+-- never the secret's hash.
+--   SELECT client_id, name, redirect_uris, allowed_scopes, secret_hint, secret_rotated_at,
+--          created_at, created_by, created_by_name, disabled_at
+--   FROM public.op_read_oauth_clients($1, $2, $3, $4);

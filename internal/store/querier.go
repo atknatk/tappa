@@ -215,10 +215,18 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
 	// RLS. A foreign employee id retires nothing.
 	CancelPendingInvitesForEmployee(ctx context.Context, arg CancelPendingInvitesForEmployeeParams) ([]uuid.UUID, error)
+	// /v1's bearer chain (ADR 0047 §8.1 step 4), after resolve_oauth_token_by_hash carried the token's
+	// facts: whether the access token is still live by the DATABASE's clock (§14.2's one clock -- the
+	// resolver carries expires_at and a Go clock would be a second source). No row: the token is not an
+	// access token of this tenant any more (revoked, or lazily deleted) -- 401 invalid_token either way.
+	CheckOAuthAccessTokenLive(ctx context.Context, arg CheckOAuthAccessTokenLiveParams) (bool, error)
 	// The claim, before the work. 1: this request is the first with the key. 0: a row exists -- a
 	// committed one, or one a concurrent transaction committed while this statement waited on the
 	// primary key (the wait is the concurrency control, ADR 0028 §8).
 	ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyParams) (int64, error)
+	// ClaimIdempotency's twin for an OAuth grant (00106): the conflict target is the grant's partial
+	// unique index -- its predicate named, or no index is inferred.
+	ClaimIdempotencyForGrant(ctx context.Context, arg ClaimIdempotencyForGrantParams) (int64, error)
 	// The worker's lease: the OLDEST due request of the tenant, taken for 60 seconds. attempts is NOT
 	// counted here: a claim is not a try -- a limit or a refused mailbox cap delays a request without
 	// spending it (ADR 0022 §9, plan §2 item 11); only a failed send counts (FailInviteRequest). SKIP LOCKED:
@@ -509,6 +517,24 @@ type Querier interface {
 	// can activate an employee whose invitation was not consented to by the browser
 	// presenting it.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// §5.2 step 3, with the ADR's "Uygulama notları" refinement: the code is spent by ONE conditional
+	// UPDATE whose row is taken FOR UPDATE SKIP LOCKED. It answers one row, always:
+	//   reached = false        the row is locked -- a concurrent exchange of the same code is in flight
+	//                          -- or gone. The caller answers invalid_grant and touches NO grant: a
+	//                          concurrent first presentation is not a reuse.
+	//   reached, spent         this presentation consumed the code (consumed_at = clock_timestamp());
+	//                          the code's facts come back. The caller COMMITS the consumption whatever
+	//                          steps 5-6 decide (one shot per code).
+	//   reached, NOT spent     the row was free and already consumed or expired: a SEQUENTIAL
+	//                          presentation. If prior_consumed_at and prior_grant_id are set the code
+	//                          bore a grant -> §5.2 step 4: RevokeOAuthGrant (code_reuse). Otherwise
+	//                          invalid_grant.
+	// Why one statement and not "consume, then look": a loser that looked after the winner committed
+	// would see grant_id and revoke the winner's fresh grant (the note's warning). The lock decides
+	// once, in the statement that also spends the code. Under READ COMMITTED a row the winner updated
+	// and committed before this statement locks it is re-read at its newest version (prior_* are the
+	// committed state).
+	ConsumeOAuthCode(ctx context.Context, arg ConsumeOAuthCodeParams) (ConsumeOAuthCodeRow, error)
 	// THE reset statement, and the most critical query in M7-04. ONE statement does all
 	// three halves -- spend the token, retire its siblings, write the new digest -- so
 	// that "this administrator's password changed by reset" IMPLIES "a reset token was
@@ -1792,9 +1818,20 @@ type Querier interface {
 	// trap webhooks.sql's sweep measured first). Every row it reached was still an expired row of this
 	// tenant; the loss was the bound. Materialized, the candidate list is computed once
 	// (internal/db TestApiIdempotency_TheLazyDeleteIsBounded, under a forced nested loop too).
+	// Since 00106 the batch holds both namespaces: a row is matched by its key OR its grant (exactly one is
+	// set -- api_idempotency_one_principal -- and `=` on the NULL one is never true).
 	DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error)
+	// DeleteExpiredIdempotencyForKey's twin for an OAuth grant's namespace (00106).
+	DeleteExpiredIdempotencyForGrantKey(ctx context.Context, arg DeleteExpiredIdempotencyForGrantKeyParams) (int64, error)
 	// apiidempotency.sql -- the integration API's Idempotency-Key ledger (M11 API-4, ADR 0028 §8;
 	// migration 00052). internal/apikey's Writes.Run is the one caller.
+	//
+	// TWO NAMESPACES since 00106 (issue #37, ADR 0047 §8.7, §14.5): an API key's and an OAuth grant's.
+	// A row carries exactly one of key_id and grant_id (api_idempotency_one_principal); each namespace
+	// is a PARTIAL unique index, so a claim's ON CONFLICT names the index's predicate (WHERE key_id IS
+	// NOT NULL / WHERE grant_id IS NOT NULL) or PostgreSQL infers no index (42P10). The key statements
+	// cast @key_id to uuid so their Go signature stays the non-NULL one it was; the grant statements are
+	// their twins.
 	//
 	// Every statement runs inside WithTenant(the key's tenant) and carries an explicit tenant_id filter
 	// (CLAUDE.md §4.5, belt and braces). None of them reaches another tenant's rows: there is no
@@ -1804,6 +1841,15 @@ type Querier interface {
 	// key is free again. It may wait for a concurrent request that is deleting the same row -- a request
 	// with the same key is meant to wait.
 	DeleteExpiredIdempotencyForKey(ctx context.Context, arg DeleteExpiredIdempotencyForKeyParams) (int64, error)
+	// The lazy delete (K-19: this tenant alone, on the request path): at most 100 codes that expired
+	// more than 24 hours ago, oldest first, SKIP LOCKED -- the restrictive policy
+	// oauth_codes_delete_expired allows no other. A MATERIALIZED batch (T130's measurement in
+	// apiidempotency.sql: an IN (... LIMIT ... SKIP LOCKED) rescan deletes past its bound).
+	DeleteExpiredOAuthCodes(ctx context.Context, tenantID uuid.UUID) (int64, error)
+	// §5.3's lazy cleanup, in the refresh's transaction, for this grant alone (K-19): access tokens that
+	// expired more than an hour ago and refresh tokens past their 2160 hours. The restrictive policy
+	// oauth_tokens_delete_expired holds the same bound.
+	DeleteExpiredOAuthTokensForGrant(ctx context.Context, arg DeleteExpiredOAuthTokensForGrantParams) (int64, error)
 	// Takes the employee out of the queue whatever its lease: they were deactivated, or their
 	// address was removed -- nothing is left to send.
 	DeleteInviteRequest(ctx context.Context, arg DeleteInviteRequestParams) error
@@ -1852,6 +1898,9 @@ type Querier interface {
 	// RETURNING makes "nothing was bound there" distinguishable from "it was removed"
 	// without a second SELECT.
 	DetachPolicyResource(ctx context.Context, arg DetachPolicyResourceParams) (DetachPolicyResourceRow, error)
+	// §12, the owner's Disconnect: ADR 0047's statement verbatim -- the reason 'owner' and the
+	// membership that pressed it.
+	DisconnectOAuthGrant(ctx context.Context, arg DisconnectOAuthGrantParams) (int64, error)
 	// invitequeue.sql -- K-17's invitation queue (M11 API-6; ADR 0028 §9, ADR 0022's M11 note).
 	//
 	// WHAT A ROW IS. invite_requests (00037) holds ONE request per employee -- (tenant_id,
@@ -2075,6 +2124,10 @@ type Querier interface {
 	// Go-side reimplementation of the month arithmetic would be a second answer that can
 	// disagree with the one the invoice is built from.
 	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
+	// GET /v1/business (issue #37, ADR 0047 §8.4, OA-2): the credential's business as the integration API
+	// names it -- its id, its name and its company code (tenants.api_code, NULL until the operator opens
+	// the API). WithTenant + the explicit id: the ONE business the key or the grant resolved to.
+	GetAPIBusiness(ctx context.Context, tenantID uuid.UUID) (GetAPIBusinessRow, error)
 	// One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
 	// (has_email), and the activation e-mail's state, from three LEFT JOINs:
 	//   r    a request waiting in the queue (invite_requests, K-17) -- queued_at NULL is none;
@@ -2499,6 +2552,8 @@ type Querier interface {
 	GetEmployeeInviteStatus(ctx context.Context, arg GetEmployeeInviteStatusParams) (string, error)
 	// The recorded request after a claim found a row.
 	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)
+	// GetIdempotency's twin for an OAuth grant (00106).
+	GetIdempotencyForGrant(ctx context.Context, arg GetIdempotencyForGrantParams) (GetIdempotencyForGrantRow, error)
 	// Where an e-mailed invitation goes and what it may say (M10 EM-7B, ADR 0022 §7).
 	//
 	// 🔴 IT RUNS INSIDE THE TRANSACTION THAT MINTS THE INVITATION, AFTER CreateInvite --
@@ -2822,6 +2877,16 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// The owner's Disconnect (§12): the grant's app, read in the session's tenant before the revocation
+	// so the trail row names it. No row: not a live grant of this business (another business's id finds
+	// none -- RLS and the explicit filter).
+	GetOAuthGrantForPanel(ctx context.Context, arg GetOAuthGrantForPanelParams) (GetOAuthGrantForPanelRow, error)
+	// §5.3 steps 4-5, read under the same grant lock after RotateOAuthRefreshToken matched nothing:
+	// within_tolerance -- used, not revoked, and its FIRST use (used_at is one way) no more than 30
+	// seconds ago by the database's clock -> the tolerance branch (RevokeOtherLiveOAuthTokens, then one
+	// new pair); used and past 30 seconds -> reuse (RevokeOAuthGrant 'refresh_reuse'); revoked or
+	// expired -> invalid_grant, no grant revocation.
+	GetOAuthRefreshTokenState(ctx context.Context, arg GetOAuthRefreshTokenStateParams) (GetOAuthRefreshTokenStateRow, error)
 	// One department, for the edit form and for the BEFORE half of the audit row --
 	// read inside the write's transaction, for the reason GetPanelLocation gives.
 	GetPanelDepartment(ctx context.Context, arg GetPanelDepartmentParams) (GetPanelDepartmentRow, error)
@@ -3022,6 +3087,13 @@ type Querier interface {
 	// event); reading the page without its upper bound would return an event above the cursor it hands
 	// out (a repeated one). Both are measured as mutants (ADR 0028, API-7 note).
 	//
+	// OWN ONLY (issue #37, ADR 0047 §8.5, OA-4): an OAuth token's read passes own_only = true and answers
+	// the rows whose roles are exactly {employer,location} -- the business's own employee at its own
+	// plaque. A holding punch (one role here, the other at the peer) carries the PEER's employee or
+	// location and is not shown to a third-party app the peer never approved. An API key passes false
+	// and reads as before. The cursor and the window are untouched: a skipped row is a hole, and the
+	// feed's contract already allows holes (the guide, §6.4).
+	//
 	// No statement here names transactions: punch_events carries no evidence column (no address, GPS,
 	// note, policy context or verdict -- 00048), so TestEvidenceReaders_EveryOneIsClassified has nothing
 	// to file.
@@ -3113,6 +3185,10 @@ type Querier interface {
 	// K-22's gate as the panel reads it: NULL is closed. The owner may revoke a key whatever this says
 	// (ADR 0028 §10, K-26); a new key needs it open.
 	GetTenantAPIEnabledAt(ctx context.Context, tenantID uuid.UUID) (*time.Time, error)
+	// §11.3 step 1, §11.4: K-22's two columns -- GetTenantAPIEnabledAt with api_code. api_enabled_at set:
+	// the API is open. api_code set with api_enabled_at NULL: the operator CLOSED it, which overrides a
+	// grant. Both NULL: never opened -- the grant decides.
+	GetTenantAPIGate(ctx context.Context, tenantID uuid.UUID) (GetTenantAPIGateRow, error)
 	// The business's own facts, for the account settings screen (M7-05).
 	//
 	// 🔴 IT IS A SEPARATE QUERY FROM GetTenantClock RATHER THAN A WIDENING OF IT, AND THE
@@ -3481,6 +3557,44 @@ type Querier interface {
 	// department is not a venue). created_at is not named: the database's clock (00068's decision trigger
 	// holds the row to being written no earlier than the claim).
 	InsertManualTransactionAtAnchor(ctx context.Context, arg InsertManualTransactionAtAnchorParams) (InsertManualTransactionAtAnchorRow, error)
+	// oauth.sql -- the OAuth 2.0 "Connected apps" statements (issue #37 phase 1; ADR 0047 §4.5, §5.2,
+	// §5.3, §6, §8.1, §11.3, §12; migrations 00104-00106).
+	//
+	// Every statement here runs inside WithTenant(the tenant the credential resolved to -- or the panel
+	// session's) and carries an explicit tenant_id filter (CLAUDE.md §4.5, belt and braces). The
+	// context-less reads are the three resolvers of 00105 (resolve_oauth_client,
+	// resolve_oauth_code_by_hash, resolve_oauth_token_by_hash), hand-written in internal/db/resolve.go
+	// (sqlc cannot type a RETURNS TABLE call -- resolve.sql). tappa_app reaches no row of oauth_clients:
+	// an app's name and state come from resolve_oauth_client, never from a join here.
+	//
+	// 🔴 EVERY "IT HAPPENED" WRITE IS ONE CONDITIONAL STATEMENT (CLAUDE.md §4.4's principle; 00011's
+	// BOUNDARY 2): consumed_at, used_at and revoked_at are written only where they are still NULL (and
+	// COALESCE where a statement could meet a stamped row), so two racing writers never reach 00104's
+	// one-way triggers -- the loser matches no row and writes nothing.
+	//
+	// 🔴 ONE CLOCK (ADR 0047 §14.2, ADR 0038): a row's created_at and expires_at are the database's
+	// now() (the column DEFAULTs; oauth_tokens.expires_at is computed here, in the INSERT's text, from
+	// now() and the kind -- never a parameter). Every "has it expired / is it within 30 seconds" test is
+	// the database's clock_timestamp(). No Go clock reaches a lifetime.
+	// ---------------------------------------------------------------------------
+	// The authorization code (§4.5, §5.2)
+	// ---------------------------------------------------------------------------
+	// The consent POST's one write (§4.5): the code's hash, the app, the approving owner membership,
+	// the matched registered redirect URI, the approved scopes (canonical) and the PKCE challenge.
+	// created_at and expires_at are the DEFAULTs: exactly 60 seconds by oauth_codes_lifetime.
+	InsertOAuthCode(ctx context.Context, arg InsertOAuthCodeParams) (InsertOAuthCodeRow, error)
+	// §5.2 step 7: the business's consent, scoped to the code's scopes, created by the approving owner
+	// membership. id and created_at are the DEFAULTs.
+	InsertOAuthGrant(ctx context.Context, arg InsertOAuthGrantParams) (InsertOAuthGrantRow, error)
+	// ---------------------------------------------------------------------------
+	// The tokens (§5.2 step 7, §5.3, §6)
+	// ---------------------------------------------------------------------------
+	// An access token (scopes: its own -- the grant's or a refresh's narrowing) or a refresh token
+	// (scopes NULL: it always carries the grant's). expires_at is written HERE from now() and the kind --
+	// the text of the statement, never a parameter -- and oauth_tokens_lifetime binds it by equality.
+	// expires_in is the token response's (§5.4, the "Uygulama notları": from expires_at, by the
+	// database's clock, rounded down -- never a constant 3600).
+	InsertOAuthToken(ctx context.Context, arg InsertOAuthTokenParams) (InsertOAuthTokenRow, error)
 	// punchclaims.sql -- an employee's claim of the missing half of a punch (M15-15, ADR 0032 §C.2-§C.3;
 	// migration 00068). The window, the K4 rule, the lock and the decision are M15-16's
 	// (internal/domain/claim); the schema card wrote the claim's INSERT, BUILT FROM THE ANCHOR ROW, and
@@ -3748,6 +3862,11 @@ type Querier interface {
 	// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none, or one
 	// that is not a whole number of at most nine digits: a cast of anything else would fail the whole
 	// read -- API-6 review D-4, measured as a 500).
+	//
+	// SINCE ISSUE #37 (ADR 0047 §8.7) an OAuth grant runs out of the same budget (its actor and target
+	// are the grant's id): the row's grant is LEFT JOINed for its client_id ALONE -- the app's name is
+	// resolve_oauth_client's, read in Go (tappa_app reads nothing of oauth_clients, and a copied name
+	// would miss the operator's rename). A key's row has client_id NULL, a grant's key_name ''.
 	ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error)
 	// A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
 	// in id order after the cursor (the previous page's last id; NULL for the first page). The same
@@ -4020,6 +4139,11 @@ type Querier interface {
 	// plan, transactions_tenant_occurred_idx filtering the 300 000 rows in the generic one, ~7 000-15 000
 	// buffers): once per statement, not once per checkout -- backlog T244.
 	ListCheckoutsWithoutCheckIn(ctx context.Context, arg ListCheckoutsWithoutCheckInParams) ([]ListCheckoutsWithoutCheckInRow, error)
+	// §12: the business's live grants, newest first, each with its approver (the "Approver disabled"
+	// pill reads the membership's status -- the grant is the business's, §12) and whether it still has a
+	// live refresh token (none: "Expired -- reconnect from the app", the "Uygulama notları"). The app's
+	// name and state are resolve_oauth_client's (tappa_app reads nothing of oauth_clients).
+	ListConnectedApps(ctx context.Context, tenantID uuid.UUID) ([]ListConnectedAppsRow, error)
 	// Every department with its venue, its stored cutoff (NULL = inherit) and its own shift.
 	ListDayCutoffDepartments(ctx context.Context, arg ListDayCutoffDepartmentsParams) ([]ListDayCutoffDepartmentsRow, error)
 	// The people a level's cutoff can reach: everybody who is not deactivated (a person who
@@ -4183,6 +4307,13 @@ type Querier interface {
 	// token_hash is NOT selected (section 4.7); used_at and cancelled_at are not selected
 	// either, because the WHERE pins both to NULL for every returned row.
 	ListLivePasswordResetsForAdmin(ctx context.Context, arg ListLivePasswordResetsForAdminParams) ([]ListLivePasswordResetsForAdminRow, error)
+	// §11.3 step 2, the invitation queue's gate when neither K-22 column is set: the apps holding a live
+	// grant with employees:write in this business -- a grant that still has a live refresh token (a dead
+	// grant does not open the gate: the "Uygulama notları"). No LIMIT: the partial UNIQUE (tenant_id,
+	// client_id) WHERE revoked_at IS NULL bounds the rows by the registry's size, and a LIMIT without an
+	// order could skip the one enabled app (2nd round DÜŞÜK-4). The caller resolves each id with
+	// resolve_oauth_client and the first enabled one opens the gate (§11.3 step 3).
+	ListLiveWritingOAuthClients(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
@@ -5733,6 +5864,11 @@ type Querier interface {
 	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
 	// "no difference". Use distinct sessions for the flood and one shot for the victim.
 	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
+	// §5.3 step 2: the grant's row, locked -- every refresh of one grant runs behind this lock, which is
+	// what makes the tolerance (step 4) leave exactly one live pair (§5.3's "Eşzamanlılık kanıtı"). No
+	// row: the grant is revoked (invalid_grant). scopes are the grant's: a refresh may narrow the access
+	// token below them, never widen it (§5.3).
+	LockLiveOAuthGrant(ctx context.Context, arg LockLiveOAuthGrantParams) (LockLiveOAuthGrantRow, error)
 	// ---------------------------------------------------------------------------
 	// THE INTEGRATION API'S VENUE WRITE (M11 API-5, ADR 0028 §9: PUT /v1/locations/{ref}).
 	// internal/domain/tenant/venueapi.go is the one caller; it runs inside the API's write
@@ -6200,6 +6336,8 @@ type Querier interface {
 	// The result, in the claiming transaction: the status and the record's id, never a body. Only the
 	// claim's own row (status IS NULL) is written.
 	RecordIdempotency(ctx context.Context, arg RecordIdempotencyParams) (int64, error)
+	// RecordIdempotency's twin for an OAuth grant (00106).
+	RecordIdempotencyForGrant(ctx context.Context, arg RecordIdempotencyForGrantParams) (int64, error)
 	// The wizard's consent POST (ADR 0026). It records WHEN the employee agreed to the
 	// GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
 	// that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:
@@ -6361,6 +6499,13 @@ type Querier interface {
 	// Every live key of this tenant -- the incident button. Only the rows THIS statement revoked come
 	// back; a key another request revoked first is not among them.
 	RevokeAllAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]RevokeAllAPIKeysRow, error)
+	// §6: an access token presented to /oauth/revoke ends alone; the grant lives (§18.2 item 13). 0
+	// rows: already revoked or not an access token of this tenant -- RFC 7009 answers 200 either way.
+	RevokeOAuthAccessToken(ctx context.Context, arg RevokeOAuthAccessTokenParams) (int64, error)
+	// The grant ends, for one of the reasons no person writes: 'client' (the app revoked its refresh
+	// token, §6), 'refresh_reuse' (§5.3 step 4, past the 30 seconds), 'code_reuse' (§5.2 step 4). Every
+	// token of it stops resolving at once. 0 rows: already revoked (the guard; the trigger is never met).
+	RevokeOAuthGrant(ctx context.Context, arg RevokeOAuthGrantParams) (int64, error)
 	// K3: when a password changes, every OTHER live session of that admin is revoked, but
 	// the session that made the change survives -- the user stays signed in on this device
 	// and is signed out everywhere else. That is the ONE difference from the reset flow's
@@ -6377,6 +6522,11 @@ type Querier interface {
 	// monotonicity trigger never fires. Returns the ids it revoked (empty when there was
 	// nothing else live -- idempotent). Tenant-scoped explicitly (section 4.5).
 	RevokeOtherAdminSessionsForAdmin(ctx context.Context, arg RevokeOtherAdminSessionsForAdminParams) ([]uuid.UUID, error)
+	// §5.3 step 4, the tolerance, ADR 0047's statement verbatim: every OTHER live token of the grant --
+	// every unused refresh token and every access token, whatever its lineage -- is revoked; the USED
+	// refresh tokens (the presented one among them) are left alone, so a used token never falls into
+	// step 5 and its window keeps counting from its own first use. Then exactly one new pair is minted.
+	RevokeOtherLiveOAuthTokens(ctx context.Context, arg RevokeOtherLiveOAuthTokensParams) (int64, error)
 	// Revokes one session. COALESCE keeps the FIRST revocation timestamp: a repeated
 	// revoke is idempotent AND does not rewrite when the session actually died
 	// (audit truth). Because the row is matched regardless of its revocation state,
@@ -6401,6 +6551,10 @@ type Querier interface {
 	// reject-with-alert (section 5 row 4) versus activation redirect (row 3) is the
 	// guardrail's call, not this query's.
 	RevokeSessionsForEmployee(ctx context.Context, arg RevokeSessionsForEmployeeParams) ([]uuid.UUID, error)
+	// §5.3 step 3, under LockLiveOAuthGrant's lock: the refresh token is used -- by this ONE conditional
+	// statement (the `UPDATE tags SET last_ctr ... WHERE last_ctr < $2` shape). A row: normal rotation,
+	// mint the new pair in the same transaction. No row: GetOAuthRefreshTokenState says which branch.
+	RotateOAuthRefreshToken(ctx context.Context, arg RotateOAuthRefreshTokenParams) (uuid.UUID, error)
 	// A new sealed key for THIS endpoint (the id is the seal's AAD -- a key sealed for another id would
 	// not open here), and the moment it changed. The old key no longer signs anything from the commit on.
 	RotateWebhookEndpointKey(ctx context.Context, arg RotateWebhookEndpointKeyParams) (*time.Time, error)
@@ -6542,6 +6696,9 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
 	SetLocationExternalRef(ctx context.Context, arg SetLocationExternalRefParams) (SetLocationExternalRefRow, error)
+	// §5.2 step 7: the grant the code bore, in the exchange's transaction -- what a later presentation
+	// of the spent code revokes. One way (00104's trigger): only a consumed code without a grant.
+	SetOAuthCodeGrant(ctx context.Context, arg SetOAuthCodeGrantParams) (int64, error)
 	// The standalone set-password statement passwordresets.sql said M7-05 would need and
 	// must NOT reach for ConsumePasswordResetAndSetPassword to write. Its authority is the
 	// current session's identity: the caller passes the id it authenticated as, so the
@@ -6605,6 +6762,14 @@ type Querier interface {
 	// Switch the endpoint off or on. Only a change matches: switching off an endpoint that is off writes
 	// nothing, so the caller writes no second trail row.
 	SetWebhookEndpointActive(ctx context.Context, arg SetWebhookEndpointActiveParams) (int64, error)
+	// ---------------------------------------------------------------------------
+	// The grant (§5.2 step 7, §6, §12)
+	// ---------------------------------------------------------------------------
+	// §5.2 step 7: the business's live grant to this app, if any, is replaced -- before the new one is
+	// inserted, in the same transaction (O-8). Its tokens die with it (the resolver reads the grant's
+	// revoked_at). The ids come back for the audit trail. Two exchanges racing for one (business, app)
+	// meet at oauth_grants_live_client_key on the INSERT below and the loser rolls back.
+	SupersedeLiveOAuthGrants(ctx context.Context, arg SupersedeLiveOAuthGrantsParams) ([]uuid.UUID, error)
 	// Does this business have a record -- ANY record, on ANY day (M7-03 phase B)?
 	//
 	// 🔴 IT EXISTS TO DECIDE WHETHER ONE PIECE OF ADVICE IS WORTH GIVING, and the advice
@@ -6787,6 +6952,9 @@ type Querier interface {
 	// so adminauth.Verify never reaches here with one; the predicate is for a caller that forgot to look
 	// (adminsessionlifetime_test.go pins the literal to the constant at the second).
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
+	// §8.1 step 6: last_used_at at most once a minute per grant (TouchAPIKey's rule), the "Connected
+	// apps" list's last use. A revoked grant is not touched.
+	TouchOAuthGrant(ctx context.Context, arg TouchOAuthGrantParams) (int64, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked
 	// between verification and this write updates 0 rows and the caller sees

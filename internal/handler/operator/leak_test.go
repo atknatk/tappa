@@ -607,7 +607,7 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	}
 	texts := newFakeTexts(store.fakeStore)
 	vies := &fakeVIES{store: store.fakeStore}
-	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, vies, texts, opHost, opBase, plog)
+	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, noApps{}, testSecrets, vies, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}

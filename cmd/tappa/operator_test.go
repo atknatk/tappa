@@ -121,6 +121,23 @@ func (noStore) ReinstateTenant(context.Context, string, uuid.UUID) error {
 	return db.ErrOperatorRefused
 }
 
+// Issue #37: the app registry's five (operator.OAuthClientStore).
+func (noStore) OAuthClients(context.Context, string, int32) ([]db.OAuthClientRow, error) {
+	return nil, db.ErrOperatorRefused
+}
+func (noStore) RegisterOAuthClient(context.Context, string, string, []string, []string, string, string) (uuid.UUID, error) {
+	return uuid.Nil, db.ErrOperatorRefused
+}
+func (noStore) RotateOAuthClientSecret(context.Context, string, uuid.UUID, string, string) error {
+	return db.ErrOperatorRefused
+}
+func (noStore) SetOAuthClientRedirects(context.Context, string, uuid.UUID, []string) error {
+	return db.ErrOperatorRefused
+}
+func (noStore) DisableOAuthClient(context.Context, string, uuid.UUID) error {
+	return db.ErrOperatorRefused
+}
+
 // noCheck is a viesChecker that never answers (the sign-up wizard's VIES client's shape; no
 // test here asks it anything).
 type noCheck struct{}
@@ -207,7 +224,7 @@ func TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot(t 
 	defer cancel()
 	operatorCfg := func(dsn string) *config.Config {
 		return &config.Config{OperatorDatabaseURL: config.NewDSN(dsn), OperatorTOTPKEK: config.NewKey(randBytes(t, 32)),
-			OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt"}
+			OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt"}
 	}
 
 	t.Run("unreachable: boots, surface unavailable", func(t *testing.T) {
@@ -281,7 +298,7 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 	for name, c := range map[string]*config.Config{
 		"only the host":      {OperatorHost: "ops.taptime.mt"},
 		"only the TOTP KEK":  {OperatorTOTPKEK: config.NewKey(randBytes(t, 32))},
-		"only the token key": {OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))},
+		"only the token key": {OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))},
 		"only the DSN":       {OperatorDatabaseURL: config.NewDSN(dsn)},
 	} {
 		var buf bytes.Buffer
@@ -304,7 +321,7 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 // wrong size is refused there), and the CONFIGURED fact is logged with the host.
 func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 	cfg := &config.Config{
-		OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
+		OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt",
 	}
 	var buf bytes.Buffer
@@ -364,7 +381,7 @@ func totpCode(secret []byte, at time.Time) string {
 // value). A swap, or one key in both slots, would sign people in all the same and undo
 // the separation config.Load enforces; this is what sees it.
 func TestOperatorAuthenticator_EachKeyIsInItsOwnSlot(t *testing.T) {
-	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))}
+	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32))}
 	store := &enrollStore{}
 	auth, err := operatorAuthenticator(store, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -433,7 +450,7 @@ func TestOperatorSurface_TheRunbookGrepMatchesTheShippedLine(t *testing.T) {
 	} else {
 		closeFn()
 	}
-	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
+	cfg := &config.Config{OperatorTOTPKEK: config.NewKey(randBytes(t, 32)), OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(randBytes(t, 32)), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
 	if _, err := configuredSurface(noStore{}, noTexts{}, noCheck{}, cfg, slog.New(logHandler(&on, shipped))); err != nil {
 		t.Fatal(err)
@@ -502,7 +519,7 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	cfg := &config.Config{OperatorDatabaseURL: config.NewDSN(dsn), OperatorTOTPKEK: config.NewKey(kek), OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt",
+	cfg := &config.Config{OperatorDatabaseURL: config.NewDSN(dsn), OperatorTOTPKEK: config.NewKey(kek), OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt",
 		BaseURL: "https://taptime.mt"}
 	refusals := 0
 	for _, log := range loggers {
@@ -532,7 +549,7 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	if owner := os.Getenv("DATABASE_MIGRATE_URL"); owner != "" {
 		for _, log := range loggers {
 			_, _, err := openOperatorSurface(ctx, &config.Config{OperatorDatabaseURL: config.NewDSN(owner), OperatorTOTPKEK: config.NewKey(kek),
-				OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt"}, noTexts{}, noCheck{}, log)
+				OAuthHMACKey: config.NewKey(randBytes(t, 32)), OperatorTokenHMACKey: config.NewKey(hmacKey), OperatorHost: "ops.taptime.mt"}, noTexts{}, noCheck{}, log)
 			if err == nil {
 				t.Fatal("the owner's DSN opened the operator surface")
 			}
@@ -778,8 +795,8 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 	}{
 		{configured, "store", []string{"arg0 of operatorAuthenticator", "arg1 of operator.New", "arg2 of operator.New", "arg3 of operator.New",
 			"arg4 of operator.New", "arg5 of operator.New", "arg6 of operator.New", "arg7 of operator.New",
-			"arg8 of operator.New"}},
-		{configured, "texts", []string{"arg10 of operator.New"}},
+			"arg8 of operator.New", "arg9 of operator.New"}}, // arg9: the app registry's store (issue #37)
+		{configured, "texts", []string{"arg12 of operator.New"}},
 		{configured, "vies", []string{"arg0 of viesForOperator"}},
 		{authFn, "store", []string{"arg0 of operatorauth.New"}},
 		{open, "texts", []string{"arg1 of configuredSurface"}},
@@ -806,8 +823,8 @@ func TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator(t *testing.T) {
 		}
 		for i, a := range c.Args {
 			if ac, ok := a.(*ast.CallExpr); ok && qualName(ac.Fun) == "viesForOperator" {
-				if i != 9 {
-					t.Errorf("viesForOperator's call is operator.New's argument %d, want 9 (the VATChecker slot)", i)
+				if i != 11 {
+					t.Errorf("viesForOperator's call is operator.New's argument %d, want 11 (the VATChecker slot)", i)
 				}
 				adapted++
 			}

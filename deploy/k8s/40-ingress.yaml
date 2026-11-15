@@ -193,6 +193,12 @@ spec:
 # everything else stays on `tappa`, logged as before (the shape 41's console and legal
 # pair already uses for one host).
 #
+# ISSUE #37 (ADR 0047 §3): the authorization server's /oauth prefix is here too, for the same
+# reason. GET /oauth/authorize carries the app's state and PKCE challenge in its query, and the
+# state is not to be in our log (§3, §7.4); POST /oauth/token and /oauth/revoke carry nothing in
+# the URL but are routed with it so the prefix has one rule. Longest prefix wins: /oauth beats
+# `tappa`'s "/".
+#
 # EVERYTHING ELSE IS THE `tappa` INGRESS'S, field for field: host, TLS block (the same
 # secret), class, backend, the two HTTPS redirects and the 1m body limit -- the logo
 # upload, /admin/account/brand/logo, is a panel route. ONE DIFFERENCE, deliberate: no
@@ -211,7 +217,12 @@ spec:
 # request line, query included, when nginx itself fails a panel request -- a body over
 # the 1m limit (its 413), an upstream connect error, a timeout. The binding in such a
 # line is useless without that session's raw cookie, so the cost is named, not closed;
-# no other setting changes (ADR 0031 §5.5 note 3).
+# no other setting changes (ADR 0031 §5.5 note 3). The same holds for /oauth (issue #37, 2nd
+# phase review): on an upstream error or timeout the controller's error log can write a
+# GET /oauth/authorize request line with its query -- the app's state among it. The state is
+# the app's CSRF value for one sign-in, not a credential of ours (a code needs the app's
+# secret and PKCE verifier), so this too is named, not closed. The legacy redirect hosts keep
+# their access log (43-redirect-ingress.yaml says why that is accepted).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -235,6 +246,13 @@ spec:
       http:
         paths:
           - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+          - path: /oauth
             pathType: Prefix
             backend:
               service:

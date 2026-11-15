@@ -117,16 +117,22 @@ var tablesLockRowOutside = map[string]rowOutsideKind{
 	"../../internal/domain/checkin": rowOutsidePlain,
 	// main's M15-16 (brought into M14 before Deploy 1, 2026-10-27): claim_db_test.go's world commits
 	// its owner, and the forged-reviewer test a manager, each one plain INSERT INTO admin_users.
-	"../../internal/domain/claim":      rowOutsidePlain,
-	"../../internal/domain/ledger":     rowOutsidePlain,
-	"../../internal/domain/legal":      rowOutsidePlain,
-	"../../internal/domain/manual":     rowOutsidePlain,
-	"../../internal/domain/tenant":     rowOutsidePlain,
-	"../../internal/apikey":            rowOutsidePlain,
-	"../../internal/egress":            rowOutsidePlain,
-	"../../internal/encode":            rowOutsidePlain,
-	"../../internal/invite":            rowOutsidePlain,
-	"../../internal/sandbox":           rowOutsidePlain,
+	"../../internal/domain/claim":  rowOutsidePlain,
+	"../../internal/domain/ledger": rowOutsidePlain,
+	"../../internal/domain/legal":  rowOutsidePlain,
+	"../../internal/domain/manual": rowOutsidePlain,
+	"../../internal/domain/tenant": rowOutsidePlain,
+	"../../internal/apikey":        rowOutsidePlain,
+	"../../internal/egress":        rowOutsidePlain,
+	"../../internal/encode":        rowOutsidePlain,
+	"../../internal/invite":        rowOutsidePlain,
+	"../../internal/sandbox":       rowOutsidePlain,
+	// Issue #37 (ADR 0047): the authorization server's tests -- internal/oauth's world
+	// (server_db_test.go) and the token endpoint's rig (internal/handler/oauthapi's
+	// surface_db_test.go) -- each commit their business's owner as one plain INSERT INTO admin_users
+	// through the application pool, no lock.
+	"../../internal/oauth":             rowOutsidePlain,
+	"../../internal/handler/oauthapi":  rowOutsidePlain,
 	"../../internal/webhook/endpoints": rowOutsidePlain,
 	"../../cmd/tappa":                  rowOutsidePlain,
 	// T185: cmd/tappa's script tests, split off into their own package; they write no row at all --

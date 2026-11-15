@@ -119,6 +119,28 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Cre
 	return i, err
 }
 
+const getAPIBusiness = `-- name: GetAPIBusiness :one
+SELECT id, name, api_code
+FROM tenants
+WHERE id = $1
+`
+
+type GetAPIBusinessRow struct {
+	ID      uuid.UUID
+	Name    string
+	ApiCode *string
+}
+
+// GET /v1/business (issue #37, ADR 0047 §8.4, OA-2): the credential's business as the integration API
+// names it -- its id, its name and its company code (tenants.api_code, NULL until the operator opens
+// the API). WithTenant + the explicit id: the ONE business the key or the grant resolved to.
+func (q *Queries) GetAPIBusiness(ctx context.Context, tenantID uuid.UUID) (GetAPIBusinessRow, error) {
+	row := q.db.QueryRow(ctx, getAPIBusiness, tenantID)
+	var i GetAPIBusinessRow
+	err := row.Scan(&i.ID, &i.Name, &i.ApiCode)
+	return i, err
+}
+
 const getTenantAccount = `-- name: GetTenantAccount :one
 SELECT id, name, vat_number, business_type, timezone,
        vat_verified, vat_checked_at, created_at

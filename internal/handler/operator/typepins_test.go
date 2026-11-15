@@ -830,6 +830,26 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	legalReads, tenantReads, auditReads, billingReads := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	holdingReads, holdingQueries := map[string]int{}, map[string]int{}
 	suspendReads, reinstateReads := map[string]int{}, map[string]int{}
+	// Issue #37: the app registry's form and query reads (apps.go).
+	registerApp, setAppRedirects, appsPage := tp.method(t, "Surface", "registerApp"), tp.method(t, "Surface", "setAppRedirects"),
+		tp.method(t, "Surface", "appsPage")
+	disableApp := tp.method(t, "Surface", "disableApp")
+	appReads, appQueries := map[string]int{}, map[string]int{}
+	// indexKey is the constant key of `r.PostForm["k"]` (a multi-valued field read whole), or "".
+	indexKey := func(id *ast.Ident) string {
+		sel, ok := tp.parents[id].(*ast.SelectorExpr)
+		if !ok || sel.Sel != id {
+			return ""
+		}
+		ix, ok := tp.parents[sel].(*ast.IndexExpr)
+		if !ok || ix.X != sel {
+			return ""
+		}
+		if v := tp.info.Types[ix.Index].Value; v != nil && v.Kind() == constant.String {
+			return constant.StringVal(v)
+		}
+		return ""
+	}
 	consumers := map[types.Object]string{}
 	for _, m := range []string{"Password", "TOTP", "CompleteEnrollment"} {
 		consumers[lookupMember(t, oa, "Authenticator", m)] = m
@@ -980,6 +1000,24 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(registerApp, id.Pos()) {
+				if k := tp.getKey(id); k == "name" || k == "redirect_uris" {
+					appReads["register "+k]++
+					continue
+				}
+				if indexKey(id) == "scope" {
+					appReads["register scope"]++
+					continue
+				}
+			}
+			if tp.in(setAppRedirects, id.Pos()) && tp.getKey(id) == "redirect_uris" {
+				appReads["redirects redirect_uris"]++
+				continue
+			}
+			if tp.in(disableApp, id.Pos()) && tp.getKey(id) == "confirm" {
+				appReads["disable confirm"]++
+				continue
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
@@ -995,6 +1033,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 			if tp.in(tenantOverview, id.Pos()) {
 				if k := tp.getKey(id); k == "done" || k == "api_code" {
 					apiQueries[k]++
+					continue
+				}
+			}
+			if tp.in(appsPage, id.Pos()) {
+				if k := tp.getKey(id); k == "done" || k == "app" {
+					appQueries[k]++
 					continue
 				}
 			}
@@ -1040,6 +1084,13 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	}
 	if len(reinstateReads) != 1 || reinstateReads["confirm"] != 1 {
 		bad = append(bad, fmt.Sprintf("FV5 reinstateTenant reads r.PostForm %v, want confirm once", reinstateReads))
+	}
+	if len(appReads) != 5 || appReads["register name"] != 1 || appReads["register redirect_uris"] != 1 ||
+		appReads["register scope"] != 1 || appReads["redirects redirect_uris"] != 1 || appReads["disable confirm"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 the app registry reads r.PostForm %v, want name, redirect_uris and scope (registerApp), redirect_uris (setAppRedirects) and confirm (disableApp) once each", appReads))
+	}
+	if len(appQueries) != 2 || appQueries["done"] != 1 || appQueries["app"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV6 appsPage reads URL.Query %v, want done and app once each", appQueries))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1311,6 +1362,11 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	apiResultPathFn := lookupFunc(t, tp.pkg, "apiResultPath")
 	apiWriters := []*types.Func{tp.method(t, "Surface", "enableTenantAPI"), tp.method(t, "Surface", "disableTenantAPI")}
 	toOverview := map[string]int{}
+	// Issue #37: the two registry writes' 303 passes appResultPath a constant appDone word and the
+	// path's own app id (which tenantID parsed, through appOf).
+	appResultPathFn := lookupFunc(t, tp.pkg, "appResultPath")
+	appWriters := []*types.Func{tp.method(t, "Surface", "setAppRedirects"), tp.method(t, "Surface", "disableApp")}
+	toApps := map[string]int{}
 	// The redirects whose target is built from the path's own tenant id: the target's function
 	// and the one handler it may be called in, and how many times it was.
 	perTenant := []struct {
@@ -1389,6 +1445,19 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 				continue
 			}
 		}
+		if tc, ok := ast.Unparen(target).(*ast.CallExpr); ok && tp.callee(tc) == appResultPathFn && len(tc.Args) == 2 &&
+			tp.info.Types[tc.Args[0]].Value != nil {
+			in := ""
+			for _, w := range appWriters {
+				if tp.in(w, c.Pos()) {
+					in = w.Name()
+				}
+			}
+			if in != "" {
+				toApps[in]++
+				continue
+			}
+		}
 		v := tp.info.Types[target].Value
 		if v == nil || v.Kind() != constant.String || !mounted[constant.StringVal(v)] {
 			bad = append(bad, "RH4 a redirect target that is not a mounted route's constant at "+tp.where(c.Pos()))
@@ -1409,6 +1478,11 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 			bad = append(bad, fmt.Sprintf("RH4 %d redirects to apiResultPath in %s, want at most the one", n, name))
 		}
 	}
+	for name, n := range toApps {
+		if n > 1 {
+			bad = append(bad, fmt.Sprintf("RH4 %d redirects to appResultPath in %s, want at most the one", n, name))
+		}
+	}
 	sort.Strings(bad)
 	for _, b := range bad {
 		t.Error(b)
@@ -1418,11 +1492,11 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the fourteen screen constructors screens() (op8_test.go) renders, by
+// operatorScreens are the fifteen screen constructors screens() (op8_test.go) renders, by
 // name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal,
 // OP-11 Tenants and TenantOverview, OP-13 TenantPlaques, OP-14 AuditLog, OP-12
 // TenantBilling, OP-16 TenantVAT, M11 API-1a Holdings).
-var operatorScreens = []string{"AuditLog", "Code", "Enroll", "Holdings", "Home", "Legal", "Problem", "SignIn", "TenantBilling",
+var operatorScreens = []string{"Apps", "AuditLog", "Code", "Enroll", "Holdings", "Home", "Legal", "Problem", "SignIn", "TenantBilling",
 	"TenantOverview", "TenantPlaques", "TenantScreen", "TenantVAT", "Tenants"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).

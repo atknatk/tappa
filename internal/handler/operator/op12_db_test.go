@@ -523,7 +523,7 @@ func TestE2E_ASlowBillingReadIsA503AndLeavesItsTicketUnconsumed(t *testing.T) {
 	}
 	live := &liveStore{conn: l.op}
 	s, err := operator.New(l.auth, live, live, live, live, blockingBilling{liveStore: live, before: before}, live, live, live,
-		l.vies, l.texts, opHost, opBase, debugCapture(&l.logs))
+		noApps{}, testSecrets, l.vies, l.texts, opHost, opBase, debugCapture(&l.logs))
 	if err != nil {
 		t.Fatal(err)
 	}

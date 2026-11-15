@@ -134,8 +134,10 @@ func NewWrites(data Database) (*Writes, error) {
 func (w *Writes) Run(ctx context.Context, req WriteRequest, work WorkFunc) (out Outcome, replayed bool, err error) {
 	p := req.Principal
 	switch {
-	case p.TenantID == uuid.Nil || p.KeyID == uuid.Nil:
+	case p.TenantID == uuid.Nil || p.ActorID() == uuid.Nil:
 		return Outcome{}, false, errors.New("api key: a write needs a resolved key")
+	case p.KeyID != uuid.Nil && p.GrantID != uuid.Nil:
+		return Outcome{}, false, errors.New("api key: a write's principal is a key or a grant, never both")
 	case work == nil:
 		return Outcome{}, false, errors.New("api key: nil write")
 	case req.IdempotencyKey != "" && !ValidIdempotencyKey(req.IdempotencyKey):
@@ -158,23 +160,11 @@ func (w *Writes) Run(ctx context.Context, req WriteRequest, work WorkFunc) (out 
 			w.beforeKey(ctx)
 		}
 		if idem {
-			key := store.DeleteExpiredIdempotencyForKeyParams{TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey}
-			if _, err := q.DeleteExpiredIdempotencyForKey(ctx, key); err != nil {
-				return fmt.Errorf("api key: free an expired idempotency key: %w", err)
-			}
-			n, err := q.ClaimIdempotency(ctx, store.ClaimIdempotencyParams{
-				TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey, RequestHash: req.RequestHash,
-			})
+			row, claimed, err := claim(ctx, q, p, req)
 			if err != nil {
-				return fmt.Errorf("api key: claim the idempotency key: %w", err)
+				return err
 			}
-			if n == 0 {
-				row, err := q.GetIdempotency(ctx, store.GetIdempotencyParams{TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey})
-				if err != nil {
-					// pgx.ErrNoRows too: the row the claim collided with is gone already -- an
-					// outage-class answer, and the client retries with the same key.
-					return fmt.Errorf("api key: read the recorded idempotency key: %w", err)
-				}
+			if !claimed {
 				switch {
 				case row.RequestHash != req.RequestHash:
 					return ErrIdempotencyMismatch
@@ -196,10 +186,7 @@ func (w *Writes) Run(ctx context.Context, req WriteRequest, work WorkFunc) (out 
 			return fmt.Errorf("api key: a write's outcome must be a 2xx status, got %d", o.Status)
 		}
 		if idem {
-			st := int16(o.Status)
-			n, err := q.RecordIdempotency(ctx, store.RecordIdempotencyParams{
-				Status: &st, ResultRef: o.Ref, TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey,
-			})
+			n, err := record(ctx, q, p, req, o)
 			if err != nil {
 				return fmt.Errorf("api key: record the outcome: %w", err)
 			}
@@ -214,4 +201,72 @@ func (w *Writes) Run(ctx context.Context, req WriteRequest, work WorkFunc) (out 
 		return Outcome{}, false, err
 	}
 	return out, replayed, nil
+}
+
+// recorded is a ledger row as a claim that collided reads it, whichever namespace it is in.
+type recorded struct {
+	RequestHash string
+	Status      *int16
+	ResultRef   *uuid.UUID
+}
+
+// THE TWO NAMESPACES (issue #37, ADR 0047 §8.7, §14.5; migration 00106): an API key's ledger rows
+// carry key_id, an OAuth grant's grant_id -- each its own partial unique index, so one grant's
+// Idempotency-Key never collides with a key's or another grant's. claim and record pick the twin by
+// the principal's kind; nothing else of the runner differs.
+
+// claim frees the one expired row this request would collide with and claims the key. claimed false:
+// a row exists, and it is returned.
+func claim(ctx context.Context, q *store.Queries, p Principal, req WriteRequest) (recorded, bool, error) {
+	if p.IsGrant() {
+		if _, err := q.DeleteExpiredIdempotencyForGrantKey(ctx, store.DeleteExpiredIdempotencyForGrantKeyParams{
+			TenantID: p.TenantID, GrantID: p.GrantID, IdemKey: req.IdempotencyKey}); err != nil {
+			return recorded{}, false, fmt.Errorf("api key: free an expired idempotency key: %w", err)
+		}
+		n, err := q.ClaimIdempotencyForGrant(ctx, store.ClaimIdempotencyForGrantParams{
+			TenantID: p.TenantID, GrantID: p.GrantID, IdemKey: req.IdempotencyKey, RequestHash: req.RequestHash})
+		if err != nil {
+			return recorded{}, false, fmt.Errorf("api key: claim the idempotency key: %w", err)
+		}
+		if n == 1 {
+			return recorded{}, true, nil
+		}
+		row, err := q.GetIdempotencyForGrant(ctx, store.GetIdempotencyForGrantParams{TenantID: p.TenantID, GrantID: p.GrantID, IdemKey: req.IdempotencyKey})
+		if err != nil {
+			// pgx.ErrNoRows too: the row the claim collided with is gone already -- an outage-class
+			// answer, and the client retries with the same key.
+			return recorded{}, false, fmt.Errorf("api key: read the recorded idempotency key: %w", err)
+		}
+		return recorded{RequestHash: row.RequestHash, Status: row.Status, ResultRef: row.ResultRef}, false, nil
+	}
+	if _, err := q.DeleteExpiredIdempotencyForKey(ctx, store.DeleteExpiredIdempotencyForKeyParams{
+		TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey}); err != nil {
+		return recorded{}, false, fmt.Errorf("api key: free an expired idempotency key: %w", err)
+	}
+	n, err := q.ClaimIdempotency(ctx, store.ClaimIdempotencyParams{
+		TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey, RequestHash: req.RequestHash})
+	if err != nil {
+		return recorded{}, false, fmt.Errorf("api key: claim the idempotency key: %w", err)
+	}
+	if n == 1 {
+		return recorded{}, true, nil
+	}
+	row, err := q.GetIdempotency(ctx, store.GetIdempotencyParams{TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey})
+	if err != nil {
+		// pgx.ErrNoRows too: the row the claim collided with is gone already -- an outage-class
+		// answer, and the client retries with the same key.
+		return recorded{}, false, fmt.Errorf("api key: read the recorded idempotency key: %w", err)
+	}
+	return recorded{RequestHash: row.RequestHash, Status: row.Status, ResultRef: row.ResultRef}, false, nil
+}
+
+// record writes the outcome into the claim's own row (status IS NULL).
+func record(ctx context.Context, q *store.Queries, p Principal, req WriteRequest, o Outcome) (int64, error) {
+	st := int16(o.Status)
+	if p.IsGrant() {
+		return q.RecordIdempotencyForGrant(ctx, store.RecordIdempotencyForGrantParams{
+			Status: &st, ResultRef: o.Ref, TenantID: p.TenantID, GrantID: p.GrantID, IdemKey: req.IdempotencyKey})
+	}
+	return q.RecordIdempotency(ctx, store.RecordIdempotencyParams{
+		Status: &st, ResultRef: o.Ref, TenantID: p.TenantID, KeyID: p.KeyID, IdemKey: req.IdempotencyKey})
 }

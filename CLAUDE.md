@@ -102,6 +102,12 @@ internal/handler/api/ /v1 yüzeyi (M11 API-4), ayrı host `TAPPA_API_HOST` — i
                       64 KiB sınırı, askı kontrol noktası, openapi.yaml. Müşteri paneli import
                       etmez, o da paneli import etmez (ADR 0028 §13). Uçların işi panelin domain'inden
                       geçer (ör. `PUT /v1/locations` → `tenant.Venues`); API kanıt (IP/GPS) yazmaz.
+                      OAuth erişim token'ı da (ADR 0047 §8): rota başına kapsam (`scope.go`), eş süzgeci.
+internal/oauth/       "Connected apps" yetkilendirme sunucusunun çekirdeği (ADR 0047): dört sır değerinin
+                      biçimi ve HMAC'i, PKCE, bekleyen istek çerezi, onay/kod takası/refresh/revoke ve
+                      /v1 token çözümlemesi; değerler her yazdırma yolunda yer tutucu basar.
+internal/handler/oauthapi/  `POST /oauth/token`, `/oauth/revoke` ve `GET /oauth/authorize` ön kapısı —
+                      ana host'ta, panel zincirinin dışında; çerez okumaz (ADR 0047 §3, §5).
 internal/invite/      davet basımı ve gönderimi; K-17 davet kuyruğu işçisi (M11 API-6 — `invite_requests`,
                       kira 60 sn, kod **gönderim anında** basılır, kuyrukta kod yok; `webhook.Worker`'ın işi).
                       K-22 kapısını, kesiciyi ve tavanları basımdan **önce** okur; istek en çok 72 sa bekler.
@@ -409,7 +415,8 @@ başlayan bir test durumu olmalı.
   üyeliği: `holdings`, `holding_members`, yazarı yalnız `op_*` — ADR 0027 — ve panel
   yöneticisinin kimliği: `admin_identities`, `admin_identity_resets`,
   `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`, yazarı
-  yalnız `identity_*` — ADR 0031): R5
+  yalnız `identity_*` — ADR 0031 — ve OAuth uygulama kaydı: `oauth_clients`, yazarı
+  yalnız `op_*` — ADR 0047): R5
   muafiyetiyle **görünür** (`scripts/redline-check.sh`), `tappa_app`'tan **açık**
   `REVOKE ALL` (dev/prod varsayılan yetkileri yeni tabloya yetki verir — ölçüldü),
   `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`
@@ -477,7 +484,9 @@ başlayan bir test durumu olmalı.
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
   webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
-  audit `detail`'i dahil).
+  audit `detail`'i dahil); OAuth tarafında client secret, yetki kodu, erişim ve refresh token'ı ve
+  hash'leri, `code_verifier`, `state`, `Authorization` başlığı (Basic ve Bearer), bekleyen istek
+  çerezinin değeri ve `rd` (ADR 0047 §7.4 — hata mesajı ve audit `detail`'i dahil).
 - Webhook log ve audit satırları yalnız uç nokta/teslim **kimliği**, kapalı **hata sınıfı** ve **durum kodu**
   taşır — uzak sunucunun yanıt metni de saklanmaz (ADR 0028 §6).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın

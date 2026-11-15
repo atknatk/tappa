@@ -1079,7 +1079,9 @@ func TestGuide_TheRequestIDRuleIsTheLogs(t *testing.T) {
 	// The set is 65 characters: its first 64 and its last 64 are the longest ids kept, all of it is
 	// one too long.
 	kept := []string{"a", set[:httpx.MaxRequestIDLen], set[len(set)-httpx.MaxRequestIDLen:], "erp-2026.10.16_000042", strings.Repeat("A", 43)}
-	replaced := []string{set, strings.Repeat("a", httpx.MaxRequestIDLen+1), "TT_LIVE_abc", "x-tt_test_y", "tt_whsec_1"}
+	replaced := []string{set, strings.Repeat("a", httpx.MaxRequestIDLen+1), "TT_LIVE_abc", "x-tt_test_y", "tt_whsec_1",
+		// Issue #37: the four OAuth prefixes §2.2 names.
+		"tt_cs_1", "TT_AC_1", "x-tt_at_live_y", "tt_rt_test_1"}
 	for c := 0x21; c < 0x7f; c++ {
 		if !strings.ContainsRune(set, rune(c)) {
 			replaced = append(replaced, "erp"+string(rune(c))+"1")
@@ -1218,6 +1220,12 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 	if serverHost == serverURL || serverHost == "" {
 		t.Fatalf("the document's server URL %q is not https://<host>", serverURL)
 	}
+	// The OAuth scheme's three URLs (issue #37) are on Taptime's own host -- the server's without its
+	// "api." label (TestOpenAPI_TheOAuthSchemeIsTheScopeTable pins them); the document alone may name it.
+	oauthHost := strings.TrimPrefix(serverHost, "api.")
+	if oauthHost == serverHost {
+		t.Fatalf("the document's server host %q has no api. label", serverHost)
+	}
 	// The one exception to the hexadecimal rule: the signature vector's values, each by name.
 	en, _ := theGuides(t)
 	vector := map[string]bool{}
@@ -1257,7 +1265,7 @@ func TestGuide_NoSecretAddressOrPersonalData(t *testing.T) {
 			}
 		}
 		for _, m := range urlShape.FindAllStringSubmatch(s, -1) {
-			if m[1] != "example.com" && !strings.HasSuffix(m[1], ".example.com") && (src.name != "openapi.yaml" || m[1] != serverHost) {
+			if m[1] != "example.com" && !strings.HasSuffix(m[1], ".example.com") && (src.name != "openapi.yaml" || (m[1] != serverHost && m[1] != oauthHost)) {
 				t.Errorf("%s: a URL on %q", src.name, m[1])
 			}
 		}

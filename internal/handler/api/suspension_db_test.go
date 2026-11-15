@@ -306,6 +306,7 @@ func s47Cells() []s47Cell {
 		{"GET punches", http.MethodGet, "/v1/punches", func(s47Fixture) string { return "/v1/punches?scope=employer" }, none, 200, true},
 		{"GET directory", http.MethodGet, "/v1/directory", func(s47Fixture) string { return "/v1/directory" }, none, 200, true},
 		{"GET timesheets", http.MethodGet, "/v1/timesheets", func(s47Fixture) string { return "/v1/timesheets?from=2026-11-02&to=2026-11-08" }, none, 200, true},
+		{"GET business", http.MethodGet, "/v1/business", func(s47Fixture) string { return "/v1/business" }, none, 200, true},
 		{"GET openapi.yaml", http.MethodGet, "/v1/openapi.yaml", func(s47Fixture) string { return "/v1/openapi.yaml" }, none, 200, true},
 		{"GET guide.md", http.MethodGet, "/v1/guide.md", func(s47Fixture) string { return "/v1/guide.md" }, none, 200, true},
 		{"GET guide.tr.md", http.MethodGet, "/v1/guide.tr.md", func(s47Fixture) string { return "/v1/guide.tr.md" }, none, 200, true},

@@ -40,6 +40,10 @@ type APIKeysView struct {
 	RevokeHref    string
 	RevokeAllHref string
 
+	// ConnectedAppsHref is the "Connected apps" card's address (issue #37, ADR 0047 §12); "" when the
+	// panel has no authorization server.
+	ConnectedAppsHref string
+
 	Done    string
 	Problem string
 

@@ -88,6 +88,12 @@ templ apiKeysCard(v APIKeysView) {
 					<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
 					— what the API does and how your system calls it.
 				</p>
+				if v.ConnectedAppsHref != "" {
+					<p class="max-w-2xl text-sm leading-normal text-ink/70">
+						<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(v.ConnectedAppsHref) }>Connected apps</a>
+						— the apps an owner connected from the app&#39;s own site, and how to disconnect one.
+					</p>
+				}
 			</div>
 			if v.Available && !v.ListFailed && v.APIEnabled {
 				@apiKeyCreateForm(v)

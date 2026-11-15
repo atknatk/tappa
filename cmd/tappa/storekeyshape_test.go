@@ -235,7 +235,7 @@ var storeSurface = map[string]string{
 	"GetLatestEmployeeByExternalRef": "(context.Context, GetLatestEmployeeByExternalRefParams{TenantID uuid.UUID; ExternalRef *string}) (uuid.UUID, error)",
 	"GetLiveEmployeeByExternalRef":   "(context.Context, GetLiveEmployeeByExternalRefParams{Email *string; TenantID uuid.UUID; ExternalRef *string}) (GetLiveEmployeeByExternalRefRow{ID uuid.UUID; Status string; SameEmail bool}, error)",
 	"IsAdministratorAddress":         "(context.Context, IsAdministratorAddressParams{TenantID uuid.UUID; Email string}) (bool, error)",
-	"ListAPIBudgetAlerts":            "(context.Context, ListAPIBudgetAlertsParams{TenantID uuid.UUID; WindowSeconds int32}) ([]ListAPIBudgetAlertsRow{At time.Time; Target *string; KeyName string; Budget int32}, error)",
+	"ListAPIBudgetAlerts":            "(context.Context, ListAPIBudgetAlertsParams{TenantID uuid.UUID; WindowSeconds int32}) ([]ListAPIBudgetAlertsRow{At time.Time; Target *string; KeyName string; GrantClientID *uuid.UUID; Budget int32}, error)",
 	"ListAPIEmployees":               "(context.Context, ListAPIEmployeesParams{TenantID uuid.UUID; After *uuid.UUID; PageSize int32}) ([]ListAPIEmployeesRow{ID uuid.UUID; ExternalRef *string; EmployeeCode *string; FirstName *string; LastName *string; FullName string; Status string; HasEmail bool; ActivatedAt *time.Time; CreatedAt time.Time; UpdatedAt time.Time; QueuedAt *time.Time; HasLiveInvite bool; LiveInviteAt time.Time; LastUndelivered bool; LastAttemptAt time.Time}, error)",
 	"LockAPIDeactivationBudget":      "(context.Context, LockAPIDeactivationBudgetParams{KeyID uuid.UUID; TenantID uuid.UUID}) (LockAPIDeactivationBudgetRow{ID uuid.UUID; Unlocked bool}, error)",
 	"LockSandboxPlaque":              "(context.Context, LockSandboxPlaqueParams{Uid string; TenantID uuid.UUID}) (LockSandboxPlaqueRow{ID uuid.UUID; Unlocked bool}, error)",
@@ -404,8 +404,8 @@ var storeSurface = map[string]string{
 	"ListPolicySet":                   "(context.Context, uuid.UUID) ([]ListPolicySetRow{PolicyID uuid.UUID; Name string; Layer string; Enabled bool; VersionID uuid.UUID; VersionNo int32; Document []byte}, error)",
 	"ListPolicyVenueTargets":          "(context.Context, ListPolicyVenueTargetsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPolicyVenueTargetsRow{ID uuid.UUID; Name string}, error)",
 	"ListPolicyVersions":              "(context.Context, ListPolicyVersionsParams{TenantID uuid.UUID; RowLimit int32}) ([]ListPolicyVersionsRow{PolicyID uuid.UUID; Name string; Layer string; Enabled bool; VersionID *uuid.UUID; VersionNo *int32; VersionCreatedAt *time.Time; CreatedBy *uuid.UUID; AuthorName *string; DocumentBytes int32}, error)",
-	"ListPunchEvents":                 "(context.Context, ListPunchEventsParams{TenantID uuid.UUID; AfterSeq int64; UptoSeq int64; Role string; PageSize int32}) ([]ListPunchEventsRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; DirectionSource *string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
-	"ListPunchHistory":                "(context.Context, ListPunchHistoryParams{TenantID uuid.UUID; S0 int64; FromTime time.Time; ToTime time.Time; AfterTime time.Time; AfterSeq int64; EndTime time.Time; EndSeq int64; Role string; PageSize int32}) ([]ListPunchHistoryRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; DirectionSource *string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
+	"ListPunchEvents":                 "(context.Context, ListPunchEventsParams{TenantID uuid.UUID; AfterSeq int64; UptoSeq int64; Role string; OwnOnly bool; PageSize int32}) ([]ListPunchEventsRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; DirectionSource *string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
+	"ListPunchHistory":                "(context.Context, ListPunchHistoryParams{TenantID uuid.UUID; S0 int64; FromTime time.Time; ToTime time.Time; AfterTime time.Time; AfterSeq int64; EndTime time.Time; EndSeq int64; Role string; OwnOnly bool; PageSize int32}) ([]ListPunchHistoryRow{Seq int64; PunchID uuid.UUID; Version int32; Status string; PunchTime time.Time; RecordedAt time.Time; Channel string; Direction string; DirectionSource *string; EmployeeID uuid.UUID; EmployeeRef *string; EmployeeCode *string; EmployeeCompany *string; LocationID *uuid.UUID; LocationRef *string; LocationName *string; LocationCompany *string; TagUid *string}, error)",
 	"ListPublishedLegalDocuments":     "(context.Context) ([]ListPublishedLegalDocumentsRow{ID uuid.UUID; Slug string; Body string; PublishedAt time.Time}, error)",
 	"ListRollEmployees":               "(context.Context, ListRollEmployeesParams{TenantID uuid.UUID; EmployeeIds []uuid.UUID}) ([]ListRollEmployeesRow{ID uuid.UUID; Role *string; HomeLocationID *uuid.UUID; HomeVenue *string}, error)",
 	"ListSessionsForEmployee":         "(context.Context, ListSessionsForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]ListSessionsForEmployeeRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; DeviceInfo *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
@@ -565,6 +565,40 @@ var storeSurface = map[string]string{
 	"ListAdminMembers":      "(context.Context, uuid.UUID) ([]ListAdminMembersRow{ID uuid.UUID; FullName string; Email *string; Role string; Status string; CreatedAt time.Time; LastLoginAt *time.Time}, error)",
 	"SetAdminMemberStatus":  "(context.Context, SetAdminMemberStatusParams{Status string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
 	"SetAdminMemberRole":    "(context.Context, SetAdminMemberRoleParams{Role string; TenantID uuid.UUID; ID uuid.UUID}) (uuid.UUID, error)",
+	// Issue #37 phase 1 (ADR 0047 §14.5, migration 00106): api_idempotency's grant namespace -- the
+	// four twins of the key statements. No bytes; the grant id is not a secret.
+	"ClaimIdempotencyForGrant":            "(context.Context, ClaimIdempotencyForGrantParams{TenantID uuid.UUID; GrantID uuid.UUID; IdemKey string; RequestHash string}) (int64, error)",
+	"DeleteExpiredIdempotencyForGrantKey": "(context.Context, DeleteExpiredIdempotencyForGrantKeyParams{TenantID uuid.UUID; GrantID uuid.UUID; IdemKey string}) (int64, error)",
+	"GetIdempotencyForGrant":              "(context.Context, GetIdempotencyForGrantParams{TenantID uuid.UUID; GrantID uuid.UUID; IdemKey string}) (GetIdempotencyForGrantRow{RequestHash string; Status *int16; ResultRef *uuid.UUID}, error)",
+	"RecordIdempotencyForGrant":           "(context.Context, RecordIdempotencyForGrantParams{Status *int16; ResultRef *uuid.UUID; TenantID uuid.UUID; GrantID uuid.UUID; IdemKey string}) (int64, error)",
+	// Issue #37 phase 1 (ADR 0047 §5, §11.3, §12; db/queries/oauth.sql): the OAuth codes, grants and
+	// tokens. No method hands back a hash or a secret: the hashes are only ever PARAMETERS (an INSERT's
+	// code_hash / token_hash), tappa_app cannot SELECT either column (00104), and the resolvers that
+	// filter on them are hand-written (internal/db/resolveoauth.go). No bytes, no tags.
+	"ConsumeOAuthCode":                 "(context.Context, ConsumeOAuthCodeParams{CodeID uuid.UUID; TenantID uuid.UUID}) (ConsumeOAuthCodeRow{Reached bool; Spent bool; PriorConsumedAt *time.Time; PriorGrantID *uuid.UUID; ClientID *uuid.UUID; RedirectUri *string; CodeChallenge *string; Scopes []string; CreatedBy *uuid.UUID}, error)",
+	"DeleteExpiredOAuthCodes":          "(context.Context, uuid.UUID) (int64, error)",
+	"DeleteExpiredOAuthTokensForGrant": "(context.Context, DeleteExpiredOAuthTokensForGrantParams{TenantID uuid.UUID; GrantID uuid.UUID}) (int64, error)",
+	"DisconnectOAuthGrant":             "(context.Context, DisconnectOAuthGrantParams{Actor uuid.UUID; ID uuid.UUID; TenantID uuid.UUID}) (int64, error)",
+	"GetOAuthRefreshTokenState":        "(context.Context, GetOAuthRefreshTokenStateParams{TenantID uuid.UUID; TokenID uuid.UUID}) (GetOAuthRefreshTokenStateRow{UsedAt *time.Time; RevokedAt *time.Time; ExpiresAt time.Time; WithinTolerance bool}, error)",
+	"GetTenantAPIGate":                 "(context.Context, uuid.UUID) (GetTenantAPIGateRow{ApiEnabledAt *time.Time; ApiCode *string}, error)",
+	// Issue #37 phase 3: the access token's lifetime by the database's clock, the Disconnect's read
+	// of the grant's app, and GET /v1/business's card.
+	"CheckOAuthAccessTokenLive":   "(context.Context, CheckOAuthAccessTokenLiveParams{TenantID uuid.UUID; TokenID uuid.UUID}) (bool, error)",
+	"GetOAuthGrantForPanel":       "(context.Context, GetOAuthGrantForPanelParams{TenantID uuid.UUID; ID uuid.UUID}) (GetOAuthGrantForPanelRow{ID uuid.UUID; ClientID uuid.UUID}, error)",
+	"GetAPIBusiness":              "(context.Context, uuid.UUID) (GetAPIBusinessRow{ID uuid.UUID; Name string; ApiCode *string}, error)",
+	"InsertOAuthCode":             "(context.Context, InsertOAuthCodeParams{TenantID uuid.UUID; CodeHash string; ClientID uuid.UUID; CreatedBy uuid.UUID; RedirectUri string; Scopes []string; CodeChallenge string}) (InsertOAuthCodeRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
+	"InsertOAuthGrant":            "(context.Context, InsertOAuthGrantParams{TenantID uuid.UUID; ClientID uuid.UUID; Scopes []string; CreatedBy uuid.UUID}) (InsertOAuthGrantRow{ID uuid.UUID; CreatedAt time.Time}, error)",
+	"InsertOAuthToken":            "(context.Context, InsertOAuthTokenParams{TenantID uuid.UUID; GrantID uuid.UUID; Kind string; TokenHash string; Scopes []string}) (InsertOAuthTokenRow{ID uuid.UUID; ExpiresAt time.Time; ExpiresIn int64}, error)",
+	"ListConnectedApps":           "(context.Context, uuid.UUID) ([]ListConnectedAppsRow{ID uuid.UUID; ClientID uuid.UUID; Scopes []string; CreatedBy uuid.UUID; ApproverName string; ApproverStatus string; CreatedAt time.Time; LastUsedAt *time.Time; HasLiveRefresh bool}, error)",
+	"ListLiveWritingOAuthClients": "(context.Context, uuid.UUID) ([]uuid.UUID, error)",
+	"LockLiveOAuthGrant":          "(context.Context, LockLiveOAuthGrantParams{TenantID uuid.UUID; GrantID uuid.UUID}) (LockLiveOAuthGrantRow{ID uuid.UUID; ClientID uuid.UUID; Scopes []string}, error)",
+	"RevokeOAuthAccessToken":      "(context.Context, RevokeOAuthAccessTokenParams{TenantID uuid.UUID; TokenID uuid.UUID}) (int64, error)",
+	"RevokeOAuthGrant":            "(context.Context, RevokeOAuthGrantParams{Reason string; TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	"RevokeOtherLiveOAuthTokens":  "(context.Context, RevokeOtherLiveOAuthTokensParams{TenantID uuid.UUID; GrantID uuid.UUID}) (int64, error)",
+	"RotateOAuthRefreshToken":     "(context.Context, RotateOAuthRefreshTokenParams{TenantID uuid.UUID; TokenID uuid.UUID}) (uuid.UUID, error)",
+	"SetOAuthCodeGrant":           "(context.Context, SetOAuthCodeGrantParams{GrantID uuid.UUID; TenantID uuid.UUID; CodeID uuid.UUID}) (int64, error)",
+	"SupersedeLiveOAuthGrants":    "(context.Context, SupersedeLiveOAuthGrantsParams{TenantID uuid.UUID; ClientID uuid.UUID}) ([]uuid.UUID, error)",
+	"TouchOAuthGrant":             "(context.Context, TouchOAuthGrantParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1088,11 +1122,14 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 29 -> 30 on 2026-10-27 (M14-16): db/queries/adminmembers.sql, the owner's side of a business's
 	// memberships over admin_users; none calls a definer. (M14's two were counted 27 -> 29 on their
 	// branch; the merge that brought main into M14 adds M15's one.)
-	if files != 30 {
-		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY were there when this was "+
-			"pinned (2026-10-27; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+	// 30 -> 31 on 2026-11-14 (issue #37 phase 1): db/queries/oauth.sql, the OAuth codes, grants and
+	// tokens over oauth_codes, oauth_grants, oauth_tokens, admin_users and tenants; none calls a definer
+	// (the three resolvers are called by hand from internal/db/resolveoauth.go).
+	if files != 31 {
+		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-ONE were there when this was "+
+			"pinned (2026-11-14; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
 			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, "+
-			"punchclaims.sql, admininvites.sql and adminmembers.sql)", files)
+			"punchclaims.sql, admininvites.sql, adminmembers.sql and oauth.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1230,14 +1267,19 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// own business's manual rows under the person's lock; it calls no definer.
 	// 258 -> 260 on 2026-11-14 (M11 API-14, ADR 0046): transactions.sql's ListTimesheetShiftEvents and
 	// employees.sql's ListTimesheetEmployees, two reads of the caller's own business; neither calls a definer.
-	if named != 260 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND SIXTY were "+
-			"there when this was pinned (2026-11-09: 111 on 2026-08-24, + T73's three "+
+	// 260 -> 283 on 2026-11-14 (issue #37 phase 1): oauth.sql's nineteen (the code, grant and token
+	// statements of ADR 0047 §5.2-§5.3, §6, §8.1, §11.3, §12) and apiidempotency.sql's four grant twins;
+	// each runs over the caller's own business's rows, none calls a definer.
+	// 283 -> 286 on 2026-11-14 (issue #37 phase 3): oauth.sql's CheckOAuthAccessTokenLive and
+	// GetOAuthGrantForPanel, tenants.sql's GetAPIBusiness -- reads of the caller's own business, no definer.
+	if named != 286 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND EIGHTY-SIX were "+
+			"there when this was pinned (2026-11-14: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1436,9 +1478,11 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// side of a business's memberships (five methods, in storeSurface); none carries bytes, none reads tags.
 	// (M14's two and M15's one were counted on separate branches; the merge that brought main into M14
 	// before Deploy 1 adds them up, 2026-10-27.)
-	if len(out) != 31 {
-		t.Fatalf("parsed %d file(s) under %s; THIRTY-ONE were generated when this floor was last set "+
-			"(2026-10-27). If sqlc genuinely emits a different number now, change this number "+
+	// 31 -> 32 (2026-11-14, issue #37 phase 1): db/queries/oauth.sql adds oauth.sql.go -- the OAuth
+	// codes, grants and tokens (nineteen methods, in storeSurface); none carries bytes, none reads tags.
+	if len(out) != 32 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY-TWO were generated when this floor was last set "+
+			"(2026-11-14). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

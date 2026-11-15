@@ -46,6 +46,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/egress"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 	"github.com/atknatk/tappa/test/fixtures"
@@ -311,6 +312,26 @@ func runExampleStory(t *testing.T) exampleStory {
 		record(c.name, rec, rec.Body.Bytes(), nil, tq)
 	}
 
+	// The business card (issue #37, ADR 0047 §8.4): KF's key reads its own business -- the fixture's
+	// name set to the document's first.
+	if _, err := r.owner.Exec(ctx, `UPDATE tenants SET name = 'Kebab Factory Ltd' WHERE id = $1`, kf.id); err != nil {
+		t.Fatal(err)
+	}
+	card := r.do(http.MethodGet, "/v1/business", kf.raw, "")
+	must("getBusiness", card.Code, http.StatusOK, card.Body.String())
+	record("getBusiness 200", card, card.Body.Bytes(), nil, "")
+	// And an OAuth access token's (issue #37 phase 4, ADR 0047 §8.4, OA-2): a business whose API
+	// Taptime never enabled, connected to an app -- its card's companyCode is null.
+	bakery, bakeryOwner := r.business(true)
+	r.neverOpened(bakery)
+	if _, err := r.owner.Exec(ctx, `UPDATE tenants SET name = 'Example Bakery Ltd' WHERE id = $1`, bakery); err != nil {
+		t.Fatal(err)
+	}
+	conn := r.connect(bakery, bakeryOwner, r.app([]string{oauth.ScopeTimesheetsRead}), oauth.ScopeTimesheetsRead)
+	connected := r.do(http.MethodGet, "/v1/business", conn.raw, "")
+	must("getBusiness connected", connected.Code, http.StatusOK, connected.Body.String())
+	record("getBusiness 200 connected", connected, connected.Body.Bytes(), nil, "")
+
 	// The webhook (section 10): KF's sender posts its deliveries; KF sends a test message.
 	job, err := delivery.New(kek, r.d, sender, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -445,17 +466,19 @@ var storyExamples = map[string]struct{ request, answer []string }{
 	"putEmployee 201": {
 		request: []string{"paths", "/v1/employees/{ref}", "put", "requestBody", "content", "application/json", "examples", "jane", "value"},
 		answer:  []string{"paths", "/v1/employees/{ref}", "put", "responses", "201", "content", "application/json", "examples", "jane", "value"}},
-	"getEmployee 200":         {answer: []string{"paths", "/v1/employees/{ref}", "get", "responses", "200", "content", "application/json", "examples", "jane", "value"}},
-	"listEmployees 200":       {answer: []string{"paths", "/v1/employees", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
-	"deleteEmployee 200":      {answer: []string{"paths", "/v1/employees/{ref}", "delete", "responses", "200", "content", "application/json", "examples", "sam", "value"}},
-	"resendActivation 202":    {answer: []string{"paths", "/v1/employees/{ref}/resend-activation", "post", "responses", "202", "content", "application/json", "examples", "jane", "value"}},
-	"listPunches 200 feed":    {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "feed", "value"}},
-	"listPunches 200 history": {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "history", "value"}},
-	"listDirectory 200":       {answer: []string{"paths", "/v1/directory", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
-	"listTimesheets 200 kf":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
-	"listTimesheets 200 km":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "km", "value"}},
-	"webhook punch":           {answer: []string{"webhooks", "punch", "post", "requestBody", "content", "application/json", "examples", "jane", "value"}},
-	"webhook ping":            {answer: []string{"webhooks", "ping", "post", "requestBody", "content", "application/json", "examples", "ping", "value"}},
+	"getEmployee 200":           {answer: []string{"paths", "/v1/employees/{ref}", "get", "responses", "200", "content", "application/json", "examples", "jane", "value"}},
+	"listEmployees 200":         {answer: []string{"paths", "/v1/employees", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"deleteEmployee 200":        {answer: []string{"paths", "/v1/employees/{ref}", "delete", "responses", "200", "content", "application/json", "examples", "sam", "value"}},
+	"resendActivation 202":      {answer: []string{"paths", "/v1/employees/{ref}/resend-activation", "post", "responses", "202", "content", "application/json", "examples", "jane", "value"}},
+	"listPunches 200 feed":      {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "feed", "value"}},
+	"listPunches 200 history":   {answer: []string{"paths", "/v1/punches", "get", "responses", "200", "content", "application/json", "examples", "history", "value"}},
+	"listDirectory 200":         {answer: []string{"paths", "/v1/directory", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"listTimesheets 200 kf":     {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"listTimesheets 200 km":     {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "km", "value"}},
+	"getBusiness 200":           {answer: []string{"paths", "/v1/business", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
+	"getBusiness 200 connected": {answer: []string{"paths", "/v1/business", "get", "responses", "200", "content", "application/json", "examples", "connected", "value"}},
+	"webhook punch":             {answer: []string{"webhooks", "punch", "post", "requestBody", "content", "application/json", "examples", "jane", "value"}},
+	"webhook ping":              {answer: []string{"webhooks", "ping", "post", "requestBody", "content", "application/json", "examples", "ping", "value"}},
 }
 
 // TestOpenAPI_TheExamplesAreTheHandlersAnswers (M11 API-12): every request and answer example of

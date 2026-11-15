@@ -15,7 +15,7 @@ import (
 // .op-card's rule, no mt-* in the bodies).
 const homeCard = `<section class="op-card">`
 
-// homeRow is each of the four list items (README §6.1 "Home hub"): on the phone the link above its
+// homeRow is each of the list items (README §6.1 "Home hub"): on the phone the link above its
 // gloss, from the tablet the two side by side in a 128 px and a free column, a dashed rule under
 // each; the links' 17 px is the item's, not the anchor's.
 const homeRow = `<li class="flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] ` +
@@ -24,12 +24,13 @@ const homeRow = `<li class="flex flex-col items-start border-b border-dashed bor
 // TestHomeScreen_IsOneCardOfFourLinksAndReadsNothing (M13-06; screens.md §3, README §6.1 "Home
 // hub"): screens()'s "home" render is the frame's column holding exactly one card (homeCard) and
 // nothing else; inside it no element carries a top margin (the card spaces its blocks); the card's
-// words, tags dropped, are exactly screens.md §3's in order -- the label, the h1, the four links each
+// words, tags dropped, are exactly screens.md §3's in order -- the label, the h1, the links each
 // followed by its gloss, the session sentence -- so no count, no tenant, no name and no address;
 // the label is the whole tag <p class="op-label">Operator console</p> and the h1 the whole tag at
-// the board's 28 px, line height 1.1 and -0.03em, the page's only h1; the list holds four items, each
+// the board's 28 px, line height 1.1 and -0.03em, the page's only h1; the list holds five items, each
 // the whole opening tag homeRow followed by exactly one anchor and its gloss span, and the column's
-// anchors are exactly the four whole tags in the order Tenants, Legal texts, Holdings, Audit log;
+// anchors are exactly the five whole tags in the order Tenants, Legal texts, Holdings, Audit log, Apps
+// (Apps since issue #37 phase 3; the test keeps its M13-06 name, which the plan's records cite);
 // the page has one form and one button (the bar's sign-out), and the column no form, input, svg,
 // img, docket, chip or description list, and nothing hidden from sight or from assistive
 // technology (no hidden, sr-only or aria-hidden). Through the surface, a live session's GET
@@ -69,6 +70,7 @@ func TestHomeScreen_IsOneCardOfFourLinksAndReadsNothing(t *testing.T) {
 		"Legal texts — Taptime's privacy policy, terms, company details and cookie notice " +
 		"Holdings — group businesses that work in one timezone, and see who is in each " +
 		"Audit log — every sign-in, read and publication on this surface " +
+		"Apps — the apps a business may connect to with OAuth: register, rotate a secret, disable " +
 		"A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done."
 	if got := spaced(html.UnescapeString(noticeTag.ReplaceAllString(inner, " "))); got != words {
 		t.Errorf("the card says %q, want %q", got, words)
@@ -83,6 +85,7 @@ func TestHomeScreen_IsOneCardOfFourLinksAndReadsNothing(t *testing.T) {
 		`<a href="/operator/legal" class="op-link">Legal texts</a>`,
 		`<a href="/operator/holdings" class="op-link">Holdings</a>`,
 		`<a href="/operator/audit" class="op-link">Audit log</a>`,
+		`<a href="/operator/apps" class="op-link">Apps</a>`,
 	}
 	if got := anchorTag.FindAllString(column, -1); strings.Join(got, "|") != strings.Join(links, "|") {
 		t.Errorf("the column's links are %q, want %q", got, links)

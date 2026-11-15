@@ -161,7 +161,8 @@ func TestApiKeysCatalog(t *testing.T) {
 		t.Error("no index leads with tenant_id")
 	}
 
-	// tappa_resolver on tenants: (id, api_enabled_at) SELECT, nothing else anywhere.
+	// tappa_resolver on tenants: (id, api_enabled_at) SELECT -- and since 00105 (issue #37, ADR 0047
+	// §14.3) api_code, the OAuth token resolver's operator-closing fact -- nothing else anywhere.
 	rows, err := tx.Query(ctx, `
 		SELECT a.attname, has_column_privilege('tappa_resolver', a.attrelid, a.attnum, 'SELECT'),
 		       has_column_privilege('tappa_resolver', a.attrelid, a.attnum, 'INSERT'),
@@ -179,7 +180,7 @@ func TestApiKeysCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 		columns++
-		want := name == "id" || name == "api_enabled_at"
+		want := name == "id" || name == "api_enabled_at" || name == "api_code"
 		if s != want || i || u || ref {
 			t.Errorf("tappa_resolver on tenants.%s: SELECT %v INSERT %v UPDATE %v REFERENCES %v; want SELECT %v only", name, s, i, u, ref, want)
 		}
@@ -346,12 +347,16 @@ func TestRLS_ApiKeys_AnotherTenantsKeysAreInvisible(t *testing.T) {
 // as before -- and the Up builds them again to the same catalogue (the resolver's signature and
 // the grants). Walked in a holdingLockedSavepoint (the Down's DROP TABLE takes tenants and
 // admin_users, which holdingDownTables lists). Since API-4, 00052's api_idempotency keys on
-// api_keys, so its Down runs first and its Up last.
+// api_keys, so its Down runs first and its Up last. Since issue #37, 00105's resolvers read a third
+// column of tenants (api_code) -- a grant 00051's Up would refuse to find -- so 00105's Down runs
+// before both and its Up after both.
 func TestApiKeys00051_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, op00051File)
 	up52, down52 := opMigrationSections(t, op00052File)
+	up105, down105 := opMigrationSections(t, "00105_resolve_the_oauth_credentials.sql")
 	holdingLockedSavepoint(t, tx, func(sp pgx.Tx) {
+		opRunSection(t, ctx, sp, down105, "00105 Down")
 		opRunSection(t, ctx, sp, down52, "00052 Down")
 		opRunSection(t, ctx, sp, down, "00051 Down")
 		if n := opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE relname = 'api_keys'`); n != 0 {
@@ -373,5 +378,6 @@ func TestApiKeys00051_DownGivesBackAndUpTakesItAgain(t *testing.T) {
 			t.Fatal("the resolver is not back as a definer")
 		}
 		opRunSection(t, ctx, sp, up52, "00052 Up again")
+		opRunSection(t, ctx, sp, up105, "00105 Up again")
 	})
 }

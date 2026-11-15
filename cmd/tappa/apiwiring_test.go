@@ -200,7 +200,7 @@ func TestAPIWiring_TheChainTakesThePanelsPrefixAndTheOneWorker(t *testing.T) {
 	queueIdent, queueSink := "", false
 	ast.Inspect(run.Body, func(n ast.Node) bool {
 		if as, ok := n.(*ast.AssignStmt); ok && len(as.Rhs) == 1 {
-			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "invite", "NewQueue") && len(c.Args) == 3 {
+			if c, ok := as.Rhs[0].(*ast.CallExpr); ok && isSel(c.Fun, "invite", "NewQueue") && len(c.Args) == 4 {
 				queueIdent = as.Lhs[0].(*ast.Ident).Name
 				if id, ok := c.Args[0].(*ast.Ident); !ok || id.Name != invites {
 					queueIdent = ""

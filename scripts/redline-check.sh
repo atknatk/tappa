@@ -1100,6 +1100,12 @@ done
 # kucuk numarali dosya (00077) sahibidir. Statik, tablo ve rol adi yazili, yalniz GERI ALIR (yetki
 # vermez, RLS/politika/sahiplik degistirmez); EXECUTE kodu yok. Pin dosyanin butun govdelerinin
 # (fonksiyonlar dahil) ozetidir.
+# 00107 (issue #37 faz 1, ADR 0047 §14.4, 2026-11-14): on ucuncu satir, 00063'un sekli -- Up'ta iki,
+# Down'da iki DO blogu, govdelerinde 8 `alter`in 8'i `alter table public.operator_audit_log add
+# constraint operator_audit_log_kind_check` ya da `alter table public.operator_read_tickets add
+# constraint operator_read_tickets_kind_check` (NOT VALID / VALIDATED dallari); EXECUTE kodu yok;
+# yetki/RLS/politika/sahiplik degistirmiyor. Pin dosyanin butun govdelerinin (op_* ve 00063'tan birebir
+# kopyalanan op_begin_read / op_read_audit dahil) ozetidir.
 R5B_BODY_DDL='
 00027_move_legal_publishing_to_the_operator.sql ff642e7342eea75e9bd9e5a1f565ed86236a67bce4df45224a1f076ba82d6515
 00029_read_tenants_from_the_operator.sql 40dfbcc6552251d0262e558bafe6b232c9002f5aafa380ffd11dc05310258d1b
@@ -1113,6 +1119,7 @@ R5B_BODY_DDL='
 00063_suspend_a_tenant_from_the_operator.sql ff003d61db146d20479be927e8cb257f2840f39715c68b07d5b4c81e73e85585
 00077_invite_administrators.sql 5cb0b95eefc218083148f9d8c1c13573e3302c5fca5bbfb99f02765ee4349382
 00078_verify_signups_by_e_mail.sql c87177d2b719e11b4782e7737c73c2fba68311bfa8ebf029fbfb9094d4b21e4e
+00107_register_oauth_clients_from_the_operator.sql 36c1c7060e2d19e7fbed91b069804a292189b2a65a39abc7c0608836cbbee456
 '
 
 # R5B_SET_CONFIG -- bir migration'in `set_config` ile kurabilecegi ayarlar (fix1, 2026-10-19). Sevk
@@ -2123,9 +2130,21 @@ R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"c
 # (R7_VALUE_NAMES, R7_AUTH_HEADER); ONCE AGACTA SAYILDI: log/fmt cagrisi icinde 0 isabet.
 # `\b` awk ERE'sinde yoktur (BSD awk onu geri silme sayar), o yuzden awk'a yine daha GENIS
 # kelimeler gider (`revealtotheowneronce`, `new_?key`).
-R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b'
+# ISSUE #37 (ADR 0047 §7.4): the OAuth values' four exits by name (RevealInRedirect -- the code,
+# RevealInTokenResponse -- the tokens, RevealToTheOperatorOnce -- the client secret,
+# RevealToTheDatabase -- a hash), the PKCE verifier, the pending request's seal and digest, and the
+# client's state as the request carries it (`req.State`, `Request.State`). A bare `state` is NOT a
+# trigger: counted in the tree, it is a webhook delivery's and a tap session's state in log calls
+# (internal/webhook/delivery, internal/handler/checkin.go) -- the dotted field is narrow enough.
+# Phase 3 (2nd phase review, DÜŞÜK): the state as the consent code names its holders -- `v.State`
+# (a request being checked), `r.State`, `p.Req.State` beside `req.State` -- and the pending request
+# cookie's own value (`c.Value` of the cookie read, `p.sealed` of the carried request). Each was counted
+# in log/fmt calls of the tree first: 0 hits, so the narrow names cost no false positive; a bare
+# `.State` would (a webhook delivery's `row.State` -- the redline test's control) and a bare `sealed`
+# does (cmd/rotatekek's "stay sealed" message -- counted).
+R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b|RevealInRedirect|RevealInTokenResponse|RevealToTheOperatorOnce|RevealToTheDatabase|code_?verifier|RequestDigest|SealRequest|\b(?:req|Request|v|r|p\.[Rr]eq)\.State\b|\b(?:c|ck|cookie)\.Value\b|\b(?:p|pending)\.sealed\b'
 R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]|Header\.Values\("Authorization"\)'
-R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key"
+R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key|revealinredirect|revealintokenresponse|revealtotheoperatoronce|revealtothedatabase|code_?verifier|requestdigest|sealrequest|req[.]state|request[.]state|v[.]state|r[.]state|c[.]value|ck[.]value|cookie[.]value|p[.]sealed|pending[.]sealed"
 # Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
 R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_VALUE_NAMES|$R7_AUTH_HEADER)"
 

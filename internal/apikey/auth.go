@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -150,31 +152,81 @@ func (a *Authenticator) Check(t Token) (Checked, error) {
 	return Checked{hash: &h}, nil
 }
 
-// Principal is who a resolved key speaks for: the key's tenant -- the ONE authority every later
+// Principal is who a resolved credential speaks for: the tenant -- the ONE authority every later
 // query is scoped to (WithTenant + an explicit tenant_id filter), never a tenant the request names
-// -- and the key's id.
+// -- and the credential. Since issue #37 (ADR 0047 §8.1) there are two kinds:
+//
+//	an API key      KeyID set; full authority on every /v1 route, the holding peers' data included
+//	                (ADR 0028 -- unchanged)
+//	an OAuth grant  GrantID, ClientID and Scopes set (the ACCESS TOKEN's own scopes, which a refresh
+//	                may have narrowed below the grant's); only the routes of its scopes, and never a
+//	                holding peer's data (OwnOnly -- ADR 0047 §8.5, OA-4)
+//
+// Exactly one of KeyID and GrantID is set; IsGrant tells which.
 type Principal struct {
 	TenantID uuid.UUID
 	KeyID    uuid.UUID
+	GrantID  uuid.UUID
+	// ClientID is the grant's app (oauth_clients.id); zero for a key.
+	ClientID uuid.UUID
+	// Scopes is the access token's scope set, canonical; nil for a key (Full).
+	Scopes []string
+}
+
+// IsGrant reports whether the principal is an OAuth grant's access token rather than an API key.
+func (p Principal) IsGrant() bool { return p.GrantID != uuid.Nil }
+
+// Full reports whether the principal has every /v1 route: an API key (ADR 0047 §8.3 -- a key never
+// gets insufficient_scope). It FAILS CLOSED: full authority needs a key id AND no grant id, so a
+// principal that is neither (a zero value, a resolver that answered no id) is full on nothing -- the
+// scope gate treats it as a token with no scope.
+func (p Principal) Full() bool { return p.KeyID != uuid.Nil && p.GrantID == uuid.Nil }
+
+// OwnOnly reports whether the principal's reads leave the holding peers out (ADR 0047 §8.5): every
+// OAuth grant, no API key -- and, failing closed as Full does, every principal that is not a key.
+func (p Principal) OwnOnly() bool { return !p.Full() }
+
+// HasScope reports whether the principal may use a route of scope: a key always, a grant when its
+// access token carries the scope (no implied scope -- employees:write does not hold employees:read).
+func (p Principal) HasScope(scope string) bool {
+	return p.Full() || slices.Contains(p.Scopes, scope)
+}
+
+// ActorID is the credential's id: the key's, or the grant's (K-23 generalised -- ADR 0047 §8.7:
+// audit_log.actor_id, the K-25 budget's lock and count, the bucket).
+func (p Principal) ActorID() uuid.UUID {
+	if p.IsGrant() {
+		return p.GrantID
+	}
+	return p.KeyID
 }
 
 // Via is detail.via of every audit row an API request writes (K-23).
 const Via = "api"
 
 // Attribution is embedded in the detail of every audit row an API request writes (K-23): the
-// row's actor_id is the key's id (Actor) and its detail says the act came through the API.
+// row's actor_id is the credential's id (Actor) and its detail says the act came through the API --
+// and, for a grant, which app (ADR 0047 §8.7: detail.client_id).
 type Attribution struct {
-	Via string `json:"via"`
+	Via      string `json:"via"`
+	ClientID string `json:"client_id,omitempty"`
 }
 
-// Actor is the audit row's actor_id for an act of this key (K-23: actor_id = api_keys.id).
+// Actor is the audit row's actor_id for an act of this credential (K-23: actor_id = api_keys.id,
+// or oauth_grants.id).
 func (p Principal) Actor() *uuid.UUID {
-	id := p.KeyID
+	id := p.ActorID()
 	return &id
 }
 
 // Attribution is the K-23 half of the detail.
-func (p Principal) Attribution() Attribution { return Attribution{Via: Via} }
+func (p Principal) Attribution() Attribution {
+	a := Attribution{Via: Via}
+	if p.IsGrant() {
+		a.ClientID = oauth.ClientIDOf(p.ClientID)
+	}
+	return a
+}
 
 // Resolve runs the seventh resolver and decides, on this request: unknown -> ErrUnknown, revoked
 // -> ErrRevoked, the tenant's API closed -> ErrAPIClosed, else the Principal. A database failure

@@ -539,6 +539,37 @@ var (
 		BackLabel: "Back to the tenants",
 		SignedIn:  true,
 	}
+	// The app registry's (issue #37, apps.go).
+	problemAppsUnreadable = operatorpages.ProblemView{
+		Title: "The apps could not be loaded", Message: "Try again in a moment.",
+		Back: pathConsole, BackLabel: "Back to the console", SignedIn: true,
+	}
+	problemAppFormTooLarge = operatorpages.ProblemView{
+		Title: "That form was too large", Message: "Nothing was saved. Go back to the apps and try again.",
+		Back: pathApps, BackLabel: "Back to the apps", SignedIn: true,
+	}
+	problemAppNotAnID = operatorpages.ProblemView{
+		Title: "There is no such app", Message: "The address does not name an app. Open it from the list.",
+		Back: pathApps, BackLabel: "Back to the apps", SignedIn: true,
+	}
+	problemAppNotSaved = operatorpages.ProblemView{
+		Title: "The app was not saved",
+		Message: "The database did not confirm the change, which does not mean it was not made. Open the list " +
+			"before you try again; a secret that was not shown cannot be recovered -- rotate it.",
+		Back: pathApps, BackLabel: "Back to the apps", SignedIn: true,
+	}
+	problemAppRotateUnconfirmed = operatorpages.ProblemView{
+		Title: "The secret may have been changed",
+		Message: "The rotation was accepted, but the list could not be read to show the new secret, so it may " +
+			"already be the app's and cannot be shown again. Rotate it again from the list and copy that secret.",
+		Back: pathApps, BackLabel: "Back to the apps", SignedIn: true,
+	}
+	problemAppDisableUnconfirmed = operatorpages.ProblemView{
+		Title: "The box was not ticked",
+		Message: "Turning an app off needs the box beside the button ticked: it is one way, for every business, " +
+			"so a wrong click changes nothing. Nothing was changed.",
+		Back: pathApps, BackLabel: "Back to the apps", SignedIn: true,
+	}
 )
 
 // problemPages lists the variables above and problemTooMany(false) and (true), for the
@@ -560,5 +591,7 @@ func problemPages() []operatorpages.ProblemView {
 		problemTenantAPIFormTooLarge, problemTenantAPINotConfirmed,
 		problemSuspensionFormTooLarge, problemSuspensionUnconfirmed, problemSuspensionReasonRefused,
 		problemReinstateUnconfirmed, problemSuspendNotConfirmed, problemReinstateNotConfirmed,
+		problemAppsUnreadable, problemAppFormTooLarge, problemAppNotAnID, problemAppNotSaved,
+		problemAppRotateUnconfirmed, problemAppDisableUnconfirmed,
 	}
 }

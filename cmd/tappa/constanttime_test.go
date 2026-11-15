@@ -65,6 +65,8 @@ var constantTimeInventory = map[string]int{
 	// every other key -- one call site walked over the pairs. No attacker input
 	// reaches any of them.
 	"internal/config/config.go": 3,
+	// Issue #37 (ADR 0047 §5.2 step 5): the PKCE S256 digest against the code's stored challenge.
+	"internal/oauth/params.go": 1,
 	// The password-reset token: presented by whoever holds the link.
 	"internal/handler/adminreset.go": 1,
 	// The panel CSRF token.

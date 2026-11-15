@@ -122,6 +122,7 @@ type operatorStore interface {
 	operator.VATStore
 	operator.HoldingStore
 	operator.SuspensionStore
+	operator.OAuthClientStore
 }
 
 // viesChecker is what this command needs of the sign-up wizard's VIES client
@@ -176,7 +177,11 @@ func configuredSurface(store operatorStore, texts operator.LegalTexts, vies vies
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, viesForOperator(vies),
+	secrets, err := clientSecretMinter(cfg)
+	if err != nil {
+		return nil, err
+	}
+	surface, err := operator.New(auth, store, store, store, store, store, store, store, store, store, secrets, viesForOperator(vies),
 		texts, cfg.OperatorHost, cfg.BaseURL, log)
 	if err != nil {
 		return nil, err

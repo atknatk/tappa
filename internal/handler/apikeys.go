@@ -176,6 +176,9 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		RevokeAllHref: apiKeyRevokeAllHref,
 		NameMaxLength: apikey.NameLimit,
 	}
+	if !isNil(a.oauth) {
+		v.ConnectedAppsHref = connectedAppsHref
+	}
 	v.Kicker = "Owner only · keys and the webhook for your payroll or HR system"
 	if a.apiKeys == nil && a.webhook == nil {
 		return v, nil
@@ -199,7 +202,13 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 	v.APIEnabled = list.APIEnabled
 	for _, al := range list.BudgetAlerts {
 		name := al.KeyName
-		if name == "" {
+		switch {
+		case al.ClientID != nil && al.AppName != "":
+			// An OAuth grant's alert (ADR 0047 §8.7): the app, by the registry's name today.
+			name = al.AppName + " (connected app)"
+		case al.ClientID != nil:
+			name = "a connected app"
+		case name == "":
 			name = "an unnamed key"
 		}
 		v.BudgetAlerts = append(v.BudgetAlerts, pages.APIKeyBudgetAlert{KeyName: name, At: al.At.In(zone).Format("2 January 2006, 15:04"), Budget: al.Budget})

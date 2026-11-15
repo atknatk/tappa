@@ -65,6 +65,7 @@ import (
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -196,9 +197,13 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	must(err)
 	directory, err := tenant.NewEmployeeDirectory(data)
 	must(err)
+	grants, err := oauth.NewServer(make([]byte, 32), data, trail, log)
+	must(err)
+	business, err := tenant.NewBusinessCard(data)
+	must(err)
 	v1, err := api.New(api.Config{
-		Host: crossAPIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: crossNoWork{},
-		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Timesheets: records, Log: log,
+		Host: crossAPIHost, Keys: chain, Grants: grants, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: crossNoWork{},
+		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Timesheets: records, Business: business, Log: log,
 	})
 	must(err)
 	created, err := keys.Create(ctx, apikey.CreateCommand{TenantID: c.biz, ActorID: admin, Name: "op15c cross"})

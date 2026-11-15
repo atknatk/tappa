@@ -13,8 +13,8 @@ import (
 
 const claimIdempotency = `-- name: ClaimIdempotency :execrows
 INSERT INTO api_idempotency (tenant_id, key_id, idem_key, request_hash)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (tenant_id, key_id, idem_key) DO NOTHING
+VALUES ($1, $2::uuid, $3, $4)
+ON CONFLICT (tenant_id, key_id, idem_key) WHERE key_id IS NOT NULL DO NOTHING
 `
 
 type ClaimIdempotencyParams struct {
@@ -40,9 +40,37 @@ func (q *Queries) ClaimIdempotency(ctx context.Context, arg ClaimIdempotencyPara
 	return result.RowsAffected(), nil
 }
 
+const claimIdempotencyForGrant = `-- name: ClaimIdempotencyForGrant :execrows
+INSERT INTO api_idempotency (tenant_id, grant_id, idem_key, request_hash)
+VALUES ($1, $2::uuid, $3, $4)
+ON CONFLICT (tenant_id, grant_id, idem_key) WHERE grant_id IS NOT NULL DO NOTHING
+`
+
+type ClaimIdempotencyForGrantParams struct {
+	TenantID    uuid.UUID
+	GrantID     uuid.UUID
+	IdemKey     string
+	RequestHash string
+}
+
+// ClaimIdempotency's twin for an OAuth grant (00106): the conflict target is the grant's partial
+// unique index -- its predicate named, or no index is inferred.
+func (q *Queries) ClaimIdempotencyForGrant(ctx context.Context, arg ClaimIdempotencyForGrantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimIdempotencyForGrant,
+		arg.TenantID,
+		arg.GrantID,
+		arg.IdemKey,
+		arg.RequestHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteExpiredIdempotency = `-- name: DeleteExpiredIdempotency :execrows
 WITH doomed AS MATERIALIZED (
-    SELECT e.key_id, e.idem_key
+    SELECT e.key_id, e.grant_id, e.idem_key
     FROM api_idempotency AS e
     WHERE e.tenant_id = $1
       AND e.created_at < now() - interval '24 hours'
@@ -52,7 +80,7 @@ WITH doomed AS MATERIALIZED (
 DELETE FROM api_idempotency AS d
 USING doomed
 WHERE d.tenant_id = $1
-  AND d.key_id = doomed.key_id
+  AND (d.key_id = doomed.key_id OR d.grant_id = doomed.grant_id)
   AND d.idem_key = doomed.idem_key
 `
 
@@ -66,8 +94,33 @@ WHERE d.tenant_id = $1
 // trap webhooks.sql's sweep measured first). Every row it reached was still an expired row of this
 // tenant; the loss was the bound. Materialized, the candidate list is computed once
 // (internal/db TestApiIdempotency_TheLazyDeleteIsBounded, under a forced nested loop too).
+// Since 00106 the batch holds both namespaces: a row is matched by its key OR its grant (exactly one is
+// set -- api_idempotency_one_principal -- and `=` on the NULL one is never true).
 func (q *Queries) DeleteExpiredIdempotency(ctx context.Context, tenantID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredIdempotency, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteExpiredIdempotencyForGrantKey = `-- name: DeleteExpiredIdempotencyForGrantKey :execrows
+DELETE FROM api_idempotency
+WHERE tenant_id = $1
+  AND grant_id = $2::uuid
+  AND idem_key = $3
+  AND created_at < now() - interval '24 hours'
+`
+
+type DeleteExpiredIdempotencyForGrantKeyParams struct {
+	TenantID uuid.UUID
+	GrantID  uuid.UUID
+	IdemKey  string
+}
+
+// DeleteExpiredIdempotencyForKey's twin for an OAuth grant's namespace (00106).
+func (q *Queries) DeleteExpiredIdempotencyForGrantKey(ctx context.Context, arg DeleteExpiredIdempotencyForGrantKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredIdempotencyForGrantKey, arg.TenantID, arg.GrantID, arg.IdemKey)
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +131,7 @@ const deleteExpiredIdempotencyForKey = `-- name: DeleteExpiredIdempotencyForKey 
 
 DELETE FROM api_idempotency
 WHERE tenant_id = $1
-  AND key_id = $2
+  AND key_id = $2::uuid
   AND idem_key = $3
   AND created_at < now() - interval '24 hours'
 `
@@ -91,6 +144,13 @@ type DeleteExpiredIdempotencyForKeyParams struct {
 
 // apiidempotency.sql -- the integration API's Idempotency-Key ledger (M11 API-4, ADR 0028 §8;
 // migration 00052). internal/apikey's Writes.Run is the one caller.
+//
+// TWO NAMESPACES since 00106 (issue #37, ADR 0047 §8.7, §14.5): an API key's and an OAuth grant's.
+// A row carries exactly one of key_id and grant_id (api_idempotency_one_principal); each namespace
+// is a PARTIAL unique index, so a claim's ON CONFLICT names the index's predicate (WHERE key_id IS
+// NOT NULL / WHERE grant_id IS NOT NULL) or PostgreSQL infers no index (42P10). The key statements
+// cast @key_id to uuid so their Go signature stays the non-NULL one it was; the grant statements are
+// their twins.
 //
 // Every statement runs inside WithTenant(the key's tenant) and carries an explicit tenant_id filter
 // (CLAUDE.md §4.5, belt and braces). None of them reaches another tenant's rows: there is no
@@ -111,7 +171,7 @@ const getIdempotency = `-- name: GetIdempotency :one
 SELECT request_hash, status, result_ref
 FROM api_idempotency
 WHERE tenant_id = $1
-  AND key_id = $2
+  AND key_id = $2::uuid
   AND idem_key = $3
 `
 
@@ -135,11 +195,39 @@ func (q *Queries) GetIdempotency(ctx context.Context, arg GetIdempotencyParams) 
 	return i, err
 }
 
+const getIdempotencyForGrant = `-- name: GetIdempotencyForGrant :one
+SELECT request_hash, status, result_ref
+FROM api_idempotency
+WHERE tenant_id = $1
+  AND grant_id = $2::uuid
+  AND idem_key = $3
+`
+
+type GetIdempotencyForGrantParams struct {
+	TenantID uuid.UUID
+	GrantID  uuid.UUID
+	IdemKey  string
+}
+
+type GetIdempotencyForGrantRow struct {
+	RequestHash string
+	Status      *int16
+	ResultRef   *uuid.UUID
+}
+
+// GetIdempotency's twin for an OAuth grant (00106).
+func (q *Queries) GetIdempotencyForGrant(ctx context.Context, arg GetIdempotencyForGrantParams) (GetIdempotencyForGrantRow, error) {
+	row := q.db.QueryRow(ctx, getIdempotencyForGrant, arg.TenantID, arg.GrantID, arg.IdemKey)
+	var i GetIdempotencyForGrantRow
+	err := row.Scan(&i.RequestHash, &i.Status, &i.ResultRef)
+	return i, err
+}
+
 const recordIdempotency = `-- name: RecordIdempotency :execrows
 UPDATE api_idempotency
 SET status = $1, result_ref = $2
 WHERE tenant_id = $3
-  AND key_id = $4
+  AND key_id = $4::uuid
   AND idem_key = $5
   AND status IS NULL
 `
@@ -160,6 +248,38 @@ func (q *Queries) RecordIdempotency(ctx context.Context, arg RecordIdempotencyPa
 		arg.ResultRef,
 		arg.TenantID,
 		arg.KeyID,
+		arg.IdemKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const recordIdempotencyForGrant = `-- name: RecordIdempotencyForGrant :execrows
+UPDATE api_idempotency
+SET status = $1, result_ref = $2
+WHERE tenant_id = $3
+  AND grant_id = $4::uuid
+  AND idem_key = $5
+  AND status IS NULL
+`
+
+type RecordIdempotencyForGrantParams struct {
+	Status    *int16
+	ResultRef *uuid.UUID
+	TenantID  uuid.UUID
+	GrantID   uuid.UUID
+	IdemKey   string
+}
+
+// RecordIdempotency's twin for an OAuth grant (00106).
+func (q *Queries) RecordIdempotencyForGrant(ctx context.Context, arg RecordIdempotencyForGrantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordIdempotencyForGrant,
+		arg.Status,
+		arg.ResultRef,
+		arg.TenantID,
+		arg.GrantID,
 		arg.IdemKey,
 	)
 	if err != nil {

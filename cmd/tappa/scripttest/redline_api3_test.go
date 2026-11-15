@@ -148,7 +148,8 @@ func randomKeyBody(t *testing.T) string {
 //	     `tt_whsec_` -- in a document and in Go source; a filler (43 `x`) and a `<…>` placeholder
 //	     -- the way the documents write an example -- are quiet. 2nd round: `%20`/`%3D` and the
 //	     `\n`/`\t`/`\r` escapes on the left, and a key cut to 42 or 32 characters, fire; 31
-//	     characters and a word that only ends in the prefix's letters are quiet
+//	     characters and a word that only ends in the prefix's letters are quiet. Issue #37: the
+//	     OAuth values' `tt_cs_`, `tt_ac_`, `tt_at_`, `tt_rt_` (+ `live_`/`test_`) fire the same way
 //
 // Every violation file is named under its rule's FAIL and the exit is non-zero; the controls'
 // tree exits 0 with none of the four FAIL sections.
@@ -191,6 +192,24 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"internal/x/r7_reveal.go": goFile(`S@.Info("x", "k", created.Key.RevealToTheOwnerOnce())`),
 			"internal/x/r7_newkey.go": goFile(`a.L@.Info("x", "k", v.NewKey)`),
 			"internal/x/r7_values.go": goFile(`S@.Info("x", "h", r.Header.Values("Authorization"))`),
+			// Issue #37: the OAuth values' exits, the verifier, the seal, the digest and the state.
+			"internal/x/r7_oauth_code.go":     goFile(`S@.Info("x", "c", code.RevealInRedirect())`),
+			"internal/x/r7_oauth_token.go":    goFile(`_ = F@.Errorf("x %s", tok.Access.RevealInTokenResponse())`),
+			"internal/x/r7_oauth_secret.go":   goFile(`a.L@.Info("x", "s", secret.RevealToTheOperatorOnce())`),
+			"internal/x/r7_oauth_hash.go":     goFile(`S@.Info("x", "h", d.RevealToTheDatabase())`),
+			"internal/x/r7_oauth_verifier.go": goFile(`S@.Info("x", "code_verifier", v)`),
+			"internal/x/r7_oauth_digest.go":   goFile(`S@.Info("x", "rd", h.RequestDigest(c))`),
+			"internal/x/r7_oauth_state.go":    goFile(`S@.Warn("x", "s", p.req.State)`),
+			// Phase 3 (the 2nd phase review's DÜŞÜK): vectors with NO secret/token root, so only the
+			// value names catch them -- the operator's one exit, the seal, the state as the consent
+			// code's other holders name it, and the pending request cookie's value.
+			"internal/x/r7_oauth_operator.go": goFile(`S@.Info("x", "s", v.RevealToTheOperatorOnce())`),
+			"internal/x/r7_oauth_seal.go":     goFile(`S@.Info("x", "c", h.SealRequest(req))`),
+			"internal/x/r7_oauth_vstate.go":   goFile(`S@.Warn("x", "s", v.State)`),
+			"internal/x/r7_oauth_rstate.go":   goFile(`a.L@.Printf("x %s", r.State)`),
+			"internal/x/r7_oauth_pstate.go":   goFile(`_ = F@.Errorf("x %s", p.Req.State)`),
+			"internal/x/r7_oauth_cookie.go":   goFile(`S@.Info("x", "c", c.Value)`),
+			"internal/x/r7_oauth_sealed.go":   goFile(`S@.Debug("x", "p", p.sealed)`),
 		},
 		"R7b": {
 			"internal/x/r7b_first.go":    goFile(`S@.Info("x", "n", e.FirstName)`),
@@ -212,6 +231,12 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"docs/r7d_cr.md":    `"x\rtt_whsec_` + body + `"` + "\n",
 			"docs/r7d_cut42.md": "tt_live_" + body[:42] + "\n",
 			"docs/r7d_cut32.md": "tt_live_" + body[:32] + "\n",
+			// Issue #37 (ADR 0047 §7.1): the four OAuth values' prefixes, both environment words.
+			"docs/r7d_oauth_cs.md":    "secret: tt_cs_live_" + body + "\n",
+			"docs/r7d_oauth_ac.md":    "?code=tt_ac_test_" + body + "&state=x\n",
+			"internal/x/r7d_oauth.go": goFile(`_ = "tt_at_live_` + body + `"`),
+			"docs/r7d_oauth_rt.md":    `{"refresh_token":"tt_rt_test_` + body + `"}` + "\n",
+			"docs/r7d_oauth_cut32.md": "tt_at_test_" + body[:32] + "\n",
 		},
 	}
 	all := map[string]string{}
@@ -237,12 +262,18 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 	}
 
 	controls := map[string]string{
-		"db/queries/c_r4.sql":       "UPD@TE public.tags SET last_ctr = $2 WHERE uid = $1 AND last_ctr < $2;\n",
-		"internal/x/c_r7.go":        goFile(`S@.Info("api key created", "key_id", id)`),
-		"internal/x/c_r7_hdr.go":    goFile(`S@.Info("x", "h", r.Header.Get("Content-Type"))`),
-		"internal/x/c_r7b.go":       goFile(`S@.Info("x", "employee_id", id)`),
-		"docs/c_r7d_filler.md":      "an example: tt_live_" + strings.Repeat("x", 43) + "\n",
-		"docs/c_r7d_placeholder.md": "Authorization: Bearer tt_live_<43 characters of base64url>\n",
+		"db/queries/c_r4.sql":    "UPD@TE public.tags SET last_ctr = $2 WHERE uid = $1 AND last_ctr < $2;\n",
+		"internal/x/c_r7.go":     goFile(`S@.Info("api key created", "key_id", id)`),
+		"internal/x/c_r7_hdr.go": goFile(`S@.Info("x", "h", r.Header.Get("Content-Type"))`),
+		// Issue #37: a webhook delivery's state is not a client's state -- quiet.
+		"internal/x/c_r7_state.go": goFile(`S@.Warn("x", "state", row.State)`),
+		// Phase 3: a holder whose name merely ENDS in the narrow names' letters, and the rotation
+		// tool's sentence -- quiet.
+		"internal/x/c_r7_userstate.go":  goFile(`S@.Warn("x", "s", user.State, "v", abc.Value)`),
+		"internal/x/c_r7_sealedword.go": goFile(`_ = F@.Errorf("%d rows stay sealed under the old one", n)`),
+		"internal/x/c_r7b.go":           goFile(`S@.Info("x", "employee_id", id)`),
+		"docs/c_r7d_filler.md":          "an example: tt_live_" + strings.Repeat("x", 43) + "\n",
+		"docs/c_r7d_placeholder.md":     "Authorization: Bearer tt_live_<43 characters of base64url>\n",
 		// 2nd round: the guarded statement in AdvanceTagCounter's own shape (the guard in the CTE's
 		// alias); the statement arm's NAMED exclusion -- a test file's deliberate unguarded write;
 		// a piece shorter than 32; and a word that merely ends in the prefix's letters.
@@ -250,6 +281,8 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 		"internal/x/c_r4_test.go": goFile("_ = `UPD@TE tags\n\t\tSET last_ctr = 0\n\t\tWHERE uid = $1`"),
 		"docs/c_r7d_cut31.md":     "tt_live_" + body[:31] + "\n",
 		"docs/c_r7d_word.md":      "xtt_live_" + body + "\n",
+		// Issue #37: an OAuth prefix with a filler body is an example, quiet.
+		"docs/c_r7d_oauth_filler.md": "an example: tt_rt_live_" + strings.Repeat("x", 43) + "\n",
 	}
 	for rel, src := range controls {
 		controls[rel] = spell.Replace(src)

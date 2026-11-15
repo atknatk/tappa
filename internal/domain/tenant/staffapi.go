@@ -170,6 +170,9 @@ type EmployeePut struct {
 	ActorID uuid.UUID
 	// Via is K-23's detail.via ("api"). Required.
 	Via string
+	// ClientID is detail.client_id when the actor is an OAuth grant (ADR 0047 §8.7: "app_<uuid>"),
+	// "" for an API key -- the trail then says which app acted, never only which grant.
+	ClientID string
 
 	ExternalRef  string
 	FirstName    string
@@ -187,6 +190,7 @@ type EmployeeDelete struct {
 	TenantID    uuid.UUID
 	ActorID     uuid.UUID
 	Via         string
+	ClientID    string
 	ExternalRef string
 	Budget      int
 }
@@ -196,6 +200,7 @@ type EmployeeResend struct {
 	TenantID    uuid.UUID
 	ActorID     uuid.UUID
 	Via         string
+	ClientID    string
 	ExternalRef string
 }
 
@@ -344,7 +349,9 @@ func checkHiddenNames(in cleanAPIPerson, first, last, code *string) error {
 // with known keys: the ref, and booleans -- NO name, NO address (addDetail's rule: audit_log is
 // append-only and a GDPR erasure is an UPDATE on employees that would never reach it).
 type apiEmployeeDetail struct {
-	Via         string `json:"via"`
+	Via string `json:"via"`
+	// ClientID is the OAuth app's id when a grant acted (ADR 0047 §8.7); absent for an API key.
+	ClientID    string `json:"client_id,omitempty"`
 	ExternalRef string `json:"external_ref"`
 }
 
@@ -387,6 +394,7 @@ type apiResendDetail struct {
 
 type apiBudgetDetail struct {
 	Via           string `json:"via"`
+	ClientID      string `json:"client_id,omitempty"`
 	Budget        int    `json:"budget"`
 	WindowSeconds int    `json:"window_seconds"`
 }
@@ -533,7 +541,7 @@ func (s *Staff) PutEmployeeTx(ctx context.Context, tx pgx.Tx, c EmployeePut, adm
 		queued = true
 	}
 	d := apiAddedDetail{
-		apiEmployeeDetail: apiEmployeeDetail{Via: c.Via, ExternalRef: ref},
+		apiEmployeeDetail: apiEmployeeDetail{Via: c.Via, ClientID: c.ClientID, ExternalRef: ref},
 		HasEmail:          row.HasEmail, InvitationQueued: queued, Status: row.Status,
 	}
 	if rehireOf != uuid.Nil {
@@ -629,7 +637,7 @@ func (s *Staff) changeAPIEmployee(ctx context.Context, tx pgx.Tx, q *store.Queri
 	if err := checkHiddenNames(in, locked.FirstName, locked.LastName, locked.EmployeeCode); err != nil {
 		return out, err
 	}
-	detail := apiEmployeeDetail{Via: c.Via, ExternalRef: ref}
+	detail := apiEmployeeDetail{Via: c.Via, ClientID: c.ClientID, ExternalRef: ref}
 
 	if linking {
 		if _, err := q.SetEmployeeExternalRef(ctx, store.SetEmployeeExternalRefParams{ExternalRef: &ref, TenantID: c.TenantID, ID: id}); err != nil {
@@ -715,7 +723,7 @@ func (s *Staff) changeAPIEmployee(ctx context.Context, tx pgx.Tx, q *store.Queri
 	}
 
 	if !c.Active {
-		if err := s.deactivateAPIEmployee(ctx, tx, q, c.TenantID, c.ActorID, c.Via, ref, id, locked.Status, budget, used); err != nil {
+		if err := s.deactivateAPIEmployee(ctx, tx, q, c.TenantID, c.ActorID, c.Via, c.ClientID, ref, id, locked.Status, budget, used); err != nil {
 			return out, err
 		}
 		out.Changed, out.Deactivated, out.Queued = true, true, false
@@ -763,7 +771,7 @@ func lockBudget(ctx context.Context, q *store.Queries, tenantID, keyID uuid.UUID
 
 // deactivateAPIEmployee is DeactivateEmployee + the queue + the trail row, in tx, AFTER
 // chargeDeactivation took the key's lock in the same transaction.
-func (s *Staff) deactivateAPIEmployee(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID, keyID uuid.UUID, via, ref string,
+func (s *Staff) deactivateAPIEmployee(ctx context.Context, tx pgx.Tx, q *store.Queries, tenantID, keyID uuid.UUID, via, clientID, ref string,
 	id uuid.UUID, previous string, budget, used int) error {
 	if _, err := q.DeactivateEmployee(ctx, store.DeactivateEmployeeParams{TenantID: tenantID, ID: id}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -776,7 +784,7 @@ func (s *Staff) deactivateAPIEmployee(ctx context.Context, tx pgx.Tx, q *store.Q
 		return fmt.Errorf("tenant: deactivate: unqueue: %w", err)
 	}
 	return s.recordAPI(ctx, tx, tenantID, keyID, ActionEmployeeDeactivated, id, apiDeactivatedDetail{
-		apiEmployeeDetail: apiEmployeeDetail{Via: via, ExternalRef: ref}, PreviousStatus: previous, Budget: budget, Used: used,
+		apiEmployeeDetail: apiEmployeeDetail{Via: via, ClientID: clientID, ExternalRef: ref}, PreviousStatus: previous, Budget: budget, Used: used,
 	})
 }
 
@@ -812,7 +820,7 @@ func (s *Staff) DeleteEmployeeTx(ctx context.Context, tx pgx.Tx, c EmployeeDelet
 	if err != nil {
 		return EmployeePutResult{}, err
 	}
-	if err := s.deactivateAPIEmployee(ctx, tx, q, c.TenantID, c.ActorID, c.Via, ref, live.ID, live.Status, budget, used); err != nil {
+	if err := s.deactivateAPIEmployee(ctx, tx, q, c.TenantID, c.ActorID, c.Via, c.ClientID, ref, live.ID, live.Status, budget, used); err != nil {
 		if errors.Is(err, ErrEmployeeChangedConcurrently) {
 			// Deactivated by a concurrent request between the lookup and the UPDATE: this one is the
 			// row as it is -- and it wrote nothing.
@@ -877,7 +885,7 @@ func (s *Staff) ResendActivationTx(ctx context.Context, tx pgx.Tx, c EmployeeRes
 		return EmployeePutResult{}, fmt.Errorf("tenant: resend: queue: %w", err)
 	}
 	if err := s.recordAPI(ctx, tx, c.TenantID, c.ActorID, ActionInviteRequested, live.ID, apiResendDetail{
-		apiEmployeeDetail: apiEmployeeDetail{Via: c.Via, ExternalRef: ref}, Cause: "resend",
+		apiEmployeeDetail: apiEmployeeDetail{Via: c.Via, ClientID: c.ClientID, ExternalRef: ref}, Cause: "resend",
 	}); err != nil {
 		return EmployeePutResult{}, err
 	}
@@ -892,7 +900,7 @@ func (s *Staff) ResendActivationTx(ctx context.Context, tx pgx.Tx, c EmployeeRes
 // the refused request's transaction was rolled back, and a refusal is when a trail row is most
 // needed. Its target is the key's id; the detail says the budget and the window and nothing of the
 // request.
-func (s *Staff) RecordDeactivationBudgetExceeded(ctx context.Context, tenantID, keyID uuid.UUID, via string, budget int) error {
+func (s *Staff) RecordDeactivationBudgetExceeded(ctx context.Context, tenantID, keyID uuid.UUID, via, clientID string, budget int) error {
 	if err := requireActor(tenantID, keyID); err != nil {
 		return err
 	}
@@ -912,7 +920,7 @@ func (s *Staff) RecordDeactivationBudgetExceeded(ctx context.Context, tenantID, 
 		actor := keyID
 		_, err = s.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: tenantID, ActorID: &actor, Action: ActionAPIDeactivationBudgetExceeded, Target: keyID.String(),
-			Detail: apiBudgetDetail{Via: via, Budget: budgetOf(budget), WindowSeconds: int(DeactivationBudgetWindow / time.Second)},
+			Detail: apiBudgetDetail{Via: via, ClientID: clientID, Budget: budgetOf(budget), WindowSeconds: int(DeactivationBudgetWindow / time.Second)},
 		})
 		return err
 	})

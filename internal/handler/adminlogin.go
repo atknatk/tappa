@@ -397,6 +397,12 @@ type AdminAuth struct {
 	brandUploadLimiter *limiter
 	brandWriteLimiter  *limiter
 
+	// oauth is the authorization server's consent half (issue #37, oauthconsent.go), given by the
+	// OAuthConsent option; oauthClock is its pending request's clock (nil: time.Now -- a test ages a
+	// cookie with it).
+	oauth      panelOAuth
+	oauthClock func() time.Time
+
 	log *slog.Logger
 }
 
@@ -623,6 +629,12 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// panel built without the service would take away the owner's switch-off (K-26). Pinned by
 	// TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration and cmd/tappa's
 	// TestWebhookWiring_TheEndpointServiceReachesThePanel.
+	// 🔴 THE SAME FOR THE OAUTH CONSENT (issue #37, ADR 0047): TAPPA_OAUTH_HMAC_KEY is required by
+	// config.Load, so every production Config carries it, and a panel without the authorization server
+	// would answer every app's "Connect" with a 503. Refused at start-up (cmd/tappa passes OAuthConsent).
+	if cfg.OAuthHMACKey.Len() > 0 && isNil(a.oauth) {
+		return nil, errors.New("handler: the configuration holds the OAuth HMAC key and the panel was given no authorization server (OAuthConsent)")
+	}
 	if cfg.WebhookKEK.Len() > 0 && a.webhook == nil {
 		return nil, errors.New("handler: the configuration holds the webhook KEK and the panel was given no webhook service (IntegrationWebhook)")
 	}
@@ -670,6 +682,10 @@ func (a *AdminAuth) Mount(r chi.Router) {
 		// spent). The UNDO link's page and press are mounted by their own call (MountEmailUndo).
 		r.With(a.floodGate("admin_email_change_link")).Get(emailChangeLandingPath, a.emailChangeLanding)
 	})
+
+	// THE OAUTH CONSENT'S READS (issue #37, oauthconsent.go): the two GETs, each on ADR 0047 §4.2's own
+	// chain; the approval and the refusal are in mountWriting, the front door in internal/handler/oauthapi.
+	a.mountOAuthReads(r)
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.
@@ -1491,7 +1507,8 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 	// completePersonLogin's, path=identity. The contract is talked about when this one nears zero
 	// (ADR 0031 §5.15).
 	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip, "path", "legacy")
-	a.redirect(w, "/admin")
+	// A pending app consent (issue #37, ADR 0047 §4.2) lands on its ONE fixed continue path.
+	a.redirect(w, a.landingAfterSignIn(r, "/admin"))
 }
 
 // failLogin is the SINGLE exit for every credential failure.

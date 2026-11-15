@@ -1416,3 +1416,27 @@ telefonu kesememesi askının amacının tersidir. Kendi onay kapısı handler'd
 satırını yazar. Liste **bayrak `off` iken on iki, `on` iken yirmi üç rotadır**;
 `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` ve `cmd/tappa`'nın
 `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses`'ı aynı commit'te güncellendi.
+
+## Not (2026-11-15, ADR 0047) — OAuth ret rotası ve *"Connected apps"* Disconnect istisna listesinde
+
+*Bu not yalnız ekler; yukarıdaki metin ve ekler değişmedi.* Kaynak:
+[ADR 0047](0047-oauth-bagli-uygulamalar.md) §4.5, §11.2, §12 (issue #37).
+
+- **`POST /admin/oauth/authorize/deny`** — bir uygulamanın bağlanma isteğini reddetmek. Hiçbir satır yazmaz
+  (yalnız bekleyen istek çerezini siler) ve istemciye `error=access_denied` ile döner; askıdaki bir işletme
+  de uygulamaya *"hayır"* diyebilmeli (ADR 0047 §4.5, DÜŞÜK-1). Kardeş grupta,
+  `protectWritingThroughSuspension` zincirinde.
+- **`POST /admin/api-keys/apps/disconnect`** — owner'ın bir bağlı uygulamayı koparması. K-26'nın savunma
+  yazmaları sınıfı: işletmenin dışarı açtığını **daraltır**; askıdaki (özellikle `security_hold`) bir
+  işletmenin bir uygulamanın erişimini kesememesi askının amacının tersidir (ADR 0047 §11.2, §12). Kardeş
+  grupta; tek ifadeli, tek yönlü iptal + `oauth.grant_revoked` audit satırı.
+- **İstisna OLMAYAN:** onay `POST /admin/oauth/authorize` askı halkalı `ProtectWriting`'dedir (rota sınıfı 1) —
+  yeni grant bir yazmadır, askıdaki işletmede 403. Panel dışı `POST /oauth/token` ve `POST /oauth/revoke`
+  (sınıf 3) bu listenin konusu değildir; davranışları ADR 0047 §11.2'nin tablosundadır (kod takası askıda
+  `invalid_grant`, refresh ve revoke açık).
+- Liste **bayrak `off` iken on dört, `on` iken yirmi beş rotadır** (ölçüldü: `cmd/tappa`'nın
+  `TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses` log'u, sınıf 2 = 14 / 25);
+  `internal/handler`'ın `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException` ikisini adıyla
+  taşır (`suspensionExceptions`). Ret rotası 2. fazda, Disconnect 3. fazda listeye girdi; `cmd/tappa`'nın
+  sınıf kümesine Disconnect 4. fazda eklendi (o güne dek sınıf 1 sayılıyordu — test yeşildi, çünkü sınıf
+  1'in sayısı alt sınırla denetlenir; sınıflama yanlıştı, davranış değil).

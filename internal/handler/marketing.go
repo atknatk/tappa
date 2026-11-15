@@ -21,6 +21,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/webhook"
@@ -1200,6 +1201,18 @@ func cookieNotice() []pages.CookieRow {
 				"against being submitted from another site. Cleared when the button is pressed.",
 			Lifetime: humanSeconds(emailUndoCookieMaxAge),
 			Scope:    emailUndoPath,
+			Flags:    flags,
+		},
+		// Issue #37 (ADR 0047 §4.2): the app connection request, between the app's "Connect" and the
+		// owner's answer on the consent page, scoped to the dashboard.
+		{
+			Name: oauth.RequestCookieName,
+			Purpose: "Carries an app's request to connect to your business -- which app, what it asks for and " +
+				"where it returns -- from the app to the page where you allow or refuse it, signed by this " +
+				"server, while you sign in or pick a business. It holds no password and grants nothing. " +
+				"Cleared when you answer.",
+			Lifetime: humanSeconds(int(oauth.RequestMaxAge / time.Second)),
+			Scope:    oauth.RequestCookiePath,
 			Flags:    flags,
 		},
 		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.

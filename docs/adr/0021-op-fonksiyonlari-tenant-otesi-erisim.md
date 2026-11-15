@@ -6085,3 +6085,24 @@ Bu ADR'nin sözleşmesi (§1–§6) `op_*` için aynen geçerlidir. Değişenler
   kurduğu davranış testlerinin `holding_*` karşılıkları ADR 0027 *"Test edilecekler"*dedir: *kemer* →
   iki yönlü süzgeç ve M1/M2/M3 mutantları; *geçici tablo gölgesi* → tetikleyici bağlama reddi ve
   `TG_RELID` assert'i.
+
+## Not (2026-11-15, ADR 0047) — M11 notunun `op_*` listesine uygulama kaydının beşi
+
+*Bu not yalnız ekler; yukarıdaki metin ve M11 notu değişmedi.* Kaynak:
+[ADR 0047](0047-oauth-bagli-uygulamalar.md) §10.2, §14.4 (issue #37, migration `00107`).
+
+- **Yeni `op_*`'lar (bu sınıfta, sahibi `tappa_opdefiner`):** dört yazma — `op_register_oauth_client`,
+  `op_rotate_oauth_client_secret`, `op_set_oauth_client_redirects`, `op_disable_oauth_client` — ve bir iki
+  aşamalı okuma, `op_read_oauth_clients` (`op_begin_read` türü `oauth_clients`; `op_read_legal_versions`
+  emsali). Yazmalar §2 v 7'ye uyar: dönüş `uuid`/`void`, ne bulursa bulsun aynı yanıt; operatörün ekranı
+  ne olduğunu yazmanın ardından listeyi okuyarak söyler (`internal/handler/operator/apps.go`).
+- **Yazdıkları tablo tenant kapsamsızdır ve tenant verisi taşımaz** (`oauth_clients` — CLAUDE.md §6'nın
+  tenant kapsamsız kuralı, R5 muafiyeti). Bu beşi **hiçbir tenant satırına dokunmaz**: istemci kapanışı
+  grant'ları iptal etmez, çözümleyici `disabled_at`'i okur (ADR 0047 §9, §11.4). Dolayısıyla CLAUDE.md
+  §4.5'in istisna sayımı değişmez.
+- **`operator_audit_log.kind`** dört türle genişledi (`oauth_client_registered`,
+  `oauth_client_secret_rotated`, `oauth_client_redirects_changed`, `oauth_client_disabled`); `detail` yalnız
+  `client_id` taşır (CHECK `operator_audit_log_oauth_client_shape`) — secret, hash, dönüş adresi asla.
+- **Sahip testi:** operatör `op_*` sahip listesi beş adla genişledi; ters yön (`op_%` adlı her fonksiyonun
+  sahibi `tappa_opdefiner`) değişmedi. `op_begin_read`/`op_read_audit` `00107`'de yeni türlerle yeniden
+  tanımlandı (`TestOperator00107_TheBodiesAre00063sWithTheirEdits`).

@@ -50,11 +50,12 @@ func TestOperatorDB_IsTheStoreAndNothingMore(t *testing.T) {
 	vat := reflect.TypeOf((*operator.VATStore)(nil)).Elem()
 	holdings := reflect.TypeOf((*operator.HoldingStore)(nil)).Elem()
 	suspension := reflect.TypeOf((*operator.SuspensionStore)(nil)).Elem()
+	apps := reflect.TypeOf((*operator.OAuthClientStore)(nil)).Elem()
 	want := []string{"Close"}
-	for _, it := range []reflect.Type{store, legal, tenants, plaques, audit, billing, vat, holdings, suspension} {
+	for _, it := range []reflect.Type{store, legal, tenants, plaques, audit, billing, vat, holdings, suspension, apps} {
 		for i := 0; i < it.NumMethod(); i++ {
 			if slices.Contains(want, it.Method(i).Name) {
-				t.Fatalf("PREMISE: %s is declared twice across operatorauth.Store, operator.LegalStore, operator.TenantStore, operator.PlaqueStore, operator.AuditStore, operator.BillingStore, operator.VATStore, operator.HoldingStore and operator.SuspensionStore", it.Method(i).Name)
+				t.Fatalf("PREMISE: %s is declared twice across operatorauth.Store, operator.LegalStore, operator.TenantStore, operator.PlaqueStore, operator.AuditStore, operator.BillingStore, operator.VATStore, operator.HoldingStore, operator.SuspensionStore and operator.OAuthClientStore", it.Method(i).Name)
 			}
 			want = append(want, it.Method(i).Name)
 		}
@@ -67,12 +68,12 @@ func TestOperatorDB_IsTheStoreAndNothingMore(t *testing.T) {
 	}
 	slices.Sort(got)
 	if store.NumMethod() < 7 || legal.NumMethod() < 2 || tenants.NumMethod() < 2 || plaques.NumMethod() < 1 || audit.NumMethod() < 1 ||
-		billing.NumMethod() < 1 || vat.NumMethod() < 2 || holdings.NumMethod() < 4 || suspension.NumMethod() < 2 {
+		billing.NumMethod() < 1 || vat.NumMethod() < 2 || holdings.NumMethod() < 4 || suspension.NumMethod() < 2 || apps.NumMethod() < 5 {
 		t.Fatalf("PREMISE: operatorauth.Store has %d methods, operator.LegalStore %d, operator.TenantStore %d, operator.PlaqueStore %d, operator.AuditStore %d, operator.BillingStore %d, operator.VATStore %d, operator.HoldingStore %d and operator.SuspensionStore %d; the derivation has gone blind",
 			store.NumMethod(), legal.NumMethod(), tenants.NumMethod(), plaques.NumMethod(), audit.NumMethod(), billing.NumMethod(), vat.NumMethod(),
 			holdings.NumMethod(), suspension.NumMethod())
 	}
 	if !slices.Equal(got, want) {
-		t.Fatalf("*db.OperatorDB's methods are %v, want operatorauth.Store's, operator.LegalStore's, operator.TenantStore's, operator.PlaqueStore's, operator.AuditStore's, operator.BillingStore's, operator.VATStore's, operator.HoldingStore's and operator.SuspensionStore's plus Close: %v", got, want)
+		t.Fatalf("*db.OperatorDB's methods are %v, want operatorauth.Store's, operator.LegalStore's, operator.TenantStore's, operator.PlaqueStore's, operator.AuditStore's, operator.BillingStore's, operator.VATStore's, operator.HoldingStore's, operator.SuspensionStore's and operator.OAuthClientStore's plus Close: %v", got, want)
 	}
 }
