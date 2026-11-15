@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -204,32 +205,134 @@ func TestOAuthAPI_EveryEndIsInForceOnTheNextRequest(t *testing.T) {
 	}
 }
 
-// TestOAuthAPI_AnotherBusinessIsNeverReached (§9, §17 "cross-tenant token reddi"): business A's token
-// lists A's employees alone and finds B's reference 404 -- the tenant is the grant's, the request
-// names none; both reads are WithTenant(the grant's) + the explicit filter.
+// TestOAuthAPI_AnotherBusinessIsNeverReached (§9, §17 "cross-tenant token reddi"): business A's token,
+// holding every scope a grant can carry here, reaches NONE of business B's data through any /v1 route
+// of its scopes -- the tenant is the grant's, the request names none; every read and write is
+// WithTenant(the grant's) + the explicit filter. A and B are not holding peers (the punch world's KF
+// and CC). Each has an employee under a reference, and a completed shift -- an in and an out on its own
+// plaque. B's card is B's; A's card is A's; B's reference is 404 to A's read, DELETE and resend, and is
+// A's OWN new row to A's PUT -- B's row is unchanged and B's trail has no row of A's grant. A's lists,
+// directory, timesheet and both punch scopes carry A's own data (the positive half: an empty answer
+// would also "name nothing of B's") and nothing of B's.
+//
+// MUTANT (measured, phase 4 reports; the phase 3 audit's probe made permanent): the chain's principal
+// given the tenant of another grant it has seen -> A's card is B's, red; with the card's check skipped,
+// the timesheet and both punch scopes are red too.
 func TestOAuthAPI_AnotherBusinessIsNeverReached(t *testing.T) {
-	r := newDBRig(t)
+	w := newPunchWorld(t, unmetered)
+	r := w.r
 	ctx := context.Background()
-	a, aOwner := r.business(true)
-	b, _ := r.business(true)
+	a, b := w.kf, w.c
 	for _, x := range []struct {
-		tenant uuid.UUID
-		ref    string
-	}{{a, "A-1"}, {b, "B-1"}} {
-		if _, err := r.owner.Exec(ctx, `INSERT INTO employees (tenant_id, external_ref, full_name, status) VALUES ($1, $2, 'OAuth Staff', 'active')`, x.tenant, x.ref); err != nil {
+		tenant    uuid.UUID
+		ref, name string
+	}{{a.id, "A-1", "Alpha Staff"}, {b.id, "B-1", "Bravo Staff"}} {
+		if _, err := r.owner.Exec(ctx, `INSERT INTO employees (tenant_id, external_ref, full_name, status) VALUES ($1, $2, $3, 'active')`, x.tenant, x.ref, x.name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	c := r.connect(a, aOwner, r.app([]string{oauth.ScopeEmployeesRead}), oauth.ScopeEmployeesRead)
-	if w := r.do(http.MethodGet, "/v1/employees/B-1", c.raw, ""); w.Code != http.StatusNotFound {
+	shift := func(biz punchBiz) []string {
+		in, out := own(biz, "nfc", "in"), own(biz, "nfc", "out")
+		in.ago, out.ago = 3*time.Hour, time.Hour
+		return []string{pch(w.write(in)), pch(w.write(out))}
+	}
+	aPunches, bPunches := shift(a), shift(b)
+	all := []string{oauth.ScopeTimesheetsRead, oauth.ScopeEmployeesRead, oauth.ScopeEmployeesWrite, oauth.ScopePunchesRead}
+	ca := r.connect(a.id, a.admin, r.app(all), all...)
+	cb := r.connect(b.id, b.admin, r.app(all), all...)
+	// B's markers: its id, its venue's, its employees' (by id and by reference) and its punches'.
+	bMarks := append([]string{b.id.String(), b.venue.String(), b.emp.String(), "B-1", "Bravo", b.code + "-EMP"}, bPunches...)
+	noneOfB := func(what, body string) {
+		t.Helper()
+		for _, m := range bMarks {
+			if strings.Contains(body, m) {
+				t.Fatalf("%s by A's token names B's %q: %s", what, m, body)
+			}
+		}
+	}
+
+	// CONTROL first: B's own token reads B's card.
+	if w := r.do(http.MethodGet, "/v1/business", cb.raw, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"id":"biz_`+b.id.String()+`"`) {
+		t.Fatalf("CONTROL: B's card by B's token: %d %s", w.Code, w.Body.String())
+	}
+	card := r.do(http.MethodGet, "/v1/business", ca.raw, "")
+	if card.Code != http.StatusOK || !strings.Contains(card.Body.String(), `"id":"biz_`+a.id.String()+`"`) {
+		t.Fatalf("A's card by A's token: %d %s", card.Code, card.Body.String())
+	}
+	noneOfB("the card", card.Body.String())
+	if w := r.do(http.MethodGet, "/v1/employees/B-1", ca.raw, ""); w.Code != http.StatusNotFound {
 		t.Fatalf("B's reference with A's token: %d %s", w.Code, w.Body.String())
 	}
-	if w := r.do(http.MethodGet, "/v1/employees/A-1", c.raw, ""); w.Code != http.StatusOK {
+	if w := r.do(http.MethodGet, "/v1/employees/A-1", ca.raw, ""); w.Code != http.StatusOK {
 		t.Fatalf("CONTROL: A's own reference: %d %s", w.Code, w.Body.String())
 	}
-	w := r.do(http.MethodGet, "/v1/employees", c.raw, "")
-	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "B-1") || !strings.Contains(w.Body.String(), "A-1") {
-		t.Fatalf("A's list: %d %s", w.Code, w.Body.String())
+	day := func(d time.Duration) string { return time.Now().UTC().Add(d).Format("2006-01-02") }
+	reads := []struct{ path, own string }{
+		{"/v1/employees", "Alpha"},
+		{"/v1/directory", "Alpha"},
+		{"/v1/timesheets?from=" + day(-24*time.Hour) + "&to=" + day(24*time.Hour), a.emp.String()},
+	}
+	for _, rd := range reads {
+		w := r.do(http.MethodGet, rd.path, ca.raw, "")
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), rd.own) {
+			t.Fatalf("%s by A's token: %d, A's own %q missing: %s", rd.path, w.Code, rd.own, w.Body.String())
+		}
+		noneOfB(rd.path, w.Body.String())
+		if strings.HasPrefix(rd.path, "/v1/timesheets") {
+			var page struct {
+				Data []struct {
+					Employee      struct{ ID string }
+					WorkedMinutes int64
+				}
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
+				t.Fatal(err)
+			}
+			worked := int64(-1)
+			for _, p := range page.Data {
+				if p.Employee.ID == employeeIDPrefix+a.emp.String() {
+					worked = p.WorkedMinutes
+				}
+			}
+			if worked != 120 {
+				t.Fatalf("A's timesheet counts %d minutes for A's own shift, want 120: %s", worked, w.Body.String())
+			}
+		}
+	}
+	token := punchBiz{code: "A-token", raw: ca.raw}
+	for _, scope := range []string{"employer", "location"} {
+		got := w.all(token, scope, 1000)
+		if gotIDs := ids(got); !slices.Equal(gotIDs, aPunches) {
+			t.Fatalf("punches?scope=%s by A's token: %v, want A's own shift %v", scope, gotIDs, aPunches)
+		}
+		raw, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		noneOfB("punches?scope="+scope, string(raw))
+	}
+	if w := r.do(http.MethodDelete, "/v1/employees/B-1", ca.raw, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("DELETE B-1 by A's token: %d %s", w.Code, w.Body.String())
+	}
+	if w := r.do(http.MethodPost, "/v1/employees/B-1/resend-activation", ca.raw, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("resend B-1 by A's token: %d %s", w.Code, w.Body.String())
+	}
+	// A PUT of B's reference is A's own new employee -- the reference is looked up in A alone.
+	if w := r.do(http.MethodPut, "/v1/employees/B-1", ca.raw, `{"firstName":"Mallory","lastName":"X","email":null,"active":true}`); w.Code != http.StatusCreated {
+		t.Fatalf("PUT B-1 by A's token: %d %s", w.Code, w.Body.String())
+	}
+	var bName, bStatus string
+	if err := r.owner.QueryRow(ctx, `SELECT full_name, status FROM employees WHERE tenant_id = $1 AND external_ref = 'B-1'`, b.id).Scan(&bName, &bStatus); err != nil {
+		t.Fatal(err)
+	}
+	if bName != "Bravo Staff" || bStatus != "active" {
+		t.Fatalf("B's B-1 changed by A's token: %q %q", bName, bStatus)
+	}
+	if n := r.ownerCount(`SELECT count(*) FROM employees WHERE tenant_id = $1 AND external_ref = 'B-1'`, a.id); n != 1 {
+		t.Fatalf("A's own B-1: %d rows", n)
+	}
+	if n := r.ownerCount(`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND actor_id = $2`, b.id, ca.grant); n != 0 {
+		t.Fatalf("%d audit rows in B by A's grant", n)
 	}
 }
 
@@ -390,5 +493,183 @@ func TestOAuthAPI_ASuspensionClosesAGrantsWritesNotItsReads(t *testing.T) {
 	}
 	if w := r.do(http.MethodDelete, "/v1/employees/S-0", c.raw, ""); w.Code != http.StatusForbidden || problemOf(t, w).Code != CodeTenantSuspended {
 		t.Fatalf("a deactivation while suspended: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// TestOAuthAPI_ATokenInvitesOnABusinessWhoseAPIWasNeverOpened is ADR 0047 §11.3 end to end (YÜKSEK-1,
+// §17 "e-postalı çalışan PUT, adres değişikliği ve resend-activation OAuth tokenıyla uçtan uca bir
+// davet satırı doğurur"): on a business whose API Taptime never opened (both K-22 columns NULL), an
+// employees:write token's three paths -- a new employee with an address, an address given to a
+// not-yet-activated employee, and resend-activation an hour after the send -- each leave one
+// invite_requests row, and the queue (the shipped gate, the shipped app resolver) SENDS each: three
+// e-mails. The business's key is 403 api_disabled meanwhile (K-22 is unchanged for keys).
+//
+// MUTANT (measured, phase 4 report): the queue gate's grant arm removed (a never-opened API closed
+// whatever grant) -> nothing is sent, red.
+func TestOAuthAPI_ATokenInvitesOnABusinessWhoseAPIWasNeverOpened(t *testing.T) {
+	r := newDBRig(t)
+	ctx := context.Background()
+	biz, owner := r.business(true)
+	keyRaw, _ := r.key(biz, owner)
+	r.neverOpened(biz)
+	write := []string{oauth.ScopeEmployeesWrite}
+	c := r.connect(biz, owner, r.app(write), write...)
+	q, sink, _ := r.queue()
+	requests := func(id uuid.UUID) int {
+		return r.ownerCount(`SELECT count(*) FROM invite_requests WHERE tenant_id = $1 AND employee_id = $2`, biz, id)
+	}
+
+	ref, email := newRef("OA"), uniqueEmail("oauth-new")
+	w := r.putEmp(c.raw, ref, empBody("Maria", "Borg", &email, true))
+	if w.Code != http.StatusCreated || empOf(t, w).ActivationEmail.Status != "queued" {
+		t.Fatalf("a new employee with an address by the token: %d %s", w.Code, w.Body.String())
+	}
+	first := idOfEmp(t, empOf(t, w))
+	if requests(first) != 1 {
+		t.Fatal("the token's PUT queued no request")
+	}
+	runQueue(t, q, biz)
+	if len(sink.sent()) != 1 {
+		t.Fatalf("the queue sent %d e-mails for the token's new employee, want 1 (the grant opens the gate)", len(sink.sent()))
+	}
+
+	later := newRef("OA")
+	w = r.putEmp(c.raw, later, empBody("Joe", "Camilleri", nil, true))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("a new employee with no address: %d %s", w.Code, w.Body.String())
+	}
+	second := idOfEmp(t, empOf(t, w))
+	address := uniqueEmail("oauth-change")
+	if w := r.putEmp(c.raw, later, empBody("Joe", "Camilleri", &address, true)); w.Code != http.StatusOK || empOf(t, w).ActivationEmail.Status != "queued" {
+		t.Fatalf("an address for a not-activated employee: %d %s", w.Code, w.Body.String())
+	}
+	if requests(second) != 1 {
+		t.Fatal("the address change queued no request")
+	}
+	runQueue(t, q, biz)
+	if len(sink.sent()) != 2 {
+		t.Fatalf("after the address change the queue sent %d e-mails in all, want 2", len(sink.sent()))
+	}
+
+	if _, err := r.owner.Exec(ctx, `UPDATE employee_invites SET created_at = now() - interval '61 minutes' WHERE tenant_id = $1 AND employee_id = $2`, biz, first); err != nil {
+		t.Fatal(err)
+	}
+	w = r.do(http.MethodPost, "/v1/employees/"+ref+"/resend-activation", c.raw, "")
+	if w.Code != http.StatusAccepted || empOf(t, w).ActivationEmail.Status != "queued" {
+		t.Fatalf("resend-activation by the token an hour later: %d %s", w.Code, w.Body.String())
+	}
+	runQueue(t, q, biz)
+	if len(sink.sent()) != 3 {
+		t.Fatalf("after the resend the queue sent %d e-mails in all, want 3", len(sink.sent()))
+	}
+	if w := r.do(http.MethodGet, "/v1/business", keyRaw, ""); w.Code != http.StatusForbidden || problemOf(t, w).Code != CodeAPIDisabled {
+		t.Fatalf("CONTROL: the business's key on its never-opened API: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// TestOAuthAPI_ASecretRotationKillsNoToken (ADR 0047 §10.2, §17 "secret rotasyonu tokenları
+// öldürmez"): the operator's rotation replaces the app's secret -- the old one is refused at the
+// token endpoint from the next request on -- and leaves every issued token alive: the access token
+// still reads /v1, and the refresh token, presented with the NEW secret, still rotates.
+//
+// The rotation is op_rotate_oauth_client_secret's own write applied as the owner (rotateSecret):
+// that function's body updates oauth_clients alone (00107) and tappa_opdefiner holds no right on
+// oauth_grants or oauth_tokens (00104, 00107 grant it none), so this is the whole of what a rotation
+// changes. MUTANT (measured, phase 4 report):
+// AuthenticateClient ignoring secret_ok -> the old secret still authenticates, red.
+func TestOAuthAPI_ASecretRotationKillsNoToken(t *testing.T) {
+	r := newDBRig(t)
+	ctx := context.Background()
+	biz, owner := r.business(true)
+	scopes := []string{oauth.ScopeEmployeesRead}
+	app := r.app(scopes)
+	c := r.connect(biz, owner, app, scopes...)
+	var oldSecret oauth.Value
+	{
+		// The rig registered the app with a secret it did not keep: rotate twice, keeping the first
+		// rotation's secret as "the old one".
+		v, d, err := r.grants.Hasher().MintClientSecret()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.rotateSecret(app.ID, v, d)
+		oldSecret = v
+	}
+	if _, err := r.grants.AuthenticateClient(ctx, app.ID, oldSecret); err != nil {
+		t.Fatalf("CONTROL: the current secret: %v", err)
+	}
+	newSecret, digest, err := r.grants.Hasher().MintClientSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rotateSecret(app.ID, newSecret, digest)
+	if _, err := r.grants.AuthenticateClient(ctx, app.ID, oldSecret); !errors.Is(err, oauth.ErrInvalidClient) {
+		t.Fatalf("the secret before the rotation: %v, want invalid_client", err)
+	}
+	if w := r.do(http.MethodGet, "/v1/employees", c.raw, ""); w.Code != http.StatusOK {
+		t.Fatalf("the access token after the rotation: %d %s", w.Code, w.Body.String())
+	}
+	client, err := r.grants.AuthenticateClient(ctx, app.ID, newSecret)
+	if err != nil {
+		t.Fatalf("the new secret: %v", err)
+	}
+	tok, err := r.grants.Refresh(ctx, ctx, client, c.refresh, nil)
+	if err != nil {
+		t.Fatalf("the refresh token after the rotation: %v", err)
+	}
+	if w := r.do(http.MethodGet, "/v1/employees", tok.Access.RevealInTokenResponse(), ""); w.Code != http.StatusOK {
+		t.Fatalf("the refreshed access token: %d %s", w.Code, w.Body.String())
+	}
+	if n := r.ownerCount(`SELECT count(*) FROM oauth_grants WHERE id = $1 AND revoked_at IS NULL`, c.grant); n != 1 {
+		t.Fatal("the rotation revoked the grant")
+	}
+}
+
+// rotateSecret is op_rotate_oauth_client_secret's write, as the owner (the rig has no operator
+// session -- app() registers the same way): a new hash and hint, the rotation instant.
+func (r *dbRig) rotateSecret(app uuid.UUID, secret oauth.Value, d oauth.Digest) {
+	r.t.Helper()
+	if _, err := r.owner.Exec(context.Background(), `UPDATE oauth_clients SET secret_hash = $2, secret_hint = $3, secret_rotated_at = clock_timestamp() WHERE id = $1`,
+		app, d.RevealToTheDatabase(), secret.SecretHint()); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// TestOAuthAPI_ANarrowedTokenIsRefusedOutsideItsScope (ADR 0047 §5.3, §8.1 step 8, §17 "daraltılmış
+// erişim tokenı daraltmanın dışındaki rotada 403 insufficient_scope alır (grant o kapsamı taşısa
+// bile)"): a grant of timesheets:read employees:read refreshed with scope=timesheets:read gives an
+// access token that reads /v1/timesheets and is 403 insufficient_scope (details.scope employees:read)
+// on /v1/employees -- the grant still holds employees:read, and the first access token still reads it.
+//
+// MUTANTS (measured, phase 4 report): the refresh writing the grant's scopes on the access token
+// instead of the narrowed set, and ResolveAccess answering every known scope instead of the token's
+// own -> the narrowed token reads /v1/employees, each red.
+func TestOAuthAPI_ANarrowedTokenIsRefusedOutsideItsScope(t *testing.T) {
+	r := newDBRig(t)
+	ctx := context.Background()
+	biz, owner := r.business(true)
+	both := []string{oauth.ScopeTimesheetsRead, oauth.ScopeEmployeesRead}
+	c := r.connect(biz, owner, r.app(both), both...)
+	tok, err := r.grants.Refresh(ctx, ctx, c.client, c.refresh, []string{oauth.ScopeTimesheetsRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	narrow := tok.Access.RevealInTokenResponse()
+	if w := r.do(http.MethodGet, "/v1/timesheets?from=2026-11-02&to=2026-11-08", narrow, ""); w.Code != http.StatusOK {
+		t.Fatalf("the narrowed token on its own scope: %d %s", w.Code, w.Body.String())
+	}
+	w := r.do(http.MethodGet, "/v1/employees", narrow, "")
+	if p := problemOf(t, w); w.Code != http.StatusForbidden || p.Code != CodeInsufficientScope || p.Details["scope"] != oauth.ScopeEmployeesRead {
+		t.Fatalf("the narrowed token outside its scope: %d %s", w.Code, w.Body.String())
+	}
+	var grantScopes []string
+	if err := r.owner.QueryRow(ctx, `SELECT scopes FROM oauth_grants WHERE id = $1`, c.grant).Scan(&grantScopes); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(grantScopes, oauth.ScopeEmployeesRead) {
+		t.Fatalf("CONTROL: the grant's scopes %v lack employees:read", grantScopes)
+	}
+	if w := r.do(http.MethodGet, "/v1/employees", c.raw, ""); w.Code != http.StatusOK {
+		t.Fatalf("CONTROL: the first (grant-wide) access token: %d %s", w.Code, w.Body.String())
 	}
 }

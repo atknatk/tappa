@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/oauth"
@@ -142,6 +144,13 @@ func (s *Surface) resolveAccess(w http.ResponseWriter, r *http.Request, c oauth.
 		return apikey.Principal{}, false
 	}
 	res.Refund()
+	if a.GrantID == uuid.Nil {
+		// An accepted token that names no grant is the resolver's fault, not a credential: never a
+		// principal (it would be neither a key nor a grant -- apikey.Principal.Full fails closed on it,
+		// and this refuses it before it gets that far).
+		s.unavailable(w, r, "the access token resolved to no grant", errors.New("zero grant id"))
+		return apikey.Principal{}, false
+	}
 	if n := s.byGrant.Charge(a.GrantID.String()); n > s.byGrant.Limit() {
 		writeProblem(w, rateLimited(s.byGrant.Period()))
 		return apikey.Principal{}, false

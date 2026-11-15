@@ -415,7 +415,8 @@ başlayan bir test durumu olmalı.
   üyeliği: `holdings`, `holding_members`, yazarı yalnız `op_*` — ADR 0027 — ve panel
   yöneticisinin kimliği: `admin_identities`, `admin_identity_resets`,
   `admin_identity_verifications`, `admin_signup_claims`, `admin_identity_events`, yazarı
-  yalnız `identity_*` — ADR 0031): R5
+  yalnız `identity_*` — ADR 0031 — ve OAuth uygulama kaydı: `oauth_clients`, yazarı
+  yalnız `op_*` — ADR 0047): R5
   muafiyetiyle **görünür** (`scripts/redline-check.sh`), `tappa_app`'tan **açık**
   `REVOKE ALL` (dev/prod varsayılan yetkileri yeni tabloya yetki verir — ölçüldü),
   `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`

@@ -245,6 +245,13 @@ func TestRequestID_AKeyShapedIDIsReplaced(t *testing.T) {
 		{"a signing key", "tt" + "_whsec_" + body, false},
 		{"a live key in capitals", "TT" + "_LIVE_" + body, false},
 		{"a live key after a prefix", "req-tt" + "_live_" + body[:20], false},
+		// Issue #37 (ADR 0047 §7.1, §7.4): the OAuth values' prefixes -- an access token is 54
+		// characters of this very set and fit; none of them contains tt_live_ or tt_test_.
+		{"an access token", "tt" + "_at_live_" + body, false},
+		{"a refresh token", "tt" + "_rt_live_" + body, false},
+		{"an authorization code", "tt" + "_ac_live_" + body, false},
+		{"a client secret", "tt" + "_cs_live_" + body, false},
+		{"a sandbox access token", "tt" + "_at_test_" + body, false},
 		{"CONTROL: the same characters, no prefix", "tt_xyz_" + body, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

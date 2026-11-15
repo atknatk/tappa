@@ -1,6 +1,6 @@
 # Taptime entegrasyon API'si — entegrasyon rehberi
 
-Rehber 4. baskı (2026-11-14), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
+Rehber 5. baskı (2026-11-15), API sürüm 1 için. Bu rehberi API'nin kendisi, anahtarsız,
 `GET /v1/guide.tr.md` adresinde sunar; asıl metin olan İngilizcesi — bölüm bölüm aynı belge —
 `GET /v1/guide.md` adresindedir. Makinenin okuduğu sözleşme `GET /v1/openapi.yaml` adresindeki
 OpenAPI 3.1 belgesidir; bu rehber onu açıklar ve ikisinin aynı şeyi söylediği her yerde ikisi
@@ -24,7 +24,8 @@ gerçek servise karşı koşturulmuş tek bir hikâyeden gelir.
 - [10. Webhook'lar](#webhooks)
 - [11. Askıya alma](#suspension)
 - [12. Sözleşme farkları](#differences)
-- [13. Bu rehberdeki değişiklikler](#changes)
+- [13. OAuth ile bağlanan uygulamalar](#oauth)
+- [14. Bu rehberdeki değişiklikler](#changes)
 
 <a id="overview"></a>
 ## 1. Genel bakış
@@ -74,7 +75,8 @@ Valletta'sında vardiya yapan bir KM çalışanı orada KF'nin plaketine dokunur
 API'nin kendine ait bir host'u vardır: OpenAPI belgesindeki `servers` adresi. Her yol `/v1`
 altındadır. Aşağıdaki örnekler bu adresi `$TAPTIME_API`, anahtarı `$TAPTIME_KEY` olarak yazar;
 bunlar yer tutucudur, değer değildir. Taptime'ın başka hiçbir host'unda `/v1` yoktur (404) ve API
-host'u `/v1` dışında hiçbir şeye cevap vermez (404). API çerez koymaz, çerez okumaz.
+host'u `/v1` dışında hiçbir şeye cevap vermez (404). API çerez koymaz, çerez okumaz. OAuth ile
+bağlanan bir uygulama üç uç için Taptime'ın kendi adresini de kullanır — bkz. [bölüm 13](#oauth).
 
 <a id="overview-sandbox"></a>
 ### 1.4 Sandbox
@@ -130,7 +132,8 @@ onun için taşıdığı `punchId`'yi ve dokunuşun şu an bir punch olup olmad�
 - Webhook'u yönetmez: uç nokta, adresi ve imza anahtarı işletme sahibinindir, Taptime panelindedir.
 - Lokasyonun kendi saat dilimi yoktur: her lokasyonun saat dilimi işletmeninkidir.
 - Bir ortak şirket, başka bir şirketin çalışanının punch'ını onaylayamaz.
-- OAuth yoktur: tek kimlik bilgisi anahtardır.
+- Kimlik bilgileri işletmenin anahtarları ve bir işletmenin OAuth ile bağladığı uygulamaların erişim
+  tokenlarıdır ([bölüm 13](#oauth)); başkası yoktur.
 
 <a id="auth"></a>
 ## 2. Kimlik doğrulama ve anahtarlar
@@ -142,6 +145,10 @@ API bir işletme için ancak Taptime onu o işletme için açtıktan (ve şirket
 çalışır. O zamana kadar — ve Taptime kapatırsa yeniden — geçerli anahtarlı her istek
 **403 `api_disabled`** alır ve işletmenin webhook'u hiçbir şey göndermez; işletmenin punch'ları
 akışında kaydedilmeye devam eder. API kapalıyken işletme sahibi anahtar oluşturamaz.
+
+**OAuth ile bağlanan bir uygulama ([bölüm 13](#oauth)) bu adımı gerektirmez**: erişim tokenı, API'sini
+Taptime'ın hiç açmadığı bir işletme için de çalışır. Taptime bir işletmenin API'sini kapatmışsa bir token
+da **403 `api_disabled`** alır ([13.9](#oauth-api)).
 
 <a id="auth-keys"></a>
 ### 2.2 Anahtarlar
@@ -165,9 +172,9 @@ Authorization: Bearer <key>
 - **`X-Request-Id`'ye asla bir anahtar ya da başka bir sır koymayın.** Taptime gönderdiğiniz
   `X-Request-Id`'yi isteğin kimliği olarak log'larına yazabilir: her karakteri `A`–`Z`,
   `a`–`z`, `0`–`9`, `-`, `_` ve `.` kümesinden olan, 1 ile 64 karakter arası ve `tt_live_`,
-  `tt_test_` ve `tt_whsec_`'in hiçbirini içermeyen (harf büyüklüğüne bakılmadan) bir değer. Böyle
+  `tt_test_`, `tt_whsec_`, `tt_cs_`, `tt_ac_`, `tt_at_` ve `tt_rt_`'nin hiçbirini içermeyen (harf büyüklüğüne bakılmadan) bir değer. Böyle
   bir değer olduğu gibi yazılır — öneki olmadan bir anahtarın karakterleri dahil. Başka her değer —
-  daha uzun, başka bir karakterli ya da üç önekten birini taşıyan — Taptime'ın kendi kimliğiyle
+  daha uzun, başka bir karakterli ya da bu öneklerden birini taşıyan — Taptime'ın kendi kimliğiyle
   değiştirilir: kimliğinizi Taptime desteğiyle eşleştirmek istiyorsanız kümeye ve uzunluğa uyun.
 
 Bir işletmenin birden çok anahtarı olabilir (sistem başına bir anahtar iyi bir kuraldır). Her
@@ -177,7 +184,7 @@ bkz. [bölüm 3.3](#idempotency) ve [bölüm 3.4](#rate-limits).
 <a id="auth-business"></a>
 ### 2.3 İşletme
 
-`GET /v1/business` anahtarın adına iş yaptığı işletmeyi döndürür: `id` (`biz_` ve bir UUID), `name` ve
+`GET /v1/business` anahtarın — ya da OAuth tokenının, [bölüm 13.9](#oauth-api) — adına iş yaptığı işletmeyi döndürür: `id` (`biz_` ve bir UUID), `name` ve
 `companyCode` — Taptime'ın API'yi açarken verdiği şirket kodu, bir punch'ın `company` olarak taşıdığı
 değerin aynısı. Sorgu parametresi almaz ve işletme askıdayken de açıktır.
 
@@ -209,7 +216,7 @@ OpenAPI belgesinin her işlemi, cevaplayabildiği kodları tam olarak `x-error-c
 |---|---|---|
 | `invalid_request` | 400 | Sözleşmenin reddettiği bir parametre, başlık ya da gövde. |
 | `body_too_large` | 400 | İstek gövdesi 65536 bayttan büyük. |
-| `unauthorized` | 401 | Anahtar yok ya da geçerli değil. |
+| `unauthorized` | 401 | Anahtar ya da erişim tokenı yok ya da geçerli değil (süresi dolmuş ya da iptal edilmiş bir token dahil). |
 | `api_disabled` | 403 | API bu işletme için açık değil. |
 | `tenant_suspended` | 403 | İşletme askıda ve bu değişiklik kabul edilmiyor. |
 | `insufficient_scope` | 403 | OAuth ile bağlanmış bir uygulama, bağlantısının kapsamadığı bir rotayı çağırdı (`details.scope`). Anahtar bu kodu hiç almaz. |
@@ -303,11 +310,15 @@ yeniden kullanılabilir.
 | İstemci adresi başına dakikada istek | 1200 |
 | Anahtar başına dakikada istek | 600 |
 | Anahtar başına saatte pasifleştirme | 20 |
+| OAuth bağlantısı başına dakikada istek | 600 |
+| OAuth uygulaması başına dakikada istek, bütün bağlantılarında | 6000 |
 
 Adres sınırı bir adresten gelen istekleri — üç belgeyi ve anahtarı doğru biçimli her isteği —
 anahtara daha bakılmadan sayar; anahtar sınırı bir anahtarın her adresten gelen isteklerini sayar. Birini aşınca: **429
 `rate_limited`**, `Retry-After` ile (saniye; bugün dakikanın tamamı). Başka hiçbir oran sınırı
 başlığı gönderilmez. Pasifleştirmelerin kendi bütçesi vardır — bkz. [bölüm 5.5](#employees-deactivate).
+Bir OAuth erişim tokenı da adres bütçesine sayılır ve kabul edildiğinde geri verilir; ardından onu
+bağlantının ve uygulamanın bütçeleri sayar — bkz. [bölüm 13.9](#oauth-api).
 
 <a id="limits"></a>
 ### 3.5 Sınırlar bir bakışta
@@ -318,6 +329,8 @@ Bunlar OpenAPI belgesinin `info.x-limits`'idir ve servisin kendi değerleridir.
 |---|---|---|
 | `requestsPerAddressPerMinute` | 1200 | İstemci adresi başına dakikada istek. |
 | `requestsPerKeyPerMinute` | 600 | Anahtar başına dakikada istek. |
+| `requestsPerGrantPerMinute` | 600 | OAuth bağlantısı başına dakikada istek. |
+| `requestsPerAppPerMinute` | 6000 | OAuth uygulaması başına dakikada istek, bütün bağlantılarında. |
 | `deactivationsPerKeyPerHour` | 20 | Anahtar başına saatte pasifleştirme. |
 | `maxBodyBytes` | 65536 | En büyük istek gövdesi. |
 | `defaultPageSize` | 500 | `limit`'siz bir sayfa. |
@@ -1338,6 +1351,9 @@ dokunmayan bir **yazma kilididir**:
 | dokunuşlar kaydedilir ve punch'lar akışa girer (bir grubunkiler de) | |
 | panelde: bir anahtarı iptal etmek, uç noktayı kapatmak | |
 
+Bir OAuth erişim tokenı ([bölüm 13](#oauth)) aynı tablonun altındadır. Yenilemesi ve iptali ile
+sahibin Disconnect'i işletme askıdayken açık kalır; yeni bir bağlantı açık değildir.
+
 <a id="differences"></a>
 ## 12. Sözleşme farkları
 
@@ -1375,8 +1391,254 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 30. Bir KF lokasyonunda başlayıp **bir KM plaketinde** biten bir KM vardiyasında KF (`scope=location`) yalnız **girişi** alır; çıkış bir KM lokasyonu punch'ıdır ve KM'nin iki kapsamında gelir. Her punch **işverende** kaydedilen `direction`'ı taşır (`in`/`out`); entegrasyonun onu hesaplaması gerekmez — yalnız `directionSource: employee` taşıyan bir punch kendinden önceki punch'la eşlenmez ([6.3](#feed-punch)). Lokasyonun şirketinin Taptime paneli bir grup çalışanının dokunuşlarını listeler ama sürelerini hesaplamaz ("süre işverende"). ([6.5](#feed-working-time))
 31. **`scope=location` ile çalışma süresi hesaplayan entegrasyon dikkat:** bir ortak şirketin çalışanının sizin lokasyonlarınızdaki punch'ları işverenin aradaki olaylarını (öbür şirketin plaketlerindeki dokunuşları) içermez; giriş ve çıkışı yalnız bu kapsamdan eşlemek süreyi **fazla** sayabilir. **Bu `direction` ile de geçerlidir:** her punch'ın yönü doğrudur, ama eksik olan **aradaki olaylardır** — sizin lokasyonunuzdaki bir `in`'in eşi orada hiç görünmeyebilir ya da başka bir lokasyonun `out`'u olabilir. Bir grup çalışanının süresi için işveren şirketin verisi (onun `employer` kapsamı) esastır. ([6.5](#feed-working-time))
 
+<a id="oauth"></a>
+## 13. OAuth ile bağlanan uygulamalar
+
+Bir anahtar ([bölüm 2.2](#auth-keys)), işletmenin kendi sistemi için kendi kimlik bilgisidir. **Birçok
+işletmeye hizmet veren bir uygulama** — örneğin bir bordro servisi — onların her birine bunun yerine
+OAuth 2.0 ile bağlanır: işletmenin sahibi uygulamayı Taptime panelinde onaylar ve uygulama, o tek
+işletme adına, sahibin onayladığı kapsamların rotalarında iş yapan bir erişim tokenı alır. 3 ile 11
+arasındaki bölümlerde yazılı her şey bir token için de bir anahtar için olduğu gibi geçerlidir; farklar
+bu bölümde adıyla yazılıdır.
+
+Uygulama iki adresle konuşur: `/v1` için API'nin host'u (`$TAPTIME_API`, [bölüm 1.3](#overview-host))
+ve üç OAuth ucu `/oauth/authorize`, `/oauth/token` ve `/oauth/revoke` için **Taptime'ın kendi
+adresi** — API'nin değil, panelin host'u. Örnekler bu adresi `$TAPTIME_OAUTH` diye yazar; OpenAPI
+belgesinin `oauth` güvenlik şeması üç URL'yi adıyla verir.
+
+<a id="oauth-register"></a>
+### 13.1 Kayıt
+
+Uygulamayı Taptime kaydeder — kendi kendine kayıt yoktur. Taptime'a uygulamanın adını, dönüş
+adreslerini (her biri `https://`, sorgusuz, parçasız) ve gereken kapsamları ([13.2](#oauth-scopes))
+bildirin. Şunları alırsınız:
+
+- bir `client_id`: `app_` ve bir UUID. Sır değildir; yetkilendirme URL'sinde dolaşır.
+- bir client secret: `tt_cs_live_` ve ardından 43 base64url karakter. **Bir kez** gösterilir; onu
+  sunucunuzda tutun, başka hiçbir yerde değil. Taptime istek üzerine onu değiştirebilir: eski secret bir
+  sonraki istekten itibaren reddedilir, önceden verilmiş tokenlar çalışmaya devam eder.
+
+Bir dönüş adresi kayıtlı birine **bayt bayt** uymalıdır: sona `/` eklenmez, harf büyüklüğü, port
+farklı olmaz, `www.` varyantı olmaz. Uygulama başka bir host'ta da hizmet veriyorsa o adresin de
+kaydedilmesini isteyin.
+
+<a id="oauth-scopes"></a>
+### 13.2 Kapsamlar
+
+| Kapsam | Açtığı |
+|---|---|
+| `timesheets:read` | `GET /v1/timesheets` |
+| `employees:read` | `GET /v1/employees`, `GET /v1/employees/{ref}`, `GET /v1/directory` |
+| `employees:write` | `PUT /v1/employees/{ref}`, `DELETE /v1/employees/{ref}`, `POST /v1/employees/{ref}/resend-activation` |
+| `locations:write` | `PUT /v1/locations/{ref}` |
+| `punches:read` | `GET /v1/punches` (akış ve geçmiş sorgusu) |
+
+- **Hiçbir kapsam bir başkasını içermez**: `employees:write`, `GET /v1/employees`'u açmaz.
+- `GET /v1/business` her kapsamdan bir tokena açıktır ([13.9](#oauth-api)).
+- Tokenın kapsamlarının açmadığı bir rota **403 `insufficient_scope`**'tur: `details.scope` rotanın
+  gerektirdiği kapsamdır ve başlık
+  `WWW-Authenticate: Bearer realm="taptime", error="insufficient_scope", scope="<scope>"`'tur.
+  Bir anahtar onu hiç almaz.
+- OAuth kapsamı, punch akışının `scope` parametresi (`employer` ya da `location`,
+  [bölüm 6.2](#feed-scopes)) değildir: `GET /v1/punches?scope=employer` OAuth kapsamı `punches:read`'i ister.
+
+<a id="oauth-authorize"></a>
+### 13.3 Yetkilendirme isteği
+
+Sahibin tarayıcısını `$TAPTIME_OAUTH/oauth/authorize`'a şu sorgu parametreleriyle gönderin, her biri
+en çok bir kez:
+
+| Parametre | Değer |
+|---|---|
+| `response_type` | `code` |
+| `client_id` | sizin `client_id`'niz |
+| `redirect_uri` | **zorunlu**; kayıtlı adreslerinizden biri, bayt bayt |
+| `scope` | **zorunlu**; boşlukla ayrık, uygulama için kaydedilmiş kapsamların bir alt kümesi |
+| `state` | isteğe bağlı; en çok 1024 bayt yazdırılabilir ASCII; değişmeden geri gelir |
+| `code_challenge` | `code_verifier`'ınızın base64url SHA-256'sı, 43 karakter |
+| `code_challenge_method` | `S256` — zorunlu; `plain` reddedilir |
+
+Taptime panelindeki onay sayfasına `303` ile yanıt verir ([13.4](#oauth-consent)); tarayıcı izler.
+
+Tarayıcı Taptime'ın hata sayfasında kalır ve **hiçbir adrese hiçbir şey gönderilmez**: sorgu dizesi
+ayrıştırılamıyorsa; `client_id` eksik, tekrarlanmış, biçimsiz, bilinmiyor ya da kapatılmışsa; ya da
+`redirect_uri` eksik, tekrarlanmış ya da uygulama için kayıtlı değilse. Başka her sorun — başka bir
+parametrenin eksik, tekrarlanmış ya da biçimsiz olması, uygulamanın isteyemeyeceği bir kapsam —
+`redirect_uri`'nize `error` olarak (`invalid_request`, `unsupported_response_type` ya da `invalid_scope`), `iss`
+ve `state`'iniz ile geri gönderilir — ama yalnız geçerli bir `state`: tekrarlanmış, çok uzun ya da
+yazdırılabilir ASCII dışında olanı `invalid_request` olarak `state`'siz döner; sahip karar verirken
+Taptime'ın tutamayacağı kadar büyük bir istek de öyle.
+
+`redirect_uri`'nize gelen her yanıt `iss` taşır (RFC 9207): bir `code`'u kullanmadan önce onun
+`$TAPTIME_OAUTH` olduğunu ve `state`'in sizin gönderdiğiniz olduğunu denetleyin. `code_verifier`'ı — ve
+sonra refresh tokenını — yalnız sunucunuzda, kullanıcının oradaki oturumuna bağlı tutun; ikisini de
+tarayıcıya vermeyin.
+
+<a id="oauth-consent"></a>
+### 13.4 Onay
+
+- İşletmenin **yalnız aktif bir sahibi** onaylar. Sayfa uygulamayı, işletmeyi ve tarayıcının döneceği
+  host'u adıyla yazar. Bir yönetici, askıdaki bir işletme ve entegrasyonlarını Taptime'ın kapattığı bir
+  işletme "Allow" görmez, yalnız uygulamaya "Back to" düğmesini görür; o
+  `error=access_denied` ile yanıt verir.
+- Bağlantı **tek bir işletme** içindir — sahibin oturum açtığı işletme. Sayfa, kişinin sahibi olduğu ve
+  askıda olmayan öteki işletmelerini listeler; onaylamadan önce birine geçebilir.
+- Sahip uygulamanın istediği kapsamları onaylar, hepsini ya da hiçbirini ("Don't allow" —
+  `error=access_denied`).
+- Sayfa isteği **10 dakika** tutar: onayı bu süre içinde verin (aradaki bir oturum açma dahil), yoksa
+  uygulamadan yeniden başlayın.
+- Bir işletmenin **uygulama başına tek bağlantısı** vardır: yeni bir onay ve onun kod takası önceki
+  bağlantının yerine geçer ve öncekinin bütün tokenları iptal edilir.
+
+"Allow" ile tarayıcı `code`, `state` ve `iss` ile `redirect_uri`'ye gider.
+
+<a id="oauth-token"></a>
+### 13.5 Kod takası
+
+`POST $TAPTIME_OAUTH/oauth/token`, form gövdesi (`application/x-www-form-urlencoded`), istemci
+**HTTP Basic** ile kimliğini doğrular (`client_id` ve client secret):
+
+```sh
+curl -sS -X POST "$TAPTIME_OAUTH/oauth/token" \
+  --user "$TAPTIME_CLIENT_ID:$TAPTIME_CLIENT_SECRET" \
+  --data-urlencode grant_type=authorization_code \
+  --data-urlencode "code=$CODE" \
+  --data-urlencode "code_verifier=$CODE_VERIFIER" \
+  --data-urlencode "redirect_uri=https://app.example.com/callback"
+```
+
+- `code_verifier`: `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_` ve `~` karakterlerinden 43 ile 128 karakter (RFC 7636).
+- `redirect_uri` gönderilmeyebilir; gönderilirse yetkilendirme isteğindekiyle bayt bayt aynı olmalıdır.
+- Gövdede de `client_id`, Basic'teki olduğunda kabul edilir; gövdede bir `client_secret`
+  `invalid_request`'tir.
+- Bir kod **60 saniye** yaşar ve **ilk** sunumunda harcanır, başarısız bir sunum dahil. Harcanmış bir
+  kodu yeniden sunmak, onun kurduğu bağlantıyı iptal eder: bir kodu bir kez takas edin, yanıt kaybolursa
+  yetkilendirme isteğinden yeniden başlayın.
+- Takasta bir kod ayrıca, onaydan bu yana işletme askıya alınmışsa, Taptime entegrasyonlarını kapatmışsa
+  ya da onaylayan kişi artık aktif sahibi değilse reddedilir (`invalid_grant`).
+
+Yanıt (`200`, `Cache-Control: no-store`):
+
+```json
+{"access_token": "tt_at_live_…", "token_type": "Bearer", "expires_in": 3599,
+ "refresh_token": "tt_rt_live_…", "scope": "employees:read employees:write timesheets:read"}
+```
+
+`scope` erişim tokenının kapsamlarıdır, boşlukla ayrık, Taptime'ın bir sırasıyla; `expires_in` erişim
+tokenının kalan saniyeleridir (bir saat, eksi yanıtın sürdüğü zaman).
+
+<a id="oauth-refresh"></a>
+### 13.6 Yenileme
+
+`POST $TAPTIME_OAUTH/oauth/token`, `grant_type=refresh_token` ve `refresh_token` ile, istemci yukarıdaki
+gibi doğrulanır. `scope` isteğe bağlıdır: bağlantının kapsamlarının bir alt kümesi yalnız o alt kümenin
+erişim tokenını verir (yeni refresh tokenı bağlantınınkini korur); boş ya da daha geniş bir `scope`
+`invalid_scope`'tur.
+
+- **Her yenileme yeni bir çift döndürür.** Gönderdiğiniz refresh tokenı tükenir: her zaman en yeni
+  refresh tokenını saklayın. Önceki erişim tokenı süresi dolana dek çalışır.
+- **30 saniye içinde bir yeniden deneme** — aynı kullanılmış refresh tokenı, ilk kullanımından sonraki
+  30 saniye içinde yeniden — yeni bir çift döndürür ve bağlantının öteki bütün tokenlarını iptal eder:
+  yanıtı kaybolan bir yenileme kaybolmuş olmaz.
+- **Bundan sonra** aynı kullanılmış refresh tokenı **bağlantıyı iptal eder** (`invalid_grant`): sahibin
+  uygulamayı yeniden onaylaması gerekir.
+- Tek bir refresh tokenıyla aynı anda iki yenileme göndermeyin. Bir zaman aşımından sonra bağlantıyı
+  kapatın, **en az 10 saniye** bekleyin (ucun bir istek için kendi sınırı) ve ilk istekten sonraki 30
+  saniye içinde yeniden deneyin.
+- **90 gün** kullanılmayan bir refresh tokenı ölür; sahibin uygulamayı yeniden onaylaması gerekir.
+- Refresh tokenını yalnız sunucunuzda, bağlantıya bağlı tutun; tarayıcıya asla vermeyin.
+- Yenileme, işletme askıdayken ve Taptime entegrasyonlarını kapatmışken de çalışır.
+
+<a id="oauth-revoke"></a>
+### 13.7 İptal
+
+`POST $TAPTIME_OAUTH/oauth/revoke` (RFC 7009), istemci yukarıdaki gibi doğrulanır, form gövdesi
+`token=…` (`token_type_hint` kabul edilir ve gerekmez: önek hangi token olduğunu söyler).
+
+- Bir **refresh tokenı** bağlantıyı bitirir: onun her tokenını, bir sonraki istekten itibaren.
+- Bir **erişim tokenı** yalnız o tokenı bitirir. Bağlantıyı koparmak için refresh tokenını iptal edin.
+- Yanıt gövdesiz `200`'dür — bilinmeyen ya da zaten iptal edilmiş bir token için de, hiçbir şey
+  yapılmayan başka bir uygulamanın tokenı için de.
+
+<a id="oauth-lifetimes"></a>
+### 13.8 Ömürler
+
+| Değer | Önek | Ömür |
+|---|---|---|
+| yetki kodu | `tt_ac_live_` | 60 saniye, tek sunum |
+| erişim tokenı | `tt_at_live_` | 1 saat |
+| refresh tokenı | `tt_rt_live_` | her yenilemede değişir; 90 gün kullanılmazsa ölür |
+| client secret | `tt_cs_live_` | Taptime değiştirene dek |
+| bekleyen onay isteği | — | 10 dakika |
+
+Bir iptal, bir bağlantı kopması ve Taptime'ın uygulamayı kapatması bir sonraki istekte geçerlidir:
+hiçbir şey önbelleğe alınmaz. Bu değerlerin her birini log'lardan, URL'lerden ve `X-Request-Id`'den
+uzak tutun ([bölüm 2.2](#auth-keys)).
+
+<a id="oauth-api"></a>
+### 13.9 API'yi tokenla çağırmak
+
+Erişim tokenını bir anahtar gibi gönderin: `Authorization: Bearer <token>`, `$TAPTIME_API`'de.
+
+- `GET /v1/business` tokenın adına iş yaptığı işletmeyi adıyla verir — bağlantıyı altında tutacağınız
+  `id`. `companyCode`'u `null` olabilir: Taptime onu işletmenin API'sini açarken yazar ve bir işletme
+  bir uygulamaya bu olmadan da bağlanabilir ([2.1](#auth-enable)).
+- Süresi dolmuş ya da iptal edilmiş bir token, kopmuş bir bağlantı ya da Taptime'ın kapattığı bir
+  uygulama: **401 `unauthorized`**, `WWW-Authenticate: Bearer realm="taptime", error="invalid_token"`
+  ile. Yenileyin — yenileme `invalid_grant` ise sahibin uygulamayı yeniden onaylaması gerekir.
+- Entegrasyonlarını Taptime'ın kapattığı bir işletme: **403 `api_disabled`**. Bağlantı kalır: yenileme
+  yine çalışır ve Taptime onları yeniden açınca aynı tokenlar çalışır.
+- **Bir holding ortağının verisi tokenla hiç gelmez** ([1.2](#overview-companies)): rehber yalnız
+  işletmenin kendi çalışanlarını listeler, akış ve geçmiş sorgusu yalnız işletmenin kendi punch'larını
+  taşır — grubun şirketleri arasındaki bir punch iki kapsamda da dışarıda kalır. Çizelge zaten
+  işletmenin kendi çalışanlarınındır. Bir anahtarla yanıtlar 6 ile 8 arasındaki bölümlerin dediği gibidir.
+- Oran sınırları ([3.4](#rate-limits)): bir token istemci adresinin bütçesine bir anahtar gibi sayılır ve
+  kabul edildiğinde geri verilir — kabul edilen bir token bunun yerine bağlantı başına (dakikada 600) ve
+  bütün bağlantılarında uygulama başına (dakikada 6000) sayılır. Reddedilen tokenlar adresin bütçesini
+  harcar.
+- Bir yazmanın pasifleştirme bütçesi ve Idempotency-Key'leri, bir anahtarınkiler onun kendisinin olduğu
+  gibi, bağlantının kendisinindir. `employees:write` bir tokenın istediği aktivasyon e-postası, Taptime
+  işletmenin API'sini açmamış olsa da gönderilir.
+- Bir askı ([bölüm 11](#suspension)) bir tokenın yazmalarını bir anahtarınkileri kapattığı gibi kapatır.
+
+Sandbox'ta ([1.4](#overview-sandbox)) değerler `_live_` yerine `_test_` ile başlar (`tt_at_test_` vb.)
+ve orada kaydedilen bir uygulama bir loopback dönüş adresi de kullanabilir — `http://`, ardından
+loopback adı ya da IPv4 loopback adresi (IPv6 olanı değil), ardından bir port — yine bayt bayt eşleşir.
+Prod her loopback dönüş adresini reddeder. POST /v1/sandbox/taps bir tokena açık değildir (403
+`insufficient_scope`): bir dokunuşu işletmenin `tt_test_` anahtarıyla simüle edin.
+
+<a id="oauth-disconnect"></a>
+### 13.10 Bağlantıyı koparmak
+
+İşletmenin sahibi bağlantıyı Taptime panelinde **API keys → Connected apps** altında görür:
+uygulamayı, kapsamlarını, ne zaman ve kimin bağladığını ve en son ne zaman kullanıldığını. İşletmenin
+herhangi bir sahibi onu **Disconnect** edebilir — tokenlarıyla bir sonraki istek 401'dir. Bağlantı
+onaylayan kişinin değil, işletmenindir: o kişi ayrıldığında da çalışmaya devam eder. Taptime bir
+uygulamayı bütün işletmeler için kapatabilir: tokenları 401'dir ve token ucu `invalid_client` yanıtını verir.
+
+<a id="oauth-errors"></a>
+### 13.11 OAuth uçlarının hataları
+
+`/oauth/token` ve `/oauth/revoke`, `/v1`'inkini **değil**, RFC 6749'un hata biçimini döndürür: bir JSON
+gövde `{"error": "<code>", "error_description": "<a fixed sentence>"}`. `error`'a göre davranın; açıklama
+bir kişi için değil, log'larınız içindir. İki ucun kendi bütçesi vardır: istemci adresi başına dakikada 60
+istek (istemcisi reddedilen bir istek yerini korur) ve kimlik bilgileri kabul edildiğinde uygulama
+başına dakikada 600.
+
+| `error` | Durum | Ne zaman |
+|---|---|---|
+| `invalid_request` | 400 | eksik, tekrarlanmış ya da biçimsiz bir parametre; Basic ile gövdedeki bir kimlik bilgisi uyuşmuyor |
+| `invalid_client` | 401 | istemci bilinmiyor, kapatılmış ya da secret yanlış (`WWW-Authenticate: Basic realm="taptime"`) |
+| `invalid_grant` | 400 | kod ya da refresh tokenı bilinmiyor, süresi dolmuş, harcanmış, iptal edilmiş ya da başka bir uygulamanın; `code_verifier` ya da `redirect_uri` uyuşmuyor; kod takasında: işletme askıda, Taptime entegrasyonlarını kapatmış ya da onaylayan artık aktif sahibi değil |
+| `unsupported_grant_type` | 400 | `authorization_code` ve `refresh_token` dışında bir `grant_type` |
+| `invalid_scope` | 400 | bir yenilemenin `scope`'u boş, bilinmeyen ya da bağlantınınkinden geniş |
+| `temporarily_unavailable` | 429 | çok fazla istek — `Retry-After` ile |
+| `temporarily_unavailable` | 503 | Taptime tarafında bir arıza; sonra yeniden deneyin |
+
+`temporarily_unavailable` bu uç için RFC 6749'un kümesinde yoktur: HTTP durumuna da bakın.
+
 <a id="changes"></a>
-## 13. Bu rehberdeki değişiklikler
+## 14. Bu rehberdeki değişiklikler
 
 | Baskı | Tarih | Değişiklikler |
 |---|---|---|
@@ -1384,3 +1646,4 @@ Taptime'ın, bir entegrasyonun varsayabileceğinden farkları. Her madde açıkl
 | 2 | 2026-10-18 | §1.4 sandbox'ı anlatır: `tt_test_` anahtarlar, kendi operatörü, e-posta yok ve dokunuş simülasyonu (alan adı henüz seçilmedi). |
 | 3 | 2026-10-22 | §6.3: bir punch `directionSource`'u (`auto` \| `employee` \| `null`) taşır — `direction`'ı kimin: Taptime'ın dokunuş anında hesapladığı yön mü, değil mi. Örnekler ve imzanın bilinen cevabı onu taşır. §3: sürüm 1 içinde yanıtlara ve webhook gövdelerine alan eklenebilir — tanımadığınızı yok sayın. 1. ve 2. baskının yanıt şemaları kapalıydı (`additionalProperties: false`); bu baskı bütün yanıt ve webhook şemalarını açar; istek gövdeleri kapalı kalır. |
 | 4 | 2026-11-14 | §9 yeni: `GET /v1/timesheets`, işletmenin kendi çalışanlarının bir bordro dönemindeki sayılan çalışma süresi, yerel gün gün — Taptime'ın kendi raporunun rakamları. 9 ile 12 arasındaki bölümler artık 10 ile 13 arasıdır. §3.1: `details.maxDays`; §3.5: `timesheetMaxDays`. |
+| 5 | 2026-11-15 | §13 yeni: OAuth ile bağlanan uygulamalar — kayıt, yetkilendirme isteği ve onay, kod takası, yenileme, iptal, kapsamlar, `GET /v1/business` ve tokenla `/v1`'de değişenler; "Bu rehberdeki değişiklikler" artık §14'tür. §2.2: `X-Request-Id` OAuth öneklerini de reddeder. §3.4, §3.5: `requestsPerGrantPerMinute`, `requestsPerAppPerMinute`. §1.5: API'de OAuth vardır. |

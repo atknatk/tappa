@@ -203,6 +203,11 @@ func RequestID(next http.Handler) http.Handler {
 	})
 }
 
+// credentialPrefixes are the credential shapes a request id may not carry, in lower case (the
+// comparison folds case): an integration key's two, the webhook signing key's, and the four OAuth
+// values' -- a client secret, a code, an access token and a refresh token (issue #37, ADR 0047 §7.1).
+var credentialPrefixes = []string{"tt_live_", "tt_test_", "tt_whsec_", "tt_cs_", "tt_ac_", "tt_at_", "tt_rt_"}
+
 // acceptableRequestID reports whether an inbound value may be carried into the log.
 //
 // The character set is ASCII letters, digits, '-', '_' and '.'. It is a positive
@@ -220,16 +225,24 @@ func RequestID(next http.Handler) http.Handler {
 // taşımaz"). An integration key -- tt_live_ / tt_test_ and 43 base64url characters -- and a webhook
 // signing key (tt_whsec_) are made of exactly this character set and fit in MaxRequestIDLen, so a
 // client that put its key into X-Request-Id would have it written on every record of its requests.
-// A value carrying one of the three prefixes, in any case, is replaced like any other unacceptable
-// value (TestRequestID_AKeyShapedIDIsReplaced). ⚠️ THE MECHANISM IS THE PREFIX AND NOTHING MORE: a
-// key's 43-character body sent WITHOUT its prefix is an ordinary acceptable id and is carried
-// (measured -- the test's CONTROL row); telling it apart from a proxy's id would take a guess.
+// A value carrying one of credentialPrefixes, in any case, is replaced like any other unacceptable
+// value (TestRequestID_AKeyShapedIDIsReplaced). The OAuth values (issue #37, ADR 0047 §7.4) are of
+// the same set and fit -- an access token is 54 characters -- and contain neither tt_live_ nor
+// tt_test_: before their four prefixes were added, an access token in X-Request-Id was logged as it
+// is (measured).
+//
+// ⚠️ THE MECHANISM IS THE PREFIX AND NOTHING MORE: a key's 43-character body sent WITHOUT its prefix
+// is an ordinary acceptable id and is carried (measured -- the test's CONTROL row); telling it apart
+// from a proxy's id would take a guess.
 func acceptableRequestID(v string) bool {
 	if v == "" || len(v) > MaxRequestIDLen {
 		return false
 	}
-	if l := strings.ToLower(v); strings.Contains(l, "tt_live_") || strings.Contains(l, "tt_test_") || strings.Contains(l, "tt_whsec_") {
-		return false
+	l := strings.ToLower(v)
+	for _, p := range credentialPrefixes {
+		if strings.Contains(l, p) {
+			return false
+		}
 	}
 	for i := 0; i < len(v); i++ {
 		switch c := v[i]; {

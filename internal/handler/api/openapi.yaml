@@ -10,10 +10,21 @@ info:
     The integration guide explains the whole contract in prose, with the story these examples come
     from: GET /v1/guide.md (English) and GET /v1/guide.tr.md (Turkish), on this host, without a key.
 
-    Authentication: every request but the three documents carries `Authorization: Bearer <key>`, a
-    key the business's owner issues in the Taptime panel. The API must also be enabled for the
-    business by Taptime; until then a valid key is answered 403 `api_disabled`. The key's business is
-    the only business a request reads or writes -- no request names a business.
+    Authentication: every request but the three documents carries `Authorization: Bearer <credential>`,
+    one of two credentials (each operation's `security` lists them as alternatives):
+    - an integration key (`bearer`), which the business's owner issues in the Taptime panel. It opens
+      every operation. The API must also be enabled for the business by Taptime; until then a valid
+      key is answered 403 `api_disabled`.
+    - an OAuth 2.0 access token (`oauth`) of an app Taptime registered, which the business's owner
+      connected in the panel (Authorization Code with PKCE S256 and a confidential client: the
+      `oauth` scheme's flow; the guide's section 13 explains it). It opens the operations of its
+      scopes alone -- any other is 403 `insufficient_scope` with `details.scope` the scope the
+      operation needs -- and the business's own data alone, never a holding partner's. An expired or
+      revoked token is 401 with `WWW-Authenticate: Bearer realm="taptime", error="invalid_token"`.
+      Taptime need not enable the API for a connection, but a business whose API Taptime turned off
+      answers a token 403 `api_disabled` too.
+    The credential's business is the only business a request reads or writes -- no request names a
+    business.
 
     Errors: every refusal is a JSON body `{code, message, details}` (the `Error` schema). Each
     operation lists the codes it can answer in `x-error-codes`. A 429 carries `Retry-After`
@@ -21,7 +32,10 @@ info:
 
     Rate limits (`x-limits`): per client address 1200 requests a minute -- the documents and every
     request with a well-formed key, counted before the key is looked up -- and per key 600 a minute;
-    over either, 429 `rate_limited` with `Retry-After`. No other rate-limit header is sent.
+    over either, 429 `rate_limited` with `Retry-After`. A well-formed access token is counted on the
+    same address budget and given back when it is accepted; an accepted token is counted per
+    connection (600 a minute) and per app across its connections (6000 a minute) instead. No other
+    rate-limit header is sent.
     Deactivations have a budget of their own (20 per key per hour, 429 `deactivation_budget_exceeded`).
 
     Idempotency: a write may carry `Idempotency-Key` (1-255 visible ASCII characters). A retry with
@@ -48,6 +62,8 @@ info:
   x-limits:
     requestsPerAddressPerMinute: 1200
     requestsPerKeyPerMinute: 600
+    requestsPerGrantPerMinute: 600
+    requestsPerAppPerMinute: 6000
     deactivationsPerKeyPerHour: 20
     maxBodyBytes: 65536
     defaultPageSize: 500
@@ -157,7 +173,10 @@ paths:
         A PUT sends the whole location: `name` and `active` every time. Its two optional fields hold
         nothing of their own (`timezone` is the business's, `externalRef` the path's), so leaving
         them out changes nothing.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, insufficient_scope, not_found, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["locations:write"]
       parameters:
         - $ref: "#/components/parameters/LocationRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -220,7 +239,10 @@ paths:
         employees is the last, and its `nextCursor` is null). No other query parameter is accepted,
         each at most once, and a query string that does not parse is 400 too. No answer carries an e-mail address: `hasEmail` says whether there is one,
         `activationEmail` the activation e-mail's state and time.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:read"]
       parameters:
         - $ref: "#/components/parameters/Limit"
         - name: cursor
@@ -271,7 +293,10 @@ paths:
         deactivated one (a re-hire is a new employee under the same reference). 404 when the business
         never held the reference. No e-mail address is answered. It takes no query parameter -- any
         is 400 (`details.allowed` empty).
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, not_found, validation_failed, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, not_found, validation_failed, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:read"]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
       responses:
@@ -345,7 +370,10 @@ paths:
         request that lands on an existing employee -- a change, a binding by address, `active: false`
         (also on an employee already deactivated) and one that changes nothing -- is 403
         `tenant_suspended`.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, email_unavailable, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, insufficient_scope, not_found, email_unavailable, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:write"]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -413,7 +441,10 @@ paths:
         `deactivation_budget_exceeded`). While the business is suspended every DELETE is 403
         `tenant_suspended` -- one of an employee already deactivated, and one of a reference the
         business never held, too.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, insufficient_scope, not_found, idempotency_key_reused, validation_failed, rate_limited, deactivation_budget_exceeded, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:write"]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -460,7 +491,10 @@ paths:
         one is sent, replaces the older ones. An activated employee is 409 `already_activated` (a new
         phone is set up in the Taptime panel); an employee with no e-mail address is 422. Accepted
         while the business is suspended.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, not_found, already_activated, idempotency_key_reused, validation_failed, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, not_found, already_activated, idempotency_key_reused, validation_failed, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:write"]
       parameters:
         - $ref: "#/components/parameters/EmployeeRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -549,7 +583,10 @@ paths:
         parameter, and a query string that does not parse, is 400. No punch carries an e-mail address, a
         coordinate, a network address, a note or the reason of a decision. While the business is
         suspended this endpoint stays open.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["punches:read"]
       parameters:
         - name: scope
           in: query
@@ -679,7 +716,10 @@ paths:
         Only `updatedSince`, `cursor` and `limit` are accepted, each at most once; any other
         parameter, and a query string that does not parse, is 400. While the business is suspended
         this endpoint stays open.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["employees:read"]
       parameters:
         - name: updatedSince
           in: query
@@ -771,7 +811,10 @@ paths:
         and a query string that does not parse, is 400. No answer carries an e-mail address, a
         coordinate, a network address, a note or the reason of a decision. While the business is
         suspended this endpoint stays open.
-      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, insufficient_scope, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: ["timesheets:read"]
       parameters:
         - name: from
           in: query
@@ -838,11 +881,16 @@ paths:
       operationId: getBusiness
       summary: The business this credential acts for.
       description: |
-        The one business the key acts for: its id (`biz_` followed by a UUID), its name and its
+        The one business the credential acts for: its id (`biz_` followed by a UUID), its name and its
         company code -- the code Taptime gives the business when it enables the integration API, the
-        same value a punch carries as `company`; null until then. It takes no query parameter -- any is
-        400 (`details.allowed` empty). Open while the business is suspended.
+        same value a punch carries as `company`; null until then (a business connected to an app over
+        OAuth may never have had its API enabled). An integration key reads it, and an OAuth access
+        token of ANY scope. It takes no query parameter -- any is 400 (`details.allowed` empty). Open
+        while the business is suspended.
       x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      security:
+        - bearer: []
+        - oauth: []
       responses:
         "200":
           description: The business.
@@ -854,6 +902,9 @@ paths:
                 kf:
                   summary: Kebab Factory, its API enabled under the code KF.
                   value: {"id": "biz_8f0c3a52-6b1e-4d7a-9a51-2c8e7f4b6d10", "name": "Kebab Factory Ltd", "companyCode": "KF"}
+                connected:
+                  summary: A business connected to an app over OAuth whose API Taptime never enabled -- read with an access token.
+                  value: {"id": "biz_3d6b1f0e-7c2a-4e5b-8f9d-1a2b3c4d5e6f", "name": "Example Bakery Ltd", "companyCode": null}
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -955,6 +1006,27 @@ components:
       type: http
       scheme: bearer
       description: An integration key, `tt_live_` followed by 43 base64url characters.
+    oauth:
+      type: oauth2
+      description: |
+        An OAuth 2.0 access token, `tt_at_live_` followed by 43 base64url characters, sent as
+        `Authorization: Bearer <token>`. Authorization Code with PKCE (`code_challenge_method=S256`
+        only) and a confidential client (HTTP Basic at the token endpoint). The three endpoints are
+        on Taptime's own host, not on this API's; the authorization answer carries `iss` (RFC 9207).
+        An access token lives 1 hour, a code 60 seconds; a refresh token is replaced by every refresh
+        and dies after 90 days unused. Revocation: `POST /oauth/revoke` (RFC 7009, form `token=...`).
+        No scope implies another.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://taptime.mt/oauth/authorize
+          tokenUrl: https://taptime.mt/oauth/token
+          refreshUrl: https://taptime.mt/oauth/token
+          scopes:
+            "timesheets:read": The business's own employees' counted working time (GET /v1/timesheets).
+            "employees:read": The business's employees and its directory, its own people alone (GET /v1/employees, GET /v1/employees/{ref}, GET /v1/directory).
+            "employees:write": Creating, changing and deactivating the business's employees and asking for an activation e-mail (PUT and DELETE /v1/employees/{ref}, POST /v1/employees/{ref}/resend-activation).
+            "locations:write": Creating and changing the business's locations (PUT /v1/locations/{ref}).
+            "punches:read": The business's punch feed and history query, its own punches alone (GET /v1/punches).
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -1372,8 +1444,11 @@ components:
         id:
           type: string
           pattern: "^biz_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          description: The business's id, `biz_` followed by a UUID; it never changes.
         name:
           type: string
+          minLength: 1
+          description: The business's name as it is in Taptime (the owner can change it).
         companyCode:
           type: ["string", "null"]
           description: The business's company code (punch `company`); null until Taptime enables the business's API.

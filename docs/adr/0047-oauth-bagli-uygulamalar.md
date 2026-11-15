@@ -1608,3 +1608,58 @@ ADR'yi **bloklamayan**, uygulama turunun gerçek testleriyle doğrulanacak notla
 - **Önceden kırık bir test paketi düzeltildi (kapsam dışı, gerekçeli):** `internal/operatorauth`'un dört
   harici testi 2. fazın `operator.New` imza değişikliğinden sonra **derlenmiyordu**; reddeden bir
   `surfApps` ve sahte bir hasher eklendi.
+
+**4. faz (denetim DÜŞÜK'leri, belgeler, yerel sandbox) uygulamasının notları (2026-11-15):**
+
+- **`Principal.Full` kapalı düşer:** tam yetki `KeyID` dolu **ve** `GrantID` boşken verilir; ikisi de boş
+  bir principal (sıfır değer, kimlik döndürmeyen bir çözümleyici) hiçbir rotada tam değildir ve eşleri
+  dışarıda bırakır (`OwnOnly = !Full`). Zincir, `ResolveAccess`'in kabul edip grant id'si döndürmediği
+  bir tokenı principal'a hiç çevirmez: **503** (bizim arızamız; rezervasyon iade). Testler
+  `TestPrincipal_FullFailsClosed`, `TestOAuthChain_AnAcceptedTokenOfNoGrantIsUnavailable`.
+- **Ölçülen açık, kapatıldı — `X-Request-Id`'de OAuth değerleri:** istek kimliği süzgeci
+  (`internal/httpx/requestlog.go`) yalnız `tt_live_`, `tt_test_`, `tt_whsec_`'i reddediyordu; 54
+  karakterlik bir erişim tokenı (`tt_at_live_…`) kümenin karakterlerinden, sınırın içinde ve iki önekin
+  hiçbirini içermediği için **olduğu gibi log'a yazılıyordu** (ölçüldü: yeni satırlar düzeltmeden önce
+  kırmızı). Süzgeç dört öneki (`tt_cs_`, `tt_ac_`, `tt_at_`, `tt_rt_`) de reddeder; rehber §2.2 ikisini
+  birlikte söyler (`TestGuide_TheRequestIDRuleIsTheLogs`). §7.4'ün *"asla loglanmaz"* kuralının uygulaması.
+- **OpenAPI:** `oauth` güvenlik şeması (Authorization Code; üç URL Taptime'ın kendi host'unda —
+  `servers`'ın host'u eksi `api.`); her kimlikli işlemin `security`'si *"anahtar VEYA rotanın kapsamlı
+  tokenı"* (`GET /v1/business`: `oauth: []`); kapsamlı dokuz işlemin `x-error-codes`'unda
+  `insufficient_scope` — prob'ları OAuth tokenıyla (`TestOpenAPI_EveryRouteAndErrorDocumented`), belge
+  ile kapsam tablosu birbirine `TestOpenAPI_TheOAuthSchemeIsTheScopeTable` ile bağlı. `x-limits`'e
+  `requestsPerGrantPerMinute` (600) ve `requestsPerAppPerMinute` (6000) girdi (kod sabitlerine pinli,
+  rehber §3.5'te). `GET /v1/business`'in ikinci örneği (`connected`, `companyCode: null`) hikâyede bir
+  erişim tokenının gerçek yanıtıdır. Rehberin *"adres yok"* denetimi (`TestGuide_NoSecretAddressOrPersonalData`)
+  OpenAPI belgesinde yalnız bu OAuth host'una izin verir. Sandbox belgesinde `POST /v1/sandbox/taps`
+  `insufficient_scope`'u listeler (kapsam tablosunda yok — §8.2).
+- **Rehber:** yeni §13 *"Apps connecting with OAuth"* / *"OAuth ile bağlanan uygulamalar"* (11 alt bölüm);
+  *"Changes to this guide"* §14 oldu; baskı 5. Örnek token yanıtı yerel sandbox'ın gerçek yanıtının
+  biçimidir: `expires_in` **3599** (§5.4'ün uygulama notu: `expires_at - now()`, aşağı yuvarlanmış) ve
+  `scope` kanonik (alfabetik) sırayla — istekteki sırayla değil.
+- **Yerel sandbox tarifi (§8.6, §10.4):** `make sandbox-local-oauth` (operatör ekranından loopback
+  dönüşlü test uygulaması → sahip onayı → kod takası Basic + PKCE → `/v1/business`, `/v1/timesheets`
+  seed haftası, `POST /v1/sandbox/taps` 403 → refresh → revoke → 401/`invalid_grant`) ve
+  `make sandbox-local-app` (yalnız kayıt; kimlik bilgileri yalnız verilen dosyaya). Kayıt `op_*`'a
+  operatör yüzeyinin kendi formundan gider (doğrudan tablo yazması yok). `deploy/README.md` *"Sandbox"*
+  §10. Ölçüldü 2026-11-15, `tappa_sbx_oauth1`.
+- **Sapma (orkestratörün brief'i, §10.4'ün tablosundan):** yerel sandbox'a Malta Calculator **`Malta
+  Calculator`** adıyla ve **prod** dönüş adresiyle (`https://maltacalculator.com/api/integrations/taptime/callback`)
+  kaydedildi — tablo `Malta Calculator (sandbox)` ve Malta Calculator'ın yerel callback'ini önerir. Yerel
+  port hâlâ bilinmiyor (§18.2 madde 19); yerel geliştirmede o adres *"Edit redirect URIs"*le eklenir.
+  Kapsamlar A5 (`timesheets:read employees:read employees:write`).
+- **`client_id` biçimi:** `app_` + UUID (§7.1) — `tt_` önekli değildir (sır değildir).
+- **CLAUDE.md §6:** tenant kapsamsız tablo listesine `oauth_clients` eklendi (§22).
+- **Açık kalanlar (bu fazda yapılmadı):** §4.6'nın tarayıcı ölçümü
+  (`form-action`, Chrome/Firefox/Safari); ingress'in istemci kopuşunu uygulamaya iptal olarak iletmesi
+  (§5.3 (ii), canlıda).
+- **Düzeltme turu (2026-11-15, doğruluk denetiminin ORTA'sı ve DÜŞÜK'leri):** rehber §2.1 *"API'yi Taptime
+  açar"* OAuth istisnasını söyler (bağlanmak bu adımı istemez; Taptime'ın kapattığı API'de token da 403
+  `api_disabled`), §3.1'in `unauthorized` satırı erişim tokenını da anar; §13.3 yönlendirmesiz hata
+  sayfasının durumlarını adıyla sayar (ayrıştırılamayan sorgu; eksik, tekrarlanan, biçimsiz, bilinmeyen,
+  kapatılmış `client_id`; eksik, tekrarlanan, kayıtsız `redirect_uri`); §13.4 düğmeleri (*"Don't allow"*,
+  öteki durumlarda *"Back to"*), işletme listesini (owner olunan, askıda olmayan) ve bekleyen isteğin 10
+  dakikasını; §13.5 ve §13.11 kod takasının ek `invalid_grant` gerekçelerini (§5.2 adım 6, §11.4); §13.9
+  loopback'i (yalnız ad ve IPv4 adresi — IPv6 değil —, yalnız sandbox); §13.3 ve §13.6 verifier'ın ve
+  refresh tokenının yalnız sunucuda tutulmasını. Yerel sandbox betiği env dosyasını kaynak olarak
+  çalıştırmaz (dört değeri okur, loopback değillerse reddeder), canlı kimlik bilgisi dosyalarını bir `EXIT`
+  tuzağıyla siler ve `SANDBOX_APP_OUT`'u deponun ağacında reddeder.

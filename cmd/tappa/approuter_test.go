@@ -437,6 +437,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// Issue #37 (ADR 0047 §4.2, §4.5): refusing an app's consent writes nothing (class 2); its
 		// approval, POST /admin/oauth/authorize, is class 1 -- behind ProtectWriting.
 		"POST /admin/oauth/authorize/deny": true,
+		// Issue #37 phase 3 (ADR 0047 §11.2, §12): the owner's Disconnect of a connected app -- a
+		// defence (K-26: it narrows what the business exposes), behind protectWritingThroughSuspension.
+		"POST /admin/api-keys/apps/disconnect": true,
 	}
 	outsidePanel := map[string]string{
 		"POST /activate":        "activation",

@@ -370,3 +370,171 @@ func TestOAuthChain_NothingOfTheTokenReachesALogOrAResponse(t *testing.T) {
 		}
 	}
 }
+
+// TestScopes_AnUnlistedRouteIsClosedAndNamesNoScope pins the closed default's CONTRACT (ADR 0047's
+// phase 3 note: "details boş, scope parametresi yok"): an authenticated route outside the scope table
+// answers an OAuth token 403 insufficient_scope with the fixed sentence, details EMPTY and RFC 6750's
+// challenge WITHOUT a scope parameter -- there is no scope to ask for. GET /v1/business (any scope)
+// with a token of no scope at all is the same answer. The route does not run.
+//
+// MUTANTS (measured, phase 4 report): the !listed branch answering insufficientScope(need) (M13a --
+// details {"scope": ""}, scope="" in the challenge) and the !listed branch dropped (the same, through
+// the next case) -> each red here; TestOAuthChain_InvalidTokenAndAClosedAPI read the code alone and
+// stayed green.
+func TestScopes_AnUnlistedRouteIsClosedAndNamesNoScope(t *testing.T) {
+	r := newRig(t, unknown, func(c *Config) { c.Business = &recordingBusiness{} })
+	ran := false
+	withTestRoutes(r.s, func(rt chi.Router) {
+		rt.Get("/_unlisted", func(w http.ResponseWriter, _ *http.Request) { ran = true; w.WriteHeader(http.StatusNoContent) })
+	})
+	r.h = httpx.NewRouter(&config.Config{APIHost: apiHost}, slog.New(slog.DiscardHandler), r.s)
+	for _, c := range []struct {
+		name, path string
+		scopes     []string
+	}{
+		{"a route outside the table", "/v1/_unlisted", []string{oauth.ScopeTimesheetsRead, oauth.ScopeEmployeesRead}},
+		{"the any-scope route with no scope", "/v1/business", nil},
+	} {
+		r.grants.set(grantOf(c.scopes...))
+		w := r.do(http.MethodGet, c.path, "Bearer "+accessToken(t), "", nil)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("%s: %d %s", c.name, w.Code, w.Body.String())
+		}
+		p := problemOf(t, w)
+		if p.Code != CodeInsufficientScope || p.Message != "This route is not open to OAuth access tokens." || len(p.Details) != 0 {
+			t.Fatalf("%s: the body %s", c.name, w.Body.String())
+		}
+		if got := w.Header().Get("WWW-Authenticate"); got != `Bearer realm="taptime", error="insufficient_scope"` {
+			t.Fatalf("%s: the challenge %q names a scope or is not RFC 6750's", c.name, got)
+		}
+	}
+	if ran {
+		t.Fatal("a route outside the scope table ran for an OAuth token")
+	}
+}
+
+// TestOAuthChain_AClosedAPIKeepsTheReservation pins step 4's ErrAPIClosed branch to KEEP (ADR 0047
+// §8.1, §8.7): a token whose business the operator closed is a refused credential like an invalid
+// one -- from one address, limit 403 api_disabled and then 429 before the resolver.
+//
+// MUTANT (measured, phase 4 report): Keep replaced by Refund in the ErrAPIClosed branch -> the
+// (limit+1)th request is 403 again, red.
+func TestOAuthChain_AClosedAPIKeepsTheReservation(t *testing.T) {
+	const limit = 12
+	r := newRig(t, unknown, func(c *Config) { c.AddressLimit = limit })
+	r.grants.set(func() (oauth.Access, error) { return oauth.Access{}, oauth.ErrAPIClosed })
+	for i := range limit {
+		w := r.do(http.MethodGet, "/v1/business", "Bearer "+accessToken(t), "198.51.100.73", nil)
+		if w.Code != http.StatusForbidden || problemOf(t, w).Code != CodeAPIDisabled {
+			t.Fatalf("closed request %d: %d %s", i+1, w.Code, w.Body.String())
+		}
+	}
+	w := r.do(http.MethodGet, "/v1/business", "Bearer "+accessToken(t), "198.51.100.73", nil)
+	if w.Code != http.StatusTooManyRequests || problemOf(t, w).Code != CodeRateLimited {
+		t.Fatalf("past %d refusals of a closed API from one address: %d %s, want 429 (the refusals are kept)", limit, w.Code, w.Body.String())
+	}
+	if res, _ := r.grants.counts(); res != limit {
+		t.Fatalf("%d resolver calls, want %d -- the 429 is before the resolver", res, limit)
+	}
+}
+
+// TestOAuthChain_AnAcceptedTokenOfNoGrantIsUnavailable: a resolver that accepts a token and names no
+// grant is a fault of ours -- 503, never a principal (apikey.Principal.Full fails closed on such a
+// principal; the chain refuses it first), the route does not run and no grant is touched.
+//
+// MUTANT (measured, phase 4 report): the chain's zero-grant check removed -> the business card is read
+// for the token (200), red.
+func TestOAuthChain_AnAcceptedTokenOfNoGrantIsUnavailable(t *testing.T) {
+	rec := &recordingBusiness{}
+	r := newRig(t, unknown, func(c *Config) { c.Business = rec })
+	r.grants.set(func() (oauth.Access, error) {
+		return oauth.Access{TenantID: [16]byte{7}, ClientID: [16]byte{8}, TokenID: [16]byte{9}, Scopes: []string{oauth.ScopeTimesheetsRead}}, nil
+	})
+	w := r.do(http.MethodGet, "/v1/business", "Bearer "+accessToken(t), "", nil)
+	if w.Code != http.StatusServiceUnavailable || problemOf(t, w).Code != CodeUnavailable {
+		t.Fatalf("a token of no grant: %d %s", w.Code, w.Body.String())
+	}
+	if rec.tenant() != [16]byte{} {
+		t.Fatal("the route ran for a token of no grant")
+	}
+	if _, touches := r.grants.counts(); touches != 0 {
+		t.Fatalf("%d grant touches, want 0", touches)
+	}
+}
+
+// TestOpenAPI_TheOAuthSchemeIsTheScopeTable (issue #37 phase 4, ADR 0047 §8.2, §22): the document's
+// `oauth` security scheme is an Authorization Code flow whose three URLs are Taptime's own host -- the
+// API host's name without its "api." label, https -- at /oauth/authorize and /oauth/token, and whose
+// scopes are the closed set (oauth.KnownScopes: no webhooks:manage); every authenticated operation's
+// `security` is exactly "a key OR a token of the route's scope" -- the scope routeScopes gives it, []
+// for the any-scope GET /v1/business -- and its x-error-codes name insufficient_scope exactly when
+// the route has a scope; the three documents need no credential.
+//
+// MUTANTS (measured, phase 4 report): an operation's oauth scope edited in the document; a scope
+// added to the scheme; the token URL put on the API host -- each red.
+func TestOpenAPI_TheOAuthSchemeIsTheScopeTable(t *testing.T) {
+	doc := openAPIDoc(t)
+	scheme, ok := yat(doc, "components", "securitySchemes", "oauth")
+	if !ok {
+		t.Fatal("no oauth security scheme")
+	}
+	if v, _ := yat(scheme, "type"); v != "oauth2" {
+		t.Fatalf("the oauth scheme's type is %v", v)
+	}
+	flows := mustMap(t, func() any { v, _ := yat(scheme, "flows"); return v }(), "oauth flows")
+	if !slices.Equal(flows.keys, []string{"authorizationCode"}) {
+		t.Fatalf("the oauth flows %v, want authorizationCode alone", flows.keys)
+	}
+	server, _ := yat(doc, "servers", "0", "url")
+	apiHost, _ := strings.CutPrefix(fmt.Sprint(server), "https://")
+	mainHost, isAPI := strings.CutPrefix(apiHost, "api.")
+	if !isAPI || mainHost == "" {
+		t.Fatalf("the server %v is not https://api.<Taptime's host>", server)
+	}
+	for k, suffix := range map[string]string{"authorizationUrl": "/oauth/authorize", "tokenUrl": "/oauth/token", "refreshUrl": "/oauth/token"} {
+		if v, _ := yat(flows, "authorizationCode", k); v != "https://"+mainHost+suffix {
+			t.Errorf("%s is %v, want https://%s%s (Taptime's own host -- ADR 0047 §3)", k, v, mainHost, suffix)
+		}
+	}
+	scopes := mustMap(t, func() any { v, _ := yat(flows, "authorizationCode", "scopes"); return v }(), "oauth scopes")
+	documented := slices.Sorted(slices.Values(scopes.keys))
+	if known := slices.Sorted(slices.Values(oauth.KnownScopes)); !slices.Equal(documented, known) || slices.Contains(documented, "webhooks:manage") {
+		t.Fatalf("the documented scopes %v, the closed set %v", documented, known)
+	}
+	public := map[string]bool{Prefix + openAPIPath: true, Prefix + guidePath: true, Prefix + guideTRPath: true}
+	checked := 0
+	for _, o := range operationsOf(t, doc) {
+		if !strings.HasPrefix(o.where, "paths ") {
+			continue
+		}
+		sec, has := o.op.get("security")
+		list, _ := sec.([]any)
+		if public[o.path] {
+			if !has || len(list) != 0 {
+				t.Errorf("%s: a document's security is %v, want []", o.where, sec)
+			}
+			continue
+		}
+		need, listed := RouteScope(strings.ToUpper(o.method), o.path)
+		if !listed {
+			t.Errorf("%s: an authenticated operation the scope table does not name", o.where)
+			continue
+		}
+		want := `[{"bearer":[]},{"oauth":["` + need + `"]}]`
+		if need == anyScope {
+			want = `[{"bearer":[]},{"oauth":[]}]`
+		}
+		if got := canonical(sec); got != want {
+			t.Errorf("%s: security %s, want %s", o.where, got, want)
+		}
+		xc, _ := o.op.get("x-error-codes")
+		codes, _ := xc.([]any)
+		if slices.Contains(codes, any(string(CodeInsufficientScope))) != (need != anyScope) {
+			t.Errorf("%s: x-error-codes %v -- insufficient_scope must be there exactly when the route has a scope", o.where, codes)
+		}
+		checked++
+	}
+	if checked != len(routeScopes) {
+		t.Fatalf("%d authenticated operations checked, the scope table has %d rows", checked, len(routeScopes))
+	}
+}

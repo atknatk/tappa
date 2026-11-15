@@ -208,6 +208,20 @@ sandbox-local-run: build-sandbox
 sandbox-local-flow:
 	SANDBOX_DB="$(SANDBOX_DB)" ./scripts/sandbox-local-flow.sh
 
+## sandbox-local-oauth: yerel sandbox'ta OAuth uctan uca (issue #37): operator test uygulamasini kaydeder (loopback donus), owner onaylar, kod -> token (Basic + PKCE), /v1/business + /v1/timesheets, refresh, revoke
+# sandbox-local-flow'dan (ve haftanin seed'inden) sonra kosar; sirlar .sandbox-local/<db>.secrets/oauth-<n>/'da, hicbiri basilmaz.
+# Tarif: deploy/README.md "Sandbox (API-11)" §10.
+sandbox-local-oauth:
+	SANDBOX_DB="$(SANDBOX_DB)" ./scripts/sandbox-local-oauth.sh flow
+
+## sandbox-local-app: yerel sandbox'ta operator ekranindan BIR uygulama kaydi; client_id + secret yalniz SANDBOX_APP_OUT dosyasina (600)
+# Kullanim: make sandbox-local-app SANDBOX_DB=<db> SANDBOX_APP_NAME="Malta Calculator" \
+#   SANDBOX_APP_REDIRECT=https://maltacalculator.com/api/integrations/taptime/callback SANDBOX_APP_OUT=<yeni dosya>
+sandbox-local-app:
+	SANDBOX_DB="$(SANDBOX_DB)" SANDBOX_APP_NAME="$(SANDBOX_APP_NAME)" SANDBOX_APP_REDIRECT="$(SANDBOX_APP_REDIRECT)" \
+	  SANDBOX_APP_SCOPES="$(or $(SANDBOX_APP_SCOPES),timesheets:read employees:read employees:write)" SANDBOX_APP_OUT="$(SANDBOX_APP_OUT)" \
+	  ./scripts/sandbox-local-oauth.sh register
+
 ## sandbox-local-seed: yerel sandbox'taki bir test isletmesine haftalik kaydi yaz (seed-timesheets, TAPPA_ENV=sandbox)
 sandbox-local-seed:
 	@test -f .sandbox-local/$(SANDBOX_DB).env || { echo "no .sandbox-local/$(SANDBOX_DB).env -- run make sandbox-local SANDBOX_DB=$(SANDBOX_DB) first"; exit 1; }
@@ -597,5 +611,5 @@ hooks:
 	@echo "hooks: core.hooksPath=$$(git config --get core.hooksPath)"
 
 .PHONY: help tools gen templ sqlc css up down dev build build-sandbox check-sandbox migrate migrate-down \
-        migrate-status migrate-new seed restore-check db-reset simulate-day seed-timesheets sandbox-local sandbox-local-run sandbox-local-flow sandbox-local-seed test test-short \
+        migrate-status migrate-new seed restore-check db-reset simulate-day seed-timesheets sandbox-local sandbox-local-run sandbox-local-flow sandbox-local-oauth sandbox-local-app sandbox-local-seed test test-short \
         cover lint fmt check audit hooks require-db-env android android-test

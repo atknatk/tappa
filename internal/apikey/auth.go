@@ -177,12 +177,14 @@ type Principal struct {
 func (p Principal) IsGrant() bool { return p.GrantID != uuid.Nil }
 
 // Full reports whether the principal has every /v1 route: an API key (ADR 0047 §8.3 -- a key never
-// gets insufficient_scope).
-func (p Principal) Full() bool { return !p.IsGrant() }
+// gets insufficient_scope). It FAILS CLOSED: full authority needs a key id AND no grant id, so a
+// principal that is neither (a zero value, a resolver that answered no id) is full on nothing -- the
+// scope gate treats it as a token with no scope.
+func (p Principal) Full() bool { return p.KeyID != uuid.Nil && p.GrantID == uuid.Nil }
 
 // OwnOnly reports whether the principal's reads leave the holding peers out (ADR 0047 §8.5): every
-// OAuth grant, no API key.
-func (p Principal) OwnOnly() bool { return p.IsGrant() }
+// OAuth grant, no API key -- and, failing closed as Full does, every principal that is not a key.
+func (p Principal) OwnOnly() bool { return !p.Full() }
 
 // HasScope reports whether the principal may use a route of scope: a key always, a grant when its
 // access token carries the scope (no implied scope -- employees:write does not hold employees:read).

@@ -76,18 +76,24 @@ func (r *queueRig) app(o *pgx.Conn, disabled bool) uuid.UUID {
 // grant connects app to the rig's business with scopes and a live refresh token (live=false: none).
 func (r *queueRig) grant(o *pgx.Conn, app uuid.UUID, scopes []string, live bool) uuid.UUID {
 	r.t.Helper()
+	return r.grantIn(o, r.tenant, app, scopes, live)
+}
+
+// grantIn is grant for any business -- the rig's, or another one (the gate is per business).
+func (r *queueRig) grantIn(o *pgx.Conn, tenantID, app uuid.UUID, scopes []string, live bool) uuid.UUID {
+	r.t.Helper()
 	ctx := context.Background()
 	var admin, id uuid.UUID
-	if err := o.QueryRow(ctx, `SELECT id FROM admin_users WHERE tenant_id = $1 AND role = 'owner' LIMIT 1`, r.tenant).Scan(&admin); err != nil {
+	if err := o.QueryRow(ctx, `SELECT id FROM admin_users WHERE tenant_id = $1 AND role = 'owner' LIMIT 1`, tenantID).Scan(&admin); err != nil {
 		r.t.Fatal(err)
 	}
 	if err := o.QueryRow(ctx, `INSERT INTO oauth_grants (tenant_id, client_id, scopes, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-		r.tenant, app, scopes, admin).Scan(&id); err != nil {
+		tenantID, app, scopes, admin).Scan(&id); err != nil {
 		r.t.Fatal(err)
 	}
 	if live {
 		if _, err := o.Exec(ctx, `INSERT INTO oauth_tokens (tenant_id, grant_id, kind, token_hash, expires_at)
-		                          VALUES ($1, $2, 'refresh', $3, now() + interval '2160 hours')`, r.tenant, id, hexHash(r.t)); err != nil {
+		                          VALUES ($1, $2, 'refresh', $3, now() + interval '2160 hours')`, tenantID, id, hexHash(r.t)); err != nil {
 			r.t.Fatal(err)
 		}
 	}
@@ -136,6 +142,7 @@ func (r *queueRig) sendsFor(q *Queue) bool {
 // whose API Taptime never opened (both K-22 columns NULL):
 //
 //	no grant                                         closed
+//	another business's live employees:write grant    closed (the gate is the business's own)
 //	a timesheets:read grant                          closed (the gate needs employees:write)
 //	an employees:write grant of a DISABLED app       closed
 //	an employees:write grant with no live refresh    closed (a dead grant -- the "Uygulama notları")
@@ -158,6 +165,14 @@ func TestInviteQueue_TheGateOpensForAWritingAppsLiveGrantAlone(t *testing.T) {
 	}
 	if r.sendsFor(q) {
 		t.Fatal("no grant: the invitation was sent")
+	}
+	// ANOTHER business's live employees:write grant of an enabled app opens THAT business's gate, never
+	// this one's (the gate reads the business's own grants: WithTenant + the explicit filter).
+	other := newMailFixture(t, r.d, "Other Gate Ltd", ptrBool(true)).tenantID
+	ownerExecQ(t, `UPDATE tenants SET api_enabled_at = NULL, api_code = NULL WHERE id = $1`, other)
+	r.grantIn(o, other, r.app(o, false), []string{"employees:write"}, true)
+	if r.sendsFor(q) {
+		t.Fatal("another business's writing grant opened this business's gate")
 	}
 	r.grant(o, r.app(o, false), []string{"timesheets:read"}, true)
 	if r.sendsFor(q) {

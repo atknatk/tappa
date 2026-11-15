@@ -1,6 +1,6 @@
 # Taptime integration API — integration guide
 
-Guide edition 4 (2026-11-14), for API version 1. This guide is served by the API itself, without a
+Guide edition 5 (2026-11-15), for API version 1. This guide is served by the API itself, without a
 key, at `GET /v1/guide.md`; its Turkish translation, the same document section by section, at
 `GET /v1/guide.tr.md`. The machine-readable contract is the OpenAPI 3.1 document at
 `GET /v1/openapi.yaml`; this guide explains it, and where they say the same thing they agree.
@@ -23,7 +23,8 @@ sections 4 to 10, run against the real service.
 - [10. Webhooks](#webhooks)
 - [11. Suspension](#suspension)
 - [12. Contract differences](#differences)
-- [13. Changes to this guide](#changes)
+- [13. Apps connecting with OAuth](#oauth)
+- [14. Changes to this guide](#changes)
 
 <a id="overview"></a>
 ## 1. Overview
@@ -73,7 +74,8 @@ KM who works a shift at KF's Valletta touches KF's plaque there.
 The API has a host of its own: the `servers` URL of the OpenAPI document. Every path is under
 `/v1`. The examples below write that address as `$TAPTIME_API` and the key as `$TAPTIME_KEY`; they
 are placeholders, not values. On any other Taptime host `/v1` does not exist (404), and the API's
-host answers nothing but `/v1` (404). The API sets no cookie and reads none.
+host answers nothing but `/v1` (404). The API sets no cookie and reads none. An app that connects
+with OAuth also uses Taptime's own address, for three endpoints — see [section 13](#oauth).
 
 <a id="overview-sandbox"></a>
 ### 1.4 Sandbox
@@ -130,7 +132,8 @@ An `Idempotency-Key` works as on every write ([3.3](#idempotency)).
   owner's, in the Taptime panel.
 - A location has no time zone of its own: the business's time zone is every location's.
 - A partner company cannot approve another company's employee's punch.
-- It has no OAuth: a key is the only credential.
+- Its credentials are a business's keys and the access tokens of the apps a business connected with
+  OAuth ([section 13](#oauth)); there is no other.
 
 <a id="auth"></a>
 ## 2. Authentication and keys
@@ -142,6 +145,10 @@ The API works for a business only after Taptime enables it for that business (an
 company code). Until then — and again if Taptime disables it — every request with a valid key is
 answered **403 `api_disabled`**, and the business's webhook sends nothing; the business's punches
 are still recorded in its feed. A business owner cannot create a key while the API is disabled.
+
+**An app connected with OAuth ([section 13](#oauth)) does not need this step**: its access token works
+for a business whose API Taptime never enabled. When Taptime has disabled a business's API, a token is
+answered **403 `api_disabled`** too ([13.9](#oauth-api)).
 
 <a id="auth-keys"></a>
 ### 2.2 Keys
@@ -164,9 +171,9 @@ Authorization: Bearer <key>
 - Keep the key out of logs, URLs and headers other than `Authorization`.
 - **Never put a key or another secret into `X-Request-Id`.** Taptime may write the `X-Request-Id`
   you send into its logs as the request's id: a value of 1 to 64 characters, each one of `A`–`Z`,
-  `a`–`z`, `0`–`9`, `-`, `_` and `.`, that contains none of `tt_live_`, `tt_test_` and `tt_whsec_`
+  `a`–`z`, `0`–`9`, `-`, `_` and `.`, that contains none of `tt_live_`, `tt_test_`, `tt_whsec_`, `tt_cs_`, `tt_ac_`, `tt_at_` and `tt_rt_`
   (in any case). Such a value is written as it is — a key's characters without its prefix
-  included. Any other value — longer, with another character, or with one of the three prefixes — is
+  included. Any other value — longer, with another character, or with one of these prefixes — is
   replaced by an id of Taptime's own: keep to the set and the length if you want to match your id
   with Taptime's support.
 
@@ -177,7 +184,7 @@ budget and its own deactivation budget, and its own Idempotency-Keys — see
 <a id="auth-business"></a>
 ### 2.3 The business
 
-`GET /v1/business` answers the business the key acts for: its `id` (`biz_` followed by a UUID), its
+`GET /v1/business` answers the business the key — or the OAuth token, [section 13.9](#oauth-api) — acts for: its `id` (`biz_` followed by a UUID), its
 `name` and its `companyCode` — the company code Taptime sets when it enables the API, the same value
 a punch carries as `company`. It takes no query parameter, and it is open while the business is
 suspended.
@@ -209,7 +216,7 @@ Each operation of the OpenAPI document lists, in `x-error-codes`, exactly the co
 |---|---|---|
 | `invalid_request` | 400 | A parameter, a header or a body the contract refuses. |
 | `body_too_large` | 400 | The request body is over 65536 bytes. |
-| `unauthorized` | 401 | No key, or a key that is not valid. |
+| `unauthorized` | 401 | No key or access token, or one that is not valid (an expired or revoked token included). |
 | `api_disabled` | 403 | The API is not enabled for this business. |
 | `tenant_suspended` | 403 | The business is suspended and this change is not accepted. |
 | `insufficient_scope` | 403 | An app connected with OAuth called a route its connection does not include (`details.scope`). A key never gets it. |
@@ -301,12 +308,16 @@ that failed (any 4xx or 503) recorded nothing — its key can be used again.
 | Requests per client address per minute | 1200 |
 | Requests per key per minute | 600 |
 | Deactivations per key per hour | 20 |
+| Requests per OAuth connection per minute | 600 |
+| Requests per OAuth app per minute, across its connections | 6000 |
 
 The address limit counts the requests from one address — the three documents, and every request
 whose key is well formed — before the key is even looked up; the key limit counts a key's requests
 from every address. Over either:
 **429 `rate_limited`** with `Retry-After` (seconds; today the whole minute). No other rate-limit
-header is sent. Deactivations have their own budget — see [section 5.5](#employees-deactivate).
+header is sent. Deactivations have their own budget — see [section 5.5](#employees-deactivate). An
+OAuth access token is counted on the address budget too, and given back once it is accepted; then the
+connection's and the app's budgets count it — see [section 13.9](#oauth-api).
 
 <a id="limits"></a>
 ### 3.5 Limits at a glance
@@ -317,6 +328,8 @@ These are the OpenAPI document's `info.x-limits`, and the service's own values.
 |---|---|---|
 | `requestsPerAddressPerMinute` | 1200 | Requests per client address per minute. |
 | `requestsPerKeyPerMinute` | 600 | Requests per key per minute. |
+| `requestsPerGrantPerMinute` | 600 | Requests per OAuth connection per minute. |
+| `requestsPerAppPerMinute` | 6000 | Requests per OAuth app per minute, across its connections. |
 | `deactivationsPerKeyPerHour` | 20 | Deactivations per key per hour. |
 | `maxBodyBytes` | 65536 | The largest request body. |
 | `defaultPageSize` | 500 | A page without `limit`. |
@@ -1326,6 +1339,9 @@ leaves reading — and the records — alone:
 | taps are recorded and punches enter the feed (a group's too) | |
 | in the panel: revoking a key, switching the endpoint off | |
 
+An OAuth access token ([section 13](#oauth)) is under the same table. Its refresh and its revocation,
+and the owner's Disconnect, stay open while the business is suspended; a new connection does not.
+
 <a id="differences"></a>
 ## 12. Contract differences
 
@@ -1364,8 +1380,253 @@ explained.
 30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` recorded **at the employer** (`in`/`out`); the integration does not have to work it out — except that a punch with `directionSource: employee` is not paired with the punch before it ([6.3](#feed-punch)). The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
 31. **An integration that computes working time with `scope=location`, beware:** a partner company's employee's punches at your locations do not include the employer's events in between (touches at the other company's plaques); pairing in and out from this scope alone can count the time **too long**. **This holds with `direction` too:** each punch's direction is right, but what is missing are the **events in between** — the pair of an `in` at your location may never appear there, or may be an `out` at another location. For a group employee's time, the employer company's data (its `employer` scope) is the record. ([6.5](#feed-working-time))
 
+<a id="oauth"></a>
+## 13. Apps connecting with OAuth
+
+A key ([section 2.2](#auth-keys)) is a business's own credential for its own system. An **app that
+serves many businesses** — a payroll service, for example — connects to each of them with OAuth 2.0
+instead: the business's owner approves the app in the Taptime panel, and the app receives an access
+token that acts for that one business, on the routes of the scopes the owner approved. Everything in
+sections 3 to 11 holds for a token as for a key, with the differences this section names.
+
+The app talks to two addresses: the API's host (`$TAPTIME_API`, [section 1.3](#overview-host)) for
+`/v1`, and **Taptime's own address** — the panel's host, not the API's — for the three OAuth
+endpoints `/oauth/authorize`, `/oauth/token` and `/oauth/revoke`. The examples write that address as
+`$TAPTIME_OAUTH`; the OpenAPI document's `oauth` security scheme names the three URLs.
+
+<a id="oauth-register"></a>
+### 13.1 Registration
+
+Taptime registers the app — there is no self-service registration. Tell Taptime the app's name, its
+redirect URIs (each `https://`, no query, no fragment) and the scopes it needs ([13.2](#oauth-scopes)).
+You receive:
+
+- a `client_id`: `app_` followed by a UUID. It is not a secret; it travels in the authorization URL.
+- a client secret: `tt_cs_live_` followed by 43 base64url characters. It is shown **once**; keep it
+  on your server and nowhere else. Taptime can replace it on request: the old secret is refused from
+  the next request on, and the tokens issued before keep working.
+
+A redirect URI must match a registered one **byte for byte**: no trailing `/` added, no other case,
+no other port, no `www.` variant. If the app also serves another host, ask for that URI to be
+registered as well.
+
+<a id="oauth-scopes"></a>
+### 13.2 Scopes
+
+| Scope | Opens |
+|---|---|
+| `timesheets:read` | `GET /v1/timesheets` |
+| `employees:read` | `GET /v1/employees`, `GET /v1/employees/{ref}`, `GET /v1/directory` |
+| `employees:write` | `PUT /v1/employees/{ref}`, `DELETE /v1/employees/{ref}`, `POST /v1/employees/{ref}/resend-activation` |
+| `locations:write` | `PUT /v1/locations/{ref}` |
+| `punches:read` | `GET /v1/punches` (the feed and the history query) |
+
+- **No scope implies another**: `employees:write` does not open `GET /v1/employees`.
+- `GET /v1/business` opens to a token of any scope ([13.9](#oauth-api)).
+- A route the token's scopes do not open is **403 `insufficient_scope`**, with `details.scope` the
+  scope the route needs and `WWW-Authenticate: Bearer realm="taptime", error="insufficient_scope", scope="<scope>"`.
+  A key never gets it.
+- The OAuth scope is not the punch feed's `scope` parameter (`employer` or `location`,
+  [section 6.2](#feed-scopes)): `GET /v1/punches?scope=employer` needs the OAuth scope `punches:read`.
+
+<a id="oauth-authorize"></a>
+### 13.3 The authorization request
+
+Send the owner's browser to `$TAPTIME_OAUTH/oauth/authorize` with these query parameters, each at
+most once:
+
+| Parameter | Value |
+|---|---|
+| `response_type` | `code` |
+| `client_id` | your `client_id` |
+| `redirect_uri` | **required**; one of your registered URIs, byte for byte |
+| `scope` | **required**; space-separated, a subset of the scopes registered for the app |
+| `state` | optional; at most 1024 bytes of printable ASCII; it comes back unchanged |
+| `code_challenge` | the base64url SHA-256 of your `code_verifier`, 43 characters |
+| `code_challenge_method` | `S256` — required; `plain` is refused |
+
+Taptime answers `303` to the consent page in its panel ([13.4](#oauth-consent)); the browser follows.
+
+The browser stays on Taptime's error page, and **nothing is sent to any address**, when the query
+string does not parse; when `client_id` is missing, repeated, not of its shape, unknown or turned off;
+or when `redirect_uri` is missing, repeated or not one registered for the app. Every other problem —
+another parameter missing, repeated or malformed, a scope the app may not ask for — is sent back to
+your `redirect_uri` as `error` (`invalid_request`, `unsupported_response_type` or `invalid_scope`) with
+`iss` and your `state` — but only a valid `state`: one that is repeated, too long or outside printable
+ASCII comes back as `invalid_request` with no `state`, and so does a request too large for Taptime to
+hold while the owner decides.
+
+Every answer to your `redirect_uri` carries `iss` (RFC 9207): check that it is `$TAPTIME_OAUTH`, and
+that `state` is the one you sent, before you use a `code`. Keep the `code_verifier` — and later the
+refresh token — on your server alone, tied to the user's session there; never give either to the
+browser.
+
+<a id="oauth-consent"></a>
+### 13.4 The consent
+
+- **Only an active owner** of the business approves. The page names the app, the business and the
+  host the browser returns to. A manager, a business that is suspended, and a business whose
+  integrations Taptime turned off see no "Allow", only "Back to" the app, which answers
+  `error=access_denied`.
+- The connection is for **one business** — the one the owner is signed in to. The page lists the
+  person's other businesses where they are an owner and that are not suspended; they can switch to one
+  before approving.
+- The owner approves the scopes the app asked for, all of them, or none ("Don't allow" —
+  `error=access_denied`).
+- The page holds the request for **10 minutes**: approve within them (a sign-in on the way included),
+  or start again from the app.
+- A business has **one connection per app**: a new approval and its code exchange replace the
+  previous connection, and every token of the previous one is revoked.
+
+On "Allow" the browser goes to `redirect_uri` with `code`, `state` and `iss`.
+
+<a id="oauth-token"></a>
+### 13.5 The code exchange
+
+`POST $TAPTIME_OAUTH/oauth/token`, a form body (`application/x-www-form-urlencoded`), the client
+authenticated with **HTTP Basic** (`client_id` and the client secret):
+
+```sh
+curl -sS -X POST "$TAPTIME_OAUTH/oauth/token" \
+  --user "$TAPTIME_CLIENT_ID:$TAPTIME_CLIENT_SECRET" \
+  --data-urlencode grant_type=authorization_code \
+  --data-urlencode "code=$CODE" \
+  --data-urlencode "code_verifier=$CODE_VERIFIER" \
+  --data-urlencode "redirect_uri=https://app.example.com/callback"
+```
+
+- `code_verifier`: 43 to 128 characters of `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_` and `~` (RFC 7636).
+- `redirect_uri` may be left out; when it is sent, it must be the authorization request's, byte for byte.
+- `client_id` in the body too is accepted when it is the Basic one; a `client_secret` in the body is
+  `invalid_request`.
+- A code lives **60 seconds** and is spent by its **first** presentation, a failed one included.
+  Presenting a spent code again revokes the connection it made: exchange a code once, and if the
+  answer is lost, start again from the authorization request.
+- At the exchange a code is also refused (`invalid_grant`) when, since the approval, the business was
+  suspended, Taptime turned its integrations off, or the approving person stopped being its active owner.
+
+The answer (`200`, `Cache-Control: no-store`):
+
+```json
+{"access_token": "tt_at_live_…", "token_type": "Bearer", "expires_in": 3599,
+ "refresh_token": "tt_rt_live_…", "scope": "employees:read employees:write timesheets:read"}
+```
+
+`scope` is the access token's scopes, space-separated, in an order of Taptime's; `expires_in` is the
+seconds the access token has left (an hour, less the time the answer took).
+
+<a id="oauth-refresh"></a>
+### 13.6 Refreshing
+
+`POST $TAPTIME_OAUTH/oauth/token` with `grant_type=refresh_token` and `refresh_token`, the client
+authenticated as above. `scope` is optional: a subset of the connection's scopes gives an access
+token of that subset alone (the new refresh token keeps the connection's); an empty or a wider
+`scope` is `invalid_scope`.
+
+- **Every refresh answers a new pair.** The refresh token you sent is used up: always store the
+  newest refresh token. The previous access token keeps working until it expires.
+- **A retry within 30 seconds** — the same used refresh token again, within 30 seconds of its first
+  use — answers a new pair and revokes every other token of the connection: a refresh whose answer
+  was lost is not lost.
+- **Later than that**, the same used refresh token **revokes the connection** (`invalid_grant`): the
+  owner has to approve the app again.
+- Never send two refreshes with one refresh token at the same time. After a timeout, close the
+  connection, wait **at least 10 seconds** (the endpoint's own limit on a request), and retry within 30
+  seconds of the first request.
+- A refresh token not used for **90 days** dies; the owner has to approve the app again.
+- Keep the refresh token on your server alone, tied to the connection; never give it to the browser.
+- A refresh works while the business is suspended, and while Taptime has its integrations turned off.
+
+<a id="oauth-revoke"></a>
+### 13.7 Revoking
+
+`POST $TAPTIME_OAUTH/oauth/revoke` (RFC 7009), the client authenticated as above, a form body
+`token=…` (`token_type_hint` is accepted and not needed: the prefix says which token it is).
+
+- A **refresh token** ends the connection: every token of it, the next request on.
+- An **access token** ends that token alone. To disconnect, revoke the refresh token.
+- The answer is `200` with no body — also for an unknown or an already revoked token, and for
+  another app's token, where nothing is done.
+
+<a id="oauth-lifetimes"></a>
+### 13.8 Lifetimes
+
+| Value | Prefix | Lifetime |
+|---|---|---|
+| authorization code | `tt_ac_live_` | 60 seconds, one presentation |
+| access token | `tt_at_live_` | 1 hour |
+| refresh token | `tt_rt_live_` | replaced by every refresh; 90 days unused |
+| client secret | `tt_cs_live_` | until Taptime replaces it |
+| pending consent request | — | 10 minutes |
+
+A revocation, a disconnection and Taptime turning the app off take effect on the next request:
+nothing is cached. Keep every one of these values out of logs, URLs and `X-Request-Id`
+([section 2.2](#auth-keys)).
+
+<a id="oauth-api"></a>
+### 13.9 Calling the API with a token
+
+Send the access token as a key is sent: `Authorization: Bearer <token>`, on `$TAPTIME_API`.
+
+- `GET /v1/business` names the business the token acts for — the `id` to keep the connection under.
+  Its `companyCode` can be `null`: Taptime sets it when it enables the business's API, and a business
+  can connect an app without that ([2.1](#auth-enable)).
+- An expired or revoked token, a disconnected connection or an app Taptime turned off: **401
+  `unauthorized`**, with `WWW-Authenticate: Bearer realm="taptime", error="invalid_token"`. Refresh —
+  and if the refresh is `invalid_grant`, the owner has to approve the app again.
+- A business whose integrations Taptime turned off: **403 `api_disabled`**. The connection stays: a
+  refresh still works, and once Taptime turns them on again the same tokens work.
+- **A holding partner's data never comes with a token** ([1.2](#overview-companies)): the directory
+  lists the business's own employees alone, and the feed and the history query carry the business's
+  own punches alone — a punch across the group's companies is left out in both scopes. The timesheet is
+  the business's own employees' anyway. With a key the answers are as sections 6 to 8 say.
+- Rate limits ([3.4](#rate-limits)): a token is counted on the client address's budget like a key, and
+  given back when it is accepted — an accepted token is counted per connection (600 a minute) and per
+  app across all its connections (6000 a minute) instead. Tokens that are refused spend the address's
+  budget.
+- A write's deactivation budget and its Idempotency-Keys are the connection's own, as a key's are its
+  own. An activation e-mail an `employees:write` token asks for is sent even when Taptime has not
+  enabled the business's API.
+- A suspension ([section 11](#suspension)) closes a token's writes as it closes a key's.
+
+In the sandbox ([1.4](#overview-sandbox)) the values start with `_test_` in place of `_live_`
+(`tt_at_test_` and so on), and an app registered there may also use a loopback redirect URI —
+`http://`, then the loopback name or the IPv4 loopback address (not the IPv6 one), then a port —
+still matched byte for byte. Production refuses every loopback redirect URI. POST /v1/sandbox/taps is not open to
+a token (403 `insufficient_scope`): simulate a tap with the business's `tt_test_` key.
+
+<a id="oauth-disconnect"></a>
+### 13.10 Disconnecting
+
+The business's owner sees the connection in the Taptime panel under **API keys → Connected apps**:
+the app, its scopes, when and by whom it was connected and when it was last used. Any owner of the
+business can **Disconnect** it — the next request with its tokens is 401. The connection is the
+business's, not the approving person's: it keeps working when that person leaves. Taptime can turn an
+app off for every business: its tokens are 401 and the token endpoint answers `invalid_client`.
+
+<a id="oauth-errors"></a>
+### 13.11 Errors of the OAuth endpoints
+
+`/oauth/token` and `/oauth/revoke` answer RFC 6749's error shape, **not** the `/v1` one: a JSON body
+`{"error": "<code>", "error_description": "<a fixed sentence>"}`. Act on `error`; the description is
+for your logs, not for a person. The two endpoints have a budget of their own: 60 requests a minute
+per client address (a request whose client is refused keeps its place), and 600 a minute per app
+once its credentials are accepted.
+
+| `error` | Status | When |
+|---|---|---|
+| `invalid_request` | 400 | a parameter missing, repeated or malformed; Basic and a body credential disagree |
+| `invalid_client` | 401 | the client is unknown, turned off, or the secret is wrong (`WWW-Authenticate: Basic realm="taptime"`) |
+| `invalid_grant` | 400 | the code or the refresh token is unknown, expired, spent, revoked or another app's; the `code_verifier` or the `redirect_uri` does not match; at the code exchange: the business is suspended, Taptime turned its integrations off, or the approver is no longer its active owner |
+| `unsupported_grant_type` | 400 | a `grant_type` other than `authorization_code` and `refresh_token` |
+| `invalid_scope` | 400 | a refresh's `scope` empty, unknown or wider than the connection's |
+| `temporarily_unavailable` | 429 | too many requests — with `Retry-After` |
+| `temporarily_unavailable` | 503 | a fault on Taptime's side; retry later |
+
+`temporarily_unavailable` is not in RFC 6749's set for this endpoint: look at the HTTP status too.
+
 <a id="changes"></a>
-## 13. Changes to this guide
+## 14. Changes to this guide
 
 | Edition | Date | Changes |
 |---|---|---|
@@ -1373,3 +1634,4 @@ explained.
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
 | 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — whose `direction` it is: the one Taptime computed at the tap, or not. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
 | 4 | 2026-11-14 | §9 is new: `GET /v1/timesheets`, the counted working time of the business's own employees over a pay period, per local day — the figures of Taptime's own report. Sections 9 to 12 are now 10 to 13. §3.1: `details.maxDays`; §3.5: `timesheetMaxDays`. |
+| 5 | 2026-11-15 | §13 is new: apps connecting with OAuth — registration, the authorization request and the consent, the code exchange, refreshing, revoking, the scopes, `GET /v1/business` and what differs on `/v1` with a token; "Changes to this guide" is now §14. §2.2: `X-Request-Id` refuses the OAuth prefixes too. §3.4, §3.5: `requestsPerGrantPerMinute`, `requestsPerAppPerMinute`. §1.5: the API has OAuth. |

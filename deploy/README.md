@@ -3899,6 +3899,192 @@ curl -sS -H @.sandbox-local/tappa_sbx_mc.secrets/api-auth.header "http://api.loc
 plaketidir. Yeniden başlamak = yeni bir `SANDBOX_DB` adı (eski veritabanı ve dosyaları silinmez; elle
 `DROP DATABASE` ve `rm -r .sandbox-local/<db>*` sizindir).
 
+### 10. Yerel sandbox'ta OAuth — "Connected apps" uçtan uca (issue #37, ADR 0047 §8.6, §10.4)
+
+**Ne zaman:** §9'un 1–4. adımlarından sonra (veritabanı, sunucu, işletme + operatör + API, haftalık kayıt).
+Sunucu §9'un 2. adımındaki gibi ayrı bir terminalde çalışırken.
+
+**1. Akış** — bir test uygulamasını operatör ekranından kaydeder ve uygulamanın ve sahibin yaptığı her şeyi
+curl ile, ürünün kendi uçlarından yapar:
+
+```bash
+make sandbox-local-oauth SANDBOX_DB=tappa_sbx_mc
+```
+
+Sırasıyla: operatör `/operator/login`'de parola + TOTP ile oturum açar (kod §9'un TOTP anahtarından,
+kullanılmamış bir zaman adımından hesaplanır) ve `/operator/apps`'ten loopback dönüşlü bir test uygulaması
+kaydeder (`http://127.0.0.1:<SANDBOX_CALLBACK_PORT, varsayılan 18791>/callback` — loopback yalnız sandbox
+derlemesinde kabul edilir; o portta bir şey dinlemesi gerekmez, betik yönlendirmeyi izlemez, okur);
+sahip panelde oturum açar; `GET /oauth/authorize` uygulamanın sitesinden gelen üst düzey bir gezinme
+gibi (`Sec-Fetch-Site: cross-site`) gönderilir ve onay sayfasında **Allow** basılır; 303'ün `Location`'ı
+kayıtlı adres + `code` + bizim `state`'imiz + `iss` (= `TAPPA_BASE_URL`) olarak denetlenir; kod HTTP Basic +
+form gövdesi + PKCE S256 `code_verifier` ile takas edilir; erişim tokenıyla `GET /v1/business`,
+`GET /v1/timesheets?from=2026-11-02&to=2026-11-08` (seed haftasının rakamları **denetlenir**) ve
+`POST /v1/sandbox/taps` (OAuth'a kapalı → 403 `insufficient_scope`); bir refresh (yeni çift); refresh
+tokenının revoke'u (RFC 7009) ve ardından iki erişim tokenı da 401 `invalid_token`, refresh tokenı
+`invalid_grant`. Seed'siz bir işletmede rakam denetimini `SANDBOX_SKIP_SEED_CHECK=1` kapatır.
+
+Ölçülen çıktı (2026-11-15, `tappa_sbx_oauth1`; id'ler ve zaman damgası kısaltıldı):
+
+```text
+2/5 GET /oauth/authorize -> the consent page -> Allow
+    redirect: the registered URI with code (tt_ac_test_…, 54 characters), our state, iss=https://localhost:18790
+3/5 POST /oauth/token (authorization_code: HTTP Basic, form body, PKCE S256)
+    token_type=Bearer expires_in=3599 scope="employees:read employees:write timesheets:read" access_token=tt_at_test_… (54) refresh_token=tt_rt_test_… (54)
+4/5 …
+    business: {"id": "biz_…", "name": "Malta Calculator Test Ltd", "companyCode": "MCT"}
+    MCT-001  workedMinutes  2400  awaitingMinutes    0  openEntries 0  manualShifts 0
+    MCT-002  workedMinutes  2550  awaitingMinutes    0  openEntries 0  manualShifts 0
+    MCT-003  workedMinutes  2400  awaitingMinutes    0  openEntries 0  manualShifts 0
+    MCT-004  workedMinutes  2400  awaitingMinutes    0  openEntries 0  manualShifts 1
+    MCT-005  workedMinutes  1440  awaitingMinutes    0  openEntries 1  manualShifts 0
+    MCT-006  workedMinutes  1920  awaitingMinutes  480  openEntries 0  manualShifts 0
+5/5 refresh, revoke, and the next requests
+    revoke (the refresh token): 200
+    access token 1 after the revoke: 401 invalid_token
+    access token 2 after the revoke: 401 invalid_token
+    the revoked refresh token: 400 invalid_grant
+```
+
+Kod, verifier, harcanmış ve iptal edilmiş tokenlar ve her yanıt `.sandbox-local/<db>.secrets/oauth-<n>/`'dadır
+(600; her koşu yeni bir `<n>`); hâlâ canlı bir kimlik bilgisi olan dosyalar — kayıt sayfası, panelin ve
+operatörün oturum çerezleri, test uygulamasının kimlik bilgileri ve Basic başlığı — koşunun sonunda (hata
+dahil, `EXIT` tuzağı) silinir. Terminale yalnız durumlar, önekler, uzunluklar ve API'nin sır olmayan
+yanıtları gelir. Betik `.sandbox-local/<db>.env`'i **kaynak olarak çalıştırmaz**: yalnız `TAPPA_ADDR`,
+`TAPPA_OPERATOR_HOST`, `TAPPA_API_HOST`, `TAPPA_BASE_URL`'i okur ve loopback (`*.localhost`) değillerse
+reddeder. Sır argv'ye düşmez (§9'un kuralı:
+`--data-urlencode ad@dosya`, `-H @dosya`, `curl -K`); dosyaları `python3 -I` yazar. Bağlantı koşunun
+sonunda iptal edilmiştir; uygulama kayıtlı kalır.
+
+**2. Bir uygulamayı kaydetmek (ör. Malta Calculator'ın kendisi)** — yalnız operatör kaydı; client_id ve
+secret **yalnız** verilen dosyaya yazılır (600, iki satır `client_id=…`, `client_secret=…`; dosya varsa
+ya da bu deponun ağacının içindeyse betik reddeder, hiçbir şeyin üstüne yazmaz):
+
+```bash
+make sandbox-local-app SANDBOX_DB=tappa_sbx_mc SANDBOX_APP_NAME="Malta Calculator" \
+  SANDBOX_APP_REDIRECT=https://maltacalculator.com/api/integrations/taptime/callback \
+  SANDBOX_APP_OUT=<yeni, depo dışı bir dosya>
+```
+
+Kapsamlar varsayılan olarak `timesheets:read employees:read employees:write`'tır (`SANDBOX_APP_SCOPES`).
+Sandbox derlemesi `https` dönüşü de loopback dönüşü de kabul eder; tarayıcısı yerel sunucuya ulaşabilen
+bir geliştirici prod adresiyle bir onay akışı başlatabilir, ama kod o adrese — yani canlı siteye — gider:
+yerel geliştirmede Malta Calculator'ın **yerel** callback'ini (`http://localhost:<port>/…`) operatör
+ekranının *"Edit redirect URIs"*iyle ekleyin (ADR 0047 §10.4). Dosyadaki secret bir kez gösterilmiş olanın
+tek kopyasıdır: depoya, issue'ya, sohbete, log'a yazılmaz; kaybolursa operatör ekranından *"Rotate
+secret"* (eskisi anında ölür, verilmiş tokenlar yaşar).
+
+**3. Yeniden açmak** — veritabanı ve dosyalar kalır; yalnız sunucu yeniden başlatılır:
+
+```bash
+make sandbox-local-run SANDBOX_DB=tappa_sbx_mc
+```
+
+## OAuth "Connected apps" (issue #37, ADR 0047) — deploy günü ve ilk uygulama kaydı
+
+### 🔴 Sıra
+
+1. **`TAPPA_OAUTH_HMAC_KEY` — imaj sevk edilmeden ÖNCE.** OAuth'lu imaj bu anahtar olmadan **başlamaz**:
+   `config.Load` eksikliği ve başka bir anahtara eşitliği açılışta reddeder (ADR 0047 §7.2,
+   `namedKeys()`); rollout yeni pod'u açamaz ve eski pod'da kalır — yüksek sesle, ama deploy'u durdurur.
+2. Deploy (`main`'e birleştirme kullanıcının kararıdır — CLAUDE.md §10). Migration'lar `00104`–`00107`
+   (numaralar birleştirmede yeniden verilebilir — ADR 0047 §14.6); `/oauth` Ingress'in log'suz yolundadır
+   (`deploy/k8s/40-ingress.yaml`, ADR 0047 §3).
+3. **İlk uygulama kaydı** (aşağıda) — deploy'dan sonra, operatör ekranından.
+
+Birleştirmeden önceki açık devir (ADR 0047 *"2. faz uygulamasının notları"*): onay POST'unun dış 303'ü
+CSP `form-action` altında **tarayıcıda ölçülmedi** (Chrome, Firefox, Safari); A planı uygulandı.
+
+### 1) `TAPPA_OAUTH_HMAC_KEY` — üret, emanete koy, Secret'a yaz
+
+Önce Secret'ı kimin yönettiğini ölç (*"Operator surface (M10 OP-7)"* bölümünün **0)** adımı): düz Secret
+mi, `ExternalSecret` mi. Değer **hiçbir yere basılmaz** — ne terminale, ne bir dosyaya, ne state.md'ye,
+ne commit'e; üretim komutu yalnız `openssl rand -base64 32`'dir ve çıktısı doğrudan bir kabuk
+değişkenine gider:
+
+```bash
+OAUTH_KEY=$(openssl rand -base64 32)
+```
+
+**Emanet:** Infisical `shared-infra/prod:/tappa/TAPPA_OAUTH_HMAC_KEY` (panoyla, *"3b)"*'nin kalıbı —
+yapıştır, hemen boşalt):
+
+```bash
+printf '%s' "$OAUTH_KEY" | pbcopy
+pbcopy </dev/null
+```
+
+**Düz Secret yolu** (ExternalSecret yönetmiyorsa) — tek yama, değer argv'de değil (`printf` kabuk
+yerleşiği, gövde stdin'den):
+
+```bash
+printf '{"stringData":{"TAPPA_OAUTH_HMAC_KEY":"%s"}}' "$OAUTH_KEY" \
+  | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
+unset OAUTH_KEY
+```
+
+beklenen: secret/tappa-secrets patched. ExternalSecret yolundaysa Infisical'a yazmak yeter; senkron
+beklenir. Ölçüm **yalnız ad ve boyut** basar:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep -E '^TAPPA_OAUTH_HMAC_KEY:'
+```
+
+beklenen: `TAPPA_OAUTH_HMAC_KEY:  44 bytes` (32 baytın base64'ü). Öteki 32 baytlık anahtarların hiçbirine
+eşit olmadığı — değer basılmadan, yalnız `differ`/`SAME`:
+
+```bash
+o=$(kubectl --context hetzner-k8s-1 -n tappa get secret tappa-secrets -o "jsonpath={.data.TAPPA_OAUTH_HMAC_KEY}")
+[ -n "$o" ] || echo "TAPPA_OAUTH_HMAC_KEY MISSING"
+for k in TAPPA_SESSION_HMAC_KEY TAPPA_TAG_KEK TAPPA_TAG_KEK_PREVIOUS TAPPA_INVITE_HMAC_KEY TAPPA_API_KEY_HMAC_KEY TAPPA_WEBHOOK_KEK TAPPA_OPERATOR_TOTP_KEK TAPPA_OPERATOR_TOKEN_HMAC_KEY; do
+  v=$(kubectl --context hetzner-k8s-1 -n tappa get secret tappa-secrets -o "jsonpath={.data.$k}")
+  if [ -z "$v" ]; then echo "$k MISSING"
+  elif [ "$(printf '%s' "$v" | shasum -a 256)" = "$(printf '%s' "$o" | shasum -a 256)" ]; then echo "$k SAME"
+  else echo "$k differ"; fi
+done
+unset o v
+```
+
+Değerler yalnız kabuk değişkenlerinde ve `printf` yerleşiğinin borusundadır (argv'de değil). Boş bir değer
+özetlenmez: iki eksik anahtarın boş özetleri eşit çıkıp `SAME` (ya da OAuth anahtarı eksikken `differ`)
+demesin diye `MISSING` basılır. Beklenen: `TAPPA_OAUTH_HMAC_KEY MISSING` satırı **yok**, öteki yedisi
+`differ`; `TAPPA_TAG_KEK_PREVIOUS MISSING` olağandır (KEK döndürmesi sürmüyorsa boş tutulur). Tek bir
+`SAME` varsa OAuth anahtarı yeniden üretilir (açılış zaten reddederdi); başka bir `MISSING` o anahtarın
+kendi bölümüne bakılmasını ister.
+
+**Neden emanet, yeniden üretilebilir olsa da:** bütün OAuth sırları yalnız bu anahtarla HMAC'lenmiş
+hash olarak saklanır (ADR 0047 §7.2). Anahtar değişirse **her** client secret, kod, erişim ve refresh
+tokenı tanınmaz olur: her uygulamanın secret'ı operatör ekranından yeniden basılır ve **her işletmenin
+owner'ı** bağlantıyı yeniden onaylar. Kayıp, bir veri kaybı değildir ama bütün bağlantıları koparır.
+
+### 2) İlk uygulama — Malta Calculator (ADR 0047 §10.4)
+
+1. `https://ops.taptime.mt/operator` → operatör girişi (parola + TOTP) → **Apps** (`/operator/apps`).
+2. **Register:**
+   - ad: `Malta Calculator`
+   - dönüş adresleri (satır başına bir): `https://maltacalculator.com/api/integrations/taptime/callback` —
+     **yalnız bu**; `www.` varyantı Malta Calculator isterse *"Edit redirect URIs"*le eklenir (tam eşleşme
+     `www.`'yi kabul etmez — ADR 0047 §4.1 V2)
+   - kapsamlar: `timesheets:read`, `employees:read`, `employees:write` (en az yetki; `punches:read` ve
+     `locations:write` işaretlenmez; `webhooks:manage` ekranda yoktur — §13)
+3. Sayfa `client_id`'yi (`app_` + UUID) ve client secret'ı (`tt_cs_live_` + 43) **bir kez** gösterir; *"göster"*
+   yoktur. `client_id` sır değildir. **Secret:**
+   - yalnız Malta Calculator'ın sorumlusuna, tek kullanımlık bir sır paylaşımı ya da ortak bir parola
+     yöneticisi kasasıyla gider;
+   - issue'ya, PR'a, sohbete, e-posta gövdesine, ekran görüntüsüne, state.md'ye, commit'e, log'a
+     **yazılmaz** (depo PUBLIC);
+   - kaybolursa ya da yanlış yere düşerse: **Rotate secret** — eskisi bir sonraki istekten itibaren
+     reddedilir, verilmiş tokenlar yaşar (ADR 0047 §10.2); yeni secret aynı yoldan gider.
+4. Malta Calculator'a verilecek sır olmayanlar: `TAPTIME_OAUTH_BASE_URL = https://taptime.mt`, `/v1`
+   tabanı `https://api.taptime.mt`, `client_id`, kapsamlar, rehberin §13'ü (`GET /v1/guide.md`).
+5. Doğrula: liste uygulamayı ad, `client_id`, kapsamlar ve dönüş adresiyle gösterir; operatör denetim
+   kaydında bir `oauth_client_registered` satırı vardır (detayı yalnız `client_id`). Bir owner'ın panelinde
+   **API keys → Connected apps** kartı açılır (bağlantı yokken boş).
+
+**Kapatmak:** *"Disable"* tek yönlüdür — uygulamanın bütün tokenları bir sonraki istekte 401, token ucu
+`invalid_client`; grant satırları iptal edilmez (tenant yazması olurdu), owner'lar *"turned off by
+Taptime"* görür (ADR 0047 §11.4). Yeniden açmak = yeni kayıt.
+
 ## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
 
 **Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**

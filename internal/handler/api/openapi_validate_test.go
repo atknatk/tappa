@@ -736,8 +736,10 @@ type probe struct {
 	path   string
 	body   string
 	auth   string // "" none, "key" a valid key, "closed" a key of a business whose API is closed
-	hdr    []string
-	cfg    func(*Config)
+	// token, when set, sends a live OAuth access token of exactly these scopes instead (auth unused).
+	token []string
+	hdr   []string
+	cfg   func(*Config)
 	// twice sends the request twice and answers the second (a bucket of one).
 	twice bool
 	// failTouch makes last_used_at's write fail (an outage on our side).
@@ -768,6 +770,10 @@ func (p probe) run(t *testing.T) *httptest.ResponseRecorder {
 	auth := ""
 	if p.auth != "" {
 		auth = "Bearer " + liveKey(t)
+	}
+	if p.token != nil {
+		r.grants.set(grantOf(p.token...))
+		auth = "Bearer " + accessToken(t)
 	}
 	send := func() *httptest.ResponseRecorder {
 		return r.do(p.method, p.path, auth, "", strings.NewReader(p.body), p.hdr...)
@@ -846,6 +852,22 @@ func surfaceProbes() []probe {
 			probe{name: "a compressed body", method: rt.method, path: rt.path, body: rt.body, auth: "key", hdr: gz, want: 400, code: CodeInvalidRequest},
 			probe{name: "a body over the bound", method: rt.method, path: rt.path, body: big, auth: "key", want: 400, code: CodeBodyTooLarge},
 		)
+	}
+	// An OAuth access token (issue #37, ADR 0047 §8.2, §8.3): on every route of a scope, a token of
+	// another scope is 403 insufficient_scope; GET /v1/business opens to a token of any scope.
+	other := map[string][]string{"locations:write": {"employees:write"}, "employees:read": {"timesheets:read"},
+		"employees:write": {"employees:read"}, "punches:read": {"employees:read"}, "timesheets:read": {"punches:read"}}
+	for _, rt := range routes {
+		pattern := strings.NewReplacer("/KF-VLT", "/{ref}", "/E-1042", "/{ref}").Replace(strings.SplitN(rt.path, "?", 2)[0])
+		need, listed := RouteScope(rt.method, pattern)
+		if !listed {
+			panic("the probe route " + rt.method + " " + pattern + " is not in the scope table")
+		}
+		if need == anyScope {
+			out = append(out, probe{name: "a token of any scope", method: rt.method, path: rt.path, body: rt.body, token: []string{"timesheets:read"}, want: 200})
+			continue
+		}
+		out = append(out, probe{name: "a token of another scope", method: rt.method, path: rt.path, body: rt.body, token: other[need], want: 403, code: CodeInsufficientScope})
 	}
 	k := "key"
 	out = append(out,
@@ -1101,6 +1123,8 @@ func TestOpenAPI_EveryRouteAndErrorDocumented(t *testing.T) {
 	pins := map[string]float64{
 		"requestsPerAddressPerMinute": perMinute(addressLimit, addressPeriod),
 		"requestsPerKeyPerMinute":     perMinute(keyLimit, keyPeriod),
+		"requestsPerGrantPerMinute":   perMinute(grantLimit, grantPeriod),
+		"requestsPerAppPerMinute":     perMinute(clientLimit, clientPeriod),
 		"deactivationsPerKeyPerHour":  float64(tenant.DefaultDeactivationBudget) * float64(time.Hour) / float64(tenant.DeactivationBudgetWindow),
 		"maxBodyBytes":                MaxBody,
 		"defaultPageSize":             DefaultLimit,
