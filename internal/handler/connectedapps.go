@@ -3,7 +3,9 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,14 +14,21 @@ import (
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// THE "CONNECTED APPS" CARD (issue #37, ADR 0047 §12): under the Developers section, owner-only --
+// THE "CONNECTED APPS" CARD (issue #37, ADR 0047 §12): a card of the Developers section, owner-only --
 // read included, the API keys' rule (a connection exposes the business's records as a key does).
 //
-//	GET  /admin/api-keys/apps              the list (mountSections: the panel's read chain)
+//	GET  /admin/api-keys                   the section draws the card (readAPIKeysView)
+//	GET  /admin/api-keys/apps              the card's old page: 303 to the card's fragment (owner-only,
+//	                                       as the page was -- a manager still reads the 403)
 //	POST /admin/api-keys/apps/disconnect   the owner's Disconnect -- protectWritingThroughSuspension,
 //	                                       route class 2: K-26's defence (it NARROWS what the business
 //	                                       exposes, so a suspension must not stop it -- ADR 0025's
 //	                                       exception list, by name; ADR 0047 §11.2)
+//
+// WHY THE OLD ADDRESS REDIRECTS (2026-11-15): the list was its own page behind a small link in the
+// keys card's text, and an owner on the live panel did not find it. It moved onto the section; the
+// address stays as a redirect so a bookmark, the guide's older copies and the route inventories keep
+// one meaning, and Disconnect's route and class do not move.
 //
 // 🔴 THE TENANT IS NEVER AN INPUT (§4.5): the grant id in the form is looked up in the SESSION's
 // business -- another business's id finds no row (RLS and the explicit filter), so guessing ids
@@ -34,27 +43,30 @@ var (
 	maxConnectedAppsFm = 4 << 10
 )
 
-var (
-	connectedAppsDoneWords    = []string{"disconnected"}
-	connectedAppsProblemWords = []string{"unreadable", "unknown-app"}
-)
+// connectedAppsParam carries Disconnect's outcome back to the card -- its own parameter, drawn inside
+// the card (brandParam's construction), so it never competes with the section's done/problem.
+const connectedAppsParam = "app"
 
-func connectedAppsDoneSentence(word string) string {
-	if word == "disconnected" {
-		return "The app is disconnected. It is refused from its next request, and connecting it again needs a new approval."
-	}
-	return ""
+// connectedAppsOutcomes is the closed list of the parameter's words: done (true) or problem (false),
+// and the sentence. A word outside it draws nothing.
+var connectedAppsOutcomes = map[string]struct {
+	done     bool
+	sentence string
+}{
+	"disconnected": {true, "The app is disconnected. It is refused from its next request, and connecting it again needs a new approval."},
+	"unreadable":   {false, "That form could not be read, so nothing was changed."},
+	"unknown-app":  {false, "That app is not connected to this business any more. Nothing was changed."},
 }
 
-func connectedAppsProblemSentence(word string) string {
-	switch word {
-	case "unreadable":
-		return "That form could not be read, so nothing was changed."
-	case "unknown-app":
-		return "That app is not connected to this business any more. Nothing was changed."
-	default:
-		return "That did not happen."
+// connectedAppsReturn is the section's address with one outcome word, at the card's fragment. A word
+// outside the list gives the bare fragment: server-built from a closed list, never an open redirect.
+func connectedAppsReturn(word string) string {
+	if _, ok := connectedAppsOutcomes[word]; !ok {
+		return apiKeysHref + "#" + pages.ConnectedAppsAnchor
 	}
+	q := url.Values{}
+	q.Set(connectedAppsParam, word)
+	return apiKeysHref + "?" + q.Encode() + "#" + pages.ConnectedAppsAnchor
 }
 
 // problemConnectedAppsOwnerOnly is what a manager sees. It names no app.
@@ -65,7 +77,7 @@ var problemConnectedAppsOwnerOnly = pages.ProblemView{
 	OwnerOnly: true,
 }
 
-// connectedAppsSection renders the card.
+// connectedAppsSection is the card's old page: the owner is sent to the card on the section.
 func (a *AdminAuth) connectedAppsSection(w http.ResponseWriter, r *http.Request) {
 	id := httpx.AdminOf(r)
 	if !mayManageAPIKeys(id) {
@@ -74,35 +86,34 @@ func (a *AdminAuth) connectedAppsSection(w http.ResponseWriter, r *http.Request)
 		a.renderProblem(w, r, http.StatusForbidden, problemConnectedAppsOwnerOnly)
 		return
 	}
-	v := pages.ConnectedAppsView{
-		PanelChrome:    a.chrome(r, pages.TabAPIKeys),
-		DisconnectHref: appDisconnectHref,
-		KeysHref:       apiKeysHref,
-	}
-	v.Kicker = "Owner only · apps connected to this business"
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), connectedAppsDoneWords...); word != "" {
-		v.Done = connectedAppsDoneSentence(word)
-	}
-	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), connectedAppsProblemWords...); word != "" {
-		v.Problem = connectedAppsProblemSentence(word)
-	}
+	a.redirect(w, connectedAppsReturn(""))
+}
+
+// readConnectedApps is the card, read for the Developers section: nil without an authorization
+// server (no card); a failed read is the card's own sentence (and an ERROR), never the page's failure.
+// The one error it returns is the domain's ErrNotOwner -- the section answers that as its 403.
+func (a *AdminAuth) readConnectedApps(r *http.Request, id httpx.AdminIdentity, zone *time.Location) (*pages.ConnectedAppsCard, error) {
 	if isNil(a.oauth) {
-		a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminConnectedApps(v))
-		return
+		return nil, nil
+	}
+	v := &pages.ConnectedAppsCard{DisconnectHref: appDisconnectHref}
+	if o, ok := connectedAppsOutcomes[strings.TrimSpace(r.URL.Query().Get(connectedAppsParam))]; ok {
+		if o.done {
+			v.Done = o.sentence
+		} else {
+			v.Problem = o.sentence
+		}
 	}
 	list, err := a.oauth.ListConnectedApps(r.Context(), id.TenantID(), id.Admin.AdminUserID)
 	switch {
 	case errors.Is(err, oauth.ErrNotOwner):
-		a.log.Warn("panel connected apps page refused by the domain: the actor is not an active owner", "actor_id", id.Admin.AdminUserID)
-		a.renderProblem(w, r, http.StatusForbidden, problemConnectedAppsOwnerOnly)
-		return
+		return nil, err
 	case err != nil:
 		a.log.Error("panel: could not read the connected apps", "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
-		return
+		v.ReadFailed = true
+		return v, nil
 	}
-	v.Available, v.IntegrationsOff = true, list.IntegrationsOff
-	zone := a.webhookZone(r, id)
+	v.IntegrationsOff = list.IntegrationsOff
 	for _, c := range list.Apps {
 		row := pages.ConnectedAppRow{
 			GrantID: c.GrantID.String(), AppName: c.AppName, AppDisabled: c.AppDisabled, Expired: c.Expired,
@@ -122,7 +133,7 @@ func (a *AdminAuth) connectedAppsSection(w http.ResponseWriter, r *http.Request)
 		}
 		v.Apps = append(v.Apps, row)
 	}
-	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminConnectedApps(v))
+	return v, nil
 }
 
 // appDisconnect is the owner's Disconnect of one connection of THIS business, named by its grant id.
@@ -131,7 +142,7 @@ func (a *AdminAuth) appDisconnect(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(maxConnectedAppsFm))
 	if err := r.ParseForm(); err != nil {
 		a.log.Warn("panel app disconnect refused: the form could not be read")
-		a.redirect(w, connectedAppsHref+"?problem=unreadable")
+		a.redirect(w, connectedAppsReturn("unreadable"))
 		return
 	}
 	if !mayManageAPIKeys(id) {
@@ -147,17 +158,17 @@ func (a *AdminAuth) appDisconnect(w http.ResponseWriter, r *http.Request) {
 	grantID, err := uuid.Parse(strings.TrimSpace(r.PostFormValue("grant_id")))
 	if err != nil {
 		a.log.Warn("panel app disconnect refused: the grant id is not a uuid")
-		a.redirect(w, connectedAppsHref+"?problem=unreadable")
+		a.redirect(w, connectedAppsReturn("unreadable"))
 		return
 	}
 	err = a.oauth.Disconnect(r.Context(), id.TenantID(), id.Admin.AdminUserID, grantID)
 	switch {
 	case err == nil:
 		a.log.Info("panel app disconnected", "actor_id", id.Admin.AdminUserID, "grant_id", grantID)
-		a.redirect(w, connectedAppsHref+"?done=disconnected")
+		a.redirect(w, connectedAppsReturn("disconnected"))
 	case errors.Is(err, oauth.ErrUnknownGrant):
 		a.log.Warn("panel app disconnect refused: no such live connection in this business", "grant_id", grantID)
-		a.redirect(w, connectedAppsHref+"?problem=unknown-app")
+		a.redirect(w, connectedAppsReturn("unknown-app"))
 	case errors.Is(err, oauth.ErrNotOwner):
 		a.log.Warn("panel app disconnect refused by the domain: the actor is not an active owner", "actor_id", id.Admin.AdminUserID)
 		a.renderProblem(w, r, http.StatusForbidden, problemConnectedAppsOwnerOnly)

@@ -1598,8 +1598,8 @@ a token (403 `insufficient_scope`): simulate a tap with the business's `tt_test_
 <a id="oauth-disconnect"></a>
 ### 13.10 Disconnecting
 
-The business's owner sees the connection in the Taptime panel under **API keys → Connected apps**:
-the app, its scopes, when and by whom it was connected and when it was last used. Any owner of the
+The business's owner sees the connection in the Taptime panel on the **Developers** page, in its
+**Connected apps** card under the integration keys: the app, its scopes, when and by whom it was connected and when it was last used. Any owner of the
 business can **Disconnect** it — the next request with its tokens is 401. The connection is the
 business's, not the approving person's: it keeps working when that person leaves. Taptime can turn an
 app off for every business: its tokens are 401 and the token endpoint answers `invalid_client`.
