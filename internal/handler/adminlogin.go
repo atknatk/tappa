@@ -129,8 +129,10 @@ const (
 // a resolver read plus an UPDATE off an unauthenticated endpoint; the user overrode that
 // (a session existed and the form still opened -- the market pattern is the app). The
 // cost is bounded, not free, and LoginPage carries how: no cookie, no database work;
-// a cookie is resolved behind the page's address shield, by the gate Protect uses, and
-// charged to the session budget like any panel load.
+// a cookie is resolved only behind the page's address shield (pinned by counting the
+// resolver), by the gate Protect uses, and charged to the session budget like any panel
+// load -- but a spent budget gets the FORM here, not a 429, because signing in again is
+// how a session whose budget is spent gets a fresh one.
 type AdminAuth struct {
 	admins adminAuthenticator
 	audit  auditRecorder
@@ -854,22 +856,33 @@ func (a *AdminAuth) sameOriginGate(next http.Handler) http.Handler {
 // without letting anybody else spend that budget.
 func (a *AdminAuth) sessionGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := httpx.AdminOf(r)
-		if !id.Live() {
-			next.ServeHTTP(w, r)
-			return
-		}
-		key := id.Admin.SessionID.String()
-		if n := a.sessionLimiter.Charge(key); n > adminSessionLimit {
-			if a.sessionLimiter.FirstOverLimit(n) {
-				a.log.Warn("panel session budget reached", "session_id", key,
-					"limit", adminSessionLimit, "period", adminSessionPeriod.String())
-			}
+		if a.sessionSpent(r) {
 			a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sessionSpent charges the request's live session one unit of its budget and reports
+// whether the budget is now exceeded (logged once per window). No live session: no
+// charge, false. sessionGate answers true with 429; the sign-in page answers it with the
+// form (loginPageSignedIn), because signing in again is the way out of a spent budget.
+func (a *AdminAuth) sessionSpent(r *http.Request) bool {
+	id := httpx.AdminOf(r)
+	if !id.Live() {
+		return false
+	}
+	key := id.Admin.SessionID.String()
+	n := a.sessionLimiter.Charge(key)
+	if n <= adminSessionLimit {
+		return false
+	}
+	if a.sessionLimiter.FirstOverLimit(n) {
+		a.log.Warn("panel session budget reached", "session_id", key,
+			"limit", adminSessionLimit, "period", adminSessionPeriod.String())
+	}
+	return true
 }
 
 // requireAdmin is the bare gate, without any budget. Only the sign-out group uses
@@ -1116,12 +1129,20 @@ func readFailedProblem(r *http.Request) pages.ProblemView {
 //	                GET /admin -> login from resolving it again on every load.
 //	outage          the form, cookie kept, logged as requireLogin logs it: the
 //	                sign-in page must keep working through a database blip.
+//	live, budget    the FORM, not sessionGate's 429 (round 2 of T318's review): a
+//	spent           session whose budget is spent can only get a fresh one by
+//	                signing in again, and the POST needs the state this GET mints.
+//	                The charge still happens (sessionSpent), so the budget counts
+//	                this page; the resolve already ran, so the form costs nothing
+//	                more, and the address shield still bounds the anonymous load.
+//
+// THE SHIELD COMES FIRST and that order is pinned (TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute
+// counts the resolver on an exhausted address): moved after the resolve, an
+// exhausted address would buy a resolver read per request on a cookie it invented.
 //
 // IT IS httpx.RequireAdmin, THE GATE Protect USES, not a second resolver: whatever
 // the panel accepts as signed in this accepts, whatever it refuses this refuses, in
-// either TAPPA_ADMIN_IDENTITY setting. sessionGate follows it as in Protect, so a
-// session cannot use this page as an unbudgeted resolver loop (the 303's target
-// charges the budget again; a signed-in visitor here is a handful of loads).
+// either TAPPA_ADMIN_IDENTITY setting.
 func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "admin_login_page") {
@@ -1129,14 +1150,19 @@ func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.cookies.Read(r); err == nil {
 		httpx.RequireAdmin(a.cookies, a.admins, http.HandlerFunc(a.loginPageWithoutSession))(
-			a.sessionGate(http.HandlerFunc(a.loginPageSignedIn))).ServeHTTP(w, r)
+			http.HandlerFunc(a.loginPageSignedIn)).ServeHTTP(w, r)
 		return
 	}
 	a.renderLoginForm(w, r)
 }
 
-// loginPageSignedIn is LoginPage's answer to a live session: where a sign-in lands.
+// loginPageSignedIn is LoginPage's answer to a live session: where a sign-in lands,
+// or the form when the session's budget is spent (see LoginPage).
 func (a *AdminAuth) loginPageSignedIn(w http.ResponseWriter, r *http.Request) {
+	if a.sessionSpent(r) {
+		a.renderLoginForm(w, r)
+		return
+	}
 	a.redirect(w, a.landingAfterSignIn(r, "/admin"))
 }
 

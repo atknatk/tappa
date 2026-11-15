@@ -2517,6 +2517,9 @@ func TestAdminLoginPage_ADeadCookieDoesNotLoop(t *testing.T) {
 
 // TestAdminLoginPage_ChargesTheSessionBudget: a live session resolving on the sign-in
 // page is charged like any panel load, so the page is not an unbudgeted resolver loop.
+// Past the budget it answers the FORM, not a 429 (T318 round 2): signing in again is how a
+// spent session gets a fresh one, and the POST needs the state this GET mints. The charge
+// still counts: the panel itself is then refused for the same session.
 func TestAdminLoginPage_ChargesTheSessionBudget(t *testing.T) {
 	sessionID := uuid.New()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
@@ -2529,8 +2532,19 @@ func TestAdminLoginPage_ChargesTheSessionBudget(t *testing.T) {
 			t.Fatalf("load %d: status %d, want 303 inside the budget", i, rec.Code)
 		}
 	}
-	if rec := b.do(http.MethodGet, "/admin/login", nil); rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("load %d: status %d, want 429 past the session budget", adminSessionLimit+1, rec.Code)
+	if _, ok := b.cookies[adminLoginCookieName]; ok {
+		t.Fatalf("PREMISE: a sign-in state was minted inside the budget")
+	}
+	rec := b.do(http.MethodGet, "/admin/login", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("load %d: status %d -> %q, want the form (200) past the session budget", adminSessionLimit+1, rec.Code, rec.Header().Get("Location"))
+	}
+	csrfFrom(t, htmlOf(t, rec))
+	if _, ok := b.cookies[adminLoginCookieName]; !ok {
+		t.Fatalf("the form past the budget minted no sign-in state, so its POST cannot work")
+	}
+	if rec := b.do(http.MethodGet, "/admin", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("GET /admin for the spent session: %d, want 429 — the sign-in page did not charge the budget", rec.Code)
 	}
 }
 
