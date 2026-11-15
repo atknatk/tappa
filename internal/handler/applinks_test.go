@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/atknatk/tappa/internal/httpx"
 )
 
 // The fake values every test here uses. Both are the platforms' own documentation samples (Apple's
@@ -247,5 +249,27 @@ func TestAppLinks_TheCertificateListIsCopied(t *testing.T) {
 	prints[0] = fakeCertB
 	if after := appLinksDo(h, http.MethodGet, "taptime.mt", AssetLinksPath).Body.String(); after != before {
 		t.Errorf("the file changed with the caller's slice: %s", after)
+	}
+}
+
+// TestAppLinks_ANilValueMountsNothing: a nil *AppLinks inside the router's Mounter interface is not a
+// nil interface, so NewRouter calls Mount on it; Mount must mount nothing rather than panic.
+func TestAppLinks_ANilValueMountsNothing(t *testing.T) {
+	var a *AppLinks
+	r := chi.NewRouter()
+	a.Mount(r)
+	routes := 0
+	if err := chi.Walk(r, func(string, string, http.Handler, ...func(http.Handler) http.Handler) error {
+		routes++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if routes != 0 {
+		t.Errorf("a nil *AppLinks mounted %d routes", routes)
+	}
+	h := httpx.NewRouter(nil, nil, a)
+	if rec := appLinksDo(h, http.MethodGet, "taptime.mt", AssetLinksPath); rec.Code != http.StatusNotFound {
+		t.Errorf("through NewRouter: GET %s = %d, want 404", AssetLinksPath, rec.Code)
 	}
 }

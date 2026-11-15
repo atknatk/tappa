@@ -231,6 +231,9 @@ data:
   # letters or digits; the certificate digests are a comma-separated list of 32 upper-case hex pairs joined
   # by colons. Only taptime.mt serves them: www and the legacy host redirect, and a redirect is no
   # association, so Universal Links and App Links work for taptime.mt alone.
+  # PRODUCTION'S Android list is Play App Signing's digest ALONE (upload / internal-test keys only in
+  # a test environment), and each value is filled only after that platform's app handles /t,
+  # the query-less QR form /t?tag= included (M16-08 card, note 7; M16-28).
   # TestPackaging_TheAppValuesShipEmpty pins both empty.
   TAPPA_APP_APPLE_TEAM_ID: ""
   TAPPA_APP_ANDROID_SIGNER_SHA256: ""

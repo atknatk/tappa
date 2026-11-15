@@ -203,15 +203,20 @@ R1 FAIL).
 digest / CertSHA256* yazıldı; 38 satır 2'ye indi. Kalan ikisi anahtarın kendisidir (`internal/handler/applinks.go`'nun
 struct etiketi ve `applinks_test.go`'nun altın satırı) ve değiştirilemez — başka yazımı yoktur.
 
-**Muafiyet, mevcut desenle:** ifade **tırnaklı** anahtardır (`"sha256_cert_fingerprints"`, tırnaksız kelime muaf
-değil), yol `internal/handler/applinks[^:]*\.go`. `r1_select`'in üçüncü koşulu aynen işler: ifade çıkarılınca
-satırda başka tetikleyici kalırsa FAIL. Her koşuda `[R1 · WARN]` olarak basılır.
+**Muafiyet, kendi yoluna bağlı (denetim sonrası, 2026-11-14):** ifade **tırnaklı** anahtardır
+(`"sha256_cert_fingerprints"`, tırnaksız kelime muaf değil) ve beş pazarlama ifadesinin kümesine **eklenmedi**:
+ikinci bir ifade→yol çifti olarak durur (`R1_PROTOCOL_PHRASES` / `R1_PROTOCOL_PATHS`), yolu yalnız iki dosya —
+`internal/handler/applinks.go` ve `applinks_test.go` (`^internal/handler/applinks(_test)?[.]go:`; alt dizin yok,
+`applinks*` öneki yok). İlk yazım (fc04f789) ifadeyi pazarlama listesine, yolu `applinks[^:]*\.go` olarak pazarlama
+yollarına eklemişti; iki genişleme ölçüldü: liste çarpım olduğu için pazarlama ifadeleri `applinks*.go`'da, anahtar
+pazarlama dosyalarında muaftı, ve yol `internal/handler/applinks/sub/x.go`'yu da kapsıyordu. `r1_select` her ifade
+kümesini yalnız kendi yol kümesinde çıkarır; üçüncü koşul aynen işler (ifadeler çıkarılınca satırda başka
+tetikleyici kalırsa FAIL). Her koşuda `[R1 · WARN]` olarak basılır. Beş pazarlama ifadesi kendi aralarında hâlâ
+çarpımdır (iki yol, beş ifade) — bu ek onu değiştirmedi.
 
-**Bilinen genişleme, kabul:** ifade listesi ile yol listesi eşlenmiş değil, çarpımdır — yeni ifade pazarlama
-dosyalarında da, beş eski ifade `applinks*.go`'da da muaf olur. İkisi de bir toplama değil bir ilan/protokol
-metnidir; eşlemeli bir tabloya geçmek bu kartın işi değildi.
-
-**Sondalar** (`cmd/tappa/scripttest` `TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver`): anahtar muaf
-olmayan bir yolda → FAIL · tırnaksız kelime muaf dosyada → FAIL · kelimeyi taşıyan bir tanımlayıcı muaf dosyada →
-FAIL · anahtar + `webauthn` aynı satırda → FAIL · struct etiketi ve altın satır → muaf, WARN'da adlı. Mutant: yol
-girdisi silinince ve ifade silinince test kırmızı (ölçüldü, geri alındı).
+**Sondalar** (`cmd/tappa/scripttest` `TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver`, her kırmızı vaka kendi
+ağacında): anahtar paket dışında · komşu bir handler dosyasında (`tap_r1.go`) · yakın ad (`applink.go`) · önek
+(`applinks_extra.go`) · alt dizin (`applinks/sub/x.go`) · bir pazarlama dosyasında → FAIL; muaf dosyada bir pazarlama
+ifadesi · tırnaksız kelime · kelimeyi taşıyan tanımlayıcı · anahtar + `webauthn` aynı satırda → FAIL; struct etiketi ve
+altın satır → muaf, WARN'da adlı. Mutantlar (ölçüldü, geri alındı): yol `internal/handler/[^:]*[.]go`'ya genişletilince
+beş vaka kırmızı; fc04f789'un çarpımlı biçimi geri konunca dört vaka kırmızı.

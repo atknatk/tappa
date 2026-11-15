@@ -151,8 +151,11 @@ type Config struct {
 	AppAppleTeamID string
 	// AppAndroidSignerSHA256 are the SHA-256 digests of the certificates the Android app is
 	// signed with, in the form Play Console shows them: 32 upper-case hex pairs joined by colons.
-	// More than one is allowed (Play App Signing's key, an upload or internal-test key -- the
-	// Digital Asset Links format takes a list), comma-separated, no duplicates.
+	// More than one is accepted (the Digital Asset Links format takes a list), comma-separated, no
+	// duplicates. 🔴 PRODUCTION LISTS PLAY APP SIGNING'S DIGEST ONLY: that is the certificate the
+	// store installs. An upload key or an internal-test key belongs only in a test environment's
+	// value -- in production every key on the list can sign an app that opens the plaque URL, and
+	// the upload key is the one that lives on a developer machine (M16-28).
 	AppAndroidSignerSHA256 []string
 
 	// ResetDelivery names the transport that carries an admin password-reset link

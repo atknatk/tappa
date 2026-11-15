@@ -90,7 +90,13 @@ func NewAppLinks(baseURL, teamID string, certs []string) (*AppLinks, error) {
 
 // Mount registers each configured file for GET and HEAD (BrandTheme.Mount's reason for HEAD: the
 // answer has no identity, budget or query behind it, so admitting HEAD has no blast radius).
+//
+// A nil *AppLinks mounts nothing. httpx.NewRouter skips a nil Mounter, but a nil *AppLinks handed to
+// it is a non-nil interface (cmd/tappa's appRouter takes the concrete type), so the nil check is here.
 func (a *AppLinks) Mount(r chi.Router) {
+	if a == nil {
+		return
+	}
 	if a.apple != nil {
 		h := a.serve(a.apple)
 		r.Get(AppleAppSiteAssociationPath, h)
