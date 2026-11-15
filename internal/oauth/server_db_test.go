@@ -335,13 +335,44 @@ func TestOAuthServerDB_CodeReuseRevokesTheGrantButOnlyForItsOwnClient(t *testing
 // TestOAuthServerDB_ConcurrentPresentationsOfOneCodeAreNotAReuse (the "Uygulama notları", -race): N
 // goroutines exchange one code while the winner holds the row lock -- exactly one succeeds, the
 // others are invalid_grant without touching anything, and the grant lives.
+//
+// DETERMINISTIC, NOT TIMED (phase 4's make-check round). The winner's hold (HoldTheConsumedCode, inside
+// its transaction right after the consuming UPDATE) lasts until every other presentation has RETURNED
+// -- so each of them met the row locked (SKIP LOCKED: refused, not a reuse), whatever the scheduler
+// did; a 400 ms sleep let a late loser arrive after the commit, see a spent code that bore a grant and
+// revoke it. And the code is checked FRESH before the race: a code's 60 seconds start at its
+// transaction's now(), and the full suite's second make-check run answered "0 succeeded and 8 were
+// refused" after 72 s (measured) -- every presentation found the code expired, which only a commit
+// that waited ~60 s explains (inferred, not measured: internal/db's exclusive lock of admin_users,
+// which the code's FK check meets). A stale code is minted again (at most three times), never raced.
 func TestOAuthServerDB_ConcurrentPresentationsOfOneCodeAreNotAReuse(t *testing.T) {
 	w := newServerWorld(t)
-	code, v := w.approve()
+	var code Value
+	var v string
+	for attempt := 1; ; attempt++ {
+		code, v = w.approve()
+		left := w.count(`SELECT floor(extract(epoch FROM expires_at - clock_timestamp()))::bigint FROM oauth_codes
+		                 WHERE tenant_id = $1 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1`, w.tenant)
+		if left >= 40 {
+			break
+		}
+		if attempt == 3 {
+			t.Fatalf("three codes in a row were born with under 40 of their 60 seconds left (%d): the database is stalled", left)
+		}
+	}
 	const n = 8
-	var started sync.WaitGroup
+	var started, losers sync.WaitGroup
 	started.Add(n)
-	w.srv.HoldTheConsumedCode(func() { time.Sleep(400 * time.Millisecond) })
+	losers.Add(n - 1)
+	release := make(chan struct{})
+	go func() { losers.Wait(); close(release) }()
+	w.srv.HoldTheConsumedCode(func() {
+		select {
+		case <-release:
+		case <-time.After(30 * time.Second):
+			t.Error("the other presentations did not return within 30 s while the winner held the code")
+		}
+	})
 	var ok, refused atomic.Int32
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
@@ -356,8 +387,10 @@ func TestOAuthServerDB_ConcurrentPresentationsOfOneCodeAreNotAReuse(t *testing.T
 				ok.Add(1)
 			case is(err, ErrInvalidGrant):
 				refused.Add(1)
+				losers.Done()
 			default:
 				t.Errorf("exchange: %v", err)
+				losers.Done()
 			}
 		}()
 	}

@@ -51,7 +51,7 @@ import (
 // Never the session token or its hash, never the secret or its hash.
 
 // OAuthClientStore is the operator database's slice the registry screen needs (*db.OperatorDB,
-// operatoroauth.go), declared at the consumer (§7). sessionHash is operatorauth's SessionHash of the
+// operator.go), declared at the consumer (§7). sessionHash is operatorauth's SessionHash of the
 // request's token. A write's nil says the call was ACCEPTED (ADR 0021 §2 v 7); a refused argument is
 // SQLSTATE 22023; a dead session is db.ErrOperatorRefused.
 type OAuthClientStore interface {

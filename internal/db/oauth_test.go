@@ -960,7 +960,7 @@ func TestOAuth_TheRedirectRuleIsOneExpression(t *testing.T) {
 }
 
 // TestOAuthOp_EveryWriteLeavesItsAuditRow -- ADR 0047 §10.2 / ADR 0021 §2 through the shipped Go
-// accessors (internal/db/operatoroauth.go): registration returns the id, stores the scopes sorted and
+// accessors (internal/db/operator.go): registration returns the id, stores the scopes sorted and
 // without repeats and writes 'oauth_client_registered' naming the app and no tenant; rotation, the
 // redirect edit and the disabling each write their row on EVERY accepted call -- also for a disabled
 // app (which none of them changes) and for an id that names no app; webhooks:manage, a name the rule

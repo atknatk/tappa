@@ -678,31 +678,31 @@ func (o *OperatorDB) ReinstateTenant(ctx context.Context, sessionHash string, te
 }
 
 // The five methods below are internal/handler/operator's OAuthClientStore (issue #37, ADR 0047 §10;
-// migration 00107): the app registry's read and its four writes (operatoroauth.go). Same shape as the
+// migration 00107): the app registry's read and its four writes (operator.go). Same shape as the
 // methods above: each write is one statement on the POOL, the read two (op_begin_read + the page).
 
-// OAuthClients is a page of the app registry, a two-phase read (operatoroauth.go).
+// OAuthClients is a page of the app registry, a two-phase read (operator.go).
 func (o *OperatorDB) OAuthClients(ctx context.Context, sessionHash string, page int32) ([]OAuthClientRow, error) {
 	return OAuthClients(ctx, o.pool, sessionHash, page)
 }
 
-// RegisterOAuthClient is op_register_oauth_client (operatoroauth.go).
+// RegisterOAuthClient is op_register_oauth_client (operator.go).
 func (o *OperatorDB) RegisterOAuthClient(ctx context.Context, sessionHash, name string, redirectURIs, scopes []string,
 	secretHash, secretHint string) (uuid.UUID, error) {
 	return RegisterOAuthClient(ctx, o.pool, sessionHash, name, redirectURIs, scopes, secretHash, secretHint)
 }
 
-// RotateOAuthClientSecret is op_rotate_oauth_client_secret (operatoroauth.go).
+// RotateOAuthClientSecret is op_rotate_oauth_client_secret (operator.go).
 func (o *OperatorDB) RotateOAuthClientSecret(ctx context.Context, sessionHash string, clientID uuid.UUID, secretHash, secretHint string) error {
 	return RotateOAuthClientSecret(ctx, o.pool, sessionHash, clientID, secretHash, secretHint)
 }
 
-// SetOAuthClientRedirects is op_set_oauth_client_redirects (operatoroauth.go).
+// SetOAuthClientRedirects is op_set_oauth_client_redirects (operator.go).
 func (o *OperatorDB) SetOAuthClientRedirects(ctx context.Context, sessionHash string, clientID uuid.UUID, redirectURIs []string) error {
 	return SetOAuthClientRedirects(ctx, o.pool, sessionHash, clientID, redirectURIs)
 }
 
-// DisableOAuthClient is op_disable_oauth_client (operatoroauth.go).
+// DisableOAuthClient is op_disable_oauth_client (operator.go).
 func (o *OperatorDB) DisableOAuthClient(ctx context.Context, sessionHash string, clientID uuid.UUID) error {
 	return DisableOAuthClient(ctx, o.pool, sessionHash, clientID)
 }
