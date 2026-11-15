@@ -4079,7 +4079,7 @@ owner'ı** bağlantıyı yeniden onaylar. Kayıp, bir veri kaybı değildir ama 
    tabanı `https://api.taptime.mt`, `client_id`, kapsamlar, rehberin §13'ü (`GET /v1/guide.md`).
 5. Doğrula: liste uygulamayı ad, `client_id`, kapsamlar ve dönüş adresiyle gösterir; operatör denetim
    kaydında bir `oauth_client_registered` satırı vardır (detayı yalnız `client_id`). Bir owner'ın panelinde
-   **API keys → Connected apps** kartı açılır (bağlantı yokken boş).
+   **Developers** sayfasında **Connected apps** kartı görünür (bağlantı yokken boş-durum cümlesiyle).
 
 **Kapatmak:** *"Disable"* tek yönlüdür — uygulamanın bütün tokenları bir sonraki istekte 401, token ucu
 `invalid_client`; grant satırları iptal edilmez (tenant yazması olurdu), owner'lar *"turned off by

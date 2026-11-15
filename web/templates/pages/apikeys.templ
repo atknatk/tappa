@@ -7,7 +7,8 @@ import (
 )
 
 // The DEVELOPERS section (M11 API-3, ADR 0028 §3; redesigned in M12-42) -- the owner's
-// integration keys, the webhook, and the webhook's delivery log.
+// integration keys, the connected apps (issue #37, connectedapps.templ), the webhook, and the
+// webhook's delivery log.
 //
 // 🔴 THE RAW KEY IS DRAWN ON ONE RESPONSE ONLY: the answer to "create". Every other render has
 // v.NewKey empty and the list shows each key's hint -- its prefix and four characters, its FIRST
@@ -52,6 +53,9 @@ templ AdminAPIKeys(v APIKeysView) {
 					@webhookKeyShownOnce(v.Webhook, v.PostHref)
 				}
 				@apiKeysCard(v)
+				if v.ConnectedApps != nil {
+					@connectedAppsCard(*v.ConnectedApps)
+				}
 				if !v.ListFailed {
 					@webhookSection(v.Webhook, v.PostHref)
 					if v.Webhook.Configured && v.Webhook.Exists {
@@ -88,12 +92,6 @@ templ apiKeysCard(v APIKeysView) {
 					<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(APIGuidePath) }>Read the integration guide</a>
 					— what the API does and how your system calls it.
 				</p>
-				if v.ConnectedAppsHref != "" {
-					<p class="max-w-2xl text-sm leading-normal text-ink/70">
-						<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(v.ConnectedAppsHref) }>Connected apps</a>
-						— the apps an owner connected from the app&#39;s own site, and how to disconnect one.
-					</p>
-				}
 			</div>
 			if v.Available && !v.ListFailed && v.APIEnabled {
 				@apiKeyCreateForm(v)

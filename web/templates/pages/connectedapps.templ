@@ -2,72 +2,75 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/components"
 
-// THE CONNECTED APPS CARD (issue #37, ADR 0047 §12) -- under the Developers section, owner-only like
-// it. An app connects from its own site (the owner presses "Connect Taptime" there and approves on
-// Taptime's consent page); this card lists what is connected and ends a connection.
+// THE CONNECTED APPS CARD (issue #37, ADR 0047 §12) -- a card of the Developers section, under the
+// integration keys and before the webhook, owner-only like the section. An app connects from its own
+// site (the owner presses "Connect Taptime" there and approves on Taptime's consent page); this card
+// lists what is connected and ends a connection.
+//
+// It was its own page until 2026-11-15, reached by a small link in the keys card's text; an owner on
+// the live panel did not find it there, so the list moved onto the section (GitHub's "Authorized
+// OAuth apps", Slack's "Installed apps"). The old address answers 303 to this card's fragment.
 //
 // 🔴 IT LOADS NO SCRIPT AND SHOWS NO SECRET. A connection has no value to print: its tokens are the
 // app's, hashed here. Disconnect is one form post on the panel's write chain, open while the business
 // is suspended (K-26: a write that narrows what the business exposes).
 //
+// ITS OWN READ, ITS OWN NOTICE. The list is read apart from the keys: when it cannot be read the card
+// says so and the rest of the section is drawn. Disconnect's outcome comes back in the card's own
+// parameter and is drawn inside the card -- the answer lands at the card's fragment, and the page's
+// two notices at the top would be above the fold.
+//
 // skill tappa-brand: every stored value is IBM Plex Mono, a state is a WORD in a pill (Connected,
 // Expired, Turned off by Taptime, Approver disabled), never a colour alone; the destructive button is
 // the panel's danger button.
-templ AdminConnectedApps(v ConnectedAppsView) {
-	@PanelShell(v.PanelChrome) {
-		<div class="panel-measure flex flex-col gap-5 md:gap-6">
-			if v.Problem != "" {
-				@components.PanelNotice(components.ToneAlert, "That did not happen") {
-					<p>{ v.Problem }</p>
-				}
-			}
-			if v.Done != "" {
-				@components.PanelNotice(components.ToneOK, "") {
-					<p>{ v.Done }</p>
-				}
-			}
-			<section class="panel-card" aria-labelledby="connected-apps-title">
-				<div class="flex flex-col gap-1.5">
-					<h2 id="connected-apps-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Connected apps</h2>
-					<p class="max-w-2xl text-sm leading-normal text-ink/70">
-						Apps an owner of this business connected from the app&#39;s own site. Each one can do
-						only what is listed under it, for this business alone. A connection belongs to the
-						business, not to the person who approved it: it keeps working when they leave.
-						Disconnect it here and the app is refused from its next request.
-					</p>
-					<p class="max-w-2xl text-sm leading-normal text-ink/70">
-						<a class="hit-link font-bold text-ink underline underline-offset-4 hover:text-tappa-green" href={ templ.URL(v.KeysHref) }>Back to integration keys</a>
-					</p>
-				</div>
-				if !v.Available {
-					<p class="max-w-2xl text-sm text-ink/70">Connected apps are not available on this deployment.</p>
-				} else {
-					if v.IntegrationsOff {
-						@components.PanelNotice(components.ToneWarn, "Integrations are turned off for this business by Taptime") {
-							<p>
-								Every connected app is refused until Taptime turns them on again. The connections
-								stay listed, and you can still disconnect them.
-							</p>
-						}
-					}
-					if len(v.Apps) == 0 {
-						<p class="text-sm text-ink/70">No app is connected to this business.</p>
-					} else {
-						<ul class="flex flex-col">
-							for _, a := range v.Apps {
-								@connectedAppRow(v, a)
-							}
-						</ul>
-					}
-				}
-			</section>
+templ connectedAppsCard(v ConnectedAppsCard) {
+	<section class="panel-card" id={ ConnectedAppsAnchor } aria-labelledby="connected-apps-title">
+		<div class="flex flex-col gap-1.5">
+			<h2 id="connected-apps-title" class="font-display text-[19px] font-bold leading-tight tracking-[-0.02em] text-ink md:text-xl desk:text-[22px]">Connected apps</h2>
+			<p class="max-w-2xl text-sm leading-normal text-ink/70">
+				Apps an owner of this business connected from the app&#39;s own site. Each one can do
+				only what is listed under it, for this business alone. A connection belongs to the
+				business, not to the person who approved it: it keeps working when they leave.
+				Disconnect it here and the app is refused from its next request.
+			</p>
 		</div>
-	}
+		if v.Problem != "" {
+			@components.PanelNotice(components.ToneAlert, "That did not happen") {
+				<p>{ v.Problem }</p>
+			}
+		}
+		if v.Done != "" {
+			@components.PanelNotice(components.ToneOK, "") {
+				<p>{ v.Done }</p>
+			}
+		}
+		if v.ReadFailed {
+			<p class="max-w-2xl text-sm text-ink/70">The connected apps could not be read just now. Reload the page to see them.</p>
+		} else {
+			if v.IntegrationsOff {
+				@components.PanelNotice(components.ToneWarn, "Integrations are turned off for this business by Taptime") {
+					<p>
+						Every connected app is refused until Taptime turns them on again. The connections
+						stay listed, and you can still disconnect them.
+					</p>
+				}
+			}
+			if len(v.Apps) == 0 {
+				<p class="text-sm text-ink/70">No app is connected to this business. An app connects from its own site, and only with an owner&#39;s approval here.</p>
+			} else {
+				<ul class="flex flex-col">
+					for _, a := range v.Apps {
+						@connectedAppRow(v, a)
+					}
+				</ul>
+			}
+		}
+	</section>
 }
 
 // connectedAppRow is one connection: the app, its state, its scopes, when and by whom, its last use,
 // and the Disconnect button (its accessible name carries the app's name).
-templ connectedAppRow(v ConnectedAppsView, a ConnectedAppRow) {
+templ connectedAppRow(v ConnectedAppsCard, a ConnectedAppRow) {
 	<li class="flex flex-col gap-3 border-t border-dashed border-line py-3 md:flex-row md:items-start md:justify-between">
 		<div class="flex min-w-0 flex-col gap-1">
 			<p class="flex flex-wrap items-center gap-2">

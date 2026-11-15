@@ -1,14 +1,17 @@
 package pages
 
-// ConnectedAppsView is the Developers section's "Connected apps" card (issue #37, ADR 0047 §12): the
+// ConnectedAppsAnchor is the Connected apps card's fragment on the Developers section: the old
+// address of the list and Disconnect's answer both land there.
+const ConnectedAppsAnchor = "connected-apps"
+
+// ConnectedAppsCard is the Developers section's "Connected apps" card (issue #37, ADR 0047 §12): the
 // apps the business's owners connected through OAuth -- each with its scopes in plain words, when and
 // by whom it was connected, its last use -- and the Disconnect that ends one. Owner-only, like the
 // rest of the section. Nothing here is a secret: a grant has no value to show.
-type ConnectedAppsView struct {
-	PanelChrome
-
-	// Available is false when the panel was built without the authorization server.
-	Available bool
+type ConnectedAppsCard struct {
+	// ReadFailed: the list could not be read on this response; the card says so and the rest of the
+	// section is drawn.
+	ReadFailed bool
 	// IntegrationsOff is ADR 0047 §11.4's banner: the operator closed this business's integration
 	// API, which stops every connected app's requests (403) while the connections stay listed.
 	IntegrationsOff bool
@@ -16,8 +19,8 @@ type ConnectedAppsView struct {
 	Apps []ConnectedAppRow
 
 	DisconnectHref string
-	KeysHref       string
 
+	// Done and Problem are Disconnect's outcome, drawn inside the card.
 	Done    string
 	Problem string
 }

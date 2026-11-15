@@ -1675,3 +1675,27 @@ ADR'yi **bloklamayan**, uygulama turunun gerçek testleriyle doğrulanacak notla
   testi ham `UPDATE admin_users` yerine panelin kendi `SetAdminMemberRole`'unu kullanır
   (`cmd/opadmin`'in tablo kilidi envanteri); `internal/oauth` ve `internal/handler/oauthapi` o
   envanterde *"outside, plain"* olarak adlı.
+
+**Uygulama sonrası düzeltme (2026-11-15) — *"Connected apps"* Developers sayfasının içinde:**
+
+- **Neden:** kullanıcı canlıda bağlı uygulamaların listesini bulamadı. Liste §12'deki ayrı sayfadaydı
+  (`/admin/api-keys/apps`) ve ona yalnız *"Integration keys"* kartının açıklama paragrafındaki küçük bir
+  metin bağlantısı götürüyordu. Piyasa deseni (GitHub *"Authorized OAuth apps"*, Slack *"Installed apps"*):
+  liste ayarlar sayfasının içinde, kendi kartında.
+- **Ne değişti:** *"Developers"* (`/admin/api-keys`) kartı kendisi çizer — *"Integration keys"*in hemen
+  altında, webhook'tan önce, `id="connected-apps"`. İçerik §12'nin listesiyle aynı bileşen
+  (`connectedapps.templ`'in `connectedAppsCard`'ı; ayrı sayfa şablonu kalktı); bağlantı yokken tek bir boş
+  durum cümlesi. Paragraftaki metin bağlantısı kalktı. Yetki değişmedi: sayfa owner'a özel, yönetici 403.
+- **Kendi okuması:** liste anahtarlardan ayrı okunur; okunamazsa kart kendi cümlesini (*"could not be read
+  just now"*) gösterir ve sayfanın geri kalanı çizilir (ERROR log). Yalnız alan katmanının `ErrNotOwner`'ı
+  sayfanın 403'üdür.
+- **Eski adres:** `GET /admin/api-keys/apps` kaldırılmadı, owner'ı **303** ile `/admin/api-keys#connected-apps`'e
+  gönderir (yönetici eskisi gibi 403). Gerekçe: yer imleri ve rehberin eski kopyaları tek anlam taşır, rota
+  envanterleri ve Disconnect'in yolu yerinde kalır.
+- **Disconnect:** `POST /admin/api-keys/apps/disconnect` — yol, sınıf **2** ve askı istisnası değişmedi.
+  Dönüş `/admin/api-keys?app=<sözcük>#connected-apps`; sonuç (`disconnected`, `unreadable`, `unknown-app`)
+  kartın **içinde** çizilir (marka editörünün `#brand` deseni) — sayfanın üstteki iki bildirimi parçanın
+  kaydırdığı yerin üstünde kalırdı ve sayfanın `done`/`problem` sözcükleriyle yarışmaz.
+- **Testler:** `TestConnectedApps_TheOwnerListsAndDisconnects` (kart sayfada, sırası, eski adresin 303'ü,
+  yöneticinin üç 403'ü, kart içi sonuçlar, boş durum), `TestConnectedApps_AnUnreadableListLeavesTheRestOfTheSection`.
+  Rehber §13.10 (EN/TR) kartın yerini *"Developers → Connected apps"* olarak anlatır.

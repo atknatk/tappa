@@ -1610,8 +1610,8 @@ Prod her loopback dönüş adresini reddeder. POST /v1/sandbox/taps bir tokena a
 <a id="oauth-disconnect"></a>
 ### 13.10 Bağlantıyı koparmak
 
-İşletmenin sahibi bağlantıyı Taptime panelinde **API keys → Connected apps** altında görür:
-uygulamayı, kapsamlarını, ne zaman ve kimin bağladığını ve en son ne zaman kullanıldığını. İşletmenin
+İşletmenin sahibi bağlantıyı Taptime panelinin **Developers** sayfasında, entegrasyon anahtarlarının
+altındaki **Connected apps** kartında görür: uygulamayı, kapsamlarını, ne zaman ve kimin bağladığını ve en son ne zaman kullanıldığını. İşletmenin
 herhangi bir sahibi onu **Disconnect** edebilir — tokenlarıyla bir sonraki istek 401'dir. Bağlantı
 onaylayan kişinin değil, işletmenindir: o kişi ayrıldığında da çalışmaya devam eder. Taptime bir
 uygulamayı bütün işletmeler için kapatabilir: tokenları 401'dir ve token ucu `invalid_client` yanıtını verir.

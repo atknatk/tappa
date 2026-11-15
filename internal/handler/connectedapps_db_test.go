@@ -44,41 +44,73 @@ func (f *consentFixture) connect(app uuid.UUID, scopes ...string) (uuid.UUID, oa
 	return grant, tok
 }
 
-// TestConnectedApps_TheOwnerListsAndDisconnects (ADR 0047 §12, §17): the owner's card names the app,
-// its scopes in words, the approver and "Never" for an unused grant; the API keys page links to it;
-// Disconnect -- a bound POST -- ends the grant ('owner', the membership), writes oauth.grant_revoked
-// with the owner as actor, and 303s back with the done sentence; the app's token then resolves to
-// nothing. A manager gets 403 on both routes and nothing ends; another business's grant id is
-// "not connected" and nothing ends; a disabled app is "Turned off by Taptime", the operator's closing
-// raises the banner.
+// appsCardOf is the Connected apps card's markup on a Developers page: from its section's opening tag to
+// its closing one (the card holds no nested section).
+func appsCardOf(t *testing.T, page string) string {
+	t.Helper()
+	i := strings.Index(page, `id="connected-apps"`)
+	if i < 0 {
+		t.Fatal("the Developers page draws no Connected apps card")
+	}
+	i = strings.LastIndex(page[:i], "<section")
+	j := strings.Index(page[i:], "</section>")
+	if j < 0 {
+		t.Fatal("the card's section does not close")
+	}
+	return page[i : i+j]
+}
+
+// TestConnectedApps_TheOwnerListsAndDisconnects (ADR 0047 §12, §17; the 2026-11-15 correction): the
+// Developers page itself draws the card -- under the integration keys and before the webhook -- with
+// the app, its scopes in words, the approver and "Never" for an unused grant, and the Disconnect form;
+// the card's old address answers 303 to the card's fragment and no link to it is left. Disconnect --
+// a bound POST -- ends the grant ('owner', the membership), writes oauth.grant_revoked with the owner as
+// actor, and 303s back to the card with its done sentence inside the card; the app's token then
+// resolves to nothing. A manager gets 403 on the section, the old address and the press, and nothing
+// ends; another business's grant id is "not connected" and nothing ends; a disabled app is "Turned off
+// by Taptime", the operator's closing raises the banner; with no app left the card says so.
+//
+// MUTANT (measured): the card's call removed from the Developers page -> red at the first check.
 func TestConnectedApps_TheOwnerListsAndDisconnects(t *testing.T) {
 	f := newConsentFixture(t)
 	grant, tok := f.connect(f.client, oauth.ScopeTimesheetsRead, oauth.ScopeEmployeesWrite)
-	f.connect(f.clientB, oauth.ScopeEmployeesRead)
+	grantB, _ := f.connect(f.clientB, oauth.ScopeEmployeesRead)
 	b := f.browser()
-	keys := htmlOf(t, b.do(http.MethodGet, apiKeysHref, nil))
-	if !strings.Contains(keys, `href="`+connectedAppsHref+`"`) {
-		t.Fatal("the API keys page does not link to Connected apps")
-	}
-	rec := b.do(http.MethodGet, connectedAppsHref, nil)
+	rec := b.do(http.MethodGet, apiKeysHref, nil)
 	page := htmlOf(t, rec)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("the card: %d", rec.Code)
+		t.Fatalf("the Developers page: %d", rec.Code)
 	}
+	card := appsCardOf(t, page)
 	for _, want := range []string{"Connected apps", "Malta Calculator", "Another App", oauth.ScopeLabel(oauth.ScopeTimesheetsRead),
-		oauth.ScopeLabel(oauth.ScopeEmployeesWrite), "by Consent Admin", "Last used Never", ">Connected<", `name="grant_id" value="` + grant.String() + `"`} {
-		if !strings.Contains(page, want) {
+		oauth.ScopeLabel(oauth.ScopeEmployeesWrite), "by Consent Admin", "Last used Never", ">Connected<",
+		`action="` + appDisconnectHref, `name="grant_id" value="` + grant.String() + `"`, `name="grant_id" value="` + grantB.String() + `"`} {
+		if !strings.Contains(card, want) {
 			t.Errorf("the card lacks %q", want)
 		}
 	}
+	keysAt, cardAt, hookAt := strings.Index(page, `id="api-keys-title"`), strings.Index(page, `id="connected-apps-title"`), strings.Index(page, `id="webhook-title"`)
+	if keysAt < 0 || hookAt < 0 || !(keysAt < cardAt && cardAt < hookAt) {
+		t.Errorf("the card is not between the keys and the webhook: keys %d, card %d, webhook %d", keysAt, cardAt, hookAt)
+	}
+	if strings.Contains(page, `href="`+connectedAppsHref+`"`) {
+		t.Error("the page still links to the card's old page")
+	}
 	if strings.Contains(page, "<script") {
-		t.Error("the card loads a script")
+		t.Error("the page loads a script")
+	}
+	// The old address: to the card.
+	rec = b.do(http.MethodGet, connectedAppsHref, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != apiKeysHref+"#connected-apps" {
+		t.Fatalf("the old address: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 
-	// A manager: 403 on the page and on the press; nothing ends.
+	// A manager: 403 on the section, the old address and the press; nothing ends.
 	f.set(func(f *consentFixture) { f.as.AdminUserID, f.as.Role = f.manager, "manager" })
-	if rec := b.do(http.MethodGet, connectedAppsHref, nil); rec.Code != http.StatusForbidden {
-		t.Fatalf("a manager's card: %d", rec.Code)
+	for _, at := range []string{apiKeysHref, connectedAppsHref} {
+		if rec := b.do(http.MethodGet, at, nil); rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "Malta Calculator") {
+			t.Fatalf("a manager at %s: %d", at, rec.Code)
+		}
 	}
 	if rec := b.do(http.MethodPost, appDisconnectHref, url.Values{"grant_id": {grant.String()}}); rec.Code != http.StatusForbidden {
 		t.Fatalf("a manager's Disconnect: %d", rec.Code)
@@ -87,14 +119,17 @@ func TestConnectedApps_TheOwnerListsAndDisconnects(t *testing.T) {
 	if n := f.count(`SELECT count(*) FROM oauth_grants WHERE id = $1 AND revoked_at IS NULL`, grant); n != 1 {
 		t.Fatal("a refused Disconnect ended the grant")
 	}
-	// Another business's grant id finds nothing here.
+	// Another business's grant id finds nothing here; the card says so.
 	rec = b.do(http.MethodPost, appDisconnectHref, url.Values{"grant_id": {uuid.NewString()}})
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != connectedAppsHref+"?problem=unknown-app" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != apiKeysHref+"?app=unknown-app#connected-apps" {
 		t.Fatalf("an unknown grant id: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if card := appsCardOf(t, htmlOf(t, b.do(http.MethodGet, apiKeysHref+"?app=unknown-app", nil))); !strings.Contains(card, "That app is not connected to this business any more") {
+		t.Fatal("the card does not say the app is not connected")
 	}
 	// The owner's Disconnect.
 	rec = b.do(http.MethodPost, appDisconnectHref, url.Values{"grant_id": {grant.String()}})
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != connectedAppsHref+"?done=disconnected" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != apiKeysHref+"?app=disconnected#connected-apps" {
 		t.Fatalf("Disconnect: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if n := f.count(`SELECT count(*) FROM oauth_grants WHERE id = $1 AND revoked_reason = 'owner' AND revoked_by = $2`, grant, f.ownerID); n != 1 {
@@ -108,17 +143,26 @@ func TestConnectedApps_TheOwnerListsAndDisconnects(t *testing.T) {
 	if _, err := f.srv.ResolveAccess(context.Background(), c); err == nil {
 		t.Fatal("the disconnected app's token still resolves")
 	}
-	page = htmlOf(t, b.do(http.MethodGet, connectedAppsHref+"?done=disconnected", nil))
-	if strings.Contains(page, "Malta Calculator") || !strings.Contains(page, "The app is disconnected") {
+	page = htmlOf(t, b.do(http.MethodGet, apiKeysHref+"?app=disconnected", nil))
+	card = appsCardOf(t, page)
+	if strings.Contains(card, "Malta Calculator") || !strings.Contains(card, "The app is disconnected") || !strings.Contains(card, "Another App") {
 		t.Fatal("the card after Disconnect")
 	}
 	// The remaining app turned off; the operator closes the business's API.
 	f.exec(`UPDATE oauth_clients SET disabled_at = clock_timestamp() WHERE id = $1`, f.clientB)
 	f.exec(`UPDATE tenants SET api_code = 'CAX', api_enabled_at = NULL WHERE id = $1`, f.tenantID)
-	page = htmlOf(t, b.do(http.MethodGet, connectedAppsHref, nil))
-	if !strings.Contains(page, "Turned off by Taptime") || !strings.Contains(page, "Integrations are turned off for this business by Taptime") ||
-		!strings.Contains(page, "Disconnect") {
+	card = appsCardOf(t, htmlOf(t, b.do(http.MethodGet, apiKeysHref, nil)))
+	if !strings.Contains(card, "Turned off by Taptime") || !strings.Contains(card, "Integrations are turned off for this business by Taptime") ||
+		!strings.Contains(card, "Disconnect") {
 		t.Fatal("the turned-off states are not drawn (with Disconnect still offered)")
+	}
+	// The last one disconnected: the card's empty state.
+	if rec := b.do(http.MethodPost, appDisconnectHref, url.Values{"grant_id": {grantB.String()}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("the second Disconnect: %d", rec.Code)
+	}
+	card = appsCardOf(t, htmlOf(t, b.do(http.MethodGet, apiKeysHref, nil)))
+	if !strings.Contains(card, "No app is connected to this business.") || strings.Contains(card, `name="grant_id"`) {
+		t.Fatal("the card's empty state")
 	}
 	if strings.Contains(f.logs.String(), tok.Access.RevealInTokenResponse()) || strings.Contains(f.logs.String(), tok.Refresh.RevealInTokenResponse()) {
 		t.Fatal("a token reached the log")

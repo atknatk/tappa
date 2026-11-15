@@ -87,8 +87,8 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// M11 API-3: owner-only, read included (apikeys.go).
 		case pages.TabAPIKeys:
 			r.Get(s.Href, a.apiKeysSection)
-			// Issue #37 (ADR 0047 §12): the Developers section's "Connected apps" card -- owner-only,
-			// read included (connectedapps.go).
+			// Issue #37 (ADR 0047 §12): the "Connected apps" card's old page -- the card is drawn on the
+			// section itself since 2026-11-15, and this address 303s the owner to it (connectedapps.go).
 			r.Get(connectedAppsHref, a.connectedAppsSection)
 		// GRP-1: both roles; a business in no group reads the empty state (group.go).
 		case pages.TabGroup:
