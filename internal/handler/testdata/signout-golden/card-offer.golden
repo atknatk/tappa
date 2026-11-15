@@ -15,7 +15,7 @@
 <div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
 <p class="lbl">Signed in</p>
 <p class="text-sm text-ink">2 signed in · since 3 Sep 2026 · not used yet</p>   <a class="btn btn--line self-start" href="/admin/employees?manage=6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b&amp;confirm=signout">Sign out their phones</a>
-<p class="text-xs text-ink/70">For a lost or stolen phone. Signs them out in the browser and in the app. Asks first.</p>
+<p class="text-xs text-ink/70">For a lost or stolen phone. Asks first.</p>
 </div>
 <section class="flex flex-col gap-2.5 border-t border-dashed border-line pt-4" aria-label="Invitation">
 <h3 class="font-display text-base font-bold tracking-tight text-ink">Invitation</h3>

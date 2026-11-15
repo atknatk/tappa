@@ -8,7 +8,7 @@
 <div class="flex min-w-0 flex-col gap-1">
 <p class="lbl text-tappa-green">Done</p>
 <p class="font-display text-base font-bold tracking-tight">Signed out</p>
-<div class="text-sm leading-normal">   <p>No phone is signed in as Maria Borg now, in the browser or in the app. A tap on a signed-out phone records nothing and asks for a new activation.</p>
+<div class="text-sm leading-normal">   <p>No phone is signed in as Maria Borg now. A tap on a signed-out phone records nothing and opens the activation page.</p>
 <p class="mt-1">To record time again they need a new activation link: send one from the Invitation part of their card below.</p>
 </div>
 </div>

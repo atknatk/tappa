@@ -153,10 +153,11 @@ func TestPanelSignOutDB_AnAppOnlyPersonIsOfferedTheActAndSignedOut(t *testing.T)
 	if actor == nil || *actor != p.adminID {
 		t.Errorf("the trail's actor is %v, want the signed-in admin %s", actor, p.adminID)
 	}
-	// The banner is shown beside a MEASURED zero of both.
+	// The banner is shown beside a MEASURED zero of both, in T59's words: nothing is live now, so
+	// the app is not named (it is named only beside a live app device).
 	_, after := p.get(t, res.Header.Get("Location"))
-	if flat := strings.Join(strings.Fields(after), " "); !strings.Contains(flat, "No phone is signed in as Maria Borg now, in the browser or in the app.") {
-		t.Error("the page after the sign-out does not say nobody is signed in, in either")
+	if flat := strings.Join(strings.Fields(after), " "); !strings.Contains(flat, "No phone is signed in as Maria Borg now.") {
+		t.Error("the page after the sign-out does not say nobody is signed in")
 	}
 }
 

@@ -120,7 +120,7 @@ func TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount(t *
 	// The banner, read back from the database: nobody is signed in now, and the next step.
 	_, after := p.get(t, res.Header.Get("Location"))
 	flat := strings.Join(strings.Fields(after), " ")
-	for _, want := range []string{"No phone is signed in as Maria Borg now, in the browser or in the app.", "they need a new activation link"} {
+	for _, want := range []string{"No phone is signed in as Maria Borg now.", "they need a new activation link"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the page after the sign-out does not say %q", want)
 		}

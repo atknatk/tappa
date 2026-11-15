@@ -13,7 +13,7 @@
 </div>
 <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 desk:grid-cols-1">
 <div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
-<p class="lbl">Signed in</p>  <p class="text-sm text-ink">In the browser: None signed in</p>
+<p class="lbl">Signed in</p>  <p class="text-sm text-ink">In the browser: none signed in</p>
 <p class="text-sm text-ink">In the app: 1 phone signed in</p>   <a class="btn btn--line self-start" href="/admin/employees?manage=6a1b0f4e-0d55-4f5e-9a51-1c2d3e4f5a6b&amp;confirm=signout">Sign out their phones</a>
 <p class="text-xs text-ink/70">For a lost or stolen phone. Signs them out in the browser and in the app. Asks first.</p>
 </div>

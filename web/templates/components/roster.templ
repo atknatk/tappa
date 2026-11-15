@@ -187,7 +187,7 @@ templ RosterActions(v RosterActionsView) {
 					if v.AppLine != "" {
 						// M16-09: a live app device labels both lines, so a browser count of
 						// none beside it reads as "not in the browser", not "nowhere".
-						<p class="text-sm text-ink">In the browser: { v.SignedInLine }</p>
+						<p class="text-sm text-ink">In the browser: { labelledLine(v.SignedInLine) }</p>
 						<p class="text-sm text-ink">In the app: { v.AppLine }</p>
 					} else {
 						<p class="text-sm text-ink">{ v.SignedInLine }</p>
@@ -219,7 +219,7 @@ templ RosterActions(v RosterActionsView) {
 							</div>
 						} else {
 							<a class="btn btn--line self-start" href={ templ.URL(v.SignOutHref) }>Sign out their phones</a>
-							<p class="text-xs text-ink/70">For a lost or stolen phone. Signs them out in the browser and in the app. Asks first.</p>
+							<p class="text-xs text-ink/70">{ signOutHint(v.LiveAppDevices) }</p>
 						}
 					}
 				</div>

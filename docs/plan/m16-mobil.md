@@ -604,9 +604,11 @@ iptal o dokunuşu satır 3'ün kayıtsız yoluna iterdi. T59 deaktive bir kişin
   deaktivasyondan sonra cihazın `revoked_at IS NULL` olduğunu ölçer.
 - Deaktive çalışanın uygulamadan dokunuşu §5 satır 4: `reject` + **kayıt** + güvenlik uyarısı — `employees.status` +
   `sys:employee-deactivated`'dan (DB testi, tarayıcı ikiziyle aynı sonuç).
-- **İptal edilmiş cihazın dokunuşu §5 satır 3'ün ikizi:** 401 / yeniden aktivasyon, **kayıt yok**, tarayıcının
-  `"tap page: a signed-out phone tapped"` uyarısının eşi bir WARN satırı (yalnız tenant, çalışan, kanal —
-  `tap.go:446-454`) (DB testi: `transactions` sayısı değişmez).
+- **İptal edilmiş cihazın dokunuşu §5 satır 3'ün ikizi:** 401 / yeniden aktivasyon, **kayıt yok** (DB testi:
+  `transactions` sayısı değişmez), ve tarayıcının `"tap page: a signed-out phone tapped"` uyarısının (`tap.go:446-454`)
+  eşi bir WARN satırı — **M16-07'nin `/app/v1` handler'ında**: mesaj `"a signed-out app device tapped"`, alanlar **yalnız**
+  kanal ve sunulan cihaz kimliğinin SHA-256'sının ilk 16 hex karakteri; **tenant ve çalışan yok**, çünkü o noktada cihaz
+  kimliği başlığı imzası doğrulanmamış bir iddiadır (ana oturum kararı, 2026-11-14 — aşağıdaki kart düzeltmesi (2)).
 - İptal tek yönlüdür (`00099` deseni; tetikleyici ya da yetki).
 - Panel metni (§9 değil, panel): *"Sign out phones"* artık uygulamayı da kapsadığını söyler — metin değişikliği
   kullanıcıya gösterilir.
@@ -616,13 +618,20 @@ iptal o dokunuşu satır 3'ün kayıtsız yoluna iterdi. T59 deaktive bir kişin
 > kısmi sonuç yoktur; hata = 500 + hiçbir şey değişmez. 40P01'de transaction **bütünüyle** en çok 3 kez yeniden
 > denenir (`signOutAttempts`; M16-03'ün *"iptal çağıranı 40P01'de yeniden dener"* kuralı) — deterministik test
 > `TestStaffDB_ADeadlockedSignOutIsRetriedNotShown`. Kilit sırası: `sessions` → `app_devices` → `app_request_nonces`;
-> kimlik türünü değiştiren aktivasyon (M16-07) aynı sırayı almalı. (2) **Satır 3/4 ikizlerinin HTTP yarısı M16-07'nindir:**
-> `/app/v1` uç noktası (401 yanıtı ve `"a signed-out phone tapped"` WARN ikizi — yalnız tenant, çalışan, kanal) o
-> kartın handler paketinde yazılır; bu kart doğrulayıcı + `checkin.Service.Record` düzeyinde ölçer
+> kimlik türünü değiştiren aktivasyon (M16-07) aynı sırayı almalı. (2) **İptal edilmiş cihazın WARN satırı — ana oturum
+> kararı (2026-11-14, M16-09 incelemesi, ORTA bulgu):** satır **M16-07'nin `/app/v1` handler'ında** yazılır (401 yanıtıyla
+> birlikte): mesaj `"a signed-out app device tapped"`, seviye WARN, alanlar **yalnız** kanal ve sunulan cihaz kimliğinin
+> SHA-256'sının ilk 16 hex karakteri. **Tenant ve çalışan YAZILMAZ** — kartın ilk metnindeki *"yalnız tenant, çalışan,
+> kanal"* bu karar tarafından **değiştirildi** (kabul kriteri yukarıda yeniden yazıldı): o noktada cihaz kimliği başlığı imzası doğrulanmamış bir **iddiadır**
+> (`ErrRevokedDevice` imzadan önce karar verilir, `internal/appdevice/appdevice.go`), ondan tenant/çalışan atamak herkese
+> başka bir işletmenin çalışanını adlandıran log satırı yazdırırdı. Tarayıcının satırı tenant/çalışan taşıyabilir, çünkü
+> çerez kimlik bilgisinin kendisidir. Bu kart doğrulayıcı + `checkin.Service.Record` düzeyini ölçer
 > (`TestAppDeviceDB_ASignedOutDeviceIsRefusedAndRecordsNothing`, `TestAppDeviceDB_ADeactivatedPersonsAppTapIsRejectedAndRecorded`).
 > (3) **Kartın düğmeyi sunması için sayım gerekti:** `GetPanelPersonSummary`'ye `live_app_devices` eklendi; yalnız
 > uygulamada oturumu olan kişiye de *"Sign out their phones"* sunulur. Kadro satırının sayımı tarayıcıda kalır →
-> M16-26 (cihaz listesi).
+> M16-26 (cihaz listesi). (4) **Uygulama ifadesi yalnız canlı uygulama cihazının yanında** (incelemenin DÜŞÜK bulgusu;
+> Q42 açık): `LiveAppDevices = 0` olan her ekran — kart, uyarı, *"signed-out"*, *"no-phones"*, *"signout-deactivated"* —
+> T59'un metnini kelimesi kelimesine okur; uygulama cihazı olan kişide tarayıcı satırı *"In the browser: none signed in"* (küçük harf).
 
 ## M16-10 — Faz A kapanışı
 

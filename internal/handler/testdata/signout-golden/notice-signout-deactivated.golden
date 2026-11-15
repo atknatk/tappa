@@ -10,7 +10,7 @@
 <p class="lbl text-ink">Heads up</p>
 <p class="font-display text-base font-bold tracking-tight">Their phones stay signed in</p>
 <div class="text-sm leading-normal">
-<p>Nothing was changed. They have been deactivated, and a deactivated person's phones stay signed in on purpose, in the browser and in the app: every tap they make is refused and still recorded.</p>
+<p>Nothing was changed. They have been deactivated, and a deactivated person's phones stay signed in on purpose: every tap they make is refused and still recorded.</p>
 </div>
 </div>
 </div>

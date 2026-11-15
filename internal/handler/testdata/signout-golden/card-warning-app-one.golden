@@ -13,7 +13,7 @@
 </div>
 <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 desk:grid-cols-1">
 <div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
-<p class="lbl">Signed in</p>  <p class="text-sm text-ink">In the browser: None signed in</p>
+<p class="lbl">Signed in</p>  <p class="text-sm text-ink">In the browser: none signed in</p>
 <p class="text-sm text-ink">In the app: 1 phone signed in</p>   <p class="text-sm text-ink">This signs out the app on the phone Maria Borg uses. A tap on a signed-out phone records nothing and asks for a new activation instead.</p>
 <p class="text-sm text-ink">To record time again they need a new activation link. Their records stay as they are.</p>
 <div class="flex flex-wrap items-center gap-3">

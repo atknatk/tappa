@@ -94,7 +94,7 @@ templ AdminEmployees(v EmployeesView) {
 							// the first sentence is a state this request read, not an event. The
 							// next step is named because without it the person cannot tap at all.
 							if v.Actions != nil {
-								<p>No phone is signed in as { v.Actions.Name } now, in the browser or in the app. A tap on a signed-out phone records nothing and asks for a new activation.</p>
+								<p>No phone is signed in as { v.Actions.Name } now. A tap on a signed-out phone records nothing and opens the activation page.</p>
 								<p class="mt-1">
 									To record time again they need a new activation link: send one from the
 									Invitation part of their card below.
@@ -125,13 +125,22 @@ templ AdminEmployees(v EmployeesView) {
 							<p>Nothing was changed. Signing somebody's phones out needs the warning screen first, and this one either was not used or was left open too long.</p>
 							<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
 						case "no-phones":
-							<p>No phone was signed in as them, in the browser or in the app, so nothing was signed out and nothing was recorded.</p>
+							<p>No phone was signed in as them, so nothing was signed out and nothing was recorded.</p>
 						case "signout-deactivated":
-							<p>
-								Nothing was changed. They have been deactivated, and a deactivated person's
-								phones stay signed in on purpose, in the browser and in the app: every tap
-								they make is refused and still recorded.
-							</p>
+							if v.Actions.AppWording() {
+								// M16-09: named only where this person has a live app device.
+								<p>
+									Nothing was changed. They have been deactivated, and a deactivated person's
+									phones stay signed in on purpose, in the browser and in the app: every tap
+									they make is refused and still recorded.
+								</p>
+							} else {
+								<p>
+									Nothing was changed. They have been deactivated, and a deactivated person's
+									phones stay signed in on purpose: every tap they make is refused and still
+									recorded.
+								</p>
+							}
 						case "confirm-stale":
 							<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
 							<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>

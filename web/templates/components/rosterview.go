@@ -1,6 +1,9 @@
 package components
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // The ROSTER ROW and its filter bar (M6-05 phase A).
 //
@@ -134,6 +137,29 @@ func signOutWarning(name string, sessions, apps int) string {
 	return "This signs out " + what + ". A tap on a signed-out phone records nothing and asks for " +
 		"a new activation instead."
 }
+
+// signOutHint is the line under "Sign out their phones". It names the app only where this person
+// has a live app device (M16-09), so a business with none reads T59's card byte for byte.
+func signOutHint(apps int) string {
+	if apps > 0 {
+		return "For a lost or stolen phone. Signs them out in the browser and in the app. Asks first."
+	}
+	return "For a lost or stolen phone. Asks first."
+}
+
+// labelledLine is the browser's sentence after an "In the browser:" label (M16-09): the count's
+// capital goes when it is no longer the start of the line ("none signed in"), as its siblings read.
+func labelledLine(line string) string {
+	if rest, ok := strings.CutPrefix(line, "None "); ok {
+		return "none " + rest
+	}
+	return line
+}
+
+// AppWording is whether a screen about this person may name the app (M16-09): only when they
+// have a live app device. Without one every screen reads as before the app existed -- no manager
+// is told about an app nobody in their business has (Q42 is open).
+func (v *RosterActionsView) AppWording() bool { return v != nil && v.LiveAppDevices > 0 }
 
 // phoneCount is "1 phone" or "n phones".
 func phoneCount(n int) string {
