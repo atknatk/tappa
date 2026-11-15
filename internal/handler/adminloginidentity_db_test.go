@@ -247,8 +247,10 @@ func TestPanelIdentityLogin_SeveralLegacyRowsKeepThePickerAndNameNoOtherBusiness
 	if n := p.count(t, `SELECT count(*) FROM admin_sessions WHERE tenant_id = $1 AND admin_user_id = $2`, tB, rowB); n != 1 {
 		t.Fatalf("%d sessions in the chosen business, want 1", n)
 	}
-	// A failure.
-	if res, _ := p.login(t, p.email, "not-anybodys-password"); res.StatusCode != http.StatusUnauthorized {
+	// A failure, from a signed-out browser: this one now holds B's session, and the sign-in page
+	// sends a signed-in browser to the panel instead of showing the form (T318).
+	signedOut := &idPanel{panelHarness: p.anotherBrowser(t), owner: p.owner}
+	if res, _ := signedOut.login(t, p.email, "not-anybodys-password"); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a wrong password answered %d", res.StatusCode)
 	}
 

@@ -746,3 +746,48 @@ func TestOAuthConsentDB_AnIdentitySignInLandsOnContinue(t *testing.T) {
 		t.Fatal("PREMISE: the identity path was not taken")
 	}
 }
+
+// TestOAuthConsentDB_ASignedInSignInPageLandsOnAPendingConsent (T318): the sign-in page sends a
+// signed-in browser where a completed sign-in lands (landingAfterSignIn). With a valid pending
+// request that is the consent's continue page, which draws the consent and approves nothing; a
+// tampered or expired request cookie is not a pending request, so the panel. None of these GETs
+// writes a code.
+func TestOAuthConsentDB_ASignedInSignInPageLandsOnAPendingConsent(t *testing.T) {
+	f := newConsentFixture(t)
+	pending := func() *browser {
+		t.Helper()
+		b := f.browser()
+		q, _ := consentQuery(f.client, consentRedirect, "signed-in")
+		if rec := b.do(http.MethodGet, oauthAuthorizeHref+"?"+q.Encode(), nil); rec.Code != http.StatusOK || b.cookies[oauth.RequestCookieName] == "" {
+			t.Fatalf("PREMISE: the signed-in consent page is %d and left no request cookie", rec.Code)
+		}
+		return b
+	}
+
+	b := pending()
+	rec := b.do(http.MethodGet, adminLoginPath, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != oauthContinueHref {
+		t.Fatalf("a valid pending request: the sign-in page is %d %q, want 303 %s", rec.Code, rec.Header().Get("Location"), oauthContinueHref)
+	}
+	if rec := b.do(http.MethodGet, oauthContinueHref, nil); rec.Code != http.StatusOK ||
+		!strings.Contains(htmlOf(t, rec), "Malta Calculator wants to connect to Consent Fixture Ltd") {
+		t.Fatalf("the continue page after the sign-in page: %d", rec.Code)
+	}
+
+	b = pending()
+	b.cookies[oauth.RequestCookieName] = b.cookies[oauth.RequestCookieName][:20] + "x" + b.cookies[oauth.RequestCookieName][21:]
+	if rec := b.do(http.MethodGet, adminLoginPath, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+		t.Fatalf("a tampered request cookie: the sign-in page is %d %q, want 303 /admin", rec.Code, rec.Header().Get("Location"))
+	}
+
+	b = pending()
+	f.set(func(f *consentFixture) { f.clock = f.clock.Add(oauth.RequestMaxAge + time.Minute) })
+	if rec := b.do(http.MethodGet, adminLoginPath, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin" {
+		t.Fatalf("an expired request cookie: the sign-in page is %d %q, want 303 /admin", rec.Code, rec.Header().Get("Location"))
+	}
+	f.set(func(f *consentFixture) { f.clock = time.Now() })
+
+	if n := f.count(`SELECT count(*) FROM oauth_codes WHERE tenant_id = $1`, f.tenantID); n != 0 {
+		t.Fatalf("%d codes written by GETs", n)
+	}
+}
