@@ -318,6 +318,9 @@ type RevokeAppDevicesForEmployeeParams struct {
 // -- idempotent): the panel's "Sign out their phones" (T59) reaching the app (ADR 0045 §2.3). The
 // caller refuses it for a deactivated person (tenant.ErrSignOutDeactivated) -- see the header.
 // Like RevokeAppDevice it deletes the revoked devices' nonces in the same statement.
+// Its caller (tenant.Staff.SignOutPhones, M16-09) runs it in ONE transaction after
+// RevokeSessionsForEmployee and before the trail row -- sessions, then devices, then nonces -- and
+// retries the whole transaction on 40P01.
 func (q *Queries) RevokeAppDevicesForEmployee(ctx context.Context, arg RevokeAppDevicesForEmployeeParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, revokeAppDevicesForEmployee, arg.TenantID, arg.EmployeeID)
 	if err != nil {

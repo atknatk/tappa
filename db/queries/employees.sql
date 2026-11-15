@@ -633,6 +633,14 @@ ORDER BY e.status;
 -- the roster row's count are the same number. A deactivated person keeps theirs (user
 -- decision 2026-08-07: deactivating does not sign phones out), and the card says so.
 --
+-- live_app_devices (M16-09) is the native app's twin, a SEPARATE count: "Sign out their phones"
+-- closes both (RevokeAppDevicesForEmployee, tenant.Staff.SignOutPhones), so the card must offer
+-- it to a person signed in only in the app -- with one "who" credential per person (Q40 (a)) that
+-- is everybody who uses the app. Same predicate as the revoke (tenant_id, employee_id,
+-- revoked_at IS NULL), so the count the warning states is the set the revoke changes. It reads
+-- only columns tappa_app may SELECT (00104: never public_key or key_digest). The roster row's
+-- count stays the browser's until M16-26 lists devices on the card.
+--
 -- THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees
 -- documents: a LEFT JOIN LATERAL column is typed by its SOURCE column. last_used_at is
 -- nullable at the source, so ls.last_used_at types as *time.Time; created_at is NOT NULL, so
@@ -651,7 +659,12 @@ ORDER BY e.status;
 SELECT e.id, e.status, e.role, e.invited_at, e.activated_at, e.deactivated_at,
        COALESCE(ls.live_sessions, 0)::bigint AS live_sessions,
        fs.created_at AS first_session_at,
-       ls.last_used_at AS session_last_used_at
+       ls.last_used_at AS session_last_used_at,
+       (SELECT count(*)
+        FROM app_devices d
+        WHERE d.tenant_id = @tenant_id
+          AND d.employee_id = e.id
+          AND d.revoked_at IS NULL)::bigint AS live_app_devices
 FROM employees e
 LEFT JOIN LATERAL (
     SELECT s.last_used_at, count(*) OVER () AS live_sessions

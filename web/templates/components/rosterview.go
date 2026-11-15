@@ -108,15 +108,39 @@ type FormField struct {
 	Value string
 }
 
-// signOutWarning is the sign-out's first sentence (T59): the count the card read, and what a
-// tap on a signed-out phone does -- §5 row 3, the activation page and no record.
-func signOutWarning(name string, n int) string {
-	phones := "the phone " + name + " is signed in on"
-	if n != 1 {
-		phones = "all " + strconv.Itoa(n) + " phones " + name + " is signed in on"
+// signOutWarning is the sign-out's first sentence (T59; M16-09): the counts the card read, and
+// what a tap on a signed-out phone does -- §5 row 3, a new activation and no record. sessions is
+// the live browser sessions, apps the live native-app devices; the act closes both. With no app
+// device the sentence is T59's, word for word.
+func signOutWarning(name string, sessions, apps int) string {
+	if apps <= 0 {
+		phones := "the phone " + name + " is signed in on"
+		if sessions != 1 {
+			phones = "all " + strconv.Itoa(sessions) + " phones " + name + " is signed in on"
+		}
+		return "This signs out " + phones + ". A tap on a signed-out phone records nothing and " +
+			"opens the activation page instead."
 	}
-	return "This signs out " + phones + ". A tap on a signed-out phone records nothing and " +
-		"opens the activation page instead."
+	var what string
+	switch {
+	case sessions <= 0 && apps == 1:
+		what = "the app on the phone " + name + " uses"
+	case sessions <= 0:
+		what = "the app on all " + strconv.Itoa(apps) + " phones " + name + " uses"
+	default:
+		what = "everywhere " + name + " is signed in: " + phoneCount(sessions) + " in the browser and " +
+			phoneCount(apps) + " in the app"
+	}
+	return "This signs out " + what + ". A tap on a signed-out phone records nothing and asks for " +
+		"a new activation instead."
+}
+
+// phoneCount is "1 phone" or "n phones".
+func phoneCount(n int) string {
+	if n == 1 {
+		return "1 phone"
+	}
+	return strconv.Itoa(n) + " phones"
 }
 
 // RosterActionsView is the action card for ONE person (M6-05 phase B): the four
@@ -164,6 +188,12 @@ type RosterActionsView struct {
 	// LiveDevices is the count behind that sentence, so the card can add what it
 	// means for a deactivated person only when there is something signed in.
 	LiveDevices int
+	// LiveAppDevices is how many native-app devices of this person are live (M16-09), and
+	// AppLine its sentence ("1 phone signed in"), "" when there is none -- the card then reads
+	// exactly as before the app existed. When it is set the browser line is labelled too, so
+	// "None signed in" beside a live app device cannot read as "nothing is signed in".
+	LiveAppDevices int
+	AppLine        string
 	// LinkLine says whether an activation link is outstanding ("A link was created
 	// 3 days ago and works until 27 Oct", "No working link yet"), "" when it was not
 	// read. It says "created", never "sent": the product does not know delivery.
@@ -236,12 +266,13 @@ type RosterActionsView struct {
 	ConfirmField     string
 	DeactivateAction string
 
-	// THE SIGN-OUT (backlog T59): "Sign out their phones", for a lost or stolen phone.
-	// CanSignOut is true only for somebody not deactivated with a MEASURED count of live
-	// sessions above zero -- a deactivated person's sessions stay live on purpose, so their
-	// attempts are recorded (§5 row 4). SigningOut is the second step (SignOutHref is the
-	// first, a link like ConfirmHref); SignOutToken is the value that step minted, posted
-	// under ConfirmField to SignOutAction. The count shown is LiveDevices -- a number, never a
+	// THE SIGN-OUT (backlog T59): "Sign out their phones", for a lost or stolen phone -- the
+	// browser sessions AND the native-app devices (M16-09). CanSignOut is true only for somebody
+	// not deactivated with a MEASURED count of live sessions plus live app devices above zero --
+	// a deactivated person's sessions and devices stay live on purpose, so their attempts are
+	// recorded (§5 row 4). SigningOut is the second step (SignOutHref is the first, a link like
+	// ConfirmHref); SignOutToken is the value that step minted, posted under ConfirmField to
+	// SignOutAction. The counts shown are LiveDevices and LiveAppDevices -- numbers, never a
 	// device's label.
 	CanSignOut    bool
 	SigningOut    bool

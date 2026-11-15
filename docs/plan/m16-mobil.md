@@ -611,6 +611,19 @@ iptal o dokunuşu satır 3'ün kayıtsız yoluna iterdi. T59 deaktive bir kişin
 - Panel metni (§9 değil, panel): *"Sign out phones"* artık uygulamayı da kapsadığını söyler — metin değişikliği
   kullanıcıya gösterilir.
 
+> **Kart düzeltmesi (2026-11-14, M16-09 uygulaması sırasında).** (1) **Atomiklik ölçüsü** (Q40 (a) — tek "kim"
+> kimliği): oturumlar, cihazlar (+ canlı nonce'ları, aynı ifadede) ve `audit_log` satırı **tek transaction**'dadır —
+> kısmi sonuç yoktur; hata = 500 + hiçbir şey değişmez. 40P01'de transaction **bütünüyle** en çok 3 kez yeniden
+> denenir (`signOutAttempts`; M16-03'ün *"iptal çağıranı 40P01'de yeniden dener"* kuralı) — deterministik test
+> `TestStaffDB_ADeadlockedSignOutIsRetriedNotShown`. Kilit sırası: `sessions` → `app_devices` → `app_request_nonces`;
+> kimlik türünü değiştiren aktivasyon (M16-07) aynı sırayı almalı. (2) **Satır 3/4 ikizlerinin HTTP yarısı M16-07'nindir:**
+> `/app/v1` uç noktası (401 yanıtı ve `"a signed-out phone tapped"` WARN ikizi — yalnız tenant, çalışan, kanal) o
+> kartın handler paketinde yazılır; bu kart doğrulayıcı + `checkin.Service.Record` düzeyinde ölçer
+> (`TestAppDeviceDB_ASignedOutDeviceIsRefusedAndRecordsNothing`, `TestAppDeviceDB_ADeactivatedPersonsAppTapIsRejectedAndRecorded`).
+> (3) **Kartın düğmeyi sunması için sayım gerekti:** `GetPanelPersonSummary`'ye `live_app_devices` eklendi; yalnız
+> uygulamada oturumu olan kişiye de *"Sign out their phones"* sunulur. Kadro satırının sayımı tarayıcıda kalır →
+> M16-26 (cihaz listesi).
+
 ## M16-10 — Faz A kapanışı
 
 - **Bağımlılık:** M16-02 … M16-09

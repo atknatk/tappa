@@ -209,7 +209,7 @@ func AdminEmployees(v EmployeesView) templ.Component {
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, " now. A tap on a signed-out phone records nothing and opens the activation page.</p><p class=\"mt-1\">To record time again they need a new activation link: send one from the Invitation part of their card below.</p>")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, " now, in the browser or in the app. A tap on a signed-out phone records nothing and asks for a new activation.</p><p class=\"mt-1\">To record time again they need a new activation link: send one from the Invitation part of their card below.</p>")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
@@ -276,12 +276,12 @@ func AdminEmployees(v EmployeesView) templ.Component {
 								return templ_7745c5c3_Err
 							}
 						case "no-phones":
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<p>No phone was signed in as them, so nothing was signed out and nothing was recorded.</p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<p>No phone was signed in as them, in the browser or in the app, so nothing was signed out and nothing was recorded.</p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
 						case "signout-deactivated":
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<p>Nothing was changed. They have been deactivated, and a deactivated person's phones stay signed in on purpose: every tap they make is refused and still recorded.</p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<p>Nothing was changed. They have been deactivated, and a deactivated person's phones stay signed in on purpose, in the browser and in the app: every tap they make is refused and still recorded.</p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}

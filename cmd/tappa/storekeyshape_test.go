@@ -207,13 +207,18 @@ const storeDir = "internal/store"
 // panel's per-request statement so the write gate needs no second query. Harmless by
 // this inventory's test: no []byte, no key, no model type, and neither column carries
 // anything but a time and one of four words.
+//
+// M16-09 (2026-11-14) widened GetPanelPersonSummaryRow by LiveAppDevices (int64): a count of the
+// person's unrevoked app_devices rows, so the card offers "Sign out their phones" to somebody
+// signed in only in the app. Harmless by this inventory's test: a number -- no []byte, no device
+// id, no key (tappa_app cannot SELECT public_key or key_digest at all, 00104), no label.
 var storeSurface = map[string]string{
 	"AuditEventVisible": "(context.Context, AuditEventVisibleParams{TenantID uuid.UUID; ID uuid.UUID}) (bool, error)",
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
 	"CountPanelEmployeesByStatus":    "(context.Context, CountPanelEmployeesByStatusParams{LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; TenantID uuid.UUID}) ([]CountPanelEmployeesByStatusRow{Status string; Everyone int64; Matching int64}, error)",
-	"GetPanelPersonSummary":          "(context.Context, GetPanelPersonSummaryParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetPanelPersonSummaryRow{ID uuid.UUID; Status string; Role *string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LiveSessions int64; FirstSessionAt *time.Time; SessionLastUsedAt *time.Time}, error)",
+	"GetPanelPersonSummary":          "(context.Context, GetPanelPersonSummaryParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetPanelPersonSummaryRow{ID uuid.UUID; Status string; Role *string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LiveSessions int64; FirstSessionAt *time.Time; SessionLastUsedAt *time.Time; LiveAppDevices int64}, error)",
 	"ListLastTapsForEmployees":       "(context.Context, ListLastTapsForEmployeesParams{EmployeeIds []uuid.UUID; TenantID uuid.UUID}) ([]ListLastTapsForEmployeesRow{EmployeeID uuid.UUID; OccurredAt time.Time; Verdict string; Channel string}, error)",
 	"ListRecentTapsForEmployee":      "(context.Context, ListRecentTapsForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) ([]ListRecentTapsForEmployeeRow{OccurredAt time.Time; Type *string; Verdict string; Channel string; ReviewOutcome *string}, error)",
 	"RetireUndeliveredInvites":       "(context.Context, RetireUndeliveredInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",

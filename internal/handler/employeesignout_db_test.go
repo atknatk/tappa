@@ -110,8 +110,8 @@ func TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount(t *
 		t.Fatalf("%d trail row(s), want 1", rows)
 	}
 	detail, actor := signOutAudit(t, p, employee)
-	if !strings.Contains(detail, `"sessions_revoked": 2`) {
-		t.Errorf("the trail detail is %s, want sessions_revoked 2", detail)
+	if !strings.Contains(detail, `"sessions_revoked": 2`) || !strings.Contains(detail, `"app_devices_revoked": 0`) {
+		t.Errorf("the trail detail is %s, want sessions_revoked 2 and app_devices_revoked 0", detail)
 	}
 	if actor == nil || *actor != p.adminID {
 		t.Errorf("the trail's actor is %v, want the signed-in admin %s", actor, p.adminID)
@@ -120,7 +120,7 @@ func TestPanelSignOutDB_TheConfirmedPostRevokesEverySessionAndTrailsTheCount(t *
 	// The banner, read back from the database: nobody is signed in now, and the next step.
 	_, after := p.get(t, res.Header.Get("Location"))
 	flat := strings.Join(strings.Fields(after), " ")
-	for _, want := range []string{"No phone is signed in as Maria Borg now.", "they need a new activation link"} {
+	for _, want := range []string{"No phone is signed in as Maria Borg now, in the browser or in the app.", "they need a new activation link"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the page after the sign-out does not say %q", want)
 		}
@@ -224,8 +224,8 @@ func TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing(t *testing.T) {
 	n, err := staff.SignOutPhones(context.Background(), tenant.SignOutCommand{
 		TenantID: h.tenantID, EmployeeID: emp, ActorID: uuid.New(),
 	})
-	if err != nil || n != 1 {
-		t.Fatalf("SignOutPhones answered (%d, %v), want (1, nil)", n, err)
+	if err != nil || n != (tenant.SignedOut{Sessions: 1}) {
+		t.Fatalf("SignOutPhones answered (%+v, %v), want (1 session, nil)", n, err)
 	}
 
 	records, ctr := h.countFor(t, emp), h.lastCtr(t, h.tagUID)

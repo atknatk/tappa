@@ -34,6 +34,14 @@ func signedInStaff(n int) *fakeStaff {
 	return &fakeStaff{summary: s}
 }
 
+// signedInStaffWithApp is an active person with n live sessions and apps live app devices
+// (M16-09), measured.
+func signedInStaffWithApp(n, apps int) *fakeStaff {
+	s := signedInStaff(n)
+	s.summary.LiveAppDevices = apps
+	return s
+}
+
 // signOutConfirmed walks the warning and returns the form a sign-out must carry.
 func signOutConfirmed(t *testing.T, b *browser, employeeID uuid.UUID) url.Values {
 	t.Helper()
@@ -145,6 +153,15 @@ func TestEmployeeSignOut_TheCardOffersItOnlyWhereItCanDoSomething(t *testing.T) 
 		{"active with two phones signed in", signedInStaff(2), true},
 		{"active with one", signedInStaff(1), true},
 		{"active with none", signedInStaff(0), false},
+		// M16-09: the app counts. With one "who" credential per person (Q40 (a)) an app user has
+		// no browser session at all, and must still be offered the act.
+		{"active, signed in only in the app", signedInStaffWithApp(0, 1), true},
+		{"active, in the browser and in the app", signedInStaffWithApp(1, 2), true},
+		{"deactivated, the app still signed in on purpose", &fakeStaff{
+			person: &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated,
+				LiveAppDevices: 1},
+		}, false},
 		{"deactivated, phones still signed in on purpose", &fakeStaff{
 			person: &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
 			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated,
@@ -232,7 +249,7 @@ func TestEmployeeSignOut_EveryRefusalIsASentence(t *testing.T) {
 		word string
 		says string
 	}{
-		{tenant.ErrNoLiveSessions, "no-phones", "No phone was signed in as them, so nothing was signed out and nothing was recorded."},
+		{tenant.ErrNoLiveSessions, "no-phones", "No phone was signed in as them, in the browser or in the app, so nothing was signed out and nothing was recorded."},
 		{tenant.ErrSignOutDeactivated, "signout-deactivated", "every tap they make is refused and still recorded."},
 		{tenant.ErrUnknownEmployee, "unknown", "That person is not on this business"},
 	} {
@@ -271,6 +288,7 @@ func TestEmployeeSignOut_TheBannerNeedsAMeasuredZero(t *testing.T) {
 	}{
 		{"nobody signed in now", signedInStaff(0), true},
 		{"a phone signed in again", signedInStaff(1), false},
+		{"an app device still live (M16-09)", signedInStaffWithApp(0, 1), false},
 		{"the summary failed", &fakeStaff{summary: tenant.PersonSummary{State: tenant.ReadFailed}}, false},
 		{"deactivated since", &fakeStaff{
 			person:  &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
@@ -359,6 +377,19 @@ func TestEmployeeSignOut_TheScreensAreTheGolden(t *testing.T) {
 	one := panelBrowserWithActions(t, signedInStaff(1), &fakeInviter{})
 	screens["card-warning-one"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
 		one.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+
+	// M16-09: the app's three shapes -- signed in only in the app (the card, and the warning for
+	// one and for two devices) and in both.
+	app := panelBrowserWithActions(t, signedInStaffWithApp(0, 1), &fakeInviter{})
+	screens["card-offer-app"] = cardOf(t, htmlOf(t, app.do(http.MethodGet, managedRosterHref(employeeID), nil)))
+	screens["card-warning-app-one"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		app.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+	apps := panelBrowserWithActions(t, signedInStaffWithApp(0, 2), &fakeInviter{})
+	screens["card-warning-app-two"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		apps.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+	mixed := panelBrowserWithActions(t, signedInStaffWithApp(1, 1), &fakeInviter{})
+	screens["card-warning-mixed"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		mixed.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
 
 	zero := panelBrowserWithActions(t, signedInStaff(0), &fakeInviter{})
 	screens["notice-signed-out"] = noticeOf(t, htmlOf(t, zero.do(http.MethodGet, managedRosterHref(employeeID)+"&done=signed-out", nil)))
