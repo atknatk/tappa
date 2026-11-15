@@ -2399,6 +2399,141 @@ func TestAdminHome_IsBehindTheGate(t *testing.T) {
 	}
 }
 
+// TestAdminLoginPage_SendsASignedInVisitorToThePanel is T318 (the user's call,
+// 2026-11-15): a session exists, so the sign-in form must not open. Every row also
+// counts the resolver, because "no cookie costs nothing" is the bound that made the
+// check acceptable on an unauthenticated page.
+func TestAdminLoginPage_SendsASignedInVisitorToThePanel(t *testing.T) {
+	live := func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: uuid.New(), TenantID: uuid.New(), AdminUserID: uuid.New(),
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}
+	dead := func() (adminauth.Resolved, error) { return adminauth.Resolved{}, adminauth.ErrNoSession }
+	outage := func() (adminauth.Resolved, error) { return adminauth.Resolved{}, fmt.Errorf("connection refused") }
+	const recoveredSentence = "Your new password is set"
+
+	tests := []struct {
+		name          string
+		cookie        bool
+		path          string
+		verify        func() (adminauth.Resolved, error)
+		wantStatus    int
+		wantResolves  int
+		wantCleared   bool
+		wantRecovered bool
+	}{
+		{name: "no cookie: the form, and the resolver is not asked", path: "/admin/login",
+			verify: live, wantStatus: http.StatusOK, wantResolves: 0},
+		{name: "a live session: 303 to the panel", cookie: true, path: "/admin/login",
+			verify: live, wantStatus: http.StatusSeeOther, wantResolves: 1},
+		{name: "a live session after a reset: 303 too", cookie: true, path: "/admin/login?recovered=1",
+			verify: live, wantStatus: http.StatusSeeOther, wantResolves: 1},
+		{name: "a dead cookie: the form, and the cookie is cleared", cookie: true, path: "/admin/login",
+			verify: dead, wantStatus: http.StatusOK, wantResolves: 1, wantCleared: true},
+		{name: "a dead cookie after a reset: the sentence still shows", cookie: true, path: "/admin/login?recovered=1",
+			verify: dead, wantStatus: http.StatusOK, wantResolves: 1, wantCleared: true, wantRecovered: true},
+		{name: "no cookie after a reset: the sentence still shows", path: "/admin/login?recovered=1",
+			verify: live, wantStatus: http.StatusOK, wantResolves: 0, wantRecovered: true},
+		{name: "a database outage: the form, the cookie kept", cookie: true, path: "/admin/login",
+			verify: outage, wantStatus: http.StatusOK, wantResolves: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			admins := &fakeAdmins{verify: tc.verify}
+			h := newAdminRouter(t, admins, &fakeTrail{})
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.RemoteAddr = "203.0.113.9:1234"
+			if tc.cookie {
+				req.AddCookie(&http.Cookie{Name: adminauth.CookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if got := admins.verifiedCount(); got != tc.wantResolves {
+				t.Fatalf("the resolver ran %d times, want %d", got, tc.wantResolves)
+			}
+			set := map[string]*http.Cookie{}
+			for _, ck := range rec.Result().Cookies() {
+				set[ck.Name] = ck
+			}
+			if tc.wantStatus == http.StatusSeeOther {
+				if got := rec.Header().Get("Location"); got != "/admin" {
+					t.Fatalf("location %q, want /admin", got)
+				}
+				for name := range set {
+					t.Fatalf("the redirect set cookie %q, want none: no sign-in state is minted for a signed-in visitor", name)
+				}
+				return
+			}
+			body := htmlOf(t, rec)
+			csrfFrom(t, body)
+			if set[adminLoginCookieName] == nil {
+				t.Fatalf("the form was rendered without minting the sign-in state")
+			}
+			ck := set[adminauth.CookieName]
+			if cleared := ck != nil && ck.MaxAge < 0; cleared != tc.wantCleared {
+				t.Fatalf("panel cookie cleared = %v, want %v", cleared, tc.wantCleared)
+			}
+			if got := strings.Contains(body, recoveredSentence); got != tc.wantRecovered {
+				t.Fatalf("recovered sentence shown = %v, want %v", got, tc.wantRecovered)
+			}
+		})
+	}
+}
+
+// TestAdminLoginPage_ADeadCookieDoesNotLoop: requireLogin sends a dead cookie to the
+// sign-in page without clearing it, so the page must answer with the form (not a 303
+// back to the panel), and clear the cookie so the next panel load costs no resolver.
+func TestAdminLoginPage_ADeadCookieDoesNotLoop(t *testing.T) {
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) { return adminauth.Resolved{}, adminauth.ErrNoSession }}
+	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+	rec := b.do(http.MethodGet, "/admin", nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("GET /admin: %d -> %q, want 303 -> /admin/login", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = b.do(http.MethodGet, "/admin/login", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /admin/login with a dead cookie: %d -> %q, want the form (200)", rec.Code, rec.Header().Get("Location"))
+	}
+	csrfFrom(t, htmlOf(t, rec))
+	if _, ok := b.cookies[adminauth.CookieName]; ok {
+		t.Fatalf("the dead panel cookie survived the sign-in page")
+	}
+	before := admins.verifiedCount()
+	if rec := b.do(http.MethodGet, "/admin", nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("GET /admin after the clear: %d, want 303", rec.Code)
+	}
+	if got := admins.verifiedCount() - before; got != 0 {
+		t.Fatalf("the cleared cookie was resolved %d more times, want 0", got)
+	}
+}
+
+// TestAdminLoginPage_ChargesTheSessionBudget: a live session resolving on the sign-in
+// page is charged like any panel load, so the page is not an unbudgeted resolver loop.
+func TestAdminLoginPage_ChargesTheSessionBudget(t *testing.T) {
+	sessionID := uuid.New()
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{SessionID: sessionID, TenantID: uuid.New(), AdminUserID: uuid.New(), Role: "owner"}, nil
+	}}
+	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	for i := 1; i <= adminSessionLimit; i++ {
+		if rec := b.do(http.MethodGet, "/admin/login", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("load %d: status %d, want 303 inside the budget", i, rec.Code)
+		}
+	}
+	if rec := b.do(http.MethodGet, "/admin/login", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("load %d: status %d, want 429 past the session budget", adminSessionLimit+1, rec.Code)
+	}
+}
+
 // TestAdminLogout_RevokesAndClears.
 func TestAdminLogout_RevokesAndClears(t *testing.T) {
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
@@ -2454,11 +2589,17 @@ func TestAdminScreens_CarryTheSecurityHeaders(t *testing.T) {
 				AdminUserID: v.AdminUserID, Role: "owner", FullName: "KF Owner"}, nil
 		},
 	}
-	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
-	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	h := newAdminRouter(t, admins, &fakeTrail{})
 
 	for _, path := range []string{"/admin/login", "/admin"} {
 		t.Run(path, func(t *testing.T) {
+			// The sign-in form is a SIGNED-OUT page: with a live session /admin/login
+			// is a 303 to the panel (T318, TestAdminLoginPage_SendsASignedInVisitorToThePanel),
+			// so the form's headers are read without the panel cookie.
+			b := newBrowser(t, h)
+			if path != "/admin/login" {
+				b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			}
 			rec := b.do(http.MethodGet, path, nil)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d", rec.Code)
