@@ -1765,7 +1765,7 @@ yazılır.
 | M16-04 | Şema: `transactions.client` | **done** | `e15be4a0` + `cfdb2aee` (merge `2b13ae9b`); iki mercek ONAY; migration 00105–00106 (00104'ten sonra) |
 | M16-05 | `internal/appdevice`: imzalı istek doğrulaması | **done** | `28cef5e1` + `dfcf5345` (CLAUDE.md §3) + `dc335edf`; iki mercek ONAY (yalnız DÜŞÜK; M16-07'ye devirler kartta) |
 | M16-06 | Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı | **done** | `f49c58c0` + `6cb876b6` (panel eksik baseline'ı tamamlar — karar (d), ADR 0045 Bedel 10) + `caf8d2d6` + CLAUDE.md §5 (`14d518f9`, son ifade); güvenlik ONAY, üçüncü göz RED → ONAY; baseline 2026-11-14 |
-| M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | todo |  |
+| M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | **done** | `29c018dc` + `709966a7` + `9c21c5b4` + CLAUDE.md §5 (`0fea5832`), merge `b175ac76`; güvenlik ONAY, üçüncü göz RED (cihaz başına limit testsiz) → düzeltildi + dar kontrol ONAY; Q40 (a) iki yarı, Q41 tahmin eşitliği ölçüldü; tel sözleşmesi kartta |
 | M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | **done** | `fc04f789` + `d7a8a21d`; iki mercek ONAY (R1 muafiyeti yola bağlı, ADR 0012 eki); Team ID + Android imza özeti env'den — **canlıda doldurulmadı** (uygulama `/t`'yi karşılayınca) |
 | M16-09 | İptal yolları uygulama cihazlarını da kapatır | **done** | `9a14f415` + `abcfac8e`; güvenlik ONAY, üçüncü göz RED (WARN sahipsiz → M16-07'ye karar) → düzeltildi; telefon çıkışı tarayıcı + uygulamayı tek transaction'da kapatır, deaktivasyon hiçbirini |
 | M16-10 | Faz A kapanışı | todo |  |
