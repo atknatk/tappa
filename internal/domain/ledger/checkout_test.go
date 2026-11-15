@@ -613,6 +613,15 @@ func accumulateBeforeTheClassification(evs []reportEvent, p Period, zone *time.L
 			if approvedFlag(in) || approvedFlag(e) {
 				out.Totals.Approved++
 			}
+			// M11 API-14 added this tally to accumulate's counted branch; it is copied here so the
+			// comparison stays whole-Report. It reads only the interval's two ends -- nothing the
+			// classification changed -- so it is the same tally in both functions.
+			if in.Manual || e.Manual {
+				ph.ManualShifts++
+				if d >= 0 && d < len(ph.Marks) {
+					ph.Marks[d].ManualShift = true
+				}
+			}
 			v, ok := venues[in.LocationID]
 			if !ok {
 				v = &VenueHours{LocationID: in.LocationID, Name: in.LocationName}

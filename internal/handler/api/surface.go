@@ -2,7 +2,8 @@
 // host, the Bearer chain, the JSON error contract, the body bound, Idempotency-Key, the suspension
 // checkpoint and the hand-written OpenAPI document. The endpoints mount into the authenticated group
 // Mount builds: PUT /v1/locations/{ref} (API-5, locations.go) and the employee endpoints (API-6,
-// employees.go), GET /v1/punches (API-7, punches.go) and GET /v1/directory (API-8, directory.go);
+// employees.go), GET /v1/punches (API-7, punches.go), GET /v1/directory (API-8, directory.go) and
+// GET /v1/timesheets (API-14, timesheets.go);
 // beside them, without a key, the OpenAPI document and the integration guide (API-12, guide.go).
 //
 // 🔴 IT IMPORTS NO PANEL. Like internal/handler/operator, this package is a surface of its own:
@@ -85,6 +86,9 @@ type Config struct {
 	Punches Punches
 	// Directory is the directory's reader (*tenant.EmployeeDirectory) behind GET /v1/directory.
 	Directory Directory
+	// Timesheets is the report engine's timesheet read (*ledger.Reader -- the panel's own) behind
+	// GET /v1/timesheets (API-14, ADR 0046).
+	Timesheets Timesheets
 	// DeactivationBudget is K-25's hourly budget per key; zero means tenant.DefaultDeactivationBudget
 	// (20). A test lowers it.
 	DeactivationBudget int
@@ -108,6 +112,7 @@ type Surface struct {
 	employees  Employees
 	punches    Punches
 	directory  Directory
+	timesheets Timesheets
 	budget     int
 	byAddress  *httpx.Limiter
 	byKey      *httpx.Limiter
@@ -140,6 +145,8 @@ func New(c Config) (*Surface, error) {
 		return nil, errors.New("api: nil punch feed")
 	case c.Directory == nil:
 		return nil, errors.New("api: nil directory")
+	case c.Timesheets == nil:
+		return nil, errors.New("api: nil timesheet reader")
 	case slices.Contains(c.Extensions, nil):
 		return nil, errors.New("api: nil extension")
 	}
@@ -161,7 +168,7 @@ func New(c Config) (*Surface, error) {
 	}
 	return &Surface{
 		host: c.Host, keys: c.Keys, writes: c.Writes, suspension: c.Suspension, work: c.Work, locations: c.Locations,
-		employees: c.Employees, punches: c.Punches, directory: c.Directory, budget: pick(c.DeactivationBudget, tenant.DefaultDeactivationBudget), log: log,
+		employees: c.Employees, punches: c.Punches, directory: c.Directory, timesheets: c.Timesheets, budget: pick(c.DeactivationBudget, tenant.DefaultDeactivationBudget), log: log,
 		byAddress:  httpx.NewLimiter(pick(c.AddressLimit, addressLimit), pickd(c.AddressPeriod, addressPeriod)),
 		byKey:      httpx.NewLimiter(pick(c.KeyLimit, keyLimit), pickd(c.KeyPeriod, keyPeriod)),
 		extensions: slices.Clone(c.Extensions),
@@ -197,6 +204,7 @@ func (s *Surface) Mount(r chi.Router) {
 			r.Post(employeeResend, s.resendActivation)
 			r.Get(punchesPath, s.listPunches)
 			r.Get(directoryPath, s.listDirectory)
+			r.Get(timesheetsPath, s.listTimesheets)
 			for _, e := range s.extensions {
 				e.MountAuthenticated(r, s.write)
 			}

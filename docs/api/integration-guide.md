@@ -1,12 +1,12 @@
 # Taptime integration API — integration guide
 
-Guide edition 3 (2026-10-22), for API version 1. This guide is served by the API itself, without a
+Guide edition 4 (2026-11-14), for API version 1. This guide is served by the API itself, without a
 key, at `GET /v1/guide.md`; its Turkish translation, the same document section by section, at
 `GET /v1/guide.tr.md`. The machine-readable contract is the OpenAPI 3.1 document at
 `GET /v1/openapi.yaml`; this guide explains it, and where they say the same thing they agree.
 
 Every example answer in this guide is an answer the API gave: they come from one story, told in
-sections 4 to 9, run against the real service.
+sections 4 to 10, run against the real service.
 
 <a id="contents"></a>
 ## Contents
@@ -19,10 +19,11 @@ sections 4 to 9, run against the real service.
 - [6. The punch feed](#feed)
 - [7. The history query](#history)
 - [8. The directory](#directory)
-- [9. Webhooks](#webhooks)
-- [10. Suspension](#suspension)
-- [11. Contract differences](#differences)
-- [12. Changes to this guide](#changes)
+- [9. Timesheets](#timesheets)
+- [10. Webhooks](#webhooks)
+- [11. Suspension](#suspension)
+- [12. Contract differences](#differences)
+- [13. Changes to this guide](#changes)
 
 <a id="overview"></a>
 ## 1. Overview
@@ -38,6 +39,8 @@ their own phone. The integration API lets a business's HR or ERP system:
 - read the business's **punches** from a feed that never loses one (`GET /v1/punches`), or a time
   range of them (the history query);
 - read the **directory** of the employees the business may know of (`GET /v1/directory`);
+- read the **counted working time** of the business's own employees over a pay period — the figures
+  of Taptime's own report (`GET /v1/timesheets`);
 - receive each punch as it happens, by **webhook**.
 
 A request reads and writes **one business only — the one its key belongs to**. No request names a
@@ -224,6 +227,7 @@ The keys of `details`:
 | `max` | The largest `limit`. |
 | `maxBytes` | The largest body. |
 | `maxHours` | The longest history range, in hours. |
+| `maxDays` | The longest timesheet period, in days. |
 | `retryAfterSeconds` | The same as `Retry-After`. |
 | `businessTimezone` | The business's own time zone (`timezone_mismatch`). |
 
@@ -255,7 +259,7 @@ Anything else — 0, 1001, a sign, a fraction — is **400 `invalid_request`** w
 `details.parameter` `limit`; a second `limit` is a repeated parameter, answered like one
 ([3.7](#query)). Each list has its own cursor and its own rule for the last page;
 they are described with the lists ([5.6](#employees-read), [6.4](#feed-paging),
-[7](#history), [8.2](#directory-walk)).
+[7](#history), [8.2](#directory-walk), [9.3](#timesheets-paging)).
 
 <a id="idempotency"></a>
 ### 3.3 Idempotency-Key
@@ -311,6 +315,7 @@ These are the OpenAPI document's `info.x-limits`, and the service's own values.
 | `requestTimeoutSeconds` | 30 | A request not answered by then is 503. |
 | `feedWindowPositions` | 10000 | The feed positions one page reads at most. |
 | `historyMaxHours` | 745 | The longest history range (31 days and one hour). |
+| `timesheetMaxDays` | 31 | The longest timesheet period, in days. |
 | `directoryOverlapMinutes` | 10 | How far before `updatedSince` the directory reads. |
 | `webhookTimeoutSeconds` | 10 | How long a webhook try waits for an answer. |
 | `webhookAttempts` | 6 | Tries of one webhook delivery. |
@@ -352,7 +357,8 @@ Instants in a query string (`from`, `to`, `updatedSince`) are RFC 3339 —
 `YYYY-MM-DDThh:mm:ss`, an optional `.fraction` after a dot, then `Z` or an offset `±hh:mm` — with
 upper-case `T` and `Z` and at most microsecond precision (a finer instant is refused, not rounded).
 **Encode the `+` of an offset as `%2B`**: unencoded it arrives as a space, and the answer is 400
-with `reason` `unencoded_plus`.
+with `reason` `unencoded_plus`. The timesheet's `from` and `to` are not instants but calendar
+dates, `YYYY-MM-DD` ([9.1](#timesheets-period)).
 
 <a id="identifiers"></a>
 ### 3.8 Identifiers, references and times
@@ -365,7 +371,7 @@ with `reason` `unencoded_plus`.
   be percent-encoded: it is decoded **once** and must then match (`%41BC` is `ABC`; an encoded
   `/`, a control character or a double encoding such as `%2541` is 422 with `field` `ref`).
 - Every instant the API answers is RFC 3339 in **UTC**. A business's time zone matters for its
-  reports, not for the API.
+  reports and for the days of its timesheet ([9.1](#timesheets-period)), never for an instant.
 - A field that has no value is `null`, never absent.
 
 <a id="headers"></a>
@@ -413,7 +419,7 @@ Every `/v1` answer carries `Cache-Control: no-store`, `X-Content-Type-Options: n
   characters or a tag character outside a flag: 422 `validation_failed`, `reason`
   `hidden_character` (a length refusal is `invalid`). A name already on file is accepted as it is.
 - While the business is suspended this endpoint is 403 `tenant_suspended`
-  ([section 10](#suspension)).
+  ([section 11](#suspension)).
 
 In the story, KF puts its location:
 
@@ -579,7 +585,7 @@ are refused from then on, and their history stays.
   already deactivated and for a reference the business never held — and so is every `PUT` with
   `active: false` that lands on an existing employee, one already deactivated included. A `PUT` with
   `active: false` on a reference the business never held lands on no employee: it stays 404
-  ([section 10](#suspension)).
+  ([section 11](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
@@ -721,7 +727,8 @@ across them are refused from the end on.
   written later can change that — most often a manual clock-in a manager enters before the `out`,
   after which Taptime counts the time — and a manual record is not in the feed ([6.1](#feed-what)).
   Such an `in` leaves the previous clock-in without a clock-out, and Taptime counts no time for that
-  one either. For hours, Taptime's report is the record. For example, with the employer's business
+  one either. For hours, Taptime's report is the record — read it with `GET /v1/timesheets`
+  ([9](#timesheets)). For example, with the employer's business
   day starting at 05:00: an `in` yesterday at 15:00, then today at 07:00 "Not right? Clock out".
   Taptime counts 0 hours and lists the 07:00 `out` as "Check-in missing"; a system that pairs the
   two pays 16 hours.
@@ -758,7 +765,7 @@ repeat:
   only if Taptime's data was restored from a backup without its counters being moved on: stop and
   tell Taptime — do not wait silently.
 - Deduplicate by `id` + `version`: the feed answers each punch once per scope, but a webhook can
-  deliver it again ([section 9.7](#webhook-duplicates)).
+  deliver it again ([section 10.7](#webhook-duplicates)).
 
 In the story, KF reads its `location` scope: Joe, an employee of KM, touched in at Valletta, and so
 did Jane (KF).
@@ -854,7 +861,8 @@ both:
 ```
 
 The Taptime panel of the location's company (KF) lists a group employee's touches at its plaques
-but does not compute their working time either: working time is the employer's.
+but does not compute their working time either: working time is the employer's, and the
+employer's timesheet counts it ([9](#timesheets)).
 
 <a id="history"></a>
 ## 7. The history query
@@ -946,11 +954,193 @@ persists, start the walk again with the same `updatedSince`. Restarting at once 
 new walk meets the same entry); the block lasts as long as the clock's step, and nothing is lost.
 The directory stays open while the business is suspended.
 
+<a id="timesheets"></a>
+## 9. Timesheets
+
+`GET /v1/timesheets?from=…&to=…` answers, for a pay period, the working time Taptime **counts** for
+each of the business's own employees, per local day: the figures of Taptime's own report, computed
+by the same engine. It is the read for payroll. The feed ([6](#feed)) is not: a manual record a
+manager enters is not a punch ([6.1](#feed-what)), but its time counts here.
+
+```sh
+curl -sS "$TAPTIME_API/v1/timesheets?from=2026-11-01&to=2026-11-30" \
+  -H "Authorization: Bearer $TAPTIME_KEY"
+```
+
+What counts is what Taptime's report counts:
+
+- a shift from a check-in to a check-out, both `ok` — or flagged and **approved** by a manager;
+- a shift with a check-in or a check-out a manager entered by hand (a **manual record**) — it counts,
+  and it is also in `manualShifts`;
+- **not** a shift waiting for a manager's approval (its time is in `awaitingMinutes`), a rejected
+  one, or a practice tap;
+- **not** a check-in with no check-out: Taptime does not guess a check-out, so the check-in is in
+  `openEntries` and its time is in no figure until a manager enters the check-out. A check-out more
+  than 18 hours after its check-in is no shift either: the check-in stays open;
+- **not** a check-out with no check-in (`checkInMissing`).
+
+A check-in and a check-out are paired by the employee's last open check-in, as at the tap — not by
+the calendar day.
+
+<a id="timesheets-period"></a>
+### 9.1 The period
+
+- `from` and `to` are calendar dates, `YYYY-MM-DD`, in the business's time zone (`period.timeZone`),
+  and **both are included**: `from=2026-11-01&to=2026-11-30` is November.
+- `to` is on or after `from`, and a period is at most **31 days**. Anything else — a missing date,
+  `2026-11-31`, a date with a time, a longer period — is **400 `invalid_request`** with
+  `details.parameters` `from` and `to` and `details.maxDays` 31.
+- **A shift counts on the local day it started.** An 18:00–02:00 night shift is the first day's; one
+  that starts on the period's last day counts in full in this period (Taptime reads past the
+  period's end for its check-out); one that started before `from` belongs to the previous period,
+  even when it ended inside this one. Two periods that meet count each shift once.
+- A check-out with no check-in is in `checkInMissing` on its own day. One exception at the seam: a
+  check-out made on `from` before the business's day starts (its business day began the day before)
+  with no check-in is in neither period's figures; the Taptime panel lists it as "Check-in missing".
+- Minutes are **whole minutes, rounded down**, each figure from its own exact time. A person's days
+  can add up to less than their `workedMinutes`, by under a minute a day; `workedMinutes` is the
+  figure to pay.
+
+<a id="timesheets-answer"></a>
+### 9.2 The answer
+
+| Field | |
+|---|---|
+| `period` | `from` and `to` as asked, and `timeZone`: the business's time zone, in which the days are counted. |
+| `complete` | See [9.3](#timesheets-paging). |
+| `truncated` | `true` when one employee's records alone are more than one request reads: that employee's figures are a floor, not a total, and `complete` is `false`. |
+| `employee` | `id` (`emp_…`), `externalRef`, `employeeCode`, `firstName`, `lastName` and `fullName` — the identifiers of the directory ([8.1](#directory-entry)). |
+| `workedMinutes` | The counted time of the period. |
+| `awaitingMinutes` | Time waiting for a manager's approval — not in `workedMinutes`. |
+| `shifts` | The shifts behind `workedMinutes`. |
+| `openEntries` | Check-ins with no check-out. |
+| `checkInMissing` | Check-outs with no check-in. |
+| `manualShifts` | The shifts (of `shifts`) with a check-in or a check-out a manager entered by hand. |
+| `days` | **Every** day of the period, in order: `date`, `workedMinutes` (of the shifts that started that day), `manual` (one of them was entered by hand), `open` (a check-in of that day has no check-out) and `checkInMissing` (a check-out of that day has no check-in). |
+
+- Only the business's **own** employees are listed — a deactivated one too, when the period holds
+  their records. A group partner's employee who worked at your locations is not here: that time is
+  their employer's, and the employer's timesheet counts it ([6.5](#feed-working-time)). Your own
+  employee's shift at a partner's location is yours, and it is here.
+- An employee with no record in the period is not listed: their counted time is zero.
+- Nothing else of a record is in the answer: no network address, coordinate, note or reason of a
+  decision, and no e-mail address.
+
+In the story, KM reads its timesheet for the day. Joe's shift began at KF's Valletta and ended at
+KM's Production a little over a minute later: one minute, rounded down — and KM's time:
+
+<!-- example: listTimesheets 200 km -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": true,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_42f028c7-242a-4903-89df-8fde6176926b",
+        "externalRef": "M-2001",
+        "employeeCode": "2001",
+        "firstName": "Joe",
+        "lastName": "Sample",
+        "fullName": "Joe Sample"
+      },
+      "workedMinutes": 1,
+      "awaitingMinutes": 0,
+      "shifts": 1,
+      "openEntries": 0,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 1,
+          "manual": false,
+          "open": false,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+KF reads the same day. Jane checked in at Valletta and has not checked out: her check-in is open and
+counts no time, so KF's page is not complete. Joe is not on it — his time is KM's:
+
+<!-- example: listTimesheets 200 kf -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": false,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
+        "externalRef": "E-1042",
+        "employeeCode": "1042",
+        "firstName": "Jane",
+        "lastName": "Example",
+        "fullName": "Jane Example"
+      },
+      "workedMinutes": 0,
+      "awaitingMinutes": 0,
+      "shifts": 0,
+      "openEntries": 1,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 0,
+          "manual": false,
+          "open": true,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+<a id="timesheets-paging"></a>
+### 9.3 Pages and `complete`
+
+- Employees come in `employee.id` order, at most `limit` a page (500 by default, at most 1000 —
+  [3.2](#paging)). A page can hold fewer while `hasMore` is `true`: a request reads a bounded number
+  of records, and a page ends before an employee whose records would not fit.
+- Pass `nextCursor` as `cursor`, with the **same** `from` and `to`, until `hasMore` is `false`;
+  `nextCursor` is present exactly when `hasMore` is `true` (`null` at the end). A cursor sent with
+  another period, or by another business, is **400 `invalid_request`** (`details.parameter`
+  `cursor`).
+- `complete` is `true` when **no employee on the page** has time waiting for approval, an open entry
+  or a missing check-in, and the page is not `truncated`. A period is complete when **every** page
+  of the walk says so. Before you pay a period that is not complete, ask the business to approve,
+  correct or enter in Taptime what is missing.
+- The answer describes the records **as they are when you read them**: a manager's correction, an
+  approval, or a tap still to come in a period that has not ended changes it. Read the period again
+  right before you pay.
+- Only `from`, `to`, `cursor` and `limit` are accepted ([3.7](#query)). While the business is
+  suspended this endpoint stays open ([11](#suspension)).
+
 <a id="webhooks"></a>
-## 9. Webhooks
+## 10. Webhooks
 
 <a id="webhook-setup"></a>
-### 9.1 Setting up the endpoint
+### 10.1 Setting up the endpoint
 
 A business has **one** webhook endpoint. Its **owner** sets it up in the Taptime panel (section
 API keys, part Webhook); the API cannot. The address must be:
@@ -971,16 +1161,16 @@ delivery log name it a failed secure connection. Redirects are **not followed**;
 an answer must come within **10 seconds**; the answer's body is not read.
 
 <a id="webhook-key"></a>
-### 9.2 The signing key
+### 10.2 The signing key
 
 Taptime signs every request with the endpoint's **signing key**, `tt_whsec_` followed by 43
 characters. The panel shows it **once** — when the endpoint is created and when the key is rotated
 — and never again. After a rotation **no request is signed with the old key any more**: switch your
 receiver to the new key at once (a receiver that refuses the new signature makes deliveries fail,
-and they are retried on the schedule of [section 9.6](#webhook-retries)).
+and they are retried on the schedule of [section 10.6](#webhook-retries)).
 
 <a id="webhook-verify"></a>
-### 9.3 Verifying the signature
+### 10.3 Verifying the signature
 
 Every request carries `X-Taptime-Signature: sha256=<hex>`: the lower-case hexadecimal
 HMAC-SHA256 of the request body's **raw bytes**, keyed by the signing key **as text** (the
@@ -1029,7 +1219,7 @@ receiver's own language — its standard HMAC-SHA256, with the key read from you
 compare in constant time.
 
 <a id="webhook-requests"></a>
-### 9.4 The requests
+### 10.4 The requests
 
 Every request is a `POST` with three headers — `Content-Type: application/json`,
 `User-Agent: Taptime-Webhooks/1` and `X-Taptime-Signature` — and a JSON body whose `event` says what
@@ -1046,14 +1236,14 @@ with the same headers and the same signature. The owner sends it from the panel,
 — the same 10 that "Send again now" spends. It names no punch: **do not count it as one**.
 
 <a id="webhook-answer"></a>
-### 9.5 Answering
+### 10.5 Answering
 
 **Any 2xx is "delivered".** Anything else is a failed try: another status — a **3xx included**
 (redirects are not followed) —, no answer within 10 seconds, a TLS or connection failure. Answer
 quickly, after storing, and do the rest of your work afterwards.
 
 <a id="webhook-retries"></a>
-### 9.6 Retries
+### 10.6 Retries
 
 The first try is at once. After a failed try the next waits 1 minute, 5 minutes, 30 minutes, 2
 hours, 6 hours; the **sixth** failed try makes the delivery **failed** (`dead`), and it is not
@@ -1081,7 +1271,7 @@ longer be sent again. A delivery that is still waiting is never deleted. The pun
 the feed.
 
 <a id="webhook-duplicates"></a>
-### 9.7 Duplicates and order
+### 10.7 Duplicates and order
 
 - **One punch can arrive more than once**: a retry, a request in flight when Taptime restarted, a
   "Send again now". Every try of one delivery carries the same `deliveryId` and the **same bytes**.
@@ -1090,13 +1280,13 @@ the feed.
   between two companies is two independent deliveries to two endpoints.
 
 <a id="webhook-delays"></a>
-### 9.8 Delays and gaps
+### 10.8 Delays and gaps
 
 - **After Taptime restarts** (every deploy included) waiting retries — and queued activation
   e-mails — wait until the business's next tap, approval or API request. The feed is not affected.
 - **Endpoint switched off**: deliveries already queued **wait** (they are not dropped) and go at
   once when the owner switches the endpoint on again (or changes its address, or rotates its key)
-  — none of which the owner can do while the business is suspended ([section 10](#suspension)).
+  — none of which the owner can do while the business is suspended ([section 11](#suspension)).
   Punches recorded **while it is off** are never delivered.
 - **API disabled by Taptime**: the same — queued deliveries wait, and go within 15 minutes of the
   API being enabled again (or at the business's next tap, approval or API request if Taptime
@@ -1104,7 +1294,7 @@ the feed.
 - An endpoint receives the punches recorded after it was created.
 
 <a id="webhook-source"></a>
-### 9.9 The feed is the record
+### 10.9 The feed is the record
 
 A webhook is a fast notice, not the record: punches recorded while the endpoint was off are never
 delivered, and a `dead` delivery does not come back by itself. **Read the feed regularly** with its
@@ -1112,14 +1302,14 @@ cursor ([section 6.4](#feed-paging)) and treat the webhook as "news now"; with d
 `id` + `version`, the two never count a punch twice.
 
 <a id="suspension"></a>
-## 10. Suspension
+## 11. Suspension
 
 Taptime can suspend a business (for example over billing). A suspension is a **write lock** that
 leaves reading — and the records — alone:
 
 | Open while suspended | 403 `tenant_suspended` while suspended |
 |---|---|
-| every `GET` — the feed, the history query, the directory, the employees | `PUT /v1/locations/{ref}` |
+| every `GET` — the feed, the history query, the directory, the employees, the timesheet | `PUT /v1/locations/{ref}` |
 | `PUT /v1/employees/{ref}` that creates a **new** employee, a re-hire included | every `PUT /v1/employees/{ref}` that lands on an existing employee — a change, a binding by address, `active: false` (also of an employee already deactivated), and one that changes nothing |
 | `POST /v1/employees/{ref}/resend-activation` | every `DELETE /v1/employees/{ref}`, also of an employee already deactivated or of a reference never held |
 | webhook deliveries, and the queue of activation e-mails | in the panel: creating a key; creating, re-addressing, rotating or switching on the endpoint; test messages; "Send again now" |
@@ -1127,7 +1317,7 @@ leaves reading — and the records — alone:
 | in the panel: revoking a key, switching the endpoint off | |
 
 <a id="differences"></a>
-## 11. Contract differences
+## 12. Contract differences
 
 How Taptime differs from what an integration might assume. Each item links to where it is
 explained.
@@ -1147,11 +1337,11 @@ explained.
 13. `resend-activation` for an activated employee is 409 `already_activated`. ([5.4](#employees-resend))
 14. When an activated employee's e-mail address changes, no activation e-mail is sent. ([5.1](#employees-put))
 15. Activation is by NFC only (a QR code cannot activate). ([5.2](#employees-activation))
-16. Webhooks have no order guarantee; deduplicate by `id` + `version`. ([9.7](#webhook-duplicates))
+16. Webhooks have no order guarantee; deduplicate by `id` + `version`. ([10.7](#webhook-duplicates))
 17. Manual records do not enter the feed. ([6.1](#feed-what))
 18. The history query (`from`/`to`) spans at most 31 days and one hour (a local calendar month, a daylight-saving change included), is paged, and is a snapshot — punches that arrive late are certain only in the feed. ([7](#history))
 19. `updatedSince` (the directory) reads with a 10-minute overlap; entries that come back are overwritten by `id`. ([8.2](#directory-walk))
-20. When Taptime restarts (every deploy included), waiting webhook retries and queued activation e-mails wait until the business's next tap or API request. The feed is not affected. ([9.8](#webhook-delays))
+20. When Taptime restarts (every deploy included), waiting webhook retries and queued activation e-mails wait until the business's next tap or API request. The feed is not affected. ([10.8](#webhook-delays))
 21. A punch of an employee not bound to a reference yet comes with `employee.externalRef: null`. ([6.3](#feed-punch))
 22. Deactivation is limited by an hourly budget per key; past it the answer is 429. ([5.5](#employees-deactivate))
 23. The API and the webhook work with the access Taptime enabled for the business. ([2.1](#auth-enable))
@@ -1165,10 +1355,11 @@ explained.
 31. **An integration that computes working time with `scope=location`, beware:** a partner company's employee's punches at your locations do not include the employer's events in between (touches at the other company's plaques); pairing in and out from this scope alone can count the time **too long**. **This holds with `direction` too:** each punch's direction is right, but what is missing are the **events in between** — the pair of an `in` at your location may never appear there, or may be an `out` at another location. For a group employee's time, the employer company's data (its `employer` scope) is the record. ([6.5](#feed-working-time))
 
 <a id="changes"></a>
-## 12. Changes to this guide
+## 13. Changes to this guide
 
 | Edition | Date | Changes |
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
 | 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — whose `direction` it is: the one Taptime computed at the tap, or not. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
+| 4 | 2026-11-14 | §9 is new: `GET /v1/timesheets`, the counted working time of the business's own employees over a pay period, per local day — the figures of Taptime's own report. Sections 9 to 12 are now 10 to 13. §3.1: `details.maxDays`; §3.5: `timesheetMaxDays`. |

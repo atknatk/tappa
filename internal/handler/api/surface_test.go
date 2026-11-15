@@ -41,6 +41,7 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 )
@@ -144,7 +145,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
 	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: suspendedSwitch{}, Work: work,
-		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Log: log}
+		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Timesheets: refuseTimesheets{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -270,6 +271,12 @@ type refuseDirectory struct{}
 
 func (refuseDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.DirectoryQuery, int) (tenant.DirectoryPage, error) {
 	return tenant.DirectoryPage{}, errors.New("this rig reads no directory")
+}
+
+type refuseTimesheets struct{}
+
+func (refuseTimesheets) Timesheet(context.Context, uuid.UUID, ledger.TimesheetQuery) (ledger.TimesheetPage, error) {
+	return ledger.TimesheetPage{}, errors.New("this rig reads no timesheet")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

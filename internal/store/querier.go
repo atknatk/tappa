@@ -5375,6 +5375,45 @@ type Querier interface {
 	// transactions_tenant_occurred_idx. The array is built in the GroupAggregate that already sorts
 	// by local_day for count(DISTINCT) -- no node added.
 	ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTogetherParams) ([]ListTapsTakenTogetherRow, error)
+	// GET /v1/timesheets' second read (M11 API-14, ADR 0046): who the page's employees are, on the API's
+	// own identifiers -- the integrator's reference, the employee code and the names, the columns
+	// GET /v1/directory answers for the business's own staff (ListDirectoryEmployees).
+	//
+	// 🔴 NO e.email (ADR 0028 §8, K-24: no address leaves the API) and NO e.location_id: the home venue
+	// is not a payroll fact, and ListTimesheetShiftEvents' rows (the hours) never meet this statement's,
+	// so a person's home venue cannot reach the shift resolution (section 5 / Q17) through it.
+	//
+	// NO STATUS PREDICATE: a deactivated person's hours of the period are still payable. Every id is the
+	// tenant's own (ListTimesheetShiftEvents' employee_id); a foreign id matches nothing -- the explicit
+	// predicate and RLS both refuse it (section 4.5).
+	ListTimesheetEmployees(ctx context.Context, arg ListTimesheetEmployeesParams) ([]ListTimesheetEmployeesRow, error)
+	// GET /v1/timesheets' read (M11 API-14, ADR 0046): ListWorkedShiftEvents for ONE PAGE OF EMPLOYEES.
+	//
+	// 🔴 THE COLUMN LIST IS ListWorkedShiftEvents' OWN, COLUMN FOR COLUMN, AND THAT IS THE GUARANTEE
+	// THAT THERE IS ONE ARITHMETIC. internal/domain/ledger converts each row of this statement to a
+	// store.ListWorkedShiftEventsRow (a Go type conversion, which compiles only while the two generated
+	// row types have the same fields in the same order with the same types) and hands it to the same
+	// events() and accumulate() the panel's report runs. A column added to one statement and not the
+	// other is a build failure, not a drift. Everything ListWorkedShiftEvents' block says about what is
+	// NOT selected (no gps_lat, gps_lng, source_ip, policy_context, entered_by -- section 4.7), about the
+	// LEFT JOINs (section 4.6), about NOT t.practice and t.type IS NOT NULL, and about the window's two
+	// edges holds here unchanged.
+	//
+	// WHAT IS DIFFERENT IS THE PAGE. `page` picks at most page_size employees, in id order after the
+	// cursor (NULL: the first page), among those with a direction-carrying, non-practice record IN THE
+	// PERIOD [from_at, to_at) -- the population the report lists. The main read then takes those
+	// employees' rows over the report's own window [from_at, until_at), the tail included, ordered so one
+	// pass rebuilds each chain. A person's chain is per person (accumulate resets at every new employee),
+	// so a page of people gives each of them exactly the figures the whole-tenant read gives them.
+	//
+	// THE LIMIT IS STILL A BOUND ON THE REQUEST (row_limit = ReportEventCap + 1). The caller drops the
+	// last employee of a read that hit it -- half a chain is a wrong total -- and the next page starts at
+	// that employee (ledger.Timesheet).
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit tenant_id predicate in the page AND in the
+	// read, RLS beside both, every JOIN re-stating tenant_id. The tenant is the API key's, never a
+	// request parameter.
+	ListTimesheetShiftEvents(ctx context.Context, arg ListTimesheetShiftEventsParams) ([]ListTimesheetShiftEventsRow, error)
 	// THE DELIVERY LOG (the owner's panel): the business's deliveries, newest first, a page at a time.
 	// The position is the last row shown, (created_at, id): every row strictly before it in that order.
 	// created_at <= @before_at is the index condition (webhook_deliveries_tenant_created_idx); the id

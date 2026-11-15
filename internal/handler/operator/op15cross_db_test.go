@@ -198,7 +198,7 @@ func newCrossSurfaces(t *testing.T, l *legalE2E) *crossSurfaces {
 	must(err)
 	v1, err := api.New(api.Config{
 		Host: crossAPIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: crossNoWork{},
-		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Log: log,
+		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Timesheets: records, Log: log,
 	})
 	must(err)
 	created, err := keys.Create(ctx, apikey.CreateCommand{TenantID: c.biz, ActorID: admin, Name: "op15c cross"})

@@ -60,6 +60,9 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"ListFlaggedForReview": {"go-blank", "site_location_id", 0, "the same mapping as the day list (review queue)"},
 	"ListWorkedShiftEvents": {"residue", "", 0,
 		"verdict decides the hours state only; it is not printed as evidence (§13 item 5: the verdict residue); the Pass's tape (M12-14) reads the chain and the venue, not the verdict"},
+	"ListTimesheetShiftEvents": {"residue", "", 0,
+		"GET /v1/timesheets (M11 API-14, ADR 0046): ListWorkedShiftEvents' columns exactly, for a page of employees; the verdict decides " +
+			"the hours state only and reaches the answer as minutes, never as evidence (§13 item 5: the verdict residue)"},
 	"CountPendingFlagged": {"residue", "", 0, "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
 	"CountPanelTransactionsByVerdict": {"residue", "", 0,
 		"the day's records by verdict under the list's own filters (M12-16); a partner-venue row's verdict is counted -- the verdict residue (§13 item 5); no evidence column is read"},

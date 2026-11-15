@@ -53,7 +53,10 @@ const (
 //
 // GET /v1/directory (API-8) reads through a tenant.EmployeeDirectory built here the same way -- a read,
 // no trail (TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface).
-func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, extensions []api.Extension, log *slog.Logger) (httpx.Mounter, error) {
+//
+// GET /v1/timesheets (API-14, ADR 0046) is handed timesheets -- run()'s *ledger.Reader, the PANEL's
+// report reader -- so the API's hours are the report's, computed by the same engine.
+func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, extensions []api.Extension, timesheets api.Timesheets, log *slog.Logger) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
 			integrationAPIState, integrationAPIOff)
@@ -77,7 +80,7 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 	}
 	surface, err := api.New(api.Config{
 		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work, Locations: venues,
-		Employees: staff, Punches: punches, Directory: directory, Extensions: extensions, Log: log,
+		Employees: staff, Punches: punches, Directory: directory, Timesheets: timesheets, Extensions: extensions, Log: log,
 	})
 	if err != nil {
 		return nil, err

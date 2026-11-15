@@ -17,6 +17,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/test/fixtures"
@@ -65,7 +66,7 @@ func TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	surface, err := openAPISurface(cfg, data, &noticed{}, venues, staff, nil, quiet)
+	surface, err := openAPISurface(cfg, data, &noticed{}, venues, staff, nil, ledgerFor(t, data), quiet)
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}
@@ -127,4 +128,15 @@ func TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface(t *testing.T) {
 		!page.Data[0].Active || page.NextCursor != nil || page.HasMore || page.AsOf == "" {
 		t.Fatalf("the directory: %s", w.Body.String())
 	}
+}
+
+// ledgerFor is the panel's report reader over data -- what run() hands openAPISurface for
+// GET /v1/timesheets (API-14).
+func ledgerFor(t *testing.T, data *db.DB) *ledger.Reader {
+	t.Helper()
+	r, err := ledger.NewReader(data, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

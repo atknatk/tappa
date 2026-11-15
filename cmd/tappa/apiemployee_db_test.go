@@ -120,7 +120,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 	if err := work.Add(queue); err != nil {
 		t.Fatal(err)
 	}
-	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, ledgerFor(t, data), quiet)
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}

@@ -914,3 +914,31 @@ düşen satır tekilleştirmeyle sınırlı (2 200 red → 44).
 | "Sonuç işverende" mekanizması | üçüncü göz D-8 | `pending_review` her zaman "sonuç işverende" |
 | QR reddi red kolunun dışında (ölçüldü) | güvenlik D-b | K-29 (ii) `nfc`+`qr` |
 | Tekilleştirmede istemci `occurred_at`'i (ölçüldü) | güvenlik D-c | uyarı ve "son görülme" `created_at`'ten |
+
+---
+
+## API-14 — `GET /v1/timesheets`: bordroya hazır onaylı çalışma süresi (issue #36)
+
+- **Amaç:** Bir bordro dönemi (`from`–`to`, işletmenin saat diliminde dahil yerel günler, en çok 31 gün)
+  için işletmenin **kendi** her çalışanının yerel gün başına **sayılan** çalışma süresini, panel raporunun
+  hesapladığı sayılarla birebir veren salt okuma uç noktası. Sözleşme ve gerekçe:
+  [ADR 0046](../adr/0046-bordro-icin-calisma-suresi-okumasi.md).
+- **Neden:** Malta Calculator (aynı sahip, Codevera Labs) Taptime saatlerini Malta bordrosuna çevirecek
+  (kullanıcı onayı 2026-11-14, Faz 1). `GET /v1/punches` tasarım gereği manuel kayıtları ve düzeltmeleri
+  dışarıda bırakır (rehber §6.1, §6.3, §6.5: *"for hours, Taptime's report is the record"*); punch eşleyen
+  bir bordro yanlış öder. API'nin raporun sayılarını vermesi gerekir — ikinci bir eşleştirme algoritması
+  olmadan.
+- **Boyut:** M · **Ajan:** yapıcı + üçüncü göz · **Bağımlılık:** API-4, API-8 (sayfalama ve imleç kuralı)
+- **Kabul kriterleri** (issue #36'nın *Acceptance* listesi):
+  - [ ] Bir sonraki boş numarayla ADR (gerekçe, sözleşme, dışlamalar); salt okuma, `transactions`'a yazma
+    yok, tercihen migration yok.
+  - [ ] Handler, rota, `openapi.yaml` yolu ve `integration-guide.md` ile `integration-guide.tr.md`
+    bölümleri (birlikte değişir; örnekler gerçek handler'lardan).
+  - [ ] Testler: parametre doğrulama (tablo bazlı); DB testleri — manuel kayıt sayılır, açık giriş
+    `worked` değil `open` sayılır, gece vardiyası raporun kuralıyla atanır, bekleyen flag `worked`'ten
+    hariç, başka tenant'ın çalışanları asla görünmez (RLS), ortak (partner) çalışanları hariç.
+  - [ ] Aynı hafta için sayılar panel raporununkine eşit (bir çapraz kontrol testi).
+- **Tuzaklar:** rapor motoru 7 günlük `Period`'a bağlıydı (`ReportDays`); genişletme panelin her yolunu
+  bit bit korumalı. Gün sınırını aşan vardiya raporla **aynı** kuralla (giriş günü, `closingTail`)
+  atanır. Saat hesabında float yok; dakika tamsayı (aşağı yuvarlanmış). İzolasyon testi açık tenant
+  filtresi taşımaz (§6 notu).

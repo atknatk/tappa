@@ -332,7 +332,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	surface, err := api.New(api.Config{
 		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
-		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Log: log,
+		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Timesheets: records, Log: log,
 	})
 	must(err)
 	f.api = surface
