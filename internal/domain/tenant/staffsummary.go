@@ -67,6 +67,10 @@ type PersonSummary struct {
 	// row's count. A deactivated person keeps theirs (deactivating does not sign phones out,
 	// user decision 2026-08-07).
 	LiveDevices int
+	// LiveAppDevices is how many of this person's native-app devices are not revoked (M16-09,
+	// ADR 0045). A separate count, not added to LiveDevices: the roster row still counts browser
+	// sessions, and the card says which is which. A deactivated person keeps theirs too.
+	LiveAppDevices int
 	// FirstSignedIn is when the oldest live session was created, LastUsed when a live one was
 	// last used; both nil with no live session, and LastUsed nil too for a session never used.
 	FirstSignedIn *time.Time
@@ -121,15 +125,16 @@ func (s *Staff) Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (Pe
 			return err
 		}
 		out = PersonSummary{
-			State:         Measured,
-			Role:          deref(row.Role),
-			Status:        row.Status,
-			Offered:       row.InvitedAt,
-			Activated:     row.ActivatedAt,
-			Deactivated:   row.DeactivatedAt,
-			LiveDevices:   int(row.LiveSessions),
-			FirstSignedIn: row.FirstSessionAt,
-			LastUsed:      row.SessionLastUsedAt,
+			State:          Measured,
+			Role:           deref(row.Role),
+			Status:         row.Status,
+			Offered:        row.InvitedAt,
+			Activated:      row.ActivatedAt,
+			Deactivated:    row.DeactivatedAt,
+			LiveDevices:    int(row.LiveSessions),
+			LiveAppDevices: int(row.LiveAppDevices),
+			FirstSignedIn:  row.FirstSessionAt,
+			LastUsed:       row.SessionLastUsedAt,
 		}
 		out.Link = s.activationLink(ctx, tx, tenantID, employeeID)
 		return nil

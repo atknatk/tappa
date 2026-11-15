@@ -127,11 +127,20 @@ templ AdminEmployees(v EmployeesView) {
 						case "no-phones":
 							<p>No phone was signed in as them, so nothing was signed out and nothing was recorded.</p>
 						case "signout-deactivated":
-							<p>
-								Nothing was changed. They have been deactivated, and a deactivated person's
-								phones stay signed in on purpose: every tap they make is refused and still
-								recorded.
-							</p>
+							if v.Actions.AppWording() {
+								// M16-09: named only where this person has a live app device.
+								<p>
+									Nothing was changed. They have been deactivated, and a deactivated person's
+									phones stay signed in on purpose, in the browser and in the app: every tap
+									they make is refused and still recorded.
+								</p>
+							} else {
+								<p>
+									Nothing was changed. They have been deactivated, and a deactivated person's
+									phones stay signed in on purpose: every tap they make is refused and still
+									recorded.
+								</p>
+							}
 						case "confirm-stale":
 							<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
 							<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>

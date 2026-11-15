@@ -534,9 +534,11 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		}
 	}
 	// T59: the sign-out is offered only where it can do something -- a person who is not
-	// deactivated, with a MEASURED count above zero. A summary that failed offers nothing (the
+	// deactivated, with a MEASURED count above zero, browser sessions and app devices together
+	// (M16-09: a person signed in only in the app is offered it too). A summary that failed offers nothing (the
 	// card already says it could not read the browsers), and the warning is minted only then.
-	canSignOut := !person.Deactivated() && summary.State == tenant.Measured && summary.LiveDevices > 0
+	canSignOut := !person.Deactivated() && summary.State == tenant.Measured &&
+		summary.LiveDevices+summary.LiveAppDevices > 0
 	signingOut := r.URL.Query().Get("confirm") == "signout" && canSignOut
 	signOutToken := ""
 	if signingOut {
@@ -661,7 +663,7 @@ func (a *AdminAuth) confirmedRosterAction(r *http.Request, actions *components.R
 	// nobody is signed in as them. A phone that signed in again, a failed summary or a
 	// deactivated person makes a replayed URL say nothing.
 	if done == "signed-out" && (actions.SignedInLine == "" || actions.LiveDevices != 0 ||
-		actions.Status == ledger.StatusDeactivated) {
+		actions.LiveAppDevices != 0 || actions.Status == ledger.StatusDeactivated) {
 		return ""
 	}
 	return done
@@ -880,6 +882,19 @@ func signedInLine(n int, first, lastUsed *time.Time, zone *time.Location) string
 	return head + " · since " + first.In(zone).Format("2 Jan 2006") + " · " + rest
 }
 
+// appLine is the card's sentence about live native-app devices (M16-09): the count, "" for none,
+// so a person who never used the app gets T59's card unchanged.
+func appLine(n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n == 1:
+		return "1 phone signed in"
+	default:
+		return strconv.Itoa(n) + " phones signed in"
+	}
+}
+
 // fillPersonSummary writes the summary's lines onto the card (M12-20).
 //
 // 🔴 NO DATE IS INVENTED. The lifecycle line uses the stamp that matches the status,
@@ -902,6 +917,8 @@ func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, 
 	v.Role = s.Role
 	v.LiveDevices = s.LiveDevices
 	v.SignedInLine = signedInLine(s.LiveDevices, s.FirstSignedIn, s.LastUsed, zone)
+	v.LiveAppDevices = s.LiveAppDevices
+	v.AppLine = appLine(s.LiveAppDevices)
 	switch s.Status {
 	case ledger.StatusActive:
 		if s.Activated != nil {

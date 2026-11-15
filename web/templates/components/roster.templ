@@ -184,10 +184,17 @@ templ RosterActions(v RosterActionsView) {
 			if v.SignedInLine != "" {
 				<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
 					<p class="lbl">Signed in</p>
-					<p class="text-sm text-ink">{ v.SignedInLine }</p>
-					if v.Status == "deactivated" && v.LiveDevices > 0 {
-						// 🔴 DEACTIVATING DOES NOT SIGN A BROWSER OUT (user decision,
-						// 2026-08-07), so the count above is real and this says what it means.
+					if v.AppLine != "" {
+						// M16-09: a live app device labels both lines, so a browser count of
+						// none beside it reads as "not in the browser", not "nowhere".
+						<p class="text-sm text-ink">In the browser: { labelledLine(v.SignedInLine) }</p>
+						<p class="text-sm text-ink">In the app: { v.AppLine }</p>
+					} else {
+						<p class="text-sm text-ink">{ v.SignedInLine }</p>
+					}
+					if v.Status == "deactivated" && v.LiveDevices+v.LiveAppDevices > 0 {
+						// 🔴 DEACTIVATING DOES NOT SIGN A BROWSER OR AN APP OUT (user decision,
+						// 2026-08-07; M16-09), so the count above is real and this says what it means.
 						<p class="text-xs text-ink/70">
 							Any phone they signed in on stays signed in; it simply cannot record time any more.
 						</p>
@@ -197,7 +204,7 @@ templ RosterActions(v RosterActionsView) {
 						// says the count and what comes after, then the button. The server refuses a
 						// POST that did not come through the warning.
 						if v.SigningOut {
-							<p class="text-sm text-ink">{ signOutWarning(v.Name, v.LiveDevices) }</p>
+							<p class="text-sm text-ink">{ signOutWarning(v.Name, v.LiveDevices, v.LiveAppDevices) }</p>
 							<p class="text-sm text-ink">
 								To record time again they need a new activation link. Their records stay as
 								they are.
@@ -212,7 +219,7 @@ templ RosterActions(v RosterActionsView) {
 							</div>
 						} else {
 							<a class="btn btn--line self-start" href={ templ.URL(v.SignOutHref) }>Sign out their phones</a>
-							<p class="text-xs text-ink/70">For a lost or stolen phone. Asks first.</p>
+							<p class="text-xs text-ink/70">{ signOutHint(v.LiveAppDevices) }</p>
 						}
 					}
 				</div>

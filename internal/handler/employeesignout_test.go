@@ -34,6 +34,14 @@ func signedInStaff(n int) *fakeStaff {
 	return &fakeStaff{summary: s}
 }
 
+// signedInStaffWithApp is an active person with n live sessions and apps live app devices
+// (M16-09), measured.
+func signedInStaffWithApp(n, apps int) *fakeStaff {
+	s := signedInStaff(n)
+	s.summary.LiveAppDevices = apps
+	return s
+}
+
 // signOutConfirmed walks the warning and returns the form a sign-out must carry.
 func signOutConfirmed(t *testing.T, b *browser, employeeID uuid.UUID) url.Values {
 	t.Helper()
@@ -145,6 +153,15 @@ func TestEmployeeSignOut_TheCardOffersItOnlyWhereItCanDoSomething(t *testing.T) 
 		{"active with two phones signed in", signedInStaff(2), true},
 		{"active with one", signedInStaff(1), true},
 		{"active with none", signedInStaff(0), false},
+		// M16-09: the app counts. With one "who" credential per person (Q40 (a)) an app user has
+		// no browser session at all, and must still be offered the act.
+		{"active, signed in only in the app", signedInStaffWithApp(0, 1), true},
+		{"active, in the browser and in the app", signedInStaffWithApp(1, 2), true},
+		{"deactivated, the app still signed in on purpose", &fakeStaff{
+			person: &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated,
+				LiveAppDevices: 1},
+		}, false},
 		{"deactivated, phones still signed in on purpose", &fakeStaff{
 			person: &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
 			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated,
@@ -271,6 +288,7 @@ func TestEmployeeSignOut_TheBannerNeedsAMeasuredZero(t *testing.T) {
 	}{
 		{"nobody signed in now", signedInStaff(0), true},
 		{"a phone signed in again", signedInStaff(1), false},
+		{"an app device still live (M16-09)", signedInStaffWithApp(0, 1), false},
 		{"the summary failed", &fakeStaff{summary: tenant.PersonSummary{State: tenant.ReadFailed}}, false},
 		{"deactivated since", &fakeStaff{
 			person:  &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
@@ -360,6 +378,28 @@ func TestEmployeeSignOut_TheScreensAreTheGolden(t *testing.T) {
 	screens["card-warning-one"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
 		one.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
 
+	// M16-09: the app's three shapes -- signed in only in the app (the card, and the warning for
+	// one and for two devices) and in both.
+	app := panelBrowserWithActions(t, signedInStaffWithApp(0, 1), &fakeInviter{})
+	screens["card-offer-app"] = cardOf(t, htmlOf(t, app.do(http.MethodGet, managedRosterHref(employeeID), nil)))
+	screens["card-warning-app-one"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		app.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+	apps := panelBrowserWithActions(t, signedInStaffWithApp(0, 2), &fakeInviter{})
+	screens["card-warning-app-two"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		apps.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+	mixed := panelBrowserWithActions(t, signedInStaffWithApp(1, 1), &fakeInviter{})
+	screens["card-warning-mixed"] = confirmValueRE.ReplaceAllString(cardOf(t, htmlOf(t,
+		mixed.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=signout", nil))), "${1}MASKED${2}")
+
+	// The deactivated refusal names the app only beside a live app device (the third-eye LOW of
+	// M16-09): the same word, read for a person who has one.
+	deactivatedApp := panelBrowserWithActions(t, &fakeStaff{
+		person: &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+		summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated, LiveAppDevices: 1},
+	}, &fakeInviter{})
+	screens["notice-signout-deactivated-app"] = noticeOf(t, htmlOf(t, deactivatedApp.do(http.MethodGet,
+		managedRosterHref(employeeID)+"&problem=signout-deactivated", nil)))
+
 	zero := panelBrowserWithActions(t, signedInStaff(0), &fakeInviter{})
 	screens["notice-signed-out"] = noticeOf(t, htmlOf(t, zero.do(http.MethodGet, managedRosterHref(employeeID)+"&done=signed-out", nil)))
 	for _, word := range []string{"signout-confirm-required", "no-phones", "signout-deactivated"} {
@@ -410,5 +450,40 @@ func TestEmployeeSignOut_TheScreensAreTheGolden(t *testing.T) {
 	}
 	if wrote > 0 {
 		t.Fatalf("wrote %d golden(s); rerun without TAPPA_WRITE_SIGNOUT_GOLDEN", wrote)
+	}
+}
+
+// M16-09 third-eye LOW: the app is named only where the person has a live app device. Without
+// one, the card, the warning and every notice read as T59 wrote them; with one, they say so.
+func TestEmployeeSignOut_TheAppIsNamedOnlyBesideALiveAppDevice(t *testing.T) {
+	employeeID := uuid.New()
+	deactivated := func(apps int) *fakeStaff {
+		return &fakeStaff{
+			person: &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated, LiveAppDevices: apps},
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		staff *fakeStaff
+		query string
+		app   bool
+	}{
+		{"card, browser only", signedInStaff(2), "", false},
+		{"warning, browser only", signedInStaff(2), "&confirm=signout", false},
+		{"card, app only", signedInStaffWithApp(0, 1), "", true},
+		{"warning, both", signedInStaffWithApp(1, 1), "&confirm=signout", true},
+		{"signed-out banner", signedInStaff(0), "&done=signed-out", false},
+		{"no-phones", signedInStaff(0), "&problem=no-phones", false},
+		{"deactivated, no app device", deactivated(0), "&problem=signout-deactivated", false},
+		{"deactivated, an app device", deactivated(1), "&problem=signout-deactivated", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := panelBrowserWithActions(t, tc.staff, &fakeInviter{})
+			body := htmlOf(t, b.do(http.MethodGet, managedRosterHref(employeeID)+tc.query, nil))
+			if got := strings.Contains(body, "in the app") || strings.Contains(body, "In the app"); got != tc.app {
+				t.Errorf("the page names the app: %v, want %v", got, tc.app)
+			}
+		})
 	}
 }
