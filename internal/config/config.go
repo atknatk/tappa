@@ -530,6 +530,18 @@ var envValues = []string{EnvDev, EnvStaging, EnvProd, EnvSandbox}
 // nothing else.
 func SandboxBuild() bool { return sandboxBuild }
 
+// The build facts as constants, for the packages whose behaviour is the build's and must stay a
+// compile-time fact (internal/oauth -- ADR 0047 §7.1, §10.4): only build_default.go and
+// build_sandbox.go carry a build constraint (internal/db's TestProductCode_CarriesNoBuildConstraint),
+// so a package splits by build by reading these, never by a constraint of its own.
+const (
+	// IsSandboxBuild is sandboxBuild: true only in the sandbox build.
+	IsSandboxBuild = sandboxBuild
+	// CredentialWord is the environment word inside every credential of this build: "live", or
+	// "test" in the sandbox build.
+	CredentialWord = credentialWord
+)
+
 // envDefault is TAPPA_ENV's value: the variable when set; unset, "dev" in an untagged build and
 // nothing in the sandbox build, where an absent value is a refusal (envForBuild), not a default.
 func envDefault(raw string, sandbox bool) string {

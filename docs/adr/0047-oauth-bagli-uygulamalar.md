@@ -1663,3 +1663,15 @@ ADR'yi **bloklamayan**, uygulama turunun gerçek testleriyle doğrulanacak notla
   refresh tokenının yalnız sunucuda tutulmasını. Yerel sandbox betiği env dosyasını kaynak olarak
   çalıştırmaz (dört değeri okur, loopback değillerse reddeder), canlı kimlik bilgisi dosyalarını bir `EXIT`
   tuzağıyla siler ve `SANDBOX_APP_OUT`'u deponun ağacında reddeder.
+- **`make check` turu (2026-11-15):** OAuth'un derleme ayrımı kendi build-constraint'li dosyalarında
+  (`internal/oauth/build_prod.go`, `build_sandbox.go`) duruyordu; ürün kodunda constraint yalnız
+  `internal/config`'in iki derleme dosyasına ve `cmd/tappa`'nın iki dosyasına izinlidir
+  (`internal/db`'nin `TestProductCode_CarriesNoBuildConstraint`). İki dosya kalktı: `oauth.Env` ve
+  `oauth.LoopbackRedirects` artık `config.CredentialWord` ve `config.IsSandboxBuild`'den gelen **derleme
+  zamanı sabitleri** (`internal/oauth/build.go`) — prod ikilisinde hiçbir yapılandırma ya da değişken
+  loopback'i açamaz. Etiketsiz derlemenin değerleri atlamasız bir testle pinli
+  (`TestBuild_ProductionIsLiveAndRefusesLoopback`; ölçüldü: `IsSandboxBuild` true yapılınca
+  `TestOAuthRedirect_ProductionV2RefusesLoopback` atlayıp yeşil kalıyordu). Onaylayanın düşürülmesi
+  testi ham `UPDATE admin_users` yerine panelin kendi `SetAdminMemberRole`'unu kullanır
+  (`cmd/opadmin`'in tablo kilidi envanteri); `internal/oauth` ve `internal/handler/oauthapi` o
+  envanterde *"outside, plain"* olarak adlı.

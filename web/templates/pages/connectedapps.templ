@@ -72,7 +72,7 @@ templ connectedAppRow(v ConnectedAppsView, a ConnectedAppRow) {
 		<div class="flex min-w-0 flex-col gap-1">
 			<p class="flex flex-wrap items-center gap-2">
 				<span class="break-words font-display text-[15px] font-bold text-ink">{ a.AppName }</span>
-				switch {
+				switch  {
 					case a.AppDisabled:
 						<span class="mono-pill border-line text-ink/70">Turned off by Taptime</span>
 					case a.Expired:

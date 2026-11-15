@@ -24,6 +24,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -387,6 +388,18 @@ func TestOAuthServerDB_AnExpiredCodeIsInvalidGrant(t *testing.T) {
 	}
 }
 
+// demoteApprover makes the world's owner a manager through the product's own membership statement,
+// in the business's context.
+func (w *serverWorld) demoteApprover() {
+	w.t.Helper()
+	if err := w.data.WithTenant(context.Background(), w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := store.New(tx).SetAdminMemberRole(ctx, store.SetAdminMemberRoleParams{Role: "manager", TenantID: w.tenant, ID: w.admin})
+		return err
+	}); err != nil {
+		w.t.Fatalf("demote the approver: %v", err)
+	}
+}
+
 // TestOAuthServerDB_TheExchangeRereadsTheBusinessAndTheApprover (§5.2 step 6, §11.2, §11.4): a code
 // whose business was suspended, whose API the operator closed, or whose approver is no longer an
 // active owner -- between consent and exchange -- is invalid_grant.
@@ -398,13 +411,20 @@ func TestOAuthServerDB_TheExchangeRereadsTheBusinessAndTheApprover(t *testing.T)
 		{"suspended", `UPDATE tenants SET suspended_at = now(), suspension_reason = 'non_payment' WHERE id = $1`,
 			`UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`},
 		{"operator-closed", `UPDATE tenants SET api_code = 'OAX', api_enabled_at = NULL WHERE id = $1`, ""},
-		{"approver demoted", `UPDATE admin_users SET role = 'manager' WHERE tenant_id = $1 AND role = 'owner'`, ""},
+		// The demotion is the panel's own statement (SetAdminMemberRole, tappa_app's column grant), not a
+		// raw write: cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder allows this directory
+		// plain INSERTs of fresh admin rows alone.
+		{"approver demoted", "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			w := newServerWorld(t)
 			code, v := w.approve()
-			w.exec(c.arrange, w.tenant)
+			if c.arrange == "" {
+				w.demoteApprover()
+			} else {
+				w.exec(c.arrange, w.tenant)
+			}
 			if _, err := w.srv.ExchangeCode(context.Background(), context.Background(), w.client, code, v, nil); !is(err, ErrInvalidGrant) {
 				t.Fatalf("got %v, want invalid_grant", err)
 			}

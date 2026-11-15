@@ -8,6 +8,9 @@ import "testing"
 // port required, matched as registered -- is registered and redirected to, and the https rule is
 // unchanged.
 func TestOAuthRedirect_SandboxAcceptsLoopback(t *testing.T) {
+	if Env != "test" || !LoopbackRedirects || Prefix(KindAccess) != "tt_at_test_" {
+		t.Fatalf("the sandbox build: Env %q, LoopbackRedirects %v", Env, LoopbackRedirects)
+	}
 	for _, u := range []string{"http://localhost:3000/api/integrations/taptime/callback", "http://127.0.0.1:65535/cb"} {
 		if err := RegistrationURIError(u); err != nil {
 			t.Errorf("%s: %v", u, err)

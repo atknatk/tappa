@@ -3963,7 +3963,7 @@ ya da bu deponun ağacının içindeyse betik reddeder, hiçbir şeyin üstüne 
 ```bash
 make sandbox-local-app SANDBOX_DB=tappa_sbx_mc SANDBOX_APP_NAME="Malta Calculator" \
   SANDBOX_APP_REDIRECT=https://maltacalculator.com/api/integrations/taptime/callback \
-  SANDBOX_APP_OUT=<yeni, depo dışı bir dosya>
+  SANDBOX_APP_OUT="$HOME/mc-sandbox.credentials"
 ```
 
 Kapsamlar varsayılan olarak `timesheets:read employees:read employees:write`'tır (`SANDBOX_APP_SCOPES`).
