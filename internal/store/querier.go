@@ -3819,10 +3819,14 @@ type Querier interface {
 	// rotated_at are the table's (default, NULL). A second endpoint of the business meets
 	// webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 	InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error)
-	// A READ used ONLY to label a refused activation for audit_log (internal/invite
+	// A READ used to label a refused activation for audit_log (internal/invite
 	// classify): "nobody consented / another browser consented" versus the other
-	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
-	// and nothing branches on this value before consuming.
+	// refusals. It is NOT the gate -- the gate is the consuming statement's own WHERE.
+	// Its one other reader (M16-07, invite.Manager.ConsentBound) is the app
+	// activation's NON-ADVANCING pre-check: an unbound key is refused before
+	// sun.Verify moves the plaque's counter. A stale "true" only lets the request
+	// reach the consuming statement, which then refuses it; nothing is ever
+	// accepted on this value.
 	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
 	// Whether an address is, as citext, the address of an administrator of THIS business (ADR
 	// 0022 §7: an activation link mailed to the panel's own inbox is ADR 0005 Y-D with one step

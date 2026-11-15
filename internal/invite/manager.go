@@ -727,6 +727,41 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 	})
 }
 
+// ConsentBound reports whether the invitation's recorded consent belongs to b -- a READ that
+// consumes nothing. It backs the app activation's non-advancing pre-check (M16-07 review): a
+// request whose key never bound (or whose binding moved) is refused BEFORE sun.Verify advances the
+// plaque's counter. It is not the gate: the consuming statement re-checks the binding in its own
+// WHERE, so a "true" that went stale a moment later is still refused there. An unusable code or a
+// malformed binding is simply false; a database failure is an error.
+func (m *Manager) ConsentBound(ctx context.Context, c Code, b Binding) (bool, error) {
+	hash, res, err := m.resolve(ctx, c)
+	if errors.Is(err, ErrUnknownCode) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	bindingHash, err := b.hash(m.hmacKey.Reveal())
+	if errors.Is(err, errMalformed) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("invite: consent bound: %w", err)
+	}
+	var matches bool
+	err = m.data.WithTenant(ctx, res.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		matches, e = store.New(tx).InviteConsentMatches(ctx, store.InviteConsentMatchesParams{
+			ConsentBindingHash: bindingHash, CodeHash: hash, TenantID: res.TenantID,
+		})
+		return e
+	})
+	if err != nil {
+		return false, fmt.Errorf("invite: consent bound: %w", err)
+	}
+	return matches, nil
+}
+
 // ActivateDevice is the APP activation (ADR 0045 §2.3, M16-07): Activate's consumption
 // -- the same statement, the same binding rule, the same classification -- and, IN THE
 // SAME TRANSACTION, Q40 (a)'s app half and the device's birth:

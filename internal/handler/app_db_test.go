@@ -497,6 +497,11 @@ func TestAppDB_CompleteWithoutTheBoundKeyIsRefusedBeforeAnythingMoves(t *testing
 	if w.Code != http.StatusConflict || strings.TrimSpace(w.Body.String()) != `{"error":"activation_not_ready"}` {
 		t.Fatalf("an unbound key = %d %s, want 409 activation_not_ready", w.Code, w.Body.String())
 	}
+	// The binding pre-check runs before sun.Verify (M16-07 review): a key that signs but never bound
+	// spends no counter either.
+	if got := h.lastCtr(t, h.tagUID); got != ctrBefore {
+		t.Errorf("an unbound key moved last_ctr %d -> %d", ctrBefore, got)
+	}
 	if h.employeeStatus(t, emp) != "invited" || h.liveDevices(t, emp) != 0 {
 		t.Fatal("an unbound key activated somebody")
 	}
@@ -514,8 +519,12 @@ func TestAppDB_ASecondBindMovesTheBinding(t *testing.T) {
 	first, second := newAppPhone(t), newAppPhone(t)
 	b1 := h.bind(t, first, code)
 	b2 := h.bind(t, second, code)
+	ctrBefore := h.lastCtr(t, h.tagUID)
 	if w := h.serve(h.completeRequest(t, first, first, b1, code, h.nextSUN(t))); w.Code != http.StatusConflict {
 		t.Fatalf("the moved binding's complete = %d %s, want 409", w.Code, w.Body.String())
+	}
+	if got := h.lastCtr(t, h.tagUID); got != ctrBefore {
+		t.Errorf("the moved binding's complete moved last_ctr %d -> %d", ctrBefore, got)
 	}
 	if h.employeeStatus(t, emp) != "invited" {
 		t.Fatal("the moved binding activated the person")
@@ -935,6 +944,36 @@ func TestApp_TheSignedPathIsTheWirePath(t *testing.T) {
 	if w := h.read(t, p, http.MethodGet, AppMePath, ""); w.Code != http.StatusOK {
 		t.Fatalf("PREMISE: a signed /me through the router = %d %s", w.Code, w.Body.String())
 	}
+	// The clock-skew contract (cards M16-12, M16-16): a served answer -- a 200 and a 401 alike --
+	// carries the server's Date, which the phone corrects its signing clock by.
+	srv := httptest.NewServer(h.router)
+	defer srv.Close()
+	for _, signed := range []bool{true, false} {
+		req := httptest.NewRequest(http.MethodGet, AppMePath, nil)
+		if signed {
+			ts := strconv.FormatInt(time.Now().Unix(), 10)
+			text, err := appdevice.CanonicalReadText(http.MethodGet, AppMePath, nil, ts, p.id.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(appdevice.HeaderDeviceID, p.id.String())
+			req.Header.Set(appdevice.HeaderTimestamp, ts)
+			req.Header.Set(appdevice.HeaderSignature, p.sign(t, text))
+		}
+		out, err := http.NewRequest(http.MethodGet, srv.URL+AppMePath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.Header = req.Header
+		res, err := srv.Client().Do(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if _, err := http.ParseTime(res.Header.Get("Date")); err != nil {
+			t.Errorf("GET /me (signed %v, %d) carries no parseable Date: %q", signed, res.StatusCode, res.Header.Get("Date"))
+		}
+	}
 	if w := h.read(t, p, http.MethodGet, AppMePath+"/", ""); w.Code != http.StatusNotFound {
 		t.Errorf("a signed /me/ = %d, want 404: nothing rewrites the path before the verifier", w.Code)
 	}
@@ -970,5 +1009,58 @@ func TestApp_TheSignedPathIsTheWirePath(t *testing.T) {
 	mixed.Header.Set(appdevice.HeaderTimestamp, ts)
 	if w := h.serve(mixed); w.Code != http.StatusUnauthorized || w.Body.Len() != 0 {
 		t.Errorf("a request carrying both schemes = %d %q, want 401 empty", w.Code, w.Body.String())
+	}
+}
+
+// TestAppDB_AnotherDevicesContextIsStale: device B posting device A's tap context to /app/v1/tap
+// (B's own nonce, B's own signature) is 400 stale_context and writes no row -- the context is
+// bound to the device that tap/start answered (M16-07 review).
+func TestAppDB_AnotherDevicesContextIsStale(t *testing.T) {
+	h := newAppHarness(t)
+	a, b := newAppPhone(t), newAppPhone(t)
+	h.register(t, a, h.employeeID)
+	h.register(t, b, h.employeeID)
+	start, w := h.tapStart(t, a, h.nextSUN(t))
+	if w.Code != http.StatusOK {
+		t.Fatal(w.Body.String())
+	}
+	before := h.countFor(t, h.employeeID)
+	_, w = h.tapWith(t, b, start.Context, nil)
+	if w.Code != http.StatusBadRequest || strings.TrimSpace(w.Body.String()) != `{"error":"stale_context"}` {
+		t.Fatalf("B with A's context = %d %s, want 400 stale_context", w.Code, w.Body.String())
+	}
+	if n := h.countFor(t, h.employeeID); n != before {
+		t.Fatalf("B's refused press wrote %d rows", n-before)
+	}
+	if _, w := h.tapWith(t, a, start.Context, nil); w.Code != http.StatusOK {
+		t.Fatalf("CONTROL: A with its own context = %d %s", w.Code, w.Body.String())
+	}
+}
+
+// TestAppDB_TheDeviceBucketIsSpentOnlyByVerifiedRequests: the per-device bucket (AllowDevice) with
+// a lowered limit -- a signed read past it is 429 {"error":"rate_limited"}, no-store; and requests
+// naming the device but carrying a BAD signature spend none of it, so the real phone's next request
+// is still served (M16-07 review).
+func TestAppDB_TheDeviceBucketIsSpentOnlyByVerifiedRequests(t *testing.T) {
+	h := newAppHarness(t)
+	const limit = 3
+	h.app.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{Audit: h.trail, Log: slog.New(slog.DiscardHandler), SessionLimit: limit, Refused: writeAppTooMany})
+	p := newAppPhone(t)
+	h.register(t, p, h.employeeID)
+	forger := &appPhone{key: newAppPhone(t).key, id: p.id}
+	for i := 0; i < 2*limit; i++ {
+		if w := h.read(t, forger, http.MethodGet, AppMePath, ""); w.Code != http.StatusUnauthorized {
+			t.Fatalf("a forged read = %d, want 401", w.Code)
+		}
+	}
+	for i := 0; i < limit; i++ {
+		if w := h.read(t, p, http.MethodGet, AppMePath, ""); w.Code != http.StatusOK {
+			t.Fatalf("the real phone's read %d after %d forged ones = %d, want 200: a bad signature spent its bucket", i+1, 2*limit, w.Code)
+		}
+	}
+	w := h.read(t, p, http.MethodGet, AppMePath, "")
+	if w.Code != http.StatusTooManyRequests || strings.TrimSpace(w.Body.String()) != `{"error":"rate_limited"}` ||
+		w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Retry-After") == "" {
+		t.Fatalf("the read past the limit = %d %q (Cache-Control %q), want 429 rate_limited no-store", w.Code, w.Body.String(), w.Header().Get("Cache-Control"))
 	}
 }

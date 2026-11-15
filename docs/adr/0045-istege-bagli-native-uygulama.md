@@ -139,6 +139,9 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   ulaşmalı ve **kaydedilmelidir**; iptal onu satır 3'ün kayıtsız yoluna iterdi (§4.6). Handoff §2'nin *"offboarding:
   tek tık → oturum o saniye ölür"* cümlesi bu karardan önce yazılmıştır: deaktivasyonun etkisi oturumun ölmesi değil,
   sonraki her dokunuşun **reddedilip kaydedilmesidir** — uygulamada da.
+- **Tel sözleşmesinin sürümlemesi (ana oturum kararı, 2026-11-14, M16-07).** `/app/v1` gövdeleri **katı** çözülür
+  (bilinmeyen alan 400). Kural: **sunucu, yeni bir alan gönderen her uygulama sürümünden önce sevk edilir**; sözleşme
+  tablosu `docs/plan/m16-mobil.md` M16-07'nin *"Tel sözleşmesi"* bloğundadır.
 - Bu, Q11'i **uygulama kullanıcıları için** çözer (çerez yok); tarayıcı kullanıcıları için Q11 açık kalır.
 - **Buddy punching değişmez** (ADR 0005 risk 1, A4): telefonunu arkadaşına veren çalışan yine geçer. Cihaz anahtarı
   oturumun *kopyalanmasını* durdurur, telefonun *devredilmesini* değil.
@@ -324,6 +327,10 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
     sunucuda Google'a çağrı yerine yerel doğrulama tercih edilir (Q37). Kanıttan öte değeri yoktur (§2.7).
 13. **İki Android dizini.** `android/` (röle) ve `mobile/android/` (personel uygulaması) ayrı Gradle build'leridir;
     karışıklık bedeli dizin haritası ve README ile ödenir.
+14. **İmzalı okuma 60 sn içinde tekrarlanabilir** (M16-07, `internal/appdevice/read.go`). Ele geçirilmiş bir okuma
+    (`/me`, `tap/start`, `/nonce`) pencere içinde yeniden gönderilebilir; döndürdüğü şey cihazın kendi adı/markası, cihaza
+    bağlı bir tap bağlamı ya da kullanmak için yine anahtar isteyen bir nonce'tur. Tekrar, gerçek cihazın oran sınırı
+    kovasını harcayabilir. Bunun için TLS trafiğini yakalamak gerekir; kabul edildi.
 
 ## 5. Okunanlar ve doğrulanacaklar
 

@@ -59,7 +59,7 @@ func (a *App) Nonce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !decodeAppJSON(body, &struct{}{}) {
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	issued, err := a.devices.IssueNonce(r.Context(), dev.ID)
@@ -101,7 +101,7 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 			"tenant_id", dev.TenantID, "employee_id", dev.EmployeeID, "err", err)
 	case err != nil:
 		a.log.ErrorContext(ctx, "app: loading the home screen failed", "employee_id", dev.EmployeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	if facts.PredictionErr != nil {
@@ -177,23 +177,23 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !decoded {
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	if err := perr; err != nil {
 		a.log.InfoContext(ctx, "app tap start: unusable plaque url", "employee_id", dev.EmployeeID)
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	pv, err := a.sun.PreviewWithoutReplayProtection(ctx, p)
 	if err != nil {
 		if errors.Is(err, sun.ErrUnknownTag) {
 			a.log.WarnContext(ctx, "app tap start: unknown plaque", "employee_id", dev.EmployeeID)
-			writeAppError(w, http.StatusNotFound, appErrUnknownPlaque)
+			writeAppError(w, appErrUnknownPlaque)
 			return
 		}
 		a.log.ErrorContext(ctx, "app tap start: sun pre-check failed", "employee_id", dev.EmployeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	// The page renders for a dead plaque and a bad CMAC, and so does this: the refusal's RECORD is
@@ -223,7 +223,7 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 		out.EmployeeName, out.LocationName = facts.EmployeeName, facts.LocationName
 	case err != nil:
 		a.log.ErrorContext(ctx, "app tap start: loading the employee failed", "employee_id", dev.EmployeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	default:
 		if facts.Brand.AccentRefused {
@@ -248,7 +248,7 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	}, dev.ID)
 	if err != nil {
 		a.log.ErrorContext(ctx, "app tap start: minting the tap context failed", "employee_id", dev.EmployeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	out.Context = signed
@@ -323,7 +323,7 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 	var in appTapRequest
 	if !decodeAppJSON(body, &in) {
 		a.log.InfoContext(ctx, "app tap: unusable body", "employee_id", dev.EmployeeID)
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	tctx, err := a.contexts.parseForDevice(in.Context, dev.ID)
@@ -333,13 +333,13 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 		} else {
 			a.log.WarnContext(ctx, "app tap: unusable tap context", "employee_id", dev.EmployeeID, "err", err)
 		}
-		writeAppError(w, http.StatusBadRequest, appErrStaleContext)
+		writeAppError(w, appErrStaleContext)
 		return
 	}
 	occurredAt, ok := parseOccurredAt(in.OccurredAt)
 	if !ok {
 		a.log.InfoContext(ctx, "app tap: unusable occurred_at", "employee_id", dev.EmployeeID)
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	var wants []string
@@ -376,7 +376,7 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 	}
 	switch res.Outcome {
 	case checkin.OutcomeForeignTenant:
-		writeAppError(w, http.StatusForbidden, appErrForeignTenant)
+		writeAppError(w, appErrForeignTenant)
 	case checkin.OutcomeActivation:
 		// §5 row 3: Record does not produce it (checkin.OutcomeActivation's note); answered as the
 		// row-3 twin all the same -- no record, re-activate.
@@ -405,16 +405,16 @@ func (a *App) tapFailure(w http.ResponseWriter, r *http.Request, employeeID uuid
 	case errors.Is(err, checkin.ErrSiteMembershipEnded):
 		a.log.WarnContext(ctx, "app tap: the plaque's business left the group before the record was written; nothing was written",
 			"employee_id", employeeID)
-		writeAppError(w, http.StatusConflict, appErrTryAgain)
+		writeAppError(w, appErrTryAgain)
 	case errors.Is(err, checkin.ErrUnknownTag):
-		writeAppError(w, http.StatusNotFound, appErrUnknownPlaque)
+		writeAppError(w, appErrUnknownPlaque)
 	case errors.Is(err, checkin.ErrInvalidRequest), errors.Is(err, checkin.ErrEnteredByRequired):
 		a.log.ErrorContext(ctx, "app tap: refused an invalid request", "employee_id", employeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 	default:
 		a.log.ErrorContext(ctx, "app tap: recording the tap failed; NOTHING was written",
 			"employee_id", employeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 	}
 }
 
@@ -435,12 +435,12 @@ func (a *App) Revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !decodeAppJSON(body, &struct{}{}) {
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	if err := a.devices.Revoke(ctx, dev); err != nil {
 		a.log.ErrorContext(ctx, "app: a device's own sign-out failed", "employee_id", dev.EmployeeID, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	actx, cancel := audit.Detached(ctx)

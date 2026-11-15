@@ -607,7 +607,43 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 >   (M16-13/M16-17). (3) M15-17'nin talep kartı uygulamanın sonuç yanıtında yok (M16-13). (4) Tarayıcının *"Activation
 >   complete"* ekranındaki *"other phone signed out"* yalnız oturumları sayar; uygulama cihazı iptali ekran metnini
 >   değiştirmedi (§9 sorusu).
+> - **İnceleme turu (2026-11-14):** `complete`'e `sun.Verify`'dan önce ilerletmeyen bir **bağ ön kontrolü** eklendi
+>   (`invite.Manager.ConsentBound`, `InviteConsentMatches` okuması) — imzalayabilen ama bağlanmamış bir anahtar artık
+>   plaketin sayacını harcamaz; kapı yine tüketen ifadedir. `/app/v1` altında bilinmeyen yol `not_found` 404, yanlış
+>   yöntem `method_not_allowed` 405 (JSON, `no-store`); kod başına tek durum (`appErrorStatus`). Cihaz kovası ve cihaza
+>   bağlı tap bağlamının ret yönleri testlendi ve mutasyonla ölçüldü (`AllowDevice` kapatılınca ve `app-device:` öneki
+>   düşürülünce testler kırmızı).
 > - **CLAUDE.md §5 *"Dört kanıt"* cümlesi** bu kartın işiydi; yapıcı CLAUDE.md'ye dokunmadı, metin ana oturuma önerildi.
+
+> **Tel sözleşmesi (M16-07, 2026-11-14) — M16-12 ve M16-16 bunun üstüne kurar.** Testlerle sabit:
+> `internal/handler/app_test.go` (`TestAppContract_ResponseShapes`, `TestAppContract_RequestShapes`,
+> `TestAppContract_ErrorStatuses`), başlık eşlemesi ve akış `internal/handler/app_db_test.go`'da.
+>
+> | Uç nokta | Kimlik | İstek gövdesi | Yanıt (200) |
+> |---|---|---|---|
+> | `POST /app/v1/activate/lookup` | imzasız | `{"code"}` | `{"employeeName","businessName","locationName"?,"wifiSsid"?,"secondDevice","brand"}` |
+> | `POST /app/v1/activate/bind` | imzasız | `{"code","consent":true,"publicKey"}` | `{"activationId","challenge"}` |
+> | `POST /app/v1/activate/complete` | `App-Device-Id` = `activationId`, `App-Nonce` = `challenge`, `App-Signature` (bağlı anahtar) | `{"code","publicKey","platform":"ios"\|"android","sun"}` | `{"deviceId","employeeName"}` |
+> | `POST /app/v1/nonce` | imzalı okuma | boş ya da `{}` | `{"nonce","expiresAt"}` (RFC 3339, UTC) |
+> | `POST /app/v1/tap/start` | imzalı okuma | `{"sun"}` | `{"employeeName","locationName","brand","direction","qr","context"}` |
+> | `POST /app/v1/tap` | nonce'lu imza | `{"context","want"?: "in"\|"out","lat"?,"lng"?,"mockLocation"?,"occurredAt"?}` | `{"outcome":"recorded","verdict":"ok"\|"flag"\|"reject"\|"ignored","direction":"in"\|"out"\|"","venue","at":"HH:MM","businessType","practice"?}` |
+> | `GET /app/v1/me` | imzalı okuma | boş | `{"employeeName","brand","direction":"in"\|"out"\|""}` |
+> | `POST /app/v1/revoke` | nonce'lu imza | boş ya da `{}` | 204, gövde yok |
+>
+> - `brand` = `{"name"?,"logo"?:{"sha256","width","height"},"accent"?}` (accent `#`'sız 6 hex, ör. `1F5C41`); `{}` =
+>   Taptime'ın kendi görünümü. `publicKey` = 65 baytlık ham P-256 noktasının dolgusuz base64url'i. `sun` = plaket
+>   URL'sinin **sorgusu** (`tag=…&ctr=…&cmac=…`). `direction` `""` = yönsüz *"Tap"* düğmesi.
+> - **İmza başlıkları:** okuma `App-Device-Id` + `App-Timestamp` (ondalık Unix saniyesi) + `App-Signature`; nonce'lu
+>   istek `App-Device-Id` + `App-Nonce` + `App-Signature`; ikisi birlikte → 401. Kanonik metinler
+>   `test/fixtures/appdevice_vectors.json`.
+> - **Hatalar:** imza reddi her zaman **401, boş gövde**; diğerleri `{"error":<kod>}`, kod başına tek durum:
+>   `bad_request` 400 · `invalid_invite` 400 · `consent_required` 400 · `invalid_key` 400 · `activation_needs_touch` 400 ·
+>   `activation_tap_failed` 400 · `stale_context` 400 · `foreign_tenant` 403 · `unknown_plaque` 404 · `not_found` 404 ·
+>   `method_not_allowed` 405 · `new_key_required` 409 · `activation_not_ready` 409 · `try_again` 409 · `rate_limited` 429
+>   (`Retry-After`) · `server_error` 500. Her yanıt `Cache-Control: no-store` ve `Date` taşır.
+> - **Sürümleme (ana oturum kararı, 2026-11-14):** çözümleme **katıdır** — bilinmeyen alan 400 (`DisallowUnknownFields`).
+>   Kural: **yeni bir alan gönderen herhangi bir uygulama sürümünden ÖNCE sunucu sevk edilir.** ⚠️ `encoding/json` alan
+>   adlarını **büyük/küçük harfe duyarsız** eşler (`"Code"` = `"code"`, ölçüldü); uygulamalar tablodaki yazımı kullanır.
 
 ## M16-08 — `/.well-known` dosyaları (Universal Link / App Link)
 
@@ -732,6 +768,13 @@ taramasından geçen boş bir personel uygulaması.
   denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
   ikisi aynı commit'te düzeltilir.
 
+> **Saat kayması sözleşmesi (M16-07 incelemesi, 2026-11-14).** İmzalı okumanın penceresi sunucu saatine göre ±60 sn'dir;
+> saati bundan fazla kaymış bir telefon nonce bile alamaz ve 401'i iptal edilmiş cihazınkiyle **aynıdır**. Uygulama bu
+> yüzden: (1) her `/app/v1` yanıtının `Date` başlığından (her yanıtta var — 200, 401, 404/405 dahil; test:
+> `TestApp_UnknownPathsAndMethodsAnswerTheVocabulary`, `TestApp_TheSignedPathIsTheWirePath`) sunucu saatine göre
+> farkı hesaplar ve **düzeltilmiş saatle** imzalar; (2) bir 401'i *"oturum kapandı / yeniden aktive ol"* diye ancak taze
+> bir fark ölçümüyle **bir kez yeniden denedikten** sonra yorumlar.
+
 ## M16-13 — Android tap ekranı: NFC, tek seferlik konum, sahte konum
 
 - **Bağımlılık:** M16-12, M16-08
@@ -762,6 +805,11 @@ taramasından geçen boş bir personel uygulaması.
 **Tuzaklar.** UI zamanlayıcıları (ör. `while (isActive)` / `while (true)` ile bir geri sayım coroutine'i,
 `scheduleAtFixedRate`) tap akışındaki konum çağrısıyla **aynı dosyada** olursa `redline-check.sh` R2'nin periyodik ağı
 FAIL verir (M16-02: dosya bazlı ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
+
+> **Logo notu (M16-07 incelemesi, 2026-11-14).** Uygulamaya logo baytlarının yolu bu kartla (ya da eşiyle) eklenince
+> **eş işletme plaketi** ayrımı gerekir: tarayıcıda `tenant.PageBrand.PeerTag` doluysa logo `/t/logo/<sha>?tag=<uid>`
+> (eşin logosu, `holding_logo` üzerinden) yolundan gelir, değilse oturumun kendi işletmesinin yolundan. `tap/start`'ın
+> `brand`'i bugün bu ayrımı taşımaz; logo yolu eklenirken taşımalıdır.
 
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
@@ -834,6 +882,13 @@ kapsayan boş bir personel uygulaması.
   denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
   ikisi aynı commit'te düzeltilir.
 
+> **Saat kayması sözleşmesi (M16-07 incelemesi, 2026-11-14).** İmzalı okumanın penceresi sunucu saatine göre ±60 sn'dir;
+> saati bundan fazla kaymış bir telefon nonce bile alamaz ve 401'i iptal edilmiş cihazınkiyle **aynıdır**. Uygulama bu
+> yüzden: (1) her `/app/v1` yanıtının `Date` başlığından (her yanıtta var — 200, 401, 404/405 dahil; test:
+> `TestApp_UnknownPathsAndMethodsAnswerTheVocabulary`, `TestApp_TheSignedPathIsTheWirePath`) sunucu saatine göre
+> farkı hesaplar ve **düzeltilmiş saatle** imzalar; (2) bir 401'i *"oturum kapandı / yeniden aktive ol"* diye ancak taze
+> bir fark ölçümüyle **bir kez yeniden denedikten** sonra yorumlar.
+
 ## M16-17 — iOS tap ekranı: Universal Link + Core NFC ön plan okuma
 
 - **Bağımlılık:** M16-16, M16-08 · Q41 (§9)
@@ -860,6 +915,11 @@ kanıtıyla kaydettirmek (P6'nın kapanışı).
 **Tuzaklar.** UI zamanlayıcıları (`Timer.publish(every:)`, `Timer.scheduledTimer(… repeats: true)`) tap akışındaki
 `requestLocation` ile **aynı dosyada** olursa `redline-check.sh` R2'nin periyodik ağı FAIL verir (M16-02: dosya bazlı
 ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
+
+> **Logo notu (M16-07 incelemesi, 2026-11-14).** Uygulamaya logo baytlarının yolu bu kartla (ya da eşiyle) eklenince
+> **eş işletme plaketi** ayrımı gerekir: tarayıcıda `tenant.PageBrand.PeerTag` doluysa logo `/t/logo/<sha>?tag=<uid>`
+> (eşin logosu, `holding_logo` üzerinden) yolundan gelir, değilse oturumun kendi işletmesinin yolundan. `tap/start`'ın
+> `brand`'i bugün bu ayrımı taşımaz; logo yolu eklenirken taşımalıdır.
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 
@@ -1171,6 +1231,12 @@ tek cihazı iptal edebilmek.
 ---
 
 # Faz F — Yayın + pilot
+
+> **Bilinen sıra (M16-07 güvenlik incelemesi, DÜŞÜK, 2026-11-14).** Kişinin canlı oturumu yok, yalnız cihaz D1 var; bir
+> uygulama aktivasyonu uçuşta (D1'i iptal edip D2'yi doğuracak). Aynı anda müdürün *"telefonlarını çıkar"*ı koşarsa ve
+> aktivasyonun transaction'ından **önce** biterse 0 satır görür — ekran *"no phones signed in"* der — ama aktivasyon
+> commit edince D2 yaşar. Kilit sırası aynı (oturumlar → cihazlar → nonce'lar), deadlock yok; bu bir **sıra** sonucudur.
+> Seçenek: panel 0 sonucunda bir kez yeniden dener, ya da metin *"şu an"* der. Cihaz listesi (bu kart) D2'yi gösterir.
 
 ## M16-27 — Gizlilik: `/legal/privacy`, mağaza etiketleri
 

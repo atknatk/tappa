@@ -64,7 +64,7 @@ func (a *App) ActivateLookup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	ip := clientIP(r)
 	if a.activation.floodSpent(ip, "app_activate_lookup") {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	body, ok := readAppBody(w, r)
@@ -74,13 +74,13 @@ func (a *App) ActivateLookup(w http.ResponseWriter, r *http.Request) {
 	var in appLookupRequest
 	if !decodeAppJSON(body, &in) || in.Code == "" {
 		a.activation.anonFail(ip, "app_activate_lookup", "malformed body")
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	code := invite.ParseCode(in.Code)
 	ictx, err := a.invites.Lookup(ctx, code)
 	if a.activation.inviteBudgetSpent(r, ip, ictx) {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	if err != nil {
@@ -140,7 +140,7 @@ func (a *App) ActivateBind(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	ip := clientIP(r)
 	if a.activation.floodSpent(ip, "app_activate_bind") {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	body, ok := readAppBody(w, r)
@@ -150,13 +150,13 @@ func (a *App) ActivateBind(w http.ResponseWriter, r *http.Request) {
 	var in appBindRequest
 	if !decodeAppJSON(body, &in) || in.Code == "" {
 		a.activation.anonFail(ip, "app_activate_bind", "malformed body")
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	code := invite.ParseCode(in.Code)
 	ictx, err := a.invites.Lookup(ctx, code)
 	if a.activation.inviteBudgetSpent(r, ip, ictx) {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	if err != nil {
@@ -166,30 +166,30 @@ func (a *App) ActivateBind(w http.ResponseWriter, r *http.Request) {
 	pub, ok := decodePublicKey(in.PublicKey)
 	if !ok {
 		a.activation.failAttempt(ctx, ip, ictx, "app_invalid_key", againstIPOnly)
-		writeAppError(w, http.StatusBadRequest, appErrInvalidKey)
+		writeAppError(w, appErrInvalidKey)
 		return
 	}
 	if !in.Consent {
 		// NOT an attack signal (Submit's consent_missing): the IP window only.
 		a.activation.failAttempt(ctx, ip, ictx, "consent_missing", againstIPOnly)
-		writeAppError(w, http.StatusBadRequest, appErrConsentRequired)
+		writeAppError(w, appErrConsentRequired)
 		return
 	}
 	ch, err := appdevice.NewActivationChallenge()
 	if err != nil {
 		a.log.ErrorContext(ctx, "app activation: drawing the server's randomness failed", "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	binding, err := appdevice.ActivationBinding(ch, pub)
 	if errors.Is(err, appdevice.ErrInvalidPublicKey) {
 		a.activation.failAttempt(ctx, ip, ictx, "app_invalid_key", againstIPOnly)
-		writeAppError(w, http.StatusBadRequest, appErrInvalidKey)
+		writeAppError(w, appErrInvalidKey)
 		return
 	}
 	if err != nil {
 		a.log.ErrorContext(ctx, "app activation: deriving the consent value failed", "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	consented, err := a.invites.RecordConsent(ctx, code, invite.ParseBinding(binding))
@@ -241,6 +241,8 @@ type appCompleteResponse struct {
 //	· NFC only            a QR read carries no proof of a touch (and advances nothing)
 //	· plaque pre-check    NON-advancing: the invitation's own tenant, active, mounted -- before any
 //	                      counter moves (audit R5)
+//	· binding pre-check   NON-advancing: the recorded consent is THIS key's (invite.ConsentBound) --
+//	                      an unbound key spends no counter (M16-07 review)
 //	· sun.Verify          CMAC first, THEN the atomic ctr advance (§4.4); a replayed read fails here
 //	· consume             invite.ActivateDevice: the code and THIS key's binding in one statement,
 //	                      the sessions and app devices revoked, the device created -- one
@@ -253,7 +255,7 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	ip := clientIP(r)
 	if a.activation.floodSpent(ip, "app_activate_complete") {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	body, ok := readAppBody(w, r)
@@ -269,14 +271,14 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	var in appCompleteRequest
 	if !decodeAppJSON(body, &in) || in.Code == "" {
 		a.activation.anonFail(ip, "app_activate_complete", "malformed body")
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	label, known := appPlatforms[in.Platform]
 	pub, keyOK := decodePublicKey(in.PublicKey)
 	if !known || !keyOK {
 		a.activation.anonFail(ip, "app_activate_complete", "malformed body")
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return
 	}
 	binding, err := appdevice.VerifyActivation(req, pub)
@@ -291,7 +293,7 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	code := invite.ParseCode(in.Code)
 	ictx, err := a.invites.Lookup(ctx, code)
 	if a.activation.inviteBudgetSpent(r, ip, ictx) {
-		writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+		writeAppError(w, appErrTooMany)
 		return
 	}
 	if err != nil {
@@ -302,12 +304,12 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	p, err := parseSUNQuery(in.SUN)
 	if err != nil {
 		a.activation.failTap(ctx, ip, ictx, "unusable_url", "")
-		writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+		writeAppError(w, appErrActivationTapFailed)
 		return
 	}
 	if !p.HasSUN() {
 		a.activation.failTap(ctx, ip, ictx, "no_sun", "")
-		writeAppError(w, http.StatusBadRequest, appErrActivationNeedsTouch)
+		writeAppError(w, appErrActivationNeedsTouch)
 		return
 	}
 	// The plaque is judged BEFORE anything advances, with ONE answer for every refusal (§4.7) --
@@ -316,42 +318,56 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, sun.ErrUnknownTag) {
 			a.activation.failTap(ctx, ip, ictx, "unknown_tag", "")
-			writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+			writeAppError(w, appErrActivationTapFailed)
 			return
 		}
 		a.log.ErrorContext(ctx, "app activation: plaque pre-check failed", "invite_id", nonNil(ictx.InviteID), "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	if pv.TenantID != ictx.TenantID {
 		a.activation.failTap(ctx, ip, ictx, "foreign_tenant_tag", "")
-		writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+		writeAppError(w, appErrActivationTapFailed)
 		return
 	}
 	if pv.TagStatus != "active" || pv.Location == nil {
 		a.activation.failTap(ctx, ip, ictx, "tag_not_active", p.UID)
-		writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+		writeAppError(w, appErrActivationTapFailed)
+		return
+	}
+	// THE BINDING IS JUDGED BEFORE ANYTHING ADVANCES TOO (M16-07 review): a key that signs but never
+	// bound -- or whose binding a later bind moved -- must not spend the plaque's counter. A read, not
+	// the gate: the consuming statement re-checks the binding below.
+	bound, err := a.invites.ConsentBound(ctx, code, invite.ParseBinding(binding))
+	if err != nil {
+		a.log.ErrorContext(ctx, "app activation: reading the consent failed", "invite_id", nonNil(ictx.InviteID), "err", err)
+		writeAppError(w, appErrServer)
+		return
+	}
+	if !bound {
+		a.activation.failTap(ctx, ip, ictx, "consent_missing", "")
+		writeAppError(w, appErrActivationNotReady)
 		return
 	}
 	res, err := a.sun.Verify(ctx, p)
 	if err != nil {
 		if errors.Is(err, sun.ErrUnknownTag) {
 			a.activation.failTap(ctx, ip, ictx, "unknown_tag", "")
-			writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+			writeAppError(w, appErrActivationTapFailed)
 			return
 		}
 		a.log.ErrorContext(ctx, "app activation: sun verification failed", "invite_id", nonNil(ictx.InviteID), "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	if res.Tag.TenantID != ictx.TenantID || res.Tag.Status != "active" || res.Location == nil {
 		a.activation.failTap(ctx, ip, ictx, "tag_changed", "")
-		writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+		writeAppError(w, appErrActivationTapFailed)
 		return
 	}
 	if !res.SUNValid {
 		a.activation.failTap(ctx, ip, ictx, "sun_invalid", p.UID)
-		writeAppError(w, http.StatusBadRequest, appErrActivationTapFailed)
+		writeAppError(w, appErrActivationTapFailed)
 		return
 	}
 
@@ -363,11 +379,11 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, invite.ErrConsentMissing):
 			// The binding moved -- another bind, or a browser consent, since this key's.
 			a.activation.failTap(ctx, ip, act.Context, "consent_missing", res.Tag.UID)
-			writeAppError(w, http.StatusConflict, appErrActivationNotReady)
+			writeAppError(w, appErrActivationNotReady)
 		case errors.Is(err, invite.ErrDeviceKeyTaken):
 			// NOTHING was consumed (one transaction). The app generates a new key and binds again.
 			a.activation.failTap(ctx, ip, act.Context, "device_key_taken", res.Tag.UID)
-			writeAppError(w, http.StatusConflict, appErrNewKeyRequired)
+			writeAppError(w, appErrNewKeyRequired)
 		default:
 			a.rejectAppCode(w, r, ip, act.Context, err, "app_activate_complete")
 		}
@@ -415,16 +431,16 @@ func (a *App) rejectAppCode(w http.ResponseWriter, r *http.Request, ip string, i
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	if errors.Is(err, invite.ErrUnknownCode) {
 		a.activation.anonFail(ip, where, "unknown code")
-		writeAppError(w, http.StatusBadRequest, appErrInvalidInvite)
+		writeAppError(w, appErrInvalidInvite)
 		return
 	}
 	reason, classified := inviteFailureReason(err)
 	if !classified {
 		a.activation.failAttempt(ctx, ip, ictx, "unclassified", againstInvite)
 		a.log.ErrorContext(ctx, "app activation failed", "at", where, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	a.activation.failAttempt(ctx, ip, ictx, reason, againstInvite)
-	writeAppError(w, http.StatusBadRequest, appErrInvalidInvite)
+	writeAppError(w, appErrInvalidInvite)
 }

@@ -440,3 +440,42 @@ func TestTapContext_SeparatorCannotAppearInAField(t *testing.T) {
 		t.Fatal("the MAC label contains the separator before its terminator")
 	}
 }
+
+// TestTapContext_DeviceBindingRefusesEveryOtherHolder (M16-07 review): the app's context is bound to
+// one DEVICE and to the device holder space alone. Device A's context does not verify for device B;
+// a device context does not verify as a SESSION context with the same 128 bits, nor a session
+// context as a device's; and the holder that minted it still verifies it (the positive control).
+func TestTapContext_DeviceBindingRefusesEveryOtherHolder(t *testing.T) {
+	c := testContexts(t, time.Time{})
+	a, b := uuid.New(), uuid.New()
+	forA, err := c.mintForDevice(sampleContext(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forSession, err := c.mint(sampleContext(), a) // a session with device A's very bits
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.parseForDevice(forA, a); err != nil {
+		t.Fatalf("PREMISE: device A's own context: %v", err)
+	}
+	if _, err := c.parse(forSession, a); err != nil {
+		t.Fatalf("PREMISE: the session's own context: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		parse func() (tapContext, error)
+	}{
+		{"device A's context on device B", func() (tapContext, error) { return c.parseForDevice(forA, b) }},
+		{"a device context as a session with the same bits", func() (tapContext, error) { return c.parse(forA, a) }},
+		{"a session context as a device with the same bits", func() (tapContext, error) { return c.parseForDevice(forSession, a) }},
+		{"a device context with no device", func() (tapContext, error) { return c.parseForDevice(forA, uuid.Nil) }},
+	} {
+		if _, err := tc.parse(); !errors.Is(err, errTapContextSignature) {
+			t.Errorf("%s: %v, want errTapContextSignature", tc.name, err)
+		}
+	}
+	if _, err := c.mintForDevice(sampleContext(), uuid.Nil); err == nil {
+		t.Error("a context was minted for no device")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -82,6 +83,8 @@ type (
 		Lookup(ctx context.Context, c invite.Code) (invite.Context, error)
 		RecordConsent(ctx context.Context, c invite.Code, b invite.Binding) (invite.Context, error)
 		ActivateDevice(ctx context.Context, c invite.Code, b invite.Binding, d invite.DeviceParams) (invite.DeviceActivation, error)
+		// ConsentBound is complete's non-advancing pre-check: is THIS key's binding the one recorded.
+		ConsentBound(ctx context.Context, c invite.Code, b invite.Binding) (bool, error)
 	}
 	// appDirectory is the tap page's directory plus the app's home screen (Q41).
 	appDirectory interface {
@@ -159,18 +162,29 @@ const (
 	AppRevokePath           = "/app/v1/revoke"
 )
 
-// Mount registers /app/v1 behind the address bucket.
+// appPrefix is the surface's root; every App*Path starts with it.
+const appPrefix = "/app/v1"
+
+// Mount registers /app/v1 behind the address bucket, as a sub-router of its own so that an unknown
+// path or a wrong method UNDER /app/v1 answers the closed vocabulary (not_found /
+// method_not_allowed, no-store) instead of the site's HTML or chi's plain text (M16-07 review).
+//
+// chi's Route mounts by its routing context, NOT by rewriting r.URL: the path the verifier signs
+// is still the whole wire path (TestApp_TheSignedPathIsTheWirePath drives it through the router).
 func (a *App) Mount(r chi.Router) {
-	r.Group(func(r chi.Router) {
+	sub := func(p string) string { return strings.TrimPrefix(p, appPrefix) }
+	r.Route(appPrefix, func(r chi.Router) {
 		r.Use(a.limiter.ByAddress)
-		r.Post(AppActivateLookupPath, a.ActivateLookup)
-		r.Post(AppActivateBindPath, a.ActivateBind)
-		r.Post(AppActivateCompletePath, a.ActivateComplete)
-		r.Post(AppNoncePath, a.Nonce)
-		r.Post(AppTapStartPath, a.TapStart)
-		r.Post(AppTapPath, a.Tap)
-		r.Get(AppMePath, a.Me)
-		r.Post(AppRevokePath, a.Revoke)
+		r.NotFound(func(w http.ResponseWriter, _ *http.Request) { writeAppError(w, appErrNotFound) })
+		r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) { writeAppError(w, appErrMethodNotAllowed) })
+		r.Post(sub(AppActivateLookupPath), a.ActivateLookup)
+		r.Post(sub(AppActivateBindPath), a.ActivateBind)
+		r.Post(sub(AppActivateCompletePath), a.ActivateComplete)
+		r.Post(sub(AppNoncePath), a.Nonce)
+		r.Post(sub(AppTapStartPath), a.TapStart)
+		r.Post(sub(AppTapPath), a.Tap)
+		r.Get(sub(AppMePath), a.Me)
+		r.Post(sub(AppRevokePath), a.Revoke)
 	})
 }
 
@@ -180,31 +194,55 @@ func (a *App) Mount(r chi.Router) {
 const appMaxBody = 8 << 10
 
 // appError is the CLOSED error vocabulary of /app/v1 bodies ({"error": <code>}). A type, so a
-// handler cannot write a free-text error; no code carries a value from the request.
+// handler cannot write a free-text error; no code carries a value from the request. Each code has
+// ONE status (appErrorStatus) -- the wire contract the apps build on (card M16-07, "Tel sözleşmesi").
 type appError string
 
 const (
-	appErrBadRequest           appError = "bad_request"            // 400: a body this surface cannot read
-	appErrTooMany              appError = "rate_limited"           // 429
-	appErrServer               appError = "server_error"           // 500: nothing was recorded or spent by us
-	appErrInvalidInvite        appError = "invalid_invite"         // 400: unknown / expired / used / cancelled / not activatable -- ONE code (§4.7)
-	appErrConsentRequired      appError = "consent_required"       // 400: bind without consent
-	appErrInvalidKey           appError = "invalid_key"            // 400: the public key is not a P-256 point
-	appErrNewKeyRequired       appError = "new_key_required"       // 409: the key is already registered -- generate a new pair and bind again
-	appErrActivationNotReady   appError = "activation_not_ready"   // 409: the binding moved (another bind since) -- bind again
-	appErrActivationNeedsTouch appError = "activation_needs_touch" // 400: a QR read cannot activate
-	appErrActivationTapFailed  appError = "activation_tap_failed"  // 400: unknown / foreign / out-of-service plaque, bad or replayed SUN -- ONE code (§4.7)
-	appErrStaleContext         appError = "stale_context"          // 400: the tap context expired, was tampered with or is another device's
-	appErrUnknownPlaque        appError = "unknown_plaque"         // 404
-	appErrForeignTenant        appError = "foreign_tenant"         // 403: sys:tenant-mismatch
-	appErrTryAgain             appError = "try_again"              // 409: ADR 0027 §6's race; nothing was written
+	appErrBadRequest           appError = "bad_request"            // a body this surface cannot read
+	appErrTooMany              appError = "rate_limited"           // a budget is spent; Retry-After says how long
+	appErrServer               appError = "server_error"           // nothing was recorded or spent by us
+	appErrInvalidInvite        appError = "invalid_invite"         // unknown / expired / used / cancelled / not activatable -- ONE code (§4.7)
+	appErrConsentRequired      appError = "consent_required"       // bind without consent
+	appErrInvalidKey           appError = "invalid_key"            // the public key is not a P-256 point
+	appErrNewKeyRequired       appError = "new_key_required"       // the key is already registered -- generate a new pair and bind again
+	appErrActivationNotReady   appError = "activation_not_ready"   // the binding moved (another bind since) -- bind again
+	appErrActivationNeedsTouch appError = "activation_needs_touch" // a QR read cannot activate
+	appErrActivationTapFailed  appError = "activation_tap_failed"  // unknown / foreign / out-of-service plaque, bad or replayed SUN -- ONE code (§4.7)
+	appErrStaleContext         appError = "stale_context"          // the tap context expired, was tampered with or is another device's
+	appErrUnknownPlaque        appError = "unknown_plaque"         // the plaque is not ours
+	appErrForeignTenant        appError = "foreign_tenant"         // sys:tenant-mismatch
+	appErrTryAgain             appError = "try_again"              // ADR 0027 §6's race; nothing was written
+	appErrNotFound             appError = "not_found"              // no /app/v1 route at this path
+	appErrMethodNotAllowed     appError = "method_not_allowed"     // the route exists, not with this method
 )
 
-// appErrors is the vocabulary as a set, for the test that holds it closed.
+// appErrorStatus is the one status each code is answered with.
+var appErrorStatus = map[appError]int{
+	appErrBadRequest:           http.StatusBadRequest,
+	appErrTooMany:              http.StatusTooManyRequests,
+	appErrServer:               http.StatusInternalServerError,
+	appErrInvalidInvite:        http.StatusBadRequest,
+	appErrConsentRequired:      http.StatusBadRequest,
+	appErrInvalidKey:           http.StatusBadRequest,
+	appErrNewKeyRequired:       http.StatusConflict,
+	appErrActivationNotReady:   http.StatusConflict,
+	appErrActivationNeedsTouch: http.StatusBadRequest,
+	appErrActivationTapFailed:  http.StatusBadRequest,
+	appErrStaleContext:         http.StatusBadRequest,
+	appErrUnknownPlaque:        http.StatusNotFound,
+	appErrForeignTenant:        http.StatusForbidden,
+	appErrTryAgain:             http.StatusConflict,
+	appErrNotFound:             http.StatusNotFound,
+	appErrMethodNotAllowed:     http.StatusMethodNotAllowed,
+}
+
+// appErrors is the vocabulary as a list, for the tests that hold it closed.
 var appErrors = []appError{
 	appErrBadRequest, appErrTooMany, appErrServer, appErrInvalidInvite, appErrConsentRequired,
 	appErrInvalidKey, appErrNewKeyRequired, appErrActivationNotReady, appErrActivationNeedsTouch,
 	appErrActivationTapFailed, appErrStaleContext, appErrUnknownPlaque, appErrForeignTenant, appErrTryAgain,
+	appErrNotFound, appErrMethodNotAllowed,
 }
 
 // setAppHeaders: every /app/v1 answer is no-store (the card), nosniff, and never framed.
@@ -220,7 +258,7 @@ func (a *App) writeAppJSON(w http.ResponseWriter, r *http.Request, status int, v
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(v); err != nil {
 		a.log.ErrorContext(r.Context(), "app: encoding a response failed", "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	setAppHeaders(w)
@@ -231,8 +269,14 @@ func (a *App) writeAppJSON(w http.ResponseWriter, r *http.Request, status int, v
 	}
 }
 
-// writeAppError writes {"error": code}. Its body is a constant per code: it cannot echo input.
-func writeAppError(w http.ResponseWriter, status int, code appError) {
+// writeAppError writes {"error": code} with the code's one status. Its body is a constant per
+// code: it cannot echo input. A code missing from appErrorStatus is a 500 (the test holds the map
+// complete).
+func writeAppError(w http.ResponseWriter, code appError) {
+	status, ok := appErrorStatus[code]
+	if !ok {
+		status = http.StatusInternalServerError
+	}
 	setAppHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -248,7 +292,7 @@ func writeAppUnauthenticated(w http.ResponseWriter) {
 // writeAppTooMany is the TapLimiter's 429 body for this surface (Retry-After, no-store and
 // nosniff are already set by the limiter).
 func writeAppTooMany(w http.ResponseWriter, _ *http.Request) {
-	writeAppError(w, http.StatusTooManyRequests, appErrTooMany)
+	writeAppError(w, appErrTooMany)
 }
 
 // readAppBody reads the RAW body under appMaxBody: the bytes the signature's digest is over.
@@ -257,7 +301,7 @@ func writeAppTooMany(w http.ResponseWriter, _ *http.Request) {
 func readAppBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, appMaxBody))
 	if err != nil {
-		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
+		writeAppError(w, appErrBadRequest)
 		return nil, false
 	}
 	return body, true
@@ -343,7 +387,7 @@ func (a *App) refuseSigned(w http.ResponseWriter, r *http.Request, err error, wh
 	var ae *appdevice.AuthError
 	if !errors.As(err, &ae) {
 		a.log.ErrorContext(ctx, "app: authenticating a signed request failed", "at", where, "err", err)
-		writeAppError(w, http.StatusInternalServerError, appErrServer)
+		writeAppError(w, appErrServer)
 		return
 	}
 	if errors.Is(err, appdevice.ErrRevokedDevice) && channel != "" && presented != uuid.Nil {
