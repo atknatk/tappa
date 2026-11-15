@@ -154,7 +154,7 @@ func newShippedAPI(t *testing.T, name, apiCode string) *shippedAPI {
 		t.Fatal(err)
 	}
 	work := &noticed{}
-	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, ledgerFor(t, data), quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, ledgerFor(t, data), quiet, grantsFor(t, data))
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}

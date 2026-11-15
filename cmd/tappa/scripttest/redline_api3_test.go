@@ -200,6 +200,16 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 			"internal/x/r7_oauth_verifier.go": goFile(`S@.Info("x", "code_verifier", v)`),
 			"internal/x/r7_oauth_digest.go":   goFile(`S@.Info("x", "rd", h.RequestDigest(c))`),
 			"internal/x/r7_oauth_state.go":    goFile(`S@.Warn("x", "s", p.req.State)`),
+			// Phase 3 (the 2nd phase review's DÜŞÜK): vectors with NO secret/token root, so only the
+			// value names catch them -- the operator's one exit, the seal, the state as the consent
+			// code's other holders name it, and the pending request cookie's value.
+			"internal/x/r7_oauth_operator.go": goFile(`S@.Info("x", "s", v.RevealToTheOperatorOnce())`),
+			"internal/x/r7_oauth_seal.go":     goFile(`S@.Info("x", "c", h.SealRequest(req))`),
+			"internal/x/r7_oauth_vstate.go":   goFile(`S@.Warn("x", "s", v.State)`),
+			"internal/x/r7_oauth_rstate.go":   goFile(`a.L@.Printf("x %s", r.State)`),
+			"internal/x/r7_oauth_pstate.go":   goFile(`_ = F@.Errorf("x %s", p.Req.State)`),
+			"internal/x/r7_oauth_cookie.go":   goFile(`S@.Info("x", "c", c.Value)`),
+			"internal/x/r7_oauth_sealed.go":   goFile(`S@.Debug("x", "p", p.sealed)`),
 		},
 		"R7b": {
 			"internal/x/r7b_first.go":    goFile(`S@.Info("x", "n", e.FirstName)`),
@@ -256,10 +266,14 @@ func TestRedline_R4R7R7bR7dCatchDeliberateViolations(t *testing.T) {
 		"internal/x/c_r7.go":     goFile(`S@.Info("api key created", "key_id", id)`),
 		"internal/x/c_r7_hdr.go": goFile(`S@.Info("x", "h", r.Header.Get("Content-Type"))`),
 		// Issue #37: a webhook delivery's state is not a client's state -- quiet.
-		"internal/x/c_r7_state.go":  goFile(`S@.Warn("x", "state", row.State)`),
-		"internal/x/c_r7b.go":       goFile(`S@.Info("x", "employee_id", id)`),
-		"docs/c_r7d_filler.md":      "an example: tt_live_" + strings.Repeat("x", 43) + "\n",
-		"docs/c_r7d_placeholder.md": "Authorization: Bearer tt_live_<43 characters of base64url>\n",
+		"internal/x/c_r7_state.go": goFile(`S@.Warn("x", "state", row.State)`),
+		// Phase 3: a holder whose name merely ENDS in the narrow names' letters, and the rotation
+		// tool's sentence -- quiet.
+		"internal/x/c_r7_userstate.go":  goFile(`S@.Warn("x", "s", user.State, "v", abc.Value)`),
+		"internal/x/c_r7_sealedword.go": goFile(`_ = F@.Errorf("%d rows stay sealed under the old one", n)`),
+		"internal/x/c_r7b.go":           goFile(`S@.Info("x", "employee_id", id)`),
+		"docs/c_r7d_filler.md":          "an example: tt_live_" + strings.Repeat("x", 43) + "\n",
+		"docs/c_r7d_placeholder.md":     "Authorization: Bearer tt_live_<43 characters of base64url>\n",
 		// 2nd round: the guarded statement in AdvanceTagCounter's own shape (the guard in the CTE's
 		// alias); the statement arm's NAMED exclusion -- a test file's deliberate unguarded write;
 		// a piece shorter than 32; and a word that merely ends in the prefix's letters.

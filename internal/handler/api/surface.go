@@ -34,6 +34,7 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 )
 
 // Prefix is the surface's path: httpx.APIPrefix, the one the router's half of the host gate reads.
@@ -45,11 +46,21 @@ const Prefix = httpx.APIPrefix
 // also meters the unauthenticated openapi.yaml. The KEY bucket sits after the resolver: one leaked
 // key, from however many addresses, is bounded too. An integration that synchronises a few thousand
 // employees at the key bucket's rate takes minutes, which is the intended order of magnitude.
+//
+// An OAuth access token (issue #37, ADR 0047 §8.7) shares the ADDRESS bucket with the keys (Reserve,
+// Keep on a refusal, Refund on an acceptance -- chain.go) and has two identity buckets: per GRANT, the
+// key's number, and per APP across all its grants -- 6000/min, five addresses' worth of the address
+// bucket: what an anonymous caller can already produce from five addresses, and no more for one app
+// the operator approved.
 const (
 	addressLimit  = 1200
 	addressPeriod = time.Minute
 	keyLimit      = 600
 	keyPeriod     = time.Minute
+	grantLimit    = 600
+	grantPeriod   = time.Minute
+	clientLimit   = 6000
+	clientPeriod  = time.Minute
 )
 
 // Keychain is the Bearer chain's blocks (*apikey.Authenticator), declared at the consumer (§7).
@@ -57,6 +68,14 @@ type Keychain interface {
 	Check(t apikey.Token) (apikey.Checked, error)
 	Resolve(ctx context.Context, c apikey.Checked) (apikey.Principal, error)
 	Touch(ctx context.Context, p apikey.Principal) (bool, error)
+}
+
+// Grants is the OAuth access token's half of the chain (*oauth.Server; issue #37, ADR 0047 §8.1),
+// declared at the consumer (§7).
+type Grants interface {
+	CheckAccess(v oauth.Value) (oauth.CheckedAccess, error)
+	ResolveAccess(ctx context.Context, c oauth.CheckedAccess) (oauth.Access, error)
+	TouchGrant(ctx context.Context, tenantID, grantID uuid.UUID) (bool, error)
 }
 
 // Writer is the write runner (*apikey.Writes).
@@ -73,8 +92,11 @@ type WorkNoticer interface {
 // Config is what New needs. Every field but the limits is required.
 type Config struct {
 	// Host is TAPPA_API_HOST: /v1 answers on it alone.
-	Host       string
-	Keys       Keychain
+	Host string
+	Keys Keychain
+	// Grants resolves OAuth access tokens (*oauth.Server -- the authorization server the panel's
+	// consent and the token endpoint share).
+	Grants     Grants
 	Writes     Writer
 	Suspension Suspension
 	Work       WorkNoticer
@@ -89,13 +111,16 @@ type Config struct {
 	// Timesheets is the report engine's timesheet read (*ledger.Reader -- the panel's own) behind
 	// GET /v1/timesheets (API-14, ADR 0046).
 	Timesheets Timesheets
+	// Business is the business card's reader (*tenant.BusinessCard) behind GET /v1/business (issue
+	// #37, ADR 0047 §8.4).
+	Business Business
 	// DeactivationBudget is K-25's hourly budget per key; zero means tenant.DefaultDeactivationBudget
 	// (20). A test lowers it.
 	DeactivationBudget int
 	Log                *slog.Logger
 	// The buckets; zero means the shipped value. A test shrinks them.
-	AddressLimit, KeyLimit   int
-	AddressPeriod, KeyPeriod time.Duration
+	AddressLimit, KeyLimit, GrantLimit, ClientLimit     int
+	AddressPeriod, KeyPeriod, GrantPeriod, ClientPeriod time.Duration
 	// Extensions add routes to /v1 (extension.go): the sandbox build's simulation and nothing else.
 	// The production build passes none.
 	Extensions []Extension
@@ -105,6 +130,7 @@ type Config struct {
 type Surface struct {
 	host       string
 	keys       Keychain
+	grants     Grants
 	writes     Writer
 	suspension Suspension
 	work       WorkNoticer
@@ -113,9 +139,12 @@ type Surface struct {
 	punches    Punches
 	directory  Directory
 	timesheets Timesheets
+	business   Business
 	budget     int
 	byAddress  *httpx.Limiter
 	byKey      *httpx.Limiter
+	byGrant    *httpx.Limiter
+	byClient   *httpx.Limiter
 	extensions []Extension
 	log        *slog.Logger
 	// testRoutes are routes a test mounts into the authenticated group (export_test.go). nil in
@@ -131,6 +160,8 @@ func New(c Config) (*Surface, error) {
 		return nil, errors.New("api: no host (TAPPA_API_HOST); without one there is no API to build")
 	case c.Keys == nil:
 		return nil, errors.New("api: nil keychain")
+	case c.Grants == nil:
+		return nil, errors.New("api: nil OAuth access token resolver")
 	case c.Writes == nil:
 		return nil, errors.New("api: nil write runner")
 	case c.Suspension == nil:
@@ -147,6 +178,8 @@ func New(c Config) (*Surface, error) {
 		return nil, errors.New("api: nil directory")
 	case c.Timesheets == nil:
 		return nil, errors.New("api: nil timesheet reader")
+	case c.Business == nil:
+		return nil, errors.New("api: nil business reader")
 	case slices.Contains(c.Extensions, nil):
 		return nil, errors.New("api: nil extension")
 	}
@@ -167,10 +200,12 @@ func New(c Config) (*Surface, error) {
 		return v
 	}
 	return &Surface{
-		host: c.Host, keys: c.Keys, writes: c.Writes, suspension: c.Suspension, work: c.Work, locations: c.Locations,
-		employees: c.Employees, punches: c.Punches, directory: c.Directory, timesheets: c.Timesheets, budget: pick(c.DeactivationBudget, tenant.DefaultDeactivationBudget), log: log,
+		host: c.Host, keys: c.Keys, grants: c.Grants, writes: c.Writes, suspension: c.Suspension, work: c.Work, locations: c.Locations,
+		employees: c.Employees, punches: c.Punches, directory: c.Directory, timesheets: c.Timesheets, business: c.Business, budget: pick(c.DeactivationBudget, tenant.DefaultDeactivationBudget), log: log,
 		byAddress:  httpx.NewLimiter(pick(c.AddressLimit, addressLimit), pickd(c.AddressPeriod, addressPeriod)),
 		byKey:      httpx.NewLimiter(pick(c.KeyLimit, keyLimit), pickd(c.KeyPeriod, keyPeriod)),
+		byGrant:    httpx.NewLimiter(pick(c.GrantLimit, grantLimit), pickd(c.GrantPeriod, grantPeriod)),
+		byClient:   httpx.NewLimiter(pick(c.ClientLimit, clientLimit), pickd(c.ClientPeriod, clientPeriod)),
 		extensions: slices.Clone(c.Extensions),
 	}, nil
 }
@@ -195,7 +230,8 @@ func (s *Surface) Mount(r chi.Router) {
 			}
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(s.authenticate, s.writesTakeNoQuery)
+			r.Use(s.authenticate, s.scopeGate, s.writesTakeNoQuery)
+			r.Get(businessPath, s.getBusiness)
 			r.Put(locationPath, s.putLocation)
 			r.Get(employeesPath, s.listEmployees)
 			r.Get(employeePath, s.getEmployee)

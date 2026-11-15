@@ -817,7 +817,7 @@ func run() error {
 		// as the panel's press (one set of ceilings, ADR 0022 §9) and the same invite.Manager (one
 		// code key). It is a job of K-19's worker: it runs for a tenant the worker hands it, never
 		// across tenants.
-		queue, err := invite.NewQueue(invites, invitations.QueueSink(slog.Default()), trail)
+		queue, err := invite.NewQueue(invites, invitations.QueueSink(slog.Default()), trail, data)
 		if err != nil {
 			return err
 		}
@@ -838,6 +838,8 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.IntegrationKeys(apiKeys))
+	// A grant's deactivation budget alert names its app through the registry's resolver (ADR 0047 §8.7).
+	apiKeys.NameAppsWith(data)
 	// THE "CONNECTED APPS" AUTHORIZATION SERVER (issue #37, ADR 0047): the panel's consent and the
 	// token endpoint's surface share one server over the pool and the trail (oauth.go).
 	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, slog.Default())
@@ -1006,7 +1008,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, records, slog.Default())
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, records, slog.Default(), oauthServer)
 	if err != nil {
 		return err
 	}

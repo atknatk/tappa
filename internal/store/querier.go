@@ -215,6 +215,11 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
 	// RLS. A foreign employee id retires nothing.
 	CancelPendingInvitesForEmployee(ctx context.Context, arg CancelPendingInvitesForEmployeeParams) ([]uuid.UUID, error)
+	// /v1's bearer chain (ADR 0047 §8.1 step 4), after resolve_oauth_token_by_hash carried the token's
+	// facts: whether the access token is still live by the DATABASE's clock (§14.2's one clock -- the
+	// resolver carries expires_at and a Go clock would be a second source). No row: the token is not an
+	// access token of this tenant any more (revoked, or lazily deleted) -- 401 invalid_token either way.
+	CheckOAuthAccessTokenLive(ctx context.Context, arg CheckOAuthAccessTokenLiveParams) (bool, error)
 	// The claim, before the work. 1: this request is the first with the key. 0: a row exists -- a
 	// committed one, or one a concurrent transaction committed while this statement waited on the
 	// primary key (the wait is the concurrency control, ADR 0028 §8).
@@ -2119,6 +2124,10 @@ type Querier interface {
 	// Go-side reimplementation of the month arithmetic would be a second answer that can
 	// disagree with the one the invoice is built from.
 	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
+	// GET /v1/business (issue #37, ADR 0047 §8.4, OA-2): the credential's business as the integration API
+	// names it -- its id, its name and its company code (tenants.api_code, NULL until the operator opens
+	// the API). WithTenant + the explicit id: the ONE business the key or the grant resolved to.
+	GetAPIBusiness(ctx context.Context, tenantID uuid.UUID) (GetAPIBusinessRow, error)
 	// One employee as the API answers with it (ADR 0028 §8, §9): NO ADDRESS -- whether there is one
 	// (has_email), and the activation e-mail's state, from three LEFT JOINs:
 	//   r    a request waiting in the queue (invite_requests, K-17) -- queued_at NULL is none;
@@ -2868,6 +2877,10 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// The owner's Disconnect (§12): the grant's app, read in the session's tenant before the revocation
+	// so the trail row names it. No row: not a live grant of this business (another business's id finds
+	// none -- RLS and the explicit filter).
+	GetOAuthGrantForPanel(ctx context.Context, arg GetOAuthGrantForPanelParams) (GetOAuthGrantForPanelRow, error)
 	// §5.3 steps 4-5, read under the same grant lock after RotateOAuthRefreshToken matched nothing:
 	// within_tolerance -- used, not revoked, and its FIRST use (used_at is one way) no more than 30
 	// seconds ago by the database's clock -> the tolerance branch (RevokeOtherLiveOAuthTokens, then one
@@ -3073,6 +3086,13 @@ type Querier interface {
 	// Reading the head AFTER the page would let the counter run past what the page saw (a skipped
 	// event); reading the page without its upper bound would return an event above the cursor it hands
 	// out (a repeated one). Both are measured as mutants (ADR 0028, API-7 note).
+	//
+	// OWN ONLY (issue #37, ADR 0047 §8.5, OA-4): an OAuth token's read passes own_only = true and answers
+	// the rows whose roles are exactly {employer,location} -- the business's own employee at its own
+	// plaque. A holding punch (one role here, the other at the peer) carries the PEER's employee or
+	// location and is not shown to a third-party app the peer never approved. An API key passes false
+	// and reads as before. The cursor and the window are untouched: a skipped row is a hole, and the
+	// feed's contract already allows holes (the guide, §6.4).
 	//
 	// No statement here names transactions: punch_events carries no evidence column (no address, GPS,
 	// note, policy context or verdict -- 00048), so TestEvidenceReaders_EveryOneIsClassified has nothing
@@ -3842,6 +3862,11 @@ type Querier interface {
 	// recorded (detail.budget -- the panel never assumes the number; 0 when a row has none, or one
 	// that is not a whole number of at most nine digits: a cast of anything else would fail the whole
 	// read -- API-6 review D-4, measured as a 500).
+	//
+	// SINCE ISSUE #37 (ADR 0047 §8.7) an OAuth grant runs out of the same budget (its actor and target
+	// are the grant's id): the row's grant is LEFT JOINed for its client_id ALONE -- the app's name is
+	// resolve_oauth_client's, read in Go (tappa_app reads nothing of oauth_clients, and a copied name
+	// would miss the operator's rename). A key's row has client_id NULL, a grant's key_name ''.
 	ListAPIBudgetAlerts(ctx context.Context, arg ListAPIBudgetAlertsParams) ([]ListAPIBudgetAlertsRow, error)
 	// A page of this business's employees, live and deactivated, panel-made (no ref) and API-made,
 	// in id order after the cursor (the previous page's last id; NULL for the first page). The same

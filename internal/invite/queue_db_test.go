@@ -57,7 +57,7 @@ func newQueueRig(t *testing.T) *queueRig {
 		t.Fatal(err)
 	}
 	sink := &fakeMailSink{id: "<msg@relay.example.test>"}
-	q, err := NewQueue(m, sink, rec)
+	q, err := NewQueue(m, sink, rec, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func waitFor(t *testing.T, ok func() bool) {
 // removed -> (a) mints twice; the renewal not checked -> (b) commits A's mint too.
 func TestInviteQueue_TwoPodsMintOnce(t *testing.T) {
 	r := newQueueRig(t)
-	podB, err := NewQueue(r.m, r.sink, r.rec)
+	podB, err := NewQueue(r.m, r.sink, r.rec, r.d)
 	if err != nil {
 		t.Fatal(err)
 	}

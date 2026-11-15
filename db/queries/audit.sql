@@ -296,13 +296,20 @@ WHERE tenant_id = @tenant_id
 -- recorded (detail.budget -- the panel never assumes the number; 0 when a row has none, or one
 -- that is not a whole number of at most nine digits: a cast of anything else would fail the whole
 -- read -- API-6 review D-4, measured as a 500).
+--
+-- SINCE ISSUE #37 (ADR 0047 §8.7) an OAuth grant runs out of the same budget (its actor and target
+-- are the grant's id): the row's grant is LEFT JOINed for its client_id ALONE -- the app's name is
+-- resolve_oauth_client's, read in Go (tappa_app reads nothing of oauth_clients, and a copied name
+-- would miss the operator's rename). A key's row has client_id NULL, a grant's key_name ''.
 SELECT a.at, a.target, coalesce(k.name, '')::text AS key_name,
+       g.client_id AS grant_client_id,
        (CASE WHEN jsonb_typeof(a.detail->'budget') = 'number'
                   AND (a.detail->>'budget') ~ '^[0-9]{1,9}$'
              THEN (a.detail->>'budget')::int
              ELSE 0 END)::int AS budget
 FROM audit_log a
 LEFT JOIN api_keys k ON k.tenant_id = @tenant_id AND k.id::text = a.target
+LEFT JOIN oauth_grants g ON g.tenant_id = @tenant_id AND g.id::text = a.target
 WHERE a.tenant_id = @tenant_id
   AND a.action = 'api.deactivation_budget_exceeded'
   AND a.at > now() - make_interval(secs => @window_seconds::int)

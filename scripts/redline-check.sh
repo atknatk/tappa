@@ -2136,9 +2136,15 @@ R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"c
 # client's state as the request carries it (`req.State`, `Request.State`). A bare `state` is NOT a
 # trigger: counted in the tree, it is a webhook delivery's and a tap session's state in log calls
 # (internal/webhook/delivery, internal/handler/checkin.go) -- the dotted field is narrow enough.
-R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b|RevealInRedirect|RevealInTokenResponse|RevealToTheOperatorOnce|RevealToTheDatabase|code_?verifier|RequestDigest|SealRequest|\b(req|Request)\.State\b'
+# Phase 3 (2nd phase review, DÜŞÜK): the state as the consent code names its holders -- `v.State`
+# (a request being checked), `r.State`, `p.Req.State` beside `req.State` -- and the pending request
+# cookie's own value (`c.Value` of the cookie read, `p.sealed` of the carried request). Each was counted
+# in log/fmt calls of the tree first: 0 hits, so the narrow names cost no false positive; a bare
+# `.State` would (a webhook delivery's `row.State` -- the redline test's control) and a bare `sealed`
+# does (cmd/rotatekek's "stay sealed" message -- counted).
+R7_VALUE_NAMES='RevealToTheOwnerOnce|\bnew_?key\b|RevealInRedirect|RevealInTokenResponse|RevealToTheOperatorOnce|RevealToTheDatabase|code_?verifier|RequestDigest|SealRequest|\b(?:req|Request|v|r|p\.[Rr]eq)\.State\b|\b(?:c|ck|cookie)\.Value\b|\b(?:p|pending)\.sealed\b'
 R7_AUTH_HEADER='Header\.Get\("Authorization"\)|Header\["Authorization"\]|Header\.Values\("Authorization"\)'
-R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key|revealinredirect|revealintokenresponse|revealtotheoperatoronce|revealtothedatabase|code_?verifier|requestdigest|sealrequest|req[.]state|request[.]state"
+R7_AWK_TRIGGERS="$R7_TRIGGERS|authorization|revealtotheowneronce|new_?key|revealinredirect|revealintokenresponse|revealtotheoperatoronce|revealtothedatabase|code_?verifier|requestdigest|sealrequest|req[.]state|request[.]state|v[.]state|r[.]state|c[.]value|ck[.]value|cookie[.]value|p[.]sealed|pending[.]sealed"
 # Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
 R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS|$R7_VALUE_NAMES|$R7_AUTH_HEADER)"
 

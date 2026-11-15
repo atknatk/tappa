@@ -222,6 +222,28 @@ WHERE g.tenant_id = @tenant_id
                 AND k.expires_at > clock_timestamp())
 ORDER BY g.client_id;
 
+-- name: CheckOAuthAccessTokenLive :one
+-- /v1's bearer chain (ADR 0047 §8.1 step 4), after resolve_oauth_token_by_hash carried the token's
+-- facts: whether the access token is still live by the DATABASE's clock (§14.2's one clock -- the
+-- resolver carries expires_at and a Go clock would be a second source). No row: the token is not an
+-- access token of this tenant any more (revoked, or lazily deleted) -- 401 invalid_token either way.
+SELECT (k.expires_at > clock_timestamp())::boolean AS live
+FROM oauth_tokens AS k
+WHERE k.tenant_id = @tenant_id
+  AND k.id = @token_id
+  AND k.kind = 'access'
+  AND k.revoked_at IS NULL;
+
+-- name: GetOAuthGrantForPanel :one
+-- The owner's Disconnect (§12): the grant's app, read in the session's tenant before the revocation
+-- so the trail row names it. No row: not a live grant of this business (another business's id finds
+-- none -- RLS and the explicit filter).
+SELECT id, client_id
+FROM oauth_grants
+WHERE tenant_id = @tenant_id
+  AND id = @id
+  AND revoked_at IS NULL;
+
 -- name: GetTenantAPIGate :one
 -- §11.3 step 1, §11.4: K-22's two columns -- GetTenantAPIEnabledAt with api_code. api_enabled_at set:
 -- the API is open. api_code set with api_enabled_at NULL: the operator CLOSED it, which overrides a

@@ -76,7 +76,7 @@ const (
 )
 
 // The grant revocation reasons a person does not write (00104's closed set; 'owner' is the panel's
-// Disconnect, a later phase).
+// Disconnect -- access.go's reasonOwner).
 const (
 	reasonClient       = "client"
 	reasonSuperseded   = "superseded"
@@ -520,7 +520,12 @@ func (s *Server) Refresh(ctx, live context.Context, c Client, refresh Value, sco
 	}
 	var out Tokens
 	var refusal error
+	// tolerated is the tolerance branch's revocation count, logged only once the transaction has
+	// COMMITTED (2nd phase review, DÜŞÜK): a wide scope or a client gone rolls the revocation back,
+	// and a line saying "revoked N" for a rollback would be a false record.
+	tolerated := int64(-1)
 	err = s.store.WithTenant(ctx, rt.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		tolerated = -1
 		q := store.New(tx)
 		g, err := q.LockLiveOAuthGrant(ctx, store.LockLiveOAuthGrantParams{TenantID: rt.TenantID, GrantID: rt.GrantID})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -544,8 +549,7 @@ func (s *Server) Refresh(ctx, live context.Context, c Client, refresh Value, sco
 				if err != nil {
 					return fmt.Errorf("the tolerance's revocation: %w", err)
 				}
-				s.log.InfoContext(ctx, "oauth: a refresh credential was presented again within the tolerance",
-					"tenant_id", rt.TenantID, "grant_id", rt.GrantID, "client_id", ClientIDOf(c.ID), "revoked", n)
+				tolerated = n
 			case st.UsedAt != nil && st.RevokedAt == nil:
 				refusal = ErrInvalidGrant
 				s.log.WarnContext(ctx, "oauth: a used refresh credential was presented past the tolerance; the grant is revoked",
@@ -587,6 +591,10 @@ func (s *Server) Refresh(ctx, live context.Context, c Client, refresh Value, sco
 		return Tokens{}, fmt.Errorf("oauth: refresh: %w", err)
 	case refusal != nil:
 		return Tokens{}, refusal
+	}
+	if tolerated >= 0 {
+		s.log.InfoContext(ctx, "oauth: a refresh credential was presented again within the tolerance",
+			"tenant_id", rt.TenantID, "grant_id", rt.GrantID, "client_id", ClientIDOf(c.ID), "revoked", tolerated)
 	}
 	return out, nil
 }

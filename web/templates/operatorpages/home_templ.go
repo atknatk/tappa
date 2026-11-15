@@ -27,8 +27,8 @@ import "github.com/atknatk/tappa/web/templates/components"
 // definer reads an operator's email (a new op_* is a migration).
 //
 // THE REDESIGN (M13-06; docs/design/operator-redesign README §6.1 "Home hub", screens.md §3):
-// still one card -- the mono label over the h1, at the board's 28 px at every width; the four
-// links each beside its gloss from the tablet on and above it on the phone, every link 44 px
+// still one card -- the mono label over the h1, at the board's 28 px at every width; the five
+// links (Apps since issue #37 phase 3) each beside its gloss from the tablet on and above it on the phone, every link 44 px
 // tall; the session sentence the card's last line. The links' 17 px comes from their list item,
 // not from a class on the anchor, whose whole tag is pinned. No icon tiles: the only drawings a
 // signed-in page carries are the nav's five (TestEnrollQR_OnlyOnTheFirstLoad). Pinned by
@@ -66,7 +66,7 @@ func Home() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><div class=\"flex flex-col gap-1.5\"><p class=\"op-label\">Operator console</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">You are signed in</h1></div><ul class=\"border-t border-line\"><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/tenants\" class=\"op-link\">Tenants</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— find a business, and see what it has live</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/holdings\" class=\"op-link\">Holdings</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— group businesses that work in one timezone, and see who is in each</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/audit\" class=\"op-link\">Audit log</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— every sign-in, read and publication on this surface</span></li></ul><p class=\"max-w-[620px] text-sm leading-normal text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><div class=\"flex flex-col gap-1.5\"><p class=\"op-label\">Operator console</p><h1 class=\"font-display text-[28px] font-bold leading-[1.1] tracking-[-0.03em]\">You are signed in</h1></div><ul class=\"border-t border-line\"><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/tenants\" class=\"op-link\">Tenants</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— find a business, and see what it has live</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/holdings\" class=\"op-link\">Holdings</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— group businesses that work in one timezone, and see who is in each</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/audit\" class=\"op-link\">Audit log</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— every sign-in, read and publication on this surface</span></li><li class=\"flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1\"><a href=\"/operator/apps\" class=\"op-link\">Apps</a> <span class=\"text-sm leading-[1.45] text-ink/70\">— the apps a business may connect to with OAuth: register, rotate a secret, disable</span></li></ul><p class=\"max-w-[620px] text-sm leading-normal text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -147,7 +147,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 76, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 80, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -160,7 +160,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.Message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 77, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 81, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -193,7 +193,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.BackLabel)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 81, Col: 64}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 85, Col: 64}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {

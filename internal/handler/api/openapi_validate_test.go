@@ -681,13 +681,13 @@ func (p probeEmployees) ListAPIEmployees(context.Context, uuid.UUID, *uuid.UUID,
 	return []tenant.APIEmployee{probeEmployee()}, nil
 }
 
-func (probeEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, int) error {
+func (probeEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, string, int) error {
 	return nil
 }
 
 type probePunches struct{}
 
-func (probePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int) (tenant.PunchPage, error) {
+func (probePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int, bool) (tenant.PunchPage, error) {
 	return tenant.PunchPage{Next: 7}, nil
 }
 
@@ -699,6 +699,14 @@ type probeDirectory struct{}
 
 func (probeDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.DirectoryQuery, int) (tenant.DirectoryPage, error) {
 	return tenant.DirectoryPage{AsOf: time.Now()}, nil
+}
+
+// probeBusiness answers a business with a company code.
+type probeBusiness struct{}
+
+func (probeBusiness) APIBusiness(_ context.Context, id uuid.UUID) (tenant.APIBusiness, error) {
+	code := "KF"
+	return tenant.APIBusiness{ID: id, Name: "Kebab Factory Ltd", APICode: &code}, nil
 }
 
 // probeTimesheets answers one employee's period: every figure and every day mark set, so the answer
@@ -751,6 +759,7 @@ func (p probe) run(t *testing.T) *httptest.ResponseRecorder {
 		c.Writes = &fakeWrites{}
 		c.Locations, c.Employees, c.Punches, c.Directory = probeLocations{created: true}, probeEmployees{created: true}, probePunches{}, probeDirectory{}
 		c.Timesheets = probeTimesheets{}
+		c.Business = probeBusiness{}
 		if p.cfg != nil {
 			p.cfg(c)
 		}
@@ -826,7 +835,8 @@ func surfaceProbes() []probe {
 	type route struct{ method, path, body string }
 	routes := []route{{"PUT", "/v1/locations/KF-VLT", locBody}, {"GET", "/v1/employees", ""}, {"GET", "/v1/employees/E-1042", ""},
 		{"PUT", "/v1/employees/E-1042", empBody}, {"DELETE", "/v1/employees/E-1042", ""}, {"POST", "/v1/employees/E-1042/resend-activation", ""},
-		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}, {"GET", "/v1/timesheets?from=2026-11-02&to=2026-11-08", ""}}
+		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}, {"GET", "/v1/timesheets?from=2026-11-02&to=2026-11-08", ""},
+		{"GET", "/v1/business", ""}}
 	for _, rt := range routes {
 		out = append(out,
 			probe{name: "no key", method: rt.method, path: rt.path, body: rt.body, want: 401, code: CodeUnauthorized},
@@ -895,6 +905,9 @@ func surfaceProbes() []probe {
 		probe{name: "no period", method: "GET", path: "/v1/timesheets", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "an unknown parameter", method: "GET", path: "/v1/timesheets?from=2026-11-02&to=2026-11-08&scope=employer", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "a query string that does not parse", method: "GET", path: "/v1/timesheets?from=2026-11-02&%zz", auth: k, want: 400, code: CodeInvalidRequest},
+		// GET /v1/business (issue #37)
+		probe{name: "the business", method: "GET", path: "/v1/business", auth: k, want: 200},
+		probe{name: "a query parameter", method: "GET", path: "/v1/business?x=1", auth: k, want: 400, code: CodeInvalidRequest},
 	)
 	return out
 }

@@ -81,6 +81,13 @@ type GetPunchFeedHeadRow struct {
 // event); reading the page without its upper bound would return an event above the cursor it hands
 // out (a repeated one). Both are measured as mutants (ADR 0028, API-7 note).
 //
+// OWN ONLY (issue #37, ADR 0047 §8.5, OA-4): an OAuth token's read passes own_only = true and answers
+// the rows whose roles are exactly {employer,location} -- the business's own employee at its own
+// plaque. A holding punch (one role here, the other at the peer) carries the PEER's employee or
+// location and is not shown to a third-party app the peer never approved. An API key passes false
+// and reads as before. The cursor and the window are untouched: a skipped row is a hole, and the
+// feed's contract already allows holes (the guide, §6.4).
+//
 // No statement here names transactions: punch_events carries no evidence column (no address, GPS,
 // note, policy context or verdict -- 00048), so TestEvidenceReaders_EveryOneIsClassified has nothing
 // to file.
@@ -167,8 +174,9 @@ WHERE pe.tenant_id = $1
   AND pe.seq > $2::bigint
   AND pe.seq <= $3::bigint
   AND $4::text = ANY (pe.roles)
+  AND (NOT $5::boolean OR pe.roles = '{employer,location}'::text[])
 ORDER BY pe.seq
-LIMIT $5
+LIMIT $6
 `
 
 type ListPunchEventsParams struct {
@@ -176,6 +184,7 @@ type ListPunchEventsParams struct {
 	AfterSeq int64
 	UptoSeq  int64
 	Role     string
+	OwnOnly  bool
 	PageSize int32
 }
 
@@ -211,6 +220,7 @@ func (q *Queries) ListPunchEvents(ctx context.Context, arg ListPunchEventsParams
 		arg.AfterSeq,
 		arg.UptoSeq,
 		arg.Role,
+		arg.OwnOnly,
 		arg.PageSize,
 	)
 	if err != nil {
@@ -264,8 +274,9 @@ WHERE pe.tenant_id = $1
   AND pe.punch_time <= $7::timestamptz
   AND (pe.punch_time, pe.seq) <= ($7::timestamptz, $8::bigint)
   AND $9::text = ANY (pe.roles)
+  AND (NOT $10::boolean OR pe.roles = '{employer,location}'::text[])
 ORDER BY pe.punch_time, pe.seq
-LIMIT $10
+LIMIT $11
 `
 
 type ListPunchHistoryParams struct {
@@ -278,6 +289,7 @@ type ListPunchHistoryParams struct {
 	EndTime   time.Time
 	EndSeq    int64
 	Role      string
+	OwnOnly   bool
 	PageSize  int32
 }
 
@@ -315,6 +327,7 @@ func (q *Queries) ListPunchHistory(ctx context.Context, arg ListPunchHistoryPara
 		arg.EndTime,
 		arg.EndSeq,
 		arg.Role,
+		arg.OwnOnly,
 		arg.PageSize,
 	)
 	if err != nil {

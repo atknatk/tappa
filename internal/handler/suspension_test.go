@@ -177,6 +177,8 @@ func suspensionExceptions(identity bool) map[string]string {
 		// Issue #37 (ADR 0047 §4.5, DÜŞÜK-1): refusing an app's consent writes no row -- the app hears
 		// access_denied from a suspended business too.
 		"POST " + oauthDenyHref: "refusing an app's consent (writes nothing; ADR 0047 §4.5)",
+		// Issue #37 phase 3 (ADR 0047 §11.2, §12): the owner's Disconnect -- a defence, K-26.
+		"POST " + appDisconnectHref: "disconnecting a connected app (a defence, K-26; ADR 0047 §12)",
 	}
 	if identity {
 		out["POST "+accountSignOutEverywhereHref] = "signing yourself out everywhere (ADR 0025's M14 note, M14-11)"
@@ -236,10 +238,10 @@ func refusalEvents(tr *fakeTrail) []audit.Event {
 // code review's -- no completeness claim.
 func TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException(t *testing.T) {
 	tenant, admin, session := uuid.New(), uuid.New(), uuid.New()
-	for identity, want := range map[bool]int{false: 13, true: 24} {
+	for identity, want := range map[bool]int{false: 14, true: 25} {
 		if n := len(suspensionExceptions(identity)); n != want {
 			t.Fatalf("the exception list (identity flag %v) has %d entries; ADR 0025 §3 names eight, "+
-				"K-26 three, T59 one, ADR 0047 one (an app consent's refusal) and, under the flag, its M14 note's eleven so far (M14-10, M14-11, M14-18's five, M14-16's two, M14-22's two)", identity, n)
+				"K-26 three, T59 one, ADR 0047 two (an app consent's refusal; a connected app's Disconnect, K-26) and, under the flag, its M14 note's eleven so far (M14-10, M14-11, M14-18's five, M14-16's two, M14-22's two)", identity, n)
 		}
 	}
 
@@ -909,7 +911,7 @@ func TestSuspensionChain_TheGateIsTheLastRingOfProtectWriting(t *testing.T) {
 	})
 	sort.Strings(exempt)
 	want := []string{"Post accountKeepAll", "Post accountLinkConfirm", "Post accountLinkRequest", "Post accountPasswordSave", "Post accountSignOutEverywhere", "Post accountUndo",
-		"Post accountUnlink", "Post accountVerifyConfirm", "Post accountVerifyRequest", "Post adminSwitch", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post employeeAdd",
+		"Post accountUnlink", "Post accountVerifyConfirm", "Post accountVerifyRequest", "Post adminSwitch", "Post apiKeyRevoke", "Post apiKeyRevokeAll", "Post appDisconnect", "Post employeeAdd",
 		"Post employeeInvite", "Post employeeSignOutPhones", "Post manualEntryRecord", "Post manualEntryReview", "Post oauthDeny"}
 	if !slices.Equal(exempt, want) {
 		t.Errorf("the exempt group registers %v, want exactly %v", exempt, want)

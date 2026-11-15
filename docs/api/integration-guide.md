@@ -174,6 +174,14 @@ A business may have several keys (one per system is a good rule). Each key has i
 budget and its own deactivation budget, and its own Idempotency-Keys — see
 [section 3.3](#idempotency) and [section 3.4](#rate-limits).
 
+<a id="auth-business"></a>
+### 2.3 The business
+
+`GET /v1/business` answers the business the key acts for: its `id` (`biz_` followed by a UUID), its
+`name` and its `companyCode` — the company code Taptime sets when it enables the API, the same value
+a punch carries as `company`. It takes no query parameter, and it is open while the business is
+suspended.
+
 <a id="common"></a>
 ## 3. The common contract
 
@@ -204,6 +212,7 @@ Each operation of the OpenAPI document lists, in `x-error-codes`, exactly the co
 | `unauthorized` | 401 | No key, or a key that is not valid. |
 | `api_disabled` | 403 | The API is not enabled for this business. |
 | `tenant_suspended` | 403 | The business is suspended and this change is not accepted. |
+| `insufficient_scope` | 403 | An app connected with OAuth called a route its connection does not include (`details.scope`). A key never gets it. |
 | `not_found` | 404 | No such resource (also: an unknown path, or a method the path does not take). |
 | `email_unavailable` | 409 | Another active employee of the business has this e-mail address. |
 | `already_activated` | 409 | The employee has activated already. |
@@ -230,6 +239,7 @@ The keys of `details`:
 | `maxDays` | The longest timesheet period, in days. |
 | `retryAfterSeconds` | The same as `Retry-After`. |
 | `businessTimezone` | The business's own time zone (`timezone_mismatch`). |
+| `scope` | The OAuth scope the route needs (`insufficient_scope`). |
 
 The values of `reason`:
 

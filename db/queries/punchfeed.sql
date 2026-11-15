@@ -15,6 +15,13 @@
 -- event); reading the page without its upper bound would return an event above the cursor it hands
 -- out (a repeated one). Both are measured as mutants (ADR 0028, API-7 note).
 --
+-- OWN ONLY (issue #37, ADR 0047 §8.5, OA-4): an OAuth token's read passes own_only = true and answers
+-- the rows whose roles are exactly {employer,location} -- the business's own employee at its own
+-- plaque. A holding punch (one role here, the other at the peer) carries the PEER's employee or
+-- location and is not shown to a third-party app the peer never approved. An API key passes false
+-- and reads as before. The cursor and the window are untouched: a skipped row is a hole, and the
+-- feed's contract already allows holes (the guide, §6.4).
+--
 -- No statement here names transactions: punch_events carries no evidence column (no address, GPS,
 -- note, policy context or verdict -- 00048), so TestEvidenceReaders_EveryOneIsClassified has nothing
 -- to file.
@@ -45,6 +52,7 @@ WHERE pe.tenant_id = @tenant_id
   AND pe.seq > @after_seq::bigint
   AND pe.seq <= @upto_seq::bigint
   AND @role::text = ANY (pe.roles)
+  AND (NOT @own_only::boolean OR pe.roles = '{employer,location}'::text[])
 ORDER BY pe.seq
 LIMIT @page_size;
 
@@ -119,5 +127,6 @@ WHERE pe.tenant_id = @tenant_id
   AND pe.punch_time <= @end_time::timestamptz
   AND (pe.punch_time, pe.seq) <= (@end_time::timestamptz, @end_seq::bigint)
   AND @role::text = ANY (pe.roles)
+  AND (NOT @own_only::boolean OR pe.roles = '{employer,location}'::text[])
 ORDER BY pe.punch_time, pe.seq
 LIMIT @page_size;

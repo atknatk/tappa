@@ -12,6 +12,31 @@ import (
 	"github.com/google/uuid"
 )
 
+const checkOAuthAccessTokenLive = `-- name: CheckOAuthAccessTokenLive :one
+SELECT (k.expires_at > clock_timestamp())::boolean AS live
+FROM oauth_tokens AS k
+WHERE k.tenant_id = $1
+  AND k.id = $2
+  AND k.kind = 'access'
+  AND k.revoked_at IS NULL
+`
+
+type CheckOAuthAccessTokenLiveParams struct {
+	TenantID uuid.UUID
+	TokenID  uuid.UUID
+}
+
+// /v1's bearer chain (ADR 0047 §8.1 step 4), after resolve_oauth_token_by_hash carried the token's
+// facts: whether the access token is still live by the DATABASE's clock (§14.2's one clock -- the
+// resolver carries expires_at and a Go clock would be a second source). No row: the token is not an
+// access token of this tenant any more (revoked, or lazily deleted) -- 401 invalid_token either way.
+func (q *Queries) CheckOAuthAccessTokenLive(ctx context.Context, arg CheckOAuthAccessTokenLiveParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkOAuthAccessTokenLive, arg.TenantID, arg.TokenID)
+	var live bool
+	err := row.Scan(&live)
+	return live, err
+}
+
 const consumeOAuthCode = `-- name: ConsumeOAuthCode :one
 WITH target AS MATERIALIZED (
     SELECT c.id, c.consumed_at, c.grant_id
@@ -171,6 +196,34 @@ func (q *Queries) DisconnectOAuthGrant(ctx context.Context, arg DisconnectOAuthG
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getOAuthGrantForPanel = `-- name: GetOAuthGrantForPanel :one
+SELECT id, client_id
+FROM oauth_grants
+WHERE tenant_id = $1
+  AND id = $2
+  AND revoked_at IS NULL
+`
+
+type GetOAuthGrantForPanelParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetOAuthGrantForPanelRow struct {
+	ID       uuid.UUID
+	ClientID uuid.UUID
+}
+
+// The owner's Disconnect (§12): the grant's app, read in the session's tenant before the revocation
+// so the trail row names it. No row: not a live grant of this business (another business's id finds
+// none -- RLS and the explicit filter).
+func (q *Queries) GetOAuthGrantForPanel(ctx context.Context, arg GetOAuthGrantForPanelParams) (GetOAuthGrantForPanelRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthGrantForPanel, arg.TenantID, arg.ID)
+	var i GetOAuthGrantForPanelRow
+	err := row.Scan(&i.ID, &i.ClientID)
+	return i, err
 }
 
 const getOAuthRefreshTokenState = `-- name: GetOAuthRefreshTokenState :one

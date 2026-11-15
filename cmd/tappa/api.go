@@ -56,7 +56,12 @@ const (
 //
 // GET /v1/timesheets (API-14, ADR 0046) is handed timesheets -- run()'s *ledger.Reader, the PANEL's
 // report reader -- so the API's hours are the report's, computed by the same engine.
-func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, extensions []api.Extension, timesheets api.Timesheets, log *slog.Logger) (httpx.Mounter, error) {
+//
+// OAuth access tokens (issue #37, ADR 0047 §8.1) are resolved by grants -- run()'s *oauth.Server, the
+// authorization server the panel's consent and the token endpoint share -- so a token the token
+// endpoint mints under TAPPA_OAUTH_HMAC_KEY is one this chain resolves under the same key. GET
+// /v1/business reads through a tenant.BusinessCard built here.
+func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venues api.Locations, staff api.Employees, extensions []api.Extension, timesheets api.Timesheets, log *slog.Logger, grants api.Grants) (httpx.Mounter, error) {
 	if cfg.APIHost == "" {
 		log.Info("the integration API is off: TAPPA_API_HOST is not set, so /v1 answers 404 on every host",
 			integrationAPIState, integrationAPIOff)
@@ -78,9 +83,13 @@ func openAPISurface(cfg *config.Config, data *db.DB, work api.WorkNoticer, venue
 	if err != nil {
 		return nil, err
 	}
+	business, err := tenant.NewBusinessCard(data)
+	if err != nil {
+		return nil, err
+	}
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work, Locations: venues,
-		Employees: staff, Punches: punches, Directory: directory, Timesheets: timesheets, Extensions: extensions, Log: log,
+		Host: cfg.APIHost, Keys: chain, Grants: grants, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work, Locations: venues,
+		Employees: staff, Punches: punches, Directory: directory, Timesheets: timesheets, Business: business, Extensions: extensions, Log: log,
 	})
 	if err != nil {
 		return nil, err

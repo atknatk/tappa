@@ -833,6 +833,37 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/business:
+    get:
+      operationId: getBusiness
+      summary: The business this credential acts for.
+      description: |
+        The one business the key acts for: its id (`biz_` followed by a UUID), its name and its
+        company code -- the code Taptime gives the business when it enables the integration API, the
+        same value a punch carries as `company`; null until then. It takes no query parameter -- any is
+        400 (`details.allowed` empty). Open while the business is suspended.
+      x-error-codes: [invalid_request, body_too_large, unauthorized, api_disabled, rate_limited, unavailable]
+      responses:
+        "200":
+          description: The business.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Business"
+              examples:
+                kf:
+                  summary: Kebab Factory, its API enabled under the code KF.
+                  value: {"id": "biz_8f0c3a52-6b1e-4d7a-9a51-2c8e7f4b6d10", "name": "Kebab Factory Ltd", "companyCode": "KF"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 webhooks:
   punch:
     post:
@@ -1333,6 +1364,19 @@ components:
         hasMore:
           type: boolean
           description: The feed held more than this page when it was read; read on.
+    Business:
+      type: object
+      additionalProperties: true
+      required: [id, name, companyCode]
+      properties:
+        id:
+          type: string
+          pattern: "^biz_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        name:
+          type: string
+        companyCode:
+          type: ["string", "null"]
+          description: The business's company code (punch `company`); null until Taptime enables the business's API.
     EmployeePage:
       type: object
       additionalProperties: true
@@ -1520,7 +1564,7 @@ components:
       properties:
         code:
           type: string
-          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, not_found, email_unavailable, already_activated, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, deactivation_budget_exceeded, unavailable]
+          enum: [invalid_request, body_too_large, unauthorized, api_disabled, tenant_suspended, insufficient_scope, not_found, email_unavailable, already_activated, idempotency_key_reused, validation_failed, timezone_mismatch, rate_limited, deactivation_budget_exceeded, unavailable]
         message:
           type: string
           description: A sentence for a person. Never contains the request's own values.
@@ -1576,6 +1620,10 @@ components:
         businessTimezone:
           type: string
           description: The business's own time zone -- the one value here that is not a constant, and not the request's.
+        scope:
+          type: string
+          description: The OAuth scope the route needs (insufficient_scope; an OAuth access token only).
+          enum: [timesheets:read, employees:read, employees:write, locations:write, punches:read]
   responses:
     BadRequest:
       description: "invalid_request or body_too_large: a parameter, header or body the contract refuses."

@@ -187,6 +187,7 @@ var panelMeasuredTemplates = map[string]int{
 	"pages/manualentry.templ":    1, // a record typed by hand
 	"pages/billing.templ":        2, // Billing and freezing a month
 	"pages/apikeys.templ":        1, // Developers
+	"pages/connectedapps.templ":  1, // Developers -> Connected apps (issue #37)
 	"pages/admininvites.templ":   1, // Managers
 	"pages/linkbusinesses.templ": 1, // Your other businesses
 	"pages/policychange.templ":   2, // a rule change and a rule version

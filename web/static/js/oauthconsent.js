@@ -34,6 +34,7 @@
   function arm() {
     disarm();
     if (document.visibilityState !== 'visible') return;
+    if (!document.hasFocus()) return;
     timer = setTimeout(function () {
       timer = null;
       allow.disabled = false;

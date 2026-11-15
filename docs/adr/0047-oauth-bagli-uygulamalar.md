@@ -1509,3 +1509,102 @@ ADR'yi **bloklamayan**, uygulama turunun gerçek testleriyle doğrulanacak notla
   (`invalid_grant`) ve grant **iptal edilmez** (§5.3 adım 4'ün yeniden kullanım tespiti çalışmaz). Kabul
   edildi: 90 gün boşta kalmış bağlantı zaten ölüdür (canlı refresh tokenı yoktur, *"Expired — reconnect"*),
   yeniden kullanılan token da ölü bir tokendır; tespitin koruyacağı canlı bir şey kalmamıştır.
+
+**2. faz (yetkilendirme sunucusu) uygulamasının notları (2026-11-14, `ea0ba641`; 3. fazda yazıldı):**
+
+- **Ön kapının sınırı `oauthapi`'dedir:** `GET /oauth/authorize` panel zincirinin dışında kendi adres
+  tavanıyla koşar — adres başına **3000 / 10 dk** (panelin sel tavanının sayıları); 303 eder, çerez
+  okumaz/yazmaz, DB'ye gitmez (`internal/handler/oauthapi/surface.go`'nun `frontLimit`/`frontPeriod`'u).
+- **Ek audit eylemleri:** ardışık kod yeniden kullanımı grant'ı iptal ederken `oauth.code_reuse_detected`
+  yazar (§5.2 adım 4); bir onayın yerine geçtiği (`superseded`) grant için `oauth.grant_revoked`
+  (`reason: superseded`); `oauth.grant_created`'in detayı yerine geçilen grant id'lerini
+  `superseded` dizisinde taşır.
+- **Manager, askıdaki ve operatörce kapatılmış işletmenin onay POST'u** istemciye `error=access_denied`
+  ile döner (yazma yok, kod yok); askı halkası askıdaki işletmede 403'ü zaten verir, alan katmanı
+  (`oauth.Server.Approve`) üçünü ayrıca reddeder.
+- **Double-clickjacking:** *"Allow"* `disabled` çizilir; `web/static/js/oauthconsent.js` (ayrı dosya,
+  `script-src 'self'`, satır içi betik yok) onu sayfa **görünür ve odaklıyken 600 ms** sonra etkinleştirir;
+  `blur` ve görünürlük kaybı kapatır, geri gelince bekleme baştan başlar. Betiksiz tarayıcı `<noscript>`
+  içindeki ikiz formu (aynı bağ, aynı alanlar, etkin) görür — **gecikme yoktur**, adlandırılmış sınır.
+  CSS ile gecikme seçilmedi: ortak stylesheet'e `@keyframes` girmez (panel CSS'inin kuralı) ve
+  animasyonla düğme etkinleştirilemez. 3. faz: `arm()` `document.hasFocus()` da ister (yorumdaki
+  *"visible and focused"* ile tutarlı).
+- **Secret rotasyonunda gösterim kuralı:** yeni secret yalnız rotasyondan sonraki okuma rotasyonun
+  tuttuğunu gösteriyorsa (canlı uygulama, ipucu yeni secret'ınki) **bir kez** gösterilir; uygulama
+  kapalıysa *"No secret was changed"*, okuma başka bir şey gösteriyorsa *"The secret may have been
+  changed… Rotate it again"* — `op_*`'ın kendi yanıtı durum söylemez (ADR 0021 §2 v 7). Disable tek
+  yönlüdür ve askının onay kutusu kalıbıyla açık onay ister.
+- **`response_type` (V3):** yok → `invalid_request` (eksik zorunlu parametre); var ve `code` değil →
+  `unsupported_response_type` (RFC 6749 §4.1.2.1).
+- **Bekleyen istek çerezinin boyutu:** çerez adıyla birlikte en çok **3800 bayt**
+  (`MaxRequestCookieBytes`); içerik **HTML kaçışsız** JSON'la kodlanır (`state`'teki `<` 6 değil 1 bayt).
+  En kötü kabul edilen durum — beş kapsam, 512 baytlık dönüş adresi, JSON'un ikiye katladığı `"`'dan
+  1024 baytlık `state` — **ölçüldü: 3796 bayt** (pay 4 bayt; `TestOAuthRequest_TheCookieHasASizeBound`).
+  Kuralın genişlemesi `ErrRequestTooLarge` ile reddedilir, tarayıcının düşürebileceği bir çerez yazılmaz.
+- **`/oauth` log'suz Ingress yolundadır** (`deploy/k8s/40-ingress.yaml`, panelin `/admin` kalıbı). Kabul
+  edilen bedeller (3. fazda yazıldı): controller'ın **hata** log'u upstream hata/zaman aşımında istek
+  satırını sorgusuyla (`state` dahil) yazabilir; eski yönlendirme host'ları (`www.taptime.mt`,
+  `tappa.everva.com.tr` — `43-redirect-ingress.yaml`) access log'u açık tutar, oraya gelen bir
+  `/oauth/authorize?state=…` loglanır (yalnız eski host'la yapılandırılmış bir istemcide).
+- **CSP `form-action` tarayıcıda ÖLÇÜLMEDİ.** A planı (`'self'` + eşleşmiş dönüş origin'i) uygulandı;
+  §4.6'nın Chrome/Firefox/Safari ölçümü yapılmadı — `main`'e birleştirmeden önce devir (B planı hazır
+  değil, gerekirse o ölçümün sonucuna göre).
+
+**3. faz (/v1 bearer, kapsam, eş süzgeci, kapılar, "Connected apps") uygulamasının notları (2026-11-14):**
+
+- **Zincir (§8.1) `internal/handler/api/chain.go`'dadır, `internal/apikey`'de değil.** Biçim ayrımı
+  `apikey.ParseBearer` → önce `oauth.Server.CheckAccess` (DB'siz `tt_at_<env>_`+43), değilse anahtar yolu
+  bugünkü gibi. Token yolu: ortak adres limiter'ında `Reserve` → `ResolveAccess` → 401/403'te `Keep`,
+  kabulde `Refund` → grant (600/dk) ve istemci (6000/dk) kovası → `TouchGrant` → K-19 → `scopeGate`.
+  `apikey.Principal` genelleşti (`KeyID` | `GrantID`+`ClientID`+`Scopes`; `IsGrant`, `Full`, `OwnOnly`,
+  `HasScope`, `ActorID`); ADR'nin `Kind`/`Full`/`OwnOnly` alanları yöntem olarak kuruldu (tek kaynak:
+  `GrantID`'nin doluluğu).
+- **Süre kontrolü veritabanının saatiyle (sapma değil, ek sorgu).** Çözümleyici `expires_at`'i taşır;
+  Go saatiyle karşılaştırmak §14.2'nin "tek saat" kuralına ikinci kaynak olurdu. Bu yüzden
+  `ResolveAccess` grant'ın tenant'ında tek ifadeli `CheckOAuthAccessTokenLive`'ı
+  (`expires_at > clock_timestamp()`) koşar — token istekleri istek başına bir ek kısa işlem öder.
+  401 sırası: bilinmiyor / `kind≠access` / token, grant iptal / istemci kapalı / süresi dolmuş;
+  ardından operatörce kapalı → 403 (401, 403'ten üstün — anahtarın kuralı).
+- **Kapsam tablosu tek yerde (`internal/handler/api/scope.go`, `routeScopes`)**, kapı yönlendirmeden
+  sonra chi'nin `RoutePattern`'ını okur; tabloda olmayan kimlikli rota (sandbox'ın `POST
+  /v1/sandbox/taps`'i, test rotaları) token'a **403 `insufficient_scope`** (`details` boş,
+  `WWW-Authenticate: Bearer …, error="insufficient_scope"`, `scope` parametresi yok). Envanter:
+  `TestScopes_EveryAuthenticatedRouteIsInTheTable` gönderilen yönlendiriciyi yürür.
+- **401 gövdesi:** kod `unauthorized` (kapalı küme değişmedi), mesaj token'a özgü sabit cümle, başlık
+  `Bearer realm="taptime", error="invalid_token"`. Biçimsiz değer (iki şekle de uymayan) bugünkü düz
+  401'dir (`error` parametresiz) — bilinçli: hangi türün denendiği bilinmiyor ve anahtar istemcilerinin
+  bugünkü yanıtı değişmemeli (RFC 6750 §3.1 burada `invalid_request` önerebilirdi; seçilmedi).
+- **`GET /v1/business` ve `insufficient_scope` OpenAPI'ye ve rehbere girdi (4. faza taşma, testlerin
+  zorunluluğu):** `TestOpenAPI_PathsAreTheRoutersAndTheErrorIsSection8`, `…EveryRouteAndErrorDocumented`
+  ve `TestGuide_EveryEndpointCodeAndLimitIsTheDocuments` yönlendiricinin her rotasını, kapalı kod
+  kümesini ve `ErrorDetails` anahtarlarını belgeye bağlar; bu yüzden asgari kayıt yazıldı (yol + `Business`
+  şeması + `scope` ayrıntı anahtarı + iki rehberde §2.3 ve tablo satırları). OAuth güvenlik şeması, her
+  işlemin `x-error-codes`'ına `insufficient_scope` (prob'ları OAuth token'ıyla yazılmalı) ve rehberin
+  *"Apps connecting with OAuth"* bölümü **4. fazındır**.
+- **Eş süzgeci:** rehberde `DirectoryQuery.OwnOnly` → `holding_directory` **çağrılmaz**; punch akışı ve
+  geçmiş sorgusu `own_only` parametresiyle `roles = '{employer,location}'` (§8.5'in ifadesi birebir).
+  Anahtar `OwnOnly=false` — davranış değişmedi. `timesheets` değişmedi (zaten yalnız kendi çalışanları).
+- **Audit atfı:** API yazmalarının detay yapıları (`staffapi.go`, `venueapi.go`, bütçe uyarısı) grant'ta
+  `client_id` (`app_<uuid>`) taşır, anahtarda alan yoktur (`omitempty`); `actor_id` = grant id. K-25 kilidi
+  ve sayımı `ActorID` ile — sorgular değişmedi. `ListAPIBudgetAlerts` `oauth_grants`'a LEFT JOIN'le
+  `grant_client_id` döner; ad `apikey.Keys.NameAppsWith(*db.DB)` ile Go'da, pencerede görünen istemci
+  başına bir kez, işlemden sonra çözülür.
+- **Idempotency:** `apikey.Writes.Run` principal türüne göre `…ForGrant` ikizlerini kullanır; tembel
+  süpürme iki ad alanını zaten birlikte taşıyordu (1. faz).
+- **Davet kuyruğu kapısı (§11.3):** `invite.Queue.gate`; `NewQueue` dördüncü zorunlu bağımlılık
+  (`AppResolver`, üretimde `*db.DB`) alır. Sıra: `GetTenantAPIGate` (açık → açık, sorgu yok; `api_code`
+  dolu + `api_enabled_at` NULL → kapalı) → `ListLiveWritingOAuthClients` → ilk etkin istemci.
+- **Panel "Connected apps":** `GET /admin/api-keys/apps` (okuma zinciri, owner'a özel — yönetici 403) ve
+  `POST /admin/api-keys/apps/disconnect` (`protectWritingThroughSuspension`, sınıf 2, ADR 0025'in adlı
+  istisna listesi — K-26). API anahtarları sayfası karta bağlantı verir. Disconnect `oauth.grant_revoked`
+  yazar: aktör üyelik, `detail.reason = owner`, `detail.via = panel`. Ret yanıtları (`unknown-app`,
+  yetkisiz) yazma yapmaz; yöneticinin reddedilen POST'u bugünkü `api_key.refused` satırını yazar
+  (`act: disconnect-app`).
+- **2. fazdan devreden DÜŞÜK'ler kapandı:** tolerans dalının *"revoked N"* log satırı yalnız commit
+  edilen yolda yazılır (geniş kapsamlı tolerans isteği `invalid_scope` alır, iptaller geri alınır —
+  test); R7'ye `v.State`/`r.State`/`p.Req.State`, çerezin `c.Value`'su ve `p.sealed` dar adlarla eklendi
+  (ağaçta önce sayıldı: 0 isabet; çıplak `.State` ve `sealed` yanlış pozitif verirdi — kontrol vektörleri);
+  operatör ana sayfası `/operator/apps`'e bağlanır (test adı `…FourLinks…` korundu, içeriği beş bağlantı).
+- **Önceden kırık bir test paketi düzeltildi (kapsam dışı, gerekçeli):** `internal/operatorauth`'un dört
+  harici testi 2. fazın `operator.New` imza değişikliğinden sonra **derlenmiyordu**; reddeden bir
+  `surfApps` ve sahte bir hasher eklendi.

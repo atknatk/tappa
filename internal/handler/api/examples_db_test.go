@@ -311,6 +311,15 @@ func runExampleStory(t *testing.T) exampleStory {
 		record(c.name, rec, rec.Body.Bytes(), nil, tq)
 	}
 
+	// The business card (issue #37, ADR 0047 §8.4): KF's key reads its own business -- the fixture's
+	// name set to the document's first.
+	if _, err := r.owner.Exec(ctx, `UPDATE tenants SET name = 'Kebab Factory Ltd' WHERE id = $1`, kf.id); err != nil {
+		t.Fatal(err)
+	}
+	card := r.do(http.MethodGet, "/v1/business", kf.raw, "")
+	must("getBusiness", card.Code, http.StatusOK, card.Body.String())
+	record("getBusiness 200", card, card.Body.Bytes(), nil, "")
+
 	// The webhook (section 10): KF's sender posts its deliveries; KF sends a test message.
 	job, err := delivery.New(kek, r.d, sender, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -454,6 +463,7 @@ var storyExamples = map[string]struct{ request, answer []string }{
 	"listDirectory 200":       {answer: []string{"paths", "/v1/directory", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
 	"listTimesheets 200 kf":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
 	"listTimesheets 200 km":   {answer: []string{"paths", "/v1/timesheets", "get", "responses", "200", "content", "application/json", "examples", "km", "value"}},
+	"getBusiness 200":         {answer: []string{"paths", "/v1/business", "get", "responses", "200", "content", "application/json", "examples", "kf", "value"}},
 	"webhook punch":           {answer: []string{"webhooks", "punch", "post", "requestBody", "content", "application/json", "examples", "jane", "value"}},
 	"webhook ping":            {answer: []string{"webhooks", "ping", "post", "requestBody", "content", "application/json", "examples", "ping", "value"}},
 }

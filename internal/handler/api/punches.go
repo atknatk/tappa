@@ -51,7 +51,7 @@ import (
 
 // Punches is the feed's reader (*tenant.PunchFeed), declared at the consumer (§7).
 type Punches interface {
-	PunchPage(ctx context.Context, tenantID uuid.UUID, role tenant.FeedRole, after int64, limit int) (tenant.PunchPage, error)
+	PunchPage(ctx context.Context, tenantID uuid.UUID, role tenant.FeedRole, after int64, limit int, ownOnly bool) (tenant.PunchPage, error)
 	HistoryPage(ctx context.Context, tenantID uuid.UUID, role tenant.FeedRole, q tenant.HistoryQuery, limit int) (tenant.HistoryPage, error)
 }
 
@@ -188,7 +188,9 @@ func (s *Surface) listPunches(w http.ResponseWriter, r *http.Request) {
 		s.listPunchHistory(w, r, req)
 		return
 	}
-	page, err := s.punches.PunchPage(r.Context(), p.TenantID, req.role, req.after, req.limit)
+	// An OAuth token reads the business's own punches alone (ADR 0047 §8.5, OA-4): no holding peer's
+	// employee or location leaves through a third-party app. An API key reads both, as before.
+	page, err := s.punches.PunchPage(r.Context(), p.TenantID, req.role, req.after, req.limit, p.OwnOnly())
 	switch {
 	case errors.Is(err, tenant.ErrCursorAhead):
 		writeProblem(w, problemPunchCursor)

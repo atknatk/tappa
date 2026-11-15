@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -66,7 +67,7 @@ func TestAPIWiring_TheDirectoryRunsThroughTheShippedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	surface, err := openAPISurface(cfg, data, &noticed{}, venues, staff, nil, ledgerFor(t, data), quiet)
+	surface, err := openAPISurface(cfg, data, &noticed{}, venues, staff, nil, ledgerFor(t, data), quiet, grantsFor(t, data))
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}
@@ -139,4 +140,19 @@ func ledgerFor(t *testing.T, data *db.DB) *ledger.Reader {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// grantsFor is the authorization server openAPISurface is handed in run() (issue #37: the OAuth
+// access token's half of the chain), over the test's pool and a trail, under a test key.
+func grantsFor(t *testing.T, data *db.DB) *oauth.Server {
+	t.Helper()
+	trail, err := audit.New(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := oauth.NewServer(make([]byte, 32), data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

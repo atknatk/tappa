@@ -174,6 +174,13 @@ Bir işletmenin birden çok anahtarı olabilir (sistem başına bir anahtar iyi 
 anahtarın kendi istek bütçesi, kendi pasifleştirme bütçesi ve kendi Idempotency-Key'leri vardır —
 bkz. [bölüm 3.3](#idempotency) ve [bölüm 3.4](#rate-limits).
 
+<a id="auth-business"></a>
+### 2.3 İşletme
+
+`GET /v1/business` anahtarın adına iş yaptığı işletmeyi döndürür: `id` (`biz_` ve bir UUID), `name` ve
+`companyCode` — Taptime'ın API'yi açarken verdiği şirket kodu, bir punch'ın `company` olarak taşıdığı
+değerin aynısı. Sorgu parametresi almaz ve işletme askıdayken de açıktır.
+
 <a id="common"></a>
 ## 3. Ortak sözleşme
 
@@ -205,6 +212,7 @@ OpenAPI belgesinin her işlemi, cevaplayabildiği kodları tam olarak `x-error-c
 | `unauthorized` | 401 | Anahtar yok ya da geçerli değil. |
 | `api_disabled` | 403 | API bu işletme için açık değil. |
 | `tenant_suspended` | 403 | İşletme askıda ve bu değişiklik kabul edilmiyor. |
+| `insufficient_scope` | 403 | OAuth ile bağlanmış bir uygulama, bağlantısının kapsamadığı bir rotayı çağırdı (`details.scope`). Anahtar bu kodu hiç almaz. |
 | `not_found` | 404 | Böyle bir kaynak yok (ayrıca: bilinmeyen bir yol ya da yolun almadığı bir yöntem). |
 | `email_unavailable` | 409 | İşletmenin başka bir aktif çalışanı bu e-posta adresine sahip. |
 | `already_activated` | 409 | Çalışan zaten aktive olmuş. |
@@ -231,6 +239,7 @@ OpenAPI belgesinin her işlemi, cevaplayabildiği kodları tam olarak `x-error-c
 | `maxDays` | En uzun çizelge dönemi, gün olarak. |
 | `retryAfterSeconds` | `Retry-After` ile aynı. |
 | `businessTimezone` | İşletmenin kendi saat dilimi (`timezone_mismatch`). |
+| `scope` | Rotanın gerektirdiği OAuth kapsamı (`insufficient_scope`). |
 
 `reason`'ın değerleri:
 

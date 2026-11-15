@@ -87,6 +87,9 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// M11 API-3: owner-only, read included (apikeys.go).
 		case pages.TabAPIKeys:
 			r.Get(s.Href, a.apiKeysSection)
+			// Issue #37 (ADR 0047 §12): the Developers section's "Connected apps" card -- owner-only,
+			// read included (connectedapps.go).
+			r.Get(connectedAppsHref, a.connectedAppsSection)
 		// GRP-1: both roles; a business in no group reads the empty state (group.go).
 		case pages.TabGroup:
 			r.Get(s.Href, a.groupSection)
@@ -448,6 +451,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (internal/apikey's Revoke). Owner-only inside the handlers, as before.
 		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
 		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
+		// 🔴 DISCONNECTING A CONNECTED APP (issue #37, ADR 0047 §11.2, §12) -- K-26 again: it ends an
+		// OAuth grant, taking away what an app may do for the business. Owner-only inside the handler
+		// and again in the domain.
+		r.Post(appDisconnectHref, a.appDisconnect)
 		a.mountWebhookWrites(r, true)
 		// 🔴 DISABLING A MEMBERSHIP AND MAKING AN OWNER A MANAGER (M14-16) -- K-26's reasoning applied to
 		// people: both NARROW who can act for the business, and a suspended business that could not shut

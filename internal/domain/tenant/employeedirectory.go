@@ -122,6 +122,10 @@ type DirectoryQuery struct {
 	After *DirectoryPosition
 	// AsOf is the walk's asOf, carried by its cursor; zero on the first page (which reads it).
 	AsOf time.Time
+	// OwnOnly reads the business's OWN half alone: holding_directory is not called (an OAuth token's
+	// read -- issue #37, ADR 0047 §8.5, OA-4: a third-party app the owner approved never sees a
+	// holding peer's people).
+	OwnOnly bool
 }
 
 // DirectoryPage is one page: the entries, the position to read after next (nil when the walk is
@@ -206,9 +210,11 @@ func (d *EmployeeDirectory) DirectoryPage(ctx context.Context, tenantID uuid.UUI
 		if err != nil {
 			return err
 		}
-		peers, err := db.HoldingOn(tx).Directory(ctx, peerAt, peerCur)
-		if err != nil {
-			return err
+		var peers []db.HoldingDirectoryEntry
+		if !q.OwnOnly {
+			if peers, err = db.HoldingOn(tx).Directory(ctx, peerAt, peerCur); err != nil {
+				return err
+			}
 		}
 		page.Entries, page.HasMore = mergeDirectory(own, head.ApiCode, peers, limit)
 		if page.HasMore {

@@ -528,16 +528,24 @@ func TestOAuthRequest_CookieSealsAndRefusesTampering(t *testing.T) {
 	}
 }
 
-// TestOAuthRequest_TheCookieHasASizeBound (the 2nd phase's review, L3): the pending request is encoded
-// without HTML escaping (a state of 1024 '<' costs 1024 bytes, not 6144) and a sealed value that would
-// pass MaxRequestCookieBytes with its name is ErrRequestTooLarge. The worst case V2 and V7 admit fits;
-// one past V7's bound does not.
+// TestOAuthRequest_TheCookieHasASizeBound (the 2nd phase's review, L3; corrected in phase 3): the
+// pending request is encoded without HTML escaping (a state of 1024 '<' costs 1024 bytes, not 6144)
+// and a sealed value that would pass MaxRequestCookieBytes with its name is ErrRequestTooLarge. The
+// worst case V2, V6 and V7 admit fits; one past V7's bound does not.
+//
+// THE WORST CASE IS FIVE SCOPES, not two (phase 3's correction of the comment and the case): the
+// closed set's five words (V6 admits them all for an app registered with all five), a 512-byte
+// redirect URI (V2's bound) and a 1024-byte state of '"' -- the character JSON doubles. Measured with
+// the name: 3796 bytes, MaxRequestCookieBytes 3800 -- a margin of 4 bytes. That margin is the reason
+// the bound exists: any widening of V2, V6 (a sixth scope) or V7 is refused by SealRequest
+// (ErrRequestTooLarge, the consent's error page) rather than written as a cookie a browser may drop
+// (RFC 6265 §6.1's 4096 per cookie is the ceiling 3800 keeps under, with room for the attributes).
 func TestOAuthRequest_TheCookieHasASizeBound(t *testing.T) {
 	h := mustHasher(t)
 	_, ch := pkcePair(strings.Repeat("v", 43))
 	long := "https://a.example/" + strings.Repeat("p", 512-len("https://a.example/"))
 	r := Request{ClientID: uuid.New(), RedirectURI: long, ResponseType: "code", Method: "S256", Challenge: ch,
-		Scopes: []string{"employees:read", "timesheets:read"}, Created: time.Now().Unix()}
+		Scopes: KnownScopes, Created: time.Now().Unix()}
 	r.State = strings.Repeat("<", MaxStateBytes)
 	v, err := h.SealRequest(r)
 	if err != nil {
@@ -549,11 +557,13 @@ func TestOAuthRequest_TheCookieHasASizeBound(t *testing.T) {
 	if got, err := h.OpenRequest(v, time.Now()); err != nil || got.State != r.State {
 		t.Fatalf("the round trip of an unescaped state: %v", err)
 	}
-	// The worst case V2 and V7 admit -- a 512-byte URI and 1024 bytes JSON doubles -- fits (measured:
-	// about 3745 bytes with the name); the bound is the guard that keeps it so if a rule widens.
 	r.State = strings.Repeat(`"`, MaxStateBytes)
-	if v, err := h.SealRequest(r); err != nil || len(RequestCookieName)+1+len(v) > MaxRequestCookieBytes {
+	worst, err := h.SealRequest(r)
+	if err != nil {
 		t.Fatalf("the worst admitted case: %v", err)
+	}
+	if n := len(RequestCookieName) + 1 + len(worst); n > MaxRequestCookieBytes || n < MaxRequestCookieBytes-64 {
+		t.Fatalf("the worst admitted case is %d bytes with the name, the bound %d -- the comment's 3796 no longer holds", n, MaxRequestCookieBytes)
 	}
 	r.State = strings.Repeat(`"`, MaxStateBytes+100)
 	if _, err := h.SealRequest(r); err != ErrRequestTooLarge {

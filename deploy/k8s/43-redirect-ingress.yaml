@@ -42,6 +42,18 @@
 # Between 40's apply and this file's, in the deploy that first carries T71, the live object is still
 # the old one: the hosts keep the old redirect (path dropped) until this apply, never an outage.
 #
+# THE ACCESS LOG STAYS ON HERE, AND /oauth ON THESE HOSTS IS A NAMED COST (issue #37 phase 3,
+# read from this manifest: no enable-access-log annotation, so ingress-nginx's default access log
+# -- whose format carries the request line, query included; that is the controller's documented
+# default, not measured on the cluster -- writes every request of both hosts). A
+# GET /oauth/authorize?...&state=... sent to www.taptime.mt or tappa.everva.com.tr would be logged
+# with the app's state before the application redirects it to taptime.mt. Accepted, not closed: an
+# app builds that URL from its TAPTIME_OAUTH_BASE_URL, which is https://taptime.mt (ADR 0047 §3), so
+# the request reaches these hosts only from an app configured with a legacy host; the state is the
+# app's one-sign-in CSRF value, not a credential of ours. Turning the access log off for the two
+# hosts would hide every legacy-host request to buy that case; a /oauth twin of 40's panel ingress
+# on these hosts would be a second owner of their certificates.
+#
 # The two hosts keep their SEPARATE certificates, so neither can hold the other hostage:
 # tappa.everva.com.tr keeps `tappa-tls`, www.taptime.mt keeps `taptime-www-tls`, isolated from the
 # apex's `taptime-tls`. cert-manager's HTTP-01 solver adds its own, more specific

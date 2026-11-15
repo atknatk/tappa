@@ -327,7 +327,7 @@ func (s *Surface) putLocation(w http.ResponseWriter, r *http.Request) {
 			return apikey.Outcome{}, err
 		}
 		res, err := s.locations.PutVenueTx(ctx, tx, tenant.VenuePut{
-			TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via,
+			TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ClientID: p.Attribution().ClientID,
 			ExternalRef: ref, Name: in.name, Timezone: in.timezone, Active: in.active,
 		})
 		var tz *tenant.TimezoneMismatch

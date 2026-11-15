@@ -397,10 +397,10 @@ func TestApiKeyPanel_TheDeactivationBudgetAlertIsShownToTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, recent, "api", 20); err != nil {
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, recent, "api", "", 20); err != nil {
 		t.Fatal(err)
 	}
-	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), other.tenantID, foreign, "api", 20); err != nil {
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), other.tenantID, foreign, "api", "", 20); err != nil {
 		t.Fatal(err)
 	}
 	// `at` is the database's alone (00053); the owner dates the old alert.
@@ -463,7 +463,7 @@ func TestPanelHome_TheKeyBudgetBannerIsTheOwnersAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, c.ID, "api", 7); err != nil {
+	if err := staff.RecordDeactivationBudgetExceeded(context.Background(), f.tenantID, c.ID, "api", "", 7); err != nil {
 		t.Fatal(err)
 	}
 	body := home(owner)

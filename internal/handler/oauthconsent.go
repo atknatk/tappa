@@ -80,6 +80,9 @@ type panelOAuth interface {
 	Approve(ctx context.Context, tenantID, adminID uuid.UUID, r oauth.Request) (oauth.Value, error)
 	IntegrationsOff(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	Hasher() *oauth.Hasher
+	// The "Connected apps" card (connectedapps.go, ADR 0047 §12).
+	ListConnectedApps(ctx context.Context, tenantID, adminID uuid.UUID) (oauth.ConnectedApps, error)
+	Disconnect(ctx context.Context, tenantID, adminID, grantID uuid.UUID) error
 }
 
 // OAuthConsent gives the panel the authorization server (cmd/tappa passes it on every configuration:

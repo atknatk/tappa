@@ -346,9 +346,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	employees, err := tenant.NewEmployeeDirectory(data)
 	must(err)
+	business, err := tenant.NewBusinessCard(data)
+	must(err)
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
-		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Timesheets: records, Log: log,
+		Host: cfg.APIHost, Keys: chain, Grants: oauthServer, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
+		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Timesheets: records, Business: business, Log: log,
 	})
 	must(err)
 	f.api = surface

@@ -68,7 +68,7 @@ func TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed(t *testing.T) {
 		t.Helper()
 		var out []step
 		for range 100 {
-			p, err := feed.PunchPage(f.ctx, f.kf, role, from, limit)
+			p, err := feed.PunchPage(f.ctx, f.kf, role, from, limit, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,17 +111,17 @@ func TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed(t *testing.T) {
 
 	f.exec(`UPDATE feed_counters SET last_seq = last_seq + 1000000 WHERE tenant_id = $1`, f.kf)
 	for _, from := range []int64{9, 500000, 1000009} {
-		p, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, from, 10)
+		p, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, from, 10, false)
 		if err != nil || len(p.Events) != 0 || p.Next != 1000009 || p.HasMore {
 			t.Fatalf("from %d past the restore step: %+v %v, want caught up at 1000009", from, p, err)
 		}
 	}
 	own()
-	p, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, 9, 10)
+	p, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, 9, 10, false)
 	if err != nil || len(p.Events) != 1 || p.Events[0].Seq != 1000010 || p.Next != 1000010 || p.HasMore {
 		t.Fatalf("the tap past the gap: %+v %v", p, err)
 	}
-	if _, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, 1000011, 10); !errors.Is(err, ErrCursorAhead) {
+	if _, err := feed.PunchPage(f.ctx, f.kf, FeedEmployer, 1000011, 10, false); !errors.Is(err, ErrCursorAhead) {
 		t.Fatalf("a position past the counter: %v, want ErrCursorAhead", err)
 	}
 	for _, bad := range []struct {
@@ -129,7 +129,7 @@ func TestPunchFeed_TheWindowBoundsASparseScopeAndAGapIsCrossed(t *testing.T) {
 		after int64
 		limit int
 	}{{"both", 0, 1}, {FeedEmployer, -1, 1}, {FeedEmployer, 0, 0}} {
-		if _, err := feed.PunchPage(f.ctx, f.kf, bad.role, bad.after, bad.limit); err == nil || errors.Is(err, ErrCursorAhead) ||
+		if _, err := feed.PunchPage(f.ctx, f.kf, bad.role, bad.after, bad.limit, false); err == nil || errors.Is(err, ErrCursorAhead) ||
 			!strings.HasPrefix(err.Error(), "tenant: ") {
 			t.Errorf("%+v: %v, want a refusal", bad, err)
 		}
@@ -336,7 +336,7 @@ func TestPunchHistory_ATieAcrossTheWindowsEndIsCutByTheFeedOrder(t *testing.T) {
 	if n, plan := shippedReads(t, f, "getPunchHistoryWindow", at, want[9], f.kf, from, to, int32(5), int32(4)); n > 5 {
 		t.Fatalf("the window statement read %d rows inside a group of 30 at a window of four:\n%s", n, plan)
 	}
-	if n, plan := shippedReads(t, f, "listPunchHistory", f.kf, want[29], from, to, at, want[9], at, want[13], "employer", int32(51)); n > 5 {
+	if n, plan := shippedReads(t, f, "listPunchHistory", f.kf, want[29], from, to, at, want[9], at, want[13], "employer", false, int32(51)); n > 5 {
 		t.Fatalf("the page statement read %d rows inside a group of 30 up to a window's end four on:\n%s", n, plan)
 	}
 	for _, limits := range [][]int{{1}, {2}, {3}, {4}, {5}, {6}, {7}, {50}, {1, 7, 3, 50}} {
@@ -549,7 +549,7 @@ func TestAPIRead_EveryReadCarriesTheBound(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"PunchPage", func() error { _, err := feed.PunchPage(f.ctx, f.km, FeedEmployer, 0, 10); return err }},
+		{"PunchPage", func() error { _, err := feed.PunchPage(f.ctx, f.km, FeedEmployer, 0, 10, false); return err }},
 		{"HistoryPage", func() error {
 			_, err := feed.HistoryPage(f.ctx, f.km, FeedEmployer, HistoryQuery{From: now.Add(-time.Hour), To: now, First: true}, 10)
 			return err
@@ -639,7 +639,7 @@ func TestPunchHistory_TheTieBreakIsTheTextsNotThePlans(t *testing.T) {
 			seqs = append(seqs, vals[0].(int64))
 		}
 		return seqs, r.Err()
-	}, f.kf, want[29], from, to, from, int64(0), at, want[29], "employer", int32(31))
+	}, f.kf, want[29], from, to, from, int64(0), at, want[29], "employer", false, int32(31))
 	if !slices.Equal(page, want) {
 		t.Fatalf("the page under a Sort answered %v, want the feed order %v", page, want)
 	}

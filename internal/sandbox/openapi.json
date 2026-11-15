@@ -128,7 +128,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "enum": ["invalid_request", "body_too_large", "unauthorized", "api_disabled", "tenant_suspended", "not_found", "email_unavailable", "already_activated", "idempotency_key_reused", "validation_failed", "timezone_mismatch", "rate_limited", "deactivation_budget_exceeded", "unavailable"]
+            "enum": ["invalid_request", "body_too_large", "unauthorized", "api_disabled", "tenant_suspended", "insufficient_scope", "not_found", "email_unavailable", "already_activated", "idempotency_key_reused", "validation_failed", "timezone_mismatch", "rate_limited", "deactivation_budget_exceeded", "unavailable"]
           },
           "message": {"type": "string"},
           "details": {"$ref": "#/components/schemas/ErrorDetails"}

@@ -195,6 +195,8 @@ var keyFieldExemptions = map[string]string{
 	// A comparison value, not a proof: no definer takes it to find a row by.
 	"apikey.WriteRequest.RequestHash": "SHA-256 of the request's method, route and body, the idempotency ledger's comparison value " +
 		"(a replay with another body is refused by it); it opens nothing",
+	// Issue #37 phase 3: the same value as the ledger row returns it (writes.go's two namespaces).
+	"apikey.recorded.RequestHash": "the ledger row's copy of WriteRequest.RequestHash (a comparison value); it opens nothing",
 	// Sealed under a KEK: printing it gives ciphertext the database row already holds.
 	"db.ResolvedTag.AESKeyRef": "AES-256-GCM envelope under TAPPA_TAG_KEK; the plaque key is not recoverable from it",
 	// A proof or a MAC, not a key.

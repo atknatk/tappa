@@ -58,7 +58,7 @@ func (r *dbRig) queue() (*invite.Queue, *relay, *invite.Manager) {
 		r.t.Fatal(err)
 	}
 	sink := &relay{}
-	q, err := invite.NewQueue(m, sink, r.trail)
+	q, err := invite.NewQueue(m, sink, r.trail, r.d)
 	if err != nil {
 		r.t.Fatal(err)
 	}
