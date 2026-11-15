@@ -1766,7 +1766,7 @@ yazılır.
 | M16-05 | `internal/appdevice`: imzalı istek doğrulaması | **done** | `28cef5e1` + `dfcf5345` (CLAUDE.md §3) + `dc335edf`; iki mercek ONAY (yalnız DÜŞÜK; M16-07'ye devirler kartta) |
 | M16-06 | Policy bağlamı: `Client`, `MockLocation`; sahte konum baseline'ı | **done** | `f49c58c0` + `6cb876b6` (panel eksik baseline'ı tamamlar — karar (d), ADR 0045 Bedel 10) + `caf8d2d6` + CLAUDE.md §5 (`14d518f9`, son ifade); güvenlik ONAY, üçüncü göz RED → ONAY; baseline 2026-11-14 |
 | M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | todo |  |
-| M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | todo |  |
+| M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | **done** | `fc04f789` + `d7a8a21d`; iki mercek ONAY (R1 muafiyeti yola bağlı, ADR 0012 eki); Team ID + Android imza özeti env'den — **canlıda doldurulmadı** (uygulama `/t`'yi karşılayınca) |
 | M16-09 | İptal yolları uygulama cihazlarını da kapatır | todo |  |
 | M16-10 | Faz A kapanışı | todo |  |
 | M16-11 | Android iskeleti (`mobile/android/`) | todo |  |
