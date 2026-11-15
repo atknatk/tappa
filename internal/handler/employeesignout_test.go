@@ -394,7 +394,7 @@ func TestEmployeeSignOut_TheScreensAreTheGolden(t *testing.T) {
 	// The deactivated refusal names the app only beside a live app device (the third-eye LOW of
 	// M16-09): the same word, read for a person who has one.
 	deactivatedApp := panelBrowserWithActions(t, &fakeStaff{
-		person: &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+		person:  &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
 		summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated, LiveAppDevices: 1},
 	}, &fakeInviter{})
 	screens["notice-signout-deactivated-app"] = noticeOf(t, htmlOf(t, deactivatedApp.do(http.MethodGet,
@@ -459,7 +459,7 @@ func TestEmployeeSignOut_TheAppIsNamedOnlyBesideALiveAppDevice(t *testing.T) {
 	employeeID := uuid.New()
 	deactivated := func(apps int) *fakeStaff {
 		return &fakeStaff{
-			person: &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
+			person:  &tenant.Person{Name: "Maria Borg", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation},
 			summary: tenant.PersonSummary{State: tenant.Measured, Status: ledger.StatusDeactivated, LiveAppDevices: apps},
 		}
 	}
