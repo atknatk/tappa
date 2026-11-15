@@ -282,7 +282,7 @@ eşleşmezse sonuç `flag`'dir — sessiz onay imkânsız (§4.6); `note` etkisi
 kurar ve dönen effect'i uygular; yön, trust ve geç kalma **hesaptır**, politika
 değildir.
 
-**Dört kanıt:** SUN = *şu an fiziksel dokunuş* · oturum çerezi = *kim* ·
+**Dört kanıt:** SUN = *şu an fiziksel dokunuş* · oturum çerezi ya da uygulama cihaz anahtarı (ADR 0045) = *kim* ·
 statik IP = *nerede* · GPS = *yedek nerede*.
 
 Kanıt **anlamıyla** tanımlıdır, biçimiyle değil: bir lokasyonun kayıtlı adres
@@ -313,7 +313,7 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 |---|---|---|
 | 1 | Etiket `lost` veya `retired` | `reject` |
 | 2 | SUN geçersiz (CMAC uyuşmuyor **veya** `ctr` artmadı) | `reject` |
-| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026) |
+| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026); uygulamada iptal edilmiş cihaz → 401, kayıt yok (ADR 0045 §2.3) |
 | 4 | Çalışan `deactivated` | `reject` + denemeyi logla + güvenlik uyarısı |
 | 5 | Aynı **kişi** 60 sn içinde tekrar | `ignored` |
 | 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`; uygulama sahte konum bildirdiyse `flag` — `base:mock-location-review`) |
