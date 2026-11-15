@@ -595,9 +595,15 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 >   aynı fonksiyonu ve aynı kişi-ve-anahtar kapısı; plaket yarısı (`predictionAllowed`) uygulanamaz, gerekçesi
 >   `apphome.go`'da. `TestAppHomeDB_ThePredictionWithoutAPlaqueIsTheTapPagesOwn` her durumda (açık giriş yok/var/eski,
 >   anahtar kapalı/henüz değil, deaktive, işletmenin başka mekânı) `TapPage(predict=true)` ile **birebir aynı** sonucu ölçtü.
-> - **Devredilenler:** (1) iptal edilmiş cihazın WARN satırı **tenant ve çalışan taşımaz** — doğrulayıcı imzadan önce
->   hiçbir şey atfetmez (M16-05); M16-09'un *"yalnız tenant, çalışan, kanal"* maddesi bu sınırla çelişir, M16-09 karar
->   verir. (2) Logo baytlarının uygulamaya yolu bu kartta yok — `/me` ve `tap/start` logonun özetini ve kutusunu verir
+> - **İptal edilmiş cihazın dokunuş satırı M16-07'nindir** (ana oturum kararı, 2026-11-14; M16-09'un *"yalnız tenant,
+>   çalışan, kanal"* maddesinin yerine): `tap/start` ve `tap` reddinde tek WARN satırı *"a signed-out app device tapped"*,
+>   öznitelikleri yalnız **kanal** (`tap/start`'ta SUN sorgusunun, `tap`'te `unverified`) ve sunulan cihaz kimliğinin
+>   SHA-256'sının **ilk 16 hex karakteri** — **tenant ve çalışan YOK**: iptal edilmiş cihaz imzadan önce reddedilir, kimlik
+>   o anda imzasız bir başlıktır ve ondan atfetmek herkese başka işletmenin çalışanını adlandıran log satırı yazdırırdı.
+>   Yanıt bilinmeyen cihazınkiyle aynı 401'dir (`TestAppDB_ASignedOutDevicesTapLeavesOneUnattributedWarning`).
+>   Kimlik bilgisi türünü değiştiren aktivasyonun kilit sırası M16-09'unkidir: oturumlar → cihazlar → nonce'lar
+>   (`invite.Manager.ActivateDevice`).
+> - **Devredilenler:** (2) Logo baytlarının uygulamaya yolu bu kartta yok — `/me` ve `tap/start` logonun özetini ve kutusunu verir
 >   (M16-13/M16-17). (3) M15-17'nin talep kartı uygulamanın sonuç yanıtında yok (M16-13). (4) Tarayıcının *"Activation
 >   complete"* ekranındaki *"other phone signed out"* yalnız oturumları sayar; uygulama cihazı iptali ekran metnini
 >   değiştirmedi (§9 sorusu).

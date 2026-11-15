@@ -740,8 +740,16 @@ func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, 
 //
 // One transaction, so either all of it happened or none: a 23505 on the key
 // (ErrDeviceKeyTaken) rolls the consumption back with the revocations, and the person
-// keeps the credentials they had. Order inside it is load-bearing in one place only:
-// the revocations run BEFORE the insert, so the new device is not among the revoked.
+// keeps the credentials they had. Order inside it is load-bearing twice:
+//
+//   - the revocations run BEFORE the insert, so the new device is not among the revoked;
+//   - the LOCK ORDER is M16-09's for a sign-out that reaches both credential types --
+//     sessions, then devices, then nonces (RevokeAppDevicesForEmployee takes the device rows
+//     and then deletes their nonces in the same statement) -- so an activation that swaps the
+//     credential type and a manager's "Sign out their phones" for the same person queue on
+//     the same first row instead of each holding what the other waits for (main-session
+//     decision, 2026-11-14). The consumption before them locks the invitation and the
+//     employee row, which a sign-out does not write.
 //
 // The caller has verified the request's signature under d.PublicKey before calling
 // (appdevice.VerifyActivation); this function does not see a signature.

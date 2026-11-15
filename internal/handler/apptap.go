@@ -54,7 +54,7 @@ func (a *App) Nonce(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dev, ok := a.authRead(w, r, body, "nonce")
+	dev, ok := a.authRead(w, r, body, "nonce", "")
 	if !ok {
 		return
 	}
@@ -64,7 +64,7 @@ func (a *App) Nonce(w http.ResponseWriter, r *http.Request) {
 	}
 	issued, err := a.devices.IssueNonce(r.Context(), dev.ID)
 	if err != nil {
-		a.refuseSigned(w, r, err, "nonce")
+		a.refuseSigned(w, r, err, "nonce", dev.ID, "")
 		return
 	}
 	// The nonce's ONE egress (appdevice.Nonce.Wire): this body, to the device that signed for it.
@@ -90,7 +90,7 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dev, ok := a.authRead(w, r, body, "me")
+	dev, ok := a.authRead(w, r, body, "me", "")
 	if !ok {
 		return
 	}
@@ -163,17 +163,24 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dev, ok := a.authRead(w, r, body, "tap_start")
+	// The body is read BEFORE the signature only for the refusal's log line: the channel the request
+	// declares (signedOutAppTap). Nothing is acted on until the read verifies.
+	var in appTapStartRequest
+	decoded := decodeAppJSON(body, &in)
+	p, perr := parseSUNQuery(in.SUN)
+	channel := "unverified"
+	if decoded && perr == nil {
+		channel = string(p.Channel)
+	}
+	dev, ok := a.authRead(w, r, body, "tap_start", channel)
 	if !ok {
 		return
 	}
-	var in appTapStartRequest
-	if !decodeAppJSON(body, &in) {
+	if !decoded {
 		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
 		return
 	}
-	p, err := parseSUNQuery(in.SUN)
-	if err != nil {
+	if err := perr; err != nil {
 		a.log.InfoContext(ctx, "app tap start: unusable plaque url", "employee_id", dev.EmployeeID)
 		writeAppError(w, http.StatusBadRequest, appErrBadRequest)
 		return
@@ -307,7 +314,9 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dev, ok := a.authRequest(w, r, body, "tap")
+	// The channel is inside the signed tap context, which is not read before the request verifies
+	// (POST /api/checkin's "unverified" for its revoked branch).
+	dev, ok := a.authRequest(w, r, body, "tap", "unverified")
 	if !ok {
 		return
 	}
@@ -421,7 +430,7 @@ func (a *App) Revoke(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dev, ok := a.authRequest(w, r, body, "revoke")
+	dev, ok := a.authRequest(w, r, body, "revoke", "")
 	if !ok {
 		return
 	}

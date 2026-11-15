@@ -694,8 +694,82 @@ func TestAppDB_RowsThreeAndFourLandAsInTheBrowser(t *testing.T) {
 	if n := h.countFor(t, h.employeeID); n != before {
 		t.Fatalf("a revoked device wrote %d records", n-before)
 	}
-	if !strings.Contains(h.logs.String(), "app: a signed-out device made a request") {
+	if !strings.Contains(h.logs.String(), signedOutAppTap) {
 		t.Error("no warning line for the signed-out device")
+	}
+}
+
+// TestAppDB_ASignedOutDevicesTapLeavesOneUnattributedWarning: the row-3 twin's log line (the main
+// session's decision of 2026-11-14). A revoked device's tap/start and tap each leave ONE WARN line
+// "a signed-out app device tapped" with the channel (the SUN query's for tap/start, "unverified"
+// for tap -- its channel is inside the signed context) and the first 16 hex characters of SHA-256 of
+// the presented id -- and NOTHING that names a business or a person (the id header is unsigned at
+// that point), nor the id, the nonce or the signature. An UNKNOWN id gets the byte-identical 401
+// and no such line.
+func TestAppDB_ASignedOutDevicesTapLeavesOneUnattributedWarning(t *testing.T) {
+	h := newAppHarness(t)
+	p := newAppPhone(t)
+	h.register(t, p, h.employeeID)
+	start, w := h.tapStart(t, p, h.nextSUN(t))
+	if w.Code != http.StatusOK {
+		t.Fatal(w.Body.String())
+	}
+	nonce := h.nonce(t, p)
+	if err := h.devices.Revoke(context.Background(), appdevice.Device{ID: p.id, TenantID: h.tenantID, EmployeeID: h.employeeID}); err != nil {
+		t.Fatal(err)
+	}
+	mark := len(h.logs.String())
+
+	_, startW := h.tapStart(t, p, h.nextSUN(t))
+	tapReq := h.signedRequest(t, p, p.id.String(), nonce, AppTapPath, jsonBody(t, map[string]any{"context": start.Context}))
+	sig := tapReq.Header.Get(appdevice.HeaderSignature)
+	tapW := h.serve(tapReq)
+	stranger := &appPhone{key: newAppPhone(t).key, id: uuid.New()}
+	_, unknownW := h.tapStart(t, stranger, h.nextSUN(t))
+	for name, rw := range map[string]*httptest.ResponseRecorder{"tap/start": startW, "tap": tapW, "unknown": unknownW} {
+		if rw.Code != http.StatusUnauthorized || rw.Body.Len() != 0 {
+			t.Fatalf("%s = %d %q, want 401 with an empty body", name, rw.Code, rw.Body.String())
+		}
+	}
+	if startW.Header().Get("Content-Type") != unknownW.Header().Get("Content-Type") {
+		t.Error("the revoked and the unknown device's answers differ in their headers")
+	}
+
+	var warns []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(h.logs.String()[mark:]), "\n") {
+		if l == "" {
+			continue
+		}
+		m := map[string]any{}
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("log line %q: %v", l, err)
+		}
+		if m["msg"] == signedOutAppTap {
+			warns = append(warns, m)
+		}
+		for _, forbidden := range []string{p.id.String(), stranger.id.String(), nonce, sig, h.tenantID.String(), h.employeeID.String()} {
+			if strings.Contains(l, forbidden) {
+				t.Errorf("a log line carries an id, the nonce or the signature: %s", l)
+			}
+		}
+	}
+	if len(warns) != 2 {
+		t.Fatalf("%d %q lines, want 2 (tap/start and tap; none for the unknown id)", len(warns), signedOutAppTap)
+	}
+	digest := presentedDeviceDigest(p.id)
+	for i, wantChannel := range []string{"nfc", "unverified"} {
+		m := warns[i]
+		if m["level"] != "WARN" || m["channel"] != wantChannel || m["device_digest"] != digest || len(digest) != 16 {
+			t.Errorf("line %d = %v, want WARN, channel %q, device_digest %s", i, m, wantChannel, digest)
+		}
+		for _, key := range []string{"tenant_id", "employee_id", "nonce", "signature", "device_id"} {
+			if _, ok := m[key]; ok {
+				t.Errorf("line %d carries %q: %v", i, key, m)
+			}
+		}
+		if len(m) != 5 { // time, level, msg, channel, device_digest
+			t.Errorf("line %d has %d keys, want exactly time, level, msg, channel and device_digest: %v", i, len(m), m)
+		}
 	}
 }
 

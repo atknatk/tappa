@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -277,11 +279,10 @@ func decodeAppJSON(body []byte, v any) bool {
 }
 
 // authRead parses and verifies a signed read. It answers the request itself (and returns false)
-// on every refusal: 401 empty for any appdevice refusal, 500 for a database failure. On a revoked
-// device it leaves the row-3 twin's WARN line -- WITHOUT a tenant or an employee: the verifier
-// attributes nothing before the signature verifies (appdevice's header), and a revoked device is
-// refused before its signature is looked at.
-func (a *App) authRead(w http.ResponseWriter, r *http.Request, body []byte, where string) (appdevice.Device, bool) {
+// on every refusal: 401 empty for any appdevice refusal, 500 for a database failure. channel is
+// what the route can say about the tap before anything is verified (signedOutTap's argument): the
+// SUN query's channel for tap/start, "" for a route that is not a tap.
+func (a *App) authRead(w http.ResponseWriter, r *http.Request, body []byte, where, channel string) (appdevice.Device, bool) {
 	req, err := appdevice.ReadFromHTTP(r, body)
 	if err == nil {
 		var dev appdevice.Device
@@ -293,12 +294,12 @@ func (a *App) authRead(w http.ResponseWriter, r *http.Request, body []byte, wher
 			return dev, true
 		}
 	}
-	a.refuseSigned(w, r, err, where)
+	a.refuseSigned(w, r, err, where, req.DeviceID(), channel)
 	return appdevice.Device{}, false
 }
 
 // authRequest is authRead for a NONCE-signed request: Verify spends the nonce.
-func (a *App) authRequest(w http.ResponseWriter, r *http.Request, body []byte, where string) (appdevice.Device, bool) {
+func (a *App) authRequest(w http.ResponseWriter, r *http.Request, body []byte, where, channel string) (appdevice.Device, bool) {
 	req, err := appdevice.FromHTTP(r, body)
 	if err == nil {
 		var dev appdevice.Device
@@ -310,13 +311,34 @@ func (a *App) authRequest(w http.ResponseWriter, r *http.Request, body []byte, w
 			return dev, true
 		}
 	}
-	a.refuseSigned(w, r, err, where)
+	a.refuseSigned(w, r, err, where, req.DeviceID(), channel)
 	return appdevice.Device{}, false
 }
 
+// signedOutAppTap is the WARN line of §5 row 3's twin for the app (main-session decision,
+// 2026-11-14; M16-07 owns it -- M16-09's card points here): a REVOKED device's tap -- tap/start or
+// tap -- is answered with the same 401 as an unknown device, and leaves this line.
+//
+// 🔴 NO TENANT AND NO EMPLOYEE, ON PURPOSE. A revoked device is refused BEFORE its signature is
+// checked (appdevice's no-oracle order), so the device id is only the request's unsigned header:
+// attributing the line from it would let anybody who knows (or guesses at) an id write log lines
+// naming another business's employee. The line carries the channel the request itself declares
+// (or "unverified") and the first 16 hex characters of SHA-256 of the presented id -- enough to
+// group repeats of one phone in the log, not the id itself.
+const signedOutAppTap = "a signed-out app device tapped"
+
+// presentedDeviceDigest is the log's handle on a CLAIMED device id: 16 hex characters of its
+// SHA-256 (the canonical string form the request carried).
+func presentedDeviceDigest(id uuid.UUID) string {
+	sum := sha256.Sum256([]byte(id.String()))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 // refuseSigned answers a signed request appdevice refused. The log carries the route and the
-// refusal's fixed Reason() -- never the device id, the nonce, the signature or a body.
-func (a *App) refuseSigned(w http.ResponseWriter, r *http.Request, err error, where string) {
+// refusal's fixed Reason() -- never the device id, the nonce, the signature or a body. channel is
+// non-empty on the tap routes (tap/start, tap), which are the ones a revoked device's refusal is
+// logged for as signedOutAppTap.
+func (a *App) refuseSigned(w http.ResponseWriter, r *http.Request, err error, where string, presented uuid.UUID, channel string) {
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	var ae *appdevice.AuthError
 	if !errors.As(err, &ae) {
@@ -324,10 +346,9 @@ func (a *App) refuseSigned(w http.ResponseWriter, r *http.Request, err error, wh
 		writeAppError(w, http.StatusInternalServerError, appErrServer)
 		return
 	}
-	if errors.Is(err, appdevice.ErrRevokedDevice) {
-		// §5 ROW 3'S TWIN: a signed-out phone touched a plaque or asked to. No record, no
-		// counter spent -- the tap page's "a signed-out phone tapped" line, for the app.
-		a.log.WarnContext(ctx, "app: a signed-out device made a request", "at", where, "channel", "unverified")
+	if errors.Is(err, appdevice.ErrRevokedDevice) && channel != "" && presented != uuid.Nil {
+		// §5 ROW 3'S TWIN: a signed-out phone touched a plaque. No record, no counter spent.
+		a.log.WarnContext(ctx, signedOutAppTap, "channel", channel, "device_digest", presentedDeviceDigest(presented))
 	} else {
 		a.log.InfoContext(ctx, "app: refused a signed request", "at", where, "reason", ae.Reason())
 	}
