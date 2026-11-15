@@ -579,6 +579,48 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu — M16-20 ekler) 
 - `/activate` uygulamaya **bağlanmaz** (öneri): davet linki tarayıcıda açılır, uygulama aktivasyonu kendi ekranından
   davet kodunu alır — tarayıcı aktivasyonu uygulama kurulu diye değişmesin (Q40 ile birlikte karar).
 
+> **Kart düzeltmesi (2026-11-14, M16-08 uygulaması sırasında).** Uygulandığı biçim ve kartın metinden saptığı yerler:
+> (1) **İki env, birbirinden bağımsız** (küme değil): `TAPPA_APP_APPLE_TEAM_ID` (10 büyük harf/rakam; app ID
+> `<TeamID>.mt.taptime.app`) ve `TAPPA_APP_ANDROID_SIGNER_SHA256` (adında `CERT` yok: `TestPackaging_ConfigNamesNoCertificateVariable` bu kökü
+> bir güven deposu sayar, ADR 0022 §2; virgülle liste; her biri Play Console biçimi, 32 büyük
+> harf hex çifti iki noktayla). Platformlar ayrı zamanlarda çıkar (önce Android), bu yüzden her biri yalnız kendi
+> dosyasını açar. **Boş = o dosya 404, sunucu normal açılır;** *set edilmiş ama bozuk* değer açılışı reddeder
+> (`TAPPA_TAG_KEK_PREVIOUS` kuralı — bozuk isteğe bağlı değer "yok" sayılmaz). `05-config.yaml`'da ikisi de **boş**
+> (`TestPackaging_TheAppValuesShipEmpty`); değer uydurulmaz (Q35). Paket/bundle kimliği `mt.taptime.app` koddadır
+> (`handler.AppBundleID`) — mağaza kimliği yapılandırma değil karardır. (2) **Yönlendirmesizlik doğrulandı (belgeden):**
+> Apple, *"Supporting associated domains"*: *"You must host the file using https:// with a valid certificate and with no
+> redirects."* Android, *"Configure assetlinks.json"*: *"must be accessible without any redirects (no 301 or 302
+> redirects)"* ve *"served with content-type `application/json`"*. Apple'ın sayfası Content-Type söylemiyor; iki dosya da
+> `application/json` ile sunulur. Apple dosyayı cihazdan değil **kendi CDN'inden** çeker (iOS 14+; *"within 24 hours"*,
+> cihazlar *"approximately once per week"*) — canlı ölçümü CDN üstünden yapılır (**doğrula**). (3) **Yalnız
+> `taptime.mt`:** `www.taptime.mt` ve `tappa.everva.com.tr` uygulamaya ulaşır ama her isteğe 301 alır (T71,
+> `internal/httpx/redirecthost.go`); yönlendirme ilişkilendirme değildir, dolayısıyla **Universal Link ve App Link yalnız
+> `taptime.mt` için çalışır** — plaketin URL'si de yalnız onu taşır. Operatör ve API host'larında iki yol 404'tür
+> (kendi host kapıları), bilinmeyen bir host'ta da (handler'ın kendi host denetimi, `httpx.OnHost`). (4) **Android'in
+> "yol listesi" dosyada değil manifesttedir:** klasik `assetlinks.json`'da yol yoktur; yolu uygulamanın intent-filter'ı
+> belirler (M16-11 `android:path="/t"` yazmalı). Ek olarak dosya aynı listeyi Android 15+'ın *Dynamic App Links*
+> uzantısıyla taşır (`relation_extensions` → `dynamic_app_link_components: [{"/": "/t"}]`; manifestin kapsamını
+> daraltabilir, genişletemez; Android ≤14 yok sayar). Faz D'de (M16-20) güncellenecek liste tektir:
+> `internal/handler/applinks.go`'daki `appLinkPaths` — **artı** Android manifesti. (5) **Ingress değişmedi:**
+> `40-ingress.yaml`'ın `/` Prefix'i `/.well-known/*`'i zaten uygulamaya iletir; ağaçta `taptime.mt` üstünde
+> `/.well-known` altında statik yol **yoktur** ve olmamalıdır — ACME çözücüsünün geçici
+> `/.well-known/acme-challenge/<token>` yolu daha özel olduğu için yalnız çözüm sırasında kazanır
+> (`TestPackaging_TheAppFilesAreRoutedToTheAppOnTheCanonicalHost`, YAML'ın statik okuması; canlıda ölçülmedi).
+> (6) `.well-known` `plainNotFoundRoots`'a girdi: yapılandırılmamış dosya ve bilinmeyen `/.well-known/…` yolu genel 404
+> sayfasını değil düz 404'ü alır. (7) **Statik plaket QR'ı da `/t`'dir** (`sun.PlaqueQRURL`: `/t?tag=<UID>`): bileşen
+> sorguya bakmadığından uygulama kuruluyken kamera ile okunan QR da uygulamayı açar — M16-22'nin (Q36 c) istediği bu,
+> ama **M16-12/13 (Android) ve M16-16/17 (iOS) ilk sürümden SUN'suz `/t?tag=` URL'sini karşılamalıdır** (QR kanalı
+> ya da tarayıcıya devretme). **Sıra kuralı:** bir platformun env değeri ancak o platformun uygulaması `/t`'yi —
+> sorgusuz QR biçimi dahil — karşıladıktan **sonra** doldurulur; önce doldurulursa her dokunuş onu karşılayamayan
+> bir uygulamayı açar.
+> (8) **Kart "Kırmızı çizgi: —" diyordu; R1'e değdi.** Google'ın anahtarı `"sha256_cert_fingerprints"` R1'in
+> `fingerprint` kökünü tetikler (ölçüldü: 38 satır FAIL). Ad her yerde *certificate digest / CertSHA256* oldu; kalan
+> iki satır (struct etiketi, altın satır) için `scripts/redline-check.sh`'e **tırnaklı anahtara ve yalnız
+> `internal/handler/applinks.go` + `applinks_test.go`'ya bağlı**, pazarlama ifadeleriyle çarpılmayan kendi ifade→yol
+> çifti eklendi (`R1_PROTOCOL_PHRASES`/`R1_PROTOCOL_PATHS`; denetim sonrası daraltıldı) — ADR 0012'nin M16-08 eki, sonda
+> testi `TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver`. M16-27'nin runbook'u (`keytool` çıktısı) aynı köke
+> çarpar: `docs/` taranmaz, ama `deploy/` ve `mobile/` taranır.
+
 ## M16-09 — "Telefonlarını çıkar" uygulama cihazlarını da kapatır; deaktivasyon kapatmaz
 
 - **Bağımlılık:** M16-03, M16-05
@@ -1148,6 +1190,9 @@ kurmak.
 **Kabul kriterleri.**
 - Android: Play App Signing; yükleme anahtarı repoda değil (Infisical); `assetlinks.json` parmak izi Play App
   Signing sertifikasınınki (M16-08 env'i güncellenir).
+- **Üretimin `TAPPA_APP_ANDROID_SIGNER_SHA256`'sı yalnız Play App Signing özetini taşır;** yükleme ve iç test
+  anahtarlarının özeti yalnız test ortamlarının env'ine yazılır (listedeki her anahtar plaket URL'sini açan bir
+  uygulama imzalayabilir; yükleme anahtarı geliştirici makinesindedir — M16-08 güvenlik denetimi, 2026-11-14).
 - iOS: App Store Connect iç testi; sertifika ve profiller repoda değil.
 - `redline-check` R7d imza dosyası kalıplarını (`*.jks`, `*.keystore`, `*.p12`, `*.mobileprovision`) tanır.
 - Sürüm runbook'u `mobile/README.md`'de: sürüm numarası, derleme, yükleme, geri alma (eski sürüm sunucuyla uyumlu

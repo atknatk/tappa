@@ -355,6 +355,19 @@ R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn|localauthen
 # (index), regex degil; `|` ayirici.
 R1_WAIVER_PHRASES='fingerprint terminal|retire the fingerprint box.|fingerprint / card devices|"biometric data"|fingerprints stored = gdpr weight'
 R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go):'
+# M16-08 (2026-11-14, ADR 0012 ek bolumu): ALTINCI IFADE, BIR PROTOKOL ADI, VE KENDI YOLUNA
+# BAGLI. Android'in Digital Asset Links bicimi imza SERTIFIKASININ SHA-256'sini
+# `"sha256_cert_fingerprints"` anahtariyla ister (Google'in belgesi; baska yazimi yok) -- bir
+# parmagin degil bir X.509 sertifikasinin ozeti, yani §4.1'in konusu degil. Kelime
+# degistirilemedigi icin (M16-03'un "kural kor tutulur, ad degisir" yonu burada isleyemez)
+# muafiyet TIRNAKLI anahtarin KENDISINE ve YALNIZ iki dosyaya baglidir:
+# internal/handler/applinks.go ve applinks_test.go (alt dizin yok, applinks* oneki yok).
+# IKINCI BIR KUME, CARPIM DEGIL: yukaridaki bes ifade bu iki dosyada, bu ifade pazarlama
+# dosyalarinda muaf DEGILDIR (denetim, 2026-11-14). Satirdaki baska her tetikleyici yine
+# FAIL'dir (r1_select'in 3. kosulu). Pin: cmd/tappa/scripttest
+# TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver.
+R1_PROTOCOL_PHRASES='"sha256_cert_fingerprints"'
+R1_PROTOCOL_PATHS='^internal/handler/applinks(_test)?[.]go:'
 
 # 🔴 ON-SUZGEC mobile/ ve android/ ALTINDA UYGULANMAZ (M16-02 denetimi): suzgec SATIRI
 # yoldan bagimsiz atiyordu, yani `let ctx = LAContext() // result not stored` gibi bir
@@ -381,9 +394,14 @@ r1_raw="$(scan -i -e "$R1_TRIGGERS" \
 # `webauthn` FAIL uretir. Muafiyet artik "bu satiri gormezden gel" degil, "bu
 # ifadenin KENDISI bir ihlal degil" demektir.
 r1_select() {
-  awk -v mode="$1" -v phs="$R1_WAIVER_PHRASES" -v paths="$R1_WAIVER_PATHS" -v trig="$R1_TRIGGERS" '
+  awk -v mode="$1" -v phs="$R1_WAIVER_PHRASES" -v paths="$R1_WAIVER_PATHS" -v trig="$R1_TRIGGERS" \
+      -v pphs="$R1_PROTOCOL_PHRASES" -v ppaths="$R1_PROTOCOL_PATHS" '
     BEGIN {
       n = split(phs, ph, "|")
+      pn = split(pphs, pph, "|")
+      for (k = 1; k <= pn; k++) if (length(pph[k]) == 0) {
+        print "redline-check: R1_PROTOCOL_PHRASES has an empty entry" > "/dev/stderr"; exit 2
+      }
       # Bos giris (listenin sonunda unutulmus bir `|`): BSD awk index("abc","")=1
       # dondurur ve asagidaki strip dongusu hic bitmez; gawk 0 dondurur ve ayni hata
       # CI icinde sessiz gecer. Iki platformda iki davranis yerine tek, gurultulu hata.
@@ -402,14 +420,19 @@ r1_select() {
     }
     length($0) == 0 { next }
     {
-      w = 0
+      w = 0; rest = tolower($0); hit = 0
+      # Her ifade kumesi YALNIZ kendi yol kumesinde cikarilir (iki kume, carpim yok).
       if ($0 ~ paths) {
-        rest = tolower($0); hit = 0
         for (k = 1; k <= n; k++) {
           if (index(rest, ph[k]) > 0) { hit = 1; rest = strip(rest, ph[k]) }
         }
-        if (hit && rest !~ trig) w = 1   # ifadeler cikarilinca tetikleyici kalmadiysa muaf
       }
+      if ($0 ~ ppaths) {
+        for (k = 1; k <= pn; k++) {
+          if (index(rest, pph[k]) > 0) { hit = 1; rest = strip(rest, pph[k]) }
+        }
+      }
+      if (hit && rest !~ trig) w = 1   # ifadeler cikarilinca tetikleyici kalmadiysa muaf
       if ((mode == "waived") == w) print
     }' <<<"$r1_raw"
   # awk'in cikis kodu $(...) icinde kaybolur ve bos bir secim "temiz" okunur — tam

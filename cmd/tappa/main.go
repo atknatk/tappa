@@ -1018,6 +1018,15 @@ func run() error {
 		return err
 	}
 
+	// THE NATIVE APP'S ASSOCIATION FILES (M16-08): each served only while its platform is configured.
+	// The start-up line says which, in both states, so "not served" is read rather than inferred.
+	appLinks, err := handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
+	if err != nil {
+		return err
+	}
+	slog.Info("app association files", "apple_app_site_association", cfg.AppAppleTeamID != "",
+		"assetlinks", len(cfg.AppAndroidSignerSHA256) > 0)
+
 	// THE PROCESS'S ONE http.Server: the panel, the tap surface, the operator's host and
 	// the integration API's host are routes of the same handler (httpx.NewRouter routes
 	// by host), so every bound here covers all of them. Its three timeouts are set by
@@ -1025,7 +1034,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools, appLinks),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

@@ -185,10 +185,12 @@ type appFeatures struct {
 	// api and devTools are nil interfaces when off, exactly as run() hands them.
 	api      httpx.Mounter
 	devTools httpx.Mounter
+	// appLinks mounts the files whose platform walkConfig configured: none off, both on.
+	appLinks *handler.AppLinks
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools, f.appLinks)
 }
 
 func (f appFeatures) named() []struct {
@@ -202,7 +204,7 @@ func (f appFeatures) named() []struct {
 		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
-		{"api", f.api}, {"devtools", f.devTools},
+		{"api", f.api}, {"devtools", f.devTools}, {"applinks", f.appLinks},
 	}
 }
 
@@ -225,6 +227,9 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 		// The panel identity flag (ADR 0031 §8): on, the panel mounts its identity surfaces, and
 		// the walk must classify them too (M14-11).
 		cfg.AdminIdentity = true
+		// The native app's two association files (M16-08), with fake values of the right shapes.
+		cfg.AppAppleTeamID = "ABCDE12345"
+		cfg.AppAndroidSignerSHA256 = []string{"14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5"}
 	}
 	return cfg
 }
@@ -317,6 +322,9 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
 	}
+	// As run() builds it, from the configuration: walkConfig sets both platforms only when on.
+	f.appLinks, err = handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
+	must(err)
 	if !on {
 		return f
 	}

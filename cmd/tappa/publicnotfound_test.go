@@ -56,7 +56,7 @@ func answerOf(h http.Handler, method, host, path string) wireAnswer {
 // withoutMarketing is appRouter's composition with every feature but Marketing.
 func (f appFeatures) withoutMarketing(cfg *config.Config) http.Handler {
 	return httpx.NewRouter(cfg, nil, f.activation, f.tap, f.panel, f.logos, f.signupFlow, f.resetFlow,
-		f.ready, f.theme, f.operator, f.api, f.devTools)
+		f.ready, f.theme, f.operator, f.api, f.devTools, f.appLinks)
 }
 
 // publicRoutes is every "METHOD /pattern" the public site's two features mount: Marketing
@@ -244,7 +244,7 @@ func TestAppRouter_ThePublicNotFoundIsLoggedWithoutItsPath(t *testing.T) {
 	f := buildAppFeatures(t, cfg, false)
 	var buf bytes.Buffer
 	h := appRouter(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing,
-		f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools)
+		f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools, f.appLinks)
 	if got := answerOf(h, http.MethodGet, customerHost, "/lp12canary/x?q=lp12canary"); !got.isThePage() {
 		t.Fatalf("PREMISE: the canary path got %d without the page", got.status)
 	}
