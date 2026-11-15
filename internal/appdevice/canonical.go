@@ -55,17 +55,28 @@ const (
 	maxPathLen = 1024
 )
 
-// canonical is THE definition of the signed bytes. Every caller -- the verifier and the
-// exported CanonicalText -- goes through it; the fields are already validated.
-func canonical(method, path string, bodyDigest [sha256.Size]byte, nonceWire string, deviceID uuid.UUID) []byte {
+// ReadPrefix is the first line of a SIGNED READ's canonical text (version 1; read.go, M16-07):
+// GET /app/v1/me, POST /app/v1/tap/start and POST /app/v1/nonce change no state, so they carry a
+// signed timestamp in the fifth line instead of a single-use nonce. A different prefix is the
+// whole of the separation: a read's signature can never be replayed as a state-changing
+// request's, nor the other way round, because no text of one kind starts with the other's bytes.
+const ReadPrefix = "tappa-app-read-v1"
+
+// canonical is THE definition of the signed bytes. Every caller -- the verifier, the signed
+// read (read.go), the activation's proof of possession (activation.go) and the exported
+// CanonicalText / CanonicalReadText -- goes through it; the fields are already validated.
+//
+// prefix is CanonicalPrefix or ReadPrefix; freshness is the fifth line: the nonce's wire string
+// for a state-changing request, the decimal Unix second for a read. Six lines either way.
+func canonical(prefix, method, path string, bodyDigest [sha256.Size]byte, freshness string, deviceID uuid.UUID) []byte {
 	var b strings.Builder
-	b.Grow(len(CanonicalPrefix) + len(method) + len(path) + 2*sha256.Size + nonceLen + 36 + 6)
+	b.Grow(len(prefix) + len(method) + len(path) + 2*sha256.Size + len(freshness) + 36 + 6)
 	for _, field := range []string{
-		CanonicalPrefix,
+		prefix,
 		method,
 		path,
 		hex.EncodeToString(bodyDigest[:]),
-		nonceWire,
+		freshness,
 		deviceID.String(),
 	} {
 		b.WriteString(field)
@@ -90,7 +101,7 @@ func CanonicalText(method, path string, body []byte, nonceWire, deviceID string)
 	if err != nil {
 		return nil, err
 	}
-	return canonical(method, path, sha256.Sum256(body), n.wire(), id), nil
+	return canonical(CanonicalPrefix, method, path, sha256.Sum256(body), n.wire(), id), nil
 }
 
 // validMethod: 1..16 upper-case ASCII letters (RFC 9110 methods are case-sensitive tokens; the

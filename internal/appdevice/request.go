@@ -114,6 +114,11 @@ func FromHTTP(r *http.Request, body []byte) (SignedRequest, error) {
 	if r == nil || r.URL == nil || r.URL.RawQuery != "" || r.URL.ForceQuery {
 		return SignedRequest{}, ErrMalformed
 	}
+	// ONE SCHEME PER REQUEST (M16-07): a request carrying a read's timestamp beside the nonce
+	// would leave "which freshness did the signer mean" to the endpoint that happens to read it.
+	if len(r.Header.Values(HeaderTimestamp)) != 0 {
+		return SignedRequest{}, ErrMalformed
+	}
 	device, ok1 := single(r.Header, HeaderDeviceID)
 	nonce, ok2 := single(r.Header, HeaderNonce)
 	sig, ok3 := single(r.Header, HeaderSignature)
@@ -168,7 +173,7 @@ func (s SignedRequest) get() *signedRequest {
 // canonicalText is the request's canonical text, through the one builder.
 func (s SignedRequest) canonicalText() []byte {
 	r := s.get()
-	return canonical(r.method, r.path, r.bodyDigest, r.nonce.wire(), r.deviceID)
+	return canonical(CanonicalPrefix, r.method, r.path, r.bodyDigest, r.nonce.wire(), r.deviceID)
 }
 
 // Format implements fmt.Formatter for every verb.

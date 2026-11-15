@@ -2528,6 +2528,30 @@ report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / 
 report WARN R7 "R7 muafiyeti kullanildi (yola VE belirtece sinirli) — muafiyet sessiz kalamaz" \
   "$(r7_select waived)"
 
+# --- R7, UYGULAMA YUZEYI KOLU (M16-07, CLAUDE.md §7) --------------------------
+#
+# NEDEN: /app/v1'in handler dosyalari (internal/handler/app*.go) §7'nin M16-01'de genisleyen
+# listesinin ucunu ellerinde tutar -- cihaz IMZASI, istek NONCE'u, aktivasyon CHALLENGE'i -- ve
+# ayrica cihazin ACIK ANAHTARINI ve onay BAGINI (binding). Yukaridaki R7_PATTERN bunlarin hicbirini
+# tetiklemez; Go tarafina yalin `signature` eklemek 35 satirlik olculmus gurultudur (API-3). Bu kol
+# o yuzden YALNIZ bu dosyalara bakar: R7_PATTERN'in cagri sekli ve penceresi, bes kok daha.
+# GURULTU ONCE OLCULDU (2026-11-14, M16-07'nin agaci): kok seti bu dosyalarda 2 isabet verdi, ikisi
+# de bir log MESAJININ duzyazisi ("drawing the challenge failed", "deriving the binding failed") --
+# deger degil; mesajlar yeniden yazildi, kural kor kaldi (deponun yonu). internal/appdevice'in tek
+# isabeti (`slog.StringValue(redactedNonce)`, redaksiyonun KENDISI) kapsam disidir: o pakette logger
+# yoktur (TestPackage_HasNoLogger) ve bu kol onu taramaz. Kapsam bir DOSYA ADI desenidir: /app/v1'e
+# app*.go adiyla eklenen her handler dosyasi kendiliginden taranir; baska adli bir dosya taranmaz --
+# sinir, adiyla. Pin: cmd/tappa/scripttest TestRedline_M16_AppSurfaceLogCalls.
+APP_SURFACE_SRC=(internal/handler)
+R7A_TRIGGERS='signature|\bsig\b|nonce|challenge|public_?key|binding'
+R7A_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*(?i:$R7A_TRIGGERS)"
+r7a_hits=""
+if [[ -d internal/handler ]]; then
+  r7a_hits=$(scan_in APP_SURFACE_SRC -U --glob 'app*.go' -e "$R7A_PATTERN")
+fi
+report FAIL R7 "Imza / nonce / challenge / acik anahtar / onay bagi uygulama yuzeyinin log cagrisinda (internal/handler/app*.go) — CLAUDE.md §7" \
+  "$r7a_hits"
+
 # --- R7, MOBIL LOG KOLU (M16-02, ADR 0045 §3 + CLAUDE.md §7) -----------------
 #
 # NEDEN AYRI KOL. Yukaridaki R7_PATTERN Go'nun cagri sekline (`slog|log|fmt` + nokta)

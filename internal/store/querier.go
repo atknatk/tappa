@@ -1919,6 +1919,13 @@ type Querier interface {
 	// RETURNING makes "nothing was bound there" distinguishable from "it was removed"
 	// without a second SELECT.
 	DetachPolicyResource(ctx context.Context, arg DetachPolicyResourceParams) (DetachPolicyResourceRow, error)
+	// The live-nonce cap (M16-07, appdevice.MaxLiveNonces): deletes every live nonce of one device
+	// but the @keep newest, so the insert that follows leaves at most @keep + 1. OVER THE CAP THE
+	// OLDEST GOES AND THE REQUEST IS NEVER REFUSED (M16-05 review: a refusal would let whoever can
+	// sign for the device keep the real phone from getting a nonce). Fail-closed like the dead sweep:
+	// a deleted nonce can only ever be a reject. ⚠️ ATOMIC ONLY AFTER LockAppDeviceForNonce in the
+	// same transaction -- on its own this is a read-then-write over the device's nonces.
+	DropOldestLiveAppRequestNonces(ctx context.Context, arg DropOldestLiveAppRequestNoncesParams) (int64, error)
 	// invitequeue.sql -- K-17's invitation queue (M11 API-6; ADR 0028 §9, ADR 0022's M11 note).
 	//
 	// WHAT A ROW IS. invite_requests (00037) holds ONE request per employee -- (tenant_id,
@@ -3820,10 +3827,14 @@ type Querier interface {
 	// rotated_at are the table's (default, NULL). A second endpoint of the business meets
 	// webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 	InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error)
-	// A READ used ONLY to label a refused activation for audit_log (internal/invite
+	// A READ used to label a refused activation for audit_log (internal/invite
 	// classify): "nobody consented / another browser consented" versus the other
-	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
-	// and nothing branches on this value before consuming.
+	// refusals. It is NOT the gate -- the gate is the consuming statement's own WHERE.
+	// Its one other reader (M16-07, invite.Manager.ConsentBound) is the app
+	// activation's NON-ADVANCING pre-check: an unbound key is refused before
+	// sun.Verify moves the plaque's counter. A stale "true" only lets the request
+	// reach the consuming statement, which then refuses it; nothing is ever
+	// accepted on this value.
 	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
 	// Whether an address is, as citext, the address of an administrator of THIS business (ADR
 	// 0022 §7: an activation link mailed to the panel's own inbox is ADR 0005 Y-D with one step
@@ -5702,6 +5713,14 @@ type Querier interface {
 	LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error
 	// One membership of this business, locked; no row: not a membership here.
 	LockAdminMember(ctx context.Context, arg LockAdminMemberParams) (LockAdminMemberRow, error)
+	// The FIRST statement of IssueNonce's transaction (M16-07): it takes the device row's lock before
+	// any nonce row is touched -- the revocation's order (device row, then nonce rows; M16-03's D1) --
+	// and it is what makes the live-nonce cap atomic: two issues of one device queue here, so the
+	// drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
+	// FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
+	// closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
+	// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00104).
+	LockAppDeviceForNonce(ctx context.Context, arg LockAppDeviceForNonceParams) (uuid.UUID, error)
 	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
 	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
 	// concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now

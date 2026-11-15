@@ -113,9 +113,22 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   *"a signed-out phone tapped"* uyarısının eşi (`internal/handler/tap.go:441-462`, `internal/domain/checkin/checkin.go:79`, `:548` (`OutcomeActivation`));
   deaktive bir çalışanın cihazı ise iptal edilmemiştir, çözülür ve satır 4'ü `employees.status` +
   `sys:employee-deactivated` üretir (`reject` + kayıt + güvenlik uyarısı).
-- **Kişi başına tek "kim" kimlik bilgisi (öneri, Q40 açık — kabulle kararlaşmadı).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
+- **Kişi başına tek "kim" kimlik bilgisi — karar (kullanıcı, 2026-11-14, Q40 (a)).** ADR 0026'nın *"ikinci cihaz ilkinin yerini alır"* kuralı
   (`internal/handler/activate.go:1068-1077`) uygulamaya genişler: uygulama aktivasyonu tarayıcı oturumlarını, tarayıcı
-  aktivasyonu uygulama cihazlarını iptal eder.
+  aktivasyonu uygulama cihazlarını iptal eder; **deaktivasyon hiçbirini iptal etmez** (2026-08-07). Davet linki
+  (`/activate`) uygulamaya **bağlanmaz**: tarayıcıda açılır, uygulama aktivasyonu kendi ekranından davet **kodunu** alır.
+
+  > **M16-07 uygulama notu (2026-11-14).** Ölçülen şekil: iki yarı da davetin **tüketildiği transaction'dadır** — geri
+  > alınan bir aktivasyon hiçbir şeyi iptal etmez. Tarayıcı yarısı: `invite.Manager.Activate` tüketimden sonra aynı
+  > transaction'da `RevokeAppDevicesForEmployee`'yi koşar (sayısı `activation.completed` satırının
+  > `app_devices_revoked`'ında). Uygulama yarısı: `invite.Manager.ActivateDevice` tek transaction'da tüketir, kişinin
+  > tarayıcı oturumlarını (`RevokeSessionsForEmployee`) ve eski uygulama cihazlarını iptal eder, sonra yeni cihazı
+  > `CreateAppDevice` ile **etkin** doğurur; `app_devices_key_digest_key` 23505'i bütün transaction'ı geri alır
+  > (`new_key_required`, davet harcanmaz). Bağ (`bind`) davetin var olan `consent_binding_hash`'ine yazılır — migration
+  > gerekmedi: bağ değeri, sunucunun çektiği 256 bitlik meydan okuma + aktivasyon kimliği + açık anahtardan türetilen
+  > 43 karakterlik bir değerdir (`appdevice.ActivationBinding`), tamamlamanın imzası o meydan okuma üzerindedir
+  > (`appdevice.VerifyActivation` — `CreateAppDevice`'tan önceki sahiplik kanıtı). Testler:
+  > `TestAppDB_OneWhoCredentialPerPerson`, `TestAppDB_ARegisteredKeyAsksForANewKeyAndSpendsNothing`.
 - **İptal yolları tarayıcınınkilerin aynısıdır:** panelin *"telefonlarını çıkar"* eylemi (T59,
   `internal/handler/employeeactions.go:690`) ve tek cihaz iptali (M16-26 — yeni bir yazma yolu) uygulama cihazını
   kapatır; **ikisi de deaktive bir kişide reddedilir** (`tenant.ErrSignOutDeactivated`,
@@ -126,6 +139,9 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   ulaşmalı ve **kaydedilmelidir**; iptal onu satır 3'ün kayıtsız yoluna iterdi (§4.6). Handoff §2'nin *"offboarding:
   tek tık → oturum o saniye ölür"* cümlesi bu karardan önce yazılmıştır: deaktivasyonun etkisi oturumun ölmesi değil,
   sonraki her dokunuşun **reddedilip kaydedilmesidir** — uygulamada da.
+- **Tel sözleşmesinin sürümlemesi (ana oturum kararı, 2026-11-14, M16-07).** `/app/v1` gövdeleri **katı** çözülür
+  (bilinmeyen alan 400). Kural: **sunucu, yeni bir alan gönderen her uygulama sürümünden önce sevk edilir**; sözleşme
+  tablosu `docs/plan/m16-mobil.md` M16-07'nin *"Tel sözleşmesi"* bloğundadır.
 - Bu, Q11'i **uygulama kullanıcıları için** çözer (çerez yok); tarayıcı kullanıcıları için Q11 açık kalır.
 - **Buddy punching değişmez** (ADR 0005 risk 1, A4): telefonunu arkadaşına veren çalışan yine geçer. Cihaz anahtarı
   oturumun *kopyalanmasını* durdurur, telefonun *devredilmesini* değil.
@@ -311,6 +327,10 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
     sunucuda Google'a çağrı yerine yerel doğrulama tercih edilir (Q37). Kanıttan öte değeri yoktur (§2.7).
 13. **İki Android dizini.** `android/` (röle) ve `mobile/android/` (personel uygulaması) ayrı Gradle build'leridir;
     karışıklık bedeli dizin haritası ve README ile ödenir.
+14. **İmzalı okuma 60 sn içinde tekrarlanabilir** (M16-07, `internal/appdevice/read.go`). Ele geçirilmiş bir okuma
+    (`/me`, `tap/start`, `/nonce`) pencere içinde yeniden gönderilebilir; döndürdüğü şey cihazın kendi adı/markası, cihaza
+    bağlı bir tap bağlamı ya da kullanmak için yine anahtar isteyen bir nonce'tur. Tekrar, gerçek cihazın oran sınırı
+    kovasını harcayabilir. Bunun için TLS trafiğini yakalamak gerekir; kabul edildi.
 
 ## 5. Okunanlar ve doğrulanacaklar
 
@@ -335,7 +355,7 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
    ayrıca adı geçenler: BLE beacon, Wi-Fi SSID/BSSID ve paylaşılan kiosk + PIN reddi (§2.5); Flutter / KMP reddi,
    `mobile/ios/` + `mobile/android/` yeri ve üçüncü parti SDK yokluğu (§2.2).
    **İstisna:** açık bir soruya bağlı maddeler (Q35–Q42; ör. §2.3'ün tek kimlik bilgisi maddesi → Q40) o soru
-   cevaplanana kadar öneri kalır. Holding `qr_live` Q43'ün cevabıyla (2026-11-14) karardır: kapalı, site sütunları dolu. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
+   cevaplanana kadar öneri kalır. (Q40 2026-11-14'te **(a)** cevaplandı; §2.3'ün maddesi artık karardır — M16-07.) Holding `qr_live` Q43'ün cevabıyla (2026-11-14) karardır: kapalı, site sütunları dolu. Önerilen adlar (ör. `base:mock-location-review`, `/app/v1`
    uç noktaları) kartlarda yine yapıcının ölçümüyle kesinleşir.
 2. **Dal `plan/m16-mobil` push edildi; `main`'e birleştirilmedi.**
 3. **Sıra:** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından **D, E, F**.

@@ -289,10 +289,14 @@ WHERE employee_invites.code_hash = @code_hash
 RETURNING employee_invites.id, employee_invites.consented_at;
 
 -- name: InviteConsentMatches :one
--- A READ used ONLY to label a refused activation for audit_log (internal/invite
+-- A READ used to label a refused activation for audit_log (internal/invite
 -- classify): "nobody consented / another browser consented" versus the other
--- refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
--- and nothing branches on this value before consuming.
+-- refusals. It is NOT the gate -- the gate is the consuming statement's own WHERE.
+-- Its one other reader (M16-07, invite.Manager.ConsentBound) is the app
+-- activation's NON-ADVANCING pre-check: an unbound key is refused before
+-- sun.Verify moves the plaque's counter. A stale "true" only lets the request
+-- reach the consuming statement, which then refuses it; nothing is ever
+-- accepted on this value.
 SELECT (consented_at IS NOT NULL
         AND consent_binding_hash IS NOT DISTINCT FROM @consent_binding_hash::text)::boolean AS matches
 FROM employee_invites

@@ -25,7 +25,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
@@ -487,11 +486,6 @@ func TestVerify_ConcurrentReplay_ExactlyOne(t *testing.T) {
 	}
 }
 
-func isDeadlock(err error) bool {
-	var pe *pgconn.PgError
-	return errors.As(err, &pe) && pe.Code == "40P01"
-}
-
 // TestVerify_ConcurrentRequestsOfOneDevice_AllSpend: rule D2 -- Touch before consume. N requests
 // of ONE device over N different nonces, at once: every one is accepted and none deadlocks
 // (consume-then-touch upgraded a share lock and gave 40P01, M16-03's re-check).
@@ -499,7 +493,9 @@ func TestVerify_ConcurrentRequestsOfOneDevice_AllSpend(t *testing.T) {
 	d := appDB(t)
 	v := dbVerifier(t, d)
 	p := addPhone(t, d, newWorld(t, d))
-	const n = 16
+	// MaxLiveNonces, not more (M16-07): the cap drops the oldest live nonce past it, so a device
+	// holding more than the cap at once is exactly the case the cap exists to end.
+	const n = MaxLiveNonces
 	reqs := make([]SignedRequest, n)
 	for i := range reqs {
 		reqs[i] = signed(t, p, issue(t, v, p).Wire())
@@ -619,4 +615,106 @@ func boolText(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// liveNonces counts p's unspent, unexpired nonces as the tenant (RLS on).
+func liveNonces(t *testing.T, d *db.DB, p phone) int {
+	t.Helper()
+	var n int32
+	err := d.WithTenant(context.Background(), p.w.tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		n, e = store.New(tx).CountLiveAppRequestNonces(ctx, store.CountLiveAppRequestNoncesParams{TenantID: p.w.tenant, DeviceID: p.id})
+		return e
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int(n)
+}
+
+// TestIssueNonce_TheCapDropsTheOldestAndNeverRefuses: M16-07's live-nonce cap. Past
+// MaxLiveNonces every issue still SUCCEEDS (a refusal would let whoever can sign for the device
+// starve the real phone) and the oldest live nonces are the ones dropped: the newest cap's worth
+// verify, the first issued does not.
+func TestIssueNonce_TheCapDropsTheOldestAndNeverRefuses(t *testing.T) {
+	d := appDB(t)
+	v := dbVerifier(t, d)
+	p := addPhone(t, d, newWorld(t, d))
+	var wires []string
+	for range MaxLiveNonces + 3 {
+		wires = append(wires, issue(t, v, p).Wire())
+	}
+	if n := liveNonces(t, d, p); n != MaxLiveNonces {
+		t.Fatalf("%d live nonces after %d issues, want the cap %d", n, len(wires), MaxLiveNonces)
+	}
+	if _, err := v.Verify(context.Background(), signed(t, p, wires[0])); !errors.Is(err, ErrNonceRejected) {
+		t.Fatalf("the oldest nonce: %v, want ErrNonceRejected (dropped by the cap)", err)
+	}
+	for _, w := range wires[len(wires)-MaxLiveNonces:] {
+		if _, err := v.Verify(context.Background(), signed(t, p, w)); err != nil {
+			t.Fatalf("one of the newest %d nonces was refused: %v", MaxLiveNonces, err)
+		}
+	}
+}
+
+// TestIssueNonce_ConcurrentIssuesStayUnderTheCap: the cap is atomic because the device row is
+// locked in a PREVIOUS statement (LockAppDeviceForNonce) -- N concurrent issues of one device all
+// succeed, none deadlocks, and the device ends with at most MaxLiveNonces live nonces. A count
+// folded into the INSERT was measured exceeding a cap of 1 (M16-03); this is the shape the card
+// asked for instead.
+func TestIssueNonce_ConcurrentIssuesStayUnderTheCap(t *testing.T) {
+	d := appDB(t)
+	v := dbVerifier(t, d)
+	p := addPhone(t, d, newWorld(t, d))
+	const n = 4 * MaxLiveNonces
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = v.IssueNonce(context.Background(), p.id)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("issue %d: %v (deadlock: %v)", i, err, isDeadlock(err))
+		}
+	}
+	if live := liveNonces(t, d, p); live > MaxLiveNonces || live < 1 {
+		t.Fatalf("%d live nonces after %d concurrent issues, want 1..%d", live, n, MaxLiveNonces)
+	}
+}
+
+// TestRevoke_TheDevicesOwnSignOut: Verifier.Revoke stamps the device once (a repeat is
+// idempotent), kills its nonces in the same statement, and from then on the device is refused
+// before its signature -- and is given no nonce.
+func TestRevoke_TheDevicesOwnSignOut(t *testing.T) {
+	d := appDB(t)
+	v := dbVerifier(t, d)
+	p := addPhone(t, d, newWorld(t, d))
+	n := issue(t, v, p)
+	dev := Device{ID: p.id, TenantID: p.w.tenant, EmployeeID: p.w.employee}
+	if err := v.Revoke(context.Background(), dev); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if err := v.Revoke(context.Background(), dev); err != nil {
+		t.Fatalf("a second Revoke: %v (want idempotent)", err)
+	}
+	if live := liveNonces(t, d, p); live != 0 {
+		t.Fatalf("%d live nonces after the revocation, want 0", live)
+	}
+	if _, err := v.Verify(context.Background(), signed(t, p, n.Wire())); !errors.Is(err, ErrRevokedDevice) {
+		t.Fatalf("Verify after Revoke: %v, want ErrRevokedDevice", err)
+	}
+	if _, err := v.IssueNonce(context.Background(), p.id); !errors.Is(err, ErrRevokedDevice) {
+		t.Fatalf("IssueNonce after Revoke: %v, want ErrRevokedDevice", err)
+	}
+	if err := v.Revoke(context.Background(), Device{}); err == nil {
+		t.Fatal("Revoke of a zero device succeeded")
+	}
 }

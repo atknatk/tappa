@@ -555,10 +555,14 @@ type InviteConsentMatchesParams struct {
 	TenantID           uuid.UUID
 }
 
-// A READ used ONLY to label a refused activation for audit_log (internal/invite
+// A READ used to label a refused activation for audit_log (internal/invite
 // classify): "nobody consented / another browser consented" versus the other
-// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
-// and nothing branches on this value before consuming.
+// refusals. It is NOT the gate -- the gate is the consuming statement's own WHERE.
+// Its one other reader (M16-07, invite.Manager.ConsentBound) is the app
+// activation's NON-ADVANCING pre-check: an unbound key is refused before
+// sun.Verify moves the plaque's counter. A stale "true" only lets the request
+// reach the consuming statement, which then refuses it; nothing is ever
+// accepted on this value.
 func (q *Queries) InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error) {
 	row := q.db.QueryRow(ctx, inviteConsentMatches, arg.ConsentBindingHash, arg.CodeHash, arg.TenantID)
 	var matches bool

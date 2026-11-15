@@ -180,3 +180,87 @@ func TestCanonicalText_MalformedVectors(t *testing.T) {
 		})
 	}
 }
+
+// readVectorFile is the M16-07 half of the vectors file: the signed reads.
+type readVectorFile struct {
+	Keys map[string]struct {
+		PublicKeyHex string `json:"public_point_hex"`
+	} `json:"keys"`
+	Reads []struct {
+		Name               string `json:"name"`
+		Method             string `json:"method"`
+		Path               string `json:"path"`
+		BodyUTF8           string `json:"body_utf8"`
+		BodySHA256Hex      string `json:"body_sha256_hex"`
+		Timestamp          string `json:"timestamp"`
+		DeviceID           string `json:"device_id"`
+		CanonicalText      string `json:"canonical_text"`
+		CanonicalSHA256Hex string `json:"canonical_sha256_hex"`
+	} `json:"reads"`
+	ReadSignatures []struct {
+		Name      string `json:"name"`
+		Read      string `json:"read"`
+		Key       string `json:"key"`
+		Signature string `json:"signature_b64url"`
+		Valid     bool   `json:"valid"`
+	} `json:"read_signatures"`
+}
+
+// TestCanonicalReadText_KnownAnswers: the read builder reproduces every printf-written read text
+// byte for byte, and every OpenSSL read signature verifies exactly when the vector says so.
+func TestCanonicalReadText_KnownAnswers(t *testing.T) {
+	raw, err := os.ReadFile(vectorsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v readVectorFile
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Reads) < 3 || len(v.ReadSignatures) < 6 {
+		t.Fatalf("the read vectors lost entries: %d reads, %d signatures", len(v.Reads), len(v.ReadSignatures))
+	}
+	texts := map[string]string{}
+	for _, r := range v.Reads {
+		got, err := CanonicalReadText(r.Method, r.Path, []byte(r.BodyUTF8), r.Timestamp, r.DeviceID)
+		if err != nil {
+			t.Fatalf("%s: CanonicalReadText: %v", r.Name, err)
+		}
+		if string(got) != r.CanonicalText {
+			t.Fatalf("%s: the read text differs from the vector", r.Name)
+		}
+		if sum := sha256.Sum256(got); hex.EncodeToString(sum[:]) != r.CanonicalSHA256Hex {
+			t.Fatalf("%s: the text digest differs", r.Name)
+		}
+		if sum := sha256.Sum256([]byte(r.BodyUTF8)); hex.EncodeToString(sum[:]) != r.BodySHA256Hex {
+			t.Fatalf("%s: the body digest differs", r.Name)
+		}
+		texts[r.Name] = r.CanonicalText
+	}
+	valid, invalid := 0, 0
+	for _, s := range v.ReadSignatures {
+		k, ok := v.Keys[s.Key]
+		if !ok {
+			t.Fatalf("%s names key %q", s.Name, s.Key)
+		}
+		pub, err := ParsePublicKey(mustHex(t, k.PublicKeyHex))
+		if err != nil {
+			t.Fatalf("%s: key: %v", s.Name, err)
+		}
+		sig, err := signatureEncoding.DecodeString(s.Signature)
+		if err != nil {
+			t.Fatalf("%s: signature encoding: %v", s.Name, err)
+		}
+		if got := verifySignature(pub, []byte(texts[s.Read]), sig); got != s.Valid {
+			t.Errorf("%s: verifies = %v, the vector says %v", s.Name, got, s.Valid)
+		}
+		if s.Valid {
+			valid++
+		} else {
+			invalid++
+		}
+	}
+	if valid == 0 || invalid == 0 {
+		t.Fatalf("%d valid and %d invalid read signatures: the file must hold both", valid, invalid)
+	}
+}

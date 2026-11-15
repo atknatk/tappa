@@ -53,6 +53,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
@@ -134,11 +135,25 @@ type IssuedNonce struct {
 	ExpiresAt time.Time
 }
 
+// MaxLiveNonces is how many unspent, unexpired nonces one device may hold (M16-07; the card's
+// "tablo şişirilemesin"). The app asks for one nonce per request and spends it at once, so a
+// genuine phone holds one, two while a retry overlaps; eight is room for a burst of retries.
+//
+// 🔴 OVER THE CAP THE OLDEST IS DROPPED -- THE REQUEST IS NEVER REFUSED (M16-05 review). The
+// nonce request is answered to anyone who can sign for the device, and refusing at the cap would
+// let a stolen request loop keep the real phone from ever getting a nonce. Dropping the oldest
+// keeps the table bounded and leaves the newest -- the one the asking phone is about to spend --
+// alive.
+const MaxLiveNonces = 8
+
 // Verifier issues nonces and verifies signed requests. Dependencies are struct fields (§7).
 type Verifier struct {
 	data Database
 	// ttl is NonceTTL; a field so an in-package test can shorten it to measure expiry.
 	ttl time.Duration
+	// now is the clock a signed read's timestamp is judged against (VerifyRead); nil reads
+	// the wall clock. A field so a test can move it.
+	now func() time.Time
 }
 
 // New builds a Verifier.
@@ -149,21 +164,37 @@ func New(data Database) (*Verifier, error) {
 	return &Verifier{data: data, ttl: NonceTTL}, nil
 }
 
+func (v *Verifier) clock() time.Time {
+	if v.now != nil {
+		return v.now()
+	}
+	return time.Now()
+}
+
 // IssueNonce draws a fresh nonce for a LIVE device and records its hash. An unknown and a
 // revoked device get the same refusal as in Verify (ErrUnknownDevice / ErrRevokedDevice, one
 // text); a device revoked while this runs inserts nothing (IssueAppRequestNonce reads the device
 // row FOR SHARE in the same statement) and is ErrRevokedDevice.
 //
-// ⚠️ COUNTED LIMIT, handed to M16-07: this answers "is this device id live" to anyone who sends
-// the id, signature or not -- the nonce request cannot be signed (it is what the signature
-// needs). A device id is a random UUID the device sends only over TLS, so knowing one is close
-// to holding a captured request; if that is not enough, the handler can answer a non-live id
-// with a decoy nonce it does not store, and the signed request then fails like any other.
+// ✅ M16-07 CLOSED THE ORACLE THIS COMMENT HANDED IT, without a decoy: the nonce route is a SIGNED
+// READ (read.go -- a timestamp, not a nonce, is what that request signs), so the handler calls
+// this only for a device whose key just signed. What remains is Verify's own counted limit: an
+// unknown or revoked id is refused before the signature is checked, so the ~0.2 ms of the curve
+// check separates a live id from a dead one by timing alone, under the database's noise.
 //
-// LOCK ORDER (M16-03 security re-check, D1): the insert takes the device row (FOR SHARE) and then
-// its own nonce row; the dead-nonce sweep runs AFTER it in the same transaction, so this path
-// takes the device row before any existing nonce row -- the revocation's order. Sweeping first
-// deadlocked against a concurrent revoke and the measured victim was the REVOKE.
+// LOCK ORDER (M16-03 security re-check, D1): the device row FIRST, in a statement of its own
+// (LockAppDeviceForNonce, FOR NO KEY UPDATE), then nonce rows -- the revocation's order. Sweeping
+// before the device row deadlocked against a concurrent revoke and the measured victim was the
+// REVOKE.
+//
+// THE CAP (MaxLiveNonces, M16-07) runs under that lock: with the device row held, two issues of
+// one device queue on it, so "drop all but the newest MaxLiveNonces-1, then insert one" cannot be
+// interleaved -- the count the M16-03 re-check measured exceeding a cap of 1 under FOR SHARE and
+// FOR UPDATE OF d folded into the INSERT was a count inside the same statement; this one is a
+// statement after the lock. The sweep of dead nonces still runs AFTER the insert.
+//
+// The caller (the /app/v1 nonce endpoint) has ALREADY authenticated a signed read for this
+// device (VerifyRead) and charged the source's budget; this function does not authenticate.
 func (v *Verifier) IssueNonce(ctx context.Context, deviceID uuid.UUID) (IssuedNonce, error) {
 	if deviceID == uuid.Nil {
 		return IssuedNonce{}, ErrMalformed
@@ -179,6 +210,19 @@ func (v *Verifier) IssueNonce(ctx context.Context, deviceID uuid.UUID) (IssuedNo
 	var expires time.Time
 	err = v.data.WithTenant(ctx, dev.TenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
+		if _, e := q.LockAppDeviceForNonce(ctx, store.LockAppDeviceForNonceParams{
+			ID: dev.ID, TenantID: dev.TenantID,
+		}); e != nil {
+			if errors.Is(e, pgx.ErrNoRows) {
+				return ErrRevokedDevice
+			}
+			return e
+		}
+		if _, e := q.DropOldestLiveAppRequestNonces(ctx, store.DropOldestLiveAppRequestNoncesParams{
+			TenantID: dev.TenantID, DeviceID: dev.ID, Keep: int32(MaxLiveNonces - 1),
+		}); e != nil {
+			return e
+		}
 		row, e := q.IssueAppRequestNonce(ctx, store.IssueAppRequestNonceParams{
 			NonceHash:  n.hash(),
 			TtlSeconds: int32(v.ttl / time.Second),
@@ -310,4 +354,40 @@ func (v *Verifier) spend(ctx context.Context, dev db.ResolvedAppDevice, n Nonce)
 		return fmt.Errorf("appdevice: spend: %w", err)
 	}
 	return nil
+}
+
+// Revoke is the device's own sign-out (POST /app/v1/revoke): RevokeAppDevice, which stamps the
+// device once (COALESCE keeps the first stamp, so a repeat is idempotent) and kills its nonces in
+// the same statement. The caller has just verified a NONCE-signed request from this device.
+//
+// 40P01 IS RETRIED (M16-03's rule: "the revoke's caller retries on 40P01"): a revocation that
+// loses a deadlock must not leave a phone signed in. Three attempts; a fourth deadlock in a row
+// is returned, loudly, as the database failure it is.
+func (v *Verifier) Revoke(ctx context.Context, dev Device) error {
+	if dev.ID == uuid.Nil || dev.TenantID == uuid.Nil {
+		return errors.New("appdevice: revoke: device and tenant are required")
+	}
+	var err error
+	for attempt := 0; attempt < revokeAttempts; attempt++ {
+		err = v.data.WithTenant(ctx, dev.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := store.New(tx).RevokeAppDevice(ctx, store.RevokeAppDeviceParams{ID: dev.ID, TenantID: dev.TenantID})
+			return e
+		})
+		if !isDeadlock(err) {
+			break
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("appdevice: revoke: %w", err)
+	}
+	return nil
+}
+
+// revokeAttempts bounds Revoke's 40P01 retries.
+const revokeAttempts = 3
+
+// isDeadlock reports a 40P01 anywhere in err's chain.
+func isDeadlock(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "40P01"
 }
