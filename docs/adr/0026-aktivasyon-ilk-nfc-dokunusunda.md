@@ -305,3 +305,19 @@ iPhone/iPad'de `Safari/` jetonunun yokluğu — `embeddedBrowser`). User-agent'�
 Testler: `TestPage_CookieCheck`, `TestPage_CookieLostScreenSaysTheLinkStillWorks`,
 `TestPage_CookieLostIsLoggedCoarsely`, `TestPage_CookieLostLogIsBounded`, `TestEmbeddedBrowser`; `TestPage_ValidCodeMovesIntoCookieAndRedirects`
 artık işaretli `Location` bekler, `TestNoLogLineEverCarriesTheCode` yeni dalı da tarar.
+
+**Not (2026-11-17) — hangi tarayıcı onay verdi, hangisine dokunuldu.** Ölçülen: bir çalışanın iPhone'unda altı
+`activation.consented` satırı ve altı `GET /t` → `/activate?from=tap` → *"Finish setup in this browser"* gösterimi;
+onay veren sekmeler bu arada `/activate/status`'u yoklamaya devam etti. Hangi tarayıcıların işe karıştığı
+**ölçülmedi** — iki taraf da tarayıcıyı adlandırmıyordu; iç posta tarayıcısı ya da gizli sekme yalnız bir
+varsayımdır. İki ek, davranışı ve metni değiştirmeden: (1) `?from=tap` dalı aynı sözlük ve aynı bilinmeyen
+bütçesiyle bir INFO satırı yazar, `"activation tap reached a browser without a consented activation"` (`ip`,
+`device`, `embedded_browser`; bütçe aşılınca tek WARN, `at=activate_from_tap`); (2) `activation.consented`
+detayı `device` ve `embedded_browser` taşır (ikincisi bu satırda **açıkça** `false` da yazılır; öteki aktivasyon
+satırlarının biçimi değişmez). User-agent'ın kendisi yine yazılmaz. **Okuma tuzağı:** (1)'in satırı yalnız tarayıcıda okunabilir **hiç**
+aktivasyon çerezi yokken yazılır; onaysız bir çerez taşıyan tarayıcı `?from=tap`'te sihirbazı görür ve satır
+yazmaz — yani satırın **yokluğu**, dokunuşun onay veren tarayıcıya ulaştığı anlamına gelmez. Kurulu (oturumu canlı)
+telefon da *"already set up"* görür ve satır yazmaz. Testler: `TestPage_FinishHereTapIsLoggedCoarsely`,
+`TestPage_FinishHereLogIsBounded`, `TestPage_FinishHereSetUpPhoneIsNotLogged`,
+`TestSubmit_ConsentNamesTheBrowser`; `TestTap_CompletesAConsentedActivation` ve `TestFailures_AreAudited` öteki
+satırlarda `embedded_browser` olmadığını sabitler.

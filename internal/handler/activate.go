@@ -481,6 +481,7 @@ func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Query().Get("from") {
 	case "tap":
+		a.logFinishHere(r)
 		a.renderProblem(w, r, http.StatusOK, problemFinishHere)
 		return
 	case "signedout":
@@ -510,16 +511,40 @@ func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 // so without a bound a loop on it would be a free log writer. Past the budget the
 // answer is unchanged; only the line stops.
 func (a *Activation) logCookieLost(r *http.Request) {
+	a.logArrivingBrowser(r, "activation cookie did not return", "activate_cookie_check")
+}
+
+// logFinishHere names the browser an NFC tap opened when that browser holds no
+// consented activation (?from=tap). On 2026-11-17 one employee's iPhone produced six
+// activation.consented rows and six /t -> ?from=tap finish-here renders while the
+// consenting tabs kept polling /activate/status; nothing named the browsers on
+// either side, so which ones were involved (in-app mail browser? private tabs?) was
+// not measured. This line is the tap side; the consent side is the device label on
+// activation.consented (Submit). Same vocabulary and same bound as logCookieLost:
+// ?from=tap is a public URL.
+//
+// It is written only when the browser has NO readable activation cookie: one holding
+// an unconsented cookie is shown the wizard (Page) and logs nothing, so a missing
+// line does not mean the tap reached the consenting browser.
+func (a *Activation) logFinishHere(r *http.Request) {
+	a.logArrivingBrowser(r, "activation tap reached a browser without a consented activation", "activate_from_tap")
+}
+
+// logArrivingBrowser is the shared body of the two browser-naming lines above:
+// address plus the closed-vocabulary labels, charged to the unknown budget so a
+// loop on a public URL is not a free log writer. Past the budget the caller's
+// answer is unchanged; only the line stops, after one WARN saying so.
+func (a *Activation) logArrivingBrowser(r *http.Request, msg, at string) {
 	ip := clientIP(r)
 	n := a.unknownLimiter.Charge(ip)
 	switch {
 	case n <= unknownLimit:
 		ua := r.UserAgent()
-		a.log.Info("activation cookie did not return", "ip", ip,
+		a.log.Info(msg, "ip", ip,
 			"device", coarseDevice(ua), "embedded_browser", embeddedBrowser(ua))
 	case a.unknownLimiter.FirstOverLimit(n):
 		a.log.Warn("activation: further unattributable refusals from this address will not be logged this window",
-			"ip", ip, "at", "activate_cookie_check", "limit", unknownLimit, "period", unknownPeriod.String())
+			"ip", ip, "at", at, "limit", unknownLimit, "period", unknownPeriod.String())
 	}
 }
 
@@ -806,14 +831,21 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	// waiting tab (audit round 2, A).
 	a.codes.clearDone(w)
 
+	// Device and EmbeddedBrowser name the browser that agreed, so a later
+	// "finish setup in this browser" tap (logFinishHere) can be compared with it:
+	// on 2026-11-17 six consents and six such taps could not be told apart.
+	ua := r.UserAgent()
+	embedded := embeddedBrowser(ua)
 	a.record(r.Context(), audit.Event{
 		TenantID: consented.TenantID,
 		Action:   ActionActivationConsented,
 		Target:   consented.EmployeeID.String(),
 		Detail: activationDetail{
-			InviteID:     consented.InviteID.String(),
-			Outcome:      "ok",
-			SecondDevice: consented.SecondDevice(),
+			InviteID:        consented.InviteID.String(),
+			Outcome:         "ok",
+			SecondDevice:    consented.SecondDevice(),
+			Device:          coarseDevice(ua),
+			EmbeddedBrowser: &embedded,
 		},
 	})
 	a.redirect(w, r, "/activate?step=2")
@@ -1326,6 +1358,10 @@ type activationDetail struct {
 	// (device.go). It is here because ADR 0005 Y-D's detection signal is "N
 	// employees activated from one device", and that report needs the field.
 	Device string `json:"device,omitempty"`
+	// EmbeddedBrowser is embeddedBrowser's hint (device.go), written on
+	// activation.consented only. A pointer so that row says false explicitly
+	// rather than by omission, while every other activation row keeps its shape.
+	EmbeddedBrowser *bool `json:"embedded_browser,omitempty"`
 	// TagUID and LocationID name the plaque whose tap completed (or failed to
 	// complete) the activation (ADR 0026). The uid is not a secret — the chip
 	// prints it in the address bar — and it is only written for a plaque of the

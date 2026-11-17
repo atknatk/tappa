@@ -936,6 +936,7 @@ func TestFailures_AreAudited(t *testing.T) {
 			if d.Reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q", d.Reason, tc.wantReason)
 			}
+			assertNoEmbeddedBrowserKey(t, d)
 		})
 	}
 }
@@ -1073,6 +1074,21 @@ func TestTap_CompletesAConsentedActivation(t *testing.T) {
 	d := done.Detail.(activationDetail)
 	if d.TagUID != testPlaqueUID || d.LocationID != testPlaqueWall.String() {
 		t.Errorf("the completed row must name the plaque: tag_uid=%q location_id=%q", d.TagUID, d.LocationID)
+	}
+	assertNoEmbeddedBrowserKey(t, d)
+}
+
+// assertNoEmbeddedBrowserKey pins that embedded_browser stays on
+// activation.consented only (2026-11-17): every other activation row keeps the
+// shape it had before.
+func assertNoEmbeddedBrowserKey(t *testing.T, d activationDetail) {
+	t.Helper()
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatalf("marshal detail: %v", err)
+	}
+	if strings.Contains(string(raw), "embedded_browser") {
+		t.Errorf("a non-consent activation row carries embedded_browser: %s", raw)
 	}
 }
 
@@ -1686,6 +1702,168 @@ func TestPage_CookieLostLogIsBounded(t *testing.T) {
 	}
 }
 
+// iPhone user agents for the finish-here and consent tests: the phone's Safari, and
+// a mail app's embedded WKWebView (same platform part, no "Safari/" token). Each
+// carries a marker that must never reach a log line or an audit row.
+const (
+	iphoneSafariUA  = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1 UNIQUEsafariTOKEN"
+	iphoneWebViewUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 UNIQUEwebviewTOKEN"
+)
+
+// TestPage_FinishHereTapIsLoggedCoarsely: a tap that reaches a browser with no
+// consented activation (?from=tap) names that browser from the closed vocabulary,
+// never the user agent itself (§7, §4.1). On 2026-11-17 six such taps on one
+// iPhone could not be told apart because nothing was logged.
+func TestPage_FinishHereTapIsLoggedCoarsely(t *testing.T) {
+	const msg = "activation tap reached a browser without a consented activation"
+	for _, tc := range []struct {
+		name, ua, device, embedded, marker string
+	}{
+		{"iPhone Safari", iphoneSafariUA, `device="iPhone Safari"`, "embedded_browser=false", "UNIQUEsafariTOKEN"},
+		{"iPhone in-app WKWebView", iphoneWebViewUA, "device=iPhone", "embedded_browser=true", "UNIQUEwebviewTOKEN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logged strings.Builder
+			h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{log: &logged})
+			req := httptest.NewRequest(http.MethodGet, activationFromTap, nil)
+			req.RemoteAddr = "203.0.113.5:41234"
+			req.Header.Set("User-Agent", tc.ua)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), html.EscapeString(problemFinishHere.Title)) {
+				t.Fatalf("status %d, want the finish-here screen", w.Code)
+			}
+
+			out := logged.String()
+			if n := strings.Count(out, `level=INFO msg="`+msg+`"`); n != 1 {
+				t.Fatalf("%d finish-here lines, want exactly 1:\n%s", n, out)
+			}
+			for _, want := range []string{"ip=203.0.113.5", tc.device, tc.embedded} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the log line lacks %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, tc.marker) || strings.Contains(out, "AppleWebKit") || strings.Contains(out, "18_1") {
+				t.Errorf("the log line carries the user agent:\n%s", out)
+			}
+
+			// The signed-out landing and the bare landing are not this branch.
+			logged.Reset()
+			get(t, h, "/activate?from=signedout")
+			get(t, h, "/activate")
+			if strings.Contains(logged.String(), msg) {
+				t.Error("a landing that is not ?from=tap was logged as a finish-here tap")
+			}
+		})
+	}
+}
+
+// TestPage_FinishHereSetUpPhoneIsNotLogged: a phone with a live session that
+// reaches ?from=tap is told it is already set up, and the finish-here line is not
+// written — that line is for a browser holding no activation at all.
+func TestPage_FinishHereSetUpPhoneIsNotLogged(t *testing.T) {
+	var logged strings.Builder
+	h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{log: &logged})
+	sessionCookie := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	w := get(t, h, activationFromTap, sessionCookie)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "This phone is already set up") {
+		t.Fatalf("status %d, want the already-set-up page", w.Code)
+	}
+	if strings.Contains(w.Body.String(), html.EscapeString(problemFinishHere.Title)) {
+		t.Error("a set-up phone was told to finish setup")
+	}
+	if strings.Contains(logged.String(), "activation tap reached a browser without a consented activation") {
+		t.Errorf("a set-up phone was logged as a finish-here tap:\n%s", logged.String())
+	}
+}
+
+// TestPage_FinishHereLogIsBounded: ?from=tap is a public URL, so the line shares
+// the unknown budget. One address gets exactly unknownLimit INFO lines, then the
+// limiter's single WARN, then silence — and the page never changes.
+func TestPage_FinishHereLogIsBounded(t *testing.T) {
+	var logged strings.Builder
+	h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{log: &logged})
+	first := ""
+	for i := 0; i < unknownLimit+2; i++ {
+		w := get(t, h, activationFromTap)
+		body := w.Body.String()
+		if w.Code != http.StatusOK || !strings.Contains(body, html.EscapeString(problemFinishHere.Title)) {
+			t.Fatalf("request %d: status %d, want the finish-here screen every time", i, w.Code)
+		}
+		if i == 0 {
+			first = body
+		} else if body != first {
+			t.Fatalf("request %d: the page changed once the log budget ran out", i)
+		}
+	}
+	out := logged.String()
+	if n := strings.Count(out, `level=INFO msg="activation tap reached a browser without a consented activation"`); n != unknownLimit {
+		t.Errorf("%d INFO lines, want exactly %d (unknownLimit)", n, unknownLimit)
+	}
+	if n := strings.Count(out, `level=WARN msg="activation: further unattributable refusals from this address will not be logged this window"`); n != 1 {
+		t.Errorf("%d WARN lines, want exactly 1 from the shared limiter", n)
+	}
+	if !strings.Contains(out, "at=activate_from_tap") {
+		t.Errorf("the WARN line does not name the branch:\n%s", out)
+	}
+}
+
+// TestSubmit_ConsentNamesTheBrowser: activation.consented carries the coarse device
+// label and the embedded-browser hint of the browser that agreed, so it can be set
+// against a later finish-here tap (2026-11-17) — and no byte of the user agent.
+func TestSubmit_ConsentNamesTheBrowser(t *testing.T) {
+	for _, tc := range []struct {
+		name, ua, device string
+		embedded         bool
+		marker           string
+	}{
+		{"iPhone Safari", iphoneSafariUA, "iPhone Safari", false, "UNIQUEsafariTOKEN"},
+		{"iPhone in-app WKWebView", iphoneWebViewUA, "iPhone", true, "UNIQUEwebviewTOKEN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &fakeAudit{}
+			h := newHandler(t, &fakeInvites{}, &fakeSessions{}, rec)
+			req := httptest.NewRequest(http.MethodPost, "/api/activate", strings.NewReader(consent().Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("User-Agent", tc.ua)
+			req.RemoteAddr = "203.0.113.5:41234"
+			req.AddCookie(codeCookie())
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want 303", w.Code)
+			}
+
+			var got *audit.Event
+			for i := range rec.events {
+				if rec.events[i].Action == ActionActivationConsented {
+					got = &rec.events[i]
+				}
+			}
+			if got == nil {
+				t.Fatalf("audit = %v, want activation.consented", rec.actions())
+			}
+			d := got.Detail.(activationDetail)
+			if d.Device != tc.device {
+				t.Errorf("device = %q, want %q", d.Device, tc.device)
+			}
+			if d.EmbeddedBrowser == nil || *d.EmbeddedBrowser != tc.embedded {
+				t.Errorf("embedded_browser = %v, want %v written explicitly", d.EmbeddedBrowser, tc.embedded)
+			}
+			raw, err := json.Marshal(d)
+			if err != nil {
+				t.Fatalf("marshal detail: %v", err)
+			}
+			if want := fmt.Sprintf(`"embedded_browser":%v`, tc.embedded); !strings.Contains(string(raw), want) {
+				t.Errorf("detail %s lacks %s", raw, want)
+			}
+			if strings.Contains(string(raw), tc.marker) || strings.Contains(string(raw), "AppleWebKit") {
+				t.Errorf("detail carries the user agent: %s", raw)
+			}
+		})
+	}
+}
+
 // TestWizard_NoStrayPunctuationAfterNames: an employer name that ends in a full
 // stop ("Kebab Factory Ltd.") must not produce "Ltd. ." or "Ltd.." anywhere on
 // the wizard (third eye #5).
@@ -1903,6 +2081,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	happy := build(&fakeInvites{}, &fakeSessions{})
 	get(t, happy, "/activate?code="+fakeCode)
 	get(t, happy, cookieCheckURL(time.Now())) // the lost-cookie line (logCookieLost)
+	get(t, happy, activationFromTap)          // the finish-here line (logFinishHere)
 	post(t, happy, consent(), codeCookie())
 	doTap(t, happy, activationTapURL, pendingCookie())
 
@@ -1955,7 +2134,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	}
 	// Positive controls: the buffer really holds this handler's output, and it
 	// really reached the branches that are supposed to be loud.
-	for _, want := range []string{"activation attempt rejected", "activation rate limited", "issuing the session failed", "activation cookie did not return"} {
+	for _, want := range []string{"activation attempt rejected", "activation rate limited", "issuing the session failed", "activation cookie did not return", "activation tap reached a browser without a consented activation"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the captured log never reached %q; the negative assertions cover less than they claim", want)
 		}
