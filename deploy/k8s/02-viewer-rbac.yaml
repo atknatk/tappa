@@ -1,0 +1,134 @@
+# Tappa — a person's READ-ONLY window into ns/tappa, plus a tunnel to the database (ADR 0048).
+#
+# WHO APPLIES THIS: the OPERATOR, once, with a cluster-admin kubeconfig — exactly like
+# 01-rbac.yaml and for the same reason: a Role is changed with rbac.authorization.k8s.io verbs,
+# and github-deployer deliberately has none. .github/workflows/deploy.yml does NOT apply this
+# file and must not: it is not in its apply list, and adding it would hand the deploy identity a
+# permission it cannot hold. The token lives in deploy/k8s/viewer/tappa-viewer-token.yaml
+# (applied right after this file); deploy/README.md -> "Kapsamlı erişim (ADR 0048)" carries the
+# steps, rotation and revocation.
+#
+# WHAT THE USER ASKED FOR (2026-11-17), AND HOW EACH HALF IS MET:
+#   "tappa'ya erişsin" ........ get/list/watch on the workloads of ns/tappa, their logs, and a
+#                               port-forward to ONE pod: tappa-postgres-0.
+#   "başka namespace'e erişemesin, namespace adlarını dahi göremesin" ... a Role and a
+#                               RoleBinding, both in ns/tappa, and NOTHING cluster-scoped. No
+#                               ClusterRole, no ClusterRoleBinding, no `namespaces` verb. What
+#                               this identity still holds cluster-wide comes from the cluster's
+#                               own defaults (system:basic-user, system:discovery,
+#                               system:public-info-viewer, service-account-issuer-discovery) —
+#                               self-review, API discovery and /version — and none of them names
+#                               a namespace. Measured on the live cluster (2026-11-17): no
+#                               RoleBinding in ANY namespace and no ClusterRoleBinding beyond
+#                               those four names a group this ServiceAccount belongs to
+#                               (system:authenticated, system:serviceaccounts,
+#                               system:serviceaccounts:tappa).
+#
+# 🔴 WHAT IS DELIBERATELY ABSENT, AND WHY EACH ABSENCE IS LOAD-BEARING:
+#   secrets (any verb) .... tappa-secrets holds TAPPA_TAG_KEK (CLAUDE.md §4.7) and every
+#                           database password; tappa-db-access holds this identity's OWN
+#                           database passwords, which the operator hands over out of band.
+#   pods create, jobs/cronjobs/deployments/statefulsets create|patch ... a pod spec may mount
+#                           ANY Secret of its namespace with no RBAC at all (the kubelet resolves
+#                           it — measured for github-deployer, 01-rbac.yaml's last block), and a
+#                           pod runs on the cluster network, where other products' databases
+#                           live. One write verb on a pod-producing kind is both of those.
+#   pods/exec, pods/attach  a shell in tappa-0 is TAPPA_TAG_KEK in its environment; a shell in
+#                           tappa-postgres-0 is POSTGRES_PASSWORD (the superuser) in its.
+#   pods/portforward on any pod but tappa-postgres-0 ... the application pod listens only on its
+#                           HTTP port, but the grant is kept to the one tunnel that was asked for.
+#   ⚠️ `kubectl auth can-i create pods/exec` answers about `pods`, not the subresource, and says
+#   "yes" for permissions nobody holds — measured, 01-rbac.yaml. Ask with --subresource=exec.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tappa-viewer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: viewer
+# No pod runs as this identity, so no pod should ever be handed its token by accident.
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tappa-viewer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: viewer
+rules:
+  # Viewing. get/list/watch and nothing else: `kubectl get`, `describe` and `-w` need exactly
+  # these three, and no verb here writes. replicasets and endpoints are beyond the asked list
+  # because `describe deployment` and `describe service` read them; configmaps hold no secret
+  # (tappa-config is 05-config.yaml, tappa-db-init is scripts/db-init/01-roles.sql — both in this
+  # public repository — plus kube-root-ca.crt and the backup scripts).
+  # Measured with this identity's own token over https://10.43.0.1:443 (2026-11-17):
+  #   get pods,svc,deploy,sts,ingress,jobs,cronjobs,cm,pvc,networkpolicy,events -> exit 0
+  #   logs deploy/tappa --tail=2 -> exit 0 · describe pod tappa-postgres-0 -> exit 0
+  #   get ns / get pods -A / get pods -n kube-system / get secrets / get secret tappa-secrets ->
+  #   Forbidden · exec tappa-postgres-0, exec deploy/tappa -> "cannot create resource pods/exec"
+  #   run (pod), create job, delete pod -> Forbidden.
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "events", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+  # Logs.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # The tunnel to the database (DB roles tappa_readonly / tappa_readwrite, ADR 0048):
+  #   kubectl --kubeconfig ~/.config/tappa-access/tappa-viewer.kubeconfig \
+  #     port-forward pod/tappa-postgres-0 15432:5432
+  # BOTH VERBS ARE NEEDED AND EACH WAS MEASURED (kubectl v1.36.1, server v1.35.4+k3s1, -v=8):
+  #   `port-forward pod/...` makes GET pods/tappa-postgres-0 (twice, covered by `pods: get`), then
+  #   tries the WebSocket upgrade (GET .../portforward) and on refusal falls back to SPDY
+  #   (POST .../portforward).
+  #     verbs [create]       -> WebSocket "cannot get resource pods/portforward", SPDY POST 101,
+  #                             tunnel up — it works only through the FALLBACK, which kubectl
+  #                             keeps only for old servers
+  #     verbs [get]          -> WebSocket refused AND SPDY "cannot create resource
+  #                             pods/portforward": no tunnel
+  #     verbs [get, create]  -> WebSocket GET 101 Switching Protocols, no fallback, tunnel up
+  #   `port-forward svc/tappa-postgres` resolves the Service (GET services), LISTs pods by its
+  #   selector and lands on the same pod: same two verbs, nothing more.
+  #   resourceNames holds: port-forward to the application pod -> "cannot create resource
+  #   pods/portforward". If the StatefulSet is ever scaled, the new ordinal is refused (closed).
+  # The tunnel ends INSIDE the database pod's network namespace (loopback), so
+  # 12-networkpolicy.yaml does not see it, and the server sees the session from 127.0.0.1 —
+  # scripts/verify-deployment.sh db-role accepts these two roles from loopback only.
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    resourceNames: ["tappa-postgres-0"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tappa-viewer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tappa-viewer
+subjects:
+  - kind: ServiceAccount
+    name: tappa-viewer
+    namespace: tappa

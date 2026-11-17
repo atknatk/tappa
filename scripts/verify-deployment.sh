@@ -424,7 +424,17 @@ check_db_role() {
   # is exactly these two roles; tappa_owner, a superuser or any other role is still a
   # violation. The first deploy after OP-7 failed this gate on tappa_operator alone
   # (deploy run 37898970535; pg_stat_activity: tappa_app 1, tappa_operator 1).
-  local sql_offenders="SELECT usename || ' from ' || host(client_addr) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL AND usename NOT IN ('tappa_app', 'tappa_operator');"
+  #
+  # 2026-11-17 (ADR 0048): two more roles connect BY DESIGN -- tappa_readonly and tappa_readwrite,
+  # a person's access through `kubectl port-forward pod/tappa-postgres-0` with the tappa-viewer
+  # identity (deploy/k8s/02-viewer-rbac.yaml). A port-forward ends inside the database pod's own
+  # network namespace, so the server sees those sessions from LOOPBACK -- measured on production:
+  # inet_client_addr() = 127.0.0.1 for both roles through the tunnel. They are accepted from
+  # loopback ONLY. The server pod reaches the database over the pod network (10.42.0.0/16), never
+  # over this pod's loopback, so if somebody put one of these BYPASSRLS roles into the server's
+  # DSN, its connection would still arrive from a pod address and still fail this gate. Without
+  # the exception, a person holding a psql session open during a deploy failed it.
+  local sql_offenders="SELECT usename || ' from ' || host(client_addr) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL AND usename NOT IN ('tappa_app', 'tappa_operator') AND NOT (usename IN ('tappa_readonly', 'tappa_readwrite') AND client_addr IN ('127.0.0.1'::inet, '::1'::inet));"
   local sql_summary="SELECT usename, count(*) FROM pg_stat_activity WHERE datname = current_database() AND client_addr IS NOT NULL GROUP BY 1;"
 
   # PGPASSWORD is read from the container's OWN environment, so the password is
@@ -464,7 +474,7 @@ check_db_role() {
     echo "::error::db-role: the offender query passed but the summary query did not run, so this result is NOT trustworthy." >&2
     return 2
   fi
-  echo "db-role: every network connection to the database is tappa_app or tappa_operator"
+  echo "db-role: every network connection to the database is tappa_app or tappa_operator (or tappa_readonly/tappa_readwrite over loopback)"
 }
 
 # check_api_host -- M11 API-13a: the integration API's host serves the API and nothing else, asked

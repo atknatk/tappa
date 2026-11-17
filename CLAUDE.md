@@ -183,7 +183,8 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.
-   **Bilinçli istisnalar üç tanedir** — tenant sınırını aşmanın yalnız bu üç yolu var:
+   **Bilinçli istisnalar dört tanedir** — tenant sınırını aşmanın yalnız bu dört yolu var (üçü
+   uygulamanın, dördüncüsü bir insanın):
    **(1) `op_*`** (ADR 0021) — platform operatörünün SECURITY DEFINER fonksiyonları;
    `tappa_operator` yalnız onları çağırır, tenant verisine her erişim
    `operator_audit_log`'da iz bırakır; operatör kimliği ayrıdır ve tenant kapsamsızdır
@@ -245,6 +246,17 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    `tappa_resolver`'ın kimlik sütunlarındaki ve tablolarındaki yetkilerini genişletmek kullanıcı onayı +
    ADR 0031 değişikliği ister** (testler: ADR 0031 §5.2'deki imza katalog testi ve sütun matrisi testi;
    yetkiler: ADR 0031 §5.1, §5.2).
+   **(4) Bir insanın doğrudan veritabanı erişimi** (ADR 0048, kullanıcı kararı 2026-11-17) —
+   `tappa_readonly` ve `tappa_readwrite`: BYPASSRLS (tüm tenant'lar), NOSUPERUSER, üyesiz, hiçbir
+   tablonun sahibi değil, `op_*`/`holding_*`/`identity_*`/`resolve_*` dahil hiçbir SECURITY DEFINER
+   fonksiyonu çalıştıramaz. Yalnız üretimde, operatörün bant dışı uyguladığı
+   `deploy/db/scoped-access.sql` ile yetki alır (geliştirmede rol var, yetki yok); yalnız `tappa`'ya
+   bağlanır ve yalnız `tappa-viewer` kimliğinin `tappa-postgres-0`'a port-forward'u üzerinden ulaşılır
+   (`deploy/k8s/02-viewer-rbac.yaml`). §4.3 burada da geçerlidir: append-only tablolarda
+   `tappa_readwrite` yalnız SELECT, INSERT alır; `tags`'te anahtar sütunları ve `last_ctr` kapalıdır,
+   satır silinemez (§4.4, §4.7). Uygulama **asla** bu rollerle bağlanmaz (`verify-deployment.sh
+   db-role` onları yalnız loopback'ten kabul eder). Yetkiyi genişletmek kullanıcı onayı + ADR 0048
+   değişikliği ister.
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok: *"sessiz onay"*, sistemin kendi
    başına asla onaylamaması demektir; kayıt `flag` yazılır ve müdürün kuyruğunda bekler. Kullanıcının

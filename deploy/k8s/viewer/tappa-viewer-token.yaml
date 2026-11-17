@@ -1,0 +1,38 @@
+# Tappa — the REVOCABLE token of the tappa-viewer ServiceAccount (deploy/k8s/02-viewer-rbac.yaml,
+# ADR 0048). Applied by the OPERATOR with a cluster-admin kubeconfig, after 02-viewer-rbac.yaml;
+# .github/workflows/deploy.yml never applies it.
+#
+# WHY A SECRET AND NOT `kubectl create token`. A TokenRequest token is a signed JWT that the API
+# server accepts until it expires: there is no object to delete, so the only way to take it back
+# before then is to delete the ServiceAccount (which also kills every other token of it) or to
+# rotate the cluster's signing key. A `kubernetes.io/service-account-token` Secret is checked
+# against the Secret: delete the Secret and the token is dead. Measured 2026-11-17 on a throwaway
+# ServiceAccount in ns/tappa (created and deleted in the same task; ADR 0048), `kubectl auth
+# whoami` with its token over https://10.43.0.1:443 every 5 s: answered before the delete, still
+# answered 1 s and 5 s after it, `Unauthorized` from 10 s on (six probes). ⚠️ So revocation is
+# NOT instant: the API server's token-authentication cache keeps a deleted token alive for up to
+# ~10 s. A first measurement taken 2 s after the delete "proved" the opposite; wait before you
+# check.
+#
+# WHY IT LIVES HERE AND NOT IN deploy/k8s/*.yaml. TestPackaging_TheReadmeCountsTheManifestObjects
+# refuses any Secret among the top-level manifests (a Secret in the tree is CLAUDE.md §4.7's
+# subject). This object carries NO value — the token controller writes `data` after it is
+# created — but the rule is kept whole rather than taught an exception.
+#
+# ⚠️ The legacy-token cleaner (LegacyServiceAccountTokenCleanUp) purges only AUTO-GENERATED
+# tokens; a Secret created by hand like this one is not auto-generated, so it is not purged.
+# github-deployer-token has the same shape and has lived 94 days.
+#
+# REVOKE: kubectl --context hetzner-k8s-1 -n tappa delete secret tappa-viewer-token
+# RE-ISSUE: apply this file again; the controller writes a NEW token (the old one stays dead).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tappa-viewer-token
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: viewer
+  annotations:
+    kubernetes.io/service-account.name: tappa-viewer
+type: kubernetes.io/service-account-token

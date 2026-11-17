@@ -71,7 +71,7 @@ const privCatalogRolesSQL = `SELECT 'public'::text AS r UNION ALL
 // and the migrations create but the owner (a superuser -- see above). The snapshot reads whatever
 // roles exist, so an unexpected role is already red there (each role inherits PUBLIC's USAGE and
 // CONNECT, so it has lines); TestPrivCatalog_EveryRoleIsRead names it outright.
-var privCatalogRoles = []string{"public", "tappa_app", "tappa_feedwriter", "tappa_holdingdefiner", "tappa_identitydefiner", "tappa_opdefiner", "tappa_operator", "tappa_resolver"}
+var privCatalogRoles = []string{"public", "tappa_app", "tappa_feedwriter", "tappa_holdingdefiner", "tappa_identitydefiner", "tappa_opdefiner", "tappa_operator", "tappa_readonly", "tappa_readwrite", "tappa_resolver"}
 
 // privCatalogQuery builds the snapshot, one line per fact, in byte order.
 const privCatalogQuery = `
@@ -267,7 +267,12 @@ SELECT line FROM (
 //     and no user schema but public exists at 00060;
 //   - tappa_operator reads platform_admins' password_hash and totp_secret_sealed: that is the
 //     login lookup itself (00026; ADR 0020 -- the password and the TOTP are verified in the
-//     process, never in SQL).
+//     process, never in SQL);
+//   - tappa_readonly and tappa_readwrite (ADR 0048) hold here only what 01-roles.sql's SCOPED
+//     ACCESS ROLES block gives them -- USAGE on public, and PUBLIC's CONNECT/TEMPORARY -- and NO
+//     table line: their table grants are production's alone (deploy/db/scoped-access.sql, run by
+//     the operator), so a table line for either role in this catalogue is a migration granting a
+//     BYPASSRLS role something, which is exactly what this test should go red on.
 //
 // A line is added here only together with the migration that makes it true, and with the reason
 // in that migration (or, for an M11 object, in m11schema_test.go's matrix).
@@ -430,6 +435,8 @@ database tappa_holdingdefiner CONNECT,TEMPORARY
 database tappa_identitydefiner CONNECT,TEMPORARY
 database tappa_opdefiner CONNECT,TEMPORARY
 database tappa_operator CONNECT,TEMPORARY
+database tappa_readonly CONNECT,TEMPORARY
+database tappa_readwrite CONNECT,TEMPORARY
 database tappa_resolver CONNECT,TEMPORARY
 extension citext schema=public
 extension pgcrypto schema=public
@@ -607,6 +614,8 @@ schema public tappa_holdingdefiner USAGE
 schema public tappa_identitydefiner USAGE
 schema public tappa_opdefiner USAGE
 schema public tappa_operator USAGE
+schema public tappa_readonly USAGE
+schema public tappa_readwrite USAGE
 schema public tappa_resolver USAGE
 sequence goose_db_version_id_seq owner=tappa_owner
 superuser tappa_owner
@@ -768,7 +777,7 @@ func TestPrivCatalog_TheDiffSeesEachKind(t *testing.T) {
 		{"FORCE taken away", `ALTER TABLE public.platform_sessions NO FORCE ROW LEVEL SECURITY`,
 			"rel platform_sessions r owner=tappa_owner rls=enable,no-force"},
 		{"EXECUTE to PUBLIC", `GRANT EXECUTE ON FUNCTION public.resolve_tag_by_uid(character) TO PUBLIC`,
-			"function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_identitydefiner,tappa_opdefiner,tappa_operator,tappa_resolver"},
+			"function resolve_tag_by_uid(character) owner=tappa_resolver definer=true execute=public,tappa_app,tappa_feedwriter,tappa_holdingdefiner,tappa_identitydefiner,tappa_opdefiner,tappa_operator,tappa_readonly,tappa_readwrite,tappa_resolver"},
 		{"a column grant", `GRANT SELECT (token_hash) ON public.api_keys TO tappa_operator`,
 			"column api_keys tappa_operator SELECT token_hash"},
 		{"a new table", `CREATE TABLE public.zz_privcatalog_probe (id int)`,

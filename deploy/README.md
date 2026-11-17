@@ -28,6 +28,9 @@ Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 | `k8s/00-namespace.yaml` | namespace + `pod-security enforce=restricted` | `deploy.yml` (**ilk kez** operatör) |
 | `k8s/01-rbac.yaml` | 🔴 **deploy'un kendi kimliği** — SA + Role + RoleBinding + tek adlı ClusterRole/Binding | **operatör** (bir kez; deploy **kendi rolünü değiştiremez**) |
 | `k8s/05-config.yaml` | sırsız ortam değişkenleri | `deploy.yml` |
+| `k8s/02-viewer-rbac.yaml` | 🔴 **bir insanın salt-görüntüleme kimliği** `tappa-viewer` — SA + Role + RoleBinding, yalnız `ns/tappa`; get/list/watch, log, port-forward **yalnız** `tappa-postgres-0`; secret/exec/yazma **yok**, küme kapsamlı nesne **yok** (ADR 0048) | **operatör** (bir kez; `deploy.yml` uygulamaz) |
+| `k8s/viewer/tappa-viewer-token.yaml` | o kimliğin **iptal edilebilir** token Secret'ı (değer taşımaz; denetleyici yazar) — alt dizinde, çünkü üst düzey manifestlerde Secret yasak | **operatör** |
+| `db/scoped-access.sql` | `tappa_readonly` / `tappa_readwrite`'ın yetkileri (BYPASSRLS; append-only'de yalnız SELECT, INSERT) — `01-roles.sql`'in SCOPED ACCESS ROLES bloğuyla tek transaction'da (ADR 0048) | **operatör** (bant dışı; yeni tablo getiren her deploy'dan sonra yeniden) |
 | `examples/secret.example.yaml` | **şablon**, değer yok, adı **canlıyla çakışmaz** | **operatör** (kopyasını) |
 | `examples/externalsecret.example.yaml` | **önerilen** yol: Infisical + external-secrets | **operatör** |
 | `k8s/12-networkpolicy.yaml` | 5432'ye yalnız Tappa pod'ları | `deploy.yml` |
@@ -85,7 +88,8 @@ küme kapsamlı olanlar **hâlâ 3**, çünkü `CronJob` namespace'li):
 > ölçümü orkestratörün küme adımlarında.
 > ⚠️ 2026-10-10 (T112): `41-operator-ingress.yaml`'ın iki `Ingress`'i (namespace'li) →
 > ⚠️ 2026-10-26 (M14-10a): `40-ingress.yaml`'ın üçüncü `Ingress`'i (`tappa-panel`, namespace'li) →
-> **Güncel sayım: 21/3/18** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
+> ⚠️ 2026-11-17 (ADR 0048): `02-viewer-rbac.yaml`'ın `ServiceAccount`'u, `Role`'ü ve `RoleBinding`'i (üçü de namespace'li; token Secret'ı alt dizinde, `k8s/viewer/`) →
+> **Güncel sayım: 24/3/21** (toplam / küme kapsamlı / namespace'li). Bu satır artık elle
 > tutulmuyor: `TestPackaging_TheReadmeCountsTheManifestObjects` dosyalardaki sütun-0 `kind:`
 > satırlarını sayar (yukarıdaki `grep`'in aynısı), türleri kapsamına göre ayırır ve bu çapayı
 > arar — bir manifest eklenip sayı güncellenmezse kırmızı. `--dry-run=client` ölçümü yine
@@ -3339,6 +3343,156 @@ sonra kırmızı; curl hatası (çözülemeyen ad dahil) UNCHECKED, kırmızı. 
 Kapı rollout'tan **sonra** koşar: kırmızı olduğunda uygulanan hiçbir şey geri alınmaz, yalnız sonuç
 *"failure"* olur. 2xx, `cf-ray`'den önce yargılanır (Cloudflare arkasında sunulan bir sayfa sayfa olarak
 raporlanır).
+
+## Kapsamlı erişim (ADR 0048) — `tappa-viewer` ve `tappa_readonly` / `tappa_readwrite`
+
+Bir insana, cluster-admin ve `tappa_owner` vermeden, **yalnız tappa'ya** dar bir pencere: kubectl
+ile `ns/tappa`'yı görüntüleme + log + `tappa-postgres-0`'a port-forward, ve o tünelden iki
+veritabanı rolü. Gerekçe, her yetkinin ölçümü ve sayılı sınırlar: [ADR 0048](../docs/adr/0048-kapsamli-insan-erisimi.md),
+`k8s/02-viewer-rbac.yaml` ve `db/scoped-access.sql`'in başlıkları. **Uygulandı: 2026-11-17**
+(üretim; teslim dosyaları kullanıcının makinesinde `~/.config/tappa-access/`, 0700).
+
+🔴 **Bunların hiçbirini `deploy.yml` yapmaz ve yapmamalı.** RBAC'ı değiştirmek
+`rbac.authorization.k8s.io` ister (deploy kimliğinde yok); veritabanı yetkileri bir migration
+değildir (migration'lar geliştirmede ve CI'da da koşar — ADR 0048 §2.1). İkisi de operatörün,
+cluster-admin kubeconfig'iyle, bant dışı.
+
+### 1) Küme kimliği — RBAC, sonra token
+
+```bash
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/02-viewer-rbac.yaml
+kubectl --context hetzner-k8s-1 apply -f deploy/k8s/viewer/tappa-viewer-token.yaml
+kubectl --context hetzner-k8s-1 -n tappa get secret tappa-viewer-token -o jsonpath='{.type}'
+```
+
+beklenen: üç nesne `created`/`unchanged`, bir Secret `created`, sonra `kubernetes.io/service-account-token`
+
+### 2) Veritabanı rolleri ve yetkileri — tek transaction
+
+`01-roles.sql`'in SCOPED ACCESS ROLES bloğu (rolleri yaratır ya da niteliklerini indirger; girişe
+dokunmaz) ve ardından `db/scoped-access.sql` (yetkiler, varsayılan yetkiler, `postgres` ve
+`template1`'den PUBLIC'in CONNECT'i), **aynı** `psql -1` içinde. Ön koşul ya da son koşul düşerse
+hiçbir şey kalmaz. Depo kökünden:
+
+```bash
+{ sed -n '/>>> SCOPED ACCESS ROLES (ADR 0048) >>>/,/<<< SCOPED ACCESS ROLES (ADR 0048) <<</p' scripts/db-init/01-roles.sql
+  cat deploy/db/scoped-access.sql; } \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -1 -f - -U tappa_owner -d tappa'
+```
+
+beklenen: çıktı yok, çıkış 0. ⚠️ **Yeni tablo getiren her deploy'dan sonra bu bloğu yeniden koş:**
+varsayılan yetki yeni tabloya `tappa_readwrite` için yalnız SELECT, INSERT verir (bilerek — ADR 0048
+§3); UPDATE/DELETE bu koşuyla gelir. Koşu idempotenttir (`internal/db/scopedaccess_test.go` iki
+kez koşup aynı sonucu ölçer).
+
+### 3) Parolalar — üret, Secret'a yaz, rollere ver (ekrana basmadan)
+
+Değerler kabuk değişkeninde ve `mktemp -d`'nin 0700 dizinindedir; argv'ye, log'a, terminale
+girmez (`--from-file` bir **dizinle**: her dosya adı bir anahtar olur). Secret `tappa-db-access` (`TAPPA_DB_READONLY_PASSWORD`, `TAPPA_DB_READWRITE_PASSWORD`);
+`tappa-viewer` onu **okuyamaz** — parolayı kullanıcıya operatör teslim eder (5. adım).
+
+```bash
+RO_PW=$(openssl rand -base64 33 | tr -d '\n/+=' | cut -c1-40)
+RW_PW=$(openssl rand -base64 33 | tr -d '\n/+=' | cut -c1-40)
+T=$(mktemp -d)
+printf '%s' "$RO_PW" > "$T/TAPPA_DB_READONLY_PASSWORD"
+printf '%s' "$RW_PW" > "$T/TAPPA_DB_READWRITE_PASSWORD"
+kubectl --context hetzner-k8s-1 -n tappa create secret generic tappa-db-access --from-file="$T" \
+  --dry-run=client -o yaml | kubectl --context hetzner-k8s-1 apply --server-side --force-conflicts -f -
+rm -rf "$T"
+```
+
+`--server-side` ve düz `apply` değil: düz `apply` nesneye `last-applied-configuration`
+ek açıklamasını yazar — yani iki parolanın **ikinci bir kopyasını**. Ölçüldü (2026-11-17, geçici bir
+Secret'la): server-side apply hem yaratmada hem üzerine yazmada exit 0, ek açıklama **yok**, değer
+güncellendi; `--force-conflicts` ilk kurulumun `kubectl create`'inin alan sahipliğini devralır.
+
+Girişi aç ve parolaları `\password` ile ver — *"Operator surface (M10 OP-7)"* 2. adımın kalıbı:
+psql parolayı istemcide SCRAM doğrulayıcısına çevirir, sunucu log'una düz metin gitmez.
+
+```bash
+{ printf 'ALTER ROLE tappa_readonly LOGIN;\nALTER ROLE tappa_readwrite LOGIN;\n\\password tappa_readonly\n'
+  printf '%s\n%s\n' "$RO_PW" "$RO_PW"
+  printf '\\password tappa_readwrite\n'
+  printf '%s\n%s\n' "$RW_PW" "$RW_PW"; } \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+beklenen: iki `ALTER ROLE`, dört parola istemi (değer yankılanmaz), çıkış 0. Aynı iki blok
+**döndürmedir** de: Secret `apply` ile üzerine yazılır, `\password` eski parolayı geçersiz kılar.
+Döndürmeden sonra 5. adımın `db.env`'ini yeniden üret.
+
+### 4) Doğrula — değer basmaz
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U tappa_owner -d tappa' <<'SQL'
+SELECT rolname, rolcanlogin, rolbypassrls, rolsuper, starts_with(rolpassword, 'SCRAM-SHA-256')
+  FROM pg_authid WHERE rolname IN ('tappa_readonly', 'tappa_readwrite') ORDER BY 1;
+SQL
+```
+
+beklenen: `tappa_readonly|t|t|f|t` ve `tappa_readwrite|t|t|f|t`
+
+### 5) Teslim — kubeconfig ve `db.env`, depo DIŞINDA
+
+Sunucu tailnet adresidir (`10.43.0.1`), ts.net proxy **değil** (proxy bearer token'ı yok sayar ve
+Tailscale kimliğini taklit eder — adım 5). Token ve parolalar yalnız dosyaya yazılır (0600).
+
+```bash
+umask 077
+D=~/.config/tappa-access
+mkdir -p "$D"
+CA=$(kubectl --context hetzner-k8s-1 -n tappa get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' | base64 | tr -d '\n')
+TOK=$(kubectl --context hetzner-k8s-1 -n tappa get secret tappa-viewer-token -o jsonpath='{.data.token}' | base64 -d)
+printf 'apiVersion: v1\nkind: Config\nclusters:\n- name: tappa\n  cluster:\n    server: https://10.43.0.1:443\n    certificate-authority-data: %s\nusers:\n- name: tappa-viewer\n  user:\n    token: %s\ncontexts:\n- name: tappa\n  context:\n    cluster: tappa\n    user: tappa-viewer\n    namespace: tappa\ncurrent-context: tappa\n' "$CA" "$TOK" > "$D/tappa-viewer.kubeconfig"
+printf '%s=%s\n' PGHOST localhost PGPORT 15432 PGDATABASE tappa \
+  TAPPA_DB_READONLY_USER tappa_readonly TAPPA_DB_READONLY_PASSWORD "$RO_PW" \
+  TAPPA_DB_READWRITE_USER tappa_readwrite TAPPA_DB_READWRITE_PASSWORD "$RW_PW" > "$D/db.env"
+unset TOK RO_PW RW_PW
+kubectl --kubeconfig "$D/tappa-viewer.kubeconfig" auth whoami
+```
+
+beklenen: `system:serviceaccount:tappa:tappa-viewer`. Kullanım — bir terminalde tünel, ötekinde psql:
+
+```bash
+kubectl --kubeconfig ~/.config/tappa-access/tappa-viewer.kubeconfig port-forward pod/tappa-postgres-0 15432:5432
+```
+
+```bash
+set -a; . ~/.config/tappa-access/db.env; set +a
+PGPASSWORD="$TAPPA_DB_READONLY_PASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$TAPPA_DB_READONLY_USER" -d "$PGDATABASE"
+```
+
+Tünelden gelen oturum sunucuda `127.0.0.1`'dendir; `scripts/verify-deployment.sh db-role` bu iki
+rolü **yalnız loopback'ten** kabul eder (açık bir psql oturumu artık deploy'u düşürmez; uygulamanın
+DSN'ine bu rollerden biri yazılırsa bağlantısı pod adresinden gelir ve kapı yine düşer).
+
+### 6) İptal
+
+Küme erişimi — token Secret'ını sil. ⚠️ **Anında değil:** API sunucusunun token önbelleği silinen
+token'ı ~10 s daha kabul eder (ölçüldü, ADR 0048 §4). Yeniden vermek: 1. adımın ikinci satırı yeni
+bir token üretir, 5. adımla yeni kubeconfig.
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa delete secret tappa-viewer-token
+```
+
+Veritabanı erişimi — girişi kapat (yetkiler kalır; yeniden açmak 3. adım). Rolleri **DROP etme**:
+yetkilerini taşıyan bir yedek, rol yoksa B YOLU'nda yüklenmez (ADR 0048 §2.1).
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
+ALTER ROLE tappa_readonly NOLOGIN;
+ALTER ROLE tappa_readwrite NOLOGIN;
+SQL
+```
+
+⚠️ **Geri yüklemeden sonra (B YOLU, taze küme):** iki rol `01-roles.sql`'den **NOLOGIN** doğar
+(roller ve parolalar dökümde yoktur; yetkiler vardır). Erişim isteniyorsa 3. adım.
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 
@@ -6644,7 +6798,8 @@ girdiği görünmelidir. Son kayıt girilip panelde görüldükten sonra `rm -rf
 tahmin edebilirsin. Bunu bir kayıp beyanı olarak yaz; bir kaza olarak değil.
 
 **B1. Postgres'i normal yoldan ayağa kaldır — ve init script'leri KOŞSUN.**
-Roller (`tappa_app`, `tappa_resolver`, `tappa_operator`, `tappa_opdefiner`) dump'ta
+Roller (`tappa_app`, `tappa_resolver`, `tappa_operator`, `tappa_opdefiner`; ADR 0048'den beri
+`tappa_readonly` ve `tappa_readwrite` de — dökümde onların GRANT'ları var) dump'ta
 **yoktur**, bu repodan gelir — ve **geri yüklemeyi yaptığın checkout'un**
 `01-roles.sql`'inden: M10 öncesi bir checkout'un init'i operatör rollerini yaratmaz.
 Ölçüldü (T45, operatör bloğu çıkarılmış bir init'le): B3'ün `ON_ERROR_STOP=1`'li

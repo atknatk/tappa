@@ -224,6 +224,57 @@ ALTER ROLE tappa_identitydefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREA
 GRANT USAGE ON SCHEMA public TO tappa_identitydefiner;
 -- <<< IDENTITY ROLE (M14-03) <<< ---------------------------------------------------
 
+-- >>> SCOPED ACCESS ROLES (ADR 0048) >>> -------------------------------------------
+-- Bir INSANIN veritabanina dogrudan erisimi: salt okunur ve okur-yazar iki rol (ADR 0048,
+-- CLAUDE.md §4.5'in ikinci bilincli istisnasi -- kullanicinin karari, 2026-11-17: "tappa'da her
+-- seye erissin"). HOLDING ROLE blogunun kalibi, ayni gerekceyle IKI yerde AYNI BAYTLARLA kosar ve
+-- IDEMPOTENT'tir:
+--   (a) bos bir PGDATA'da, bu dosyanin geri kalaniyla birlikte (initdb, CI, db-reset, ve geri
+--       yukleme provasinin SIFIRDAN kurulan pod'u -- pg_dump rol TASIMAZ);
+--   (b) HALIHAZIRDA CALISAN bir kumede, deploy/README.md -> "Kapsamli erisim (ADR 0048)"
+--       runbook'unun `sed` ile bu iki isaretin arasini kesip deploy/db/scoped-access.sql'in
+--       ONUNE koymasiyla (ikisi tek transaction'da kosar).
+--
+-- 🔴 BU BLOK NEDEN BURADA, YANI NEDEN GELISTIRMEDE DE VAR. Yetkiler (tablo GRANT'lari,
+-- varsayilan yetkiler) YALNIZ uretimde, deploy/db/scoped-access.sql ile verilir; burada hicbiri
+-- yok. Ama uretim o GRANT'lari verdigi anda her pg_dump onlari tasir, ve B YOLU (taze pod) dump'i
+-- ON_ERROR_STOP=1 ile yukler: rol yoksa ilk `GRANT ... TO tappa_readonly`'de durur (pg_dump
+-- ACL'leri en sona yazar, yani TUM VERI yuklendikten SONRA). pg-restore-verify.sh'in rol envanteri
+-- de (pg-backup.sh ile ayni sorgu) bu iki rolu `bypassrls=t` ile ister. Rol yalniz buradan dogar.
+-- Gelistirmede ikisi de NOLOGIN, parolasiz ve yetkisizdir: public'te USAGE ve PUBLIC'in CONNECT'i
+-- disinda hicbir sey (internal/db privCatalogAllowed bunu satir satir tutar).
+--
+--   tappa_readonly  : BYPASSRLS (tum tenant'lar), NOSUPERUSER, hicbir tablonun sahibi degil,
+--                     hicbir rolun uyesi degil, UYESI YOK. Oturumu varsayilan olarak READ ONLY
+--                     (default_transaction_read_only) -- GRANT'in uzerine kemer.
+--   tappa_readwrite : ayni nitelikler, READ ONLY olmadan. Append-only tablolarda yalniz SELECT,
+--                     INSERT alir (§4.3) -- bu deploy/db/scoped-access.sql'in isi.
+--
+-- 🔴 ALTER ROLE SATIRLARI BILEREK KOSULSUZ (OPERATOR ROLES blogunun gerekcesi): yanlis
+-- niteliklerle (SUPERUSER, CREATEROLE ...) var olan bir rol her kosuda bu satirlara indirgenir.
+-- LOGIN/PASSWORD'a DOKUNULMAZ (tappa_operator gibi): girisi acilmis bir kumede yeniden kosulunca
+-- erisimi kapatmamali. Girisi acan tek yer bant disi `ALTER ROLE ... LOGIN PASSWORD`'dur
+-- (deploy/README.md); parola repoda yoktur.
+-- Bu dosya redline R5b'nin kapsami disindadir (BYPASSRLS mesru; scripts/redline-check.sh).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_readonly') THEN
+        CREATE ROLE tappa_readonly NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_readwrite') THEN
+        CREATE ROLE tappa_readwrite NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+END
+$$;
+ALTER ROLE tappa_readonly NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+ALTER ROLE tappa_readwrite NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+ALTER ROLE tappa_readonly SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE tappa TO tappa_readonly;
+GRANT CONNECT ON DATABASE tappa TO tappa_readwrite;
+GRANT USAGE ON SCHEMA public TO tappa_readonly;
+GRANT USAGE ON SCHEMA public TO tappa_readwrite;
+-- <<< SCOPED ACCESS ROLES (ADR 0048) <<< -------------------------------------------
+
 -- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
 --
 -- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK

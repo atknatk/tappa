@@ -11,7 +11,8 @@ import (
 // TestClaudeMD_TheIdentityExceptionIsADR0031sSection61 pins CLAUDE.md §4.5's item (3) to ADR 0031 §6.1's
 // quoted text, word for word (whitespace and the quote's "> " aside): §6.1 is the text M14-01 applied
 // "birebir", and every later decision that changes it (M14-17b's fourth named exception, the user's
-// decision of 2026-10-27) changes both. The item ends where CLAUDE.md's list goes on (" 6. ").
+// decision of 2026-10-27) changes both. The item ends where CLAUDE.md's list goes on (" **(4) ", ADR 0048's
+// exception, or " 6. ").
 //
 // MUTANT (measured): "dört istisna" back to "üç" in CLAUDE.md alone -- red.
 func TestClaudeMD_TheIdentityExceptionIsADR0031sSection61(t *testing.T) {
@@ -35,6 +36,10 @@ func TestClaudeMD_TheIdentityExceptionIsADR0031sSection61(t *testing.T) {
 	quoted := words(regexp.MustCompile(`(?m)^> ?`).ReplaceAllString(adr[k:k+l], ""))
 	item := words(claude[i:])
 	if j := strings.Index(item, " 6. **"); j > 0 {
+		item = item[:j]
+	}
+	// Since ADR 0048 (2026-11-17) item (4), a person's database access, follows (3) in the same list.
+	if j := strings.Index(item, " **(4) "); j > 0 {
 		item = item[:j]
 	}
 	if item != quoted {
