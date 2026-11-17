@@ -252,9 +252,12 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    fonksiyonu çalıştıramaz. Yalnız üretimde, operatörün bant dışı uyguladığı
    `deploy/db/scoped-access.sql` ile yetki alır (geliştirmede rol var, yetki yok); yalnız `tappa`'ya
    bağlanır ve yalnız `tappa-viewer` kimliğinin `tappa-postgres-0`'a port-forward'u üzerinden ulaşılır
-   (`deploy/k8s/02-viewer-rbac.yaml`). §4.3 burada da geçerlidir: append-only tablolarda
-   `tappa_readwrite` yalnız SELECT, INSERT alır; `tags`'te anahtar sütunları ve `last_ctr` kapalıdır,
-   satır silinemez (§4.4, §4.7). Uygulama **asla** bu rollerle bağlanmaz (`verify-deployment.sh
+   (`deploy/k8s/02-viewer-rbac.yaml`). İkisi de her tabloyu okur; `tappa_readwrite`'ın yazma yetkisi
+   **`tappa_app`'ın kendi INSERT/UPDATE/DELETE'inin kopyasıdır** (tablo ve sütun düzeyinde, dosyanın her
+   koşusunda) — definer'ların tabloları (`feed_counters`, `holding*`, `platform_*`, `oauth_clients`,
+   `operator_read_tickets`, `admin_identities`) ve append-only tablolarda UPDATE/DELETE kapalı kalır
+   (§4.3, §4.6); `tags`'te ayrıca anahtar sütunları, INSERT, DELETE ve `last_ctr` UPDATE kapalıdır
+   (§4.4, §4.7). Uygulama **asla** bu rollerle bağlanmaz (`verify-deployment.sh
    db-role` onları yalnız loopback'ten kabul eder). Yetkiyi genişletmek kullanıcı onayı + ADR 0048
    değişikliği ister.
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,

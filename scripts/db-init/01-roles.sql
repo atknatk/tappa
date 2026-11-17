@@ -247,8 +247,9 @@ GRANT USAGE ON SCHEMA public TO tappa_identitydefiner;
 --   tappa_readonly  : BYPASSRLS (tum tenant'lar), NOSUPERUSER, hicbir tablonun sahibi degil,
 --                     hicbir rolun uyesi degil, UYESI YOK. Oturumu varsayilan olarak READ ONLY
 --                     (default_transaction_read_only) -- GRANT'in uzerine kemer.
---   tappa_readwrite : ayni nitelikler, READ ONLY olmadan. Append-only tablolarda yalniz SELECT,
---                     INSERT alir (§4.3) -- bu deploy/db/scoped-access.sql'in isi.
+--   tappa_readwrite : ayni nitelikler, READ ONLY olmadan. Yazma yetkisi tappa_app'in KENDI
+--                     INSERT/UPDATE/DELETE'inin kopyasidir (tags istisnalariyla) -- append-only ve
+--                     definer tablolari bu yuzden kapali kalir (§4.3, §4.6); deploy/db/scoped-access.sql.
 --
 -- 🔴 ALTER ROLE SATIRLARI BILEREK KOSULSUZ (OPERATOR ROLES blogunun gerekcesi): yanlis
 -- niteliklerle (SUPERUSER, CREATEROLE ...) var olan bir rol her kosuda bu satirlara indirgenir.

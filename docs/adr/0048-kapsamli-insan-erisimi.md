@@ -1,6 +1,8 @@
 # ADR 0048 — Kapsamlı insan erişimi: `tappa_readonly` / `tappa_readwrite` ve `tappa-viewer`
 
-- **Durum:** Kabul edildi ve **üretimde uygulandı** (2026-11-17).
+- **Durum:** Kabul edildi ve **üretimde uygulandı** (2026-11-17). **Revizyon 1 (2026-11-17, iki denetimin
+  bulguları):** `tappa_readwrite`'ın yazma yetkisi artık `tappa_app`'ınkinin kopyası (§3); iptal açık
+  oturumları da keser (§6); §5'e dört sınır eklendi.
 - **Karar veren:** kullanıcı (ürün sahibi), 2026-11-17 — istek: *"Tappa uygulamasına readonly ve
   readwrite database kullanıcısı oluştur. Ek olarak kubectl'de tappa erişimi olsun ama başka
   namespace/database'e erişemesin, database adını dahi okuyamasın, namespace'lerin adını dahi
@@ -21,7 +23,7 @@
 Şimdiye kadar üretim veritabanına bir insan yalnız iki yoldan ulaşıyordu: cluster-admin
 kubeconfig'iyle `kubectl exec statefulset/tappa-postgres -- psql -U tappa_owner` (süper kullanıcı,
 RLS yok, DDL var) ya da hiç. Kullanıcı, bu süper kullanıcıyı ve cluster-admin'i vermeden,
-**yalnız tappa'ya** dar bir pencere istedi. Küme paylaşımlıdır (~38 namespace, başka ürünlerin
+**yalnız tappa'ya** dar bir pencere istedi. Küme paylaşımlıdır (40 namespace — ölçüldü, başka ürünlerin
 veritabanları dahil); Postgres instance'ı ise tappa'nındır (`statefulset/tappa-postgres`, PG 17.10;
 veritabanları `postgres`, `tappa`, `template0`, `template1` — başka uygulama veritabanı **yok**,
 ölçüldü 2026-11-17).
@@ -35,11 +37,13 @@ veritabanları `postgres`, `tappa`, `template0`, `template1` — başka uygulama
 | nitelik | NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION **BYPASSRLS**, LOGIN (parola bant dışı) | aynı |
 | üyelik / sahiplik | yok / yok (dosyanın ön koşulu reddeder) | aynı |
 | oturum | `default_transaction_read_only = on` (kemer) | — |
-| tablolar | her public tabloda SELECT (`tags`: sütun listesi, §3) | SELECT, INSERT her yerde; UPDATE, DELETE **append-only olmayan** her yerde (§3) |
-| sequence | SELECT | USAGE, SELECT |
+| tablolar | her public tabloda SELECT (`tags`: sütun listesi, §3) | aynı SELECT + **`tappa_app`'ın kendi INSERT/UPDATE/DELETE'i**, aynı düzeyde (tablo ya da sütun) — eksi `tags` istisnaları ve `goose_db_version` (§3) |
+| sequence | SELECT | SELECT; USAGE yalnız `tappa_app`'ın USAGE'ı olduğu yerde (bugün hiçbiri) |
 | şema | USAGE; CREATE **yok** | aynı |
 | fonksiyon | SECURITY DEFINER'a EXECUTE **yok** (dosyanın son koşulu reddeder) | aynı |
 | veritabanı | yalnız `tappa` (`postgres` ve `template1`'den PUBLIC'in CONNECT'i alındı) | aynı |
+| `TEMPORARY` (`tappa`) | **var**, PUBLIC'ten — oturuma özel geçici tablo; alınmadı, belgelendi (§5) | aynı |
+| varsayılan yetki (yeni tablo) | SELECT | **yalnız SELECT** — yazma, dosyanın bir sonraki koşusunda `tappa_app`'tan kopyalanır |
 
 **Neden migration değil:** migration'lar geliştirme, CI ve sandbox'ta da koşar; bir BYPASSRLS rolüne
 her tabloyu veren bir migration tam olarak redline R5b'nin durdurduğu şeydir. **Neden init betiği
@@ -71,33 +75,52 @@ TokenRequest token'ı (`kubectl create token`) süresi dolana dek geri alınamaz
 Kubeconfig'in sunucusu `https://10.43.0.1:443`'tür (tailnet subnet router); **ts.net proxy değil**,
 çünkü o bearer token'ı yok sayıp Tailscale kimliğini taklit eder (`deploy/README.md` adım 5).
 
-## 3. §4.3 / §4.4 / §4.7 bu rollere de uygulanır — kullanıcı *"her şeye"* dedi, ama
+## 3. Yazma modeli: `tappa_readwrite` = "`tappa_app`'ın yazabildiği her şey, RLS'siz"
 
-- **Append-only tablolar (§4.3):** `tappa_readwrite` yalnız SELECT, INSERT. Liste **yazılmadı,
-  türetildi**: `public.tappa_forbid_mutation`'a bağlı satır tetikleyicisi taşıyan her tablo
-  (`TestAppendOnlyTablesAreNamedByBothScripts`'in `db/migrations`'tan yaptığı türetmenin aynısı).
-  Üretimde goose 107'de on iki tablo: `audit_log, billing_periods, legal_documents,
-  operator_audit_log, policy_versions, punch_claim_decisions, punch_claims, punch_events,
-  site_punches, tenant_plan_history, transaction_reviews, transactions` — `pg-restore-verify.sh`'in
-  `trunc_tables`'ı ve `redline-check.sh`'in `APPEND_ONLY`'si ile birebir.
-- **Gelecek tablolar:** varsayılan yetki (`FOR ROLE tappa_owner` — her public tablonun sahibi,
-  ölçüldü) yeni tabloya `tappa_readonly`'ye SELECT, `tappa_readwrite`'a **yalnız SELECT, INSERT**
-  verir. UPDATE/DELETE varsayılanda **yok**, çünkü varsayılan `CREATE TABLE` anında uygulanır, yani
-  migration'ın `CREATE TRIGGER ... tappa_forbid_mutation`'ından **önce**: geniş bir varsayılan, bir
-  sonraki append-only tabloya doğduğu anda UPDATE/DELETE verirdi. Yeni değişebilir bir tabloda
-  UPDATE/DELETE, dosya yeniden koşunca gelir; o zamana kadar `permission denied` (kapalı yön,
-  gürültülü). İki kemer: varsayılan satırının ardından açık bir `REVOKE UPDATE, DELETE ...` ve
-  append-only tablolar için ayrı bir REVOKE döngüsü — test her birinin tek başına çıkarılmasının
-  ötekiyle maskelendiğini, ikisi birden çıkarılınca kırmızı olduğunu ölçer.
-- **`tags` (§4.4, §4.7, kullanıcı kuralı "plaket satırı silinmez"):** tablo düzeyi yetki yok; sütun
-  yetkileri `tappa_app`'ın **kendi** `tags` sütun yetkilerinden türetilir (ikisi ayrışamaz), eksi:
-  `aes_key_ref`, `app_key_ref` (sarmalanmış anahtarlar — `tappa_app` da okuyamaz), ve UPDATE'ten
-  `last_ctr`: geri sarmayı tetikleyici reddeder ama **ileri sıçramayı** hiçbir şey reddetmez — tek bir
-  büyük değer sonraki her gerçek dokunuşu replay yapar ve sayaç geri gelemez. INSERT ve DELETE yok
-  (DELETE + INSERT `last_ctr`'ı 0'a sıfırlar — `pg-restore-verify.sh` başlığında ölçülü).
-- **`goose_db_version`:** yalnız SELECT (deploy'un defteri, veri değil).
-- **Kalan her şey:** `tappa_readwrite` BYPASSRLS ile her tenant'ın satırını değiştirir. Tetikleyiciler
-  onlar için de ateşlenir (süper kullanıcı değiller, `session_replication_role`'ü değiştiremezler).
+**Revizyon 1'in kararı (ana oturum, öneri seçildi).** İlk sürüm UPDATE/DELETE'i *"append-only tetikleyicisi
+olmayan her tabloya"* veriyordu ve INSERT'i her tabloya — bu bir **yasak listesiydi**, yani açık yönde
+hata veriyordu. Güvenlik denetimi ölçtü:
+
+- **SARI-1:** `feed_counters` (yalnız `tappa_feedwriter` ve `tappa_holdingdefiner` yazar) açıktı. `last_seq`
+  geri sarılırsa `punch_feed()` `punch_events`'in birincil anahtarında 23505 alır ve o tenant'ın her `ok`
+  dokunuşu **kayıt yazılmadan** düşer — §4.6.
+- **SARI-2:** `holding_members`, `holdings`, `platform_admins`, `platform_sessions`, `oauth_clients`,
+  `operator_read_tickets`, `admin_identities` yalnız definer'larca yazılır ama açıktı: kiracılar arası
+  eş üyelik, izsiz OAuth istemcisi, operatör enrollment'ının ele geçirilmesi.
+
+**Yeni kaynak bir izin listesidir:** `tappa_app`'ın **kendi** tablo düzeyi (`pg_class.relacl`) ve sütun
+düzeyi (`pg_attribute.attacl`) INSERT/UPDATE/DELETE'i, dosyanın koştuğu anda kopyalanır. O yetkiler her
+migration'da matrisle denetleniyor (`privcatalog_test.go`, `m11schema_test.go`), türetme bu denetimi
+miras alır ve **kapalı yönde** hata verir: `tappa_app`'ın yazamadığını bu rol de yazamaz. Ölçüldü (üretim,
+goose 107, yeniden uygulamadan sonra): 47 tablonun her birinde readwrite'ın INSERT/UPDATE/DELETE'i
+`tappa_app`'ınkiyle **aynı** — tek fark `tags` (aşağıda); sekiz definer tablosunun hepsinde yazma 0.
+
+**Dosyanın son koşulları** (biri düşerse transaction geri alınır): (1) readwrite'ın her yazma yetkisi
+sütun sütun `tappa_app`'ta da var; (2) yukarıdaki sekiz tabloda yazma 0 — `tappa_app`'a günün birinde
+oralarda bir yazma verilse bile (test bunu `GRANT UPDATE ON feed_counters TO tappa_app` ile ölçer: dosya
+reddeder); (3) `tappa_forbid_mutation` satır tetikleyicisi taşıyan her tabloda UPDATE/DELETE 0; (4)
+`tags` istisnaları; (5) readonly hiçbir şey yazamaz; (6) hiçbir SECURITY DEFINER'a EXECUTE yok.
+
+- **Append-only tablolar (§4.3):** bu modelde kendiliğinden kapalı — `tappa_app` hiçbirinde UPDATE ya da
+  DELETE taşımıyor. Üretimde goose 107'de on iki tablo: `audit_log, billing_periods, legal_documents,
+  operator_audit_log, policy_versions, punch_claim_decisions, punch_claims, punch_events, site_punches,
+  tenant_plan_history, transaction_reviews, transactions` — `pg-restore-verify.sh`'in `trunc_tables`'ı ve
+  `redline-check.sh`'in `APPEND_ONLY`'si ile birebir. INSERT yalnız `tappa_app`'ın INSERT'i olan yerde
+  (`transactions`, `audit_log`, `punch_claims` … — çoğu **sütun düzeyinde**); `punch_events`,
+  `site_punches`, `operator_audit_log`, `tenant_plan_history`, `legal_documents`'e artık INSERT de yok.
+- **`tags` (§4.4, §4.7, kullanıcı kuralı "plaket satırı silinmez") — `tappa_app`'tan açık çıkarmalar:**
+  tablo düzeyi yetki yok; INSERT yok (`tappa_app`'ta var); DELETE yok; `aes_key_ref`, `app_key_ref` okunmaz
+  ve yazılmaz; **`last_ctr` UPDATE yok — `tappa_app`'ta VAR** (atomik sayaç ilerletmesi): geri sarmayı
+  tetikleyici reddeder ama ileri sıçramayı hiçbir şey reddetmez — tek bir büyük değer sonraki her gerçek
+  dokunuşu replay yapar ve sayaç geri gelemez.
+- **`goose_db_version`:** yalnız SELECT (`tappa_app`'ta da yazma yok).
+- **Gelecek tablolar:** varsayılan yetki (`FOR ROLE tappa_owner` — her public tablonun sahibi, ölçüldü)
+  yeni tabloya iki role de **yalnız SELECT** verir. Varsayılan, `CREATE TABLE` anında uygulanır, yani
+  migration'ın birkaç satır sonraki GRANT/REVOKE'larından ve append-only tetikleyicisinden önce; doğru
+  kaynak yalnız kopyadır. Yeni bir tabloda yazma, dosya yeniden koşunca gelir (kapalı yön, gürültülü).
+- **Kalan her şey:** readwrite, `tappa_app`'ın değiştirebildiği her satırı **her tenant'ta** değiştirir.
+  Tetikleyiciler onlar için de ateşlenir (süper kullanıcı değiller, `session_replication_role`'ü
+  değiştiremezler).
 
 ## 4. Ölçümler (2026-11-17, üretim)
 
@@ -126,33 +149,81 @@ Kubeconfig'in sunucusu `https://10.43.0.1:443`'tür (tailnet subnet router); **t
 - **db-role kapısı:** bir `tappa_readonly` oturumu açıkken eski sorgu `tappa_readonly from 127.0.0.1`
   diye bir deploy'u düşürecekti; yeni sorgu boş döndü (uygulama `10.42.0.161`'den).
 
+- **Revizyon 1, yeniden uygulamadan sonra (tünel üzerinden, `BEGIN … ROLLBACK`, `WHERE false`):**
+  readwrite'ın `feed_counters`, `holding_members`, `oauth_clients`, `platform_admins` üzerinde
+  `has_table_privilege` INSERT/UPDATE/DELETE → hepsi `f`; gerçek denemeler (`UPDATE feed_counters`,
+  `INSERT INTO holding_members`, `INSERT INTO oauth_clients`, `UPDATE platform_admins`) → *"permission
+  denied"*; `UPDATE locations …` → hâlâ `UPDATE 1`; `transactions` UPDATE → *"permission denied"*.
+  readonly değişmedi: `ro=on`, 5 tenant, `BEGIN READ WRITE` + UPDATE → *"permission denied"*, 47
+  tablonun 46'sında tablo düzeyi SELECT (+ `tags` sütun listesi). Varsayılan yetki:
+  `tappa_readwrite=r` (tablolar ve sequence'lar).
+- **Açık tünel ve iptal (geçici ikinci SA, `tappa-viewer` Role'üne bağlı, aynı görevde silindi):** tünel
+  açıkken bir psql oturumu başladı; token Secret'ı silindi; 15 s sonra **aynı tünelden yeni bir psql
+  bağlantısı da açıldı** (`ok`), yeni bir port-forward ise *"the server has asked for the client to
+  provide credentials"* ile düştü; ilk oturum 25 s'lik sorgusunu bitirip yaşamaya devam etti. Yani
+  token'ı silmek **kurulmuş tüneli kesmez** — §6.
+- **Keşif:** viewer token'ıyla `kubectl api-versions` 50'yi aşkın API grubunu listeler; üçü
+  (`cert-manager.io`/`acme.cert-manager.io`, `keda.sh`/`eventing.keda.sh`, `tailscale.com`) küme
+  namespace'leri `cert-manager`, `keda`, `tailscale` ile aynı adı taşır (ölçüldü, 40 namespace) — §5.
+
 ## 5. Sınırlar — sayılı, gizlenmiyor
 
 1. **Veritabanı adları gizlenemez.** `pg_database` her role okunur; `\l` dört adı listeler. Bu
    instance'ta başka ürünün veritabanı yok, yani gizlenecek bir ad yok — ama bu bir yapı gerçeği
    değil bir **durum** gerçeğidir: buraya ikinci bir veritabanı konursa adı görünür. Aynı şekilde
    `pg_roles` tappa'nın on rol adını gösterir.
-2. **`tappa_readwrite` güçlüdür.** Her tenant'ın satırını değiştirir ve siler (FK'ler RESTRICT /
-   NO ACTION; ölçüldü: cascade eden FK yok, yani silme append-only satırlara ya da `tags`'e
-   ulaşamaz), `transactions`'a ve `audit_log`'a **INSERT** edebilir (sahte mesai satırı, sahte iz —
-   §4.3 düzeltmenin yeni kayıt olduğunu söyler, bu yüzden INSERT açık), parola özetlerini ve
-   sarmalanmış TOTP sırlarını okuyup değiştirebilir. Kullanıcının *"her şeye"*si budur.
+2. **`tappa_readwrite` güçlüdür.** `tappa_app`'ın değiştirebildiği her satırı **her tenant'ta**
+   değiştirir ve siler (FK'ler RESTRICT / NO ACTION; ölçüldü: cascade eden FK yok, yani silme
+   append-only satırlara ya da `tags`'e ulaşamaz), `transactions`'a ve `audit_log`'a `tappa_app`'ın
+   sütunlarıyla **INSERT** edebilir (sahte mesai satırı, sahte iz — §4.3 düzeltmenin yeni kayıt
+   olduğunu söyler). Uygulama sınırının ötesine geçmez: definer'ların tabloları (§3) kapalıdır.
 3. **`tappa_readonly` da her şeyi okur**: işçi verisi, e-posta adresleri, parola özetleri, token
    özetleri. Bu bir GDPR erişimidir; kimin elinde olduğu kayıt altındadır (bu ADR).
 4. **Tünel sızıntısı:** port-forward açıkken yerel makinenin `localhost:15432`'si o makinedeki her
    sürece açıktır (yine de parola ister).
-5. **Yeni tablolar** dosya yeniden koşana kadar `tappa_readwrite` için UPDATE/DELETE'siz kalır (kapalı
-   yön). Yeni bir SECURITY DEFINER fonksiyonu PUBLIC'ten REVOKE edilmezse bu roller onu çalıştırabilir
+5. **Yeni tablolar** dosya yeniden koşana kadar `tappa_readwrite` için yalnız SELECT'tir — yazma yok
+   (kapalı yön). Yeni bir SECURITY DEFINER fonksiyonu PUBLIC'ten REVOKE edilmezse bu roller onu çalıştırabilir
    (uygulama da) — dosyanın son koşulu bir sonraki koşuda bunu reddeder; arada sınır migration'ların
    `REVOKE ... FROM PUBLIC` disiplinidir.
-6. **İptal ~10 s gecikmelidir** (§4).
+6. **İptal ~10 s gecikmelidir ve kurulmuş tüneli kesmez** (§4) — açık oturumları NOLOGIN +
+   `pg_terminate_backend` keser (§6).
 7. **`tappa-db-access` Secret'ı** (iki parola) `ns/tappa`'dadır; `github-deployer` onu `get`
    edemez (yalnız iki adlı Secret), ama 01-rbac.yaml'ın sayılı sınırı (Job ile her Secret okunabilir)
    onu da kapsar.
+8. **API keşfi kurulu yazılımı gösterir.** `system:discovery` (kümenin varsayılanı, her kimliğe bağlı)
+   `kubectl api-resources` / `api-versions`'ı açar; CRD grupları kurulu operatörleri anlatır ve üçü
+   (`cert-manager`, `keda`, `tailscale`) namespace adlarıyla çakışır. Bir Role bunu kapatamaz;
+   kapatmak kümenin varsayılan ClusterRoleBinding'ini değiştirmek olurdu (bütün kümeyi etkiler, bu
+   işin kapsamı değil). Namespace **listesi** değildir; `get ns` yine Forbidden.
+9. **Tailnet rotası RBAC'ın dışındadır.** Subnet router `10.43.0.0/16`'nın (Service CIDR) tamamını
+   duyurur. Alıcının Tailscale ACL'i yalnız `10.43.0.1:443`'e izin vermezse, `kube-dns`'e PTR taraması
+   bütün `svc.namespace` adlarını ve ClusterIP'ler başka ürünlerin servislerini açar — kubeconfig'siz,
+   RBAC'sız. Kapatan tek şey ACL'dir: alıcının grant'ı **`10.43.0.1:443` ile sınırlanmalı**
+   (kullanıcının işi; örnek parça `deploy/README.md` → *"Kapsamlı erişim"* 0. adım). Bu ADR anında
+   alıcının ACL'i **ölçülmedi**.
+10. **Viewer Postgres pod'unun log'unu okur** (`pods/log`), ve Postgres başarısız bir ifadeyi
+   `log_min_error_statement = error` ile `STATEMENT:` satırına yazar. Düz `ALTER ROLE … PASSWORD '…'`
+   başarısız olursa parola **düz metin** o log'a düşer — viewer'ın okuyabildiği yere. Parola yalnız
+   psql'in `\password`'ü ile değiştirilir (istemcide SCRAM'a çevrilir; runbook 3. adım).
+11. **`TEMPORARY` açık** (PUBLIC'ten, `tappa` veritabanında): iki rol de oturuma özel geçici tablo
+   yaratabilir (readonly'nin varsayılan READ ONLY'si bunu engeller, `BEGIN READ WRITE` engellemez).
+   Başka oturum onları görmez; kalıcı veri değildir. Alınmadı, çünkü `REVOKE TEMPORARY … FROM PUBLIC`
+   `tappa_app` ve `tappa_operator`'ın yetkisini de değiştirir; ölçüldü: hiçbir uygulama yolu geçici tablo
+   yaratmıyor (ağaçtaki iki geçici tablo, `cmd/opadmin` ve `cmd/rotatekek`, `tappa_owner` olarak koşar) —
+   yani alınabilirdi, ama bedeli üretim uygulamasının yetkisine dokunmaktır ve kazancı küçüktür.
 
-## 6. Geri alma
+## 6. Geri alma ve iptal
 
-`kubectl -n tappa delete secret tappa-viewer-token` (küme erişimi, ~10 s içinde) ·
-`ALTER ROLE tappa_readonly NOLOGIN; ALTER ROLE tappa_readwrite NOLOGIN;` (veritabanı) — ayrıntı ve
-parola döndürme: `deploy/README.md` → *"Kapsamlı erişim (ADR 0048)"*. Rolleri **DROP etmek**
+🔴 **Token'ı silmek kurulmuş tüneli kesmez** (§4: silindikten 15 s sonra aynı tünelden yeni bir psql
+bağlantısı da açıldı). Port-forward akışı API sunucusundan kubelet'e bir kez yetkilendirilir; token
+yalnız **yeni** tünelleri durdurur (~10 s içinde). Erişimi gerçekten kesmek üç adımdır, bu sırayla:
+
+1. **Veritabanı girişini kapat:** `ALTER ROLE tappa_readonly NOLOGIN; ALTER ROLE tappa_readwrite NOLOGIN;`
+   — açık tünelden yeni bağlantı artık giriş yapamaz.
+2. **Açık oturumları kes:** `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename IN
+   ('tappa_readonly', 'tappa_readwrite');` (README'nin operatör yüzeyi geri almasındaki desen).
+3. **Küme erişimini kapat:** `kubectl -n tappa delete secret tappa-viewer-token` — yeni tünel ~10 s sonra
+   açılamaz; kubectl görüntüleme de aynı anda biter.
+
+Ayrıntı ve komutlar: `deploy/README.md` → *"Kapsamlı erişim (ADR 0048)"* 6. adım. Rolleri **DROP etmek**
 önerilmez: yetkileri taşıyan bir yedek, rol yoksa B YOLU'nda yüklenemez (§2.1).

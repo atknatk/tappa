@@ -64,20 +64,23 @@ func scopedAccessSnapshot(t *testing.T, ctx context.Context, tx pgx.Tx) string {
 // TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines: after the block and the file
 // run (twice -- the second run must change nothing), (a) the two roles bypass RLS and nothing
 // else; (b) tappa_readonly writes nothing and its sessions start read-only; (c) on every table
-// that carries a tappa_forbid_mutation row guard -- derived here the way the file derives it, and
-// at least twelve -- tappa_readwrite holds no UPDATE and no DELETE (§4.3); (d) on tags neither role
-// touches aes_key_ref or app_key_ref, tappa_readwrite cannot move last_ctr, insert or delete
-// (§4.4, §4.7); (e) no TRUNCATE, no CREATE on public, no EXECUTE on any SECURITY DEFINER function;
-// (f) every other table is fully readable and, but for goose's ledger, writable by tappa_readwrite;
-// (g) a table created AFTER the file ran gets SELECT, INSERT and nothing more for tappa_readwrite
-// (the default stops there on purpose: it cannot know the table will become append-only).
+// that carries a tappa_forbid_mutation row guard -- at least twelve -- tappa_readwrite holds no
+// UPDATE and no DELETE (§4.3); (d) on tags neither role touches aes_key_ref or app_key_ref,
+// tappa_readwrite cannot move last_ctr (which tappa_app CAN), insert or delete (§4.4, §4.7); (e) no
+// TRUNCATE, no CREATE on public, no EXECUTE on any SECURITY DEFINER function; (f) every other table
+// is readable by both, and tappa_readwrite's INSERT/UPDATE/DELETE equal tappa_app's own, column by
+// column -- so the eight tables only a definer writes (security review, 2026-11-17) take no write;
+// (g) a table created AFTER the file ran gets SELECT and nothing more for either role; (h) the
+// file's own postcondition refuses to finish if tappa_app is ever granted a write on a definer-only
+// table (the file then would copy it).
 //
-// MUTANT (measured, 2026-11-17): the grant loop's guard test removed AND the revoke loop emptied
-// -> red at (c), twelve tables; `'last_ctr'` dropped from the UPDATE exclusion -> red at (d); the
-// default widened to SELECT, INSERT, UPDATE, DELETE AND its REVOKE line removed -> red at (g).
-// Each belt ALONE was measured green (the other belt held): the guard test removed with the revoke
-// loop intact, and the widened default with its REVOKE line intact -- the file keeps both on
-// purpose, and a mutant must take both away to be seen.
+// MUTANT (measured, 2026-11-17, second model): the table-level copy loop's `x.grantee =
+// 'tappa_app'::regrole` removed (every grantee's verbs copied) -> the file's postcondition (1)
+// aborts the run ("writes columns tappa_app cannot: tenants.plan ..."); `'last_ctr'` dropped from
+// the UPDATE exclusion -> postcondition (4) aborts it; a default INSERT for tappa_readwrite added
+// AND the default REVOKE line weakened -> red at (g); the column-level copy loop emptied -> red at
+// (c) (audit_log, punch_claims, punch_claim_decisions, transactions: tappa_app's INSERT there is
+// column-level) and at (f).
 func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing.T) {
 	ctx, tx := opTx(t)
 	sql := scopedAccessSQL(t)
@@ -120,7 +123,7 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 	rows, err := tx.Query(ctx, `SELECT s.relname FROM (`+guarded+`) s
 	        WHERE has_any_column_privilege('tappa_readwrite', s.oid, 'UPDATE')
 	           OR has_table_privilege('tappa_readwrite', s.oid, 'DELETE')
-	           OR NOT has_table_privilege('tappa_readwrite', s.oid, 'INSERT')
+	           OR has_any_column_privilege('tappa_readwrite', s.oid, 'INSERT') <> has_any_column_privilege('tappa_app', s.oid, 'INSERT')
 	           OR NOT has_table_privilege('tappa_readonly', s.oid, 'SELECT')`)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +133,7 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 		t.Fatal(err)
 	}
 	for _, r := range bad {
-		t.Errorf("(c) append-only table %s: tappa_readwrite must hold exactly SELECT, INSERT (and tappa_readonly SELECT)", r)
+		t.Errorf("(c) append-only table %s: tappa_readwrite must hold no UPDATE/DELETE and INSERT exactly where tappa_app does (and tappa_readonly SELECT)", r)
 	}
 
 	// (d)
@@ -168,11 +171,19 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 	}
 
 	// (f)
-	rows, err = tx.Query(ctx, `SELECT c.relname FROM pg_class c
-	        WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname NOT IN ('tags', 'goose_db_version')
-	          AND c.oid NOT IN (SELECT oid FROM (`+guarded+`) s)
-	          AND NOT (has_table_privilege('tappa_readonly', c.oid, 'SELECT')
-	                   AND has_table_privilege('tappa_readwrite', c.oid, 'SELECT, INSERT, UPDATE, DELETE'))`)
+	rows, err = tx.Query(ctx, `SELECT c.relname || '.' || a.attname || ' ' || v.p
+	        FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+	       CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) v(p)
+	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname NOT IN ('tags', 'goose_db_version')
+	         AND has_column_privilege('tappa_readwrite', c.oid, a.attnum, v.p) <> has_column_privilege('tappa_app', c.oid, a.attnum, v.p)
+	      UNION ALL
+	      SELECT c.relname || ' DELETE' FROM pg_class c
+	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname NOT IN ('tags', 'goose_db_version')
+	         AND has_table_privilege('tappa_readwrite', c.oid, 'DELETE') <> has_table_privilege('tappa_app', c.oid, 'DELETE')
+	      UNION ALL
+	      SELECT c.relname || ' SELECT' FROM pg_class c
+	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname <> 'tags'
+	         AND NOT (has_table_privilege('tappa_readonly', c.oid, 'SELECT') AND has_table_privilege('tappa_readwrite', c.oid, 'SELECT'))`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,11 +191,23 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 		t.Fatal(err)
 	}
 	for _, r := range bad {
-		t.Errorf("(f) mutable table %s: want SELECT for tappa_readonly and all four for tappa_readwrite", r)
+		t.Errorf("(f) %s: tappa_readwrite's write must equal tappa_app's and both roles must read", r)
 	}
-	if n := opInt(t, ctx, tx, `SELECT count(*) FROM (VALUES ('INSERT'), ('UPDATE'), ('DELETE')) v(p)
-	        WHERE has_table_privilege('tappa_readwrite', 'public.goose_db_version', v.p)`); n != 0 {
-		t.Errorf("(f) tappa_readwrite can write goose's ledger (%d verbs)", n)
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'
+	        AND relname IN ('feed_counters', 'holding_members', 'holdings', 'platform_admins', 'platform_sessions',
+	                        'oauth_clients', 'operator_read_tickets', 'admin_identities')`); n != 8 {
+		t.Fatalf("(f) anti-vacuity: %d of the eight definer-only tables exist", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_class c CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) v(p)
+	        WHERE c.relnamespace = 'public'::regnamespace
+	          AND c.relname IN ('feed_counters', 'holding_members', 'holdings', 'platform_admins', 'platform_sessions',
+	                            'oauth_clients', 'operator_read_tickets', 'admin_identities', 'goose_db_version')
+	          AND (has_any_column_privilege('tappa_readwrite', c.oid, v.p) OR has_table_privilege('tappa_readwrite', c.oid, 'DELETE'))`); n != 0 {
+		t.Errorf("(f) tappa_readwrite can write a definer-only table or goose's ledger (%d)", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM (VALUES ('locations', 'UPDATE'), ('locations', 'DELETE'), ('employees', 'INSERT')) v(r, p)
+	        WHERE has_table_privilege('tappa_readwrite', ('public.' || v.r)::regclass, v.p)`); n != 3 {
+		t.Errorf("(f) control: tappa_readwrite lost a write tappa_app holds (locations UPDATE/DELETE, employees INSERT): %d of 3", n)
 	}
 
 	// (g)
@@ -201,7 +224,21 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 	                       CASE WHEN has_table_privilege('tappa_readwrite', 'public.zz_scoped_access_probe', 'DELETE') THEN 'DELETE' END)`).Scan(&ro, &rw); err != nil {
 		t.Fatal(err)
 	}
-	if ro != "SELECT" || rw != "SELECT,INSERT" {
-		t.Errorf("(g) a table created after the file ran: tappa_readonly %q (want SELECT), tappa_readwrite %q (want SELECT,INSERT)", ro, rw)
+	if ro != "SELECT" || rw != "SELECT" {
+		t.Errorf("(g) a table created after the file ran: tappa_readonly %q, tappa_readwrite %q (want SELECT for both)", ro, rw)
+	}
+
+	// (h) inside a savepoint, so the refusal rolls back only itself.
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aiExec(t, ctx, sp, `GRANT UPDATE ON public.feed_counters TO tappa_app`)
+	_, err = sp.Conn().PgConn().Exec(ctx, sql).ReadAll()
+	if err == nil || !strings.Contains(err.Error(), "definer-only table") {
+		t.Errorf("(h) with tappa_app granted UPDATE on feed_counters, the file must refuse in its postcondition; got %v", err)
+	}
+	if err := sp.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
