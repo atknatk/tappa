@@ -1,6 +1,8 @@
 package mt.taptime.app
 
 import android.location.LocationManager
+import mt.taptime.app.tap.Fix
+import mt.taptime.app.tap.FixRace
 import mt.taptime.app.tap.FixRules
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,32 +22,82 @@ class FixRulesTest {
     }
 
     @Test
-    fun theProviderFollowsTheApiLevelThePermissionAndWhatIsOn() {
+    fun theProvidersFollowTheApiLevelThePermissionAndWhatIsOn() {
         val all: (String) -> Boolean = { true }
         val none: (String) -> Boolean = { false }
         fun only(vararg on: String): (String) -> Boolean = { it in on }
 
-        assertNull("no permission, no provider", FixRules.provider(36, fine = false, coarse = false, all))
-        assertNull("everything off", FixRules.provider(36, fine = true, coarse = true, none))
+        assertEquals("no permission, no provider", emptyList<String>(), FixRules.providers(36, fine = false, coarse = false, all))
+        assertEquals("everything off", emptyList<String>(), FixRules.providers(36, fine = true, coarse = true, none))
 
-        // API 31+: the platform's fused provider first, with either permission.
-        assertEquals(FixRules.FUSED, FixRules.provider(31, fine = true, coarse = true, all))
-        assertEquals(FixRules.FUSED, FixRules.provider(36, fine = false, coarse = true, all))
-        assertEquals(FixRules.GPS, FixRules.provider(31, fine = true, coarse = true, only(FixRules.GPS, FixRules.NETWORK)))
+        // API 31+: the platform's fused provider alone, with either permission.
+        assertEquals(listOf(FixRules.FUSED), FixRules.providers(31, fine = true, coarse = true, all))
+        assertEquals(listOf(FixRules.FUSED), FixRules.providers(36, fine = false, coarse = true, all))
+        assertEquals(listOf(FixRules.GPS, FixRules.NETWORK), FixRules.providers(31, fine = true, coarse = true, only(FixRules.GPS, FixRules.NETWORK)))
 
-        // API 26-30 have no platform fused provider: GPS with the fine permission, else network.
+        // API 26-30 (review D-2): with the fine permission GPS AND network, side by side.
         for (sdk in 26..30) {
-            assertEquals(FixRules.GPS, FixRules.provider(sdk, fine = true, coarse = true, all))
-            assertEquals(FixRules.NETWORK, FixRules.provider(sdk, fine = true, coarse = true, only(FixRules.NETWORK, FixRules.FUSED)))
-            assertEquals("GPS needs the fine permission", FixRules.NETWORK, FixRules.provider(sdk, fine = false, coarse = true, all))
-            assertNull(FixRules.provider(sdk, fine = false, coarse = true, only(FixRules.GPS)))
+            assertEquals(listOf(FixRules.GPS, FixRules.NETWORK), FixRules.providers(sdk, fine = true, coarse = true, all))
+            assertEquals(listOf(FixRules.NETWORK), FixRules.providers(sdk, fine = true, coarse = true, only(FixRules.NETWORK, FixRules.FUSED)))
+            assertEquals(listOf(FixRules.GPS), FixRules.providers(sdk, fine = true, coarse = false, only(FixRules.GPS)))
+            assertEquals("GPS needs the fine permission", listOf(FixRules.NETWORK), FixRules.providers(sdk, fine = false, coarse = true, all))
+            assertEquals(emptyList<String>(), FixRules.providers(sdk, fine = false, coarse = true, only(FixRules.GPS)))
         }
+    }
+
+    private val fix = Fix(35.9, 14.4, mock = false)
+
+    // D-2: two providers asked at once; the first accepted reading wins and the race is over.
+    @Test
+    fun theFirstFreshReadingWinsAndTheOtherAskIsDropped() {
+        val race = FixRace(listOf(FixRules.GPS, FixRules.NETWORK))
+        assertEquals(listOf(FixRules.GPS, FixRules.NETWORK), race.start())
+        assertEquals(FixRace.Next.Done(fix), race.answered(FixRules.NETWORK, fix, stale = false))
+        assertTrue(race.over)
+        assertEquals("a late answer changes nothing", FixRace.Next.Wait, race.answered(FixRules.GPS, Fix(1.0, 2.0, false), stale = false))
+        assertEquals(FixRace.Next.Wait, race.expired())
+    }
+
+    @Test
+    fun anEmptyAnswerWaitsForTheOtherAskAndAllEmptyIsNoFix() {
+        val race = FixRace(listOf(FixRules.GPS, FixRules.NETWORK))
+        assertEquals(FixRace.Next.Wait, race.answered(FixRules.GPS, null, stale = false))
+        assertEquals(FixRace.Next.Done(null), race.answered(FixRules.NETWORK, null, stale = false))
+        assertTrue(FixRace(emptyList()).over)
+    }
+
+    // O-1: a refused cache is answered by ONE fresh ask of the same provider; a second refused cache
+    // is not asked again -- the race is a finite set of one-shot asks, never a repetition.
+    @Test
+    fun aRefusedCacheGetsOneFreshAskAndNoMore() {
+        val race = FixRace(listOf(FixRules.FUSED))
+        assertEquals(FixRace.Next.AskFresh(FixRules.FUSED), race.answered(FixRules.FUSED, null, stale = true))
+        assertEquals("one fresh ask in all", FixRace.Next.Done(null), race.answered(FixRules.FUSED, null, stale = true))
+
+        val fresh = FixRace(listOf(FixRules.FUSED))
+        fresh.answered(FixRules.FUSED, null, stale = true)
+        assertEquals("the fresh reading is used", FixRace.Next.Done(fix), fresh.answered(FixRules.FUSED, fix, stale = false))
+
+        val two = FixRace(listOf(FixRules.GPS, FixRules.NETWORK))
+        assertEquals(FixRace.Next.AskFresh(FixRules.GPS), two.answered(FixRules.GPS, null, stale = true))
+        assertEquals("the fresh ask is out: wait for it", FixRace.Next.Wait, two.answered(FixRules.NETWORK, null, stale = true))
+        assertEquals(FixRace.Next.Done(null), two.answered(FixRules.GPS, null, stale = false))
+    }
+
+    @Test
+    fun theDeadlineEndsTheRaceWithoutAFix() {
+        val race = FixRace(listOf(FixRules.FUSED))
+        race.answered(FixRules.FUSED, null, stale = true) // a fresh ask is out
+        assertEquals(FixRace.Next.Done(null), race.expired())
+        assertEquals("nothing after the deadline", FixRace.Next.Wait, race.answered(FixRules.FUSED, fix, stale = false))
     }
 
     @Test
     fun aReadingTakenBeforeThePressIsRefused() {
         val press = 1_000_000_000L
         assertNull("a cached reading (tap.js: maximumAge 0)", FixRules.accept(35.9, 14.4, false, press - 1, press))
+        assertTrue(FixRules.isStale(press - 1, press))
+        assertFalse(FixRules.isStale(press, press))
         val fresh = FixRules.accept(35.9, 14.4, false, press, press)
         assertNotNull(fresh)
         assertEquals(35.9, fresh!!.lat, 0.0)

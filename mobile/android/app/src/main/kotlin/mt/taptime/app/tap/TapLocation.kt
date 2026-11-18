@@ -13,15 +13,24 @@ import android.os.Looper
 import android.os.SystemClock
 
 // THE TAP'S ONE POSITION READING -- and the only file of this app that asks the platform for a
-// position (CLAUDE.md §4.2; card M16-13). LocationCallSiteTest pins it: the two one-shot calls
-// below are the only location requests under src/main, and this file's read() has exactly one
-// caller, the press in MainActivity. A one-shot request repeated by a timer is tracking, and the
-// red-line scan's R2 periodic net sees only a timer in THIS file -- so the deadline lives in
-// FixDeadline.kt and fires once.
+// position (CLAUDE.md §4.2; card M16-13). Every ask goes through ONE function, ask(), which holds the
+// app's only two location requests; LocationCallSiteTest pins them there and pins ask()'s callers.
+// read() has exactly one caller, the press in MainActivity. A one-shot request repeated by a timer is
+// tracking, and the red-line scan's R2 periodic net sees only a timer in THIS file -- so the deadline
+// lives in FixDeadline.kt and fires once.
 //
-//	API 30+    LocationManager.getCurrentLocation: one answer, cancellable.
-//	API 26-29  LocationManager.requestSingleUpdate (deprecated in 30, the only one-shot request
-//	           those versions have), removed at the deadline.
+// WHAT IS ASKED (FixRules.providers, FixRace): each chosen provider ONCE at the press -- on API 31+
+// the platform's fused provider; below it, with the fine permission, GPS and network side by side
+// (review D-2) -- plus at most ONE fresh ask when an answer was a refused cache (review O-1). The first
+// accepted reading wins and every other ask is cancelled; the deadline (8 s, tap.js's) cancels all.
+//
+//	first ask, API 30+    LocationManager.getCurrentLocation: one answer, cancellable -- but it may
+//	                      answer with a recent cache, which FixRules refuses;
+//	first ask, API 26-29  LocationManager.requestSingleUpdate (the only one-shot request those have);
+//	the fresh ask         requestSingleUpdate on every level: a new one-shot registration is answered
+//	                      by a new reading, where getCurrentLocation would hand back the same cache
+//	                      within its own window (deprecated on 30+, not removed; to be measured on a
+//	                      real phone, M16-14).
 //
 // The platform's own LocationManager, not Google Play services' Fused Location Provider (Q36: no
 // Play services artefact). Nothing is stored: the reading goes to the callback and from there into
@@ -32,68 +41,88 @@ import android.os.SystemClock
 // requirement; the record is written either way, §4.6). Exactly one delivery, on the main thread.
 class TapLocation(private val context: Context) {
 
+    /** An ask that is out: how to take it back. */
+    private fun interface Cancel {
+        fun cancel()
+    }
+
     fun read(onDone: (Fix?) -> Unit) {
+        val lm = context.getSystemService(LocationManager::class.java) ?: return onDone(null)
+        val providers = FixRules.providers(Build.VERSION.SDK_INT, granted(Manifest.permission.ACCESS_FINE_LOCATION),
+            granted(Manifest.permission.ACCESS_COARSE_LOCATION)) { name -> isOn(lm, name) }
+        val race = FixRace(providers)
+        if (race.over) return onDone(null)
+        val asked = SystemClock.elapsedRealtimeNanos()
+        val out = mutableListOf<Cancel>()
         var delivered = false
-        fun deliver(fix: Fix?) {
+        lateinit var deadline: FixDeadline
+
+        fun finish(fix: Fix?) {
             if (delivered) return
             delivered = true
+            deadline.cancel()
+            out.forEach { it.cancel() }
+            out.clear()
             onDone(fix)
         }
 
-        val lm = context.getSystemService(LocationManager::class.java) ?: return deliver(null)
-        val provider = FixRules.provider(Build.VERSION.SDK_INT, granted(Manifest.permission.ACCESS_FINE_LOCATION),
-            granted(Manifest.permission.ACCESS_COARSE_LOCATION)) { name -> isOn(lm, name) }
-            ?: return deliver(null)
-        val asked = SystemClock.elapsedRealtimeNanos()
-        fun accept(loc: Location?) = deliver(loc?.let { FixRules.accept(it.latitude, it.longitude, isMock(it), it.elapsedRealtimeNanos, asked) })
-
-        try {
-            if (Build.VERSION.SDK_INT >= 30) {
-                val cancel = CancellationSignal()
-                val deadline = FixDeadline(FixRules.TIMEOUT_MILLIS) {
-                    cancel.cancel()
-                    deliver(null)
-                }
-                lm.getCurrentLocation(provider, cancel, context.mainExecutor) { loc ->
-                    deadline.cancel()
-                    accept(loc)
-                }
-                deadline.start()
-            } else {
-                // The four callbacks are abstract on API 26-29 (defaults arrived in 30), so all four
-                // are written; any of them ends the one reading.
-                lateinit var deadline: FixDeadline
-                val listener = object : LocationListener {
-                    override fun onLocationChanged(loc: Location) {
-                        deadline.cancel()
-                        accept(loc)
-                    }
-
-                    override fun onProviderDisabled(provider: String) {
-                        deadline.cancel()
-                        lm.removeUpdates(this)
-                        deliver(null)
-                    }
-
-                    override fun onProviderEnabled(provider: String) = Unit
-
-                    @Deprecated("API 29 and lower call it; nothing to do")
-                    @Suppress("OVERRIDE_DEPRECATION")
-                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-                }
-                deadline = FixDeadline(FixRules.TIMEOUT_MILLIS) {
-                    lm.removeUpdates(listener)
-                    deliver(null)
-                }
-                @Suppress("DEPRECATION")
-                lm.requestSingleUpdate(provider, listener, Looper.getMainLooper())
-                deadline.start()
+        lateinit var onAnswer: (String, Location?) -> Unit
+        fun next(n: FixRace.Next) {
+            when (n) {
+                is FixRace.Next.Done -> finish(n.fix)
+                is FixRace.Next.AskFresh -> ask(lm, n.provider, fresh = true, onAnswer)?.let(out::add) ?: next(race.answered(n.provider, null, false))
+                FixRace.Next.Wait -> Unit
             }
-        } catch (_: SecurityException) {
-            deliver(null) // the permission was withdrawn between the check and the request
-        } catch (_: IllegalArgumentException) {
-            deliver(null) // the provider vanished
         }
+        onAnswer = { provider, loc ->
+            if (!delivered) {
+                val fix = loc?.let { FixRules.accept(it.latitude, it.longitude, isMock(it), it.elapsedRealtimeNanos, asked) }
+                val stale = loc != null && fix == null && FixRules.isStale(loc.elapsedRealtimeNanos, asked)
+                next(race.answered(provider, fix, stale))
+            }
+        }
+
+        deadline = FixDeadline(FixRules.TIMEOUT_MILLIS) { next(race.expired()) }
+        deadline.start()
+        for (p in race.start()) {
+            if (delivered) break
+            ask(lm, p, fresh = false, onAnswer)?.let(out::add) ?: next(race.answered(p, null, false))
+        }
+    }
+
+    // THE APP'S ONLY LOCATION REQUESTS: one one-shot ask of [provider]; null when the platform refused
+    // it at once (no permission any more, the provider vanished). [onAnswer] gets the provider and the
+    // reading, or null when the provider went off while asked.
+    private fun ask(lm: LocationManager, provider: String, fresh: Boolean, onAnswer: (String, Location?) -> Unit): Cancel? = try {
+        if (!fresh && Build.VERSION.SDK_INT >= 30) {
+            val signal = CancellationSignal()
+            lm.getCurrentLocation(provider, signal, context.mainExecutor) { loc -> onAnswer(provider, loc) }
+            Cancel { signal.cancel() }
+        } else {
+            // The four callbacks are abstract on API 26-29 (defaults arrived in 30), so all four are
+            // written; any answer ends this one ask.
+            val listener = object : LocationListener {
+                override fun onLocationChanged(loc: Location) = onAnswer(provider, loc)
+
+                override fun onProviderDisabled(disabled: String) {
+                    lm.removeUpdates(this)
+                    onAnswer(provider, null)
+                }
+
+                override fun onProviderEnabled(enabled: String) = Unit
+
+                @Deprecated("API 29 and lower call it; nothing to do")
+                @Suppress("OVERRIDE_DEPRECATION")
+                override fun onStatusChanged(name: String?, status: Int, extras: Bundle?) = Unit
+            }
+            @Suppress("DEPRECATION")
+            lm.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+            Cancel { lm.removeUpdates(listener) }
+        }
+    } catch (_: SecurityException) {
+        null // the permission was withdrawn between the check and the request
+    } catch (_: IllegalArgumentException) {
+        null // the provider vanished
     }
 
     private fun granted(permission: String) =

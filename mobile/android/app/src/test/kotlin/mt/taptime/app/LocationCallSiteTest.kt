@@ -13,7 +13,10 @@ import org.junit.Test
  * here, over the whole of src/main:
  *
  *  * the platform's position requests appear in tap/TapLocation.kt ONLY, and there exactly once
- *    each: getCurrentLocation (API 30+) and requestSingleUpdate (26-29);
+ *    each, both inside its one ask() function: getCurrentLocation (API 30+, the first ask) and
+ *    requestSingleUpdate (26-29, and the one fresh ask after a refused cache);
+ *  * ask() is called from two places only: the press's first asks (one per provider) and the fresh
+ *    ask FixRace allows once -- a finite set, no loop around it but the providers list;
  *  * nothing reads a remembered position anywhere (the last-known-location getters);
  *  * TapLocation.read has ONE caller, the press in MainActivity (withOneFix), and the two
  *    MainActivity call sites are the only ones;
@@ -52,6 +55,20 @@ class LocationCallSiteTest {
     fun theTwoOneShotRequestsLiveInTheTapFlowFileOnly() {
         assertEquals(mapOf(tapLocation to 1), count(Regex("""\bgetCurrentLocation\s*\(""")))
         assertEquals(mapOf(tapLocation to 1), count(Regex("""\brequestSingleUpdate\s*\(""")))
+    }
+
+    @Test
+    fun bothRequestsGoThroughTheOneAskFunction() {
+        val text = sources.getValue(tapLocation)
+        val body = Regex("""private fun ask\(.*?\n    }\n""", RegexOption.DOT_MATCHES_ALL).find(text)?.value
+            ?: throw AssertionError("no ask() in TapLocation.kt")
+        assertEquals(1, Regex("""\bgetCurrentLocation\s*\(""").findAll(body).count())
+        assertEquals(1, Regex("""\brequestSingleUpdate\s*\(""").findAll(body).count())
+        val calls = Regex("""(?<!fun )\bask\(lm,""").findAll(text).count()
+        assertEquals("ask() is called by the first asks and the one fresh ask", 2, calls)
+        assertEquals("the fresh ask is FixRace's", 1, Regex("""AskFresh -> ask\(lm,""").findAll(text).count())
+        assertEquals("the first asks iterate the providers once", 1, Regex("""for \(p in race\.start\(\)\)""").findAll(text).count())
+        assertEquals("no other loop", 1, Regex("""\bfor\s*\(""").findAll(text).count())
     }
 
     @Test
