@@ -1006,7 +1006,7 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 > açık) → okuma başlatmadan önce `NFCNDEFReaderSession.readingAvailable` kontrolü, yoksa QR/tarayıcı yolu. (2) Wordmark
 > bugün sistem fontu (`RootView.swift:12,15`); tap ekranı Space Grotesk + IBM Plex Mono'yu gömer (skill `tappa-brand`).
 > (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçülmedi**;
-> M16-18'in ilk TestFlight yüklemesi ölçer.
+> M16-18'in App Store Connect'e ilk beta yüklemesi ölçer.
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 

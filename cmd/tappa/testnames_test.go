@@ -608,6 +608,15 @@ func skipScanDirIn(root, rel string) bool {
 	// stays in scope: android/README.md cites Go test names on purpose.
 	case "android/.gradle", "android/.kotlin", "android/build", "android/app/build":
 		return true
+	// The staff apps (M16-11, M16-15; 2026-11-18), the same reason twice over. Their Gradle and
+	// Xcode outputs are gitignored and written by `make mobile-android(-test)` / `make
+	// mobile-ios-test`, so they exist only on a machine that built them. And the Xcode
+	// project directory is Xcode's own vocabulary: its pbxproj and xcscheme carry keys spelled
+	// "Test" + "TargetID" and "Test" + "Action", which the citation pattern reads as test names and no edit of ours
+	// can rename. Paths, not names, as above; mobile/ios's Swift sources stay in scope.
+	case "mobile/android/.gradle", "mobile/android/.kotlin", "mobile/android/build", "mobile/android/app/build",
+		"mobile/ios/build", "mobile/ios/Taptime.xcodeproj":
+		return true
 	// The walk's own root is not a nested checkout, and in a worktree it carries a .git file too.
 	case ".":
 		return false
