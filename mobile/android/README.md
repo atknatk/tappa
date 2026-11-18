@@ -1,10 +1,10 @@
-# Taptime staff app — Android (M16-11, scaffold)
+# Taptime staff app — Android (M16-11 scaffold, M16-12 activation)
 
 The optional native staff app decided in
-[ADR 0045](../../docs/adr/0045-istege-bagli-native-uygulama.md), Android half. This card
-is the **scaffold**: one empty screen ("Taptime / punchless"), the closed permission
-list, no backup, and the build and test targets. Activation (M16-12) and the tap screen
-(M16-13) come next; the browser path stays the default and is unchanged.
+[ADR 0045](../../docs/adr/0045-istege-bagli-native-uygulama.md), Android half. M16-11 was
+the **scaffold** (the closed permission list, no backup, the build and test targets);
+M16-12 adds the **device key and the activation** (below). The tap screen is M16-13's; the
+browser path stays the default and is unchanged.
 
 User-facing name **Taptime**, package and applicationId **`mt.taptime.app`** (Q35,
 2026-11-14). It is a different app from the plaque relay in [`android/`](../../android/README.md)
@@ -271,9 +271,7 @@ waiver to carry.
 
 ## Observed, not fixed
 
-- **Mobile CI.** Q36 (d) decided that the Android JVM tests run in CI on a Linux runner.
-  No workflow runs them yet; the job is assigned to **M16-12** (coordinator, 2026-11-18,
-  review finding B-1).
+- **Mobile CI** — done in M16-12: see *CI* under *Activation* below.
 - **`android.hardware.location` is an implied required feature** (review finding B-3).
   Because the manifest asks for the location permissions, Google Play treats
   `android.hardware.location` as a required feature unless a `<uses-feature>` says
@@ -294,3 +292,149 @@ waiver to carry.
   (2026-11-18): the removal block deleted → that test red; restored → green.
   **Cost:** emoji newer than the phone's own system font may show as empty boxes on older
   phones, because no newer emoji font is fetched.
+
+## Activation (M16-12)
+
+ADR 0026's two steps for a device key, over M16-07's wire contract
+([`docs/plan/m16-mobil.md`](../../docs/plan/m16-mobil.md), *"Tel sözleşmesi"*):
+
+```
+code ─▶ lookup ─▶ 1 Welcome ──"Agree and continue"──▶ bind ─▶ 2 Get ready ─▶ 3 Tap
+                   (+ terms sheet)                  (new key)                  │
+                                     first genuine NFC read of an employer's plaque
+                                                                               ▼
+                                               complete (signed by the bound key) ─▶ Activation complete
+```
+
+| Step | Request | What the app does |
+|---|---|---|
+| code | — | Q40: the invitation link opens the browser, not the app. The person pastes the link (or the code); `InviteCode` reads the 43-character code out of `?code=`. Held in memory only. |
+| lookup | `POST /app/v1/activate/lookup` (unsigned) | the consent screen's facts: employer, person, venue, Wi-Fi, brand. Spends nothing. |
+| 1 → 2 | `POST /app/v1/activate/bind` (unsigned) | a **new** Keystore key (every activation binds a fresh pair, M16-07); its raw point as `publicKey`, `consent: true`. The server answers an activation id and a challenge. Nothing is spent, no device exists yet. |
+| 3 | `POST /app/v1/activate/complete` | NFC reader mode is on **only** while step 3 is on screen and in the foreground. The plaque's URL must be this app's `<base>/t` (`PlaqueRead`), its query goes as `sun`; the request is signed in the nonce-signed format with `App-Device-Id` = activation id, `App-Nonce` = challenge. The server runs `CompleteByTap`'s order (`internal/handler/appactivate.go`); the app judges nothing about the chip. |
+
+Outcomes of complete, mapped by `ActivationFlow`: `activation_tap_failed` / `activation_needs_touch`
+/ `rate_limited` / a 5xx / no answer → stay on step 3 and tap again (the same bind);
+`new_key_required` → drop the key, generate a new pair, bind again with the consent already
+given, tap again; `activation_not_ready` (the binding moved) → back to step 1 with the same
+code; `invalid_invite` → back to the code screen. No `transactions` row is written by any of
+it (CLAUDE.md §5).
+
+### The key
+
+- **P-256 signing key in `AndroidKeyStore`** (`device/KeystoreKeys.kt`), `PURPOSE_SIGN`,
+  `SHA256withECDSA`, signatures DER, sent as unpadded base64url. The private half cannot be
+  exported (the Keystore hands out a handle; `getEncoded()` is null), and the app's data does
+  not travel (M16-11's backup rules).
+- **StrongBox when the phone has one** (API 28+, `FEATURE_STRONGBOX_KEYSTORE`); a StrongBox
+  generation that throws (`StrongBoxUnavailableException` is a `ProviderException`) falls back
+  to the TEE once.
+- **Where it really lives is read back, not assumed**: `KeyInfo.securityLevel` on API 31+
+  (`strongbox` / `tee` / `secure_hardware` for *unknown secure* / `software`); on 26–30 only
+  *inside secure hardware* is reported, so a key generated with the StrongBox flag is recorded
+  `strongbox`, any other secure one `secure_hardware`, and a software one `software`. The value
+  is **recorded with the device** in the app's private preferences (`key_backing`,
+  `device/PrefsDeviceState.kt`) and **not sent** — the wire contract has no field for it and the
+  server decodes strictly. A software-backed key is not refused (emulators, some old phones);
+  attestation (M16-25) is where the server learns this.
+- **No user-authentication requirement on the key** (CLAUDE.md §4.1, ADR 0045 §2.3): the phone's
+  own screen lock is not Taptime's layer. `scripts/redline-check.sh` R1 fails on the Keystore
+  builder method that would add one anywhere under `mobile/` — so the rule is enforced by the
+  scan, and neither this file nor the code names that method.
+- The SPKI the Keystore returns is cut to the raw 65-byte point by a **fixed 26-byte header
+  check** (`wire/PublicPoint.kt`), pinned by the vectors' `spki` entry.
+
+### The signed requests and the clock
+
+`wire/Canonical.kt` builds the two canonical texts (`tappa-app-request-v1`, `tappa-app-read-v1`)
+and refuses every field the server would refuse. `wire/AppClient.kt` is the one client; nothing
+in it logs. The clock-skew contract (card M16-12): every reply's `Date` re-measures the
+server-minus-phone offset (`wire/ServerClock.kt`) and signed reads carry the corrected second;
+a 401 to a signed read or a nonce-signed request is retried **once** (the 401's own `Date` is
+the fresh measurement; a nonce-signed retry fetches a fresh nonce) and only the second 401 means
+signed out. On launch the app asks `GET /app/v1/me`; a signed-out answer drops the stored device
+and its key and shows the code screen with *"This phone was signed out"*. No answer at all keeps
+the device (offline is not signed out).
+
+Where the app keeps what: the device id, the key's alias, the backing and the person's name in
+private preferences (no secret among them); the invite code, the activation id and the
+challenge **in memory only** — the activity declares `configChanges` so a rotation does not
+rebuild it and nothing goes into a saved-state Bundle.
+
+`BuildConfig.BASE_URL` is `https://taptime.mt`; a debug build may point elsewhere with
+`gradle -Ptaptime.baseUrl=https://…` (the build refuses anything but `https://`; no cleartext
+exception is declared — a local server for M16-14 needs TLS or that exception, decided there).
+
+### JSON
+
+Request bodies are written by hand (`wire/Json.kt`, `JsonObjectWriter`): flat, in the contract
+table's order, byte-exact, so the signed bytes are known. Replies are decoded on the phone with
+the platform's `org.json` (`wire/OrgJsonDecoder.kt`), converted to plain maps; every mapping to
+the app's types is in `wire/Wire.kt`. **Measured:** `org.json` on the unit-test classpath is
+android.jar's stub — `OrgJsonDecoder.decodeObject("{}")` on the JVM throws *"Method nextValue in
+org.json.JSONTokener not mocked"*. No JSON library was added (Q36); the tests use a test-only
+RFC 8259 reader (`src/test/.../MiniJson.kt`) that yields the same map shape. The org.json
+adapter itself is therefore not run on the JVM; it is the device tour's (M16-14).
+
+### Tests (`make mobile-android-test`)
+
+| Class | What it holds |
+|---|---|
+| `VectorsTest` | every request and read text of `test/fixtures/appdevice_vectors.json` byte for byte (texts, body digests, text digests); every OpenSSL signature verifies **exactly** when the vector says `valid` (5 of 8 request, 3 of 6 read); the 12 malformed requests are refused by the builder; the SPKI vector is key A; a JDK key signs what the format verifies |
+| `ContractPinTest` | route paths, header names, canonical prefixes, the 16-code error vocabulary **with statuses**, the `android` platform and the request bodies' field names, read from the Go source |
+| `WireTest` | the request bodies byte for byte; the writer's escaping; the contract's reply shapes; refusals of missing / mistyped fields |
+| `ClockSkewTest` | the `Date` offset; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
+| `InputsTest` | the code from a link or alone; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
+| `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone drops device and key |
+| `MergedManifestTest` | M16-11's, unchanged |
+
+The fake server builds the canonical text **itself** (string concatenation from the format's
+description), so the app's builder is not checked against its own output; the JDK writes `Date`
+on every answer, as Go does. Mutations (2026-11-18, each applied, tests run, restored): read
+prefix `v1`→`v2` → 4 red · the signed read's retry removed → 4 red · `Date` not observed → 3 red
+· device id case check removed → 2 red.
+
+Kotlin test names never start with `Test` (the repository's citation gate,
+`cmd/tappa` `TestEveryNamedTestExists`, reads every `Test…` word as a Go test name).
+
+### CI
+
+`.github/workflows/ci.yml` job **`android`** (Q36 (d); M16-11 review B-1): JDK 21 from
+`actions/setup-java`, Gradle 9.7.1 downloaded from services.gradle.org and checked against its
+published SHA-256 (`acd53f1e…f804d20a`), the runner image's Android SDK measured and
+`platforms;android-36` / `build-tools;36.0.0` installed only if missing, then
+`testDebugUnitTest` for this app **and** for the relay (`android/`). First-party actions only.
+The job has no `timeout-minutes` key (`cmd/tappa`'s CI-timeout test allows exactly one, the
+`check` job's); each Gradle run is bounded by `timeout 30m` instead. A red `android` job makes the
+`ci` workflow red, and `deploy.yml` deploys `main` only on a green `ci`.
+
+### Texts — the browser wizard's, and the differences (§9 questions)
+
+The screens follow the wizard's order and words (`web/templates/pages/activate.templ`, the
+problem texts of `internal/handler/activate.go`), all in `res/values/strings.xml`. What differs:
+
+1. **APP-ONLY code screen** — *"Setup"*, *"Paste your activation link"*, *"Copy the personal link
+   your workplace sent you and paste it here."*, *"Continue"* (Q40: the link is not the app's).
+2. **ADAPTED, step 1 panel and terms** — the browser's sentence naming what is never collected
+   is **left out**: its key word is an R1 trigger, R1 has no waiver under `mobile/` and the
+   pre-filter that lets the browser's sentence through is not applied there (M16-02 audit). A
+   waiver (phrase + path, ADR 0012 addendum, `cmd/tappa/scripttest` pin) or a new wording is the
+   main session's decision, for both apps.
+3. **ADAPTED, terms *"What is recorded"*** — *"A cookie keeps this phone signed in…"* becomes
+   *"A key kept on this phone keeps it signed in, so you don't need a password."* (the app has
+   no cookie, ADR 0045 §2.3).
+4. **ADAPTED, step 2** — *"Two quick things before you tap."* becomes *"One quick thing before you
+   tap."*; the second thing, *"Stay in this browser"*, is about the browser's cookie and has no
+   app twin.
+5. **Dropped from step 3** — the *"Tapped and saw “Finish setup in this browser”?"* note (the app
+   reads the plaque itself in reader mode).
+6. **APP-ONLY** — *"Turn on NFC in your phone's settings, then tap the plaque."*, *"This phone
+   can't read the plaque, so it can't be set up in this app."*, and the no-answer problem
+   *"Couldn't reach Taptime"* / *"Check your connection and try again."*.
+7. **Not shown** — the browser's *"This phone belongs to someone else"* warnings (a browser
+   session held by another person has no app twin: the app activates only when it holds no
+   device); the logo (no logo bytes reach the app yet — M16-07 hands over only digest and box;
+   the header is the wordmark, ink beside an accent); the waiting screen's moving rings (the
+   plaque is drawn still).
+8. **Kept verbatim although browser-worded** — *"You can close this page."* on the two
+   *"Activated"* screens.

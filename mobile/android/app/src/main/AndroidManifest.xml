@@ -46,8 +46,14 @@
         android:theme="@style/Theme.Taptime"
         tools:targetApi="31">
 
+        <!--
+          configChanges: Compose redraws for a rotation, a resize or a theme change without the
+          activity being rebuilt, so the pending activation (invite code, server challenge) stays
+          in memory and never goes into a saved-state Bundle (M16-12, MainActivity).
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|fontScale|uiMode|locale|layoutDirection"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>

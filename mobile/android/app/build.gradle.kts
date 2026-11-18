@@ -17,6 +17,13 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // The server the app talks to and whose plaque URLs (<base>/t) it accepts during
+        // activation (M16-12). Production's TAPPA_BASE_URL; a debug build may point elsewhere
+        // with -Ptaptime.baseUrl=https://... (HTTPS only: no cleartext exception is declared).
+        val baseUrl = providers.gradleProperty("taptime.baseUrl").getOrElse("https://taptime.mt")
+        if (!baseUrl.startsWith("https://")) throw GradleException("taptime.baseUrl must be https://, got $baseUrl")
+        buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
     }
 
     buildTypes {
@@ -30,6 +37,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -61,6 +69,17 @@ class MergedManifestArg(
         listOf("-Dtaptime.mergedManifest=${manifest.get().asFile.absolutePath}")
 }
 
+// The repository files the JVM tests read, by system property (M16-12). ContractPinTest checks
+// that it reads nothing outside this map.
+val serverFiles = mapOf(
+    "taptime.vectors" to "test/fixtures/appdevice_vectors.json",
+    "taptime.go.app" to "internal/handler/app.go",
+    "taptime.go.appactivate" to "internal/handler/appactivate.go",
+    "taptime.go.request" to "internal/appdevice/request.go",
+    "taptime.go.read" to "internal/appdevice/read.go",
+    "taptime.go.canonical" to "internal/appdevice/canonical.go",
+)
+
 val mergedManifests = mutableMapOf<String, Provider<RegularFile>>()
 androidComponents {
     onVariants { variant ->
@@ -77,6 +96,15 @@ tasks.withType<Test>().configureEach {
     val rules = layout.projectDirectory.file("src/main/res/xml/data_extraction_rules.xml")
     inputs.file(rules).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.dataExtractionRules", rules.asFile.absolutePath)
+    // M16-12: the server's own files the wire tests are held to -- the known-answer vectors
+    // (M16-05, M16-07) and the Go source of the routes, headers and error vocabulary
+    // (ContractPinTest). Declared INPUTS, so a change on the server side re-runs the tests
+    // instead of leaving them UP-TO-DATE on a warm tree (the relay's audit B1 lesson).
+    for ((property, path) in serverFiles) {
+        val f = rootProject.file("../../$path")
+        inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)
+        systemProperty(property, f.absolutePath)
+    }
 }
 
 dependencies {
