@@ -362,6 +362,8 @@ struct TapStepScreen: View {
     @ObservedObject var model: ActivationModel
     let invite: LookupResponse
     let look: BrandLook
+    /// The scan button's look -- primaryLook's, Taptime's green: an app-only button is no §9 slot.
+    let buttonLook: BrandLook
     let problem: Copy.Problem?
 
     var body: some View {
@@ -393,7 +395,7 @@ struct TapStepScreen: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             if !model.scanning && !model.busy {
-                PrimaryButton(title: Copy.Tap.scan, look: look) { model.scan() }
+                PrimaryButton(title: Copy.Tap.scan, look: buttonLook) { model.scan() }
             }
             BackButton(title: Copy.Tap.back) { model.back() }
         }

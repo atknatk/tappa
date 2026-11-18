@@ -435,12 +435,12 @@ final class BrandLookTests: XCTestCase {
     }
 }
 
-/// CLAUDE.md §9: the accent fills the primary button of the wizard's steps 1-3 and nothing else.
+/// CLAUDE.md §9: the accent fills the primary button of the wizard's steps 1 and 2 and nothing else.
 final class PrimaryLookTests: XCTestCase {
     let brand = AppBrand(name: nil, logo: nil, accent: "DA291C")
 
-    func testTheAccentFillsStepsOneToThree() {
-        for screen: ActivationModel.Screen in [.welcome, .ready, .tap(problem: nil), .tap(problem: Copy.Problems.tapFailed)] {
+    func testTheAccentFillsStepsOneAndTwo() {
+        for screen: ActivationModel.Screen in [.welcome, .ready] {
             XCTAssertEqual(screen.primaryLook(brand), BrandLook(brand), "\(screen)")
             XCTAssertTrue(screen.primaryLook(brand).accented, "\(screen)")
         }
@@ -448,7 +448,8 @@ final class PrimaryLookTests: XCTestCase {
 
     func testEveryOtherScreenIsTaptimesGreen() {
         let others: [ActivationModel.Screen] = [
-            .checking, .code(notice: nil), .code(notice: Copy.Problems.signedOut), .done(name: "A", secondDevice: false),
+            .checking, .code(notice: nil), .code(notice: Copy.Problems.signedOut), .tap(problem: nil),
+            .tap(problem: Copy.Problems.tapFailed), .done(name: "A", secondDevice: false),
             .activated, .notSetUp(URL(string: "https://taptime.mt/t?tag=04")!), .problem(Copy.Problems.badLink, retry: .toCode),
         ]
         for screen in others {
@@ -456,11 +457,11 @@ final class PrimaryLookTests: XCTestCase {
         }
     }
 
-    /// The step-3 scan button draws the look it is handed (the rule's), not a fixed green.
-    func testTheScanButtonTakesTheStepsLook() throws {
+    /// The step-3 scan button draws the rule's look (green), while the step's marks take the brand's.
+    func testTheScanButtonTakesTheRulesLook() throws {
         let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Taptime/ActivationViews.swift"), encoding: .utf8)
-        XCTAssertTrue(src.contains("PrimaryButton(title: Copy.Tap.scan, look: look)"))
+        XCTAssertTrue(src.contains("PrimaryButton(title: Copy.Tap.scan, look: buttonLook)"))
         XCTAssertFalse(src.contains("BrandLook(.taptime)"), "the views take their button look from primaryLook")
     }
 }

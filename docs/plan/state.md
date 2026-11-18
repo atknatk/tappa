@@ -1776,11 +1776,11 @@ yazılır.
 | M16-10 | Faz A kapanışı | done | `cb18ef3c` + `1b4d63cd` + `c0f0d1fe`; büyük koşu CI 44269600526 yeşil (make check + make audit) |
 | M16-11 | Android iskeleti (`mobile/android/`) | done | `06cfe19d` + `b166645c` (emoji2), merge `209f0215` |
 | M16-12 | Android cihaz anahtarı ve aktivasyon | done | `6538681e` `54a0a1c4` `a79140ee` + düzeltme `2d96bd1f`…`62a04773`, merge `4ba012cb` |
-| M16-13 | Android tap ekranı: NFC, tek seferlik konum, sahte konum | todo |  |
+| M16-13 | Android tap ekranı: NFC, tek seferlik konum, sahte konum | done | `697c6d91` + parite `e544c05f` + düzeltme `28149c71`…`2d3996d4`, merge `c4c599f2` |
 | M16-14 | Faz B kapanışı — gerçek cihaz turu | todo |  |
 | M16-15 | iOS iskeleti (`mobile/ios/`) | done | `eec78d13`, merge `c88a1662` |
 | M16-16 | iOS cihaz anahtarı ve aktivasyon | done | `ef82bc3d` + düzeltme `d57586b5`…`8a2d8748`, merge `9c7cd586` |
-| M16-17 | iOS tap ekranı: Universal Link + Core NFC ön plan okuma | todo |  |
+| M16-17 | iOS tap ekranı: Universal Link + Core NFC ön plan okuma | done | `543e1acd` + düzeltme `032f6be1`…`b601d080`, merge `8bbc109f` |
 | M16-18 | Faz C kapanışı — gerçek cihaz turu | todo |  |
 | M16-19 | Şema: canlı QR ekranları ve `qr_live` kanal envanteri | todo |  |
 | M16-20 | Canlı QR ekran sayfası ve panelden eşleme | todo |  |
@@ -1809,6 +1809,12 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 ### 2026-11-14 (Malta Calculator, dal `api-timesheets` + `api-oauth`) — #36 timesheets PR #38, #37 OAuth ADR 0047 kabul
 
 **Yapılan:** #36 `GET /v1/timesheets` (ADR 0046, API-14) yazıldı, beş denetim turundan geçti, PR #38 açıldı (CI yeşil). Yerel sandbox tarifi ve karar motorundan geçen bir haftalık seed (57 kayıt). #37 ADR 0047 üç denetim turuyla kabul edildi; faz 1 (veri katmanı) yazıldı. **Öğrenilen:** (1) seed'in 60 sn debounce beklemesi tur başından değil kişi başına, DB saatinden ölçülmeli (tur başı ölçüm yük altında `ignored` üretti ve işletmeyi yaktı — `transactions` silinemez). (2) `cmd/opadmin` `TestTablesLock_` build tag'li test dosyalarını da tarar. (3) Yerel Go 1.27.1: staticcheck 2025.1.1 okuyamaz → `GOTOOLCHAIN=go1.26.11 make check`; ama `make fmt`'nin `gofmt`'i yerel ikilidir ve iki dosyayı yeniden biçimler — commit'ten önce geri al. (4) ADR sağlamlaştırması 3. turdan sonra durduruldu (ders 11); kalan doğrulama uygulama testleriyle. **Kalan:** #36 birleştirmesi (kullanıcı) · #37 faz 1 denetimi, faz 2–4 · Malta Calculator'a sorular (#37 yorumu): yerel callback portu, işletme başına çok hesap.
+### 2026-11-18 akşam (M16) — M16-13 + M16-17 done: iki tap ekranı, §9 uygulama ekranları
+
+- **Ne:** Android ve iOS tap ekranları iki mercek + düzeltme + dar yeniden denetimle ONAY; birleşik dalda Android `IosCopyTest` ilk kez koştu ve geçti (iki platformun ortak metinleri karakter karakter aynı). CLAUDE.md §9'a *Uygulama ekranları* paragrafı; ADR 0045'e tap kararları ve bedelleri (bayrak yalnız true, yaklaşık konum gönderilmez, NDEF filtresi, bekletilen bildirim). Kullanıcı kararı: *Open in browser* yalnız hata ekranlarında (ana oturum: basıştan sonra cevapsızlıkta yok).
+- **Düzeltme (ana oturum hatası):** iOS'a *"accent 1–3. adım"* yanlış söylenmişti (oturum başındaki eski §9 metni); depo 01f6f06b'den beri *"1. ve 2. adım"* der. 3. adımın *Scan the plaque*'i uygulama düğmesidir, sayılı slot değil → yeşile döndü (işaretler accent varken ink kalır).
+- **Sıradaki:** M16-14 (Android cihaz turu — NFC'li Android telefon gerekir) ve M16-18 (iOS cihaz turu — Everva Apple hesabında sertifika + App ID + cihaz kaydı; **önce kullanıcıya sorulur**). Logo + talep kartı için ayrı tel sözleşmesi kartı.
+
 ### 2026-11-18 öğleden sonra (M16) — Faz A main'de (PR #42), M16-12 + M16-16 done, §5 uygulama yolu
 
 - **Ne:** PR #42 `main`'e birleşti (`8a7b7504`, kullanıcı kararı *"şimdi canlıya al"*); main CI ilk koşuda main'in OAuth testinde deadlock flake'i (`TestOAuthConsentDB_OnlyAnActiveOwnerApproves`, 40P01, fixture) → deploy atlandı, yeniden koşu. M16-12 (Android Keystore, StrongBox→TEE, yazılım anahtarı reddi, CI'da `android` işi) ve M16-16 (iOS Secure Enclave) iki mercek + düzeltme turu + dar yeniden denetim ONAY. CLAUDE.md §5 *Aktivasyon dokunuşu* ölçülen sıraya eşitlendi ve uygulama yolu eklendi; ADR 0045'e kararlar (yazılım anahtarı reddi, kayıt 401'de silinmez, kullanıcının üç §9 kararı, paylaşılan telefon kabul edilmiş riski).

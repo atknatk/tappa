@@ -17,7 +17,7 @@ enum Palette {
 // accent only after its WCAG gate passed it; the app still re-derives the two things the web's
 // theme stylesheet carries -- the button text colour (paper or ink, whichever contrasts more) and
 // the 2 px ink edge when the accent is under 3:1 on porcelain -- because it has no stylesheet to
-// receive them from. The accent fills ONE slot on these screens: the primary button of steps 1-3.
+// receive them from. The accent fills ONE slot on these screens: the primary button of steps 1 and 2 (CLAUDE.md §9).
 // With an accent, the wizard's other green marks (progress bar, step numbers, the wordmark) are ink.
 struct BrandLook: Equatable {
     struct RGB: Equatable {

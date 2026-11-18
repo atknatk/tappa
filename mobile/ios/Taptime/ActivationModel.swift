@@ -413,15 +413,17 @@ final class ActivationModel: ObservableObject {
 
 extension ActivationModel.Screen {
     /// The look of this screen's primary button (CLAUDE.md §9; ADR 0023 §2, WL-13): the business's
-    /// accent on the wizard's steps 1-3 -- "Agree and continue", "I'm ready" and step 3's "Scan the
-    /// plaque" -- and Taptime's green everywhere else. The code screen comes before any invitation
+    /// accent on the wizard's steps 1 and 2 -- "Agree and continue" and "I'm ready" -- and Taptime's
+    /// green everywhere else. Step 3 has no primary button in the browser; the app's "Scan the
+    /// plaque" is an app-only button, so it is not one of §9's counted slots and stays green (its
+    /// screen's marks still go ink beside an accent). The code screen comes before any invitation
     /// is known, and a problem screen must not tell a live invitation from a dead one by its
     /// colours (the browser's problem screens take no brand either).
     func primaryLook(_ brand: AppBrand) -> BrandLook {
         switch self {
-        case .welcome, .ready, .tap:
+        case .welcome, .ready:
             return BrandLook(brand)
-        case .checking, .code, .done, .activated, .notSetUp, .problem:
+        case .checking, .code, .tap, .done, .activated, .notSetUp, .problem:
             return BrandLook(.taptime)
         }
     }

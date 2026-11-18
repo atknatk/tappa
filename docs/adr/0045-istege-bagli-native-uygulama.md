@@ -478,7 +478,8 @@ iptal edilmiş anahtarı sunucu zaten reddeder. Tek silme: anahtar platform depo
 - Uygulamanın aktivasyon sihirbazında tarayıcıda olmayan düğmeler **kalır**: iOS *"Scan the plaque"* (Core NFC ancak
   kendi sayfasıyla okur; sayfa ekran açılınca kendiliğinden gelir, düğme yalnız sayfa kapanınca görünür), Welcome'da
   *Back*, sorun ekranlarında *Try again* / *Start again* — uygulamada tarayıcının geri/yenile düğmesi yoktur. Accent
-  §9'un slotunda kalır: 1–3. adımların birincil düğmesi (3. adımda *"Scan the plaque"*).
+  §9'un slotunda kalır: 1. ve 2. adımların birincil düğmesi; 3. adımın *"Scan the plaque"*'i tarayıcıda karşılığı olmayan bir
+  uygulama düğmesidir, sayılı slot değildir ve Taptime yeşilidir (ekranın işaretleri accent varken yine ink).
 - Gizlilik cümlesi uygulamada *"No finger scans, no face, no voice."* — R1 `mobile/` altında muafiyetsizdir; vaat
   aynıdır, tarama gevşetilmez.
 - **Kabul edilmiş risk — paylaşılan telefon.** Bir telefonun Safari'sinde X'in oturumu varken Y aynı telefonda uygulamayı
@@ -486,3 +487,12 @@ iptal edilmiş anahtarı sunucu zaten reddeder. Tek silme: anahtar platform depo
   *"This phone belongs to someone else"* uyarısını uygulama gösteremez (Safari çerezini görmez). Hafifletme: uygulamanın
   tap ekranı (M16-17, M16-13) dokunuştan önce kimin adına kaydedileceğini açıkça gösterir. Paylaşılan telefon nadir bir
   durumdur; Q40 (a) tarayıcı oturumunu yalnız **aynı kişinin** aktivasyonunda kapatır.
+
+## Faz B/C tap ekranı: kararlar ve bedeller (2026-11-18, M16-13 + M16-17)
+
+- **Kullanıcı kararı (§9, Bedel 8):** *"Open in browser"* yalnız hata ekranlarında. **Ana oturum daraltması:** basış gönderildikten sonra cevap gelmezse gösterilmez — ilk basış kaydedildiyse aynı URL'nin tarayıcıdan ikinci gönderimi §5 satır 2'nin kayıtlı reject'ini yazar ve 60 sn debounce'u başlatır; ekran *"may not have been recorded"* der, *Try again* hiçbir şeyi yeniden göndermez. Tarayıcıya açılan URL ham URL değil, `baseURL + /t + doğrulanmış sorgu`dur.
+- **Sahte konum bayrağı yalnız `true` ve bir koordinatla gider** (iki platform). `decide.go` nil olmayan her değeri değişmez `transactions` satırına yazar; `false` gönderilseydi istemcinin *"sahte değil"* beyanı kalıcı ve kural yazılabilir bir kanıt olurdu (§2.4: yokluk hiçbir şeyi kanıtlamaz).
+- **Uygulama yaklaşık konumu göndermez** (iOS Precise Location kapalı; Android yalnız basıştan sonraki taze fix — önbellek reddedilince 8 sn içinde bir taze istek, API 26–30'da GPS + network yarışı). Tarayıcıdan **katıdır** (`tap.js` yaklaşık konumu da gönderir, sunucu `acc` okumaz): yaklaşık bir koordinat IP eşleşmesiyle `base:gps-conflict-review`'a haksız düşürebilir ya da IP yokken şans eseri 150 m içine düşüp sahte bir `ok` verebilirdi. Konumsuz basış satır 6'yı IP ile sağlayabilir, sağlamazsa satır 7 `flag` — kayıt yine yazılır (§4.6).
+- **Bedel — Android NDEF filtresi doğrulanamaz.** `autoVerify` yalnız VIEW filtresine işler; başka bir uygulama aynı `https://taptime.mt/t` NDEF filtresini tanımlarsa NFC dağıtımı seçici gösterir ve seçilen uygulama harcanmamış SUN'u alır. Uygulama hiç kurulu değilken bu zaten böyleydi (kötüleşmez). `assetlinks.json` boşken (bugün canlıda — `TAPPA_ANDROID_CERT_SHA256` uygulama `/t`'yi karşılayana dek boş) App Link doğrulanmaz: Android 12+ linki tarayıcıya verir, 8–11 seçici gösterir.
+- **Bedel — bekletilen bildirim.** XS+'ın arka plan okuma bildirimi geç açılırsa ya da iki bildirim ters sırayla açılırsa harcanmış bir URL uygulamaya ulaşır; `tap/start` sayaca bakmadığı için ekran normal düğmeyi çizer, basılırsa §5 satır 2'nin kayıtlı reject'i yazılır ve debounce başlar. Tarayıcının `GET /t`'siyle aynıdır; M16-18 ölçer.
+- Logo ve M15 talep kartı uygulamada yok: ikisi de `/app/v1` tel sözleşmesine bir yol/alan ister (logo için eş işletme `?tag=` ayrımı dahil) — ayrı kart.

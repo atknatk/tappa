@@ -26,7 +26,7 @@ private struct RootContent: View {
 
     var body: some View {
         // The header and marks follow the brand on every branded screen; the primary button
-        // follows primaryLook (accent only on the wizard's steps 1-3).
+        // follows primaryLook (accent only on the wizard's steps 1 and 2).
         let look = BrandLook(activation.brand)
         let button = activation.screen.primaryLook(activation.brand)
         switch activation.screen {
@@ -48,7 +48,7 @@ private struct RootContent: View {
             }
         case .tap(let problem):
             if let invite = activation.invite {
-                TapStepScreen(model: activation, invite: invite, look: button, problem: problem)
+                TapStepScreen(model: activation, invite: invite, look: look, buttonLook: button, problem: problem)
             }
         case .done(let name, let second):
             DoneScreen(name: name, secondDevice: second, look: look)
