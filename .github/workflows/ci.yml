@@ -307,3 +307,74 @@ jobs:
         # Isin sonucu yine kirmizi kalir; bu satir yalniz TARAMANIN kosmasini saglar.
         if: ${{ !cancelled() }}
         run: make audit
+
+  android:
+    # M16-12 (Q36 (d), M16-11 review B-1): the two Android builds' JVM tests -- the staff app
+    # (mobile/android, ADR 0045) and the plaque relay (android/, ADR 0017). Neither is part of
+    # `make check` (no Go toolchain, no database); this job runs beside `check` and the workflow
+    # is red if either is.
+    #
+    # FIRST-PARTY ACTIONS ONLY (this file's header): checkout and setup-java. Gradle is not set
+    # up by an action: the measured toolchain's 9.7.1 (android/README.md, mobile/android/README.md)
+    # is downloaded from services.gradle.org and checked against the SHA-256 Gradle publishes
+    # next to it (fetched and verified against a download 2026-11-18). The repository carries no
+    # wrapper JAR.
+    #
+    # NO timeout-minutes KEY: cmd/tappa's CI-timeout test allows exactly one, the `check` job's.
+    # Each Gradle run is bounded by coreutils `timeout` instead.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Gradle 9.7.1 (checksum-verified)
+        env:
+          GRADLE_SHA256: acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+          echo "$GRADLE_SHA256  $RUNNER_TEMP/gradle.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-9.7.1/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gradle-9.7.1/bin/gradle" --version
+
+      - name: Android SDK (measure the image, install only what is missing)
+        # The runner image ships an SDK under $ANDROID_HOME; what it holds is printed, and the
+        # two parts both builds need (platform 36, build-tools 36.0.0 -- the measured chain) are
+        # installed only when absent.
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools" || true
+          need=()
+          [ -d "$ANDROID_HOME/platforms/android-36" ] || need+=("platforms;android-36")
+          [ -d "$ANDROID_HOME/build-tools/36.0.0" ] || need+=("build-tools;36.0.0")
+          if [ ${#need[@]} -gt 0 ]; then
+            echo "installing: ${need[*]}"
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "${need[@]}"
+          else
+            echo "platform 36 and build-tools 36.0.0 are on the image"
+          fi
+
+      - name: Staff app JVM tests (mobile/android)
+        working-directory: mobile/android
+        run: timeout 30m gradle --console=plain --no-daemon testDebugUnitTest
+
+      - name: Relay JVM tests (android)
+        if: ${{ !cancelled() }}
+        working-directory: android
+        run: timeout 30m gradle --console=plain --no-daemon testDebugUnitTest
+
+      - name: Test classes run
+        # The per-class counts from the JUnit XML, so the log shows which tests ran (the card
+        # asks that MergedManifestTest and the vector tests be visible in CI).
+        if: ${{ !cancelled() }}
+        run: |
+          for f in mobile/android/app/build/test-results/testDebugUnitTest/*.xml android/app/build/test-results/testDebugUnitTest/*.xml; do
+            if [ -f "$f" ]; then grep -o '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "$f"; fi
+          done
