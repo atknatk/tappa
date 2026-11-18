@@ -36,10 +36,12 @@
       device-to-device transfer copy the app's data, so dataExtractionRules excludes every
       domain from both. The device key is non-exportable anyway (M16-12); the rest of the app
       data must not travel either (card M16-11).
+      usesCleartextTraffic=false: HTTPS only, said explicitly (M16-12; MergedManifestTest).
     -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
