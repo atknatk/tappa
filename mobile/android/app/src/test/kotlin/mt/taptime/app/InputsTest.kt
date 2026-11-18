@@ -90,4 +90,13 @@ class InputsTest {
         assertEquals("To record your working hours for KF.", endSentence("To record your working hours for KF"))
         assertEquals("To record your working hours for Kebab Ltd.", endSentence("To record your working hours for Kebab Ltd."))
     }
+
+    // M16-12 hand-over (2): InviteCode compares the port, as PlaqueRead always did.
+    @Test
+    fun theCodesLinkMustBeOnThisServersPort() {
+        assertEquals(code, InviteCode.from("https://taptime.mt:443/activate?code=$code", base))
+        assertNull(InviteCode.from("https://taptime.mt:8443/activate?code=$code", base))
+        assertNull(InviteCode.from("https://taptime.mt:443/activate?code=$code", "https://taptime.mt:8443"))
+        assertEquals(code, InviteCode.from("https://taptime.mt:8443/activate?code=$code", "https://taptime.mt:8443"))
+    }
 }

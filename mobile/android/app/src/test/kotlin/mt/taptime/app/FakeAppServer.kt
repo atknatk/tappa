@@ -77,6 +77,9 @@ class FakeAppServer(
             "POST /app/v1/activate/bind" -> bind(ex, body)
             "POST /app/v1/activate/complete" -> complete(ex, body)
             "GET /app/v1/me" -> me(ex, body)
+            "POST /app/v1/nonce" -> nonce(ex, body)
+            "POST /app/v1/tap/start" -> tapStart(ex, body)
+            "POST /app/v1/tap" -> tap(ex, body)
             else -> error(ex, 404, "not_found")
         }
     }
@@ -140,15 +143,87 @@ class FakeAppServer(
     }
 
     private fun me(ex: HttpExchange, body: ByteArray) {
+        if (signedRead(ex, "GET", "/app/v1/me", body) == null) return unauthenticated(ex)
+        json(ex, """{"employeeName":"Maria Borg","brand":{},"direction":"in"}""")
+    }
+
+    /** The signed read's check (appdevice.VerifyRead): the device id, or null for a 401. */
+    private fun signedRead(ex: HttpExchange, method: String, path: String, body: ByteArray): String? {
         val id = ex.requestHeaders.getFirst("App-Device-Id")
         val ts = ex.requestHeaders.getFirst("App-Timestamp")
         val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)
         val point = id?.let { devices[it] }
-        if (ts == null || sig == null || point == null || ex.requestHeaders.getFirst("App-Nonce") != null) return unauthenticated(ex)
-        val t = ts.toLongOrNull() ?: return unauthenticated(ex)
-        if (abs(t - nowSeconds()) > 60) return unauthenticated(ex)
-        if (!verifies(point, text("tappa-app-read-v1", "GET", "/app/v1/me", body, ts, id), sig)) return unauthenticated(ex)
-        json(ex, """{"employeeName":"Maria Borg","brand":{},"direction":"in"}""")
+        if (ts == null || sig == null || point == null || ex.requestHeaders.getFirst("App-Nonce") != null) return null
+        val t = ts.toLongOrNull() ?: return null
+        if (abs(t - nowSeconds()) > 60) return null
+        if (!verifies(point, text("tappa-app-read-v1", method, path, body, ts, id), sig)) return null
+        return id
+    }
+
+    // --- the tap (M16-13) ---------------------------------------------------------------------
+
+    /** Nonces issued and not yet spent; a nonce-signed request spends its own (single use). */
+    val liveNonces = mutableSetOf<String>()
+    /** Every tap/start body and every tap body, raw, in order. */
+    val tapStartBodies = mutableListOf<String>()
+    val tapBodies = mutableListOf<String>()
+    /** What tap/start answers about the person. */
+    var direction = "in"
+    var locationName: String? = "St Julians"
+    var tapStartBrand = "{}"
+    /** When set, the next tap/start (or tap) answers this status and error code, once. */
+    var tapStartFailsOnce: Pair<Int, String>? = null
+    var tapFailsOnce: Pair<Int, String>? = null
+    /** When set, the next tap is recorded and then its answer is cut (the connection closed). */
+    var tapAnswerLostOnce = false
+    var recorded = 0
+        private set
+
+    private fun nonce(ex: HttpExchange, body: ByteArray) {
+        signedRead(ex, "POST", "/app/v1/nonce", body) ?: return unauthenticated(ex)
+        val n = b64(ByteArray(32).also(random::nextBytes))
+        liveNonces += n
+        json(ex, """{"nonce":"$n","expiresAt":"2026-11-18T12:00:00Z"}""")
+    }
+
+    private fun tapStart(ex: HttpExchange, body: ByteArray) {
+        val id = signedRead(ex, "POST", "/app/v1/tap/start", body) ?: return unauthenticated(ex)
+        tapStartBodies += String(body)
+        tapStartFailsOnce?.let { (status, code) ->
+            tapStartFailsOnce = null
+            return error(ex, status, code)
+        }
+        val m = MiniJson.decodeObject(String(body))
+        if (m.keys != setOf("sun")) return error(ex, 400, "bad_request")
+        val loc = locationName?.let { ""","locationName":"$it"""" } ?: ""
+        json(ex, """{"employeeName":"Maria Borg"$loc,"brand":$tapStartBrand,"direction":"$direction","qr":false,"context":"ctx-for-$id"}""")
+    }
+
+    private fun tap(ex: HttpExchange, body: ByteArray) {
+        val id = ex.requestHeaders.getFirst("App-Device-Id")
+        val n = ex.requestHeaders.getFirst("App-Nonce")
+        val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)
+        val point = id?.let { devices[it] }
+        if (n == null || sig == null || point == null || ex.requestHeaders.getFirst("App-Timestamp") != null) return unauthenticated(ex)
+        if (!verifies(point, text("tappa-app-request-v1", "POST", "/app/v1/tap", body, n, id), sig)) return unauthenticated(ex)
+        if (!liveNonces.remove(n)) return unauthenticated(ex) // spent or never issued
+        tapBodies += String(body)
+        tapFailsOnce?.let { (status, code) ->
+            tapFailsOnce = null
+            return error(ex, status, code)
+        }
+        val m = MiniJson.decodeObject(String(body))
+        if (!setOf("context", "want", "lat", "lng", "mockLocation", "occurredAt").containsAll(m.keys)) return error(ex, 400, "bad_request")
+        if (m["context"] != "ctx-for-$id") return error(ex, 400, "stale_context")
+        recorded++
+        if (tapAnswerLostOnce) {
+            tapAnswerLostOnce = false
+            ex.sendResponseHeaders(200, 1000) // promises a body it never sends: the reply is cut
+            ex.responseBody.write("{".toByteArray())
+            return
+        }
+        val d = (m["want"] as? String) ?: direction
+        json(ex, """{"outcome":"recorded","verdict":"ok","direction":"$d","venue":"St Julians","at":"14:03","businessType":"restaurant"}""")
     }
 
     private fun text(prefix: String, method: String, path: String, body: ByteArray, freshness: String, id: String): ByteArray {

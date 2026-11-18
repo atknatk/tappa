@@ -114,4 +114,50 @@ class WireTest {
             }
         }
     }
+
+    // M16-13: the tap's bodies, in the contract table's order, and its two replies (the Go side's
+    // own pins, internal/handler/app_test.go's response-shape test).
+    @Test
+    fun theTapBodiesAreTheContractsFieldsInItsOrder() {
+        assertEquals("""{"sun":"tag=04A1&ctr=000011&cmac=00AA"}""", String(Bodies.tapStart("tag=04A1&ctr=000011&cmac=00AA")))
+        assertEquals("""{"context":"X","want":"in","lat":35.9,"lng":14.5,"mockLocation":true}""",
+            String(Bodies.tap("X", "in", 35.9, 14.5, mockLocation = true)))
+        assertEquals("mock false is absent", """{"context":"X","want":"out","lat":35.9,"lng":14.5}""",
+            String(Bodies.tap("X", "out", 35.9, 14.5, mockLocation = false)))
+        assertEquals("no fix: no coordinate and no mock flag", """{"context":"X"}""", String(Bodies.tap("X", null, null, null, mockLocation = true)))
+        assertEquals("half a fix is no fix", """{"context":"X"}""", String(Bodies.tap("X", "", 35.9, null, mockLocation = true)))
+        assertEquals("an unknown want is not sent", """{"context":"X"}""", String(Bodies.tap("X", "both", null, null, mockLocation = false)))
+    }
+
+    @Test
+    fun theTapRepliesReadTheContractsShapes() {
+        val start = Replies.tapStart(MiniJson.decodeObject("""{"employeeName":"E","locationName":"L","brand":{},"direction":"in","qr":false,"context":"X"}"""))
+        assertEquals("E", start.employeeName)
+        assertEquals("L", start.locationName)
+        assertEquals(Brand.TAPTIME, start.brand)
+        assertEquals("in", start.direction)
+        assertFalse(start.qr)
+        assertEquals("X", start.context)
+        // Another business's plaque: the server writes an empty venue and no brand.
+        val foreign = Replies.tapStart(MiniJson.decodeObject("""{"employeeName":"E","locationName":"","brand":{},"direction":"","qr":true,"context":"X"}"""))
+        assertNull(foreign.locationName)
+        assertEquals("", foreign.direction)
+        assertTrue(foreign.qr)
+        assertEquals("a direction this app does not know is the neutral Tap", "",
+            Replies.tapStart(MiniJson.decodeObject("""{"employeeName":"E","brand":{},"direction":"up","qr":false,"context":"X"}""")).direction)
+        try {
+            Replies.tapStart(MiniJson.decodeObject("""{"employeeName":"E","brand":{},"direction":"in","qr":false,"context":""}"""))
+            fail("an empty context cannot be pressed with")
+        } catch (_: JsonException) {
+        }
+
+        val tap = Replies.tap(MiniJson.decodeObject("""{"outcome":"recorded","verdict":"ok","direction":"out","venue":"V","at":"09:00","businessType":"bar"}"""))
+        assertEquals("ok", tap.verdict)
+        assertEquals("out", tap.direction)
+        assertEquals("V", tap.venue)
+        assertEquals("09:00", tap.at)
+        assertEquals("bar", tap.businessType)
+        assertFalse(tap.practice)
+        assertTrue(Replies.tap(MiniJson.decodeObject("""{"outcome":"recorded","verdict":"ok","direction":"","venue":"V","at":"09:00","businessType":"bar","practice":true}""")).practice)
+    }
 }

@@ -56,7 +56,19 @@ class KeystoreKeys(private val context: Context) : DeviceKeys {
             generatePair(alias, strongBox = false)
             false
         }
-        return DeviceKey(alias, backingOf(alias, inStrongBox), KeystoreSigner(alias))
+        // A key whose level cannot be read is deleted before the failure goes up (M16-12 hand-over
+        // (4)): it was never bound, nothing refers to its alias, and it would sit in the Keystore
+        // for good.
+        val backing = try {
+            backingOf(alias, inStrongBox)
+        } catch (e: Exception) {
+            try {
+                delete(alias)
+            } catch (_: Exception) {
+            }
+            throw e
+        }
+        return DeviceKey(alias, backing, KeystoreSigner(alias))
     }
 
     override fun load(alias: String): Signer? =
@@ -78,24 +90,22 @@ class KeystoreKeys(private val context: Context) : DeviceKeys {
         }
     }
 
-    @Suppress("DEPRECATION") // isInsideSecureHardware: the only report API 26-30 have
+    @Suppress("DEPRECATION") // isInsideSecureHardware: the only report API 26-30 have, and the cross-check of 31+'s unknown
     private fun backingOf(alias: String, inStrongBox: Boolean): KeyBacking {
         val key = keyStore().getKey(alias, null) as PrivateKey
         val info = KeyFactory.getInstance(key.algorithm, KEYSTORE).getKeySpec(key, KeyInfo::class.java)
-        if (Build.VERSION.SDK_INT >= 31) {
-            return when (info.securityLevel) {
-                KeyProperties.SECURITY_LEVEL_STRONGBOX -> KeyBacking.STRONGBOX
-                KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> KeyBacking.TEE
-                KeyProperties.SECURITY_LEVEL_UNKNOWN_SECURE -> KeyBacking.SECURE_HARDWARE
-                KeyProperties.SECURITY_LEVEL_SOFTWARE -> KeyBacking.SOFTWARE
-                else -> KeyBacking.UNKNOWN
+        val level = if (Build.VERSION.SDK_INT >= 31) {
+            when (info.securityLevel) {
+                KeyProperties.SECURITY_LEVEL_STRONGBOX -> KeyBacking.Level.STRONGBOX
+                KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> KeyBacking.Level.TRUSTED_ENVIRONMENT
+                KeyProperties.SECURITY_LEVEL_UNKNOWN_SECURE -> KeyBacking.Level.UNKNOWN_SECURE
+                KeyProperties.SECURITY_LEVEL_SOFTWARE -> KeyBacking.Level.SOFTWARE
+                else -> KeyBacking.Level.OTHER
             }
+        } else {
+            KeyBacking.Level.OTHER
         }
-        return when {
-            !info.isInsideSecureHardware -> KeyBacking.SOFTWARE
-            inStrongBox -> KeyBacking.STRONGBOX
-            else -> KeyBacking.SECURE_HARDWARE
-        }
+        return KeyBacking.fromReport(Build.VERSION.SDK_INT, level, info.isInsideSecureHardware, inStrongBox)
     }
 
     private inner class KeystoreSigner(private val alias: String) : Signer {

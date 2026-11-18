@@ -104,4 +104,21 @@ class ContractPinTest {
         assertEquals(tags("appBindRequest"), keys(Bodies.bind("c", point)))
         assertEquals(tags("appCompleteRequest"), keys(Bodies.complete("c", point, "tag=1")))
     }
+
+    // M16-13: the tap's two request structs (apptap.go). Every key the app can send is one the
+    // server decodes (it decodes strictly: an unknown field is 400), and occurredAt -- the queued
+    // tap's field -- is the one the app never sends (no queue, ADR 0045 §2.8).
+    @Test
+    fun theTapBodiesUseTheServersFieldNames() {
+        val tap = go("taptime.go.apptap")
+        fun tags(struct: String): Set<String> {
+            val body = Regex("""type\s+$struct\s+struct\s*\{(.*?)\n}""", RegexOption.DOT_MATCHES_ALL).find(tap)?.groupValues?.get(1)
+                ?: throw AssertionError("no struct $struct in apptap.go")
+            return Regex("""json:"([^",]+)""").findAll(body).map { it.groupValues[1] }.toSet()
+        }
+        fun keys(b: ByteArray): Set<String> = MiniJson.decodeObject(String(b, Charsets.UTF_8)).keys
+        assertEquals(tags("appTapStartRequest"), keys(Bodies.tapStart("tag=1")))
+        assertEquals(tags("appTapRequest") - "occurredAt", keys(Bodies.tap("c", "in", 1.0, 2.0, mockLocation = true)))
+        assertTrue("CONTROL: the server still has the queued field", "occurredAt" in tags("appTapRequest"))
+    }
 }

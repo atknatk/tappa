@@ -17,6 +17,16 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
+      M16-11 review B-3, decided by M16-13: the location permissions make Google Play treat
+      android.hardware.location as a REQUIRED feature (aapt2 dump badging: uses-implied-feature),
+      which hides the app from a phone without one. Location is backup evidence and never a
+      requirement (CLAUDE.md §5 rows 6-7: an IP match alone is enough, a tap without a fix is
+      recorded), so the feature is declared optional. NFC is not required either (ADR 0045: an
+      NFC-less phone installs the app for Faz D's QR path).
+    -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+
+    <!--
       androidx.core declares and requests an app-private signature permission
       (<applicationId>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) for ContextCompat's
       not-exported receivers on API < 33. This app registers no broadcast receiver, so the
@@ -61,6 +71,28 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!--
+              THE PLAQUE (M16-13, ADR 0045 §2.1: same plaque, same URL). An NFC read of the plaque's
+              URI record: https://<host>/t?tag=..&ctr=..&cmac=.., is dispatched here; with the
+              app installed, Android's tag dispatch prefers an app's NDEF_DISCOVERED filter to the
+              browser (to be measured on a real phone, M16-14). The path is exactly /t: the
+              activation link (/activate) is not the app's (Q40).
+            -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="https" android:host="${plaqueHost}" android:path="/t" />
+            </intent-filter>
+            <!--
+              The same URL opened as a link (a QR scanned by the camera, a link in a message): an
+              App Link, verified against /.well-known/assetlinks.json (M16-08), which links /t only.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${plaqueHost}" android:path="/t" />
             </intent-filter>
         </activity>
 

@@ -7,7 +7,13 @@ import mt.taptime.app.wire.LookupReply
 import mt.taptime.app.wire.Outcome
 
 /** The screens' closed set of problems; each one is a fixed text (strings.xml), never a server value. */
-enum class Problem { BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER }
+enum class Problem {
+    BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER,
+    /** M16-13: a plaque opened the app on a phone that is not set up (the code screen's notice). */
+    NOT_SET_UP,
+    /** M16-12 hand-over (3): the Keystore did not hand out the device key (iOS's keyUnreadable). */
+    KEY_UNREADABLE,
+}
 
 /** The bind the tap step holds: the code, the fresh key and the server's challenge. Memory only. */
 class PendingActivation(val code: String, val facts: LookupReply, val key: DeviceKey, val bound: BindReply)
@@ -151,6 +157,11 @@ class ActivationFlow(
         data object NotActivated : HomeResult
         data class SetUp(val device: ActiveDevice) : HomeResult
         data object SignedOut : HomeResult
+        /**
+         * The Keystore refused to load or sign with the key (M16-12 hand-over (3), iOS's
+         * keyUnreadable): "Try again" runs home again. The record and the key are KEPT.
+         */
+        data object KeyUnreadable : HomeResult
     }
 
     /**
@@ -169,12 +180,31 @@ class ActivationFlow(
      */
     fun home(): HomeResult {
         val device = state.active() ?: return HomeResult.NotActivated
-        val signer = keys.load(device.keyAlias)
+        // ONE retry, then the "Try again" screen -- never a deletion (M16-12 hand-over (3); the iOS
+        // twin's start()): a Keystore that fails once usually answers the next time, and a deleted
+        // key never would. Until this card a throwing Keystore ended at the code screen with the
+        // server's text, which was both wrong and a dead end.
+        val signer = try {
+            keys.load(device.keyAlias)
+        } catch (_: Exception) {
+            try {
+                keys.load(device.keyAlias)
+            } catch (_: Exception) {
+                return HomeResult.KeyUnreadable
+            }
+        }
         if (signer == null) {
             state.clear()
             return HomeResult.NotActivated
         }
-        return when (val r = client.me(device.deviceId, signer)) {
+        val r = try {
+            client.me(device.deviceId, signer)
+        } catch (_: Exception) {
+            // Only the signer throws on this path (AppClient turns transport failures into
+            // Outcome.Failed and replies it cannot read into Outcome.Failed too).
+            return HomeResult.KeyUnreadable
+        }
+        return when (r) {
             is Outcome.Ok -> {
                 val fresh = device.copy(employeeName = r.value.employeeName)
                 if (fresh != device) state.save(fresh)
