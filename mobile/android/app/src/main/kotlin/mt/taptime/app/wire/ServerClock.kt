@@ -25,10 +25,19 @@ class ServerClock(private val localMillis: () -> Long = System::currentTimeMilli
     var measured: Boolean = false
         private set
 
-    /** Records the server's clock from a Date header value; an unreadable one changes nothing. */
+    /**
+     * Records the server's clock from a Date header value; an unreadable one changes nothing, and
+     * so does one more than [MAX_OFFSET_MILLIS] away from this phone's clock (security review,
+     * 2026-11-18). A Date is not signed: a captive portal, a proxy or anything on the path can
+     * write one, and an offset of days would let a single forged answer set every later signed
+     * read's second anywhere. A phone whose real clock is off by more than a day stays
+     * uncorrected; its reads are then refused and read as signed out, which is the honest answer.
+     */
     fun observe(dateHeader: String?) {
         val server = parseHttpDate(dateHeader) ?: return
-        offsetMillis = server - localMillis()
+        val offset = server - localMillis()
+        if (Math.abs(offset) > MAX_OFFSET_MILLIS) return
+        offsetMillis = offset
         measured = true
     }
 
@@ -39,6 +48,9 @@ class ServerClock(private val localMillis: () -> Long = System::currentTimeMilli
     fun offsetMillis(): Long = offsetMillis
 
     companion object {
+        /** The largest server-minus-phone difference a Date may set: one day. */
+        const val MAX_OFFSET_MILLIS = 24L * 60 * 60 * 1000
+
         /** RFC 9110 IMF-fixdate ("Sun, 06 Nov 1994 08:49:37 GMT"), which is what Go writes; null when it is not one. */
         fun parseHttpDate(v: String?): Long? {
             if (v.isNullOrBlank()) return null

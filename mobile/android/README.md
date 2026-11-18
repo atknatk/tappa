@@ -354,7 +354,7 @@ it (CLAUDE.md §5).
 `wire/Canonical.kt` builds the two canonical texts (`tappa-app-request-v1`, `tappa-app-read-v1`)
 and refuses every field the server would refuse. `wire/AppClient.kt` is the one client; nothing
 in it logs. The clock-skew contract (card M16-12): every reply's `Date` re-measures the
-server-minus-phone offset (`wire/ServerClock.kt`) and signed reads carry the corrected second;
+server-minus-phone offset (`wire/ServerClock.kt`) and signed reads carry the corrected second — unless the `Date` is more than **24 hours** away from the phone's clock, which is ignored and the previous offset kept (`Date` is unsigned; one forged answer must not move every later signed second by days);
 a 401 to a signed read or a nonce-signed request is retried **once** (the 401's own `Date` is
 the fresh measurement; a nonce-signed retry fetches a fresh nonce) and only the second 401 means
 signed out. On launch the app asks `GET /app/v1/me`; a signed-out answer shows the code screen with
@@ -393,7 +393,7 @@ adapter itself is therefore not run on the JVM; it is the device tour's (M16-14)
 | `VectorsTest` | every request and read text of `test/fixtures/appdevice_vectors.json` byte for byte (texts, body digests, text digests); every OpenSSL signature verifies **exactly** when the vector says `valid` (5 of 8 request, 3 of 6 read); the 12 malformed requests are refused by the builder; the SPKI vector is key A; a JDK key signs what the format verifies |
 | `ContractPinTest` | route paths, header names, canonical prefixes, the 16-code error vocabulary **with statuses**, the `android` platform and the request bodies' field names, read from the Go source |
 | `WireTest` | the request bodies byte for byte; the writer's escaping; the contract's reply shapes; refusals of missing / mistyped fields |
-| `ClockSkewTest` | the `Date` offset; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
+| `ClockSkewTest` | the `Date` offset; a `Date` more than a day away ignored; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
 | `InputsTest` | the code from this server's `/activate` link or alone, never from another host or path; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
 | `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone keeps its record and key until a new activation, a record without its key is dropped, a software key is never bound |
 | `MergedManifestTest` | M16-11's, unchanged |

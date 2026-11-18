@@ -55,6 +55,24 @@ class ClockSkewTest {
     }
 
     @Test
+    fun aDateMoreThanADayAwayIsIgnoredAndThePreviousOffsetKept() {
+        val local = serverNow.toEpochMilli()
+        val clock = ServerClock { local }
+        clock.observe(httpDate(serverNow.plusSeconds(90)))
+        assertEquals(90_000L, clock.offsetMillis())
+        for (far in listOf(serverNow.plusSeconds(86_401), serverNow.minusSeconds(86_401), serverNow.plusSeconds(400L * 86_400))) {
+            clock.observe(httpDate(far))
+            assertEquals("ignored: $far", 90_000L, clock.offsetMillis())
+        }
+        clock.observe(httpDate(serverNow.minusSeconds(86_400)))
+        assertEquals("exactly a day is still taken", -86_400_000L, clock.offsetMillis())
+        val fresh = ServerClock { local }
+        fresh.observe(httpDate(serverNow.plusSeconds(2 * 86_400)))
+        assertEquals(false, fresh.measured)
+        assertEquals(0L, fresh.offsetMillis())
+    }
+
+    @Test
     fun goesHttpDateFormatIsRead() {
         // Go's http.TimeFormat: "Mon, 02 Jan 2006 15:04:05 GMT".
         assertEquals(Instant.parse("2026-11-18T12:00:00Z").toEpochMilli(), ServerClock.parseHttpDate("Wed, 18 Nov 2026 12:00:00 GMT"))
