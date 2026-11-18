@@ -211,13 +211,13 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | Güncel **Xcode** kurulu bir Mac (bu makinede ölçülmedi — **doğrula**) | iOS derlemesi | M16-15 |
 | Mağaza imza anahtarlarının **saklama yeri** (öneri: Play App Signing + yükleme anahtarı ve Apple sertifikaları Infisical'da) | §4.7'nin ruhu, depo PUBLIC | M16-28 |
 | Hukuk metni onayı (`/legal/privacy` değişikliği, mağaza gizlilik etiketleri) | GDPR Art. 13; mağaza beyanı yasal beyandır | M16-27 |
-| **Demo işletme *"Taptime Demo"*** — kullanıcı (ya da onun gözetiminde ana oturum) **ürünün kendi yüzeylerinden** açar: `/signup` ya da operatör; üretimde seed / `make db-reset` **asla**. **Zamanı:** M16-35'in config PR'ından önce (PR demo UUID'sini taşır) — M16-34 kabul edildikten sonra | App Review 2.1(a); e-postayla girişin ilk ve tek açık işletmesi | M16-35 (config PR), M16-39 |
+| **Demo işletme *"Taptime Demo"*** — kullanıcı (ya da onun gözetiminde ana oturum) **ürünün kendi yüzeylerinden** açar: `/signup` ya da operatör; üretimde seed / `make db-reset` **asla**. İçeriği M16-39'da: bir lokasyon, **iki** demo çalışan (adresleri panel girişinden farklı), bir manager girişi. **Zamanı:** M16-35'in config PR'ından önce (PR demo UUID'sini taşır) — M16-34 kabul edildikten sonra | App Review 2.1(a); e-postayla girişin ilk ve tek açık işletmesi | M16-35 (config PR), M16-39 |
 | **Demo plaketi** — stoktan **bir** plaket, encode aracıyla kodlanır (`00025`; atama `encoded_at` ister — `db/queries/tags.sql:426`) ve demo lokasyonuna atanır; kalıcı olarak demo işletmenindir, `tags` satırı asla silinmez | statik QR plaket UID'si ister (`internal/sun/mint.go:81`) | M16-39 |
 | **E-postayla girişin canlıya çıkışı** — M16-35'in ayrı config PR'ı (`TAPPA_EMAIL_SIGNIN_TENANTS` = demo UUID); birleştirme deploy'dur, **kullanıcı onaylar** | denetim H3 | M16-40 |
 | **Canlı taban ölçümü** (salt okuma: adresli personel, KF/KM'de çift adres, davet hacmi, aktivasyon başarısızlığı, K-22 durumu) — kullanıcı ya da ana oturum | ADR 0049'un sayıları | M16-34 |
 | **Gizlilik bildiriminin yayımı** — hukukçu onayı + operatörden yayım | M16-38'in linki; mağaza gönderimi | M16-41 |
 | **App Store Connect inceleme notu ve Play inceleme erişimi** — davet linki ve (Q47'ye göre) panel kimliği **yalnız** App Store Connect / Play Console'a yazılır, depoya asla (depo PUBLIC) | 2.1(a) | M16-39 |
-| Faz G'nin §9 kararları (panelin Saatlerim ayarı, e-postayla giriş ve silme talebi panel sinyalleri, uygulama ana ekranı, Saatlerim'in kaşeleri, tarayıcı sayfasına giden link, e-postayla giriş girişi) — AskUserQuestion + mockup | CLAUDE.md §9 | M16-30, M16-32, M16-33, M16-35, M16-36 |
+| Faz G'nin §9 kararları (panelin Saatlerim ayarı, e-postayla giriş ayarı ve panel sinyalleri, uygulama ana ekranı, Saatlerim'in durum görünümü, e-postayla giriş girişi) — AskUserQuestion + mockup | CLAUDE.md §9 | M16-30, M16-32, M16-33, M16-35, M16-36 |
 
 ## Kart listesi
 
@@ -1466,7 +1466,7 @@ penceresi seçer; sunucu zorlar.
 **Kabul kriterleri.**
 - **Yer: politika motoru değil, düz bir işletme ayarı.** `internal/policy` dokunuş kararına *effect* döndürür (CLAUDE.md
   §3); bu ayar hiçbir verdict'i, güveni ya da yönü değiştirmez — bir okuma yüzeyinin kapısıdır. Emsal M15'in iş günü
-  kesimidir: `tenants.day_cutoff` (`db/migrations/00064_add_the_business_day.sql:83-87`), owner'ın Account ekranında
+  kesimidir: `tenants.day_cutoff` (`db/migrations/00064_add_the_business_day.sql:84-87`), owner'ın Account ekranında
   ayarladığı (`:89-92`), sütun düzeyi `GRANT UPDATE (day_cutoff) ON tenants` (`:92`), `audit_log`'da
   `tenant.day_cutoff_updated` (`internal/domain/tenant/daycutoff.go:79`), `Down`'da düşürülen yapılandırma sütunu
   (`00064:181-182`: *"configuration, not evidence (their history is audit_log's), and are dropped"*). Marka ayrı tablodadır
@@ -1508,7 +1508,8 @@ penceresi seçer; sunucu zorlar.
 
 ## M16-31 — Saatlerim: kişinin kendi kayıtlarının okuması + `POST /app/v1/hours`
 
-- **Bağımlılık:** M16-30 · M9-05'i M16-30, M16-32, M16-33 ile birlikte **karşılar**
+- **Bağımlılık:** M16-30 · M16-19 (`qr_live` kanal değeri — Faz D, Faz G'den önce) · M9-05'i M16-30, M16-32, M16-33 ile
+  birlikte **karşılar**
 - **Kırmızı çizgi:** §4.3 (salt okuma), §4.5 (açık `tenant_id` **ve** `employee_id` + RLS), §5 *"Unutulan çıkış"*, §6, §7
 - **Araç:** yapıcı + agent `tappa-db-migrator` (iki sqlc sorgusu; migration yok) · **Mercek: iki**
 - **Commit:** `feat(hours): let an employee read their own hours`
@@ -1519,18 +1520,21 @@ işletmenin ayarı ve penceresi içinde.
 **Kabul kriterleri.**
 - **İki sorgu (`db/queries/transactions.sql`'e):**
   - **Toplamlar:** `ListWorkedShiftEventsForEmployee` (öneri ad) — `ListWorkedShiftEvents`'in (`transactions.sql:970`)
-    sütun listesinin **birebir aynısı**, ek yüklem `t.employee_id = @employee_id`; satırlar `ListWorkedShiftEventsRow`'a
-    çevrilir (`timesheet.go:6-11`'in deseni: iki üretilmiş tip alan alana aynı olmadıkça derlenmez) ve `events()`
-    (`report.go:729`) + `accumulate()` (`report.go:1012`) ile toplanır — **ikinci aritmetik yok**. Bu sorgu bilerek
-    `type IS NOT NULL AND NOT practice` taşır (`transactions.sql` aynı bölüm): reject/ignored ve practice satırları saate
-    girmez.
+    sütun listesi, yüklemleri ve **`LIMIT sqlc.arg('row_limit')`**'i birebir, ek yüklem `t.employee_id = @employee_id`;
+    satırlar `ListWorkedShiftEventsRow`'a çevrilir (`timesheet.go:6-11`'in deseni) ve `events()` (`report.go:729`) +
+    `accumulate()` (`report.go:1012`) ile toplanır — **ikinci aritmetik yok**. **Pencere ve sınır `Reader.Hours`'unkidir:**
+    okuma `[hafta.From, hafta.To + closingTail)` (`report.go:520-522`; `closingTail = tap.StaleOpenIn`, `:165`) ve
+    `row_limit = readLimit(ReportEventCap)` (`:526`; `ReportEventCap = 20000`, `:127`). Sonuç `ReportEventCap`'i aşarsa
+    toplam **kesilmiştir** (`truncatedBy`, `report.go:644`) → `totals.truncated: true` ve `complete: false`. Sorgu bilerek
+    `type IS NOT NULL AND NOT practice` taşır (aynı bölüm): reject/ignored ve practice satırları saate girmez.
   - **Liste:** `ListOwnRecords` (öneri ad) — kişinin haftadaki **her** satırı, `reject`/`ignored` dahil (onların `type`'ı
     NULL olabilir: `00005_create_transactions_audit_reviews.sql:74-75`). Sütunlar: `id`, `occurred_at`, `type`, `channel`,
-    `verdict`, inceleme sonucu (`transaction_reviews` LEFT JOIN — onay/ret), `location_id` + `site_*` (holding mekân adı
-    için), `practice`, ve satırın çapası olduğu talebin durumu (`punch_claims` + `punch_claim_decisions` LEFT JOIN; karar
-    satırı yok = bekliyor, `outcome` `approved`/`rejected` — `00068:227-237`; talebin `note`'u **seçilmez**). **Seçilmeyen:**
-    `gps_lat`, `gps_lng`, `source_ip`, `trust_score`, `policy_context`, not (ledger docket'inin kuralı,
-    `internal/domain/ledger/ledger.go:177-178`). Yüklemler: `tenant_id = @tenant_id AND employee_id = @employee_id AND
+    `verdict`, inceleme sonucu (`transaction_reviews` LEFT JOIN), `location_id` + `site_*` (holding mekân adı), `practice`, ve
+    satırın çapası olduğu talebin durumu (`punch_claims` + `punch_claim_decisions` LEFT JOIN; karar satırı yok = bekliyor,
+    `outcome` `approved`/`rejected` — `00068:227-237`; kararın `note`'u **seçilmez**). **Seçilmeyen:** `gps_lat`, `gps_lng`,
+    `source_ip` (ledger docket'inin kuralı, `internal/domain/ledger/ledger.go:177-178`: *"no Latitude, no Longitude, no
+    SourceIP, and no PolicyContext"*), ayrıca bu kartın kararıyla `trust_score` ve kayıt notu (çalışan ekranları 2026-11-02
+    kuralı — güven puanı ve kural notu yok). Yüklemler: `tenant_id = @tenant_id AND employee_id = @employee_id AND
     occurred_at >= @from AND occurred_at < @to` (çıplak parametreler, CLAUDE.md §6 API-8) `ORDER BY occurred_at, id`
     `LIMIT @limit` + keyset `(occurred_at, id) > (@after_at, @after_id)`. Plan `transactions_tenant_employee_occurred_idx`
     (`00005:175`) — `EXPLAIN` [G31-f]'de.
@@ -1539,15 +1543,14 @@ işletmenin ayarı ve penceresi içinde.
 - **Sıra:** imza doğrulaması → cihaz kovası (`AllowDevice`) → `tenants.staff_hours_weeks` okuması (aynı transaction) →
   sorgular. **Ayar NULL ise `404`, gövde `{"error":"not_found"}`** (kapalı sözlüğün var olan kodu, `internal/handler/app.go`
   `appErrors`). Gerekçe: imza önce doğrulandığından imzasız biri ayarı yoklayamaz (401 hep aynı); kapalıyken çalışanın
-  görebileceği bir kaynak **yoktur** ve `not_found` ucu tanımayan eski sunucunun cevabıyla aynıdır — uygulama tek dalla
-  davranır (girişi gizle, `/me`'yi tazele). Yeni kod eklenmez.
-- **Pencere sorguda:** `@from = max(istenen haftanın pazartesisi, pencere başı)`; pencere başı = bu haftanın pazartesisi
-  − (N−1) hafta, sunucu saatiyle ve işletmenin diliminde (`WeekOf`). İstenen hafta tamamen pencerenin dışındaysa ya da
-  gelecekteyse **400 `bad_request`** (CLAUDE.md §7 aralık sınaması); bütün hafta penceresinde `@from` her zaman bir
-  pazartesidir.
+  görebileceği bir kaynak **yoktur** ve `not_found` ucu tanımayan eski sunucunun cevabıyla aynıdır. Yeni kod eklenmez.
+- **Pencere sorguda:** pencere başı `P` = bu haftanın pazartesisi − (N−1) hafta, sunucu saatiyle ve işletmenin diliminde
+  (`WeekOf`). `@from = max(istenen haftanın pazartesisi, P)` (bütün hafta penceresinde her zaman istenen pazartesi). İstenen
+  hafta `P`'den önce ya da bu haftadan sonraysa **400 `bad_request`** (CLAUDE.md §7 aralık sınaması).
+- **`hasPrev` / `hasNext`:** `hasPrev` ⇔ istenen pazartesi − 7 gün ≥ `P` (önceki hafta pencerenin içinde); `hasNext` ⇔
+  istenen pazartesi + 7 gün ≤ bu haftanın pazartesisi. Satır olup olmadığına bakılmaz (boş hafta da gezilir).
 - **Deaktive kişi** (cihazı bilerek canlı — 2026-08-07): **okur** (kendi verisidir, kayıt yazılmaz). Bu sunucu
-  davranışıdır ve bu kartta sabitlenir; M16-33'ün §9 sorusu yalnız **ekran metnini** sorar. Kullanıcı okumayı kapatmak
-  isterse karar M16-31'e kart düzeltmesi olarak döner ([G31-g] tersine çevrilir).
+  davranışıdır ve bu kartta sabitlenir; M16-33'ün §9 sorusu yalnız ekran metnini sorar.
 - **Tel sözleşmesi** (M16-07'nin tablosuna satır; `TestAppContract_RequestShapes` / `TestAppContract_ResponseShapes`
   genişler). Kimlik: imzalı okuma (`App-Device-Id`, `App-Timestamp`, `App-Signature`; kanonik önek `tappa-app-read-v1`).
   `GET` değil: imzalı okuma sorgu dizgesini reddeder (`internal/appdevice/read.go:114`).
@@ -1555,61 +1558,67 @@ işletmenin ayarı ve penceresi içinde.
     hafta; `after` önceki yanıtın `nextCursor`'u. Çözümleme katı (`DisallowUnknownFields`).
   - Yanıt (200):
     `{"week":"YYYY-MM-DD","weeksVisible":1|2|4|13,"hasPrev":bool,"hasNext":bool,`
-    `"totals":{"workedMinutes":int,"awaitingMinutes":int,"openEntries":int,"checkInMissing":int,"complete":bool},`
+    `"totals":{"workedMinutes":int,"awaitingMinutes":int,"openEntries":int,"checkInMissing":int,"truncated":bool,"complete":bool},`
     `"days":[{"date":"YYYY-MM-DD","workedMinutes":int}],` (tam 7 öğe, pazartesiden)
-    `"records":[{"date":"YYYY-MM-DD","at":"HH:MM","venue":string,"direction":"in"|"out"|"","channel":"nfc"|"qr"|"manual",`
+    `"records":[{"date":"YYYY-MM-DD","at":"HH:MM","venue":string,"direction":"in"|"out"|"","channel":"nfc"|"qr"|"qr_live"|"manual"|"other",`
     `"state":"approved"|"waiting"|"rejected"|"repeat","claim":"pending"|"approved"|"rejected"|null}],`
     `"nextCursor":string|null}`
-  - Adlar `/v1/timesheets`'in modelidir (`internal/handler/api/timesheets.go:34-38`: `workedMinutes`, `awaitingMinutes`,
-    `openEntries`, `checkInMissing`, `complete`). **Dakikalar tam ve tabanlıdır** (§6, `float` yok; `timesheets.go:43-45`).
-    `date`/`at` işletmenin yerel takvimi ve duvar saati, sunucuda (uygulama telefonun dilimini kullanmaz).
+  - Adlar `/v1/timesheets`'in modelidir (`internal/handler/api/timesheets.go:34-38`). **Dakikalar tam ve tabanlıdır** (§6;
+    `timesheets.go:43-45`). `date`/`at` işletmenin yerel takvimi ve duvar saati, sunucuda.
+  - **`channel`** kapalı kümedir ve Faz D'nin `qr_live` değerini (00112, M16-19) içerir; Faz G Faz D'den sonra koşar.
+    Kümede olmayan bir kanal değeri (ileride eklenen) 500 vermez ve satır atlanmaz: alan `"other"` olur ve sunucu bir hata
+    satırı loglar (öneri; uygulamalar *"Other"* çizer). [G31-k].
   - **`state` eşlemesi:** `ok` → `approved`; `flag` + onay → `approved`; `flag` kararsız → `waiting`; `flag` + ret ve
     `reject` → `rejected`; `ignored` → `repeat`. `type` NULL satırın `direction`'ı `""`'dir. `channel='manual'` satırı
-    müdürün adını taşımaz. Tarihsel `practice=true` satırı listede **yoktur** (ADR 0008: saate ve zincire girmez; öneri —
-    çalışan için anlamsız bir satır). `venue`: ledger'ın kendi adlandırması (holding dokunuşunda eş mekânın adı — `atSite`,
-    `ledger.go:853`).
+    müdürün adını taşımaz. Tarihsel `practice=true` satırı listede **yoktur** (ADR 0008). `venue`: ledger'ın kendi
+    adlandırması (holding dokunuşunda eş mekânın adı — `atSite`, `ledger.go:853`).
   - **Sayfa ve toplam:** `records` hafta başına en çok **200** öğe + `nextCursor` (`own_<occurred_at unix nano>_<id>_<bağ>`;
-    bağ = cihazın kişisi + hafta özeti — başka kişinin ya da haftanın imleci 400, `/v1/timesheets`'in `tms_` imleç kuralı).
-    `totals` ve `days` **sayfadan bağımsızdır**: her sayfada haftanın tamamı için aynı değer (toplam sorgusu ayrı koşar).
-  - **`complete`** = `awaitingMinutes == 0 && openEntries == 0 && checkInMissing == 0` (`timesheets.go:36-37`'nin kuralı,
-    *truncated* yok çünkü sayfalama toplamı etkilemez). Bütün hafta penceresinde pencere hiçbir haftayı kesmez.
+    bağ = cihazın kişisi + hafta özeti — başka kişinin ya da haftanın imleci 400; `/v1/timesheets`'in `tms_` imleç kuralı).
+    `totals` ve `days` **sayfadan bağımsızdır**: her sayfada haftanın tamamı için aynı değer.
+  - **`complete`** = `awaitingMinutes == 0 && openEntries == 0 && checkInMissing == 0 && !truncated` (`timesheets.go:36-37`'nin
+    kuralı). Bütün hafta penceresinde pencere hiçbir haftayı kesmez.
 - **`GET /app/v1/me` eki:** bugün `{"employeeName","brand","direction"}` (`internal/handler/apptap.go:76-81`). Eklenir:
   `"hoursWeeks": 0|1|2|4|13` (`0` = kapalı). [G31-h] sözleşme şekli.
-- **Testler** (DB, gerçek Postgres). [G31-a] Eşitlik: tam bir hafta için kişinin `totals.workedMinutes`'ı aynı hafta ve
-  kişi için `Reader.Hours`'un `PersonHours.Worked`'ünün dakikaya tabanıdır (birebir); yalnız tam haftalarda koşar.
-  [G31-b] RLS izolasyonu — açık süzgeçsiz sorguyla A bağlamı B'nin satırını görmez. [G31-c] Aynı tenant'ta X'in cihazı Y'nin
-  satırını almaz; `employee_id` yüklemi düşürülünce kırmızı (mutasyon). [G31-d] Ayar NULL → imzalı istek 404 +
-  `{"error":"not_found"}`, gövdede kayıt alanı yok; imzasız istek her ayarda 401 boş gövde. [G31-e] Pencere 1 hafta iken
-  geçen haftanın satırı yanıtta yok **ve** sorgunun sonucunda yok (`@from` düşürülünce kırmızı); geçen haftayı istemek 400.
-  [G31-f] `EXPLAIN` indeksi kullanır. [G31-g] Deaktive kişinin cihazı okur (200). [G31-i] `reject` ve `ignored` satırları
-  listede `rejected`/`repeat`, toplamda yok; açık giriş → `complete:false`, `openEntries:1`. [G31-j] 201 kayıtlı haftada
-  iki sayfa, ikisinde aynı `totals`; başka haftanın imleci 400.
-- M9-05 notu: M9-05'i **M16-40 kapatır** (state.md'de; bu kart değil).
+- **Testler** (DB, gerçek Postgres). [G31-a] Eşitlik: tam bir hafta için `totals.workedMinutes` = aynı hafta ve kişi için
+  `Reader.Hours`'un `PersonHours.Worked`'ünün dakikaya tabanı (birebir); yalnız tam haftalarda. [G31-b] RLS izolasyonu — açık
+  süzgeçsiz sorguyla A bağlamı B'nin satırını görmez. [G31-c] Aynı tenant'ta X'in cihazı Y'nin satırını almaz; `employee_id`
+  yüklemi düşürülünce kırmızı. [G31-d] Ayar NULL → imzalı istek 404 + `{"error":"not_found"}`; imzasız istek her ayarda 401.
+  [G31-e] Pencere 1 hafta iken geçen haftanın satırı yanıtta ve sorgu sonucunda yok; geçen haftayı istemek 400; `hasPrev`
+  false. [G31-f] `EXPLAIN` indeksi kullanır. [G31-g] Deaktive kişinin cihazı okur (200). [G31-i] `reject`/`ignored`
+  listede `rejected`/`repeat`, toplamda yok; açık giriş → `complete:false`, `openEntries:1`. [G31-j] 201 kayıtlı haftada iki
+  sayfa, ikisinde aynı `totals`; başka haftanın imleci 400. [G31-k] `qr_live` satırı `"qr_live"` döner. [G31-l] `row_limit`
+  testte küçültülünce `truncated:true`, `complete:false`.
+- M9-05'i **M16-40 kapatır** (state.md; bu kart değil).
 
 ## M16-32 — Saatlerim: tarayıcı sayfası
 
-- **Bağımlılık:** M16-31 · kullanıcının §9 kararı (görünüm, kaşeler, sayfaya giden link)
+- **Bağımlılık:** M16-31 · kullanıcının §9 kararı (görünüm, kaşeler)
 - **Kırmızı çizgi:** §4.5, §9
 - **Araç:** yapıcı + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(hours): show an employee their own hours in the browser`
 
-**Amaç.** Tarayıcıyla dokunan çalışanın (ürünün varsayılan yolu) aynı Saatlerim'i görmesi (ADR 0045 §2.1: uygulama isteğe
-bağlıdır, özellik ona kilitlenmez).
+**Amaç.** Tarayıcıyla dokunan çalışanın (ürünün varsayılan yolu) aynı Saatlerim'i görmesi (ADR 0045 §2.1).
 
 **Kabul kriterleri.**
-- **Önce §9 sorusu** (AskUserQuestion + mockup): (1) görünüm — docket motifi; durumlar kaşe (APPROVED/FLAGGED/REJECTED)
-  mı, düz kelime mi. ⚠️ 2026-11-02 kararı çalışanın **sonuç ekranından** kaşeyi kaldırdı ve `flag` ekranı onaydan söz
-  etmez (CLAUDE.md §9, §4.6 notu); Saatlerim ayrı ekrandır ve o kabul edilmiş bedeli azaltır — soru bunu açıkça yazar.
-  (2) sayfaya nereden gidilir: hiçbir yerden (yer imi) · *"Activation complete"* ekranında bir satır · davet e-postasında
-  bir satır. Tap ve sonuç ekranına link **seçenek değildir** (M9-05). (3) Kapalı ayarda sayfanın metni.
-- Rota `GET /me/hours?week=YYYY-MM-DD` (ana host; `week` dış girdi — M16-31'in aralık kuralı, dışı 400). Kimlik
-  `tappa_session` (`internal/session/cookie.go:33`; `Path: "/"`, `:184`). Aynı domain okuması (M16-31), kişi çerezden.
-- **Oturum yok** → düz sayfa (*"Open this on the phone you clock in with."*), 200, kayıt yok — tenant bilinmez, ayar
-  okunmaz. **Oturum var, ayar kapalı** → düz 404 sayfası (genel 404, kayıt yok). Pencere M16-31'in sorgusundadır.
+- **Önce §9 sorusu** (AskUserQuestion + mockup; tek soru, iki platformla ortak — M16-33 (3) aynı cevabı kullanır):
+  **durumların görünümü** — (a) panelin kaşeleri (APPROVED / FLAGGED / REJECTED, docket motifi; FLAGGED altında *"Waiting
+  for your manager"*); (b) düz kelimeler (*Counted · Waiting for your manager · Not counted · Repeat*), kaşesiz. ⚠️ 2026-11-02
+  kararı çalışanın **sonuç ekranından** kaşeyi kaldırdı ve `flag` ekranı onaydan söz etmez (CLAUDE.md §9, §4.6 notu); Saatlerim
+  ayrı ekrandır, soru bunu açıkça yazar. **Öneri: (b)** — çalışan ekranlarının 2026-11-02 sadeliğiyle uyumlu.
+- **Sayfaya link yoktur** (denetim A2-5: *"Activation complete"* korumalı bir §9 ekranıdır ve davet e-postası ayrı bir şablon
+  değişikliğidir — ikisi de Faz G dışı, *Sonra*). Sayfa yer imiyle ya da uygulamanın ana ekranından değil, adresiyle açılır;
+  bu, çalışanın tarayıcı yolunda Saatlerim'i **bulmasını** zorlaştırır — adlandırılmış bedel.
+- Rota `GET /me/hours?week=YYYY-MM-DD&after=<cursor>` (ana host; ikisi de dış girdi — M16-31'in aralık ve imleç kuralı, dışı
+  400). **Sayfalama:** M16-31'in 200'lük sayfası; sayfanın altında *"Show more"* bağlantısı aynı `week` ve `nextCursor`'la
+  bir sonraki sayfayı açar (betik yok, tam sayfa); toplamlar her sayfada aynı. Hafta gezinmesi `hasPrev`/`hasNext`'ten
+  *"Previous week"* / *"Next week"* bağlantıları.
+- Kimlik `tappa_session` (`internal/session/cookie.go:33`; `Path: "/"`, `:184`). Aynı domain okuması (M16-31), kişi çerezden.
+- **Oturum yok** → düz sayfa (*"Open this on the phone you clock in with."*), 200, sorgu yok. **Oturum var, ayar kapalı** →
+  genel 404 sayfası, kayıt yok.
 - Salt okuma; form yok; `Cache-Control: no-store`. Logo/accent yok (sayılı marka slotları genişlemez — CLAUDE.md §9).
-- **Testler.** [G32-a] Çerez X → yalnız X'in satırları (M16-31 [G31-c]'nin tarayıcı ikizi). [G32-b] Ayar kapalı → 404,
-  gövdede kayıt metni yok. [G32-c] Oturumsuz → düz sayfa, sorgu koşmaz. [G32-d] Panel golden'ları değişmez
-  (`TestHoldinglessViews_AreByteIdenticalToTheGolden` yeşil).
+- **Testler.** [G32-a] Çerez X → yalnız X'in satırları. [G32-b] Ayar kapalı → 404, gövdede kayıt metni yok. [G32-c]
+  Oturumsuz → düz sayfa, sorgu koşmaz. [G32-d] Panel golden'ları değişmez (`TestHoldinglessViews_AreByteIdenticalToTheGolden`).
+  [G32-e] 201 kayıtlı haftada *"Show more"* ikinci sayfayı açar, toplam iki sayfada aynı.
 
 ## M16-33 — Uygulama ana ekranı ve Saatlerim — iOS + Android
 
@@ -1618,26 +1627,37 @@ bağlıdır, özellik ona kilitlenmez).
 - **Araç:** iki yapıcı paralel (iOS, Android) + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(mobile): add the home and my-hours screens`
 
-**Amaç.** Uygulama plaketsiz açıldığında gösterilecek **yeni** ana ekran; ayar açıksa oradan Saatlerim, her zaman
-ayarlar (M16-38).
+**Amaç.** Uygulama plaketsiz açıldığında gösterilecek ana ekran; ayar açıksa oradan Saatlerim, her zaman ayarlar (M16-38).
 
 **Kabul kriterleri.**
-- **Önce §9 onayı.** Bugün aktive uygulama açılışta doğrudan tap köküne gider (`mobile/ios/Taptime/RootView.swift:35-36`)
-  ve `/app/v1/me` *"the app's home screen before any plaque is read"*dir (`internal/handler/apptap.go:83-84`): Q41 (a)
-  iPhone 7–X'in tek ekranını tap ekranının kendisi yaptı. AskUserQuestion iki platformun mockup'larıyla sorar: (1) ana
-  ekranın yerleşimi; (2) iPhone 7–X'te Core NFC düğmesi nerede (Q41 (a)'nın tek ekranı korunur mu); (3) Saatlerim ekranı
-  ve durumların görünümü (M16-32'nin (1)'iyle **aynı** cevap); (4) deaktive kişide ekranın metni (sunucu davranışı M16-31'de
-  sabit); (5) ayarlara giriş. Cevaplar kart düzeltmesine yazılır; cevapsız bir şey kurulmaz.
+- **Önce §9 onayı** — AskUserQuestion, iki platformun mockup'larıyla, seçenekleriyle. Bugün aktive uygulama açılışta doğrudan
+  tap köküne gider (`mobile/ios/Taptime/RootView.swift:35-36`) ve `/app/v1/me` *"the app's home screen before any plaque is
+  read"*dir (`internal/handler/apptap.go:83-84`); Q41 (a) iPhone 7–X'in tek ekranını tap ekranının kendisi yaptı.
+  1. **Ana ekran:** (a) **tap ekranı ana ekrandır** — bugünkü ekran aynen, altında iki küçük, accent'siz metin bağlantısı
+     (*"My hours"* — yalnız `hoursWeeks > 0` iken — ve *"Settings"*); (b) ayrı bir ana ekran — ad, işletme, iki büyük satır
+     (*My hours*, *Settings*) ve bir *"Tap a plaque to clock in"* cümlesi; tap ekranı yalnız plaket/NFC/QR ile açılır.
+     **Öneri: (a)** — tek ekran, tek düğme korunur; değişen yalnız düğmenin altındaki iki küçük bağlantıdır.
+  2. **iPhone 7–X'in Core NFC düğmesi:** (a)'da değişmez (ana ekran = tap ekranı). (b) seçilirse Q41 (a)'nın tek ekranı
+     bozulur: ana ekrana bir *"Clock in"* düğmesi gerekir (Core NFC'yi başlatır) — bu, M16-17'nin tap kökünü (`TapRootView`,
+     launch yolu) değiştirir, `/app/v1/me`'nin açıklaması *"home screen"* olmaktan çıkar (`apptap.go:83-84` yorumu güncellenir)
+     ve CLAUDE.md §9 *"Uygulama ekranları"* paragrafına *"plaketsiz açılış ana ekrandır; 7–X'te tap düğmesi oradadır"*
+     cümlesi girer. Bu cevabın işi bu kartta yapılır.
+  3. **Saatlerim'in durum görünümü:** M16-32'nin sorusuyla **aynı** cevap (orada sorulmadıysa burada sorulur).
+  4. **Deaktive kişinin Saatlerim'i:** (a) aynen gösterilir (öneri — sunucu okumayı M16-31'de zaten verir); (b) başlığın
+     üstünde *"Your account is deactivated."* satırıyla gösterilir.
+  5. **Ayarlara giriş:** 1 (a)'da düğmenin altındaki *"Settings"* bağlantısı; 1 (b)'de ana ekranın satırı. (Ayrı soru değil —
+     1'in cevabından çıkar.)
+  Cevaplar kart düzeltmesine yazılır; cevapsız bir şey kurulmaz.
 - Plaket linki / NFC / QR açılışı doğrudan tap ekranını açar; ana ekran araya girmez.
-- **Ayar kapalıyken** (`/me`'nin `hoursWeeks` = 0) Saatlerim'e hiçbir giriş **yoktur**; açık ekrandayken `not_found`
-  gelirse ekran kapanır ve `/me` tazelenir. Pencere ekranda adlandırılır (*"This week"* / *"Last 2 weeks"* …); önceki
-  hafta düğmesi `hasPrev` false iken yoktur.
-- Saatler cihazda **saklanmaz** (önbellek, dosya, `UserDefaults`/`SharedPreferences` yok — paylaşılan telefon riski).
-- **Log kemeri (denetim 6).** R7M'nin tetikleyicileri (`scripts/redline-check.sh:2642`) bugün saat, mekân ya da ad
-  kelimelerini taşımaz. Bu kart R7M'ye `workedMinutes|venue|employeeName|records` ekler (önce gürültü ölçülür: değişiklikten
-  önce ve sonra `bash scripts/redline-check.sh` çıktısı karta yazılır) ve pinini genişletir (`cmd/tappa/scripttest`'teki
-  R7M sondası — `TestRedline_M16_AppSurfaceLogCalls`'ın emsali). Ayrıca [G33-a] Android JVM testi ve [G33-b] iOS birim
-  testi: Saatlerim yanıtını işleyen kod yolunun log çağrısı yapmadığını sahte bir logger ile ölçer.
+- **Ayar kapalıyken** (`hoursWeeks` = 0) Saatlerim'e hiçbir giriş yoktur; açık ekrandayken `not_found` gelirse ekran kapanır
+  ve `/me` tazelenir. Pencere adlandırılır (*"This week"* / *"Last 2 weeks"* …); önceki hafta düğmesi `hasPrev` false iken
+  yoktur. 200'den fazla kayıtlı haftada liste sonunda *"Show more"* `nextCursor`'la devam eder.
+- Saatler cihazda **saklanmaz** (önbellek, dosya, `UserDefaults`/`SharedPreferences` yok).
+- **Log kemeri.** R7M'nin tetikleyicileri (`scripts/redline-check.sh:2642`) bugün saat, mekân ya da ad kelimelerini taşımaz.
+  Bu kart R7M'ye `workedMinutes|venue|employeeName|records` ekler (gürültü önce ölçülür: değişiklikten önce ve sonra
+  `bash scripts/redline-check.sh` çıktısı karta yazılır) ve R7M'nin pinini genişletir: **`TestRedline_M16_MobileLogCalls`**
+  (`cmd/tappa/scripttest/redline_m16_test.go:217`). Ayrıca [G33-a] Android JVM testi ve [G33-b] iOS birim testi: Saatlerim
+  yanıtını işleyen kod yolunun log çağrısı yapmadığını sahte bir logger ile ölçer.
 - İki platform tek metin listesi (Android `IosCopyTest` deseni). Konum API'si yok — M16-13/M16-17'nin çağrı-yeri izin
   listeleri değişmez.
 - CLAUDE.md §9 *"Uygulama ekranları"* paragrafına ana ekran ve Saatlerim kararı (bu kartla).
@@ -1645,140 +1665,207 @@ ayarlar (M16-38).
 ## M16-34 — ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü
 
 - **Bağımlılık:** — (M16-30 … M16-33 ile paralel yürüyebilir)
-- **Kırmızı çizgi:** §4.5, §5 (aktivasyonu başlatan), §7
-- **Araç:** ana oturum; kullanıcı onayı + kullanıcının salt-okuma ölçümü · **Mercek: iki**
+- **Kırmızı çizgi:** §4.5, §4.6 (imzası çıkmış telefonun dokunuşu artık audit satırı yazar — ADR 0049 §3), §5, §7
+- **Araç:** **yapıcı alt ajan** belge değişikliklerini yazar (CLAUDE.md §10); ana oturum yalnız AskUserQuestion'ı sorar ve
+  üretimde **salt okuma** sorgularını koşar (ya da kullanıcı koşar) · **Mercek: iki**
 - **Commit:** `docs(adr): accept sign-in with a work email`
 
-**Amaç.** [ADR 0049](../adr/0049-calisanin-e-postayla-girisi.md)'u kabul ettirmek, açık sorularını cevaplatmak ve
-uç canlıya çıkmadan önce bugünün sayılarını ölçmek.
+**Amaç.** [ADR 0049](../adr/0049-calisanin-e-postayla-girisi.md)'u kabul ettirmek, açık sorularını cevaplatmak ve uç canlıya
+çıkmadan önce bugünün sayılarını ölçmek.
 
 **Kabul kriterleri.**
-- ADR 0049 durum satırı *Kabul edildi (TARİH)* + *Kabul notu*. **Q44, Q45 ve Q49 cevaplanmadan durum değişmez** —
-  *"açık — bloklar"* bu kart için kabul edilmez (denetim). Kabul notu her cevabın seçtiği tarifi adlandırır.
-- ADR 0026'ya not (aktivasyonu başlatan davet artık çalışanın isteğiyle de basılabilir; tamamlanma aynen) · ADR 0022'ye
-  not (yeni gönderim türü, alt bütçesi, kaynak kovası, log anahtarları) · **ADR 0005'e risk eki** (denetim H4 (4)):
-  *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği"*, azaltmalar (ADR 0049 §3) ve tespit
-  sinyali (panel + owner e-postası); `TestADR0005_TheRiskCountMatchesTheTable` ve
-  `TestADR0005_TheAnchorCountsMatchTheProse` yeşil.
-- **Canlı taban ölçümü** (salt okuma; üretimde **kullanıcı ya da ana oturum** — ajan değil; sonuçlar ADR 0049'un kabul
-  notuna sayı olarak): (1) KF ve KM'de `employees.email` dolu aktif çalışan sayısı; (2) iki işletmede **aynı adresi**
-  taşıyan çalışan sayısı (holding — ADR 0049 §2.1'in iki-davet kuralı); (3) son 30 günde saat ve gün başına basılan davet
-  sayısının en yükseği, ADR 0022 §9'un 50/sa · 300/gün sınırlarına ve süreç kesicisinin 300/sa'ine karşı; (4) son 30 günde
-  aktivasyon başarısızlığı oranı (`activation.*` audit satırlarından); (5) API kapısının (K-22) durumu — **bilgi**: e-postayla
-  giriş K-17 kuyruğunu kullanmaz (ADR 0049 §2.3), kapı onu etkilemez.
+- ADR 0049 durum satırı *Kabul edildi (TARİH)* + *Kabul notu*. **Q44, Q45 ve Q49 cevaplanmadan durum değişmez.** Kabul notu
+  her cevabın seçtiği tarifi adlandırır. Kullanıcıya ayrıca gösterilen karar: imzası çıkmış telefonun dokunuşu bugün
+  bilerek audit satırı **yazmaz** (`internal/handler/tap.go:455-459`, T59 güvenlik incelemesi DÜŞÜK-1) — ADR 0049 §3 bunu
+  değiştirir (M16-35).
+- ADR 0026'ya not (aktivasyonu başlatan davet artık çalışanın isteğiyle de basılabilir; tamamlanma — tarayıcı **ve**
+  uygulama — aynen) · ADR 0022'ye not (yeni gönderim türü, alt bütçesi, kaynak kovası, log anahtarları, owner uyarısının
+  `SendExempt`'i) · **ADR 0005'e risk eki:** *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği"*,
+  azaltmalar ve tespit (ADR 0049 §3); `TestADR0005_TheRiskCountMatchesTheTable` ve `TestADR0005_TheAnchorCountsMatchTheProse`
+  yeşil.
+- **Canlı taban ölçümü** (salt okuma; üretimde kullanıcı ya da ana oturum — yapıcı değil; sayılar kabul notuna): (1) KF ve
+  KM'de `employees.email` dolu aktif çalışan sayısı; (2) iki işletmede aynı adresi taşıyan çalışan sayısı; (3) son 30 günde
+  saat ve gün başına basılan davetin en yükseği, 50/sa · 300/gün ve süreç kesicisinin 300/sa'ine karşı; (4) son 30 günde
+  aktivasyon başarısızlığı oranı (`activation.*` audit satırları); (5) K-22 durumu — bilgi (giriş K-17'yi kullanmaz).
 - **CLAUDE.md §5 cümlesi bu kartta yazılmaz** — kodu M16-35 yazar.
-- `GOTOOLCHAIN=go1.26.11 go test -run 'TestEveryNamedTestExists|TestADR0005_TheRiskCountMatchesTheTable|TestADR0005_TheAnchorCountsMatchTheProse' ./cmd/tappa/` yeşil.
+- `GOTOOLCHAIN=go1.26.11 go test -run 'TestEveryNamedTestExists|TestADR0005_TheRiskCountMatchesTheTable|TestADR0005_TheAnchorCountsMatchTheProse' ./cmd/tappa/`
+  yeşil.
 
 ## M16-35 — E-postayla giriş: sunucu
 
-- **Bağımlılık:** M16-34 (ADR 0049 kabul; Q44, Q49 cevaplı) · kullanıcı: *"Taptime Demo"* açılmış (kimliği config PR'ı
-  için — aşağıda *Kullanıcı tarafı ön koşulları*)
-- **Kırmızı çizgi:** §4.5 (tenant bilinmeden adres çözümü), §4.7 + §7 (adres, kod, link loglanmaz), §5 (aktivasyon), §6
+- **Bağımlılık:** M16-34 (ADR 0049 kabul; Q44, Q49 cevaplı) · kullanıcı: *"Taptime Demo"* açılmış (UUID'si config PR'ı için)
+- **Kırmızı çizgi:** §4.5 (tenant bilinmeden adres çözümü), §4.6 (imzası çıkmış telefonun dokunuşu görünür olur), §4.7 + §7,
+  §5 (aktivasyon), §6
 - **Araç:** yapıcı + agent `tappa-db-migrator` (00116, 00117) · **Mercek: iki**
 - **Commit:** `feat(signin): send an employee a sign-in link to their work email`
 
 **Amaç.** ADR 0049'un tarifini kurmak: kayıtlı adresli aktif çalışan kendi isteğiyle yeni bir aktivasyon linki alır —
-kehanetsiz, ayrı bütçeli, **varsayılan kapalı**, tamamlanma yine plakette.
+kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda ya da uygulamada) yine plakette ve işverene görünür.
 
 **Kabul kriterleri.**
-- **Canlıya çıkış bir kullanıcı onayıdır (denetim H3).** Uç iki kapının arkasındadır: (1) env
-  **`TAPPA_EMAIL_SIGNIN_TENANTS`** — virgülle ayrılmış tenant UUID'leri; **boş = uç her host'ta 404** (yapılandırma olgusu,
-  istek başına kehanet değil); bozuk değer açılışı reddeder (`TAPPA_TAG_KEK_PREVIOUS` kuralı, `internal/config/config.go:425`);
-  `deploy/k8s/05-config.yaml`'a **boş** değerle girer ve `cmd/tappa/applinks_test.go`'daki
-  `TestPackaging_TheAppValuesAreTheHandedOverOnes`'ın yanına konan [G35-a] onu boş diye pinler. (2) Q49'un işletme ayarı.
-  Bu kartın birleşmesi (= deploy) **hiçbir işletmeyi açmaz**. Açılış ayrı bir **config PR**'ıdır: yalnız *"Taptime Demo"*
-  UUID'si, [G35-a]'nın beklediği değeri de değiştirir; kullanıcı onaylar ve birleştirir. KF/KM'nin listeye girmesi ayrı
-  kullanıcı kararıdır (Faz G'de değil).
-- **Uç:** `POST /app/v1/signin/request`, imzasız, gövde `{"email": string}` (katı; 254 baytı aşan ya da `@`'sız → yine
-  tek cevap, ayrıştırma hatası yalnız JSON bozuksa 400). Dosya `internal/handler/appsignin.go` — R7A'nın `app*.go`
-  kapsamına kendiliğinden girer (`scripts/redline-check.sh:2589-2593`); R7A tetikleyicilerine `e_?mail|address` eklenir
-  (gürültü önce ölçülür), pin `TestRedline_M16_AppSurfaceLogCalls`.
-- **Tek cevap (ADR 0049 §2.2):** her durumda **202**, boş gövde, `Cache-Control: no-store`, **250 ms taban** —
-  `resetRequestFloor`'un emsali (`internal/handler/adminresetlimits.go:347`, taban işlevi `adminreset.go:1640-1655`).
-  **Tek istisna** kaynak kovası: 429 + `Retry-After` (adresten bağımsız).
-- **Bütçeler (denetim M1) — sayılar:** kaynak adres başına **5 istek / 10 dk** ve **20 / gün** (süreç içi `httpx`
-  limiter; reset'in B9 kovası 20 / 10 dk'dır — bunun dörtte biri); **süreç geneli giriş alt bütçesi 100 gönderim / saat**
-  (süreç kesicisinin `BreakerLimit = 300`'ünün üçte biri, `internal/mail/breaker.go:124-126`) — aşılınca basım yok, tek
-  cevap; işletme başına **10 giriş daveti / saat, 30 / gün**; kişi başına **1 / saat, 3 / gün**. Giriş davetleri ADR 0022
-  §9'un panel sayaçlarında da sayılır (aynı `employee_invites` satırları) — bir saldırgan işletmenin 50/sa'lik bütçesinin
-  en çok 10'unu yer (adlandırılmış bedel).
-- **Kim, ne zaman alır** (ADR 0049 §2.1, sırayla; her ret **sessizdir** — tek cevap, basım yok):
-  1. Çözümleyici (00116): `resolve_employees_for_signin(p_email citext, p_tenants uuid[])` → `(tenant_id, employee_id)`;
-     SECURITY DEFINER, sahibi `tappa_resolver`, `SET search_path = pg_catalog, pg_temp`, `citext` eşitliği
-     `OPERATOR(public.=)` (`00011:295-313` — üç yazım [G35-c]'de); yüklemler `e.status = 'active' AND e.email IS NOT NULL
-     AND e.tenant_id = ANY(p_tenants)`; **`ORDER BY e.tenant_id, e.id LIMIT 5`** (beşten fazlası sessizce yok — sayılı
-     sınır); `REVOKE ALL ON FUNCTION … FROM PUBLIC`, `EXECUTE` yalnız `tappa_app`. Yetki: **`GRANT SELECT (id, tenant_id,
-     email, status) ON employees TO tappa_resolver`** (bugün yoktur — denetim L1); `Down` `REVOKE SELECT (id, tenant_id,
-     email, status) ON employees FROM tappa_resolver` + `DROP FUNCTION`. `p_tenants` = env listesi.
-  2. İndeks (00117, **ayrı dosya** — CLAUDE.md §6 sıcak tablo kuralı; `-- +goose NO TRANSACTION`, `CREATE INDEX
-     CONCURRENTLY employees_email_idx ON employees (email) WHERE email IS NOT NULL`, kendi `lock_timeout`'u; 00091
-     emsali). Gerekçe: tek adres indeksi `(tenant_id, email)`'dir (`00003:83-84`) ve tenant bilinmeden kullanılamaz —
-     indekssiz çözümleyici kimliksiz her istekte tablo taraması olurdu. `Down`: `DROP INDEX CONCURRENTLY`.
-  3. Her eşleşme için **kendi tenant bağlamında** (`WithTenant`, açık `tenant_id`): işletme **askıda değil**
-     (`tenants.suspended_at IS NULL` — ADR 0025; bugün davet yolunda askı kontrolü yoktur, denetim L4 → [G35-g]); Q49 (a)
-     seçildiyse `tenants.email_signin` açık; adres aynı işletmede bir yönetici adresi değil (ADR 0022 §7,
-     `ErrAddressIsAdministrators`, `internal/invite/email.go:100`); **işverenin bastığı canlı bir davet yok** (`origin =
-     'employer'`, kullanılmamış, iptal edilmemiş, süresi dolmamış — denetim M2: aksi hâlde basım onu emekliye ayırırdı,
-     `internal/invite/manager.go:312-318`); **bekleme süresi:** son **7 günde** tüketilmiş bir `origin = 'self'` daveti
-     yok (denetim H4 (2)); bütçeler (yukarıda).
-  4. Basım: `invite.Manager.IssueAndDeliver` (tek dışa açık yol, `manager.go:218-220`) `TTL = Q44'ün cevabı`,
-     `origin = 'self'` ve yeni **`invite.OutboxChannel`** ile.
-- **`employee_invites.origin` (00116):** `ALTER TABLE employee_invites ADD COLUMN origin text NOT NULL DEFAULT 'employer',
-  ADD CONSTRAINT employee_invites_origin_is_known CHECK (origin IN ('employer', 'self'));` — bugünkü her yol (panel, API,
-  K-17 kuyruğu) `employer`'dır; tablo düzeyi `INSERT` yetkisi (`00009:224`) yeni sütunu kapsar; `UPDATE` yetkisi yoktur
-  (sütun değişmez). `Down`: `origin = 'self'` satırı varsa reddeder (iz verisidir — bekleme süresi ve panel sinyali onu
-  okur), yoksa `DROP COLUMN`. Q49 (a) seçildiyse aynı dosyada `ALTER TABLE tenants ADD COLUMN email_signin boolean NOT NULL
-  DEFAULT false` + `GRANT UPDATE (email_signin) ON tenants TO tappa_app` (`Down`: `DROP COLUMN` — yapılandırma).
-- **Canlıya çıkışta** ADR 0048'in `scoped-access.sql`'i yeni sütun/fonksiyon yetkileri için yeniden koşulur — **kullanıcı**.
-- **Q49 (a) ise işletme kontrolü:** Account ekranında owner'ın *"Email sign-in for staff"* aç/kapa'sı — M16-30'un kontrol
-  deseni (yalnız owner, CSRF, `audit_log` `tenant.email_signin_updated` `{"before":bool,"after":bool}` aynı transaction'da);
-  metin Q49'da; görünüm §9/`tappa-brand` (M16-30'un sorusuna eklenir). [G35-l] kapalı işletmenin adresi → 202, 0 davet.
-- **Gönderim yolu — çıkış kutusu, K-17 kuyruğu değil (denetim H1).** K-17 işçisi API kapısı kapalı işletmede basmaz
-  (`internal/invite/queue.go:301-313`: *closed*, 15 dk'da bir yeniden, `queueLifetime` 72 sa — `:79-83`) ve K-19'un *"işi
-  olan tenant'lar"* kümesi süreç içidir (`internal/webhook/worker.go:95` `Notice`); kuyruk bu iş için yanlış araçtır.
-  Tarif `internal/handler/adminresetoutbox.go`'nun biçimidir (ADR 0022 §6): basım **istek içinde**, taban süresinin altında;
-  `OutboxChannel.DeliverInvite` teslimi **bloklamadan** süreç içi sınırlı bir FIFO'ya (32 — `newResetOutbox`'ın boyu,
-  `adminresetoutbox.go:339`) sunar; dolu ya da kapanıyorsa senkron `invite.undelivered` audit satırı, gönderim yok; işçi
-  (1 goroutine) `EmailChannel`'ın sink'iyle 15 sn sınırla gönderir, gönder-sonra-tek-audit; işçide panik o işi
-  `undelivered`'a çevirir (reset işçisinin kuralı). **Kapanış:** `cmd/tappa`'nın boşaltma dizisine reset çıkış kutusunun
-  yanında girer (≤ 3 sn, `undelivered` yazar). **Bedel (adlandırılmış):** süreç ölümünde tampondaki link gitmez — çalışan
-  yeniden ister, cevap aynıdır (ADR 0022 sayılı sınır 1'in eşi).
-- **Owner bildirimi (denetim H4 (1)) — her kendi-servis aktivasyonunun tamamlanmasında:** `ActivateDevice`'ın
-  transaction'ı commit edince (`origin = 'self'` davet tüketildiyse) aynı çıkış kutusuna işletmenin owner'larına giden bir
-  bildirim sunulur: owner kimlikleri `resolve_admin_owners_by_tenant`'tan (`00081`), her owner'ın adresi
-  `internal/handler/passwordnotice.go`'nun alıcı yolundan (`adminauth.Resets.NoticeRecipient` — **ölç:** M14 sonrası
-  adresin kaynağı kimliktir, ADR 0031 K-14'ün aynası); owner başına günde en çok 20 bildirim, fazlası tek `rate_limited`
-  audit satırı. Konu (sabit ASCII): `A phone was set up by email sign-in`; gövde (anlamı): *"<Employee> set up a new phone
-  with their work email on <date>. Their other phones were signed out. If you didn't expect this, deactivate the account
-  in Staff and contact them."* — çalışanın adresi gövdede **yok**. Metin kullanıcıya gösterilir.
-- **Panel sinyali (dayanıklı; e-posta en iyi çabadır):** M6-11 anomali ekranına *"Phones set up by email sign-in (last 30
-  days)"* listesi — `employee_invites` `origin='self' AND used_at >= now() - 30 days` (yeni sqlc sorgusu, açık `tenant_id`)
-  — ve çalışan kartında *"Set up by email sign-in on <date>"* satırı. Görünüm skill `tappa-brand`; panel ekranı (§9 değil),
-  metin kullanıcıya gösterilir.
-- **E-posta (çalışana)** — ADR 0022 §8 şablon kuralları; sabit ASCII konu `Your Taptime sign-in link`; gövde (anlamı):
-  *"Someone asked to sign in to Taptime with this address at <Business>. If it was you, open this link on your phone
-  within <TTL>, then tap your workplace's plaque. If it wasn't you, ignore this email — nothing changes."* Q44'ün (c) cevabı
-  seçilirse cümleye *"Request this at your workplace"* eklenir. Aynı adres birden çok işletmede aktifse (**holding dahil**,
-  KF + KM): işletme başına **bir davet ve bir e-posta**, her biri kendi işletme adıyla; her davet yalnız kendi işletmesinin
-  plaketinde tamamlanır (ADR 0026, K-35).
-- **Log ve audit:** adres, adresin özeti, kod, link hiçbir log satırında, hatada ve `detail`'de yok (CLAUDE.md §7; ADR
-  0022 §10'un kapalı anahtar kümesi: `tenant_id`, `employee_id`, `invite_id`, `message_id`, `class`, `smtp_code`, `ip`).
-  Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (`detail.channel = "signin"`); eşleşmeyen adres hiç iz bırakmaz.
-- **Tamamlanma bugünkü yoldur:** link → `activate/lookup` → onay → `bind` → ilk gerçek NFC → `complete` (ADR 0026, M16-07).
-  `Lookup` süresi dolmuş kodu reddeder (`manager.go:493-494`; tarayıcı `activate.go:917`, uygulama `appactivate.go`'nun
-  `complete`'i aynı `Lookup`'tan geçer) — TTL bu yüzden Q44'ün konusudur.
+
+*Açılış kapısı (denetim H3).*
+- Env **`TAPPA_EMAIL_SIGNIN_TENANTS`** — virgülle ayrılmış tenant UUID'leri. **Boş = rota hiç bağlanmaz** (`/app/v1`
+  yönlendiricisi uca kayıt yapmaz); `/app/v1/signin/request`'e istek, bilinmeyen bir `/app/v1` yolunun cevabını bayt bayt
+  alır (`not_found` 404). Bozuk değer açılışı reddeder (`TAPPA_TAG_KEK_PREVIOUS` kuralı, `internal/config/config.go:425`).
+  `deploy/k8s/05-config.yaml`'a **boş** değerle girer.
+- Bu kartın birleşmesi (= deploy) **hiçbir işletmeyi açmaz**. Açılış ayrı bir **config PR**'ıdır: yalnız *"Taptime Demo"*
+  UUID'si ve [G35-a]'nın beklediği değer; kullanıcı onaylar ve birleştirir. KF/KM'nin listeye girmesi Faz G dışı kullanıcı
+  kararıdır.
+- Q49 (a) ise ikinci kapı işletmenin `tenants.email_signin` ayarıdır (aşağıda *Panel*).
+
+*Uç ve tek cevap.*
+- `POST /app/v1/signin/request`, imzasız, gövde `{"email": string}` (katı; 254 baytı aşan ya da `@`'sız → yine tek cevap;
+  yalnız JSON bozuksa 400). Dosya `internal/handler/appsignin.go` — R7A'nın `app*.go` kapsamına kendiliğinden girer
+  (`scripts/redline-check.sh:2589-2593`); R7A tetikleyicilerine `e_?mail|address` eklenir (gürültü önce ölçülür), pin
+  `TestRedline_M16_AppSurfaceLogCalls`.
+- Her durumda **202**, boş gövde, `Cache-Control: no-store`, ve süre **`[250 ms, 300 ms]` bandında** — reset yolunun bandı
+  (`internal/handler/adminresetoutbox.go:44-49`: medyanlar `[resetRequestFloor, resetRequestFloor+50ms]`; taban değerinin
+  gerekçesi `adminresetlimits.go:316-326`). Tek istisna kaynak kovası: 429 + `Retry-After` (adresten bağımsız).
+
+*Çözümleme (00116, 00117).*
+- `resolve_employees_for_signin(p_email citext, p_tenants uuid[])` → `(tenant_id, employee_id)`; SECURITY DEFINER, sahibi
+  `tappa_resolver`, `SET search_path = pg_catalog, pg_temp`, `citext` eşitliği `OPERATOR(public.=)` (`00011:295-313`).
+  Yüklemler: `e.status = 'active' AND e.email IS NOT NULL AND e.tenant_id = ANY(p_tenants)` **ve işletme ön süzgeci**:
+  `t.suspended_at IS NULL` (+ Q49 (a) ise `t.email_signin`) — bant için: kimliksiz istek başına yalnız **eşleşen ve açık**
+  işletmeler için bir basım transaction'ı açılır (denetim *timing*; aynı yüklemler basım transaction'ında yeniden sınanır,
+  aşağıda). `ORDER BY e.tenant_id, e.id LIMIT 5`. `REVOKE ALL ON FUNCTION … FROM PUBLIC`, `EXECUTE` yalnız `tappa_app`.
+- Yetkiler (00116): `GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`; `GRANT SELECT (id,
+  suspended_at[, email_signin]) ON tenants TO tappa_resolver`. **`Down`** sırayla: `origin = 'self'` satırı varsa reddeder;
+  yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (id,
+  suspended_at[, email_signin]) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar. 00116 `employee_invites`'e ve
+  `tenants`'a `ALTER` uyguladığı için **`SET LOCAL lock_timeout = '1s'`** ile başlar (`deploy/README.md`; `00064` emsali).
+- **`privCatalogAllowed`** (`internal/db/privcatalog_test.go:274`) bilinçli satırları: fonksiyonun `EXECUTE`'u
+  (`tappa_app`), `employees` sütun SELECT'i ve `tenants` sütun SELECT'i (`tappa_resolver`), Q49 (a) ise `tenants` UPDATE
+  `email_signin` (`tappa_app`). Liste katalogdan dökülür (`TAPPA_PRIVCATALOG_DUMP=1`) ve satır satır okunur.
+- İndeks (00117) **`00091`'in birebir kalıbı**: `-- +goose NO TRANSACTION`; **`lock_timeout` yok** (`00091:33-35`'in
+  gerekçesi: NO TRANSACTION dosyada oturum ayarı ifadeden uzun yaşar); Up önce `DROP INDEX CONCURRENTLY IF EXISTS
+  public.employees_email_idx`, sonra `CREATE INDEX CONCURRENTLY employees_email_idx ON public.employees (email) WHERE email
+  IS NOT NULL` (`00091:37-47`); Down `DROP INDEX CONCURRENTLY IF EXISTS`; ve sonraki migration'ların Down'larını yürüyen
+  testler bu dosyayı **atlar** (`opAtVersionSkips` — `00091`'in notu; `internal/db/operatorapi_test.go:761`'in tuttuğu liste).
+  Gerekçe: tek adres indeksi `(tenant_id, email)`'dir (`00003:83-84`) ve tenant bilinmeden kullanılamaz.
+
+*Basım: tek tasarım — `EmailChannel`'ın kendisi (denetim Y1).*
+- Bugün `IssueAndDeliver` adres kapılarını yalnız `*EmailChannel` için koşar (`internal/invite/manager.go:287`: `mailCh,
+  toOwnAddress := ch.(*EmailChannel)` → `checkLimits` `:298`, `readRecipient` `:335`, `RecipientCapped` `:342`; `email.go:213-215`
+  *"for it alone"*). **Seçim:** yeni bir kanal tipi **yazılmaz**; giriş daveti bir `*EmailChannel`'dan geçer — kanal adı
+  `"signin"` ve sink'i **bloklamayan** bir çıkış kutusu sink'idir (`signinOutboxSink`, `MailSink`'i uygular). Böylece üç
+  adım (limitler kiracı kilidinin altında, dört adres reddi, posta kutusu tavanı) ve `Delivery.Recipient`'ın dolması **aynen**
+  çalışır.
+- **Audit sırası** (sink bloklamadığı için `EmailChannel.DeliverInvite`'ın *"gönder, sonra tek satır"*ı ikiye ayrılır):
+  `DeliverInvite` sink'e sunar; sink **kabul ederse** satır yazılmaz, işçi gönderir ve gönderimden **sonra** tam bir satır
+  yazar (`invite.code_emailed`, `detail.channel = "signin"`, `message_id`) ya da başarısızlıkta `invite.undelivered`; sink
+  **reddederse** (dolu / kapanıyor) `DeliverInvite` senkron `invite.undelivered` satırını yazar. Her
+  davet **tam bir** satırla biter — **süreç ölmedikçe**: işçi kuyruğundaki bir davet süreç ölümünde **satırsız** kalır
+  (davet satırı var, audit satırı yok — ADR 0022 sayılı sınır 1'in eşi, adlandırılmış bedel). FIFO 32 (`resetOutboxSize`,
+  `adminresetoutbox.go:252`), tek işçi, 15 sn sınır, işçide panik o işi `undelivered`'a çevirir; `cmd/tappa`'nın boşaltma
+  dizisine reset çıkış kutusunun yanında girer.
+- **Bütün giriş kapıları basım transaction'ının içinde**, `LockTenantForInviteLimits`'ten (`email.go:394-403`, `checkLimits`'in
+  ilk ifadesi) **sonra** koşar — `IssueParams`'a eklenen bir `Gate func(ctx, *store.Queries) error` kancasıyla, `checkLimits`'in
+  hemen ardından: (1) işletme askıda değil (`suspended_at IS NULL`); (2) Q49 (a) ise `email_signin` açık; (3) **işverenin canlı
+  daveti yok** (`origin='employer'`, kullanılmamış, iptal edilmemiş, süresi dolmamış) — kilit altında okunduğu için, kapı
+  ile basım arasında müdürün basması yarışı kapanır (denetim M2'nin yarışı); (4) **bekleme süresi**: son 7 günde tüketilmiş
+  `origin='self'` davet yok; (5) işletme ve kişi giriş bütçeleri (DB'de) ve süreç geneli giriş alt bütçesi (bellekte) — aşağıda. Her ret sessizdir (tek cevap).
+- **Adres yeniden okunur:** `CreateInvite`'tan sonra `readRecipient`'ın okuduğu adres çözümleyicinin eşlediği adresle
+  (`citext` eşitliği) karşılaştırılır; farklıysa — owner o arada adresi düzeltmiş (`internal/domain/tenant/staffemail.go:172`,
+  adres değişikliği bekleyen davetleri iptal eder) — transaction **geri alınır**, sessizce.
+- `IssueParams.Origin = "self"`, `TTL = Q44`.
+- **`employee_invites.origin` (00116):** `ADD COLUMN origin text NOT NULL DEFAULT 'employer', ADD CONSTRAINT
+  employee_invites_origin_is_known CHECK (origin IN ('employer','self'))`; tablo düzeyi `INSERT` yetkisi (`00009:224`) yeni
+  sütunu kapsar; `UPDATE` yetkisi yok. Q49 (a) ise aynı dosyada `tenants.email_signin boolean NOT NULL DEFAULT false` +
+  `GRANT UPDATE (email_signin) ON tenants TO tappa_app`.
+
+*Bütçeler (ADR 0049 §2.4) — nerede sayılır.*
+- Kaynak adres 5 / 10 dk ve 20 / gün; süreç geneli giriş alt bütçesi 100 / saat — **bellekte**, süreç başına (`httpx.Limiter`;
+  alt bütçe basımdan **önce**, kapı (5)'te `TryCharge` ile harcanır — reddedilen istek davet basmaz). Pod sayısıyla çarpılır — adlandırılmış bedel.
+- İşletme 10 / saat, 30 / gün; kişi 1 / saat, 3 / gün — **veritabanında**, `employee_invites` satırlarından (`origin='self'`,
+  `created_at`), kiracı kilidinin altında — podlar arasında tutarlı.
+- **Mekân NAT'ı (denetim D6):** aynı mekânın Wi-Fi'ındaki personel tek bir kaynak adresi paylaşır; 10 dakikada altıncı kişi
+  429 alır. Kova **yükseltilmez** (kaynak adres başına ölçek kehanetsizlikten önce posta bombası sınırıdır); bedel
+  adlandırılır ve ekran *"Too many tries from this network — wait a few minutes or use mobile data."* der (M16-36).
+- **Kesici kaderi kanalı (denetim D7):** reset yolunun sayılı sınırı 13'ü (`adminresetoutbox.go:218-221`: pencereyi kendi
+  gönderimleriyle dolduran biri, hedefin adresinden sonra kendi adresine gelen linkin gelip gelmediğinden hedefin kayıtlı
+  olduğunu öğrenir) bu yolda da vardır ve **daralır**: giriş gönderimleri ayrı 100/sa alt bütçeyi tüketir, eşleşmeyen adres
+  hiçbir bütçe harcamaz — alt bütçeyi dolduran saldırgan yalnız kendi eşleşen adreslerini sayabilir. Kalan kanal adlandırılır
+  (ADR 0049 §3).
+
+*İşverene görünürlük (denetim H4 (1), Y2, O1).*
+- **Tüketim noktası `consume`'dur** (`manager.go:846`) — tarayıcı (`Manager.Activate`, `:717`) ve uygulama (`ActivateDevice`,
+  `:791`) ikisi de oradan geçer. `consume` tüketilen davetin `origin`'ini döndürür; iki çağıranın handler'ı (tarayıcı
+  `CompleteByTap`, uygulama `complete`) commit'ten sonra **tek** bir `selfActivationNotice` işlevini çağırır.
+- **Owner e-postası** `Breaker.SendExempt` ile gider (kesicide sayılır, **asla reddedilmez** — emsal
+  `internal/handler/passwordnotice.go:46`, `emailchangenotice.go:19`); giriş çıkış kutusundan **geçmez** (onu dolduran biri
+  uyarıyı susturamasın). İstek içinde, commit'ten sonra, kendi gönderim süresiyle (`EmailSendGrace`, 10 sn — tamamlanmanın
+  cevabı en kötü durumda bu kadar gecikir, adlandırılmış bedel); başarısızlık bir `undelivered` audit satırıdır, tamamlanmayı
+  geri almaz. Owner kimlikleri `resolve_admin_owners_by_tenant` (`00081`), adresi `passwordnotice.go`'nun alıcı yolundan
+  (**ölç:** M14 sonrası kaynak kimliktir, ADR 0031 K-14). **Tavan:** owner başına günde 20 — bellekte,
+  `httpx.Limiter.TryCharge` (`passwordnotice.go:336-339`'un deseni, anahtar owner kimliği). Konu `A phone was set up by email
+  sign-in`; gövde (anlamı): *"<Employee> set up a new phone with their work email on <date>. Their other phones were signed
+  out. If you didn't expect this, deactivate the account in Staff and contact them."* — çalışanın adresi yok.
+- **Panel (dayanıklı):** M6-11 anomali ekranında iki liste — (1) *"Phones set up by email sign-in (last 30 days)"*
+  (`employee_invites` `origin='self' AND used_at >= now() - 30 days`); (2) **"Taps from a signed-out phone within 14 days of an
+  email sign-in"** — aşağıdaki audit satırlarının, aynı kişinin son 14 gündeki `origin='self'` tüketimiyle birleşimi.
+  Çalışan kartında *"Set up by email sign-in on <date>"*. Yeni sqlc sorguları açık `tenant_id`'li. Görünüm skill
+  `tappa-brand`; panel metni kullanıcıya gösterilir.
+- **İmzası çıkmış telefonun dokunuşu audit satırı yazar** (denetim H4 kalıntısı; T59 DÜŞÜK-1'in *"no audit row"* kararını
+  değiştirir — M16-34'te kullanıcıya gösterilir). Tarayıcı yolunda `tap.go:455-459`'un WARN satırının yanına `audit_log`
+  satırı: action `tap.signed_out_phone`, `target` çalışan, `detail` `{"channel":…}` — plaket UID'si, GPS, çerez, özet yok;
+  kişi başına 10 dakikada en çok bir satır (bellekte `httpx.Limiter`; fazlası yalnız log). **`transactions` satırı değildir**
+  (§4.3, §5 satır 3 aynen). **Uygulama yolu bu kartta değişmez:** iptal edilmiş cihazın kimliği imza doğrulanmadan önce
+  bir iddiadır ve M16-07 onu atfetmez — ADR 0049 §3 *"uygulamadan gelen kayıp dokunuşlar panelde görünmez"* der.
+  N = 14 gün: bir ele geçirmenin fark edilmesi için iki iş haftası.
+
+*Panel (Q49 (a) ise).*
+- Account ekranında owner'ın *"Email sign-in for staff"* aç/kapa'sı — M16-30'un kontrol deseni (yalnız owner, CSRF,
+  `audit_log` `tenant.email_signin_updated` `{"before":bool,"after":bool}` aynı transaction'da). **Görünümü bu kartın kendi
+  §9 sorusudur** (M16-30, Q49 cevaplanmadan koşar): (a) iş günü kesiminin ve Saatlerim'in yanında bir aç/kapa satırı;
+  (b) ayrı bir *"Staff sign-in"* kartı, açıklamasıyla. Metin Q49'da.
+- **Canlıya çıkışta** ADR 0048'in `deploy/db/scoped-access.sql`'i (`origin/ops/tappa-scoped-access`) yeni sütun ve fonksiyon
+  yetkileri için yeniden koşulur — **kullanıcı**.
+
+*E-posta (çalışana), tamamlanma, metinler.*
+- ADR 0022 §8 şablon kuralları; konu `Your Taptime sign-in link`; gövde (anlamı): *"Someone asked to sign in to Taptime with
+  this address at <Business>. If it was you, open this link on your phone within <TTL>, then tap your workplace's plaque. If
+  it wasn't you, ignore this email — nothing changes."* Q44 (c) ise *"Request this at your workplace"* eklenir. Aynı adres
+  birden çok işletmede aktifse (holding dahil): işletme başına bir davet ve bir e-posta.
+- **Tamamlanma bugünkü yoldur ve tarayıcıda da olabilir:** link (aynı telefonda) tarayıcıyı açar → ADR 0026'nın sihirbazı →
+  ilk gerçek NFC; ya da kişi linki uygulamaya yapıştırır → `bind` → `complete`. Q45 yalnız **isteği** sınırlar, tamamlanmayı
+  değil. `Lookup` süresi dolmuş kodu reddeder (`manager.go:493-494`).
+- **Bekleme süresinin bedeli:** ele geçirmeden sonraki 7 gün boyunca **gerçek** çalışan da kendi kendine kurtaramaz —
+  isteği 202 alır ama e-posta gelmez. Uygulamanın sabit ekranı bu yüzden *"No email after a few minutes? Ask your manager
+  for an invite."* der (M16-36); müdürün daveti bekleme süresine takılmaz.
+- **Log ve audit:** adres, özeti, kod, link hiçbir log satırında, hatada ve `detail`'de yok (CLAUDE.md §7; ADR 0022 §10).
 - **CLAUDE.md §5** *"Aktivasyon dokunuşu"*na cümle (kodla aynı commit): davet müdürün basışıyla **ya da** listedeki bir
-  işletmenin kayıtlı adresli aktif çalışanının e-postayla isteğiyle basılır; tamamlanma aynen.
-- **Testler** (DB, gerçek Postgres; `-race`'li olanlar işaretli). [G35-a] `05-config.yaml`'da anahtar var ve boş. [G35-b]
-  env boş → uç 404; listede olmayan işletmenin adresi → 202, davet satırı 0. [G35-c] çözümleyici aynı adresi üç yazımda
-  (`Ab@x`, `ab@x`, `AB@X`) bulur; `OPERATOR(public.=)` düşürülünce kırmızı. [G35-d] tek cevap: bilinmeyen · deaktive ·
-  davetli · yönetici adresi · canlı işveren daveti · bekleme süresi · bütçe aşımı — yedisinde 202, boş gövde, süre ≥ 250 ms,
-  davet satırı 0; yalnız eşleşen aktif adreste 1 satır `origin='self'`. [G35-e] kaynak kovası 6. istekte 429, adresten
-  bağımsız. [G35-f] iki işletmede aynı adres → iki tenant'ta birer davet, RLS ile birbirini görmez, iki e-posta (sahte sink).
-  [G35-g] askıdaki işletme → 0 davet. [G35-h] e-postayla basılmış davetle N eşzamanlı `complete` → tam 1 başarı (`-race`).
-  [G35-i] tamamlanma → owner bildirimi çıkış kutusunda, anomali listesinde satır; çıkış kutusu doluyken `undelivered`.
-  [G35-j] sızıntı: bütün yolların log ve audit çıktısında adresin hiçbir yazımı yok (`internal/invite/leak_external_test.go`
-  emsali). [G35-k] TTL: Q44'ün süresi dolmuş link `lookup`'ta reddedilir.
+  işletmenin kayıtlı adresli aktif çalışanının e-postayla isteğiyle basılır; tamamlanma iki yolda aynen.
+
+*Testler* (DB, gerçek Postgres; `-race`'li olanlar işaretli).
+- [G35-a] `05-config.yaml`'da anahtar var ve boş (`cmd/tappa/applinks_test.go`'daki `TestPackaging_TheAppValuesAreTheHandedOverOnes`'ın
+  yanına). [G35-b] env boş → rota bağlı değil, `/app/v1/signin/request`'in cevabı bilinmeyen bir `/app/v1` yolunun cevabıyla
+  **bayt bayt** aynı (durum, gövde, başlıklar `Date` hariç); listede olmayan işletmenin adresi → 202, davet satırı 0.
+- [G35-c] çözümleyici üç yazımda bulur; `OPERATOR(public.=)` düşürülünce kırmızı.
+- [G35-d] **tek cevap ve kapılar:** bilinmeyen · deaktive · davetli · yönetici adresi · askıda · Q49 kapalı · canlı işveren
+  daveti · bekleme süresi · işletme bütçesi · kişi bütçesi · alt bütçe · adres yarış içinde değişti — on ikisinde 202, boş
+  gövde, davet satırı 0; yalnız eşleşen aktif adreste 1 satır `origin='self'`. Çıkış kutusu doluyken eşleşen adres: 1 davet
+  satırı + senkron `invite.undelivered` (basım kapılardan sonra, teslim reddinden önce olur — sıra budur).
+- [G35-e] **bant:** medyanlar `[250 ms, 300 ms]` içinde — k = 0, 1 ve 5 eşleşen işletme; çıkış kutusu dolu; kesici açık.
+  k = 5'te bant tutmazsa ön süzgeç yetmemiştir — kart ölçümü yazar ve basımları sıralı değil tek transaction'a toplar ya da
+  tabanı gerekçesiyle yükseltir (kullanıcı kararı).
+- [G35-f] iki işletmede aynı adres → iki tenant'ta birer davet, RLS ile birbirini görmez, iki e-posta (sahte sink).
+- [G35-g] **yarış:** kapı okumasıyla basım arasında müdür davet basar → giriş basımı olmaz (kilit sırası, `-race`, iki
+  goroutine); owner adresi `CreateInvite`'tan sonra değiştirir → geri alınır.
+- [G35-h] e-postayla basılmış davetle N eşzamanlı `complete` → tam 1 başarı (`-race`).
+- [G35-i] **iki yol:** aynı davet türü **tarayıcıda** (`Manager.Activate`) ve **uygulamada** (`ActivateDevice`) tamamlanır →
+  ikisinde de owner e-postası `SendExempt`'ten (sahte kesici reddetmeye ayarlıyken de gider) ve anomali listesinde satır;
+  `origin='employer'` tüketiminde e-posta **yok**.
+- [G35-j] sızıntı: bütün yolların log ve audit çıktısında adresin hiçbir yazımı yok (`internal/invite/leak_external_test.go`
+  emsali).
+- [G35-k] Q44'ün süresi dolmuş link `lookup`'ta reddedilir.
+- [G35-l] Q49 (a): kapalı işletmenin adresi → 202, 0 davet.
+- [G35-m] **`origin` varsayılanı (denetim D5):** panelin davet ucu, `/v1` personel ucu ve K-17 kuyruk işçisi davet basar →
+  üçünde de `origin='employer'`; owner e-postası yok.
+- [G35-n] imzası çıkmış tarayıcı oturumuyla dokunuş → `transactions` sayısı aynı, tam bir `tap.signed_out_phone` audit
+  satırı, ikinci dokunuş 10 dakika içinde satır yazmaz; anomali listesi (2) onu, kişinin `self` tüketiminden sonraki 14 gün
+  içindeyse gösterir.
 
 ## M16-36 — E-postayla giriş: uygulama ekranları (+ Q45'e göre tarayıcı)
 
@@ -1790,27 +1877,30 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**, tamamlanma yine plakette.
 **Amaç.** Daveti olmayan ya da kaybetmiş çalışanın uygulamadan kendi adresine giriş linki istemesi.
 
 **Kabul kriterleri.**
-- **Önce §9 sorusu** (AskUserQuestion + mockup; aktivasyon ailesi).
+- **Önce §9 sorusu** (AskUserQuestion + mockup; aktivasyon ailesi): (1) kod ekranındaki giriş — (a) *"No link? Get one by
+  email"* metin bağlantısı (öneri), (b) ikinci bir düğme; (2) sabit cevap ekranının metni (aşağıdaki öneri).
 - Bugünkü kod ekranı (*"Paste the activation link your workplace sent you."* — `mobile/ios/Taptime/ActivationCopy.swift:19`)
-  bir giriş kazanır: *"No link? Get one by email"* → adres alanı → **tek sabit ekran** (anlamı: *"If this address belongs to
-  an account, a link is on its way. It works for <TTL>."*) — sunucunun cevabından bağımsız (429'da: *"Too many tries — wait
-  a few minutes."*) → link geldiğinde bugünkü yapıştırma yolu (iOS `InviteCode`, `ActivationCopy.swift:160-184`; Android
-  `activation/Inputs.kt:9`).
+  girişi kazanır → adres alanı → **tek sabit ekran** (öneri metni: *"If this address belongs to an account, a link is on its
+  way. It works for <TTL>. No email after a few minutes? Ask your manager for an invite."*) — sunucunun cevabından bağımsız;
+  429'da *"Too many tries from this network — wait a few minutes or use mobile data."* (M16-35'in NAT bedeli) → link
+  geldiğinde bugünkü yapıştırma yolu (iOS `InviteCode`, `ActivationCopy.swift:160-184`; Android `activation/Inputs.kt:9`).
 - **Linkin uygulamaya yolu:** `/activate` Universal Link / App Link'e bağlı değildir (Q40, M16-08); e-postadaki link aynı
-  telefonda tarayıcıyı açar. Ekran *"copy the link and paste it here"* der (ADR 0049 §4 bedel 1).
-- Adres cihazda saklanmaz ve loglanmaz. [G36-a] Android, [G36-b] iOS: sahte logger ile adresin hiçbir log çağrısına
-  girmediği; R7M'nin `e_?mail` tetikleyicisi zaten vardır (`redline-check.sh:2642`).
-- **Q45 (a) seçildiyse tarayıcı:** rota `POST /activate/email` (ana host; form alanı `email`), aynı çekirdek (M16-35'in
-  çözümleme → kapılar → basım dizisi tek fonksiyondur; iki uç onu çağırır); kapılar: aktivasyon sihirbazının **Origin
-  denetimi** (`a.sameOrigin`, `internal/handler/activate.go:610-630`), sihirbazın adres başına sel tavanı **ve** M16-35'in
-  kaynak kovası (ikisi de); cevap: tek sabit sayfa (aynı metin), 250 ms taban. Giriş noktası: *"not set up"* sayfası
-  (kodsuz `/activate`) — metni §9 sorusunda. [G36-c] Origin'siz/yabancı Origin'li POST reddi; [G36-d] tek cevap (M16-35
-  [G35-d]'nin tarayıcı ikizi). Q45 (b) seçildiyse bu madde yoktur, tarayıcıya dokunulmaz.
+  telefonda tarayıcıyı açar ve kişi orada da tamamlayabilir (M16-35: tamamlanma iki yolda). Uygulamayı isteyen için ekran
+  *"or copy the link and paste it here"* der (ADR 0049 §4 bedel 1).
+- Adres cihazda saklanmaz ve loglanmaz. [G36-a] Android, [G36-b] iOS: sahte logger ile adresin hiçbir log çağrısına girmediği;
+  R7M'nin `e_?mail` tetikleyicisi zaten vardır (`redline-check.sh:2642`).
+- **Q45 (a) seçildiyse tarayıcı:** rota `POST /activate/email` (ana host; form alanı `email`), M16-35'in çekirdeği (çözümleme →
+  kapılar → basım tek fonksiyondur; iki uç onu çağırır); kapılar: aktivasyon sihirbazının **Origin denetimi** (çağrı yeri
+  `internal/handler/activate.go:626`, tanım `a.sameOrigin` `:1874`), sihirbazın adres başına sel tavanı **ve** M16-35'in kaynak
+  kovası; cevap tek sabit sayfa (aynı metin), M16-35'in bandı. **Giriş noktası bir §9 sorusudur** (seçenekler): (a) *"not set
+  up"* sayfasında (`/activate` kodsuz) *"Have a work email on file? Get a sign-in link"* bağlantısı → yalnız bir adres alanı
+  olan sayfa; (b) aynı sayfada doğrudan adres alanı. [G36-c] Origin'siz/yabancı Origin'li POST reddi; [G36-d] tek cevap
+  (M16-35 [G35-d]'nin tarayıcı ikizi). Q45 (b) seçildiyse bu madde yoktur, tarayıcıya dokunulmaz.
 - İki platform tek metin listesi.
 
 ## M16-37 — Hesabı silme talebi: sunucu ve işverene iletim
 
-- **Bağımlılık:** M16-35 (owner bildirim yolu) · **Q46** · Q13 (bağlam; bloklamaz)
+- **Bağımlılık:** M16-35 (owner uyarı yolu) · **Q46** · Q13 (bağlam; bloklamaz)
 - **Kırmızı çizgi:** §4.3 (`transactions` silinmez), §4.5, §4.6, §7
 - **Araç:** yapıcı · **Mercek: iki**
 - **Commit:** `feat(app): let an employee ask to delete their account`
@@ -1824,17 +1914,16 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**, tamamlanma yine plakette.
   `employee.deletion_requested`, `detail` `{"app_device_id":…,"revoked_sessions":n,"revoked_devices":n}` (adres yok).
   Yanıt 204. Tekrar istek: cihaz artık iptal → 401 (M16-07).
 - **Silinmeyenler:** `transactions` (§4.3), `punch_claims`, `audit_log`, `employee_invites`; `employees` satırı ne silinir ne
-  deaktive edilir (ADR 0010). Anonimleştirme Q13'ündür. **Talep geri alınabilir** (denetim L3): aktif ve adresli bir çalışan
-  e-postayla giriş açık bir işletmede yeniden aktive olabilir — bu bir *"oturumu her yerde kapat + işverene haber ver"*dir;
-  ekran bunu söyler (M16-38).
-- **Deaktive kişi:** T59'un kuralı (`tenant.ErrSignOutDeactivated`) — kimlik bilgisi **iptal edilmez** (aksi hâlde sonraki
-  dokunuşu §5 satır 3'ün kayıtsız yoluna düşer, §4.6); audit satırı ve işverene iletim yine yapılır; yanıt 204.
-- **İşverene iletim — Q46:** (a) seçildiyse yalnız audit satırı + çalışan kartında *"Asked to delete their account on
-  <date>"* (audit satırından okunur; yeni sqlc sorgusu, `action = 'employee.deletion_requested'` ve `target` = çalışan,
-  açık `tenant_id`) + M6-11 anomali ekranında aynı listenin son 90 günü. (b) seçildiyse (a)'nın hepsi **ve** M16-35'in owner
-  bildirim yolundan (aynı çıkış kutusu, aynı alıcı yolu, owner başına günlük tavan) e-posta: konu `An employee asked to
-  delete their Taptime account`; gövde (anlamı): *"<Employee> asked to delete their account on <date>. Their phones are
-  signed out. Their clock-in records are kept: they are legal records you control. Decide what to do with their data and
+  deaktive edilir (ADR 0010). Anonimleştirme Q13'ündür. **Talep geri alınabilir:** aktif ve adresli bir çalışan e-postayla
+  giriş açık bir işletmede yeniden aktive olabilir — bu bir *"her yerde çıkış + işverene haber"*dir; ekran söyler (M16-38).
+- **Deaktive kişi:** T59'un kuralı (`tenant.ErrSignOutDeactivated`) — kimlik bilgisi **iptal edilmez**; audit satırı ve
+  işverene iletim yine yapılır; yanıt 204.
+- **İşverene iletim — Q46:** (a) yalnız audit satırı + çalışan kartında *"Asked to delete their account on <date>"* (audit
+  satırından; yeni sqlc sorgusu, `action = 'employee.deletion_requested'` ve `target` = çalışan, açık `tenant_id`) + M6-11
+  anomali ekranında son 90 günün listesi. (b) (a)'nın hepsi **ve** M16-35'in owner uyarı yolu (`Breaker.SendExempt`, istek
+  içinde commit'ten sonra, owner başına günde 20 — aynı `httpx.Limiter` anahtar ailesinin kendi öneki): konu `An employee
+  asked to delete their Taptime account`; gövde (anlamı): *"<Employee> asked to delete their account on <date>. Their phones
+  are signed out. Their clock-in records are kept: they are legal records you control. Decide what to do with their data and
   reply to them within one month (GDPR Art. 12(3))."* Metin kullanıcıya gösterilir.
 - **`GET /app/v1/me`'ye `businessName`** (M16-38'in *"işveren"* satırı): bugün `brand.name` isteğe bağlıdır
   (`apptap.go:76-81`); `"businessName": string` her zaman dolu. [G37-e] sözleşme şekli.
@@ -1842,29 +1931,29 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**, tamamlanma yine plakette.
   iletmez.
 - **Testler.** [G37-a] aktif kişi: oturumlar + cihazlar iptal, `transactions` sayısı aynı, tam bir audit satırı. [G37-b]
   deaktive kişi: hiçbir şey iptal edilmez (`revoked_at IS NULL`), audit satırı var. [G37-c] başka tenant'ın cihazıyla imzalı
-  istek kendi tenant'ında kalır (RLS + açık süzgeç). [G37-d] Q46 (b)'de owner e-postası sahte sink'te, adres gövdede yok.
+  istek kendi tenant'ında kalır. [G37-d] Q46 (b): owner e-postası sahte kesici reddederken de gider, adres gövdede yok.
 
 ## M16-41 — Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce)
 
 - **Bağımlılık:** M16-37 (silme talebinin anlamı) · Q46 · **kullanıcı + hukukçu**
 - **Kırmızı çizgi:** — (GDPR Art. 13; mağaza beyanı yasal beyandır)
-- **Araç:** yapıcı (metin taslağı) + kullanıcı (onay ve yayım) · **Mercek: tek**
+- **Araç:** yapıcı alt ajan (metin taslağı, CLAUDE.md §10) + kullanıcı (onay ve yayım) · **Mercek: tek**
 - **Commit:** `docs(legal): describe the staff app before the store`
 
-**Amaç.** Denetim M4'ün döngüsünü kırmak: M16-38'in gizlilik linki yayımlanmış bir metne gitmeli, oysa metni Faz F'deki
-M16-27 yazıyordu. Metin yarısı buraya, Faz G'nin içine alınır; M16-27 mağaza etiketleri ve pazarlama cümleleriyle kalır.
+**Amaç.** M16-38'in gizlilik linki yayımlanmış bir metne gitmeli, oysa metni Faz F'deki M16-27 yazıyordu. Metin yarısı buraya
+alınır; M16-27 mağaza etiketleri ve pazarlama cümleleriyle kalır.
 
 **Kabul kriterleri.**
 - **Bugün (kod okundu):** `/legal/privacy` rotası vardır (`web/templates/pages/landingview.go:1479`) ve yayımlanmış metin
-  yokken *"Not in force yet"* / *"This text has not been published yet"* yer tutucusunu basar (`web/templates/pages/legal_templ.go:224`,
-  `:556`). Denetçinin ölçümü (2026-11-18): canlıda yer tutucu.
-- `docs/legal/privacy-draft.md`'ye uygulama paragrafı: toplanan (cihaz açık anahtarı, kaba cihaz etiketi, tap anında konum,
-  sahte konum bayrağı, attestation sonucu — Faz E), **iş e-postası** (yalnız eşleşme ve gönderim; cihazda ve log'da yok —
-  ADR 0049), **Saatlerim** (işletme açtıysa ve seçtiği pencere kadar; koordinat, IP, güven puanı yok), **hesap silme
-  talebi** (ne kapanır, ne kalır, işverene nasıl gider — Q46); **toplanmayan** (biyometri, arka plan konum, reklam kimliği,
-  analitik).
+  yokken yer tutucuyu basar — işaret *"Not in force yet"* (`web/templates/pages/legal_templ.go:337`) ve bölüm *"This text has
+  not been published yet"* (`:556`). Denetçinin ölçümü (2026-11-18): canlıda yer tutucu.
+- `docs/legal/privacy-draft.md`'ye başlığı **`The Taptime staff app`** olan bir bölüm: toplanan (cihaz açık anahtarı, kaba
+  cihaz etiketi, tap anında konum, sahte konum bayrağı, attestation sonucu — Faz E), **iş e-postası** (yalnız eşleşme ve
+  gönderim; cihazda ve log'da yok — ADR 0049), **Saatlerim** (işletme açtıysa ve seçtiği pencere kadar; koordinat, IP, güven
+  puanı yok), **hesap silme talebi** (ne kapanır, ne kalır, işverene nasıl gider — Q46); **toplanmayan** (biyometri, arka plan
+  konum, reklam kimliği, analitik).
 - Hukukçunun onayı ve yayım **kullanıcıdadır** (operatör `/operator/legal`). Kabul: canlıda `curl -s https://taptime.mt/legal/privacy`
-  çıktısında *"Not in force yet"* **yok** ve uygulama paragrafının başlığı var (kullanıcı ya da ana oturum ölçer).
+  çıktısında *"Not in force yet"* **yok** ve *"The Taptime staff app"* başlığı **var** (kullanıcı ya da ana oturum ölçer).
 - **Bu kart mağaza gönderimini de bloklar** (her iki mağaza gizlilik politikası URL'si ister).
 
 ## M16-38 — Ayarlar ve gizlilik ekranı — iOS + Android
@@ -1891,49 +1980,62 @@ M16-27 yazıyordu. Metin yarısı buraya, Faz G'nin içine alınır; M16-27 mağ
 
 ## M16-39 — App Review hazırlığı: inceleme notu, basılabilir QR, Q47'nin yolu
 
-- **Bağımlılık:** M16-22 · **M16-23** (Q47'nin her iki seçeneği) · M16-33, M16-36, M16-38 · kullanıcı ön koşulları
+- **Bağımlılık:** M16-22 · **M16-23** ve **M16-20** (Q47'nin iki yolu) · M16-33, M16-36, M16-38 · kullanıcı ön koşulları
   (*"Taptime Demo"* açık; demo plaketi kodlanmış ve atanmış)
 - **Kırmızı çizgi:** §4.3 (demo kayıtları da değişmezdir), depo PUBLIC (notta değer yok)
-- **Araç:** ana oturum + kullanıcı · **Mercek: tek**
+- **Araç:** **yapıcı alt ajan** `mobile/README.md`'yi ve kart düzeltmesini yazar (CLAUDE.md §10); kullanıcı üretimde demo
+  işletmeyi kurar, App Store Connect / Play Console'u doldurur ve Play'in silme formunu okur; ana oturum yalnız salt okuma
+  doğrulaması ve AskUserQuestion · **Mercek: tek**
 - **Commit:** `docs(mobile): prepare the app for store review`
 
 **Amaç.** Daveti ve plaketi olmayan bir inceleyicinin uygulamayı uçtan uca kullanabildiği, gerçek ürün yüzeylerinden
 kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 
 **Kabul kriterleri.**
-- **Demo işletmenin durumu** (kullanıcının kurduğu; bu kart denetler ve kart düzeltmesine yazar): bir lokasyon; Saatlerim
-  **açık**, 4 hafta (M16-30); e-postayla giriş açık (M16-35'in config PR'ı + Q49 (a) ise owner ayarı); bir demo çalışan —
-  adresi **panel girişinin adresinden farklı** (aksi hâlde davet `ErrAddressIsAdministrators` ile reddedilir,
-  `internal/invite/email.go:100`, `:447`) ve kullanıcının denetimindeki bir posta kutusu; bir **manager** rolünde panel
-  hesabı (Q47) — **owner değil** (owner keyfî adreslere davet gönderebilir; manager'ın eylemleri `base:authz-manager`
-  listesidir: rapor, onay, manuel kayıt, inceleme, deaktivasyon — davet yok, `internal/policy/baseline.go:544-550`).
-- **Demo plaketi:** statik QR bir plaket UID'si ister (`sun.PlaqueQRURL`, `internal/sun/mint.go:81`) ve üretimde plaketsiz
-  QR yoktur (sanal plaketler yalnız sandbox'ta — CLAUDE.md §3 `internal/db/virtualtags.go`). Lokasyona atama kodlanmış
-  plaket ister (`db/queries/tags.sql:426`: `AssignTagToLocation` `encoded_at`'siz satırı reddeder). Plaket **kalıcı olarak**
-  demo işletmenindir (stok kısıtlı; `tags` satırı hiçbir temizlikte silinmez). QR'ın basılabilir sayfası App Store Connect
-  ekine konur.
-- **Q47'nin yolu:** (a) ise inceleyici uygulamada *"My phone can't tap"* der, manager girişiyle panelde eşleşme koduyla
-  onaylar (M16-23). **M16-23'ün öz-onay kuralı** bir **karşılaştırmadır**: onaylayan `admin_users` satırının kimliği
-  (`identity_id`, ADR 0031) ile onaylanan çalışanın kayıtlı adresinin kimliği aynıysa ret — demo düzeninde adresler farklı
-  olduğundan engellemez; M16-23 bunu bu karşılaştırmayla yazmadıysa (ölç) yol **(c)**'ye düşer: inceleyici panelde bir canlı
-  QR ekranı eşler (M16-20) ve uygulamayla okur. Notta iki yol da yazılıdır, (a) önce.
-- **İnceleme notu şablonu** — yeni dosya **`mobile/README.md`** (bugün yalnız `mobile/android/README.md` vardır; CLAUDE.md §11
-  onu *"Faz B/C'de doğar"* diye anar — bu kart doğurur). Bölüm *"Store review"*, yalnız yer tutucularla (`<INVITE_LINK>`,
-  `<PANEL_EMAIL>`, `<PANEL_PASSWORD>`, `<QR_ATTACHMENT>`); gerçek değerler yalnız App Store Connect *App Review Information*
-  ve Play Console *App access*'e. İçerik: uygulamanın kim için olduğu (işverenin açtığı personel hesabı — 3.1.3(c)), adım
-  adım yol (link yapıştır → onay → aktivasyon (Q47) → QR'ı okut → FLAGGED kaydı → Saatlerim → Ayarlar → *Delete my account*),
-  NFC'nin gerçek kullanımda plaketle olduğu ve QR'ın neden verildiği (2.1(a)), Sign in with Apple'ın neden yok (4.8).
-  **Ölçü:** `git grep -nE '@|https?://[^<]' mobile/README.md` yalnız `taptime.mt` ve yer tutucu satırlarını verir; bölüm
-  *"Rejection risks"* tablosu 2.1(a), 4.2, 5.1.1(v), 3.1.3(c), 4.8 ve **Play'in web silme yolu** satırlarını içerir —
-  sonuncusu **ölçülmemiş bir mağaza riskidir** (denetim L3): Play'in hesap silme için uygulama dışı bir web yolu isteyip
-  istemediği gönderimden önce Play Console'un formunda okunur; isterse cevap M16-37'nin işverene iletimi ve bir destek
-  adresi (değer depoda değil).
-- **Her gönderim için taze davet ve parola:** davet tek kullanımlıktır, en çok 30 gün yaşar (`internal/invite/manager.go:135`)
-  ve inceleyicinin aktivasyonu harcar; **panel parolası her incelemeden sonra değiştirilir** ve demo cihazları panelden
-  çıkarılır (runbook adımı).
-- **Faturalama/sayım:** demo işaretleyici yoktur (`git grep -nE 'is_demo|is_test|billing_exempt'` → 0). Tahsilat elledir
-  (Q24): kullanıcı demo işletme için fatura kesmez ve işletme kimliğini kendi notlarına yazar; operatör sayımlarında görünmesi
-  kabul edilmiş bedeldir. İşaretleyici gerekirse ayrı kart (Faz G dışı).
+- **Demo işletmenin durumu** (kullanıcının kurduğu; yapıcı salt okuma çıktısından kart düzeltmesine yazar): bir lokasyon;
+  Saatlerim **açık**, 4 hafta (M16-30); e-postayla giriş açık (M16-35'in config PR'ı + Q49 (a) ise owner ayarı); **iki** demo
+  çalışan (M16-40'ın iki akışı için — bekleme süresi aynı kişiyi 7 gün kilitler); demo çalışanların adresleri **panel
+  girişinin adresinden farklı** (`ErrAddressIsAdministrators`, `internal/invite/email.go:100`, `:447`) ve kullanıcının
+  denetimindeki posta kutuları; bir **manager** rolünde panel hesabı.
+- **Manager'ın yapabildikleri — düzeltilmiş ve kabul edilmiş bedel (denetim L2).** Davet politika motorundan geçmez
+  (`base:authz-manager` eylem listesinde davet yoktur, `internal/policy/baseline.go:541-551`, çünkü davet orada değildir);
+  personel ekleme ve davet gönderme rol sınamaz (`internal/handler/dashboard.go:433-434`, `employeeactions.go:220-283`,
+  `:396-450`); yalnız ekranda link gösterme yedeği owner'a özeldir (`internal/handler/inviteemail.go:351`). Yani demo
+  işletmenin manager girişini alan inceleyici **keyfî adreslere DKIM imzalı davet e-postası** gönderebilir (işletme başına
+  50/sa, ADR 0022 §9), kişileri **geri alınamaz biçimde deaktive** edebilir (ADR 0010), `flag`'leri onaylayabilir, manuel
+  kayıt girebilir ve rapor alabilir. Bu, inceleme notunda panel girişi vermenin **adlandırılmış bedelidir**; azaltma: her
+  incelemeden sonra *"kadroyu denetle"* adımı (aşağıda) ve parola değişimi.
+- **İzinlerin ölçümü (denetim A2-16):** M16-23'ün müdür onayı ve M16-20'nin ekran eşlemesi manager'a açık mı — iki kart bunu
+  söylemez, `base:authz-manager` ikisini de içermez. Bu kart iki uçla, demo işletmenin manager girişiyle (yerel ya da şerit
+  ortamda) ölçer ve sonucu yazar: **onay açık** → Q47 (a); **onay kapalı, eşleme açık** → (c); **ikisi de kapalı** → notta
+  owner girişi gerekir — bu, yukarıdaki bedeli owner'ın tam yetkisine genişletir ve **kullanıcıya sorulur** (AskUserQuestion)
+  ya da M16-23/M16-20'ye manager yetkisi eklenir (o kartın kart düzeltmesi + `base:authz-manager` değişikliği, kullanıcı
+  onayı).
+- **Demo plaketi:** statik QR bir plaket UID'si ister (`sun.PlaqueQRURL`, `internal/sun/mint.go:81`) ve üretimde plaketsiz QR
+  yoktur (sanal plaketler yalnız sandbox'ta — `internal/db/virtualtags.go`). Atama kodlanmış plaket ister (`db/queries/tags.sql:426`).
+  Plaket **kalıcı olarak** demo işletmenindir; `tags` satırı hiçbir temizlikte silinmez. QR'ın basılabilir sayfası App Store
+  Connect ekine konur.
+- **Q47'nin yolu:** (a) inceleyici uygulamada *"My phone can't tap"* der, manager girişiyle panelde eşleşme koduyla onaylar
+  (M16-23). M16-23'ün öz-onay kuralı bir karşılaştırmadır (onaylayanın `identity_id`'si ile çalışanın kayıtlı adresinin
+  kimliği aynıysa ret); demo düzeninde adresler farklıdır. (c) inceleyici panelde kendi tarayıcısında bir canlı QR ekranı
+  eşler (M16-20) ve uygulamayla okur. ⚠️ **M16-23, lokasyonda aktif bir canlı QR ekranı varken müdür onayını sunmaz** — (c)'den
+  kalan bir ekran bir sonraki incelemede (a)'yı kapatır. Runbook bu yüzden her incelemeden sonra ekranı **eşlemeden
+  çıkarır**.
+- **İnceleme notu şablonu** — yeni dosya **`mobile/README.md`** (bugün yalnız `mobile/android/README.md` vardır). Bölüm
+  *"Store review"*, yalnız yer tutucularla (`<INVITE_LINK>`, `<PANEL_EMAIL>`, `<PANEL_PASSWORD>`, `<QR_ATTACHMENT>`); gerçek
+  değerler yalnız App Store Connect *App Review Information* ve Play Console *App access*'e. İçerik: uygulamanın kim için olduğu
+  (3.1.3(c)), adım adım yol (link yapıştır → onay → aktivasyon (Q47) → QR'ı okut → FLAGGED kaydı → Saatlerim → Ayarlar →
+  *Delete my account*), NFC'nin gerçek kullanımda plaketle olduğu ve QR'ın neden verildiği (2.1(a)), Sign in with Apple'ın
+  neden yok (4.8). **Ölçü:** `git grep -nE '@|https?://[^<]' mobile/README.md` yalnız `taptime.mt` ve yer tutucu satırlarını
+  verir; *"Rejection risks"* tablosu 2.1(a), 4.2, 5.1.1(v), 3.1.3(c), 4.8 ve **Play'in web silme yolu** satırlarını içerir.
+  Sonuncusu **ölçülmemiş bir mağaza riskidir**: kullanıcı Play Console'un *Data safety → account deletion* formunu gönderimden
+  önce okur ve cevabı karta yazar; web yolu istenirse cevap M16-37'nin işverene iletimidir.
+- **Runbook (her inceleme döngüsü):** önce — taze davet (tek kullanımlık, en çok 30 gün: `internal/invite/manager.go:135`),
+  QR eki; sonra — **kadroyu denetle** (salt okuma: demo işletmede inceleme sırasında eklenen kişi, gönderilen davet, deaktivasyon,
+  onay ve manuel kayıt `audit_log`'dan listelenir; beklenmeyen bir şey kullanıcıya), canlı QR ekranını eşlemeden çıkar, demo
+  cihazlarını panelden çıkar, **panel parolasını değiştir**.
+- **Faturalama/sayım:** demo işaretleyici yoktur (`git grep -nE 'is_demo|is_test|billing_exempt'` → 0). Tahsilat elledir (Q24):
+  kullanıcı demo işletme için fatura kesmez; operatör sayımlarında görünmesi kabul edilmiş bedeldir (işaretleyici *Sonra*).
 - **Söküm:** demo artık gerekmediğinde operatör işletmeyi **askıya alır** (ADR 0025); silinmez, plaketin `tags` satırı kalır.
 - Uygulama içi demo modu **yoktur** (kullanıcı kararı 3).
 
@@ -1946,20 +2048,29 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 **Amaç.** Faz G'yi gerçek cihazlarla ölçmek ve fazın büyük testlerini bir kez koşmak.
 
 **Kabul kriterleri.**
-- **Ortam:** üretim, **yalnız *"Taptime Demo"*** (KF/KM'ye hiçbir yazma yok — denetim M5). Ön koşul: M16-35'in config PR'ı
-  demo UUID'siyle canlı; üretimin e-postası zaten açık (`TAPPA_INVITE_DELIVERY: "email"`, `deploy/k8s/05-config.yaml:166`);
-  gerçek posta kutusu kullanıcının.
-- Gerçek bir iPhone ve bir Android'de: Saatlerim ayarı (owner kapatır → giriş kaybolur, imzalı uç 404; 1 haftaya indirir →
-  geçen hafta yanıtta yok) · Saatlerim (açık giriş → `complete:false`; kararı bekleyen `flag` ayrı; QR dokunuşu `waiting`) ·
-  ayarlar · *Remove this phone* (sonra plaket dokunuşu → kayıt yok, `transactions` sayısı değişmez) · *Delete my account*
-  (kimlik bilgileri kapandı, `transactions` aynen, işveren iletimi Q46'ya göre) · e-postayla giriş uçtan uca (bilinmeyen
-  adresle aynı ekran ve **hiç** e-posta; demo çalışanın adresiyle link → plaket → aktive; owner bildirimi geldi; anomali
-  listesinde satır) · **TTL vakası (denetim H2):** link istenir, Q44'ün süresinin **içinde** ama bir gece sonra plakette
-  tamamlanır (24 sa seçildiyse ertesi gün); süresi geçmiş bir link `lookup`'ta reddedilir. Deaktivasyon adımı yalnız demo
-  işletmede açılan **tek kullanımlık** bir test çalışanıyla (geri alınamaz — ADR 0010).
+- **Ortam:** üretim, **yalnız *"Taptime Demo"*** (KF/KM'ye hiçbir yazma yok). Ön koşul: M16-35'in config PR'ı demo UUID'siyle
+  canlı; üretimin e-postası açık (`deploy/k8s/05-config.yaml:166`); posta kutuları kullanıcının.
+- **Tur** (gerçek bir iPhone ve bir Android): Saatlerim ayarı (owner kapatır → giriş kaybolur, imzalı uç 404; 1 haftaya indirir
+  → geçen hafta yanıtta yok) · Saatlerim (açık giriş → `complete:false`; kararı bekleyen `flag` ayrı; QR dokunuşu `waiting`;
+  Faz D'nin canlı QR dokunuşu `channel:"qr_live"`) · ayarlar · *Remove this phone* (sonra plaket dokunuşu → kayıt yok,
+  `transactions` sayısı değişmez, tarayıcı yolundaysa bir `tap.signed_out_phone` audit satırı) · *Delete my account* (kimlik
+  bilgileri kapandı, `transactions` aynen, işveren iletimi Q46'ya göre) · deaktivasyon adımı yalnız bu tur için açılan **tek
+  kullanımlık** bir test çalışanıyla (geri alınamaz — ADR 0010).
+- **E-postayla giriş — iki demo çalışan** (bekleme süresi aynı kişinin ikinci self aktivasyonunu 7 gün sessizce reddeder):
+  - **Çalışan 1 — uçtan uca:** bilinmeyen adresle aynı ekran ve **hiç** e-posta; çalışan 1'in adresiyle link → uygulamada
+    plaket → aktive; owner uyarısı geldi; anomali listesinde satır. Aynı link akışının **tarayıcı** tamamlanması ayrı bir
+    turda değil, [G35-i]'nin DB testindedir.
+  - **Çalışan 2 — TTL vakası (Q44'e göre):** (a) 24 sa: link akşam istenir, ertesi gün süresinin içinde plakette tamamlanır;
+    süresi geçmiş ikinci bir link (25 sa sonra) `lookup`'ta reddedilir. (b) 12 sa: link istenir, 11 saat sonra tamamlanır; 13
+    saat sonraki bir link reddedilir. (c) 1 sa: link işyerinde istenir, 50 dakika sonra tamamlanır; 61 dakika sonraki bir link
+    reddedilir (*"bir gece sonra"* bu seçenekte imkânsızdır — metin onu söyler).
   Kayıt yazan adım DB satırıyla, yazmayan adım sayının değişmediğiyle kanıtlanır (salt okuma, kullanıcı ya da ana oturum).
+- **Demo durumunu geri yükle (denetim A2-18):** tur bitince owner Saatlerim'i **açık, 4 hafta**, e-postayla girişi **açık**
+  bırakır, canlı QR ekranını eşlemeden çıkarır, test cihazlarını panelden çıkarır. **Ölçü:** salt okuma
+  `staff_hours_weeks = 4` ve (Q49 (a) ise) `email_signin = true` demo işletmenin satırında; `/app/v1/me`'nin `hoursWeeks` = 4.
 - **İnceleyici provası:** **kullanıcı** (ya da kullanıcının adlandırdığı, notu yazmamış biri) `mobile/README.md`'nin notunu
-  sıfır kurulu bir telefonda harfiyen izler; takıldığı her adım nota düzeltme olarak döner.
+  sıfır kurulu bir telefonda harfiyen izler; takıldığı her adım nota düzeltme olarak döner. Prova sonunda geri yükleme adımı
+  yeniden koşar.
 - Fazın büyük testleri bir kez: tam `-race`, `go test ./...`, `make check`, `make audit`, iki platformun test paketleri.
 - ADR 0049'a *"Uygulandı"* notu; Apple bölüm numaralarının güncel metne uyduğu okunur.
 - **M9-05'i bu kart kapatır:** `state.md` M9-05 satırı *"M16-30…33 ile karşılandı (TARİH)"*, durum `done`; Faz G done.
@@ -2052,5 +2163,7 @@ kurmak.
   (App Link / Universal Link; `/activate` değişmez) — denetim turunda Q44'ten çıkarıldı; pilot kopyala-yapıştır sürtünmesi
   gösterirse.
 - E-postayla girişin **tarayıcı** girişi, Q45 (b) seçildiyse.
+- Saatlerim tarayıcı sayfasına **link** (*"Activation complete"* ekranında ya da davet e-postasında) — korumalı §9 ekranı ve
+  ayrı şablon değişikliği; M16-32 linksiz çıkar.
 - Demo/test işletme **işaretleyicisi** (faturalama ve sayımdan düşmek için; bugün yok — M16-39).
 - Attestation'ı karar verici yapmak — ayrı ADR.
