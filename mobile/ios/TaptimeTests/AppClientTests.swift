@@ -210,6 +210,50 @@ final class AppClientTests: XCTestCase {
         }
     }
 
+    /// A 3xx is neither followed nor read: one request leaves the phone, the other host sees
+    /// nothing, and the answer is a problem (M16-16 review).
+    func testARedirectIsRefusedNotFollowed() async throws {
+        var seen: [URL] = []
+        let l = local
+        MockURLProtocol.handler = { req, _ in
+            seen.append(req.url!)
+            if req.url?.host == "taptime.mt" {
+                return MockURLProtocol.Reply(status: 302, body: nil,
+                                             headers: ["Location": "https://evil.example/app/v1/activate/lookup",
+                                                       "Date": httpDate(l.addingTimeInterval(-90_000))])
+            }
+            return MockURLProtocol.Reply(status: 200, body: Data(#"{"employeeName":"A","businessName":"B","secondDevice":false,"brand":{}}"#.utf8),
+                                         headers: ["Date": httpDate(l)])
+        }
+        do {
+            _ = try await client.lookup(code: FakeAppServer.code)
+            XCTFail("a redirected lookup succeeded")
+        } catch {
+            XCTAssertEqual(error as? AppAPIError, .unexpected(status: 302))
+        }
+        XCTAssertEqual(seen.map { $0.host }, ["taptime.mt"])
+        XCTAssertFalse(client.clock.hasMeasurement, "a redirect's Date header is not the server's")
+    }
+
+    /// The same for a signed read: the signature is not re-sent anywhere, and no retry follows.
+    func testASignedReadIsNotRedirectedEither() async throws {
+        var seen = 0
+        let l = local
+        MockURLProtocol.handler = { req, _ in
+            seen += 1
+            return MockURLProtocol.Reply(status: 307, body: nil,
+                                         headers: ["Location": "https://evil.example/app/v1/me", "Date": httpDate(l)])
+        }
+        let k = SoftwareDeviceKey()
+        do {
+            _ = try await client.me(DeviceIdentity(deviceID: "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b", signer: k))
+            XCTFail("a redirected read succeeded")
+        } catch {
+            XCTAssertEqual(error as? AppAPIError, .unexpected(status: 307))
+        }
+        XCTAssertEqual(seen, 1)
+    }
+
     func testAnswersWithExtraFieldsStillDecode() async throws {
         let l = local
         MockURLProtocol.handler = { _, _ in

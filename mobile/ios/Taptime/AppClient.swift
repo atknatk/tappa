@@ -169,7 +169,8 @@ final class AppClient {
     }
 
     /// An ephemeral session: no cache (every answer is no-store anyway), no cookies -- the app's
-    /// identity is the key, and a cookie jar would be a second, unsigned one.
+    /// identity is the key, and a cookie jar would be a second, unsigned one -- and NO REDIRECTS
+    /// (RedirectRefusal): the surface never redirects, so a 3xx is somebody else's answer.
     static func makeSession(protocolClasses: [AnyClass]? = nil) -> URLSession {
         let c = URLSessionConfiguration.ephemeral
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -181,7 +182,7 @@ final class AppClient {
         if let p = protocolClasses {
             c.protocolClasses = p
         }
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: RedirectRefusal(), delegateQueue: nil)
     }
 
     // MARK: Activation
@@ -341,6 +342,12 @@ final class AppClient {
         guard let http = response as? HTTPURLResponse else {
             throw AppAPIError.transport
         }
+        // A redirect is not followed (RedirectRefusal) and not read: no /app/v1 route answers
+        // 3xx, so it comes from something in between (a captive portal, a misrouted proxy) and
+        // neither its body nor its Date header is the server's.
+        if (300...399).contains(http.statusCode) {
+            throw AppAPIError.unexpected(status: http.statusCode)
+        }
         clock.observe(dateHeader: http.value(forHTTPHeaderField: "Date"), sentAt: sentAt, receivedAt: clock.local())
         return (data, http)
     }
@@ -371,5 +378,15 @@ final class AppClient {
             let retry = resp.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
             throw AppAPIError.refused(code, retryAfter: retry)
         }
+    }
+}
+
+/// Refuses every HTTP redirect (M16-16 review). Following one would re-send a signed request --
+/// its body, its signature, a nonce -- to whatever URL a 3xx names; the server's routes never
+/// redirect, so the answer that asks for it is treated as a problem, not obeyed.
+final class RedirectRefusal: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

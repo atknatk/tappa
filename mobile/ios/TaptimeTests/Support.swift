@@ -88,6 +88,13 @@ final class MockURLProtocol: URLProtocol {
             let reply = try h(request, body)
             let resp = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1",
                                        headerFields: reply.headers)!
+            // A 3xx with a Location is offered to the session as a redirect first, as the URL
+            // loading system does for HTTP; if the session declines it, the 3xx is the answer.
+            if (300...399).contains(reply.status), let loc = reply.headers["Location"], let to = URL(string: loc) {
+                var next = request
+                next.url = to
+                client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: resp)
+            }
             client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
             if let d = reply.body {
                 client?.urlProtocol(self, didLoad: d)
