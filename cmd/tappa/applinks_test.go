@@ -79,24 +79,30 @@ func TestAppRouter_TheAppFilesAnswerOnTheCanonicalHostOnly(t *testing.T) {
 	}
 }
 
-// TestPackaging_TheAppValuesShipEmpty: tappa-config carries both app variables (so the deploy has a
-// line to fill when the user hands over the values) and both are EMPTY -- no Team ID or certificate digest
-// is invented in a public repository (Q35) -- and neither is an env entry of the serving container
-// (which would override the ConfigMap). The shipped ConfigMap still loading with them is
-// TestPackaging_TheConfigMapsMailSettingsLoadInProduction's (it loads every key).
-func TestPackaging_TheAppValuesShipEmpty(t *testing.T) {
+// TestPackaging_TheAppValuesAreTheHandedOverOnes: tappa-config carries both app variables, each with
+// exactly the value the user handed over and nothing invented in a public repository (Q35): the iOS
+// Team ID since the device tour (2026-11-18), the Android signer still EMPTY until its key is fixed.
+// Neither is an env entry of the serving container (which would override the ConfigMap). The
+// shipped ConfigMap still loading with them is TestPackaging_TheConfigMapsMailSettingsLoadInProduction's.
+// It used to pin both empty and stayed green while a second, empty key under the same name shadowed
+// the value set above it (kubectl keeps the last) -- configMapValues now refuses a repeated key.
+func TestPackaging_TheAppValuesAreTheHandedOverOnes(t *testing.T) {
 	cm := configMapValues(t, readK8s(t, "05-config.yaml"))
 	if cm["TAPPA_ENV"] != config.EnvProd {
 		t.Fatalf("CONTROL FAILED: the ConfigMap parse reads TAPPA_ENV as %q", cm["TAPPA_ENV"])
 	}
 	env := containerEnvEntries(t, readK8s(t, "20-app.yaml"), servingContainer)
+	want := map[string]string{
+		config.EnvAppAppleTeamID:         "P6PM935BK2", // Everva Bilisim A.S., handed over 2026-11-18
+		config.EnvAppAndroidSignerSHA256: "",           // until the Android signer is fixed (M16-14/M16-28)
+	}
 	for _, name := range []string{config.EnvAppAppleTeamID, config.EnvAppAndroidSignerSHA256} {
 		v, ok := cm[name]
 		switch {
 		case !ok:
 			t.Errorf("%s is not a tappa-config key", name)
-		case v != "":
-			t.Errorf("tappa-config ships %s with a value; it ships empty until the user hands one over (Q35)", name)
+		case v != want[name]:
+			t.Errorf("tappa-config ships %s = %q, want %q (only a value the user handed over, Q35)", name, v, want[name])
 		}
 		if _, overridden := env[name]; overridden {
 			t.Errorf("%s is an env entry of the serving container: it would override the ConfigMap", name)

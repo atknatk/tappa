@@ -682,7 +682,7 @@ ikilisinden sunmak; yalnız `/t` (ve Faz D'nin canlı QR yolu — M16-20 ekler) 
 > harf hex çifti iki noktayla). Platformlar ayrı zamanlarda çıkar (önce Android), bu yüzden her biri yalnız kendi
 > dosyasını açar. **Boş = o dosya 404, sunucu normal açılır;** *set edilmiş ama bozuk* değer açılışı reddeder
 > (`TAPPA_TAG_KEK_PREVIOUS` kuralı — bozuk isteğe bağlı değer "yok" sayılmaz). `05-config.yaml`'da ikisi de **boş**
-> (`TestPackaging_TheAppValuesShipEmpty`); değer uydurulmaz (Q35). Paket/bundle kimliği `mt.taptime.app` koddadır
+> (`TestPackaging_TheAppValuesAreTheHandedOverOnes`); değer uydurulmaz (Q35). Paket/bundle kimliği `mt.taptime.app` koddadır
 > (`handler.AppBundleID`) — mağaza kimliği yapılandırma değil karardır. (2) **Yönlendirmesizlik doğrulandı (belgeden):**
 > Apple, *"Supporting associated domains"*: *"You must host the file using https:// with a valid certificate and with no
 > redirects."* Android, *"Configure assetlinks.json"*: *"must be accessible without any redirects (no 301 or 302

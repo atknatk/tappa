@@ -810,6 +810,11 @@ func configMapValues(t *testing.T, src string) map[string]string {
 	out := map[string]string{}
 	for _, m := range regexp.MustCompile(`(?m)^\s{2}([A-Z][A-Z0-9_]*):[ \t]*(.*?)[ \t]*$`).
 		FindAllStringSubmatch(stripYAMLComments(src), -1) {
+		// A repeated key is applied as its LAST value by kubectl, so a value set above a forgotten
+		// empty line of the same name silently ships empty (2026-11-18: TAPPA_APP_APPLE_TEAM_ID).
+		if _, seen := out[m[1]]; seen {
+			t.Fatalf("ConfigMap key %s appears twice; kubectl keeps the last one, so the first is dead", m[1])
+		}
 		out[m[1]] = unquote(m[2])
 	}
 	return out

@@ -205,15 +205,6 @@ data:
   # already frozen on rows stay.
   TAPPA_BUSINESS_DAY_FROM: "2026-10-22T16:30:00Z"
 
-  # 🟢 TAPPA_APP_APPLE_TEAM_ID — the iOS staff app's Apple Developer Team (M16-08, ADR 0045;
-  # Everva Bilisim A.S.). SET, /.well-known/apple-app-site-association names
-  # P6PM935BK2.mt.taptime.app for /t, so a plaque URL opens the installed app instead of Safari.
-  # It is public by design (Apple reads it from this file), not a secret. Set on 2026-11-18 for
-  # the iOS device tour (M16-18), once the app handles /t (M16-17); it touches only phones that
-  # have the app. TAPPA_APP_ANDROID_SIGNER_SHA256 stays unset until the Android app's signer is
-  # fixed (M16-14 / M16-28): unset serves no assetlinks.json and the browser keeps the plaque.
-  TAPPA_APP_APPLE_TEAM_ID: "P6PM935BK2"
-
   # 🔴 TAPPA_ADMIN_IDENTITY — the panel identity flag (ADR 0031 §8, M14-08). "off" | "on"; anything
   # else stops the boot (internal/config). OFF: every panel surface where a session linked to a
   # person's identity could look different from an unlinked one answers as before M14 — the sign-in
@@ -243,8 +234,11 @@ data:
   # PRODUCTION'S Android list is Play App Signing's digest ALONE (upload / internal-test keys only in
   # a test environment), and each value is filled only after that platform's app handles /t,
   # the query-less QR form /t?tag= included (M16-08 card, note 7; M16-28).
-  # TestPackaging_TheAppValuesShipEmpty pins both empty.
-  TAPPA_APP_APPLE_TEAM_ID: ""
+  # iOS IS SET (2026-11-18, M16-18's device tour, the user's decision): Everva Bilisim A.S.'s Team ID,
+  # handed over by the user; the app handles /t since M16-17, and the file touches only phones that
+  # have the app. Android stays empty until its signer is fixed (M16-14 / M16-28).
+  # TestPackaging_TheAppValuesAreTheHandedOverOnes pins both.
+  TAPPA_APP_APPLE_TEAM_ID: "P6PM935BK2"
   TAPPA_APP_ANDROID_SIGNER_SHA256: ""
 
   # (Tappa's own legal texts are published by the platform operator on its own host,
