@@ -94,10 +94,16 @@ adreslere posta göndermek bizi bir posta bombası aracı yapardı).
   kabul ederse işçi gönderir ve gönderimden sonra tam bir audit satırı yazar; reddederse (dolu / kapanıyor) `DeliverInvite`
   senkron `invite.undelivered` yazar. FIFO 32, tek işçi, 15 sn — `adminresetoutbox.go`'nun biçimi; kapanış dizisine reset
   çıkış kutusunun yanında girer.
+- **Kurucu ve sink:** `invite.NewSigninChannel` (`channel = "signin"`); sink `internal/handler`'da (`signinOutboxSink`,
+  `emailLinkSink`'in yanında), kabulde `invite.ErrQueued` döner ve `DeliverInvite` o zaman senkron satır yazmaz; `RecipientCapped`
+  aynı `sender.Capped`. Giriş kanalı ret satırı (`invite.email_refused`) **yazmaz** — retler kimliksiz isteğin ürünüdür.
+  `Gate`/`ExpectAddress`/`Origin="self"` `*EmailChannel` olmayan kanalla reddedilir; rota yalnız `TAPPA_INVITE_DELIVERY=email`
+  iken bağlanır (panel modunun kanalı kilit almaz).
 - **Bütün giriş kapıları basım transaction'ının içinde**, `LockTenantForInviteLimits`'ten sonra (`IssueParams.Gate` kancası):
-  askı, Q49, işverenin canlı daveti, bekleme süresi, bütçeler. Kilit altında okunduğu için müdürün kapı ile basım arasında
-  davet basması yarışı kapanır. `CreateInvite`'tan sonra `readRecipient`'ın adresi çözümleyicinin eşlediği adresle
-  karşılaştırılır; farklıysa (owner adresi o arada düzeltti) geri alınır. Çözümleyici askıdaki ve (Q49 (a)) kapalı işletmeleri
+  askı, Q49, işverenin canlı daveti, bekleme süresi, DB bütçeleri ve **en son** süreç alt bütçesi — `httpx.Limiter.Reserve`,
+  commit'te `Keep`, geri almada `Refund` (basım sonrası bir ret alt bütçeyi yemez). Yönetici adresli çalışan çözümleyicide elenir. Kilit altında okunduğu için müdürün kapı ile basım arasında
+  davet basması yarışı kapanır. `readRecipient`'tan hemen sonra adres `IssueParams.ExpectAddress`'le
+  karşılaştırılır; farklıysa (owner adresi o arada düzeltti) `invite.ErrAddressChanged` ile geri alınır. Çözümleyici askıdaki ve (Q49 (a)) kapalı işletmeleri
   **önceden** süzer — kimliksiz istek başına yalnız eşleşen ve açık işletmeler için transaction açılır (taban bandı).
 - API kapısı (K-22) bu yolu etkilemez: kapı **API'nin** basımını kapatır; e-postayla giriş panelin davetine benzer bir ürün
   yoludur. **Bedeller:** süreç ölümünde tampondaki link gitmez **ve o davetin audit satırı hiç yazılmaz** (davet satırı var,
@@ -115,7 +121,7 @@ adreslere posta göndermek bizi bir posta bombası aracı yapardı).
 **Nerede sayılır:** ilk iki kova **bellekte**, süreç başına (`httpx.Limiter`; alt bütçe basımdan önce, kapıda) — pod
 sayısıyla çarpılır; son iki kova **veritabanında**, `employee_invites` (`origin='self'`) satırlarından kiracı kilidinin altında.
 **Mekân NAT'ı:** aynı Wi-Fi'daki personel bir kaynak adresi paylaşır; 10 dakikada altıncı kişi 429 alır — kova yükseltilmez
-(adlandırılmış bedel; ekran *"use mobile data"* der). **Kesici kaderi kanalı** (reset yolunun sayılı sınırı 13,
+(adlandırılmış bedel; ekran *"use mobile data"* der). **Kesici kaderi kanalı** (bu bölüm onun yeridir; reset yolunun sayılı sınırı 13,
 `adminresetoutbox.go:218-221`) burada da vardır ve daralır: eşleşmeyen adres hiçbir bütçe harcamaz, giriş gönderimleri ayrı
 alt bütçeyi tüketir.
 
@@ -130,9 +136,10 @@ tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve
 
 ### 2.6 Görünürlük: her kendi-servis aktivasyonu işverene görünür (denetim H4 (1); ikinci denetim Y2, O1)
 
-- **Tüketim noktası `consume`'dur** (`manager.go:846`): e-postadaki link tarayıcıyı açar ve tarayıcı `Manager.Activate`
-  (`:717`) ile, uygulama `ActivateDevice` (`:791`) ile tamamlar — ikisi de `consume`'dan geçer. `consume` tüketilen davetin
-  `origin`'ini döndürür; iki handler commit'ten sonra tek bir `selfActivationNotice`'ı çağırır.
+- **Tüketim noktası `consume`'dur** (`manager.go:846`) ve `Activation.Origin`'i döndürür. Tüketen çağıranlar: tarayıcı
+  `Manager.Activate` (`:717`), uygulama `ActivateDevice` (`:791`, handler `App.ActivateComplete`) ve M16-23'ün canlı QR ile müdür
+  onayı yolları. Her biri tüketim döner dönmez — oturum verme adımından önce, `context.WithoutCancel` ile — tek
+  `selfActivationNotice`'ı çağırır; statik bir test yeni bir tüketen çağıranın onu atlamasını yakalar.
 - **Owner e-postası `Breaker.SendExempt` ile** (kesicide sayılır, asla reddedilmez — `passwordnotice.go:46`,
   `emailchangenotice.go:19` emsali), giriş çıkış kutusundan **geçmeden**, istek içinde commit'ten sonra kendi gönderim
   süresiyle (10 sn): reset formundan kesiciyi doldurmak (~960/sa tek kaynaktan, `breaker.go:16`) ya da giriş çıkış kutusunu
@@ -140,9 +147,11 @@ tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve
   deseni). Owner kimlikleri `resolve_admin_owners_by_tenant` (`00081`), adresleri `passwordnotice.go`'nun alıcı yolundan.
 - **Panel (dayanıklı):** M6-11 anomali ekranında *"Phones set up by email sign-in (last 30 days)"* ve **"Taps from a
   signed-out phone within 14 days of an email sign-in"**; çalışan kartında *"Set up by email sign-in on <date>"*.
-- **İmzası çıkmış telefonun dokunuşu audit satırı yazar** (tarayıcı yolu): `tap.go:455-459`'un WARN satırının yanına
-  `tap.signed_out_phone` audit satırı (`target` çalışan, `detail` yalnız kanal; kişi başına 10 dakikada bir). Bugün bu bilerek
-  yoktur (T59 DÜŞÜK-1) — M16-34 kullanıcıya gösterir. `transactions` satırı **değildir**. N = 14 gün.
+- **İmzası çıkmış telefonun dokunuşu — kullanıcı onaylarsa** (M16-34'ün AskUserQuestion'ı; bugün bilerek yalnız WARN —
+  ADR 0010:219-224, T59 DÜŞÜK-1): yalnız env listesindeki ve (Q49 (a)) ayarı açık işletmede, `GET /t`'nin iptal edilmiş oturum
+  dalında **ilerletmeyen SUN ön kontrolü geçerse** `tap.signed_out_phone` audit satırı (`target` çalışan, `detail` yalnız kanal;
+  kişi başına 10 dakikada bir). *"Plaket kanıtı taşıyan sayfa açılışı"*dır, tekrara karşı kanıt değil. Listede olmayan işletme
+  (KF/KM) bayt bayt bugünkü gibi. `transactions` satırı **değildir**. Anomali yüklemi `at ∈ [used_at, used_at + 14 gün]`.
   **Uygulama yolu değişmez:** iptal edilmiş cihazın kimliği imzadan önce bir iddiadır (M16-07); **uygulamadan gelen kayıp
   dokunuşlar panelde görünmez** (adlandırılmış bedel).
 - Q46 (b) aynı owner uyarı yolunu kullanır.
@@ -167,10 +176,11 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
 | Tehdit | Bugün | Bu ADR'yle | Kalan |
 |---|---|---|---|
 | Numaralandırma | yol yok | tek cevap + taban; eşleşmeyene e-posta yok | kaynak kovası 429'u adresten bağımsız; e-postanın gelişi yalnız kutu sahibine bilgi verir |
-| **İçeriden ele geçirme** — paylaşılan kutu, yanlış yazılmış adres, deaktive edilmemiş eski çalışan (denetim H4) | müdürün e-postayla gönderdiği davet aynı kutuya düşer; saldırgan müdürün basmasını bekler | saldırgan kendisi bastırır; işverenin **herhangi bir** aktif plaketi tamamlar (girişlerde, herkese açık); tamamlanma gerçek çalışanın oturum ve cihazlarını iptal eder (Q40 (a)) → çalışanın sonraki dokunuşu §5 satır 3'e düşer ve **kayıt yazmaz** | azaltmalar: varsayılan kapalı (§2.7), işletme kapatabilir (Q49), 7 günlük bekleme (§2.1.4), işveren davetinin korunması (§2.1.3, kilit altında), her olayda panel + `SendExempt` owner e-postası (§2.6), imzası çıkmış tarayıcının dokunuşu panelde (§2.6). Kalan: uygulamadan gelen kayıp dokunuşlar panelde görünmez. **ADR 0005'e risk eki** (M16-34): *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği; tespit panel ve owner e-postasıyla"* |
+| **İçeriden ele geçirme** — paylaşılan kutu, yanlış yazılmış adres, deaktive edilmemiş eski çalışan (denetim H4) | müdürün e-postayla gönderdiği davet aynı kutuya düşer; saldırgan müdürün basmasını bekler | saldırgan kendisi bastırır; işverenin **herhangi bir** aktif plaketi tamamlar (girişlerde, herkese açık) — Faz D'den sonra
+**bir canlı QR ekranı** da (M16-23; ekran mekânın içindedir, fotoğrafı ~20 sn yaşar) ve müdür onayı yolu (müdür onaylar); tamamlanma gerçek çalışanın oturum ve cihazlarını iptal eder (Q40 (a)) → çalışanın sonraki dokunuşu §5 satır 3'e düşer ve **kayıt yazmaz** | azaltmalar: varsayılan kapalı (§2.7), işletme kapatabilir (Q49), 7 günlük bekleme (§2.1.4), işveren davetinin korunması (§2.1.3, kilit altında), her tüketen yolda (tarayıcı, uygulama, canlı QR, müdür onayı) panel + `SendExempt` owner e-postası (§2.6; statik çağıran testi), kullanıcı onaylarsa imzası çıkmış tarayıcının plaket kanıtlı açılışı panelde (§2.6). Kalan: uygulamadan gelen kayıp dokunuşlar panelde görünmez; onay hayırsa **hiçbir** kayıp dokunuş panelde görünmez. **ADR 0005'e risk eki** (M16-34): *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği; tespit panel ve owner e-postasıyla"* |
 | Posta bombası / bütçe tüketme | — | §2.4'ün dört kovası | işletmeler arası toplam, adresi tutan işletme sayısıyla (≤ 5) sınırlı |
 | Taciz (bekleyen daveti öldürmek) | — | işverenin canlı daveti varken basım yok (§2.1.3) | yalnız `self` davetler birbirinin yerini alır |
-| Tenant'lar arası okuma | çözümleyiciler sırdan çözer (oturum token'ı, plaket UID'si) | çözümleyici sır **olmayan** bir girdiden çözer | emsal `resolve_admin_by_email` (`00011`); dönen yalnız kimlikler; `tappa_resolver`'a yalnız dört sütun (`id, tenant_id, email, status`); indeks `employees (email)` (00117) |
+| Tenant'lar arası okuma | çözümleyiciler sırdan çözer (oturum token'ı, plaket UID'si) | çözümleyici sır **olmayan** bir girdiden çözer | emsal `resolve_admin_by_email` (`00011`); dönen yalnız kimlikler. `tappa_resolver`'ın okuduğu: `employees (id, tenant_id, email, status)` (yeni); `tenants (id, api_enabled_at, api_code)` (var olan — `00051:155`, `00105:89`) + `suspended_at[, email_signin]` (yeni; yalnız bunlar verilir ve geri alınır — `id`'ye dokunmak `/v1` kimliğini kırardı); `admin_users (tenant_id, email, …)` (var olan, `00011`). İndeks `employees (email)` (00117) |
 | Askıdaki işletme | davet basabilir (§1.3) | giriş daveti basılmaz | panelin davet boşluğu ayrı kalır (bu ADR'nin kapsamı değil) |
 
 ## 4. Bedeller
@@ -188,6 +198,10 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
    daveti beklemeye takılmaz).
 7. **Mekân NAT'ı** ve **bellekteki kovaların pod sayısıyla çarpılması** (§2.4).
 8. **Owner uyarısı tamamlanmanın cevabını** en kötü durumda gönderim süresi kadar (10 sn) geciktirir.
+9. **Bekleme süresi yarışı:** `consume` kiracı kilidini almaz (almak basımın kilit sırasını tersine çevirirdi); eşzamanlı bir
+   `self` tüketimi ve basımı en çok bir fazla davet bırakır — kişi bütçesi (1/sa) sınırlar, o davet ayrı bir plaket dokunuşu
+   ister ve tamamlanırsa ikinci bir owner uyarısı gider.
+10. **Süreç alt bütçesi ve kaynak kovası bellektedir** — pod sayısıyla çarpılır.
 
 ## 5. Kırmızı çizgiler
 

@@ -1524,8 +1524,10 @@ işletmenin ayarı ve penceresi içinde.
     satırlar `ListWorkedShiftEventsRow`'a çevrilir (`timesheet.go:6-11`'in deseni) ve `events()` (`report.go:729`) +
     `accumulate()` (`report.go:1012`) ile toplanır — **ikinci aritmetik yok**. **Pencere ve sınır `Reader.Hours`'unkidir:**
     okuma `[hafta.From, hafta.To + closingTail)` (`report.go:520-522`; `closingTail = tap.StaleOpenIn`, `:165`) ve
-    `row_limit = readLimit(ReportEventCap)` (`:526`; `ReportEventCap = 20000`, `:127`). Sonuç `ReportEventCap`'i aşarsa
-    toplam **kesilmiştir** (`truncatedBy`, `report.go:644`) → `totals.truncated: true` ve `complete: false`. Sorgu bilerek
+    `row_limit = readLimit(cap)`. **Sınır bu okumanın parametresidir** (denetim N1): `truncatedBy` (`report.go:644`) sabit
+    `ReportEventCap`'e (`:127`, 20000) karşılaştırır ve küçültülmüş bir `row_limit` onu hiç tetiklemezdi; yeni okuma
+    `cap` alır (üretimde `ReportEventCap`) ve kesilmeyi `rowsRead > cap` ile kendisi söyler. Kesilmişse
+    `totals.truncated: true` ve `complete: false`. Sorgu bilerek
     `type IS NOT NULL AND NOT practice` taşır (aynı bölüm): reject/ignored ve practice satırları saate girmez.
   - **Liste:** `ListOwnRecords` (öneri ad) — kişinin haftadaki **her** satırı, `reject`/`ignored` dahil (onların `type`'ı
     NULL olabilir: `00005_create_transactions_audit_reviews.sql:74-75`). Sütunlar: `id`, `occurred_at`, `type`, `channel`,
@@ -1586,8 +1588,9 @@ işletmenin ayarı ve penceresi içinde.
   [G31-e] Pencere 1 hafta iken geçen haftanın satırı yanıtta ve sorgu sonucunda yok; geçen haftayı istemek 400; `hasPrev`
   false. [G31-f] `EXPLAIN` indeksi kullanır. [G31-g] Deaktive kişinin cihazı okur (200). [G31-i] `reject`/`ignored`
   listede `rejected`/`repeat`, toplamda yok; açık giriş → `complete:false`, `openEntries:1`. [G31-j] 201 kayıtlı haftada iki
-  sayfa, ikisinde aynı `totals`; başka haftanın imleci 400. [G31-k] `qr_live` satırı `"qr_live"` döner. [G31-l] `row_limit`
-  testte küçültülünce `truncated:true`, `complete:false`.
+  sayfa, ikisinde aynı `totals`; başka haftanın imleci 400. [G31-k] `qr_live` satırı `"qr_live"` döner. [G31-l] `cap = 3` ile 4
+  satırlık hafta → `truncated:true`, `complete:false`; `cap = 4` → `truncated:false`; üretim kurulumu `cap = ReportEventCap`
+  geçirir (kurucu testi).
 - M9-05'i **M16-40 kapatır** (state.md; bu kart değil).
 
 ## M16-32 — Saatlerim: tarayıcı sayfası
@@ -1665,7 +1668,7 @@ işletmenin ayarı ve penceresi içinde.
 ## M16-34 — ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü
 
 - **Bağımlılık:** — (M16-30 … M16-33 ile paralel yürüyebilir)
-- **Kırmızı çizgi:** §4.5, §4.6 (imzası çıkmış telefonun dokunuşu artık audit satırı yazar — ADR 0049 §3), §5, §7
+- **Kırmızı çizgi:** §4.5, §4.6 (imzası çıkmış telefonun dokunuşunun audit satırı — kullanıcının sorusu, aşağıda), §5, §7
 - **Araç:** **yapıcı alt ajan** belge değişikliklerini yazar (CLAUDE.md §10); ana oturum yalnız AskUserQuestion'ı sorar ve
   üretimde **salt okuma** sorgularını koşar (ya da kullanıcı koşar) · **Mercek: iki**
 - **Commit:** `docs(adr): accept sign-in with a work email`
@@ -1675,10 +1678,15 @@ işletmenin ayarı ve penceresi içinde.
 
 **Kabul kriterleri.**
 - ADR 0049 durum satırı *Kabul edildi (TARİH)* + *Kabul notu*. **Q44, Q45 ve Q49 cevaplanmadan durum değişmez.** Kabul notu
-  her cevabın seçtiği tarifi adlandırır. Kullanıcıya ayrıca gösterilen karar: imzası çıkmış telefonun dokunuşu bugün
-  bilerek audit satırı **yazmaz** (`internal/handler/tap.go:455-459`, T59 güvenlik incelemesi DÜŞÜK-1) — ADR 0049 §3 bunu
-  değiştirir (M16-35).
-- ADR 0026'ya not (aktivasyonu başlatan davet artık çalışanın isteğiyle de basılabilir; tamamlanma — tarayıcı **ve**
+  her cevabın seçtiği tarifi adlandırır.
+- **T59 tersine çevirmesi — gerçek bir AskUserQuestion (denetim N2):** bugün iptal edilmiş oturumun dokunuşu `transactions`
+  satırı, audit satırı ve sayaç yazmaz, yalnız WARN bırakır (ADR 0010:219-224; `internal/handler/tap.go:455-459`; T59 DÜŞÜK-1).
+  Soru: *"Listedeki ve e-postayla girişi açık işletmelerde, imzası çıkmış bir telefonun plaket kanıtlı sayfa açılışı bir
+  `tap.signed_out_phone` audit satırı yazsın ve anomali ekranında görünsün mü?"* (a) **evet** (öneri — ele geçirmenin tek
+  panel izi); (b) **hayır** — M16-35'in o maddesi, anomali listesi (2) ve [G35-n] düşer, ADR 0049 §3 *"kayıp dokunuşlar panelde
+  görünmez"* der. Cevap kabul notuna; **ADR 0010'a not** (evet ise: *"listedeki işletmelerde artık bir audit satırı da
+  yazılır — ADR 0049 §2.6"*; hayır ise not yok).
+- ADR 0010'a not (yukarıdaki sorunun cevabıyla) · ADR 0026'ya not (aktivasyonu başlatan davet artık çalışanın isteğiyle de basılabilir; tamamlanma — tarayıcı **ve**
   uygulama — aynen) · ADR 0022'ye not (yeni gönderim türü, alt bütçesi, kaynak kovası, log anahtarları, owner uyarısının
   `SendExempt`'i) · **ADR 0005'e risk eki:** *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği"*,
   azaltmalar ve tespit (ADR 0049 §3); `TestADR0005_TheRiskCountMatchesTheTable` ve `TestADR0005_TheAnchorCountsMatchTheProse`
@@ -1686,7 +1694,9 @@ işletmenin ayarı ve penceresi içinde.
 - **Canlı taban ölçümü** (salt okuma; üretimde kullanıcı ya da ana oturum — yapıcı değil; sayılar kabul notuna): (1) KF ve
   KM'de `employees.email` dolu aktif çalışan sayısı; (2) iki işletmede aynı adresi taşıyan çalışan sayısı; (3) son 30 günde
   saat ve gün başına basılan davetin en yükseği, 50/sa · 300/gün ve süreç kesicisinin 300/sa'ine karşı; (4) son 30 günde
-  aktivasyon başarısızlığı oranı (`activation.*` audit satırları); (5) K-22 durumu — bilgi (giriş K-17'yi kullanmaz).
+  aktivasyon başarısızlığı oranı (`activation.*` audit satırları); (5) K-22 durumu — bilgi (giriş K-17'yi kullanmaz); (6) son
+  30 günde üretim log'undaki *"tap page: a signed-out phone tapped"* WARN satırlarının sayısı (SigNoz, salt okuma) — (a)
+  cevabının audit hacmini öngörür.
 - **CLAUDE.md §5 cümlesi bu kartta yazılmaz** — kodu M16-35 yazar.
 - `GOTOOLCHAIN=go1.26.11 go test -run 'TestEveryNamedTestExists|TestADR0005_TheRiskCountMatchesTheTable|TestADR0005_TheAnchorCountsMatchTheProse' ./cmd/tappa/`
   yeşil.
@@ -1730,90 +1740,135 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   `t.suspended_at IS NULL` (+ Q49 (a) ise `t.email_signin`) — bant için: kimliksiz istek başına yalnız **eşleşen ve açık**
   işletmeler için bir basım transaction'ı açılır (denetim *timing*; aynı yüklemler basım transaction'ında yeniden sınanır,
   aşağıda). `ORDER BY e.tenant_id, e.id LIMIT 5`. `REVOKE ALL ON FUNCTION … FROM PUBLIC`, `EXECUTE` yalnız `tappa_app`.
-- Yetkiler (00116): `GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`; `GRANT SELECT (id,
-  suspended_at[, email_signin]) ON tenants TO tappa_resolver`. **`Down`** sırayla: `origin = 'self'` satırı varsa reddeder;
-  yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (id,
-  suspended_at[, email_signin]) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar. 00116 `employee_invites`'e ve
+- Yetkiler (00116) — **yalnız yeni sütunlar** (`00105`'in kalıbı, `00105:89` `GRANT SELECT (api_code)`): `GRANT SELECT (id,
+  tenant_id, email, status) ON employees TO tappa_resolver` (bugün `employees`'te hiç yetkisi yok) ve `GRANT SELECT
+  (suspended_at[, email_signin]) ON tenants TO tappa_resolver`. ⚠️ **`tenants.id` ne verilir ne geri alınır:** `tappa_resolver`
+  onu `00051:155`'ten beri tutar (`GRANT SELECT (id, api_enabled_at)`) ve API anahtarı ile OAuth çözümleyicileri ona join
+  eder (`00105:181`); sütun yetkisi tek bittir, `Down`'daki bir `REVOKE SELECT (id …)` `/v1`'in API anahtarı ve OAuth
+  kimliğini **bütün işletmeler için** kırardı (Malta Calculator dahil). **`Down`** sırayla: `origin = 'self'` satırı varsa
+  reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE
+  SELECT (suspended_at[, email_signin]) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar. [G35-o] 00116'nın `Down`'ından sonra
+  `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür. 00116 `employee_invites`'e ve
   `tenants`'a `ALTER` uyguladığı için **`SET LOCAL lock_timeout = '1s'`** ile başlar (`deploy/README.md`; `00064` emsali).
-- **`privCatalogAllowed`** (`internal/db/privcatalog_test.go:274`) bilinçli satırları: fonksiyonun `EXECUTE`'u
-  (`tappa_app`), `employees` sütun SELECT'i ve `tenants` sütun SELECT'i (`tappa_resolver`), Q49 (a) ise `tenants` UPDATE
-  `email_signin` (`tappa_app`). Liste katalogdan dökülür (`TAPPA_PRIVCATALOG_DUMP=1`) ve satır satır okunur.
+- **`privCatalogAllowed`** (`internal/db/privcatalog_test.go:274`): **yeni** satırlar — fonksiyonun `EXECUTE`'u (`tappa_app`),
+  `column employees tappa_resolver SELECT email,id,status,tenant_id` (sütun sırası dökümünkü), Q49 (a) ise `tenants`
+  UPDATE `email_signin` (`tappa_app`); **genişleyen** satır — `column tenants tappa_resolver SELECT id,api_enabled_at,api_code`
+  (`:420`) → `…,api_code,suspended_at[,email_signin]` (yeni satır **eklenmez**). Liste katalogdan dökülür (`TAPPA_PRIVCATALOG_DUMP=1`) ve satır satır okunur.
 - İndeks (00117) **`00091`'in birebir kalıbı**: `-- +goose NO TRANSACTION`; **`lock_timeout` yok** (`00091:33-35`'in
   gerekçesi: NO TRANSACTION dosyada oturum ayarı ifadeden uzun yaşar); Up önce `DROP INDEX CONCURRENTLY IF EXISTS
   public.employees_email_idx`, sonra `CREATE INDEX CONCURRENTLY employees_email_idx ON public.employees (email) WHERE email
   IS NOT NULL` (`00091:37-47`); Down `DROP INDEX CONCURRENTLY IF EXISTS`; ve sonraki migration'ların Down'larını yürüyen
-  testler bu dosyayı **atlar** (`opAtVersionSkips` — `00091`'in notu; `internal/db/operatorapi_test.go:761`'in tuttuğu liste).
+  testler bu dosyayı **atlar** — **iki** atlama haritası: `opAtVersionSkips` (`internal/db/operatorplaques_test.go:122`;
+  bekçisi `operatorapi_test.go:761`) ve `aiLaterSkips` (`internal/db/adminidentity_test.go:946`; 00070'in üstündeki her NO
+  TRANSACTION dosyasının orada olmasını `TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables`, `:956`, ister).
   Gerekçe: tek adres indeksi `(tenant_id, email)`'dir (`00003:83-84`) ve tenant bilinmeden kullanılamaz.
 
 *Basım: tek tasarım — `EmailChannel`'ın kendisi (denetim Y1).*
 - Bugün `IssueAndDeliver` adres kapılarını yalnız `*EmailChannel` için koşar (`internal/invite/manager.go:287`: `mailCh,
   toOwnAddress := ch.(*EmailChannel)` → `checkLimits` `:298`, `readRecipient` `:335`, `RecipientCapped` `:342`; `email.go:213-215`
-  *"for it alone"*). **Seçim:** yeni bir kanal tipi **yazılmaz**; giriş daveti bir `*EmailChannel`'dan geçer — kanal adı
-  `"signin"` ve sink'i **bloklamayan** bir çıkış kutusu sink'idir (`signinOutboxSink`, `MailSink`'i uygular). Böylece üç
-  adım (limitler kiracı kilidinin altında, dört adres reddi, posta kutusu tavanı) ve `Delivery.Recipient`'ın dolması **aynen**
-  çalışır.
-- **Audit sırası** (sink bloklamadığı için `EmailChannel.DeliverInvite`'ın *"gönder, sonra tek satır"*ı ikiye ayrılır):
-  `DeliverInvite` sink'e sunar; sink **kabul ederse** satır yazılmaz, işçi gönderir ve gönderimden **sonra** tam bir satır
-  yazar (`invite.code_emailed`, `detail.channel = "signin"`, `message_id`) ya da başarısızlıkta `invite.undelivered`; sink
-  **reddederse** (dolu / kapanıyor) `DeliverInvite` senkron `invite.undelivered` satırını yazar. Her
-  davet **tam bir** satırla biter — **süreç ölmedikçe**: işçi kuyruğundaki bir davet süreç ölümünde **satırsız** kalır
-  (davet satırı var, audit satırı yok — ADR 0022 sayılı sınır 1'in eşi, adlandırılmış bedel). FIFO 32 (`resetOutboxSize`,
-  `adminresetoutbox.go:252`), tek işçi, 15 sn sınır, işçide panik o işi `undelivered`'a çevirir; `cmd/tappa`'nın boşaltma
-  dizisine reset çıkış kutusunun yanında girer.
-- **Bütün giriş kapıları basım transaction'ının içinde**, `LockTenantForInviteLimits`'ten (`email.go:394-403`, `checkLimits`'in
-  ilk ifadesi) **sonra** koşar — `IssueParams`'a eklenen bir `Gate func(ctx, *store.Queries) error` kancasıyla, `checkLimits`'in
-  hemen ardından: (1) işletme askıda değil (`suspended_at IS NULL`); (2) Q49 (a) ise `email_signin` açık; (3) **işverenin canlı
-  daveti yok** (`origin='employer'`, kullanılmamış, iptal edilmemiş, süresi dolmamış) — kilit altında okunduğu için, kapı
-  ile basım arasında müdürün basması yarışı kapanır (denetim M2'nin yarışı); (4) **bekleme süresi**: son 7 günde tüketilmiş
-  `origin='self'` davet yok; (5) işletme ve kişi giriş bütçeleri (DB'de) ve süreç geneli giriş alt bütçesi (bellekte) — aşağıda. Her ret sessizdir (tek cevap).
-- **Adres yeniden okunur:** `CreateInvite`'tan sonra `readRecipient`'ın okuduğu adres çözümleyicinin eşlediği adresle
-  (`citext` eşitliği) karşılaştırılır; farklıysa — owner o arada adresi düzeltmiş (`internal/domain/tenant/staffemail.go:172`,
-  adres değişikliği bekleyen davetleri iptal eder) — transaction **geri alınır**, sessizce.
-- `IssueParams.Origin = "self"`, `TTL = Q44`.
+  *"for it alone"*). **Seçim:** yeni bir kanal tipi **yazılmaz**; giriş daveti bir `*EmailChannel`'dan geçer. Üç adım (limitler
+  kiracı kilidinin altında, dört adres reddi, posta kutusu tavanı) ve `Delivery.Recipient`'ın dolması **aynen** çalışır.
+- **Kurucu:** `invite.NewSigninChannel(sink MailSink, rec auditRecorder) (*EmailChannel, error)` — `channel = "signin"`
+  (alan dışa kapalıdır; `NewEmailChannel`, `email.go:244`, kanal almaz ve bugün yalnız K-17 kuyruğu alanı elle kurar,
+  `queue.go:399`). Aktör yoktur (`actorID` nil — istek kimliksizdir).
+- **Sink:** `signinOutboxSink`, **`internal/handler`** paketinde (bugünkü `MailSink` uygulaması `emailLinkSink`'in yanında,
+  `internal/handler/inviteemail.go`). `RecipientCapped` aynı `sender.Capped`'e gider (`inviteemail.go:303-305` — panelle tek
+  tavan örneği). `SendInvitation` teslimi **bloklamadan** FIFO'ya sunar ve kabul ederse yeni sentinel **`invite.ErrQueued`**
+  döndürür (`*mail.SendError` değil); FIFO doluysa ya da kapanıyorsa `*mail.SendError` (sınıf `queue_full`).
+- **Audit sırası:** `EmailChannel.DeliverInvite` (`email.go:309-365`) bugün `SendInvitation` döner dönmez satır yazar; bu kart
+  ona tek dal ekler — `errors.Is(err, ErrQueued)` ise **satır yazmaz** ve `nil` döner. İşçi gönderir ve gönderimden **sonra**
+  tam bir satır yazar (`invite.code_emailed`, `detail.channel = "signin"`, `message_id`) ya da `invite.undelivered`; dolu FIFO'da
+  `DeliverInvite` bugünkü başarısızlık dalından senkron `invite.undelivered` yazar. Her davet **tam bir** satırla biter —
+  **süreç ölmedikçe**: işçi kuyruğundaki davet süreç ölümünde satırsız kalır (adlandırılmış bedel, ADR 0022 sayılı sınır 1'in
+  eşi). FIFO 32 (`resetOutboxSize`, `adminresetoutbox.go:252`), tek işçi, 15 sn sınır, işçide panik o işi `undelivered`'a
+  çevirir; `cmd/tappa`'nın boşaltma dizisine reset çıkış kutusunun yanında girer. [G35-p] panel yolu (gerçek `EmailChannel`,
+  kanal `email`) bayt bayt değişmez — senkron tek satır; giriş yolunda kabul edilen gönderim **senkron satır yazmaz**, satırı
+  işçi yazar.
+- **`IssueParams`'a üç alan** — `Origin` (`"employer"` | `"self"`), `Gate func(ctx context.Context, q *store.Queries) error`,
+  `ExpectAddress string`. **`Gate`, `ExpectAddress` ya da `Origin = "self"`, `*EmailChannel` olmayan bir kanalla gelirse
+  `IssueAndDeliver` reddeder** (`OnlyWithoutAddress`'in `:288` kalıbı) — bir yapılandırma hatası panelin kilitsiz kanalından
+  geçemesin.
+- **Kapılar basım transaction'ının içinde**, `LockTenantForInviteLimits`'ten (`email.go:394-403`, `checkLimits`'in ilk
+  ifadesi) **sonra**, `checkLimits`'in hemen ardından `Gate`'te, bu sırayla — önce veritabanı, en son süreç bütçesi: (1)
+  işletme askıda değil; (2) Q49 (a) ise `email_signin` açık; (3) **işverenin canlı daveti yok** (kilit altında — müdürün kapı
+  ile basım arasında basması yarışı kapanır); (4) **bekleme süresi**: son 7 günde tüketilmiş `origin='self'` davet yok; (5)
+  işletme ve kişi giriş bütçeleri (DB); (6) **süreç alt bütçesi** — `httpx.Limiter.Reserve` (`internal/httpx/ratelimit.go:207`)
+  ile **ayrılır**, transaction commit edince `Keep` (`:224`), geri alınırsa `Refund` (`:240`): basımdan sonra düşen her şey
+  (yönetici adresi, ASCII olmayan adres, `RecipientCapped`, adres değişti) alt bütçeyi **iade eder** — tek bir kötü adresin
+  bütün işletmelerin 100/sa'ini yemesi kapanır.
+- **Yönetici adresi basımdan önce elenir:** çözümleyici, adresi aynı işletmedeki bir `admin_users` adresine (`citext`,
+  `OPERATOR(public.=)`) eşit olan çalışanı döndürmez — `tappa_resolver` `admin_users`'ın `tenant_id, email`'ini zaten okur
+  (`internal/db/privcatalog_test.go:311`). `readRecipient`'ın aynı reddi (`ErrAddressIsAdministrators`) arkada kemer olarak kalır.
+- **Adres yeniden okunur:** `readRecipient`'tan hemen sonra (`manager.go:335`) `to.Address` `ExpectAddress`'e `citext` olarak
+  eşit değilse — owner o arada adresi düzeltmiş (`internal/domain/tenant/staffemail.go:172`) — yeni sentinel
+  **`invite.ErrAddressChanged`** ile transaction geri alınır.
+- **Giriş kanalı ret satırı yazmaz:** bugün bir adres reddi `RefusalReason` → `mailCh.refused` ile tenant'ın `audit_log`'una
+  `invite.email_refused` yazar (`manager.go:351-358`, `email.go:371-389`). `channel = "signin"` iken `refused` **satır yazmaz**
+  (yeni dal): retlerin çoğu kimliksiz isteğin ürünüdür ve değişmez tabloya sınırsız satır olurdu. `ErrAddressChanged` da satır
+  yazmaz. Sonuç: giriş yolunun audit izi yalnız başarılı teslim (`code_emailed`) ve teslim hatası (`undelivered`) satırlarıdır.
+- `IssueParams.Origin = "self"`, `TTL = Q44`, `ExpectAddress` = çözümleyicinin eşlediği adres.
 - **`employee_invites.origin` (00116):** `ADD COLUMN origin text NOT NULL DEFAULT 'employer', ADD CONSTRAINT
   employee_invites_origin_is_known CHECK (origin IN ('employer','self'))`; tablo düzeyi `INSERT` yetkisi (`00009:224`) yeni
   sütunu kapsar; `UPDATE` yetkisi yok. Q49 (a) ise aynı dosyada `tenants.email_signin boolean NOT NULL DEFAULT false` +
   `GRANT UPDATE (email_signin) ON tenants TO tappa_app`.
+- **Yalnız e-posta modunda (denetim D-8):** rota yalnız `TAPPA_INVITE_DELIVERY=email` **ve** liste dolu iken bağlanır — panel
+  modunun `ManagerVisibleChannel` basımı (`internal/handler/employeeactions.go:439-448`) kiracı kilidi almaz ve kapılar ona
+  uygulanamaz. [G35-q] panel modunda, liste dolu olsa bile rota bağlı değil.
 
 *Bütçeler (ADR 0049 §2.4) — nerede sayılır.*
-- Kaynak adres 5 / 10 dk ve 20 / gün; süreç geneli giriş alt bütçesi 100 / saat — **bellekte**, süreç başına (`httpx.Limiter`;
-  alt bütçe basımdan **önce**, kapı (5)'te `TryCharge` ile harcanır — reddedilen istek davet basmaz). Pod sayısıyla çarpılır — adlandırılmış bedel.
+- Kaynak adres 5 / 10 dk ve 20 / gün — **bellekte** (`httpx.Limiter`), istekte, çözümlemeden önce. Süreç alt bütçesi 100 / saat —
+  **bellekte**, kapı (6)'da ayrılır, commit'te tutulur, geri almada iade edilir. Pod sayısıyla çarpılır — adlandırılmış bedel.
 - İşletme 10 / saat, 30 / gün; kişi 1 / saat, 3 / gün — **veritabanında**, `employee_invites` satırlarından (`origin='self'`,
   `created_at`), kiracı kilidinin altında — podlar arasında tutarlı.
 - **Mekân NAT'ı (denetim D6):** aynı mekânın Wi-Fi'ındaki personel tek bir kaynak adresi paylaşır; 10 dakikada altıncı kişi
-  429 alır. Kova **yükseltilmez** (kaynak adres başına ölçek kehanetsizlikten önce posta bombası sınırıdır); bedel
-  adlandırılır ve ekran *"Too many tries from this network — wait a few minutes or use mobile data."* der (M16-36).
-- **Kesici kaderi kanalı (denetim D7):** reset yolunun sayılı sınırı 13'ü (`adminresetoutbox.go:218-221`: pencereyi kendi
-  gönderimleriyle dolduran biri, hedefin adresinden sonra kendi adresine gelen linkin gelip gelmediğinden hedefin kayıtlı
-  olduğunu öğrenir) bu yolda da vardır ve **daralır**: giriş gönderimleri ayrı 100/sa alt bütçeyi tüketir, eşleşmeyen adres
-  hiçbir bütçe harcamaz — alt bütçeyi dolduran saldırgan yalnız kendi eşleşen adreslerini sayabilir. Kalan kanal adlandırılır
-  (ADR 0049 §3).
+  429 alır. Kova **yükseltilmez**; bedel adlandırılır ve ekran *"Too many tries from this network — wait a few minutes or use
+  mobile data."* der (M16-36).
+- **Kesici kaderi kanalı (denetim D7):** reset yolunun sayılı sınırı 13'ü (`adminresetoutbox.go:218-221`) bu yolda da vardır ve
+  **daralır**: giriş gönderimleri ayrı alt bütçeyi tüketir, eşleşmeyen adres hiçbir bütçe harcamaz. Kalan kanal ADR 0049
+  **§2.4**'te adlandırılır.
+- **Bekleme süresinin yarışı (denetim D-3):** `consume` kiracı kilidini almaz; bir `self` tüketimiyle eşzamanlı ikinci bir
+  `self` basımı bekleme kapısını geçebilir. **Seçim: sınırlamak, kilit almak değil** — `consume`'a kiracı kilidi eklemek
+  basımın kilit sırasını (kiracı → davetler) tersine çevirip kilitlenme riski doğururdu. Sınır: kişi bütçesi (1/sa) yarışta en
+  çok **bir** fazla davet bırakır; o davet de ayrı bir plaket dokunuşu ister, tamamlanırsa owner'a ikinci bir uyarı gider ve
+  bir sonraki basım onu emekliye ayırır. Adlandırılmış bedel (ADR 0049 §4).
 
-*İşverene görünürlük (denetim H4 (1), Y2, O1).*
-- **Tüketim noktası `consume`'dur** (`manager.go:846`) — tarayıcı (`Manager.Activate`, `:717`) ve uygulama (`ActivateDevice`,
-  `:791`) ikisi de oradan geçer. `consume` tüketilen davetin `origin`'ini döndürür; iki çağıranın handler'ı (tarayıcı
-  `CompleteByTap`, uygulama `complete`) commit'ten sonra **tek** bir `selfActivationNotice` işlevini çağırır.
-- **Owner e-postası** `Breaker.SendExempt` ile gider (kesicide sayılır, **asla reddedilmez** — emsal
-  `internal/handler/passwordnotice.go:46`, `emailchangenotice.go:19`); giriş çıkış kutusundan **geçmez** (onu dolduran biri
-  uyarıyı susturamasın). İstek içinde, commit'ten sonra, kendi gönderim süresiyle (`EmailSendGrace`, 10 sn — tamamlanmanın
-  cevabı en kötü durumda bu kadar gecikir, adlandırılmış bedel); başarısızlık bir `undelivered` audit satırıdır, tamamlanmayı
-  geri almaz. Owner kimlikleri `resolve_admin_owners_by_tenant` (`00081`), adresi `passwordnotice.go`'nun alıcı yolundan
-  (**ölç:** M14 sonrası kaynak kimliktir, ADR 0031 K-14). **Tavan:** owner başına günde 20 — bellekte,
-  `httpx.Limiter.TryCharge` (`passwordnotice.go:336-339`'un deseni, anahtar owner kimliği). Konu `A phone was set up by email
-  sign-in`; gövde (anlamı): *"<Employee> set up a new phone with their work email on <date>. Their other phones were signed
-  out. If you didn't expect this, deactivate the account in Staff and contact them."* — çalışanın adresi yok.
-- **Panel (dayanıklı):** M6-11 anomali ekranında iki liste — (1) *"Phones set up by email sign-in (last 30 days)"*
-  (`employee_invites` `origin='self' AND used_at >= now() - 30 days`); (2) **"Taps from a signed-out phone within 14 days of an
-  email sign-in"** — aşağıdaki audit satırlarının, aynı kişinin son 14 gündeki `origin='self'` tüketimiyle birleşimi.
-  Çalışan kartında *"Set up by email sign-in on <date>"*. Yeni sqlc sorguları açık `tenant_id`'li. Görünüm skill
-  `tappa-brand`; panel metni kullanıcıya gösterilir.
-- **İmzası çıkmış telefonun dokunuşu audit satırı yazar** (denetim H4 kalıntısı; T59 DÜŞÜK-1'in *"no audit row"* kararını
-  değiştirir — M16-34'te kullanıcıya gösterilir). Tarayıcı yolunda `tap.go:455-459`'un WARN satırının yanına `audit_log`
-  satırı: action `tap.signed_out_phone`, `target` çalışan, `detail` `{"channel":…}` — plaket UID'si, GPS, çerez, özet yok;
-  kişi başına 10 dakikada en çok bir satır (bellekte `httpx.Limiter`; fazlası yalnız log). **`transactions` satırı değildir**
-  (§4.3, §5 satır 3 aynen). **Uygulama yolu bu kartta değişmez:** iptal edilmiş cihazın kimliği imza doğrulanmadan önce
-  bir iddiadır ve M16-07 onu atfetmez — ADR 0049 §3 *"uygulamadan gelen kayıp dokunuşlar panelde görünmez"* der.
-  N = 14 gün: bir ele geçirmenin fark edilmesi için iki iş haftası.
+*İşverene görünürlük (denetim H4 (1), Y2, O1; üçüncü tur O-3, D-4, O-2, D-5, N2, N8, N9).*
+- **Tüketim noktası `consume`'dur** (`manager.go:846`) ve `consume` **`Activation.Origin`**'i döndürür. Faz G, Faz D'den sonra
+  koşar; M16-35 yazılırken tüketen çağıranlar: tarayıcı `Manager.Activate` (`:717`, handler `finishActivation`), uygulama
+  `ActivateDevice` (`:791`, handler `App.ActivateComplete`, `internal/handler/appactivate.go:252`) **ve M16-23'ün iki NFC'siz
+  yolu** (canlı QR ve müdür onayı — ikisi de daveti tüketir). Her tüketen handler, tüketim **döner dönmez** (`err == nil`,
+  davet commit edilmiş) ve `Origin == "self"` ise tek `selfActivationNotice`'ı çağırır — oturum/cihaz verme adımından **önce**:
+  `finishActivation` tüketimden sonra erken dönebilir (`session_issue_failed`, `internal/handler/activate.go:1086-1163`), uyarı
+  yine gider. Bağlam `context.WithoutCancel(ctx)` (`passwordnotice.go:311`'in emsali — ziyaretçi sekmeyi kapatsa da gider).
+  **[G35-r] statik test:** `internal/handler`'da `invite.Manager`'ın tüketen yöntemlerini çağıran her işlev aynı gövdede
+  `selfActivationNotice`'ı da çağırır (AST taraması; yeni bir tüketen çağıran eklenince kırmızı).
+- **Owner e-postası** `Breaker.SendExempt` ile (emsal `passwordnotice.go:46`, `emailchangenotice.go:19`); giriş çıkış kutusundan
+  **geçmez**. İstek içinde, kendi gönderim süresiyle (`EmailSendGrace`, 10 sn — cevap en kötü durumda bu kadar gecikir,
+  adlandırılmış bedel); başarısızlık bir `undelivered` audit satırıdır, tamamlanmayı geri almaz. Owner kimlikleri
+  `resolve_admin_owners_by_tenant` (`00081`), adresi `passwordnotice.go`'nun alıcı yolundan (**ölç:** M14 sonrası kaynak
+  kimliktir, ADR 0031 K-14). **Tavan:** owner başına günde 20 — bellekte, `httpx.Limiter.TryCharge`
+  (`passwordnotice.go:336-339`'un deseni, anahtar owner kimliği). Konu `A phone was set up by email sign-in`; gövde (anlamı):
+  *"<Employee> set up a new phone with their work email on <date>. Their other phones were signed out. If you didn't expect
+  this, deactivate the account in Staff and contact them."* — çalışanın adresi yok.
+- **İmzası çıkmış telefonun dokunuşu — yalnız kullanıcı onaylarsa (M16-34'ün AskUserQuestion'ı) ve yalnız açık işletmede.**
+  Bugün bilerek iz yalnız WARN'dur (ADR 0010:219-224, T59 DÜŞÜK-1). Onay **evet** ise: `GET /t`'nin iptal edilmiş oturum dalında
+  (`internal/handler/tap.go:440`) önce **ilerletmeyen SUN ön kontrolü** (`:480-483`'ün aynı fonksiyonu — CMAC, sayaç
+  ilerlemez) koşar; geçerse **ve** işletme `TAPPA_EMAIL_SIGNIN_TENANTS`'tadır **ve** (Q49 (a)) `email_signin` açıktır, WARN'un
+  (`:455-459`) yanına bir `audit_log` satırı: action `tap.signed_out_phone`, `target` çalışan, `detail` `{"channel":…}` —
+  plaket UID'si, GPS, çerez, özet yok; kişi başına 10 dakikada en çok bir satır (bellekte `httpx.Limiter`). Ön kontrol
+  geçmezse ya da işletme listede değilse bugünkü davranış **bayt bayt** aynı (KF/KM'nin `audit_log`'una hiçbir şey yazılmaz).
+  Ön kontrol bir tekrarı ayırt edemez — aynı telefondaki eski bir URL de geçer; satır *"kanıtlı dokunuş"* değil *"plaket
+  kanıtı taşıyan bir sayfa açılışı"*dır (adlandırılmış). **Yazmayan iki yer:** `POST /api/checkin`'in iptal edilmiş oturum
+  WARN'u (`internal/handler/checkin.go:148-153` — sayfa iptalden önce açılmış, basış sonra; aynı dokunuşun `GET /t`'si satırı
+  zaten yazdı) ve `tap.go:842`'nin aktivasyon iniş yönlendirmesi. **Uygulama yolu değişmez:** iptal edilmiş cihazın kimliği
+  imzadan önce bir iddiadır (M16-07) — **uygulamadan gelen kayıp dokunuşlar panelde görünmez** (ADR 0049 §3). Onay **hayır**
+  ise bu madde, anomali listesi (2) ve [G35-n] düşer; ADR 0049 §3 *"kayıp dokunuşlar panelde görünmez"* der.
+- **Panel (dayanıklı):** M6-11 anomali ekranında (1) *"Phones set up by email sign-in (last 30 days)"* — `employee_invites`
+  `origin='self' AND used_at >= now() - interval '30 days'`; (2) (onay evetse) *"Taps from a signed-out phone after an email
+  sign-in"* — **tek yüklem:** `audit_log.at ∈ [i.used_at, i.used_at + 14 days]` ve aynı `target`, (1)'in aynı 30 günlük
+  `used_at` penceresindeki davetler için. N = 14: bir ele geçirmenin fark edilmesi için iki iş haftası. Çalışan kartında
+  *"Set up by email sign-in on <date>"*. Yeni sqlc sorguları açık `tenant_id`'li. Görünüm skill `tappa-brand`; panel metni
+  kullanıcıya gösterilir.
 
 *Panel (Q49 (a) ise).*
 - Account ekranında owner'ın *"Email sign-in for staff"* aç/kapa'sı — M16-30'un kontrol deseni (yalnız owner, CSRF,
@@ -1843,29 +1898,43 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   yanına). [G35-b] env boş → rota bağlı değil, `/app/v1/signin/request`'in cevabı bilinmeyen bir `/app/v1` yolunun cevabıyla
   **bayt bayt** aynı (durum, gövde, başlıklar `Date` hariç); listede olmayan işletmenin adresi → 202, davet satırı 0.
 - [G35-c] çözümleyici üç yazımda bulur; `OPERATOR(public.=)` düşürülünce kırmızı.
-- [G35-d] **tek cevap ve kapılar:** bilinmeyen · deaktive · davetli · yönetici adresi · askıda · Q49 kapalı · canlı işveren
-  daveti · bekleme süresi · işletme bütçesi · kişi bütçesi · alt bütçe · adres yarış içinde değişti — on ikisinde 202, boş
-  gövde, davet satırı 0; yalnız eşleşen aktif adreste 1 satır `origin='self'`. Çıkış kutusu doluyken eşleşen adres: 1 davet
-  satırı + senkron `invite.undelivered` (basım kapılardan sonra, teslim reddinden önce olur — sıra budur).
-- [G35-e] **bant:** medyanlar `[250 ms, 300 ms]` içinde — k = 0, 1 ve 5 eşleşen işletme; çıkış kutusu dolu; kesici açık.
-  k = 5'te bant tutmazsa ön süzgeç yetmemiştir — kart ölçümü yazar ve basımları sıralı değil tek transaction'a toplar ya da
-  tabanı gerekçesiyle yükseltir (kullanıcı kararı).
+- [G35-d] **tek cevap ve kapılar:** bilinmeyen · deaktive · davetli · yönetici adresi (çözümleyici eler) · askıda · Q49 kapalı
+  · canlı işveren daveti · bekleme süresi · işletme bütçesi · kişi bütçesi · alt bütçe · adres yarış içinde değişti — on ikisinde
+  202, boş gövde, davet satırı 0 **ve `audit_log` satır sayısı değişmez** (giriş kanalı ret satırı yazmaz — `invite.email_refused`
+  0). Basımdan sonra düşen retlerde (ASCII olmayan adres, `RecipientCapped`, adres değişti) süreç alt bütçesi **iade edilmiş**
+  olur (`Reserve` → `Refund`; sayaç ölçülür). Yalnız eşleşen aktif adreste 1 satır `origin='self'`. Çıkış kutusu doluyken
+  eşleşen adres: 1 davet satırı + senkron `invite.undelivered`.
+- [G35-e] **bant:** medyanlar `[250 ms, 300 ms]` içinde — k = 0, 1 ve 5 eşleşen işletme; çıkış kutusu dolu; kesici açık;
+  **kapı içi retler** (bekleme süresi, canlı işveren daveti, DB bütçesi — transaction açılır, basım olmaz) ve **basım sonrası
+  ret** (`RecipientCapped`, adres değişti — geri alma). k = 5'te bant tutmazsa kart ölçümü yazar ve basımları tek
+  transaction'a toplar ya da tabanı gerekçesiyle yükseltir (kullanıcı kararı).
 - [G35-f] iki işletmede aynı adres → iki tenant'ta birer davet, RLS ile birbirini görmez, iki e-posta (sahte sink).
 - [G35-g] **yarış:** kapı okumasıyla basım arasında müdür davet basar → giriş basımı olmaz (kilit sırası, `-race`, iki
-  goroutine); owner adresi `CreateInvite`'tan sonra değiştirir → geri alınır.
+  goroutine); owner adresi `CreateInvite`'tan sonra değiştirir → `ErrAddressChanged`, geri alınır, satır yok. Bekleme süresi
+  yarışı (D-3): eşzamanlı `self` tüketimi + `self` basımı en çok bir fazla davet bırakır (ölçülür ve sınır yazılır).
 - [G35-h] e-postayla basılmış davetle N eşzamanlı `complete` → tam 1 başarı (`-race`).
-- [G35-i] **iki yol:** aynı davet türü **tarayıcıda** (`Manager.Activate`) ve **uygulamada** (`ActivateDevice`) tamamlanır →
-  ikisinde de owner e-postası `SendExempt`'ten (sahte kesici reddetmeye ayarlıyken de gider) ve anomali listesinde satır;
-  `origin='employer'` tüketiminde e-posta **yok**.
+- [G35-i] **bütün tüketen yollar:** aynı davet türü tarayıcıda (`Manager.Activate`), uygulamada (`ActivateDevice`) ve M16-23'ün
+  iki NFC'siz yolunda tamamlanır → hepsinde owner e-postası `SendExempt`'ten (sahte kesici reddetmeye ayarlıyken de gider) ve
+  anomali listesinde satır; `finishActivation`'ın `session_issue_failed` dalında da uyarı gider; `origin='employer'`
+  tüketiminde e-posta **yok**. [G35-r] statik çağıran taraması (yukarıda).
 - [G35-j] sızıntı: bütün yolların log ve audit çıktısında adresin hiçbir yazımı yok (`internal/invite/leak_external_test.go`
   emsali).
 - [G35-k] Q44'ün süresi dolmuş link `lookup`'ta reddedilir.
 - [G35-l] Q49 (a): kapalı işletmenin adresi → 202, 0 davet.
 - [G35-m] **`origin` varsayılanı (denetim D5):** panelin davet ucu, `/v1` personel ucu ve K-17 kuyruk işçisi davet basar →
   üçünde de `origin='employer'`; owner e-postası yok.
-- [G35-n] imzası çıkmış tarayıcı oturumuyla dokunuş → `transactions` sayısı aynı, tam bir `tap.signed_out_phone` audit
-  satırı, ikinci dokunuş 10 dakika içinde satır yazmaz; anomali listesi (2) onu, kişinin `self` tüketiminden sonraki 14 gün
-  içindeyse gösterir.
+- [G35-n] (M16-34'te onay **evet** ise) listedeki ve ayarı açık işletmede, imzası çıkmış tarayıcı oturumuyla **geçerli SUN**'lu
+  `GET /t` → `transactions` sayısı aynı, tam bir `tap.signed_out_phone` satırı; ikinci açılış 10 dakika içinde satır yazmaz;
+  SUN'suz/bozuk SUN'lu açılış satır yazmaz; **listede olmayan** işletmede satır yazmaz. Anomali listesi (2) satırı yalnız
+  `at ∈ [used_at, used_at + 14 gün]` iken gösterir (14. günün bir dakika sonrası görünmez). Var olan
+  `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing` (`internal/handler/employeesignout_db_test.go:200`) bugün yalnız
+  çıkış audit eylemini sayar; bu kart onu **genişletir** — listede olmayan işletmede **bütün** `audit_log` satırlarını sayar
+  (adı o durumda doğru kalır). Onay hayır ise bu test genişletilir, [G35-n] yazılmaz.
+- [G35-o] 00116'nın `Down`'ından sonra `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür (`tenants.id`
+  yetkisi dokunulmadı).
+- [G35-p] panel yolu değişmez; giriş yolunda kabul edilen gönderim senkron satır yazmaz (yukarıda).
+- [G35-q] `TAPPA_INVITE_DELIVERY=panel` iken liste dolu olsa da rota bağlı değil.
+- [G35-s] `IssueAndDeliver`, `Gate`/`ExpectAddress`/`Origin="self"` ile `*EmailChannel` olmayan bir kanalı reddeder.
 
 ## M16-36 — E-postayla giriş: uygulama ekranları (+ Q45'e göre tarayıcı)
 
@@ -2006,8 +2075,8 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
   kayıt girebilir ve rapor alabilir. Bu, inceleme notunda panel girişi vermenin **adlandırılmış bedelidir**; azaltma: her
   incelemeden sonra *"kadroyu denetle"* adımı (aşağıda) ve parola değişimi.
 - **İzinlerin ölçümü (denetim A2-16):** M16-23'ün müdür onayı ve M16-20'nin ekran eşlemesi manager'a açık mı — iki kart bunu
-  söylemez, `base:authz-manager` ikisini de içermez. Bu kart iki uçla, demo işletmenin manager girişiyle (yerel ya da şerit
-  ortamda) ölçer ve sonucu yazar: **onay açık** → Q47 (a); **onay kapalı, eşleme açık** → (c); **ikisi de kapalı** → notta
+  söylemez, `base:authz-manager` ikisini de içermez. Bu kart iki uçla, **yerelde kurulmuş eşdeğer bir manager hesabıyla**
+  ölçer (demo işletme yalnız üretimdedir; üretimde yazma denemesi yapılmaz) ve sonucu yazar: **onay açık** → Q47 (a); **onay kapalı, eşleme açık** → (c); **ikisi de kapalı** → notta
   owner girişi gerekir — bu, yukarıdaki bedeli owner'ın tam yetkisine genişletir ve **kullanıcıya sorulur** (AskUserQuestion)
   ya da M16-23/M16-20'ye manager yetkisi eklenir (o kartın kart düzeltmesi + `base:authz-manager` değişikliği, kullanıcı
   onayı).
@@ -2060,10 +2129,13 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
   - **Çalışan 1 — uçtan uca:** bilinmeyen adresle aynı ekran ve **hiç** e-posta; çalışan 1'in adresiyle link → uygulamada
     plaket → aktive; owner uyarısı geldi; anomali listesinde satır. Aynı link akışının **tarayıcı** tamamlanması ayrı bir
     turda değil, [G35-i]'nin DB testindedir.
-  - **Çalışan 2 — TTL vakası (Q44'e göre):** (a) 24 sa: link akşam istenir, ertesi gün süresinin içinde plakette tamamlanır;
-    süresi geçmiş ikinci bir link (25 sa sonra) `lookup`'ta reddedilir. (b) 12 sa: link istenir, 11 saat sonra tamamlanır; 13
-    saat sonraki bir link reddedilir. (c) 1 sa: link işyerinde istenir, 50 dakika sonra tamamlanır; 61 dakika sonraki bir link
-    reddedilir (*"bir gece sonra"* bu seçenekte imkânsızdır — metin onu söyler).
+  - **Çalışan 2 — TTL vakası (Q44'e göre), sırası önemli** (denetim N10): önce **link B** istenir ve **kullanılmaz**; süresi
+    geçince `lookup`'ta reddedildiği ölçülür. **Sonra link A** istenir ve tamamlanır. Ters sıra bozardı: A'nın tüketimi bekleme
+    süresini başlatır (B'nin isteği sessizce reddedilirdi) ve her yeni basım bekleyen `self` davetini iptal eder
+    (`CancelPendingInvitesForEmployee`, `internal/invite/manager.go:311`). Kişi bütçesi (1/sa, 3/gün) iki isteğe yeter. (a) 24 sa:
+    B'nin reddi 25. saatte, A akşam istenir ve ertesi gün plakette tamamlanır. (b) 12 sa: B'nin reddi 13. saatte, A 11 saat sonra
+    tamamlanır. (c) 1 sa: B'nin reddi 61. dakikada, A işyerinde istenir ve 50 dakika içinde tamamlanır (*"bir gece sonra"* bu
+    seçenekte imkânsızdır).
   Kayıt yazan adım DB satırıyla, yazmayan adım sayının değişmediğiyle kanıtlanır (salt okuma, kullanıcı ya da ana oturum).
 - **Demo durumunu geri yükle (denetim A2-18):** tur bitince owner Saatlerim'i **açık, 4 hafta**, e-postayla girişi **açık**
   bırakır, canlı QR ekranını eşlemeden çıkarır, test cihazlarını panelden çıkarır. **Ölçü:** salt okuma
