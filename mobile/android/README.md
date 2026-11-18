@@ -227,8 +227,8 @@ in, so that is what is measured:
   `allowBackup="true"` → red · drop one domain from `<device-transfer>` → red.
 
 Components the libraries merge in (not permissions, recorded so a reader is not
-surprised): `androidx.startup.InitializationProvider` (not exported; emoji2, lifecycle
-process, profileinstaller initialisers) and `androidx.profileinstaller.ProfileInstallReceiver`
+surprised): `androidx.startup.InitializationProvider` (not exported; lifecycle process and
+profileinstaller initialisers, emoji2's removed — see *Fixed after review*) and `androidx.profileinstaller.ProfileInstallReceiver`
 (exported, guarded by `android:permission="android.permission.DUMP"` — a requirement on
 the *sender*, which only the shell/system holds; the app does not ask for DUMP).
 
@@ -272,10 +272,25 @@ waiver to carry.
 ## Observed, not fixed
 
 - **Mobile CI.** Q36 (d) decided that the Android JVM tests run in CI on a Linux runner.
-  No workflow runs them yet: this card's acceptance criteria do not include it, and a
-  workflow that cannot be seen green before a push is not added blind. Open item for
-  the orchestrator.
-- `EmojiCompatInitializer` (emoji2, through Compose `ui`) runs at start; its default
-  configuration asks a font provider on the device (Google Play services' downloadable
-  fonts, where installed) for a newer emoji font. No permission is involved; if it is unwanted, it is removed in the
-  manifest with `tools:node="remove"` on its `<meta-data>` (a later card's decision).
+  No workflow runs them yet; the job is assigned to **M16-12** (coordinator, 2026-11-18,
+  review finding B-1).
+- **`android.hardware.location` is an implied required feature** (review finding B-3).
+  Because the manifest asks for the location permissions, Google Play treats
+  `android.hardware.location` as a required feature unless a `<uses-feature>` says
+  otherwise, which would hide the app from devices without one. Whether to declare it with
+  `android:required="false"` is decided in M16-13 or M16-27; no code change here.
+
+## Fixed after review
+
+- **emoji2 no longer asks a font provider at start** (review finding B-2, ADR 0045 §2.2
+  "no third-party SDK"). `EmojiCompatInitializer` (emoji2, through Compose `ui`) asked the
+  system font provider (on most phones Google Play services) for `emojicompat-emoji-font`
+  at start, and that provider may download it from Google. The source manifest now removes
+  that one `<meta-data>` from `androidx.startup.InitializationProvider` (`tools:node="merge"`
+  on the provider, `tools:node="remove"` on the entry); the merged manifest keeps
+  `ProcessLifecycleInitializer` and `ProfileInstallerInitializer`.
+  `MergedManifestTest.theEmojiFontProviderIsNotAskedAtStart` fails if any `androidx.emoji2`
+  meta-data comes back, with `ProcessLifecycleInitializer` as its control. Mutation
+  (2026-11-18): the removal block deleted → that test red; restored → green.
+  **Cost:** emoji newer than the phone's own system font may show as empty boxes on older
+  phones, because no newer emoji font is fetched.

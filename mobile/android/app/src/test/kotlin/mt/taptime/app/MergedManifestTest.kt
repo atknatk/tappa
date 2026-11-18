@@ -98,6 +98,22 @@ class MergedManifestTest {
     }
 
     @Test
+    fun theEmojiFontProviderIsNotAskedAtStart() {
+        // Review finding B-2 (ADR 0045 §2.2): emoji2's startup initialiser asks the system font
+        // provider (Google Play services on most phones) for a downloadable font. The source
+        // manifest removes it from androidx.startup's provider; a library update or a dropped
+        // tools:node line would bring it back here.
+        val emoji = merged.names("meta-data").filter { it.startsWith("androidx.emoji2") }
+        assertEquals("emoji2 meta-data in the merged manifest", emptyList<String>(), emoji)
+        // The control: the provider itself is still merged with its other initialisers, so the
+        // assertion above is not passing on a manifest with no startup entries at all.
+        assertTrue(
+            "androidx.startup's ProcessLifecycleInitializer is missing from the merged manifest",
+            "androidx.lifecycle.ProcessLifecycleInitializer" in merged.names("meta-data"),
+        )
+    }
+
+    @Test
     fun thePackageIsTheQ35One() {
         assertEquals("mt.taptime.app", merged.documentElement.getAttribute("package"))
     }
