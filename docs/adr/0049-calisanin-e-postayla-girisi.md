@@ -143,7 +143,9 @@ tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve
 - **Owner e-postası `Breaker.SendExempt` ile** (kesicide sayılır, asla reddedilmez — `passwordnotice.go:46`,
   `emailchangenotice.go:19` emsali), giriş çıkış kutusundan **geçmeden**, **istek yolunda değil**: tüketim commit edince
   sınırlı bir arka plan işi başlar (kendi FIFO'su 32 iş, 2 işçi, iş başına 4 eşzamanlı gönderim ve toplam 120 sn,
-  `context.WithoutCancel`, kapanış boşaltmasına `(*AdminReset).Drain`'in yanında girer) — owner listesi 200'e kadardır
+  `context.WithoutCancel`, kapanış boşaltmasına reset çıkış kutusunun boşaltmasının yanında, onun iki evreli 3 sn'lik
+  bütçesiyle girer ve bağlam dolunca döner — 120 sn'lik bir iş 3 sn'ye sığmaz, kalan owner'lar zaman kalırsa `undelivered`
+  satırı alır, kalmazsa hiçbir şey) — owner listesi 200'e kadardır
   (`00081`) ve istek içinde gönderim, uygulamanın okuma süresini (Android 15 sn, iOS 20 sn) aşıp cevabı kaybettirebilirdi
   (davet harcanmış, cihaz kimliği öğrenilmemiş, bekleme süresi kurtarmayı kapatmış). Pod ölümünde uyarı gider ve satırsız
   kalır; panel sinyali dayanıklıdır. Reset formundan kesiciyi doldurmak (~960/sa tek kaynaktan, `breaker.go:16`) ya da giriş çıkış kutusunu

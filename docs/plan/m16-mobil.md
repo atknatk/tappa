@@ -1493,7 +1493,9 @@ penceresi seçer; sunucu zorlar.
     `…,day_cutoff,staff_hours_weeks` (yeni satır eklenmez). **Kırmızıya dönecek var olan test:** `opAtVersionSkips`'in öncülü
     (`internal/db/operatorplaques_test.go:113-122` — operatör nesnesine dokunmayan, sıcak tabloya ACCESS EXCLUSIVE alan Down'lar)
     00115'in Down'ını (`tenants`'ta `DROP COLUMN`) kapsar → **00115** haritaya eklenir (M16'nın 108–110'u orada); bekçisi
-    `TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject` (`internal/db/operatorapi_test.go:761`) yeşil kalır. **`Down`:** `DROP COLUMN staff_hours_weeks` (00064 emsali — yapılandırmadır, geçmişi `audit_log`'dadır;
+    `TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject` (`internal/db/operatorapi_test.go:761`) yeşil kalır. İkinci kırmızı:
+    `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` (`internal/db/m11schema_test.go:855`) — `m11Columns`'a
+    `tenants.staff_hours_weeks` girdisi (roller ve harfler katalog dökümünden, `:466` satırının biçimiyle). **`Down`:** `DROP COLUMN staff_hours_weeks` (00064 emsali — yapılandırmadır, geçmişi `audit_log`'dadır;
     *"dolu değer varsa reddet"* (b)/(c)'de hiç koşamazdı).
 - **Panel:** Account ekranında, iş günü kesiminin yanında: *"Show My hours to staff"* aç/kapa + pencere seçimi (*This
   week · 2 weeks · 4 weeks · 13 weeks*). Yalnız **owner** yazar (marka emsali `brandEditorRole = "owner"`,
@@ -1756,7 +1758,8 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   `tenants`'a `ALTER` uyguladığı için **`SET LOCAL lock_timeout = '1s'`** ile başlar (`deploy/README.md`; `00064` emsali).
 - **`privCatalogAllowed`** (`internal/db/privcatalog_test.go:274`): **yeni** satırlar — fonksiyonun `EXECUTE`'u (`tappa_app`),
   `column employees tappa_resolver SELECT id,tenant_id,email,status` (sütun sırası `attnum`'dur); **genişleyen** satırlar —
-  Q49 (a) ise `column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff` (`:414`) `email_signin` kazanır; `column tenants tappa_resolver SELECT id,api_enabled_at,api_code`
+  Q49 (a) ise `column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff` (`:414`) M16-30'dan sonra
+  `…,day_cutoff,staff_hours_weeks,email_signin` olur; `column tenants tappa_resolver SELECT id,api_enabled_at,api_code`
   (`:420`) → `…,api_code,suspended_at[,email_signin]` (yeni satır **eklenmez**). Liste katalogdan dökülür (`TAPPA_PRIVCATALOG_DUMP=1`) ve satır satır okunur.
 - İndeks (00117) **`00091`'in birebir kalıbı**: `-- +goose NO TRANSACTION`; **`lock_timeout` yok** (`00091:33-35`'in
   gerekçesi: NO TRANSACTION dosyada oturum ayarı ifadeden uzun yaşar); Up önce `DROP INDEX CONCURRENTLY IF EXISTS
@@ -1783,7 +1786,7 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   ona tek dal ekler — `errors.Is(err, ErrQueued)` ise **satır yazmaz** ve `nil` döner. İşçi gönderir ve gönderimden **sonra**
   tam bir satır yazar (`invite.code_emailed`, `detail.channel = "signin"`, `message_id`) ya da `invite.undelivered` — **aynı
   `detail` biçimiyle**: bugün `emailedDetail`, `undeliveredDetail` ve kanalın `audit`'i dışa kapalıdır (`email.go:309-365`);
-  işçi için dışa açık **`invite.DeliveryRecorder`** (`invite.NewDeliveryRecorder(rec, channel)`; yöntemleri `Emailed(ctx,
+  işçi için dışa açık **`invite.DeliveryRecorder`** (`invite.NewDeliveryRecorder(rec, actorID, channel)` — panel davetinin `actor_id`'si korunur, `email.go:353-357`; yöntemleri `Emailed(ctx,
   Delivery, messageID)` ve `Undelivered(ctx, Delivery, *mail.SendError)`) aynı yapıları yazar, `DeliverInvite` de onu kullanır
   (tek biçim); dolu FIFO'da
   `DeliverInvite` bugünkü başarısızlık dalından senkron `invite.undelivered` yazar. Her davet **tam bir** satırla biter —
@@ -1851,19 +1854,33 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   yine gider. `selfActivationNotice` **hiçbir şey göndermez, yalnız bir iş başlatır** (aşağıda) ve hemen döner.
   **[G35-r] statik test:** taranan küme **hesaplanır**: `internal/invite`'ın AST'sinde gövdesi `consume`'u çağıran dışa açık
   `*Manager` yöntemleri; sonra `internal/handler`'da bu yöntemlerden birini çağıran her işlevin aynı gövdede
-  `selfActivationNotice`'ı da çağırdığı ölçülür — M16-23'ün yeni bir yöntemi listeye kendiliğinden girer.
+  `selfActivationNotice`'ı da çağırdığı ölçülür — eşleşme **tip bilgisiyle** (`go/types`: alıcı `*invite.Manager`), ad eşleşmesiyle
+  değil; aksi hâlde `pages.Activate(v, look)` (`internal/handler/activate.go:1731`, alıcısı bir paket adı) yanlış eşleşirdi — M16-23'ün yeni bir yöntemi listeye kendiliğinden girer.
 - **Owner e-postası — istek yolunda değil, sınırlı bir arka plan işi** (dördüncü tur B1, ana oturum kararı). Gerekçe: owner
   listesi 200'e kadardır (`resolve_admin_owners_by_tenant`, `00081`, `LIMIT 200`) ve her owner'a bir ileti gider; istek içinde
   tek gönderim bile `EmailSendGrace` (10 sn, `internal/invite/email.go:210`) sürebilir, uygulamaların okuma süresi ise Android
   15 sn (`mobile/android/app/src/main/kotlin/mt/taptime/app/wire/Transport.kt:27`), iOS 20 sn (`mobile/ios/Taptime/AppClient.swift:224`)
   — cevabı kaybeden uygulama `deviceId`'yi hiç öğrenmez, davet harcanmış, öteki cihazlar iptal, bekleme süresi kendi kendine
   kurtarmayı 7 gün kapatır. **Tarif:** `selfActivationNotice` işi `ownerNotices`'a (yeni, `internal/handler`) sunar — kendi
-  sınırlı FIFO'su (32 iş; giriş çıkış kutusundan **ayrı** — kimliksiz istek onu dolduramaz, her iş fiziksel bir plaket
-  dokunuşudur), **2 işçi**, iş başına **4 eşzamanlı gönderim**, gönderim başına `EmailSendGrace`, iş başına **toplam 120 sn**
+  sınırlı FIFO'su (32 iş; giriş çıkış kutusundan **ayrı** — kimliksiz istek onu dolduramaz, her iş bir **tüketimdir** —
+  plaket dokunuşu, canlı QR ya da müdür onayı; sınırı `self` basım bütçesidir), **2 işçi**, iş başına **4 eşzamanlı gönderim**, gönderim başına `EmailSendGrace`, iş başına **toplam 120 sn**
   son süre; bağlam `context.WithoutCancel(ctx)` (parola bildiriminin emsali, `internal/handler/passwordnotice.go:311`).
-  Kapanış boşaltmasına reset çıkış kutusunun `Drain` yönteminin (`internal/handler/adminresetoutbox.go:570`) yanında, `cmd/tappa`'nın `drainers` kümesinden girer (`cmd/tappa/api.go:106-110`;
-  `main.go:92-95`'in bütçe kuralı). Son süre ya da boşaltma kesince gönderilmemiş her owner için bir `undelivered` audit
-  satırı (zaman kalırsa); FIFO doluysa tek bir senkron `undelivered` satırı, gönderim yok. **Pod ölümü:** kuyruktaki ve
+  Kapanış boşaltmasına reset çıkış kutusunun `Drain` yönteminin (`internal/handler/adminresetoutbox.go:570`) yanında, `cmd/tappa`'nın
+  `drainers` kümesinden girer (küme `cmd/tappa/main.go:1096`'da kurulur; `Drain` yöntemi `cmd/tappa/api.go:106-110`; bütçe kuralı
+  `main.go:92-95`). **`ownerNotices.Drain` bağlamı dolunca döner** (son tur, madde 3): `drainers.Drain` her üyeyi bekler
+  (`api.go:113-115`) ve bloklayan bir üye, ertelenen encode `Close`'unu (`sun.Zero` anahtar silmesi, ADR 0017) SIGKILL'in
+  arkasına iterdi (`main.go:85-90`). Desen reset çıkış kutusunun **iki evresidir** (`adminresetoutbox.go:580-599`): tek paylaşılan
+  bağlam (`main.go:1145-1155`), `ResetDrainGrace` 3 sn (`:269`), son `ResetDrainWriteReserve` 1 sn (`:278`) yalnız satır yazmaya
+  ayrılır — gönderimler rezervin başında kesilir. **Açıkça: 120 sn'lik bir iş 3 sn'lik boşaltmaya sığmaz;** sonuç, zaman
+  kalırsa `undelivered` satırlarıdır, kalmazsa **hiçbir şey** (pod ölümünün aynı boşluğu). **Adlandırılan dallar:** (i) boşaltmada
+  **başlamamış her iş** için bir `undelivered` satırı — dolu FIFO dalının eşi; (ii) **kuyruk kapalı** dalı — HTTP boşaltması
+  20 sn, owner boşaltması 3 sn olduğundan bu dal gerçekten olur; kapalı bir kanala gönderim panik verdiğinden sunum **reddedilir**
+  ve senkron bir `undelivered` satırı yazılır; (iii) **işçide panik** `containNotice`'ın kalıbıyla (`internal/handler/passwordnotice.go:409`):
+  sabit bir cümle, değer loglanmaz, bir `undelivered` satırı; (iv) audit eylemleri `admin.password_notice.*`'in kalıbıyla
+  (`passwordnotice.go:229-230`): `employee.self_activation_notice.sent` / `.undelivered`, `target` çalışan, `actor` yok, `detail`
+  owner'ın `admin_user_id`'si (adres yok); (v) **bildirim sırası** çözümleyicinin `ORDER BY a.id`'sidir (`00081`) — süre kesince
+  sıranın sonundaki owner'lar `undelivered` alır. Son süre ya da boşaltma kesince gönderilmemiş her owner için bir
+  `undelivered` audit satırı (zaman kalırsa); FIFO doluysa tek bir senkron `undelivered` satırı, gönderim yok. **Pod ölümü:** kuyruktaki ve
   uçuştaki uyarılar gider ve satırsız kalır — giriş çıkış kutusunun aynı kabul edilmiş boşluğu; **panel sinyali dayanıklıdır**
   ve etkilenmez. Gönderim `Breaker.SendExempt` ile (emsal `passwordnotice.go:46`, `emailchangenotice.go:19`) kalır. Owner kimlikleri
   `resolve_admin_owners_by_tenant` (`00081`), adresi `passwordnotice.go`'nun alıcı yolundan (**ölç:** M14 sonrası kaynak
@@ -1876,7 +1893,7 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   (`internal/handler/tap.go:440`) **bu sırayla**: (1) işletme env listesinde mi — bellekte, okuma yok; (2) (Q49 (a))
   `email_signin` açık mı; (3) **ilerletmeyen SUN ön kontrolü** (`:480-483`'ün aynı fonksiyonu — CMAC, sayaç ilerlemez). İlk
   ikisi önce gelir ki KF/KM'nin iptal edilmiş dokunuşu ne yeni bir okuma ne yeni bir log satırı üretsin (ön kontrol hatada
-  `tag_uid`'li bir satır loglar, `tap.go:497`) — gerçekten bayt bayt aynı. *"İşletme"* = plaketin tenant'ı **ve** oturumun
+  `tag_uid`'li satırlar loglar, `tap.go:494`, `:498`) — gerçekten bayt bayt aynı. *"İşletme"* = plaketin tenant'ı **ve** oturumun
   tenant'ı, ikisi **eşit** olmalı (holding dokunuşunda satır yazılmaz). Üçü de geçerse WARN'un
   (`:455-459`) yanına bir `audit_log` satırı: action `tap.signed_out_phone`, `target` çalışan, `detail` `{"channel":…}` —
   plaket UID'si, GPS, çerez, özet yok; kişi başına 10 dakikada en çok bir satır (bellekte `httpx.Limiter`). Ön kontrol
@@ -1941,7 +1958,7 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   iki NFC'siz yolunda tamamlanır → hepsinde owner e-postası `SendExempt`'ten (sahte kesici reddetmeye ayarlıyken de gider) ve
   anomali listesinde satır; `finishActivation`'ın `session_issue_failed` dalında da uyarı gider; `origin='employer'`
   tüketiminde e-posta **yok**. [G35-r] statik çağıran taraması (yukarıda).
-- [G35-j] sızıntı: bütün yolların log ve audit çıktısında **adresin, davet kodunun ve `ActivationURL`'nin** hiçbir yazımı yok —
+- [G35-j] sızıntı: bütün yolların log ve audit çıktısında **adresin (çalışanın ve owner'ların), davet kodunun ve `ActivationURL`'nin** hiçbir yazımı yok —
   giriş FIFO'su URL'yi tutar; işçinin **panik yolu** (panik değeri URL'yi taşıyabilir) ve owner uyarı işi dahil
   (`internal/invite/leak_external_test.go` emsali).
 - [G35-k] Q44'ün süresi dolmuş link `lookup`'ta reddedilir.
@@ -1955,24 +1972,33 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing` (`internal/handler/employeesignout_db_test.go:200`) bugün yalnız
   çıkış audit eylemini sayar; bu kart onu **genişletir** — listede olmayan işletmede **bütün** `audit_log` satırlarını sayar
   (adı o durumda doğru kalır). Onay hayır ise bu test genişletilir, [G35-n] yazılmaz.
-- **Kırmızıya dönecek var olan beş test — bu kartta güncellenir** (dördüncü tur N1): (1) `TestApiKeysCatalog`
+- **Kırmızıya dönecek var olan altı test — bu kartta güncellenir** (dördüncü tur N1 + son denetim): (1) `TestApiKeysCatalog`
   (`internal/db/apikeys_test.go:183`, `id || api_enabled_at || api_code`'u sabitler) — `suspended_at[, email_signin]` eklenir;
   (2) `TestApiKeys00051_DownGivesBackAndUpTakesItAgain` (`:353-375`; 00105/52/51 Down'larından sonra 0 `tenants` sütunu bekler
   ve 00051'in Up bekçisi başka bir sütun yetkisinde hata verir, `00051:57-67`) — `:346-352`'nin 00105 için anlattığı kalıpla
-  **önce 00116'nın Down'ı** koşar, Up'ı en son; (3) kimlik yürüyüşleri 70'in üstündeki her transaction'lı Down'ı koşar
+  **önce 00116'nın Down'ı** koşar, Up'ı en son. Test `holdingLockedSavepoint` içinde koşar (`apikeys_test.go:358`) ve sarmalayıcı,
+  bir savepoint `holdingDownTables` dışındaki bir tabloda güçlü kilit tutarsa düşer (`holdingmigration_test.go:105-140`,
+  `holdingtap_test.go:2066-2077`, `:1737-1775`): 00116'nın Down'ı `employee_invites`'ta `DROP COLUMN origin` ile ACCESS EXCLUSIVE
+  alır → **`employee_invites` `holdingDownTables`'a eklenir** ve savepoint içinde, Down'dan önce `origin='self'` satırları kenara
+  konur. **Ölç:** `REVOKE SELECT (…) ON employees` güçlü kilit alıyor mu; alıyorsa `employees` de eklenir; (3) kimlik yürüyüşleri 70'in üstündeki her transaction'lı Down'ı koşar
   (`internal/db/adminidentity_test.go:865-888`) ve 00116'nın Down'ı `origin='self'` satırı varken reddeder — 00095/00108/00109'un
   kenara koyma adımının (`:872-887`) eşi eklenir; (4) `TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables` `transactions`
   dışındaki indeksi reddeder (`:997-998`, *"widen this"*) — 00117 `employees` üstündedir, test genişletilir (kimlik testlerinin
   `employees` kataloğunu sabitlemediği ölçülerek); (5) `opAtVersionSkips` (`internal/db/operatorplaques_test.go:113-122`'nin
   öncülü: operatör nesnesine dokunmayan, sıcak tabloya ACCESS EXCLUSIVE alan Down'lar) — **00116** eklenir (M16'nın 108–110'u
-  orada). 00117 iki atlama haritasına da girer (yukarıda).
+  orada). 00117 iki atlama haritasına da girer (yukarıda); (6) `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`
+  (`internal/db/m11schema_test.go:855`, matris `:911-985`) — `m11Columns`'a `tenants.staff_hours_weeks` (00115, M16-30'un işi),
+  `employee_invites.origin` ve `tenants.email_signin` (00116) girer; `:466`'nın `tenants.suspended_at` satırına `"tappa_resolver":
+  "S"` eklenir; fonksiyon matrisine `resolve_employees_for_signin(citext,uuid[])` (`:627-680`'in kalıbı).
 - [G35-o] 00116'nın `Down`'ından sonra `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür (`tenants.id`
   yetkisi dokunulmadı).
 - [G35-p] panel yolu değişmez; giriş yolunda kabul edilen gönderim senkron satır yazmaz (yukarıda).
 - [G35-q] `TAPPA_INVITE_DELIVERY=panel` iken liste dolu olsa da rota bağlı değil.
 - [G35-t] **cevap gönderimi beklemez:** iki owner'lı işletmede, her gönderimi 2 sn tutan sahte sink'le `self` tamamlanması →
   HTTP cevabı ilk gönderim bitmeden döner (cevap < 500 ms, iki gönderim sonra biter); boşaltma bütçesi dolunca kalan owner
-  `undelivered` satırı alır; FIFO doluyken tek senkron satır.
+  `undelivered` satırı alır; FIFO doluyken tek senkron satır. **Boşaltma:** takılı bir sink ve 200 owner'la `Drain(3 sn)`
+  ≤ 3 sn + ε içinde döner; başlamamış işler ve kesilen owner'lar `undelivered` alır (zaman yettiyse); kuyruk kapandıktan sonra
+  sunulan iş panik vermez, senkron `undelivered` yazar; işçide panik değer loglamadan `undelivered` yazar.
 - [G35-s] `IssueAndDeliver`, `Gate`/`ExpectAddress`/`Origin="self"` ile `*EmailChannel` olmayan bir kanalı reddeder.
 
 ## M16-36 — E-postayla giriş: uygulama ekranları (+ Q45'e göre tarayıcı)

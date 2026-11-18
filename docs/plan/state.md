@@ -1810,6 +1810,11 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-18 gece, son not (M16, dal `plan/m16-mobil`) — Faz G son denetimi GO (`b4471d45`), bloklamayan notlar kartlara yazıldı
+
+- **Ne:** altıncı kırmızı test (`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`) ve `holdingDownTables`'a `employee_invites`; owner uyarı işinin boşaltması (iki evre, 3 sn, bağlam dolunca döner; başlamamış iş, kapalı kuyruk, panik dalları; audit eylem adları; `ORDER BY a.id`); `NewDeliveryRecorder(rec, actorID, channel)`; [G35-r] tip bilgisiyle; çapa düzeltmeleri.
+- **Sıradaki:** değişmedi — Faz G'nin uygulaması Faz D ve E'den sonra; M16-34'ün soruları (Q44, Q45, Q49, T59) önceden sorulabilir.
+
 ### 2026-11-18 gece, beşinci tur (M16, dal `plan/m16-mobil`) — Faz G dördüncü denetim turu kapatıldı, yalnız belge
 
 - **Ne:** `3f1413d4`'ün tek bloklayanı kapatıldı: owner uyarısı istek yolundan çıktı (ana oturum kararı) — `ownerNotices` arka plan işi (32'lik FIFO, 2 işçi, iş başına 4 eşzamanlı gönderim, 120 sn), `context.WithoutCancel`, `(*AdminReset).Drain`'in yanında boşaltma; cevap gönderimi beklemez ([G35-t]). Ayrıca: kırmızıya dönecek beş var olan test M16-35'te, 00115'in `opAtVersionSkips` girişi M16-30'da adlandırıldı; migration tablosunun 00116 satırı karta eşitlendi; D-3'ün gerekçesi düzeltildi (kilit sırası değil, aktivasyonların davet basımına dizilmesi); imzası çıkmış dokunuş kontrol sırası env → ayar → SUN; `invite.DeliveryRecorder`; [G35-r]'nin taranan kümesi hesaplanır; [G35-j] davet kodu ve `ActivationURL`'yi de kapsar.
