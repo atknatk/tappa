@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The palette, verbatim from skill tappa-brand (the relay's colors.xml). Nothing outside it. -->
+<resources>
+    <color name="ink">#152219</color>
+    <color name="porcelain">#EDF0EA</color>
+    <color name="paper">#FFFDF4</color>
+    <color name="tappa_green">#1F5C41</color>
+</resources>

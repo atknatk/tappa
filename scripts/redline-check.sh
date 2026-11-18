@@ -275,6 +275,30 @@ r2_relay=$(scan -e 'ACCESS_(FINE|COARSE|BACKGROUND)_LOCATION' | awk '/^android\/
 report FAIL R2 "Rolede (android/, ADR 0017) konum izni — role konum okumaz; S1 ve R7'nin konum kurallari bu onculle mobile/'a sinirli" \
   "$r2_relay"
 
+# --- S2: izlenen ama ignore edilen dosya (M16-11, M16-02 son kontrolunun devri) ------
+#
+# rg git index'ine bakmaz, .gitignore'a uyar: `git add -f` ile izlenen ama bir ignore
+# kalibina takilan dosya (mobile/android/.gitignore'un `/build/`'i, kokun `.idea/`'si --
+# ornek `mobile/.idea/Leak.kt`) HICBIR R kurali tarafindan taranmaz, S1 de mobile/'i muaf
+# tuttugu icin gormez. Bu bekci o kumeyi dogrudan sorar: `git ls-files -ci
+# --exclude-standard` bos degilse FAIL. Kapsam kartin `-- mobile android`'inden GENIS, tum
+# agac: ayni ozellik SRC'nin geneli icin tabanda da vardi (kart) ve OLCULDU (2026-11-18,
+# M16-11 agaci): tum agacta 0 isabet, yani bedeli sifir. Cozum dosyayi izlemeden cikarmak
+# ya da ignore kalibini daraltmaktir -- muafiyet yok.
+# Cikis kodu okunur: patlayan bir `git ls-files` bos ve "temiz" bir secim birakmaz.
+# Pin: cmd/tappa/scripttest TestRedline_M16_11_TrackedButIgnoredIsNotScanned.
+s2_hits=""
+if ! s2_raw=$(git ls-files -ci --exclude-standard 2>&1); then
+  { echo "${RED}ATLANDI${OFF}: S2 dosya listesi alinamadi (git ls-files -ci) — TARAMA GUVENILIR DEGIL."
+    sed 's/^/    /' <<<"$s2_raw"
+  } >&2
+  echo 2 >>"$SCAN_ERR"
+else
+  s2_hits=$(awk 'length { print $0 ": izleniyor ama .gitignore kalibina takiliyor -- rg bu dosyayi TARAMAZ" }' <<<"$s2_raw")
+fi
+report FAIL S2 "Izlenen ama ignore edilen dosya — R kurallari (rg) onu gormez; izlemeden cikar ya da ignore kalibini daralt" \
+  "$s2_hits"
+
 # --- R1: biyometrik veri -----------------------------------------------------
 #
 # MUAFIYET: TEK IFADE, YOLA SINIRLI, VE HER KOSUDA RAPORLANIR (M7-01, 2026-08-13).

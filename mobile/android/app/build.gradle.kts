@@ -1,0 +1,104 @@
+import com.android.build.api.artifact.SingleArtifact
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+android {
+    // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
+    // after the first release and is written into /.well-known/assetlinks.json (M16-08).
+    namespace = "mt.taptime.app"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "mt.taptime.app"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = "0.1.0"
+    }
+
+    buildTypes {
+        // No signingConfig anywhere: the debug build signs with Gradle's default debug key
+        // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
+        // repository is public; no keystore and no signing secret ever enters it.
+        release {
+            isMinifyEnabled = false
+        }
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        // Every android.* method on the unit-test classpath throws unless mocked, so a JVM test
+        // can never pass on a stub (the relay's rule, android/app/build.gradle.kts).
+        unitTests.isReturnDefaultValues = false
+    }
+}
+
+// The merged manifest -- what the APK really carries, after every library's manifest is
+// merged in -- is the input of MergedManifestTest. It is handed over as a declared, lazy task
+// input (a provider of the variant's MERGED_MANIFEST artefact), so:
+//   * testDebugUnitTest depends on processDebugManifest through the provider, with no task
+//     name written here;
+//   * a changed manifest (a new library, a new <uses-permission>) makes the test task out of
+//     date. A file the test opened by a guessed path would not be an input, and Gradle would
+//     report the test UP-TO-DATE on a warm tree (the relay measured this blindness, audit B1).
+class MergedManifestArg(
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    val manifest: Provider<RegularFile>,
+) : CommandLineArgumentProvider {
+    override fun asArguments(): List<String> =
+        listOf("-Dtaptime.mergedManifest=${manifest.get().asFile.absolutePath}")
+}
+
+val mergedManifests = mutableMapOf<String, Provider<RegularFile>>()
+androidComponents {
+    onVariants { variant ->
+        mergedManifests[variant.name] = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
+    }
+}
+tasks.withType<Test>().configureEach {
+    // testDebugUnitTest -> debug, testReleaseUnitTest -> release.
+    val variant = name.removePrefix("test").removeSuffix("UnitTest").replaceFirstChar { it.lowercase() }
+    val manifest = mergedManifests[variant]
+        ?: throw GradleException("$name: no merged manifest recorded for variant '$variant'")
+    jvmArgumentProviders.add(MergedManifestArg(manifest))
+    // The extraction rules the merged manifest points at, read from source by the same test.
+    val rules = layout.projectDirectory.file("src/main/res/xml/data_extraction_rules.xml")
+    inputs.file(rules).withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("taptime.dataExtractionRules", rules.asFile.absolutePath)
+}
+
+dependencies {
+    // Runtime: exactly the Q36 set (2026-11-14) -- the Compose BOM, ui, foundation,
+    // activity-compose. No material3 (brand components are drawn by hand, skill tappa-brand),
+    // no QR library, no Play Integrity (Faz E). Everything else on debugRuntimeClasspath is
+    // what these four pull in; the full dump is in README.md.
+    //
+    // THE BOM IS NOT THE NEWEST, AND THAT WAS MEASURED (2026-11-18): 2026.09.00 (Compose
+    // 1.12.1) fails checkDebugAarMetadata -- eight Compose artefacts require compileSdk 37,
+    // and the measured toolchain is 36 (android/README.md); 2026.08.00's Compose 1.12.0 carries
+    // the same minCompileSdk=37 in its AAR metadata. 2026.06.01 (Compose 1.11.4,
+    // minCompileSdk=35) is the newest BOM that builds on 36. Moving to 37 is a toolchain change (a new platform in the SDK),
+    // not a version bump here.
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    // Not in the BOM: activity-compose versions with androidx.activity.
+    implementation("androidx.activity:activity-compose:1.13.0")
+
+    // Test only: JUnit 4, the relay's measured version. The manifest is read with the JDK's
+    // own XML parser.
+    testImplementation("junit:junit:4.13.2")
+}
