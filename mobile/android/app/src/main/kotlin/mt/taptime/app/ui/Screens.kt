@@ -65,7 +65,7 @@ fun ProblemNotice(p: Problem) {
 }
 
 @Composable
-fun CodeScreen(problem: Problem?, busy: Boolean, onContinue: (String) -> Unit) {
+fun CodeScreen(problem: Problem?, notALink: Boolean, busy: Boolean, onContinue: (String) -> Unit) {
     var input by remember { mutableStateOf("") }
     Page({ header(null) }) {
         if (problem != null) ProblemNotice(problem)
@@ -74,6 +74,7 @@ fun CodeScreen(problem: Problem?, busy: Boolean, onContinue: (String) -> Unit) {
             Heading(stringResource(R.string.code_title))
             Body(stringResource(R.string.code_body))
         }
+        DocketLabel(stringResource(R.string.code_field))
         BasicTextField(
             value = input,
             onValueChange = { input = it },
@@ -81,8 +82,9 @@ fun CodeScreen(problem: Problem?, busy: Boolean, onContinue: (String) -> Unit) {
             singleLine = true,
             textStyle = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace, fontSize = 14.sp),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).background(Palette.Paper)
-                .border(1.dp, Palette.Line).padding(horizontal = 12.dp, vertical = 14.dp),
+                .border(1.dp, if (notALink) Palette.Tomato else Palette.Line).padding(horizontal = 12.dp, vertical = 14.dp),
         )
+        if (notALink) Notice(Tone.ALERT, null, stringResource(R.string.code_not_a_link))
         PrimaryButton(stringResource(R.string.code_button), accent = null, enabled = !busy && input.isNotBlank()) {
             onContinue(input)
         }

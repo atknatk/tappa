@@ -313,11 +313,14 @@ code ─▶ lookup ─▶ 1 Welcome ──"Agree and continue"──▶ bind ─
 | 1 → 2 | `POST /app/v1/activate/bind` (unsigned) | a **new** Keystore key (every activation binds a fresh pair, M16-07); its raw point as `publicKey`, `consent: true`. The server answers an activation id and a challenge. Nothing is spent, no device exists yet. |
 | 3 | `POST /app/v1/activate/complete` | NFC reader mode is on **only** while step 3 is on screen and in the foreground. The plaque's URL must be this app's `<base>/t` (`PlaqueRead`), its query goes as `sun`; the request is signed in the nonce-signed format with `App-Device-Id` = activation id, `App-Nonce` = challenge. The server runs `CompleteByTap`'s order (`internal/handler/appactivate.go`); the app judges nothing about the chip. |
 
-Outcomes of complete, mapped by `ActivationFlow`: `activation_tap_failed` / `activation_needs_touch`
-/ `rate_limited` / a 5xx / no answer → stay on step 3 and tap again (the same bind);
-`new_key_required` → drop the key, generate a new pair, bind again with the consent already
-given, tap again; `activation_not_ready` (the binding moved) → back to step 1 with the same
-code; `invalid_invite` → back to the code screen. No `transactions` row is written by any of
+Outcomes of complete, mapped by `ActivationFlow` to the iOS twin's destinations:
+`activation_tap_failed` / `unknown_plaque` / `foreign_tenant` / `stale_context` /
+`activation_needs_touch` / `rate_limited` / no answer → stay on step 3 and tap again (the same
+bind); `new_key_required` → drop the key, generate a new pair, bind again with the consent
+already given, tap again; `activation_not_ready` (the binding moved), a server error or any
+other refusal → back to step 1 with the same code (the key dropped); `invalid_invite` → back to
+the code screen. A phone without an NFC reader is refused at launch, before the code screen.
+No `transactions` row is written by any of
 it (CLAUDE.md §5).
 
 ### The key
@@ -425,34 +428,50 @@ The job has no `timeout-minutes` key (`cmd/tappa`'s CI-timeout test allows exact
 `check` job's); each Gradle run is bounded by `timeout 30m` instead. A red `android` job makes the
 `ci` workflow red, and `deploy.yml` deploys `main` only on a green `ci`.
 
-### Texts — the browser wizard's, and the differences (§9 questions)
+### Texts — the browser wizard's, one list with iOS
 
 The screens follow the wizard's order and words (`web/templates/pages/activate.templ`, the
-problem texts of `internal/handler/activate.go`), all in `res/values/strings.xml`. What differs:
+problem texts of `internal/handler/activate.go`), all in `res/values/strings.xml`. **The rule
+(coordinator, 2026-11-18): every line that means the same thing on both platforms is the same,
+character for character, as the iOS app's `mobile/ios/Taptime/ActivationCopy.swift`** (compared
+by script against its commit `ef82bc3d`, 2026-11-18: every string here is an iOS literal except
+the ones listed under *Android only* and *platform word*). What differs from the browser:
 
-1. **APP-ONLY code screen** — *"Setup"*, *"Paste your activation link"*, *"Copy the personal link
-   your workplace sent you and paste it here."*, *"Continue"* (Q40: the link is not the app's).
-2. **ADAPTED, step 1 panel and terms** — the browser's closing promise of what is never
-   collected names a noun that is an R1 trigger, and R1 has no waiver under `mobile/` (the
-   pre-filter that lets the browser's sentence through is not applied there, M16-02 audit). It
-   reads *"No finger scans, no face, no voice."* in both places, word for word as the iOS app
-   (`mobile/ios/Taptime/ActivationCopy.swift`; coordinator decision, 2026-11-18): the §4.1
-   promise stays on the screen.
-3. **ADAPTED, terms *"What is recorded"*** — *"A cookie keeps this phone signed in…"* becomes
-   *"A key kept on this phone keeps it signed in, so you don't need a password."* (the app has
-   no cookie, ADR 0045 §2.3).
-4. **ADAPTED, step 2** — *"Two quick things before you tap."* becomes *"One quick thing before you
-   tap."*; the second thing, *"Stay in this browser"*, is about the browser's cookie and has no
-   app twin.
-5. **Dropped from step 3** — the *"Tapped and saw “Finish setup in this browser”?"* note (the app
-   reads the plaque itself in reader mode).
-6. **APP-ONLY** — *"Turn on NFC in your phone's settings, then tap the plaque."*, *"This phone
-   can't read the plaque, so it can't be set up in this app."*, and the no-answer problem
-   *"Couldn't reach Taptime"* / *"Check your connection and try again."*.
-7. **Not shown** — the browser's *"This phone belongs to someone else"* warnings (a browser
-   session held by another person has no app twin: the app activates only when it holds no
-   device); the logo (no logo bytes reach the app yet — M16-07 hands over only digest and box;
-   the header is the wordmark, ink beside an accent); the waiting screen's moving rings (the
-   plaque is drawn still).
-8. **Kept verbatim although browser-worded** — *"You can close this page."* on the two
-   *"Activated"* screens.
+1. **App-only code screen** (iOS's words) — *"Setup"*, *"Set up this phone"*, *"Paste the
+   activation link your workplace sent you."*, the field label *"Activation link"*,
+   *"Continue"*, and inline under the field when the paste is not this server's link or a code:
+   *"That isn't an activation link. Copy the whole link from the message your workplace sent and
+   paste it here."* (Q40: the link is not the app's.)
+2. **R1** — the browser's closing promise of what is never collected names a noun that is an R1
+   trigger, and R1 has no waiver under `mobile/`. It reads *"No finger scans, no face, no
+   voice."* in the panel and the terms, as on iOS; the user kept it (2026-11-18).
+3. **Adapted, terms *"What is recorded"*** — *"A key kept on this phone keeps it signed in, so you
+   don't need a password."* instead of the browser's cookie sentence.
+4. **Adapted, step 2** — *"One quick thing before you tap."*; the browser's *"Stay in this
+   browser"* has no app twin.
+5. **Adapted, problem hints** — *"Wait a little and try again."* (too many), *"Try again in a
+   minute."* (server), *"Go through the steps again, then tap the plaque."* (not ready): the
+   browser's *"open your link again"* would send the person to the browser (Q40). The activated
+   screens say *"You can close the app."*
+6. **App-only** — *"Can't reach Taptime"* / *"Check your connection and try again."* (no answer).
+7. **Platform word** — the two refusals iOS writes with *"iPhone"* say *"phone"* here:
+   *"This phone can't read the plaque"* / *"Setting up the app needs a tap on the plaque, and this
+   phone has no NFC reader."* / *"Ask your manager — setup without a plaque tap isn't available
+   yet."* (no NFC reader, refused **at launch, before the code screen**, as on iOS) and *"This
+   phone can't be set up"* / *"The app keeps its key in this phone's secure chip, and the chip
+   isn't available."* / *"Ask your manager — you can still use Taptime in your browser."*
+   (software key store, `KeyGate`).
+8. **Android only** — *"Turn on NFC in your phone's settings, then tap the plaque."* (the NFC
+   switch is off; iOS has none to name). iOS's *"Scan the plaque"* button and its scan sheet
+   have no Android twin: Android reads the plaque in reader mode while step 3 is on screen.
+9. **Problems are inline** — iOS shows a problem on its own screen with *"Try again"* / *"Start
+   again"*; Android shows the same words as a notice on the screen the person is sent back to.
+   Where each answer leads is iOS's: a plaque-judged refusal (tap failed, unknown or foreign
+   plaque, stale context), too many and no answer → the tap step; a server error or any other
+   refusal → the consent step (the key dropped, a new one bound on *"Agree and continue"*);
+   *not ready* → the consent step; an unusable invitation → the code screen.
+10. **Dropped / not shown** — the step-3 note *"Tapped and saw “Finish setup in this browser”?"*;
+    the browser's *"This phone belongs to someone else"* warnings (the app activates only when it
+    holds no live device); the logo (no logo bytes reach the app yet — M16-07 hands over only
+    digest and box; the header is the wordmark, ink beside an accent); the waiting screen's
+    moving rings (the plaque is drawn still).

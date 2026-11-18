@@ -56,7 +56,7 @@ import mt.taptime.app.wire.ServerClock
 class MainActivity : ComponentActivity() {
     private sealed interface Screen {
         data object Loading : Screen
-        data class Code(val problem: Problem?, val busy: Boolean = false) : Screen
+        data class Code(val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false) : Screen
         data class Welcome(
             val code: String, val facts: LookupReply,
             val problem: Problem? = null, val busy: Boolean = false, val terms: Boolean = false,
@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
     private fun Render() {
         when (val s = screen) {
             Screen.Loading -> LoadingScreen()
-            is Screen.Code -> CodeScreen(s.problem, s.busy, ::submitCode)
+            is Screen.Code -> CodeScreen(s.problem, s.notALink, s.busy, ::submitCode)
             is Screen.Welcome -> if (s.terms) {
                 BackHandler { screen = s.copy(terms = false) }
                 TermsSheet(s.facts.businessName, { open("/legal/privacy") }, { open("/legal/terms") }) {
@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
     private fun submitCode(pasted: String) {
         val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
         if (code == null) {
-            screen = Screen.Code(Problem.BAD_LINK)
+            screen = Screen.Code(null, notALink = true)
             return
         }
         screen = Screen.Code(null, busy = true)
