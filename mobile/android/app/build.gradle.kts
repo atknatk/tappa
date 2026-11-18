@@ -1,8 +1,38 @@
 import com.android.build.api.artifact.SingleArtifact
+import java.net.URI
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val PRODUCTION_BASE_URL = "https://taptime.mt"
+val baseUrlOverride: String? = providers.gradleProperty("taptime.baseUrl").orNull
+val debugBaseUrl: String = (baseUrlOverride ?: PRODUCTION_BASE_URL).also {
+    if (!it.startsWith("https://")) throw GradleException("taptime.baseUrl must be https://, got $it")
+}
+
+/** [s] as a Java string literal: backslash and quote escaped, control characters refused. */
+fun javaString(s: String): String {
+    if (s.any { it < ' ' }) throw GradleException("BASE_URL must not contain control characters")
+    return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+/** The host of [url], refused when there is none. */
+fun hostOf(url: String): String =
+    URI(url).host ?: throw GradleException("BASE_URL has no host: $url")
+
+// A release build with the debug-only override set stops before anything runs: the release
+// BASE_URL is the production one, and a release that silently ignored the property would be the
+// worse surprise.
+gradle.taskGraph.whenReady {
+    val release = allTasks.filter { it.project == project && it.name.contains("Release") }
+    if (baseUrlOverride != null && release.isNotEmpty()) {
+        throw GradleException(
+            "taptime.baseUrl is set ($baseUrlOverride) and a release task is scheduled (${release.first().name}): " +
+                "the release BASE_URL is fixed to $PRODUCTION_BASE_URL",
+        )
+    }
 }
 
 android {
@@ -20,16 +50,32 @@ android {
     }
 
     buildTypes {
+        // BASE_URL: the server the app talks to, whose activation links (<base>/activate) and
+        // plaque URLs (<base>/t) it accepts (M16-12). RELEASE IS PINNED to production's
+        // TAPPA_BASE_URL and nothing can change it: with taptime.baseUrl set, any release task
+        // stops the build (the check below). A DEBUG build may point elsewhere with
+        // -Ptaptime.baseUrl=https://... -- HTTPS only (the manifest forbids cleartext). The value
+        // is written as a Java string literal, escaped (javaString).
+        // plaqueHost: the host of BASE_URL, the only host whose /t the manifest's two plaque
+        // filters (NFC dispatch, App Link) take (M16-13). PlaqueRead re-checks scheme, host and
+        // port before anything is sent.
+        debug {
+            buildConfigField("String", "BASE_URL", javaString(debugBaseUrl))
+            manifestPlaceholders["plaqueHost"] = hostOf(debugBaseUrl)
+        }
         // No signingConfig anywhere: the debug build signs with Gradle's default debug key
         // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
         // repository is public; no keystore and no signing secret ever enters it.
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "BASE_URL", javaString(PRODUCTION_BASE_URL))
+            manifestPlaceholders["plaqueHost"] = hostOf(PRODUCTION_BASE_URL)
         }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -61,6 +107,25 @@ class MergedManifestArg(
         listOf("-Dtaptime.mergedManifest=${manifest.get().asFile.absolutePath}")
 }
 
+// The repository files the JVM tests read, by system property (M16-12). ContractPinTest checks
+// that it reads nothing outside this map.
+val serverFiles = mapOf(
+    "taptime.vectors" to "test/fixtures/appdevice_vectors.json",
+    "taptime.go.app" to "internal/handler/app.go",
+    "taptime.go.appactivate" to "internal/handler/appactivate.go",
+    "taptime.go.request" to "internal/appdevice/request.go",
+    "taptime.go.read" to "internal/appdevice/read.go",
+    "taptime.go.canonical" to "internal/appdevice/canonical.go",
+    // M16-13: the tap's request bodies (apptap.go) and the BROWSER's tap screen, whose words the
+    // app's tap screens carry (TapCopyTest): the problem texts, the two templates, the headline.
+    "taptime.go.apptap" to "internal/handler/apptap.go",
+    "taptime.go.tap" to "internal/handler/tap.go",
+    "taptime.templ.tap" to "web/templates/pages/tap.templ",
+    "taptime.templ.result" to "web/templates/pages/result.templ",
+    "taptime.go.view" to "web/templates/pages/view.go",
+    "taptime.js.tap" to "web/static/js/tap.js",
+)
+
 val mergedManifests = mutableMapOf<String, Provider<RegularFile>>()
 androidComponents {
     onVariants { variant ->
@@ -77,6 +142,33 @@ tasks.withType<Test>().configureEach {
     val rules = layout.projectDirectory.file("src/main/res/xml/data_extraction_rules.xml")
     inputs.file(rules).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.dataExtractionRules", rules.asFile.absolutePath)
+    // M16-12: the server's own files the wire tests are held to -- the known-answer vectors
+    // (M16-05, M16-07) and the Go source of the routes, headers and error vocabulary
+    // (ContractPinTest). Declared INPUTS, so a change on the server side re-runs the tests
+    // instead of leaving them UP-TO-DATE on a warm tree (the relay's audit B1 lesson).
+    // M16-13: the app's own source and resources, read by LocationCallSiteTest (where the location
+    // calls are), NoLogTest (what is logged) and TapCopyTest (strings.xml). A declared input
+    // directory, so an edit re-runs those tests.
+    val mainSrc = layout.projectDirectory.dir("src/main")
+    inputs.dir(mainSrc).withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("taptime.mainSrc", mainSrc.asFile.absolutePath)
+    // M16-13: the iOS twin's tap copy (mobile/ios/Taptime/TapCopy.swift, ActivationCopy.swift), held
+    // line for line by IosCopyTest. The files exist on a branch that carries both apps; on a branch
+    // without them the test is SKIPPED, not passed. -Ptaptime.iosRoot=<dir> reads another checkout's
+    // (a measurement, never a build input of release).
+    val iosRoot = providers.gradleProperty("taptime.iosRoot").orNull?.let { file(it) } ?: rootProject.file("../ios")
+    for ((property, name) in mapOf("taptime.ios.tapCopy" to "Taptime/TapCopy.swift", "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift")) {
+        val f = File(iosRoot, name)
+        if (f.isFile) {
+            inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)
+            systemProperty(property, f.absolutePath)
+        }
+    }
+    for ((property, path) in serverFiles) {
+        val f = rootProject.file("../../$path")
+        inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)
+        systemProperty(property, f.absolutePath)
+    }
 }
 
 dependencies {

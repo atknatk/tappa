@@ -1,0 +1,290 @@
+package mt.taptime.app
+
+import mt.taptime.app.activation.ActivationFlow
+import mt.taptime.app.activation.ActivationFlow.CompleteResult
+import mt.taptime.app.activation.KeyBacking
+import mt.taptime.app.activation.KeyGate
+import mt.taptime.app.activation.PendingActivation
+import mt.taptime.app.activation.Problem
+import mt.taptime.app.wire.AppClient
+import mt.taptime.app.wire.HttpUrlTransport
+import mt.taptime.app.wire.Outcome
+import mt.taptime.app.wire.ServerClock
+import org.junit.After
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The activation end to end over a socket: ActivationFlow -> AppClient -> HttpUrlTransport ->
+ * FakeAppServer, with JDK keys standing in for the Keystore's. What the server decides (the
+ * plaque, the counter, the invitation) is the fake's simplified rule; what is measured here is
+ * the APP: which requests it sends in which order, what it signs, what it keeps and drops.
+ */
+class ActivationFlowTest {
+    private val code = "q9bX3yJ0r1sT2uV3wX4yZ5a6b7c8d9e0f1g2h3i4j5k"
+    private val server = FakeAppServer(code)
+    private val keys = JdkKeys()
+    private val state = MemoryState()
+    private var phoneOffsetMillis = 0L
+    private val clock = ServerClock { System.currentTimeMillis() + phoneOffsetMillis }
+    private val flow = ActivationFlow(AppClient(HttpUrlTransport(server.base), clock, MiniJson), keys, state)
+
+    @After
+    fun stop() = server.close()
+
+    private fun sun(ctr: Int) = "tag=04A1B2C3D4E5F6&ctr=%06X&cmac=0011223344556677".format(ctr)
+
+    private fun bound(): PendingActivation {
+        val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+        return (flow.bind(code, facts) as ActivationFlow.BindResult.Bound).pending
+    }
+
+    @Test
+    fun lookupBindAndTheFirstReadActivateTheKeyThatWasBound() {
+        val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+        assertEquals("Maria Borg", facts.employeeName)
+        assertEquals("KF St Julians", facts.businessName)
+        assertEquals("KF-Staff", facts.wifiSsid)
+        assertTrue("the clock was measured from the first, unsigned answer", clock.measured)
+
+        val p = (flow.bind(code, facts) as ActivationFlow.BindResult.Bound).pending
+        assertArrayEquals("the server holds THIS key's point", p.key.signer.publicPoint, server.bound!!.point)
+        assertNull("nothing is stored before the tap", state.device)
+
+        val r = flow.complete(p, sun(17)) as CompleteResult.Activated
+        assertEquals(1, server.completed)
+        assertEquals(p.key.alias, r.device.keyAlias)
+        assertEquals("Maria Borg", r.device.employeeName)
+        assertEquals(r.device, state.device)
+        assertArrayEquals(p.key.signer.publicPoint, server.devices[r.device.deviceId])
+        assertEquals(
+            listOf("POST /app/v1/activate/lookup", "POST /app/v1/activate/bind", "POST /app/v1/activate/complete"),
+            server.seen,
+        )
+        assertTrue("no key was dropped", keys.deleted.isEmpty())
+    }
+
+    @Test
+    fun aReplayedReadIsRefusedAndTheNextReadActivates() {
+        val p = bound()
+        server.lastCtr = 17
+        val again = flow.complete(p, sun(17)) as CompleteResult.TapAgain
+        assertEquals(Problem.TAP_FAILED, again.problem)
+        assertEquals("the same bind waits for the next read", p, again.pending)
+        assertNull(state.device)
+        assertTrue(flow.complete(again.pending, sun(18)) is CompleteResult.Activated)
+    }
+
+    @Test
+    fun aReadWithoutACounterIsNotATouch() {
+        val p = bound()
+        val r = flow.complete(p, "tag=04A1B2C3D4E5F6") as CompleteResult.TapAgain
+        assertEquals(Problem.NEEDS_TOUCH, r.problem)
+    }
+
+    @Test
+    fun aTakenKeyIsReplacedByAFreshPairWithoutAskingForConsentAgain() {
+        val p = bound()
+        server.newKeyOnce = true
+        val r = flow.complete(p, sun(1)) as CompleteResult.TapAgain
+        assertNotEquals("a NEW key was generated and bound", p.key.alias, r.pending.key.alias)
+        assertTrue("the taken key is dropped", p.key.alias in keys.deleted)
+        assertArrayEquals(r.pending.key.signer.publicPoint, server.bound!!.point)
+        val done = flow.complete(r.pending, sun(2)) as CompleteResult.Activated
+        assertEquals(r.pending.key.alias, done.device.keyAlias)
+    }
+
+    @Test
+    fun aBindThatMovedSendsThePersonBackToConsent() {
+        val p = bound()
+        server.bindElsewhere()
+        val r = flow.complete(p, sun(5)) as CompleteResult.Rebind
+        assertEquals(Problem.NOT_READY, r.problem)
+        assertEquals(code, r.code)
+        assertTrue(p.key.alias in keys.deleted)
+        assertEquals("the plaque's counter was not spent by an unbound key", -1, server.lastCtr)
+    }
+
+    @Test
+    fun aSoftwareKeyIsDeletedAndNeverBound() {
+        keys.backing = KeyBacking.SOFTWARE
+        val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+        assertEquals(ActivationFlow.BindResult.Unsupported, flow.bind(code, facts))
+        assertEquals("the key was generated and deleted", listOf("test-key-1"), keys.deleted)
+        assertTrue(keys.live.isEmpty())
+        assertEquals("no bind was sent", listOf("POST /app/v1/activate/lookup"), server.seen)
+        assertNull(server.bound)
+    }
+
+    @Test
+    fun theGateRefusesOnlySoftware() {
+        for (b in KeyBacking.entries) assertEquals(b.name, b != KeyBacking.SOFTWARE, KeyGate.accepts(b))
+        for (b in KeyBacking.entries.filter { it != KeyBacking.SOFTWARE }) {
+            keys.backing = b
+            val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+            assertTrue(b.name, flow.bind(code, facts) is ActivationFlow.BindResult.Bound)
+        }
+    }
+
+    @Test
+    fun aRedirectIsNotFollowed() {
+        // HttpUrlTransport sets instanceFollowRedirects = false: a signed request is never carried
+        // to a path (or host) it was not signed for. The 307 comes back as a refusal, and the
+        // place it points at never sees the request.
+        FakeAppServer(code).use { elsewhere ->
+            server.redirectTo = elsewhere.base + "/app/v1/activate/lookup"
+            val client = AppClient(HttpUrlTransport(server.base), clock, MiniJson)
+            assertEquals(Outcome.Refused(307, null), client.lookup(code))
+            assertEquals(listOf("POST /app/v1/activate/lookup"), server.seen)
+            assertTrue("the redirect target was never asked", elsewhere.seen.isEmpty())
+        }
+    }
+
+    @Test
+    fun aServerErrorAtTheTapSendsThePersonBackToConsentAndAPlaqueErrorStaysAtTheTap() {
+        val p = bound()
+        server.completeFailsOnce = 500 to "server_error"
+        val r = flow.complete(p, sun(1)) as CompleteResult.Rebind
+        assertEquals(Problem.SERVER, r.problem)
+        assertTrue(p.key.alias in keys.deleted)
+        for (plaque in listOf(400 to "activation_tap_failed", 404 to "unknown_plaque", 403 to "foreign_tenant", 400 to "stale_context")) {
+            val q = bound()
+            server.completeFailsOnce = plaque
+            assertEquals(plaque.second, CompleteResult.TapAgain(q, Problem.TAP_FAILED), flow.complete(q, sun(2)))
+        }
+        val net = bound()
+        server.close()
+        assertEquals(CompleteResult.TapAgain(net, Problem.NETWORK), flow.complete(net, sun(3)))
+    }
+
+    @Test
+    fun aPhoneWithoutAReaderIsRefusedBeforeTheCodeScreen() {
+        assertEquals(Problem.NO_READER, ActivationFlow.refusedAtLaunch(hasNfcReader = false))
+        assertNull(ActivationFlow.refusedAtLaunch(hasNfcReader = true))
+    }
+
+    @Test
+    fun anUnknownCodeIsOneAnswer() {
+        val r = flow.lookup("A".repeat(43)) as ActivationFlow.LookupResult.Refused
+        assertEquals(Problem.BAD_LINK, r.problem)
+    }
+
+    @Test
+    fun aPhoneFiveMinutesOffIsStillSetUpAfterOneCorrectedRetry() {
+        flow.complete(bound(), sun(1)) as CompleteResult.Activated
+        // A fresh client on a phone whose clock is five minutes slow, as after a restart: the
+        // first signed read is outside the server's 60 s window.
+        phoneOffsetMillis = -5 * 60_000
+        val cold = ActivationFlow(AppClient(HttpUrlTransport(server.base), ServerClock { System.currentTimeMillis() + phoneOffsetMillis }, MiniJson), keys, state)
+        server.seen.clear()
+        val home = cold.home()
+        assertTrue(home is ActivationFlow.HomeResult.SetUp)
+        assertEquals("one 401, one corrected retry", listOf("GET /app/v1/me", "GET /app/v1/me"), server.seen)
+        assertNotNull(state.device)
+    }
+
+    @Test
+    fun aSignedOutPhoneKeepsItsRecordAndKeyUntilANewActivation() {
+        val done = flow.complete(bound(), sun(1)) as CompleteResult.Activated
+        server.devices.clear() // the panel's "Sign out their phones" -- or a server fault answering 401
+        server.seen.clear()
+        assertEquals(ActivationFlow.HomeResult.SignedOut, flow.home())
+        assertEquals("one 401, one retry", listOf("GET /app/v1/me", "GET /app/v1/me"), server.seen)
+        assertEquals("the record is kept", done.device, state.device)
+        assertTrue("the key is kept", keys.deleted.isEmpty())
+        assertEquals("and the next launch asks again", ActivationFlow.HomeResult.SignedOut, flow.home())
+        // Only a new successful activation replaces the record, and then the old key goes.
+        val again = flow.complete(bound(), sun(2)) as CompleteResult.Activated
+        assertEquals(again.device, state.device)
+        assertEquals(listOf(done.device.keyAlias), keys.deleted)
+        assertTrue(flow.home() is ActivationFlow.HomeResult.SetUp)
+    }
+
+    @Test
+    fun aRecordWhoseKeyIsGoneIsDropped() {
+        val done = flow.complete(bound(), sun(1)) as CompleteResult.Activated
+        keys.live.remove(done.device.keyAlias)
+        server.seen.clear()
+        assertEquals(ActivationFlow.HomeResult.NotActivated, flow.home())
+        assertNull(state.device)
+        assertTrue("nothing was asked of the server", server.seen.isEmpty())
+    }
+
+    @Test
+    fun aNewActivationOnThisPhoneDropsItsEarlierKey() {
+        val first = flow.complete(bound(), sun(1)) as CompleteResult.Activated
+        val second = flow.complete(bound(), sun(2)) as CompleteResult.Activated
+        assertNotEquals(first.device.keyAlias, second.device.keyAlias)
+        assertTrue(first.device.keyAlias in keys.deleted)
+        assertFalse(second.device.keyAlias in keys.deleted)
+        assertEquals(second.device, state.device)
+    }
+
+    // M16-12 hand-over (3): a Keystore that fails to hand out the key at launch is a "Try again"
+    // screen, the record and the key kept -- once is retried silently, twice is the screen.
+    @Test
+    fun aKeystoreThatFailsAtLaunchIsTryAgainAndKeepsEverything() {
+        val p = bound()
+        val device = (flow.complete(p, sun(17)) as CompleteResult.Activated).device
+        server.seen.clear()
+        var failures = 2
+        val flaky = object : mt.taptime.app.activation.DeviceKeys by keys {
+            override fun load(alias: String): mt.taptime.app.wire.Signer? {
+                if (failures > 0) {
+                    failures--
+                    throw java.security.KeyStoreException("keystore busy")
+                }
+                return keys.load(alias)
+            }
+        }
+        val f = ActivationFlow(AppClient(HttpUrlTransport(server.base), clock, MiniJson), flaky, state)
+        assertEquals(ActivationFlow.HomeResult.KeyUnreadable, f.home())
+        assertEquals(device, state.device)
+        assertTrue(keys.deleted.isEmpty())
+        assertTrue("nothing was asked", server.seen.isEmpty())
+        failures = 1
+        assertEquals(ActivationFlow.HomeResult.SetUp(device), f.home())
+    }
+
+    // M16-12 hand-over (1): API 31+'s unknown level passes only when the key reports itself inside
+    // secure hardware; every other report is mapped as before.
+    @Test
+    fun theBackingIsReadFromTheReportWithUnknownCrossChecked() {
+        val L = KeyBacking.Level.entries
+        for (level in L) for (inside in listOf(true, false)) for (sb in listOf(true, false)) {
+            val got = KeyBacking.fromReport(31, level, inside, sb)
+            val want = when (level) {
+                KeyBacking.Level.STRONGBOX -> KeyBacking.STRONGBOX
+                KeyBacking.Level.TRUSTED_ENVIRONMENT -> KeyBacking.TEE
+                KeyBacking.Level.UNKNOWN_SECURE -> KeyBacking.SECURE_HARDWARE
+                KeyBacking.Level.SOFTWARE -> KeyBacking.SOFTWARE
+                KeyBacking.Level.OTHER -> if (inside) KeyBacking.UNKNOWN else KeyBacking.SOFTWARE
+            }
+            assertEquals("31 $level inside=$inside", want, got)
+            // 26-30: the level is not reported at all; the older report decides.
+            val old = KeyBacking.fromReport(30, level, inside, sb)
+            assertEquals("30 inside=$inside sb=$sb", if (!inside) KeyBacking.SOFTWARE else if (sb) KeyBacking.STRONGBOX else KeyBacking.SECURE_HARDWARE, old)
+        }
+        assertFalse("an unknown level outside secure hardware is refused", KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, false, false)))
+        assertTrue(KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, true, false)))
+    }
+
+    // M16-16 hand-over (4), the iOS twin's clock: at launch, two 401s whose Date is a day or more off
+    // this phone's clock are "Check your phone's clock", not "signed out"; the record is kept.
+    @Test
+    fun aPhoneADayOffAtLaunchIsToldToCheckItsClock() {
+        val p = bound()
+        val device = (flow.complete(p, sun(17)) as CompleteResult.Activated).device
+        phoneOffsetMillis = -2L * 24 * 60 * 60 * 1000
+        assertEquals(ActivationFlow.HomeResult.Clock, flow.home())
+        assertEquals(device, state.device)
+        phoneOffsetMillis = 0
+        assertEquals(ActivationFlow.HomeResult.SetUp(device), flow.home())
+    }
+}

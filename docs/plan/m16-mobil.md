@@ -891,6 +891,13 @@ FAIL verir (M16-02: dosya bazlı ağ) — zamanlayıcılar ayrı bir görünüm 
 > göremez. Bu kart ya da M16-27 `<uses-feature android:name="android.hardware.location" android:required="false"/>`
 > yazıp yazmamaya karar verir. `android.hardware.nfc` zaten zorunlu değil (NFC'siz telefon kurabilir, ADR 0045).
 
+> **M16-12 devirleri (yeniden denetim, 2026-11-18).** (1) API 31+'da `SECURITY_LEVEL_UNKNOWN` bugün kabul edilir
+> (`KeystoreKeys.kt` `backingOf` → `UNKNOWN`, `Ports.kt` `KeyGate`): ucuz sertleştirme, UNKNOWN'da `isInsideSecureHardware`'e
+> de bakmak. (2) `InviteCode` port'a bakmaz, `PlaqueRead` bakar — tutarlı hale getir. (3) Keystore okunamazsa Android
+> genel sunucu metnini gösterir; iOS'un `keyUnreadable` metni + *Try again* eşi. (4) `backingOf` hata verirse yeni
+> anahtar yetim kalır. (5) **Tap ekranı dokunuştan önce kişinin adını gösterir** — ADR 0045 kabul edilmiş riskin
+> (paylaşılan telefon) hafifletmesi, kullanıcı kararı 2026-11-18.
+
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
 - **Bağımlılık:** M16-13
@@ -911,6 +918,13 @@ kez koşmak.
 - Tarayıcı yolu aynı telefonda uygulama kaldırılınca aynen çalışır.
 - Fazın büyük testleri bir kez: mobil JVM paketi tamamı, `make check`, `make audit`.
 - *Doğrula* maddelerinin sonuçları ADR 0045'e not.
+
+> **M16-13 devirleri — cihaz turunda ölç (2026-11-18).** (1) NFC dağıtımında uygulamanın tarayıcıdan önce seçildiği ve
+> App Link doğrulaması (assetlinks boşken davranış). (2) Recents / süreç ölümü sonrası plaket intent'inin yeniden
+> işlenmediği (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`). (3) API 30+'da `requestSingleUpdate`'in önbellek penceresinde
+> gerçekten taze fix verdiği; iç mekânda API 26–30 GPS + network yarışı. (4) `org.json` adaptörü telefonda (JVM'de stub).
+> (5) StrongBox → TEE düşüşü ve `securityLevel` okuması gerçek cihazda. (6) Basıştan sonra Back (API 26–30) çökmüyor.
+> (7) DB'de `client='app'`, `channel='nfc'`, `sun_valid=true`. (8) `RedactionTest` ad listesi dar (DÜŞÜK, devir).
 
 ---
 
@@ -1008,6 +1022,14 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 > (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçülmedi**;
 > M16-18'in App Store Connect'e ilk beta yüklemesi ölçer.
 
+> **M16-16 devirleri (yeniden denetim, 2026-11-18).** (1) **Tap ekranı dokunuştan önce kişinin adını gösterir** — ADR
+> 0045 kabul edilmiş riskin hafifletmesi (kullanıcı kararı 2026-11-18). (2) Kurulu ama aktive edilmemiş uygulama plaket
+> linklerini yutar (`ActivationModel.swift` tap adımı dışında yok sayar) — bu kart yönlendirmeyi kurar. (3) `save()` sil +
+> ekle atomik değil — `SecItemUpdate`. (4) Saati 24 saatten fazla kaymış telefon gerçek ölçümü hiç almaz ve hep *signed
+> out* görür; kullanıcıya *"telefonunun saatini kontrol et"* demeli. `ServerClock` yorumundaki *"UTC"* örneği yanlış
+> (saat dilimi mutlak zamanı değiştirmez). (5) `complete` yanıtı yolda kaybolursa sunucuda cihaz etkin, telefonda kayıt
+> yok → M16-18 cihaz turunda ölçülür.
+
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 
 - **Bağımlılık:** M16-17
@@ -1023,6 +1045,14 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 - Q11 için yan ölçüm: aynı iPhone'da tarayıcı oturumu ile uygulama cihazının bir hafta sonraki durumu (bilgi, kabul
   kriteri değil).
 - Fazın büyük testleri bir kez; *doğrula* sonuçları ADR 0045'e not.
+
+> **M16-17 devirleri — cihaz turunda ölç (2026-11-18).** (1) XS+ arka plan okuması → Universal Link → uygulama; öne
+> dönüş/link yarışı gerçek UIKit sırasıyla. (2) `UIApplication.open` uygulamanın kendi Universal Link'ini Safari'de mi açıyor
+> (döngü riski; kayıt yazılmaz). (3) İlk basışta konum izni uyarısı + NFC sayfası aynı anda (7–X). (4) `isSimulatedBySoftware`
+> gerçek cihazda. (5) iOS 15'te woff2 fontları. (6) ITMS-90778 (yalnız-NDEF yetki listesi) ilk beta yüklemesinde. (7)
+> `complete` yanıtı kaybı (cihaz sunucuda etkin, telefonda kayıt yok). (8) Bekletilen bildirimden harcanmış URL → reject +
+> debounce sıklığı. (9) DÜŞÜK UX: başarısız aktivasyon sonrası kuyruktaki link *not set up*'a düşer; `complete` sırasında
+> kuyruğa giren aynı URL tap ekranını açar; basış sırasında link gelirse `resultUnseen` kalır. (10) DB'de `sun_valid=true`.
 
 ---
 
