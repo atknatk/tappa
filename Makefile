@@ -252,6 +252,18 @@ android:
 android-test:
 	cd android && $(ANDROID_ENV) $(GRADLE) --console=plain testDebugUnitTest
 
+# ---------------------------------------------------------------- mobile ios --
+# Taptime iOS personel uygulamasi (ADR 0045, M16-15). Xcode ister; CI'da kosmaz (Q36 d).
+# Apple hesabina dokunmaz: simulator yerel imzali, cihaz derlemesi imzasiz. Adimlar ve
+# derlenmis Info.plist olcumu scripts/mobile-ios-test.sh'de.
+IOS_DERIVED_DATA ?= mobile/ios/build
+
+## mobile-ios-test: iOS uygulamasi -- simulator birim testi + imzasiz cihaz derlemesi + derlenmis Info.plist olcumu
+mobile-ios-test:
+	IOS_DERIVED_DATA=$(IOS_DERIVED_DATA) scripts/mobile-ios-test.sh
+
+.PHONY: mobile-ios-test
+
 # ------------------------------------------------------------------- kalite --
 # 🔴 DB ORTAMI YOKSA BU HEDEFLER KOSMAZ — ESKIDEN SESSIZCE YARIM KOSUYORDU
 # (M8-04 F1..F8 turu, 2026-08-19). Olculdu, `-v` ile: env YOKKEN yuzlerce test
