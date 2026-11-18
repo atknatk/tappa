@@ -425,7 +425,9 @@ published SHA-256 (`acd53f1e…f804d20a`), the runner image's Android SDK measur
 `platforms;android-36` / `build-tools;36.0.0` installed only if missing, then
 `testDebugUnitTest` for this app **and** for the relay (`android/`). First-party actions only.
 The job has no `timeout-minutes` key (`cmd/tappa`'s CI-timeout test allows exactly one, the
-`check` job's); each Gradle run is bounded by `timeout 30m` instead. A red `android` job makes the
+`check` job's); every step that can hang is bounded on its own instead — the Gradle download by
+`curl --max-time 300`, `sdkmanager` by `timeout 5m` / `timeout 15m`, each Gradle run by
+`timeout 30m`. A red `android` job makes the
 `ci` workflow red, and `deploy.yml` deploys `main` only on a green `ci`.
 
 ### Texts — the browser wizard's, one list with iOS

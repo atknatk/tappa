@@ -5,7 +5,7 @@
 #
 # Node YOK (CLAUDE.md §1): tailwind standalone ikilisi `make tools` ile iner;
 # `actions/setup-node`/npm/node adimi KULLANILMAZ. Yalnizca birinci-parti
-# action'lar (checkout, setup-go), major tag ile pinli (Q25(b)'nin CI karsiligi).
+# action'lar (checkout, setup-go, setup-java), major tag ile pinli (Q25(b)'nin CI karsiligi).
 name: ci
 
 # Kural her PUSH ve her PR'da zorlanir (kartin "her push" ifadesi).
@@ -321,7 +321,8 @@ jobs:
     # wrapper JAR.
     #
     # NO timeout-minutes KEY: cmd/tappa's CI-timeout test allows exactly one, the `check` job's.
-    # Each Gradle run is bounded by coreutils `timeout` instead.
+    # Every step that can hang is bounded on its own instead: the Gradle download by curl's
+    # --max-time, sdkmanager and each Gradle run by coreutils `timeout`.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -337,7 +338,7 @@ jobs:
         env:
           GRADLE_SHA256: acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a
         run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+          curl -fsSL --retry 3 --max-time 300 -o "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
           echo "$GRADLE_SHA256  $RUNNER_TEMP/gradle.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/gradle-9.7.1/bin" >> "$GITHUB_PATH"
@@ -355,8 +356,8 @@ jobs:
           [ -d "$ANDROID_HOME/build-tools/36.0.0" ] || need+=("build-tools;36.0.0")
           if [ ${#need[@]} -gt 0 ]; then
             echo "installing: ${need[*]}"
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "${need[@]}"
+            yes | timeout 5m "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+            timeout 15m "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "${need[@]}"
           else
             echo "platform 36 and build-tools 36.0.0 are on the image"
           fi
