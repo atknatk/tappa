@@ -205,6 +205,15 @@ data:
   # already frozen on rows stay.
   TAPPA_BUSINESS_DAY_FROM: "2026-10-22T16:30:00Z"
 
+  # 🟢 TAPPA_APP_APPLE_TEAM_ID — the iOS staff app's Apple Developer Team (M16-08, ADR 0045;
+  # Everva Bilisim A.S.). SET, /.well-known/apple-app-site-association names
+  # P6PM935BK2.mt.taptime.app for /t, so a plaque URL opens the installed app instead of Safari.
+  # It is public by design (Apple reads it from this file), not a secret. Set on 2026-11-18 for
+  # the iOS device tour (M16-18), once the app handles /t (M16-17); it touches only phones that
+  # have the app. TAPPA_APP_ANDROID_SIGNER_SHA256 stays unset until the Android app's signer is
+  # fixed (M16-14 / M16-28): unset serves no assetlinks.json and the browser keeps the plaque.
+  TAPPA_APP_APPLE_TEAM_ID: "P6PM935BK2"
+
   # 🔴 TAPPA_ADMIN_IDENTITY — the panel identity flag (ADR 0031 §8, M14-08). "off" | "on"; anything
   # else stops the boot (internal/config). OFF: every panel surface where a session linked to a
   # person's identity could look different from an unlinked one answers as before M14 — the sign-in
