@@ -159,6 +159,11 @@ type PolicyRuleView struct {
 	// an error, and it says so.
 	Stamp    string
 	Outdated string
+	// Added is the sentence shown on a rule a newer release ADDED to the baseline
+	// after this business was set up (tenant.Rule.Added). Unlike a change, an
+	// addition does reach the business on its own -- on its next tap, with no
+	// accept step (ADR 0045 Bedel 10) -- so it is said, not left to be noticed.
+	Added string
 	// Problem explains an unreadable document in the parser's own words.
 	Problem     string
 	Statements  []PolicyStatementView
@@ -370,6 +375,10 @@ type PoliciesView struct {
 	// rulebook has never been materialised is refused, and the page has to say so
 	// rather than showing controls that would fail.
 	MayEdit bool
+	// ReadOnlyWhy is the read-only arm's explanation, by the asker's role: an owner is
+	// pointed at the rules below (the stored rulebook decides for them), a manager at the
+	// guardrail that refuses them whatever it says. Words only -- MayEdit decides.
+	ReadOnlyWhy string
 	// Action is where the controls post: the confirmation step, never the write.
 	Action string
 	// ProblemHeading is the notice's TITLE for a refused change, and it is a field

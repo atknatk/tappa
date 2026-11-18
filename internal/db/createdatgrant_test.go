@@ -185,7 +185,9 @@ func TestTransactions00088_EveryShippedInsertNamesOnlyGrantedColumns(t *testing.
 //
 // Since T152 the walk is wrapped in 00095's Down and Up, goose's own order (ADR 0038 "Bedel"): 00095
 // adds five columns 00088's list does not name, so 00088's Up at HEAD would refuse them -- its own
-// DO block, the guard working. transactions is locked first for 00095's Down (lockForDowns).
+// DO block, the guard working. transactions is locked first for 00095's Down (lockForDowns). Since
+// M16-04 it is wrapped once more, in 00110's and 00109's Downs and Ups, for the same reason: 00109's
+// client is a column 00088's and 00095's lists do not name.
 func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, createdAtGrantFile)
@@ -215,6 +217,7 @@ func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t 
 		})
 	}
 	aiSavepoint(t, ctx, tx, func(sp pgx.Tx) {
+		clDown(t, ctx, sp)
 		ssDown(t, ctx, sp)
 		opRunSection(t, ctx, sp, down, "00088 Down")
 		if opInt(t, ctx, sp, `SELECT count(*) FROM pg_class WHERE oid = 'public.transactions'::regclass AND has_table_privilege('tappa_app', oid, 'INSERT')`) != 1 {
@@ -228,6 +231,7 @@ func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t 
 		}
 		opRunSection(t, ctx, sp, up, "00088 Up")
 		ssUp(t, ctx, sp)
+		clUp(t, ctx, sp)
 		if got := cgString(t, sp, cgAppInsertColumns); got != head {
 			t.Fatalf("Down then Up: tappa_app INSERTs %s, want HEAD's %s", got, head)
 		}

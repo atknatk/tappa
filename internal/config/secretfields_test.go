@@ -215,6 +215,26 @@ var keyFieldExemptions = map[string]string{
 	"handler/oauthapi.tokenResponse.TokenType":    "the constant \"Bearer\", no secret",
 	// A signed value that travels to the browser anyway.
 	"handler.claimStep.token": "the signed moment in a confirmation form's hidden field; it is sent to the browser by design",
+	// The /app/v1 surface's carriers of a device's PUBLIC key (M16-07): the bind and complete bodies (base64url
+	// text of the 65-byte point, as the phone sends it) and the activation's device parameters going into
+	// CreateAppDevice. Public, like the rows below; kept out of logs and bodies by §7's list, not for secrecy.
+	"handler.appBindRequest.PublicKey":     "the device's P-256 PUBLIC key in a bind body (base64url); it verifies, it opens nothing",
+	"handler.appCompleteRequest.PublicKey": "the device's P-256 PUBLIC key in a complete body (base64url); it verifies, it opens nothing",
+	"invite.DeviceParams.PublicKey":        "the device's P-256 PUBLIC key going into CreateAppDevice; it verifies, it opens nothing",
+	// The signed READ's body digest (M16-07), signedRequest.bodyDigest's twin: line 4 of the canonical text.
+	"appdevice.signedRead.bodyDigest": "SHA-256 of the signed app read's raw body, part of the canonical text the signature covers; " +
+		"a comparison value, it opens nothing",
+	// The native app's device key (00108, M16-03, ADR 0045 §2.3): the PUBLIC half of a P-256 pair whose private
+	// half never leaves the phone's Secure Enclave / Keystore. It verifies a signature and opens nothing; it is
+	// kept out of logs by M16-25's list, not because it is secret. The digest is SHA-256 of that public key.
+	"db.ResolvedAppDevice.PublicKey":        "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",
+	"store.AppDevice.PublicKey":             "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",
+	"store.CreateAppDeviceParams.PublicKey": "the device's P-256 PUBLIC key going in at activation; it verifies, it opens nothing",
+	"store.AppDevice.KeyDigest":             "SHA-256 of the device's PUBLIC key (the uniqueness column); a digest of nothing secret",
+	// The body digest of a signed app request (M16-05): it is line 4 of the canonical text the server rebuilds
+	// and checks the signature over, a comparison value like apikey.WriteRequest.RequestHash; it opens nothing.
+	"appdevice.signedRequest.bodyDigest": "SHA-256 of the signed app request's raw body, part of the canonical text the signature covers; " +
+		"a comparison value, it opens nothing",
 }
 
 // storeKeyFieldShape is what a key-named column of a sqlc row may be called. internal/store is generated

@@ -699,6 +699,7 @@ type fakeStaff struct {
 	// signOuts records every command asked.
 	signOutErr   error
 	signOutCount int
+	signOutApps  int
 	signOuts     []tenant.SignOutCommand
 }
 
@@ -830,18 +831,18 @@ func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (t
 }
 
 // SignOutPhones records the command (T59) and answers the configured refusal, or
-// signOutCount sessions revoked (1 when unset).
-func (f *fakeStaff) SignOutPhones(_ context.Context, c tenant.SignOutCommand) (int, error) {
+// signOutCount sessions and signOutApps app devices revoked (1 session when both are unset).
+func (f *fakeStaff) SignOutPhones(_ context.Context, c tenant.SignOutCommand) (tenant.SignedOut, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.signOuts = append(f.signOuts, c)
 	if f.signOutErr != nil {
-		return 0, f.signOutErr
+		return tenant.SignedOut{}, f.signOutErr
 	}
-	if f.signOutCount == 0 {
-		return 1, nil
+	if f.signOutCount == 0 && f.signOutApps == 0 {
+		return tenant.SignedOut{Sessions: 1}, nil
 	}
-	return f.signOutCount, nil
+	return tenant.SignedOut{Sessions: f.signOutCount, AppDevices: f.signOutApps}, nil
 }
 
 func (f *fakeStaff) signOutCommands() []tenant.SignOutCommand {

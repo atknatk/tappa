@@ -48,6 +48,14 @@ type storedAuthority struct {
 	params policy.Params
 }
 
+// PanelSet is StoredSet: these fixtures store every shipped document, so production's
+// completion of a baseline short of an added document (checkin.Service.PanelSet) has
+// nothing to do here. That path is measured against the real Service in
+// internal/domain/checkin (TestPolicySetDB_TheOwnerOfAnExistingBusinessIsNotLockedOutByAnAddedRule).
+func (s storedAuthority) PanelSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
+	return s.StoredSet(ctx, tenantID)
+}
+
 func (s storedAuthority) StoredSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	set := policy.Set{Guardrails: policy.Guardrails(s.params)}
 	var rows []store.ListPolicySetRow

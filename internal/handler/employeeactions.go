@@ -81,8 +81,9 @@ type panelStaff interface {
 	Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.PersonSummary, error)
 	Add(ctx context.Context, c tenant.AddCommand) (tenant.Person, error)
 	Deactivate(ctx context.Context, c tenant.DeactivateCommand) (tenant.Person, error)
-	// SignOutPhones revokes the person's live tap sessions and answers how many (T59).
-	SignOutPhones(ctx context.Context, c tenant.SignOutCommand) (int, error)
+	// SignOutPhones revokes the person's live tap sessions and live app devices, in one
+	// transaction, and answers how many of each (T59; M16-09).
+	SignOutPhones(ctx context.Context, c tenant.SignOutCommand) (tenant.SignedOut, error)
 	Move(ctx context.Context, c tenant.MoveCommand) (tenant.Person, error)
 	// The address on file (M10 EM-6, employeeemail.go): the card reads it, the
 	// owner's form changes it.
@@ -644,8 +645,10 @@ func (a *AdminAuth) employeeDeactivate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// employeeSignOutPhones ends every live tap session of one person (backlog T59): the panel's
-// "sign out of all devices", for a lost or stolen phone.
+// employeeSignOutPhones ends every live tap session AND every live native-app device of one
+// person (backlog T59; M16-09, ADR 0045 §2.3): the panel's "sign out of all devices", for a lost
+// or stolen phone. Both are revoked in ONE transaction with the trail row -- all or nothing
+// (tenant.Staff.SignOutPhones); a failure is a 500 with nothing changed, never a partial "done".
 //
 // IT IS deactivation's GATE, PART FOR PART: the confirmation screen mints a value bound to this
 // act, this person and this panel session (confirmActionSignOutPhones); a POST without it writes
@@ -658,10 +661,11 @@ func (a *AdminAuth) employeeDeactivate(w http.ResponseWriter, r *http.Request) {
 // smaller than a deactivation and is undone by a new activation link, which a manager may send.
 // The tenant and the actor come from the session (httpx.AdminOf); the domain refuses an id that is
 // not on this roster (tenant.ErrUnknownEmployee) and a deactivated person
-// (tenant.ErrSignOutDeactivated -- their sessions stay live so their attempts are recorded).
+// (tenant.ErrSignOutDeactivated -- their sessions and app devices stay live so their attempts are
+// recorded).
 //
-// 🔴 NO SESSION ID, TOKEN OR HASH IS LOGGED OR TRAILED. The domain returns a count; that is all
-// this handler holds.
+// 🔴 NO SESSION OR DEVICE ID, TOKEN, HASH OR KEY IS LOGGED OR TRAILED. The domain returns two
+// counts; that is all this handler holds.
 func (a *AdminAuth) employeeSignOutPhones(w http.ResponseWriter, r *http.Request) {
 	id := httpx.AdminOf(r)
 	f, employeeID, ok := a.readAction(w, r)
@@ -687,7 +691,8 @@ func (a *AdminAuth) employeeSignOutPhones(w http.ResponseWriter, r *http.Request
 	})
 	switch {
 	case err == nil:
-		a.log.Info("panel: signed an employee's phones out", "employee_id", employeeID, "sessions_revoked", n)
+		a.log.Info("panel: signed an employee's phones out", "employee_id", employeeID,
+			"sessions_revoked", n.Sessions, "app_devices_revoked", n.AppDevices)
 		a.redirect(w, rosterReturn(f, employeeID, "signed-out", ""))
 	case errors.Is(err, tenant.ErrUnknownEmployee):
 		a.log.Warn("panel sign-out refused: no such employee in this tenant")

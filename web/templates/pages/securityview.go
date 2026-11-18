@@ -442,6 +442,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 	otherBase := []SecurityNamed{
 		{Sid: "base:queued-window", Phrase: "a tap whose declared time is well in the past"},
 		{Sid: "base:ctr-gap-review", Phrase: "a tap after reads of the plaque the server never saw"},
+		// M16-06 (ADR 0045 §2.4). Said without naming the app: only the optional app can
+		// report it, and whether the public pages mention the app is Q42's question.
+		{Sid: "base:mock-location-review", Phrase: "a tap whose phone reports a simulated location"},
 	}
 	noted := SecurityNamed{Sid: "base:cross-location-note", Phrase: "note a tap at another of your venues without judging it"}
 	// l is a Line: the rungs' words carry their pins like every other sentence, and the

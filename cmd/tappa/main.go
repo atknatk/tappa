@@ -43,6 +43,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/appdevice"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/buildinfo"
 	"github.com/atknatk/tappa/internal/config"
@@ -418,6 +419,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The native app's signed surface (M16-07, ADR 0045 §2.3): the tap's and the activation's
+	// TWIN -- the same checkin service, the same directory, the same invitation manager and the
+	// same sun verifier (the activating tap advances the counter, as CompleteByTap does; the tap
+	// preview does not). The "who" is a device key, verified by internal/appdevice.
+	devices, err := appdevice.New(data)
+	if err != nil {
+		return err
+	}
+	app, err := handler.NewApp(devices, invites, verifier, directory, checkins, activation, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
 
 	// Panel authentication (M6-01 phase B). It is a SEPARATE manager from
 	// `sessions` on purpose — separate table, separate resolver, separate cookie
@@ -555,8 +568,10 @@ func run() error {
 	}
 	// 🔴 THE WRITER'S AUTHORITY IS THE DECIDING SERVICE ITSELF (M6-09 phase B). The
 	// panel asks the policy engine before it changes a rulebook, and it asks through
-	// checkin.Service.StoredSet — the NON-materialising read — so an admin who is
-	// about to be refused leaves no rows behind in an append-only table. Passing
+	// checkin.Service.PanelSet — StoredSet's all-or-nothing read, after completing a
+	// stored baseline with any document a later release ADDED (ADR 0045 Bedel 10) — so
+	// it never provisions a business, and a manager, refused at the guardrail stage,
+	// leaves no rows behind in an append-only table. Passing
 	// `checkins` here rather than building a second assembler is what keeps the gate
 	// and the tap path deciding on the same rulebook.
 	ruleWriter, err := tenant.NewRuleWriter(data, trail, checkins, checkins.Params(), slog.Default())
@@ -1025,6 +1040,15 @@ func run() error {
 		return err
 	}
 
+	// THE NATIVE APP'S ASSOCIATION FILES (M16-08): each served only while its platform is configured.
+	// The start-up line says which, in both states, so "not served" is read rather than inferred.
+	appLinks, err := handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
+	if err != nil {
+		return err
+	}
+	slog.Info("app association files", "apple_app_site_association", cfg.AppAppleTeamID != "",
+		"assetlinks", len(cfg.AppAndroidSignerSHA256) > 0)
+
 	// THE PROCESS'S ONE http.Server: the panel, the tap surface, the operator's host and
 	// the integration API's host are routes of the same handler (httpx.NewRouter routes
 	// by host), so every bound here covers all of them. Its three timeouts are set by
@@ -1032,7 +1056,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools, appLinks),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

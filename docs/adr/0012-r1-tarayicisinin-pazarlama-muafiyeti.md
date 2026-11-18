@@ -190,3 +190,33 @@ Sondalar tekrar koşturuldu: temiz ağaç exit 0 · boş giriş exit 2, asılmı
 Denetçinin doğrulayamadığı: **gawk/mawk** yerelde yok; POSIX'in tek-karakter FS
 kuralı gereği `split(phs, ph, "|")` ikisinde de literal beklenir. CI'ın ilk koşusu
 bunun ölçümüdür.
+
+## Ek (2026-11-14, M16-08) — altıncı ifade: bir protokol anahtarı
+
+M16-08 Android'in App Link dosyasını (`/.well-known/assetlinks.json`) sunar. Google'ın Digital Asset Links
+biçimi imza **sertifikasının** SHA-256 özetini tek bir anahtar adıyla ister: `"sha256_cert_fingerprints"`
+(*"Configure the assetlinks.json file"*, developer.android.com). Bu bir parmağın değil bir X.509 sertifikasının
+özetidir — §4.1'in konusu değildir — ama R1'in `fingerprint` kökü onu yakalar (ölçüldü: ilk taslak 38 satırla
+R1 FAIL).
+
+**Önce ad değişti, M16-03'ün yönüyle:** alan, fonksiyon, test ve yorumlarda kelime yerine *certificate
+digest / CertSHA256* yazıldı; 38 satır 2'ye indi. Kalan ikisi anahtarın kendisidir (`internal/handler/applinks.go`'nun
+struct etiketi ve `applinks_test.go`'nun altın satırı) ve değiştirilemez — başka yazımı yoktur.
+
+**Muafiyet, kendi yoluna bağlı (denetim sonrası, 2026-11-14):** ifade **tırnaklı** anahtardır
+(`"sha256_cert_fingerprints"`, tırnaksız kelime muaf değil) ve beş pazarlama ifadesinin kümesine **eklenmedi**:
+ikinci bir ifade→yol çifti olarak durur (`R1_PROTOCOL_PHRASES` / `R1_PROTOCOL_PATHS`), yolu yalnız iki dosya —
+`internal/handler/applinks.go` ve `applinks_test.go` (`^internal/handler/applinks(_test)?[.]go:`; alt dizin yok,
+`applinks*` öneki yok). İlk yazım (fc04f789) ifadeyi pazarlama listesine, yolu `applinks[^:]*\.go` olarak pazarlama
+yollarına eklemişti; iki genişleme ölçüldü: liste çarpım olduğu için pazarlama ifadeleri `applinks*.go`'da, anahtar
+pazarlama dosyalarında muaftı, ve yol `internal/handler/applinks/sub/x.go`'yu da kapsıyordu. `r1_select` her ifade
+kümesini yalnız kendi yol kümesinde çıkarır; üçüncü koşul aynen işler (ifadeler çıkarılınca satırda başka
+tetikleyici kalırsa FAIL). Her koşuda `[R1 · WARN]` olarak basılır. Beş pazarlama ifadesi kendi aralarında hâlâ
+çarpımdır (iki yol, beş ifade) — bu ek onu değiştirmedi.
+
+**Sondalar** (`cmd/tappa/scripttest` `TestRedline_M16_08_TheAssetLinksKeyIsTheOnlyWaiver`, her kırmızı vaka kendi
+ağacında): anahtar paket dışında · komşu bir handler dosyasında (`tap_r1.go`) · yakın ad (`applink.go`) · önek
+(`applinks_extra.go`) · alt dizin (`applinks/sub/x.go`) · bir pazarlama dosyasında → FAIL; muaf dosyada bir pazarlama
+ifadesi · tırnaksız kelime · kelimeyi taşıyan tanımlayıcı · anahtar + `webauthn` aynı satırda → FAIL; struct etiketi ve
+altın satır → muaf, WARN'da adlı. Mutantlar (ölçüldü, geri alındı): yol `internal/handler/[^:]*[.]go`'ya genişletilince
+beş vaka kırmızı; fc04f789'un çarpımlı biçimi geri konunca dört vaka kırmızı.

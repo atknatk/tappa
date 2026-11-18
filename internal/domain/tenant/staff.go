@@ -37,10 +37,11 @@ package tenant
 //
 // 🔴 WHAT THIS FILE DOES NOT DO, in the order somebody would expect it to:
 //
-//   - It does NOT revoke sessions when it deactivates somebody. That is a user
-//     decision (2026-08-07) and db/queries/sessions.sql carries the argument at
-//     RevokeSessionsForEmployee. Deactivate below states it again at the point a
-//     future reader would add the call.
+//   - It does NOT revoke sessions -- nor native-app devices (M16-09) -- when it
+//     deactivates somebody. That is a user decision (2026-08-07) and
+//     db/queries/sessions.sql carries the argument at RevokeSessionsForEmployee
+//     (db/queries/appdevices.sql repeats it for RevokeAppDevicesForEmployee).
+//     Deactivate below states it again at the point a future reader would add the call.
 //   - It does NOT reactivate. There is no query for it and no method here; see
 //     docs/adr/0010.
 //   - It does NOT issue invitations. Minting a code is internal/invite's, and the
@@ -288,6 +289,10 @@ type Staff struct {
 	// budget lock (staffapi.go) -- a test's meeting point, so concurrent deactivations reach the
 	// lock together. nil in production.
 	beforeBudget func(ctx context.Context)
+	// afterSessionsRevoked, when set, runs inside a sign-out's transaction between the session
+	// revoke and the app-device revoke (staffsignout.go) -- a test's meeting point, to cross a
+	// concurrent transaction's locks and measure the 40P01 retry. nil in production.
+	afterSessionsRevoked func(ctx context.Context)
 }
 
 // NewStaff wires it. A nil database or a nil trail is REFUSED rather than
@@ -799,11 +804,12 @@ type deactivateDetail struct {
 // on; what produces all three is sys:employee-deactivated reading employees.status
 // out of the policy context, so writing the column IS the mechanism.
 //
-// 🔴 AND THIS FUNCTION DELIBERATELY DOES NOT CALL RevokeSessionsForEmployee (user
-// decision, 2026-08-07). It is written here because this is where the next reader
-// will want to add it. Revoking would change nothing about the refusal -- the
-// guardrail already denies on status alone -- and would move every later tap by
-// that person off the branch where the outcome is CERTAIN (reject + RECORD + alert)
+// 🔴 AND THIS FUNCTION DELIBERATELY DOES NOT CALL RevokeSessionsForEmployee OR
+// RevokeAppDevicesForEmployee (user decision, 2026-08-07; the app device's twin, M16-09 --
+// staffsignout_app_db_test.go measures the device still unrevoked after a deactivation). It
+// is written here because this is where the next reader will want to add it. Revoking
+// would change nothing about the refusal -- the guardrail already denies on status
+// alone -- and would move every later tap by that person off the branch where the outcome is CERTAIN (reject + RECORD + alert)
 // onto the "revoked session" branch, whose correctness depends on each caller
 // remembering to write the record anyway. That is a section 4.6 risk taken for no
 // gain. revoked_at keeps its two jobs: a lost or stolen phone, and the second

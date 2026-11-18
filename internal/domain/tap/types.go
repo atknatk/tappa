@@ -68,6 +68,26 @@ const (
 	ChannelManual Channel = "manual" // manager-entered: entered_by set, SUN not sought
 )
 
+// Client is WHICH CLIENT wrote a tap — the value of transactions.client (migration
+// 00109, ADR 0045 §2.4). Like Channel it is SERVER-DERIVED: the endpoint that
+// accepted the request names it (POST /api/checkin → browser, /app/v1 → app), never
+// a body field, a header or a user agent. It is provenance, not evidence: it changes
+// no verdict and no trust score here (M16-06 hands it to the policy context).
+//
+// The zero value is "no client recorded" and is written as NULL — a manual record,
+// and a tap no client wrote (the API sandbox). Writing a value the CHECKs do not
+// know would refuse the INSERT with 23514 and lose the record (§4.6), so the write
+// path writes only the values in Clients and NULL for anything else.
+type Client string
+
+const (
+	ClientBrowser Client = "browser" // the tap page in the phone's browser (POST /api/checkin)
+	ClientApp     Client = "app"     // the optional native app's signed surface (/app/v1, M16-07)
+)
+
+// Clients is the closed list, in the CHECK's order (internal/db pins the two together).
+var Clients = []Client{ClientBrowser, ClientApp}
+
 // Verdict is the tap's outcome — the value written to transactions.verdict. It is
 // the Decision's headline field and maps 1:1 from the policy effect in M4-03
 // (allow->ok, review->flag, deny->reject, ignore->ignored).
@@ -463,6 +483,28 @@ type Input struct {
 
 	// Channel is the SERVER-DERIVED arrival path (see Channel). Never a client flag.
 	Channel Channel
+
+	// Client is the SERVER-DERIVED client that wrote this tap (see Client): the
+	// endpoint that accepted the request names it, never the body. Decide hands it
+	// to the policy context as tap:client so a tenant can write a rule about it; on
+	// its own it changes no verdict and no trust score (M16-06). The zero value, or
+	// any value outside Clients, puts no key in the context -- the same "no client"
+	// the record's NULL says (checkin's clientColumn).
+	Client Client
+
+	// MockLocation is the native app's report of whether the position it sent came
+	// from a mock provider (Android Location.isMock, iOS isSimulatedBySoftware —
+	// ADR 0045 §2.4), or nil when no report was made. A browser cannot make one, so
+	// every browser tap is nil, and nil puts NO key in the policy context: a
+	// missing key never matches (M3-04), which is what keeps every browser outcome
+	// exactly as it was. A non-nil value is recorded as tap:mockLocation.
+	//
+	// ⚠️ IT IS A CLIENT REPORT, like the GPS fix it describes, and the one input
+	// here whose VALUE the server does not derive (the server only decides that the
+	// app's endpoint may carry it). It is therefore only ever read in the direction
+	// that hurts the claimant: base:mock-location-review sends true to review, and
+	// nothing treats false as evidence. Trust (20 + 50 + 30) does not read it.
+	MockLocation *bool
 
 	// SUN is the proof-of-moment fact (see SUNResult). For a QR/manual tap it is the
 	// zero value (Valid=false); §5 line 2 reads it only for the nfc channel.

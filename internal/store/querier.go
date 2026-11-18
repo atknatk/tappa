@@ -355,6 +355,33 @@ type Querier interface {
 	// location.deleted row this product writes carries one, so today it is defensive; the
 	// empty string then means "the trail has no name for it" and the heading falls back.
 	ConfirmRecentRemoval(ctx context.Context, arg ConfirmRecentRemovalParams) (string, error)
+	// 🔴 THE SINGLE-USE CHECK, IN ONE STATEMENT (§4.4's shape -- the tags.last_ctr discipline). Matches
+	// the nonce only when it is THIS device's, in THIS tenant, unconsumed and unexpired, and stamps it
+	// in the same statement. pgx.ErrNoRows -> reject: unknown, another device's, replayed or expired --
+	// the caller does not need to tell them apart, and must never read the row first and write later.
+	// Two racing consumptions of one nonce: the second waits on the first's row lock and, after its
+	// commit, re-checks consumed_at IS NULL against the committed row -- exactly one RETURNING row.
+	//
+	// THE BELT (M16-03 security review) -- LOAD-BEARING, NOT REDUNDANT: the device must be unrevoked IN
+	// THIS STATEMENT, not only in the resolver's earlier answer. The revocations delete the nonces
+	// (RevokeAppDevice), which is what usually refuses here; the EXISTS refuses a nonce that survived a
+	// revocation written any other way AND the nonce an in-flight issue commits behind the revoke's
+	// snapshot (RevokeAppDevice's note -- the delete cannot see it, only this refuses it). FOR SHARE
+	// makes it hold under a race, not only after one: a consumption meeting an uncommitted revocation
+	// waits for it and re-checks revoked_at on the committed row (without the lock the subquery would
+	// read its snapshot and pass). Within this one statement the order is the revocation's -- the device
+	// row, then the nonce row -- and two consumptions of one device take compatible share locks.
+	// (TestAppRequestNonces_RevocationAndConsumptionRace measures these.)
+	//
+	// ⚠️ A CALLER COMPOSING STATEMENTS CAN STILL DEADLOCK (measured by the M16-03 security re-check):
+	// a request that consumes and THEN runs TouchAppDevice upgrades its share lock on the device row to
+	// an update lock, and two such requests deadlock (40P01); DeleteDeadAppRequestNonces and then
+	// IssueAppRequestNonce in one transaction take a nonce row before the device row, and a concurrent
+	// revoke deadlocks with it -- the measured victim was the REVOKE, so a stolen phone could keep a
+	// revocation failing. The rules, for M16-05 and M16-07: the device row first, then nonce rows;
+	// Touch BEFORE consume; the dead-nonce sweep AFTER issuing or in its own transaction; the revoke's
+	// caller retries on 40P01.
+	ConsumeAppRequestNonce(ctx context.Context, arg ConsumeAppRequestNonceParams) (uuid.UUID, error)
 	// THE activation statement, and the most critical query in M5-02. ONE statement
 	// does BOTH halves -- consume the invite and flip the employee to 'active' -- so
 	// that "this employee was activated" IMPLIES "an invite was consumed for them".
@@ -757,6 +784,14 @@ type Querier interface {
 	// answer "in use" for a department that is not. Measured: sqlc v1.28 emitted exactly
 	// that before the cast was added.
 	CountDepartmentReferences(ctx context.Context, arg CountDepartmentReferencesParams) (CountDepartmentReferencesRow, error)
+	// How many unconsumed, unexpired nonces one device holds: a READ for M16-07's cap on live nonces per
+	// device (the table cannot be inflated by a device asking without spending). ⚠️ It is NOT the cap:
+	// this count and then IssueAppRequestNonce is read-then-write, and concurrent issues exceed it.
+	// Folding the count into the INSERT's WHERE does NOT fix it either: measured by the M16-03 security
+	// re-check, with FOR SHARE OF d and with FOR UPDATE OF d two concurrent issues at a cap of 1 both
+	// landed. The cap needs the device row locked in a PREVIOUS statement of the same transaction
+	// (SELECT ... FOR NO KEY UPDATE) or a per-device advisory lock, before the count (M16-07's card).
+	CountLiveAppRequestNonces(ctx context.Context, arg CountLiveAppRequestNoncesParams) (int32, error)
 	// What still points at this venue, so the screen can say WHY it cannot be deleted.
 	//
 	// 🔴 IT IS ONE ROW AT A TIME, ON PURPOSE, AND THE COST IS WHY. Measured 2026-08-08 on
@@ -1291,6 +1326,34 @@ type Querier interface {
 	// second caller and passes 'manager'; migration 00006's CHECK is the authority on
 	// which values exist, so a Go-side literal here would be a second one.
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
+	// appdevices.sql -- the native app's devices and their single-use request nonces (M16-03, ADR 0045
+	// §2.3; migration 00108).
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The one context-less read of app_devices is the device resolver,
+	// resolve_app_device_by_id, hand-written in internal/db/resolve.go (sqlc cannot type a RETURNS
+	// TABLE call -- resolve.sql). It is NOT duplicated here: a signed request names a device id and no
+	// tenant, the resolver answers the tenant, and only then do these run.
+	//
+	// KIRMIZI CIZGI (§4.7, §7): no query RETURNS public_key, key_digest or nonce_hash -- tappa_app
+	// cannot SELECT the first two at all (00108), and the hash exists to be matched. The nonce itself
+	// never reaches the database: nonce_hash is computed by internal/appdevice (M16-05).
+	//
+	// 🔴 EVERY WRITE TO revoked_at IS COALESCE(revoked_at, now()) OR CARRIES `revoked_at IS NULL`
+	// (00011's BOUNDARY 2; db/queries/sessions.sql's note). The app_devices_revocation_one_way trigger
+	// refuses a revoked_at that moves, so a bare `SET revoked_at = now()` would reach it the moment two
+	// revocations race (the device's own sign-out against the panel's) and roll the winner's caller
+	// back. With the guard the loser re-reads the committed row and writes nothing new.
+	//
+	// DEACTIVATION MUST NOT CALL THE REVOCATIONS (the user's decision of 2026-08-07, sessions.sql's
+	// RevokeSessionsForEmployee note): a deactivated person's device stays live so that their next tap
+	// reaches §5 row 4 and is RECORDED; a revoked device would push it onto row 3's recordless path.
+	// Births an ACTIVE device at the end of activation (M16-07, in the transaction that consumes the
+	// invite). tenant_id is explicit and the RLS WITH CHECK confirms it equals the context; the
+	// composite key to employees confirms the person is in the same tenant. id, key_digest
+	// (GENERATED from public_key) and created_at are the database's. A key already registered -- live
+	// or revoked, in any tenant -- is refused by app_devices_key_digest_key (23505).
+	CreateAppDevice(ctx context.Context, arg CreateAppDeviceParams) (CreateAppDeviceRow, error)
 	// Adds a department INSIDE a venue.
 	//
 	// 🔴 THE VENUE IS SELECTED, NOT ASSIGNED, which is the shape MoveEmployee argues
@@ -1805,6 +1868,10 @@ type Querier interface {
 	// request) or the send failed (back-off). The request stays, due again at @due. Only under this
 	// worker's lease.
 	DeferInviteRequest(ctx context.Context, arg DeferInviteRequestParams) (*time.Time, error)
+	// The cleanup decision of 00108: a device's dead nonces (consumed, or expired) are deleted by the
+	// issuing path before it issues the next one. Fail-closed by construction -- a consumption needs a
+	// live row, so a deleted row can only ever be a reject. Never touches a live nonce.
+	DeleteDeadAppRequestNonces(ctx context.Context, arg DeleteDeadAppRequestNoncesParams) (int64, error)
 	// Removes a department that nothing points at. Same argument as DeleteLocation: the
 	// foreign keys are the guard, the count is what the screen says.
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (DeleteDepartmentRow, error)
@@ -1901,6 +1968,13 @@ type Querier interface {
 	// §12, the owner's Disconnect: ADR 0047's statement verbatim -- the reason 'owner' and the
 	// membership that pressed it.
 	DisconnectOAuthGrant(ctx context.Context, arg DisconnectOAuthGrantParams) (int64, error)
+	// The live-nonce cap (M16-07, appdevice.MaxLiveNonces): deletes every live nonce of one device
+	// but the @keep newest, so the insert that follows leaves at most @keep + 1. OVER THE CAP THE
+	// OLDEST GOES AND THE REQUEST IS NEVER REFUSED (M16-05 review: a refusal would let whoever can
+	// sign for the device keep the real phone from getting a nonce). Fail-closed like the dead sweep:
+	// a deleted nonce can only ever be a reject. ⚠️ ATOMIC ONLY AFTER LockAppDeviceForNonce in the
+	// same transaction -- on its own this is a read-then-write over the device's nonces.
+	DropOldestLiveAppRequestNonces(ctx context.Context, arg DropOldestLiveAppRequestNoncesParams) (int64, error)
 	// invitequeue.sql -- K-17's invitation queue (M11 API-6; ADR 0028 §9, ADR 0022's M11 note).
 	//
 	// WHAT A ROW IS. invite_requests (00037) holds ONE request per employee -- (tenant_id,
@@ -2719,8 +2793,9 @@ type Querier interface {
 	// the entry stays open in the list. It takes a hand-written POST that hits the
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
-	// business_day_start, direction_source (00065, M15-09) and the five shift_* columns
-	// (00095, T152) are in the list because this query returns the whole store Transaction
+	// business_day_start, direction_source (00065, M15-09), the five shift_* columns
+	// (00095, T152) and client (00109, M16-04) are in the list because this query returns
+	// the whole store Transaction
 	// (a row type without them would be a second model); nothing here filters on any of
 	// them. Whether this entry is still in the tap's business day is the engine's question
 	// (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
@@ -2949,6 +3024,14 @@ type Querier interface {
 	// LIVE MEANS revoked_at IS NULL, exactly ListPanelEmployees' lateral: the card's count and
 	// the roster row's count are the same number. A deactivated person keeps theirs (user
 	// decision 2026-08-07: deactivating does not sign phones out), and the card says so.
+	//
+	// live_app_devices (M16-09) is the native app's twin, a SEPARATE count: "Sign out their phones"
+	// closes both (RevokeAppDevicesForEmployee, tenant.Staff.SignOutPhones), so the card must offer
+	// it to a person signed in only in the app -- with one "who" credential per person (Q40 (a)) that
+	// is everybody who uses the app. Same predicate as the revoke (tenant_id, employee_id,
+	// revoked_at IS NULL), so the count the warning states is the set the revoke changes. It reads
+	// only columns tappa_app may SELECT (00108: never public_key or key_digest). The roster row's
+	// count stays the browser's until M16-26 lists devices on the card.
 	//
 	// THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees
 	// documents: a LEFT JOIN LATERAL column is typed by its SOURCE column. last_used_at is
@@ -3693,6 +3776,18 @@ type Querier interface {
 	// NULL for the rest, by the business day's rule); NULL on every row before 00095 and
 	// on manual rows, which the report measures against today's shift and says so.
 	// 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
+	//
+	// client (M16-04, migration 00109, ADR 0045 §2.4): which client wrote the tap --
+	// 'browser' (the tap page, POST /api/checkin) or 'app' (the native app's /app/v1,
+	// M16-07). SERVER-DERIVED from the endpoint that accepted the request (checkin.Request's
+	// Client, set by the handler -- never a body field, header or user agent). NULL on every
+	// row before 00109, on the manual channel (insertParams forces it: a manager's record is
+	// not a tap) and on a row no client wrote (the API sandbox). The three manual statements
+	// do not name the column and it has no default, so their rows are NULL. 00109's two
+	// CHECKs (validated by 00110): the value set admits NULL and the two values and nothing
+	// else, and a manual row carries no client -- there is no "a tap must carry a client"
+	// CHECK, because it would refuse the previous binary's taps during the rollout and lose
+	// them (section 4.6).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
 	// the record besides audit_log.
@@ -3846,16 +3941,32 @@ type Querier interface {
 	// rotated_at are the table's (default, NULL). A second endpoint of the business meets
 	// webhook_endpoints_one_per_tenant: a unique violation, SQLSTATE 23505.
 	InsertWebhookEndpoint(ctx context.Context, arg InsertWebhookEndpointParams) (time.Time, error)
-	// A READ used ONLY to label a refused activation for audit_log (internal/invite
+	// A READ used to label a refused activation for audit_log (internal/invite
 	// classify): "nobody consented / another browser consented" versus the other
-	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
-	// and nothing branches on this value before consuming.
+	// refusals. It is NOT the gate -- the gate is the consuming statement's own WHERE.
+	// Its one other reader (M16-07, invite.Manager.ConsentBound) is the app
+	// activation's NON-ADVANCING pre-check: an unbound key is refused before
+	// sun.Verify moves the plaque's counter. A stale "true" only lets the request
+	// reach the consuming statement, which then refuses it; nothing is ever
+	// accepted on this value.
 	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
 	// Whether an address is, as citext, the address of an administrator of THIS business (ADR
 	// 0022 §7: an activation link mailed to the panel's own inbox is ADR 0005 Y-D with one step
 	// fewer). GetInviteRecipient asks the same at send time; the API asks it at the request, so the
 	// integrator hears 422 instead of a queued request the worker would refuse.
 	IsAdministratorAddress(ctx context.Context, arg IsAdministratorAddressParams) (bool, error)
+	// Records a nonce for a LIVE device and returns when it expires. The INSERT reads the device row in
+	// the same statement: a revoked device, a device of another tenant or an unknown id inserts nothing
+	// and the caller sees pgx.ErrNoRows -- "a device that is not active is given no nonce" (ADR 0045
+	// §2.3) is the statement's shape, not a check before it. ttl_seconds is the caller's; the table's
+	// CHECK caps it at 5 minutes (23514 above that). created_at is the database's now().
+	//
+	// FOR SHARE OF d: an issue racing a revocation waits for the revoking transaction and then re-reads
+	// the committed device row (READ COMMITTED re-checks a locked row's qual on its newest version), so
+	// it inserts nothing -- instead of inserting a live nonce AFTER the revocation deleted the others.
+	// FOR SHARE needs UPDATE on some column of app_devices, which tappa_app holds (last_used_at,
+	// revoked_at); it does not conflict with another FOR SHARE, so two issues do not wait for each other.
+	IssueAppRequestNonce(ctx context.Context, arg IssueAppRequestNonceParams) (IssueAppRequestNonceRow, error)
 	// The owner's alert (ADR 0028 §12): every key that ran out of its deactivation budget in the last
 	// @window_seconds, newest first, with the key's name as it is now (a LEFT JOIN: a key cannot be
 	// deleted, but the trail must still show a row whose key it cannot name) and the budget the row
@@ -5772,6 +5883,14 @@ type Querier interface {
 	LockAdminForResetIssue(ctx context.Context, arg LockAdminForResetIssueParams) error
 	// One membership of this business, locked; no row: not a membership here.
 	LockAdminMember(ctx context.Context, arg LockAdminMemberParams) (LockAdminMemberRow, error)
+	// The FIRST statement of IssueNonce's transaction (M16-07): it takes the device row's lock before
+	// any nonce row is touched -- the revocation's order (device row, then nonce rows; M16-03's D1) --
+	// and it is what makes the live-nonce cap atomic: two issues of one device queue here, so the
+	// drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
+	// FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
+	// closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
+	// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00108).
+	LockAppDeviceForNonce(ctx context.Context, arg LockAppDeviceForNonceParams) (uuid.UUID, error)
 	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
 	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
 	// concurrent CreateInvite's foreign-key check holds, so an invitation being minted right now
@@ -6499,6 +6618,31 @@ type Querier interface {
 	// Every live key of this tenant -- the incident button. Only the rows THIS statement revoked come
 	// back; a key another request revoked first is not among them.
 	RevokeAllAPIKeys(ctx context.Context, tenantID uuid.UUID) ([]RevokeAllAPIKeysRow, error)
+	// Revokes one device (its own sign-out, POST /app/v1/revoke; the panel's single-device revoke,
+	// M16-26). COALESCE keeps the FIRST stamp, so a repeat is idempotent and never rewrites when the
+	// device died. The row is matched whatever its state, so pgx.ErrNoRows means "no such device in
+	// this tenant" -- a different answer from "already revoked".
+	//
+	// 🔴 THE REVOCATION KILLS THE DEVICE'S NONCES IN THE SAME STATEMENT (M16-03 security review): a nonce
+	// issued before the revoke would otherwise stay spendable for its lifetime. The DELETE runs in this
+	// statement whatever the SELECT reads (a data-modifying CTE always runs once). A consumption that
+	// already holds a nonce's row lock makes this DELETE wait for it, so that consumption commits BEFORE
+	// the revocation; one that comes later finds the row gone.
+	//
+	// ⚠️ THE DELETE DOES NOT CATCH EVERY NONCE, SO ConsumeAppRequestNonce's BELT IS LOAD-BEARING. In the
+	// order "issue in flight, then revoke" the UPDATE waits for the issue's FOR SHARE lock, but this
+	// statement's snapshot predates the issue's commit, so the DELETE does not see that nonce and it
+	// survives the revocation (measured by the M16-03 security re-check). Only the EXISTS ... FOR SHARE
+	// in ConsumeAppRequestNonce refuses it. Neither half may be removed as redundant.
+	RevokeAppDevice(ctx context.Context, arg RevokeAppDeviceParams) (RevokeAppDeviceRow, error)
+	// Revokes EVERY live device of one person and returns the ids it revoked (empty when none was live
+	// -- idempotent): the panel's "Sign out their phones" (T59) reaching the app (ADR 0045 §2.3). The
+	// caller refuses it for a deactivated person (tenant.ErrSignOutDeactivated) -- see the header.
+	// Like RevokeAppDevice it deletes the revoked devices' nonces in the same statement.
+	// Its caller (tenant.Staff.SignOutPhones, M16-09) runs it in ONE transaction after
+	// RevokeSessionsForEmployee and before the trail row -- sessions, then devices, then nonces -- and
+	// retries the whole transaction on 40P01.
+	RevokeAppDevicesForEmployee(ctx context.Context, arg RevokeAppDevicesForEmployeeParams) ([]uuid.UUID, error)
 	// §6: an access token presented to /oauth/revoke ends alone; the grant lives (§18.2 item 13). 0
 	// rows: already revoked or not an access token of this tenant -- RFC 7009 answers 200 either way.
 	RevokeOAuthAccessToken(ctx context.Context, arg RevokeOAuthAccessTokenParams) (int64, error)
@@ -6952,6 +7096,9 @@ type Querier interface {
 	// so adminauth.Verify never reaches here with one; the predicate is for a caller that forgot to look
 	// (adminsessionlifetime_test.go pins the literal to the constant at the second).
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
+	// Refreshes last_used_at on use. revoked_at IS NULL makes it fail CLOSED: a device revoked between
+	// resolution and this write updates 0 rows (pgx.ErrNoRows) instead of being stamped as fresh.
+	TouchAppDevice(ctx context.Context, arg TouchAppDeviceParams) (TouchAppDeviceRow, error)
 	// §8.1 step 6: last_used_at at most once a minute per grant (TouchAPIKey's rule), the "Connected
 	// apps" list's last use. A revoked grant is not touched.
 	TouchOAuthGrant(ctx context.Context, arg TouchOAuthGrantParams) (int64, error)

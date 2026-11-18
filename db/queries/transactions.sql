@@ -134,8 +134,9 @@
 -- the entry stays open in the list. It takes a hand-written POST that hits the
 -- entry's microsecond, and it gains no hours: the pair counts zero time either way.
 --
--- business_day_start, direction_source (00065, M15-09) and the five shift_* columns
--- (00095, T152) are in the list because this query returns the whole store Transaction
+-- business_day_start, direction_source (00065, M15-09), the five shift_* columns
+-- (00095, T152) and client (00109, M16-04) are in the list because this query returns
+-- the whole store Transaction
 -- (a row type without them would be a second model); nothing here filters on any of
 -- them. Whether this entry is still in the tap's business day is the engine's question
 -- (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
@@ -146,7 +147,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
        direction_source, shift_source, shift_start, shift_end, shift_overnight,
-       shift_timezone
+       shift_timezone, client
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
@@ -330,7 +331,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
        direction_source, shift_source, shift_start, shift_end, shift_overnight,
-       shift_timezone
+       shift_timezone, client
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -406,6 +407,18 @@ LIMIT 1;
 -- NULL for the rest, by the business day's rule); NULL on every row before 00095 and
 -- on manual rows, which the report measures against today's shift and says so.
 -- 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
+--
+-- client (M16-04, migration 00109, ADR 0045 §2.4): which client wrote the tap --
+-- 'browser' (the tap page, POST /api/checkin) or 'app' (the native app's /app/v1,
+-- M16-07). SERVER-DERIVED from the endpoint that accepted the request (checkin.Request's
+-- Client, set by the handler -- never a body field, header or user agent). NULL on every
+-- row before 00109, on the manual channel (insertParams forces it: a manager's record is
+-- not a tap) and on a row no client wrote (the API sandbox). The three manual statements
+-- do not name the column and it has no default, so their rows are NULL. 00109's two
+-- CHECKs (validated by 00110): the value set admits NULL and the two values and nothing
+-- else, and a manual row carries no client -- there is no "a tap must carry a client"
+-- CHECK, because it would refuse the previous binary's taps during the rollout and lose
+-- them (section 4.6).
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
@@ -413,7 +426,7 @@ INSERT INTO transactions (
     policy_version_id, matched_sid, policy_layer, policy_context,
     site_tenant_id, site_location_id, site_tag_uid, business_day_start,
     direction_source, shift_source, shift_start, shift_end, shift_overnight,
-    shift_timezone
+    shift_timezone, client
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
@@ -421,7 +434,7 @@ INSERT INTO transactions (
     @policy_version_id, @matched_sid, @policy_layer, @policy_context,
     @site_tenant_id, @site_location_id, @site_tag_uid, @business_day_start,
     @direction_source, @shift_source, @shift_start, @shift_end, @shift_overnight,
-    @shift_timezone
+    @shift_timezone, @client
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
@@ -429,7 +442,7 @@ RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
           site_tenant_id, site_location_id, site_tag_uid, business_day_start,
           direction_source, shift_source, shift_start, shift_end, shift_overnight,
-          shift_timezone;
+          shift_timezone, client;
 
 -- name: ExistingManualRecord :one
 -- THE SAME MANUAL RECORD, ALREADY WRITTEN (backlog T258, user decision 2026-11-09). The panel

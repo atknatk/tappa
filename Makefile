@@ -230,8 +230,8 @@ sandbox-local-seed:
 
 # ------------------------------------------------------------------ android --
 # Plaket encode rolesi (android/, M8-05 FAZ B3): Go modulunun DISINDA ayri bir Gradle
-# derlemesi. `check`in PARCASI DEGIL -- Go CI'i ona dokunmaz ve redline-check'in SRC
-# listesi onu taramaz. Zincir: SISTEM Gradle'i (agacta wrapper JAR yok, repo ikili
+# derlemesi. `check`in PARCASI DEGIL -- Go CI'i onu derlemez; redline-check'in SRC
+# listesi ise M16-02'den beri onu TARAR (android/README.md). Zincir: SISTEM Gradle'i (agacta wrapper JAR yok, repo ikili
 # tasimaz) + JDK 21 + ANDROID_HOME altindaki SDK. Tam surumler: android/README.md.
 #
 # JAVA_HOME ACIKCA VERILIR, VARSAYILMAZ. Olculdu: JAVA_HOME'suz `gradle` bu makinede
@@ -251,6 +251,39 @@ android:
 ## android-test: relay JVM testleri -- donanim gerekmez (sahte sunucu + sahte cip)
 android-test:
 	cd android && $(ANDROID_ENV) $(GRADLE) --console=plain testDebugUnitTest
+
+# ---------------------------------------------------------------- mobile ios --
+# Taptime iOS personel uygulamasi (ADR 0045, M16-15). Xcode ister; CI'da kosmaz (Q36 d).
+# Apple hesabina dokunmaz: simulator yerel imzali, cihaz derlemesi imzasiz. Adimlar ve
+# derlenmis Info.plist olcumu scripts/mobile-ios-test.sh'de.
+IOS_DERIVED_DATA ?= mobile/ios/build
+
+## mobile-ios-test: iOS uygulamasi -- simulator birim testi + imzasiz cihaz derlemesi + derlenmis Info.plist olcumu
+mobile-ios-test:
+	IOS_DERIVED_DATA=$(IOS_DERIVED_DATA) scripts/mobile-ios-test.sh
+
+.PHONY: mobile-ios-test
+
+# ----------------------------------------------------------- mobile-android --
+# Personel uygulamasi (mobile/android/, ADR 0045, M16-11): rolenin (android/) YANINDA ayri
+# bir Gradle derlemesi, ayni zincir ve ayni ANDROID_ENV (JDK 21 + ANDROID_HOME, sistem
+# Gradle'i, wrapper JAR yok). `check`in PARCASI DEGIL; redline-check mobile/'i SRC'sine alir.
+# Surumler ve debugRuntimeClasspath dokumu: mobile/android/README.md.
+# Kurulum `make android`in deseni, tek farkla: bagli cihaz yoksa APK derlenir ve yolu
+# yazilir (derleme yine yesil) -- iskelet cihazsiz da dogrulanir.
+MOBILE_ANDROID_APK := mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+## mobile-android: personel uygulamasinin APK'sini derle (assembleDebug); adb'de cihaz varsa kur
+mobile-android:
+	cd mobile/android && $(ANDROID_ENV) $(GRADLE) --console=plain assembleDebug
+	@if adb get-state >/dev/null 2>&1; then adb install -r $(MOBILE_ANDROID_APK); \
+	  else echo "mobile-android: no adb device -- APK at $(MOBILE_ANDROID_APK)"; fi
+
+## mobile-android-test: personel uygulamasinin JVM testleri (birlesik manifest izin olcumu dahil)
+mobile-android-test:
+	cd mobile/android && $(ANDROID_ENV) $(GRADLE) --console=plain testDebugUnitTest
+
+.PHONY: mobile-android mobile-android-test
 
 # ------------------------------------------------------------------- kalite --
 # 🔴 DB ORTAMI YOKSA BU HEDEFLER KOSMAZ — ESKIDEN SESSIZCE YARIM KOSUYORDU

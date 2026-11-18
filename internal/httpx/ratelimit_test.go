@@ -639,3 +639,38 @@ func TestTapLimiter_DefaultsAreWideEnoughForAShiftChange(t *testing.T) {
 			tapSessionLimit, reloads*(page+coldLogo))
 	}
 }
+
+// TestTapLimiter_AllowDevice (M16-07 review): one verified app device's bucket refuses past the
+// session-sized limit with a 429 and one audit row; another device, and a browser SESSION with the
+// very same UUID, each count in a bucket of their own.
+func TestTapLimiter_AllowDevice(t *testing.T) {
+	rec := &recorder{}
+	l := NewTapLimiter(TapLimitParams{Audit: rec, Log: quietLog(), SessionLimit: 2})
+	dev, other, tenant, emp := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	allow := func(id uuid.UUID) (bool, int) {
+		w := httptest.NewRecorder()
+		ok := l.AllowDevice(w, httptest.NewRequest(http.MethodGet, "/app/v1/me", nil), id, tenant, emp)
+		return ok, w.Code
+	}
+	for i := 0; i < 2; i++ {
+		if ok, _ := allow(dev); !ok {
+			t.Fatalf("request %d within the limit was refused", i+1)
+		}
+	}
+	if ok, code := allow(dev); ok || code != http.StatusTooManyRequests {
+		t.Fatalf("past the limit: allowed %v, status %d; want refused with 429", ok, code)
+	}
+	if ok, _ := allow(dev); ok {
+		t.Fatal("a second request past the limit was allowed")
+	}
+	if rec.count() != 1 {
+		t.Fatalf("%d audit rows for one window's refusals, want 1", rec.count())
+	}
+	if ok, _ := allow(other); !ok {
+		t.Fatal("another device shares the first one's bucket")
+	}
+	// A browser session with the device's 128 bits: its own bucket.
+	if n := l.sess.Charge(dev.String()); n != 1 {
+		t.Fatalf("a session with the device's id found %d charges in its bucket, want 1", n)
+	}
+}

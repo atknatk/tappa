@@ -207,13 +207,18 @@ const storeDir = "internal/store"
 // panel's per-request statement so the write gate needs no second query. Harmless by
 // this inventory's test: no []byte, no key, no model type, and neither column carries
 // anything but a time and one of four words.
+//
+// M16-09 (2026-11-14) widened GetPanelPersonSummaryRow by LiveAppDevices (int64): a count of the
+// person's unrevoked app_devices rows, so the card offers "Sign out their phones" to somebody
+// signed in only in the app. Harmless by this inventory's test: a number -- no []byte, no device
+// id, no key (tappa_app cannot SELECT public_key or key_digest at all, 00108), no label.
 var storeSurface = map[string]string{
 	"AuditEventVisible": "(context.Context, AuditEventVisibleParams{TenantID uuid.UUID; ID uuid.UUID}) (bool, error)",
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
 	// and the invitation queue (invitequeue.sql). No address is returned (has_email / same_email are
 	// booleans computed in SQL), no code and no hash; ids, names, instants and counts.
 	"CountPanelEmployeesByStatus":    "(context.Context, CountPanelEmployeesByStatusParams{LocationID *uuid.UUID; DepartmentID *uuid.UUID; FullName *string; TenantID uuid.UUID}) ([]CountPanelEmployeesByStatusRow{Status string; Everyone int64; Matching int64}, error)",
-	"GetPanelPersonSummary":          "(context.Context, GetPanelPersonSummaryParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetPanelPersonSummaryRow{ID uuid.UUID; Status string; Role *string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LiveSessions int64; FirstSessionAt *time.Time; SessionLastUsedAt *time.Time}, error)",
+	"GetPanelPersonSummary":          "(context.Context, GetPanelPersonSummaryParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetPanelPersonSummaryRow{ID uuid.UUID; Status string; Role *string; InvitedAt *time.Time; ActivatedAt *time.Time; DeactivatedAt *time.Time; LiveSessions int64; FirstSessionAt *time.Time; SessionLastUsedAt *time.Time; LiveAppDevices int64}, error)",
 	"ListLastTapsForEmployees":       "(context.Context, ListLastTapsForEmployeesParams{EmployeeIds []uuid.UUID; TenantID uuid.UUID}) ([]ListLastTapsForEmployeesRow{EmployeeID uuid.UUID; OccurredAt time.Time; Verdict string; Channel string}, error)",
 	"ListRecentTapsForEmployee":      "(context.Context, ListRecentTapsForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) ([]ListRecentTapsForEmployeeRow{OccurredAt time.Time; Type *string; Verdict string; Channel string; ReviewOutcome *string}, error)",
 	"RetireUndeliveredInvites":       "(context.Context, RetireUndeliveredInvitesParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (int64, error)",
@@ -311,9 +316,9 @@ var storeSurface = map[string]string{
 	"GetEmployeeActivationContext":  "(context.Context, GetEmployeeActivationContextParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeActivationContextRow{ID uuid.UUID; FullName string; Status string; LocationID *uuid.UUID; TenantName string}, error)",
 	"GetEmployeeEmail":              "(context.Context, GetEmployeeEmailParams{TenantID uuid.UUID; ID uuid.UUID}) (GetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
 	"GetEmployeeForTap":             "(context.Context, GetEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeForTapRow{Status string; LocationID *uuid.UUID; DepartmentID *uuid.UUID; ActivatedAt *time.Time; TenantTimezone string; TenantBusinessType string; EffectiveDayCutoff pgtype.Time}, error)",
-	"GetLastOpenTransaction":        "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; At time.Time}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string}, error)",
+	"GetLastOpenTransaction":        "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; At time.Time}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}, error)",
 	"GetInviteRecipient":            "(context.Context, GetInviteRecipientParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetInviteRecipientRow{Email *string; FullName string; TenantName string; TenantVerified bool; IsAdminAddress bool}, error)",
-	"GetLastTransactionForEmployee": "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string}, error)",
+	"GetLastTransactionForEmployee": "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}, error)",
 	"GetLocationByIP":               "(context.Context, GetLocationByIPParams{TenantID uuid.UUID; Src netip.Addr}) (Location{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool; CreatedAt time.Time; WifiSsid *string; ExternalRef *string; Active bool; DayCutoff pgtype.Time}, error)",
 	"GetLocationForTap":             "(context.Context, GetLocationForTapParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationForTapRow{ID uuid.UUID; TenantID uuid.UUID; Name string; StaticIps []netip.Prefix; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
 	"GetLocationWiFi":               "(context.Context, GetLocationWiFiParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLocationWiFiRow{ID uuid.UUID; TenantID uuid.UUID; Name string; WifiSsid *string}, error)",
@@ -376,7 +381,7 @@ var storeSurface = map[string]string{
 	"InsertPunchClaimDecision":        "(context.Context, InsertPunchClaimDecisionParams{Outcome string; DecidedBy uuid.UUID; ApprovedAt *time.Time; TransactionID *uuid.UUID; Note *string; ClaimID uuid.UUID; TenantID uuid.UUID}) (InsertPunchClaimDecisionRow{ID uuid.UUID; CreatedAt time.Time}, error)",
 	"InsertManualTransactionAtAnchor": "(context.Context, InsertManualTransactionAtAnchorParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; AnchorID uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionAtAnchorRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	"InsertPunchClaim":                "(context.Context, InsertPunchClaimParams{Kind string; ClaimedAt time.Time; PrefilledAt *time.Time; AnchorTransactionID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID}) (InsertPunchClaimRow{ID uuid.UUID; CreatedAt time.Time}, error)",
-	"InsertTransaction":               "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string}, error)",
+	"InsertTransaction":               "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}, error)",
 	"InsertTransactionReview":         "(context.Context, InsertTransactionReviewParams{TenantID uuid.UUID; ReviewerID uuid.UUID; Outcome string; Note *string; TransactionID uuid.UUID}) (InsertTransactionReviewRow{ID uuid.UUID; ReviewedAt time.Time}, error)",
 	"InsertUnassigned":                "(context.Context, InsertUnassignedParams{Uid string; TenantID uuid.UUID; AesKeyRef []byte; AppKeyRef []byte}) (InsertUnassignedRow{Uid string; CreatedAt time.Time}, error)",
 	"InviteConsentMatches":            "(context.Context, InviteConsentMatchesParams{ConsentBindingHash string; CodeHash string; TenantID uuid.UUID}) (bool, error)",
@@ -477,6 +482,10 @@ var storeSurface = map[string]string{
 	// shift_* columns (a source word, two pgtype.Time wall clocks, the overnight flag and a zone
 	// name) in the params and the Transaction model; ListWorkedShiftEvents returns them for the
 	// report. A word, two times, a bool and a zone: no key, no hash, no evidence.
+	// M16-04 (migration 00109, ADR 0045 §2.4): which client wrote a tap. InsertTransaction,
+	// GetLastOpenTransaction and GetLastTransactionForEmployee carry client (a *string, 'browser' |
+	// 'app' | NULL) in the params and the Transaction model. A word, no key, no hash, no evidence;
+	// the model is transactions', which never held aes_key_ref.
 	"SetDepartmentDayCutoff": "(context.Context, SetDepartmentDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID; ID uuid.UUID}) (SetDepartmentDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
 	"SetEmployeeDayCutoff":   "(context.Context, SetEmployeeDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID; ID uuid.UUID}) (SetEmployeeDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
 	"SetLocationDayCutoff":   "(context.Context, SetLocationDayCutoffParams{DayCutoff pgtype.Time; TenantID uuid.UUID; ID uuid.UUID}) (SetLocationDayCutoffRow{ID uuid.UUID; DayCutoff pgtype.Time}, error)",
@@ -599,6 +608,22 @@ var storeSurface = map[string]string{
 	"SetOAuthCodeGrant":           "(context.Context, SetOAuthCodeGrantParams{GrantID uuid.UUID; TenantID uuid.UUID; CodeID uuid.UUID}) (int64, error)",
 	"SupersedeLiveOAuthGrants":    "(context.Context, SupersedeLiveOAuthGrantsParams{TenantID uuid.UUID; ClientID uuid.UUID}) ([]uuid.UUID, error)",
 	"TouchOAuthGrant":             "(context.Context, TouchOAuthGrantParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	// M16-03 (migration 00108, ADR 0045 §2.3): the native app's devices and single-use request nonces
+	// (appdevices.sql). The device key goes IN (CreateAppDeviceParams.PublicKey) and is never handed
+	// back -- tappa_app cannot SELECT public_key or key_digest -- and the nonce's hash goes in and is
+	// never returned either; ids, instants, the platform, the coarse label and a count.
+	"CreateAppDevice":             "(context.Context, CreateAppDeviceParams{TenantID uuid.UUID; EmployeeID uuid.UUID; Platform string; PublicKey []byte; DeviceLabel *string}) (CreateAppDeviceRow{ID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID; Platform string; DeviceLabel *string; CreatedAt time.Time; LastUsedAt *time.Time; RevokedAt *time.Time}, error)",
+	"TouchAppDevice":              "(context.Context, TouchAppDeviceParams{ID uuid.UUID; TenantID uuid.UUID}) (TouchAppDeviceRow{ID uuid.UUID; LastUsedAt *time.Time}, error)",
+	"RevokeAppDevice":             "(context.Context, RevokeAppDeviceParams{ID uuid.UUID; TenantID uuid.UUID}) (RevokeAppDeviceRow{ID uuid.UUID; RevokedAt *time.Time}, error)",
+	"RevokeAppDevicesForEmployee": "(context.Context, RevokeAppDevicesForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]uuid.UUID, error)",
+	"IssueAppRequestNonce":        "(context.Context, IssueAppRequestNonceParams{NonceHash string; TtlSeconds int32; DeviceID uuid.UUID; TenantID uuid.UUID}) (IssueAppRequestNonceRow{ID uuid.UUID; ExpiresAt time.Time}, error)",
+	"ConsumeAppRequestNonce":      "(context.Context, ConsumeAppRequestNonceParams{TenantID uuid.UUID; DeviceID uuid.UUID; NonceHash string}) (uuid.UUID, error)",
+	"CountLiveAppRequestNonces":   "(context.Context, CountLiveAppRequestNoncesParams{TenantID uuid.UUID; DeviceID uuid.UUID}) (int32, error)",
+	"DeleteDeadAppRequestNonces":  "(context.Context, DeleteDeadAppRequestNoncesParams{TenantID uuid.UUID; DeviceID uuid.UUID}) (int64, error)",
+	// M16-07: the live-nonce cap's two statements -- the device row's lock (it hands back the id it
+	// locked, nothing else) and the drop of the oldest live nonces (a row count).
+	"LockAppDeviceForNonce":          "(context.Context, LockAppDeviceForNonceParams{ID uuid.UUID; TenantID uuid.UUID}) (uuid.UUID, error)",
+	"DropOldestLiveAppRequestNonces": "(context.Context, DropOldestLiveAppRequestNoncesParams{TenantID uuid.UUID; DeviceID uuid.UUID; Keep int32}) (int64, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1025,6 +1050,8 @@ var resolverCallSites = map[string][]string{
 	"internal/db/resolve.go": {
 		"resolve_admin_by_email",
 		"resolve_admin_session_by_token_hash",
+		// M16-03 (00108): GetAppDeviceByID's call -- the same file, no new caller.
+		"resolve_app_device_by_id",
 		"resolve_invite_by_code_hash",
 		"resolve_password_reset_by_token_hash",
 		"resolve_session_by_token_hash",
@@ -1125,11 +1152,15 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 30 -> 31 on 2026-11-14 (issue #37 phase 1): db/queries/oauth.sql, the OAuth codes, grants and
 	// tokens over oauth_codes, oauth_grants, oauth_tokens, admin_users and tenants; none calls a definer
 	// (the three resolvers are called by hand from internal/db/resolveoauth.go).
-	if files != 31 {
-		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-ONE were there when this was "+
+	// 31 -> 32 on 2026-11-14 (M16-03, migration 00108): db/queries/appdevices.sql, eight named queries
+	// over app_devices and app_request_nonces; none calls a definer (the device resolver is called by
+	// hand from internal/db/resolve.go). (Counted 30 -> 31 on the M16 branch; the merge that brought
+	// main's issue #37 into M16 adds them up, 2026-11-18.)
+	if files != 32 {
+		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-TWO were there when this was "+
 			"pinned (2026-11-14; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
 			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, "+
-			"punchclaims.sql, admininvites.sql, adminmembers.sql and oauth.sql)", files)
+			"punchclaims.sql, admininvites.sql, adminmembers.sql, oauth.sql and appdevices.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1272,14 +1303,20 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// each runs over the caller's own business's rows, none calls a definer.
 	// 283 -> 286 on 2026-11-14 (issue #37 phase 3): oauth.sql's CheckOAuthAccessTokenLive and
 	// GetOAuthGrantForPanel, tenants.sql's GetAPIBusiness -- reads of the caller's own business, no definer.
-	if named != 286 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND EIGHTY-SIX were "+
+	// 286 -> 296 on 2026-11-14 (M16-03, M16-07; counted 258 -> 268 on the M16 branch, added up by the
+	// merge that brought main's issue #37 into M16, 2026-11-18): appdevices.sql's eight (CreateAppDevice,
+	// TouchAppDevice, RevokeAppDevice, RevokeAppDevicesForEmployee, IssueAppRequestNonce,
+	// ConsumeAppRequestNonce, CountLiveAppRequestNonces, DeleteDeadAppRequestNonces) and the live-nonce
+	// cap's LockAppDeviceForNonce and DropOldestLiveAppRequestNonces, each over the caller's own
+	// business's rows; none calls a definer.
+	if named != 296 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; TWO HUNDRED AND NINETY-SIX were "+
 			"there when this was pinned (2026-11-14: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads, + M16-03's eight device and nonce queries, + M16-07's two nonce-cap statements). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1346,6 +1383,8 @@ func TestResolverAccess_TheCallSitesAreTheOnesInventoried(t *testing.T) {
 				"resolve_admin_by_email", "resolve_admin_session_by_token_hash",
 				"resolve_invite_by_code_hash", "resolve_password_reset_by_token_hash",
 				"resolve_session_by_token_hash", "resolve_tag_by_uid",
+				// M16-03 (00108): the device resolver, called by hand from internal/db/resolve.go.
+				"resolve_app_device_by_id",
 			} {
 				if strings.Contains(lit.Value, name) {
 					found = append(found, name)
@@ -1480,8 +1519,13 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// before Deploy 1 adds them up, 2026-10-27.)
 	// 31 -> 32 (2026-11-14, issue #37 phase 1): db/queries/oauth.sql adds oauth.sql.go -- the OAuth
 	// codes, grants and tokens (nineteen methods, in storeSurface); none carries bytes, none reads tags.
-	if len(out) != 32 {
-		t.Fatalf("parsed %d file(s) under %s; THIRTY-TWO were generated when this floor was last set "+
+	// 32 -> 33 (2026-11-14, M16-03, migration 00108): db/queries/appdevices.sql adds appdevices.sql.go --
+	// the native app's devices and request nonces (eight methods, in storeSurface). No RESULT carries
+	// bytes (the device key goes IN through CreateAppDeviceParams.PublicKey and is never returned --
+	// tappa_app cannot SELECT it); none reads tags. (Counted 31 -> 32 on the M16 branch; the merge that
+	// brought main's issue #37 into M16 adds them up, 2026-11-18.)
+	if len(out) != 33 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY-THREE were generated when this floor was last set "+
 			"(2026-11-14). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}

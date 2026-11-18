@@ -219,6 +219,25 @@ data:
   # cmd/tappa's TestPackaging_TheIdentityFlagShipsOn pins this value.
   TAPPA_ADMIN_IDENTITY: "on"
 
+  # 🟡 THE NATIVE APP'S ASSOCIATION FILES (M16-08, ADR 0045). Each value, when set, makes taptime.mt
+  # serve one file that lets the installed app open a plaque's URL (/t, and nothing else) instead of
+  # the browser: TAPPA_APP_APPLE_TEAM_ID -> /.well-known/apple-app-site-association (iOS Universal
+  # Links; app ID <Team ID>.mt.taptime.app), TAPPA_APP_ANDROID_SIGNER_SHA256 ->
+  # /.well-known/assetlinks.json (Android App Links; package mt.taptime.app). EMPTY = that file is
+  # 404 and the server starts as before -- the app is optional. EMPTY ON PURPOSE: the Team ID is the
+  # user's to hand over, and the certificate digest is Play App Signing's (Play Console, Setup, App signing;
+  # M16-27) -- no value is invented in this public repository (Q35). Not secrets: both files publish
+  # them. Set, a malformed value stops the boot (internal/config): the Team ID is ten upper-case
+  # letters or digits; the certificate digests are a comma-separated list of 32 upper-case hex pairs joined
+  # by colons. Only taptime.mt serves them: www and the legacy host redirect, and a redirect is no
+  # association, so Universal Links and App Links work for taptime.mt alone.
+  # PRODUCTION'S Android list is Play App Signing's digest ALONE (upload / internal-test keys only in
+  # a test environment), and each value is filled only after that platform's app handles /t,
+  # the query-less QR form /t?tag= included (M16-08 card, note 7; M16-28).
+  # TestPackaging_TheAppValuesShipEmpty pins both empty.
+  TAPPA_APP_APPLE_TEAM_ID: ""
+  TAPPA_APP_ANDROID_SIGNER_SHA256: ""
+
   # (Tappa's own legal texts are published by the platform operator on its own host,
   # /operator/legal -- M10 OP-10, ADR 0020 §7. The customer panel's legal screen and
   # its env allow-list were removed with it; there is no key for it here.)

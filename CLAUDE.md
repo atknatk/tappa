@@ -3,7 +3,8 @@
 > **Tappa** — "Punchless time & attendance." NFC tabanlı, cihazsız mesai takip SaaS'ı.
 > NFC etiketi çalışanın cebinde değil **duvarda**: her lokasyon girişine pasif bir
 > plaket (NTAG 424 DNA) monte edilir. Çalışan kendi telefonunu değdirir → tarayıcı
-> açılır (uygulama kurulumu YOK) → kalıcı oturumdan tanınır → tek butonla check-in/out.
+> açılır (uygulama kurulumu **gerekmez**; isteğe bağlı native uygulama aynı URL'yi açar — ADR 0045) → kalıcı
+> oturumdan tanınır → tek butonla check-in/out.
 >
 > Ürün/pazar/marka detayı: **[docs/handoff.md](docs/handoff.md)** — kararların gerekçesi orada.
 > Bu dosya *nasıl çalışacağımızı* anlatır, *ne inşa ettiğimizi* değil.
@@ -22,9 +23,12 @@
 | HTML | **templ** (tip güvenli) + **HTMX** | tek binary, SPA yok |
 | CSS | **Tailwind standalone CLI** | **Node YOK** — `.tools/tailwindcss` ikilisi |
 | Deploy | tek VPS (AB bölgesi) + managed Postgres | mikroservis YOK |
+| Mobil (isteğe bağlı) | **iOS Swift/SwiftUI · Android Kotlin/Jetpack Compose** — `mobile/ios/`, `mobile/android/` (M16-15 / M16-11'de doğar), Go modülü dışında | tarayıcı akışının yerine geçmez; üçüncü parti SDK yok (Firebase, analitik, çökme SDK'sı yok), her bağımlılık önce sorulur (ADR 0045) |
+| Encode rölesi | Android Kotlin — `android/`, Go modülü dışında ayrı Gradle build | plaket kodlama aracı; Kotlin/Gradle zincirinin ilk açılımı (ADR 0017) |
 
 **Node/npm/node_modules bu repoda ASLA yer almaz.** Bir çözüm Node gerektiriyorsa, o
-çözüm yanlış çözümdür — alternatif ara veya sor.
+çözüm yanlış çözümdür — alternatif ara veya sor. Mobil derlemeler de Node'suzdur (React Native / Expo bu
+yüzden reddedildi, ADR 0045).
 
 Yeni bağımlılık eklemeden önce sor. `stdlib > küçük kütüphane > framework`.
 
@@ -73,9 +77,13 @@ internal/domain/claim/  eksik yarı talebi (ADR 0032 Faz C): çapa durumu okuyuc
                       (tap.ClassifyCheckout), pencere, ön dolgu, K4, bant; gönderim ve karar kişi
                       kilidi altında, karar manual.Recorder.Within ile tek işlem. Talep kayıt
                       değildir; saat yalnız onayın manuel satırıyla doğar.
-internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
-                      SADECE burada. Skill: `tappa-sun`
+internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. **Plaket** kriptografisi
+                      (AES-CMAC, SUN, `ctr`) SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
+internal/appdevice/   native uygulama isteğinin "kim"i (ADR 0045 §2.3): cihaz açık anahtarı
+                      (ham P-256 noktası, eğri üstünde doğrulanır), sunucu nonce'u ver/tüket,
+                      ECDSA P-256 imza doğrulaması. Plaket kriptografisi DEĞİL. Karar vermez,
+                      log yazmaz. Kanonik metin vektörleri: test/fixtures/appdevice_vectors.json
 internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
                       yalnız `identity_*` / `resolve_identity_*` ile gider
 internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,
@@ -146,6 +154,11 @@ db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yeni
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
 web/static/           css/img/js — Go binary'sine embed edilir
+android/              plaket encode rölesi (ADR 0017) — personel uygulaması DEĞİL; Go modülü dışında ayrı Gradle build
+mobile/ios/           isteğe bağlı personel uygulaması, Swift/SwiftUI (ADR 0045); Go modülü dışında
+                      (M16-15'te doğar)
+mobile/android/       isteğe bağlı personel uygulaması, Kotlin/Compose (ADR 0045); Go modülü dışında,
+                      `android/`'den ayrı build (M16-11'de doğar)
 deploy/k8s/42-api-ingress.yaml  `api.taptime.mt` → yalnız `/v1` (M11 API-13a); `TAPPA_API_HOST` (05-config) ile
                       **aynı değişiklikte** gelir, rollout beklemesinden **sonra** uygulanır, DNS-only.
 docs/adr/             mimari kararlar (NNNN-baslik.md)
@@ -162,9 +175,11 @@ Bunlar tercih değil, ürünün varlık sebebi. Bir görev bunlardan birini ihla
 ediyorsa **dur ve sor**, sessizce uygulama.
 
 1. **Biyometrik veri asla toplanmaz/saklanmaz.** Parmak izi, yüz, ses — hiçbiri.
-   Telefonun kendi ekran kilidi bizim katmanımız değildir; ondan veri almayız.
+   Telefonun kendi ekran kilidi bizim katmanımız değildir; ondan veri almayız. Uygulamada
+   biyometri API'si ve biyometrik anahtar erişim denetimi yoktur (ADR 0045 §3).
 2. **GPS yalnızca tap anında okunur.** Arka plan konum, sürekli takip, geofence
-   izleme YOK. Bu hem GDPR gereği hem satış argümanı.
+   izleme YOK. Bu hem GDPR gereği hem satış argümanı. Uygulamada arka plan konum izni ve
+   modu da yoktur (ADR 0045 §3).
 3. **`transactions` immutable.** UPDATE/DELETE yok. Düzeltme = yeni kayıt +
    `audit_log`. Mesai kaydı hukuki delil olabilir. Dışa bakan izdüşümleri de append-only'dir:
    `punch_events` (ADR 0028 §4) ve `site_punches` (ADR 0027 §9). `site_punches`'ı yalnız `holding_feed`
@@ -273,7 +288,7 @@ eşleşmezse sonuç `flag`'dir — sessiz onay imkânsız (§4.6); `note` etkisi
 kurar ve dönen effect'i uygular; yön, trust ve geç kalma **hesaptır**, politika
 değildir.
 
-**Dört kanıt:** SUN = *şu an fiziksel dokunuş* · oturum çerezi = *kim* ·
+**Dört kanıt:** SUN = *şu an fiziksel dokunuş* · oturum çerezi ya da uygulama cihaz anahtarı (ADR 0045) = *kim* ·
 statik IP = *nerede* · GPS = *yedek nerede*.
 
 Kanıt **anlamıyla** tanımlıdır, biçimiyle değil: bir lokasyonun kayıtlı adres
@@ -304,10 +319,10 @@ kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 |---|---|---|
 | 1 | Etiket `lost` veya `retired` | `reject` |
 | 2 | SUN geçersiz (CMAC uyuşmuyor **veya** `ctr` artmadı) | `reject` |
-| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026) |
+| 3 | Oturum yok / geçersiz | aktivasyon sayfası (kayıt yok); onaylı aktivasyon bekleyen tarayıcıda **aktivasyon dokunuşu** (kayıt yok, ADR 0026); uygulamada iptal edilmiş cihaz → 401, kayıt yok (ADR 0045 §2.3) |
 | 4 | Çalışan `deactivated` | `reject` + denemeyi logla + güvenlik uyarısı |
 | 5 | Aynı **kişi** 60 sn içinde tekrar | `ignored` |
-| 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`) |
+| 6 | IP eşleşti **veya** GPS < 150 m | `ok` (IP yoksa not: `verified via GPS`; uygulama sahte konum bildirdiyse `flag` — `base:mock-location-review`) |
 | 7 | ikisi de yok | `flag` — kayıt alınır, onay kuyruğuna düşer |
 
 **Holding (ADR 0027) — tablonun numaraları değişmez, iki ek kural.** Tablonun önünde §4.5'in
@@ -338,6 +353,7 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   kapatıyordu) · eşzamanlılık. Sonuncusu için karar + kayıt **kişi başına advisory
   kilit** altında tek transaction'da koşar. **QR'da bu tek frendir** — sayaç yok.
 - **Güven puanı:** `20 (taban) + 50 (IP eşleşti) + 30 (GPS eşleşti)`.
+- **Sahte konum** (`base:mock-location-review`, ADR 0045 §2.4): isteğe bağlı uygulama, işletim sisteminin konumu sahte bir sağlayıcıdan geldi dediğini bildirirse (`tap:mockLocation`), satır 6 sağlansa bile — IP ya da GPS eşleşse de — sonuç `flag`'dir; kayıt yazılır (§4.6). Bu bir **istemci beyanıdır** (GPS'in kendisi gibi): yalnız aleyhe okunur, *"sahte değil"* bildirimi de bildirimin yokluğu da hiçbir şey kanıtlamaz. Tarayıcı bunu okuyamaz ve anahtarı taşımaz; eksik anahtar eşleşmez, yani tarayıcı yolunun her sonucu aynen kalır (`TestDecide_MockLocationAbsentLeavesEveryOutcomeAsItWas`, `TestDecide_MockLocationReported`). Baseline'dır, tenant değiştirebilir; güven puanını değiştirmez. `tap:client` (`browser` | `app`) isteği kabul eden uç noktadan, sunucuda türetilir ve tek başına sonucu değiştirmez (`TestDecide_ClientAloneChangesNoOutcome`). Yeni belge var olan işletmeye onaysız girer: ilk dokunuşta ya da bir sahibin paneldeki ilk yetki sorusunda (müdürün sorusu yazmadan reddedilir), hangisi önce gelirse; ikisi de aynı materialiser'ı kullanır ve hiçbir şeyi saklı olmayan işletmeyi panel kurmaz (ADR 0045 Bedel 10).
 - **Yön (in/out):** kişinin **son açık girişi** (dokunuşun anında açık olan), bu dokunuşun
   **iş günü başlangıcından önce değilse** ve `StaleOpenIn`'den (18 sa) yeniyse bu dokunuş onu
   kapatır (`out`); değilse bu dokunuş `in`'dir ve eski giriş *"çıkış eksik"* anomalisi olarak
@@ -484,9 +500,12 @@ başlayan bir test durumu olmalı.
   `detail`'i dahil); dış API tarafında API anahtarı ve hash'i, `Authorization` başlığı,
   webhook imza anahtarı (`tt_whsec_` önekli), webhook URL'si (host'u ve yolu dahil) ve
   `*url.Error` metni (Go o metinde URL'yi taşır — ADR 0028 §3, §6; bunlarda da hata mesajı ve
-  audit `detail`'i dahil); OAuth tarafında client secret, yetki kodu, erişim ve refresh token'ı ve
-  hash'leri, `code_verifier`, `state`, `Authorization` başlığı (Basic ve Bearer), bekleyen istek
-  çerezinin değeri ve `rd` (ADR 0047 §7.4 — hata mesajı ve audit `detail`'i dahil).
+  audit `detail`'i dahil); uygulama ve canlı QR tarafında cihaz imzası, istek nonce'u, canlı QR
+  token'ı, ekran eşleşme kodu, ekran oturumu çerezi, canlı QR imza anahtarı ve müdür onayı eşleşme
+  kodu (ADR 0045 §3 — hata mesajı ve `audit_log` `detail`'i dahil); OAuth tarafında client secret,
+  yetki kodu, erişim ve refresh token'ı ve hash'leri, `code_verifier`, `state`, `Authorization`
+  başlığı (Basic ve Bearer), bekleyen istek çerezinin değeri ve `rd` (ADR 0047 §7.4 — hata mesajı
+  ve audit `detail`'i dahil).
 - Webhook log ve audit satırları yalnız uç nokta/teslim **kimliği**, kapalı **hata sınıfı** ve **durum kodu**
   taşır — uzak sunucunun yanıt metni de saklanmaz (ADR 0028 §6).
 - Env anahtarları (`namedKeys()`) **çift çift** birbirinden farklı olmak zorundadır — iki anahtarın
@@ -606,6 +625,7 @@ değişiklik yine önce sorulur.
 | Herhangi bir UI/templ/Tailwind işi | skill `tappa-brand` |
 | NTAG 424 DNA / SUN / CMAC / ctr | skill `tappa-sun` |
 | Demo veri, fixture, "bir günü simüle et" | skill `tappa-seed` |
+| iOS / Android personel uygulaması | `mobile/README.md` (Faz B/C'de doğar) + [ADR 0045](docs/adr/0045-istege-bagli-native-uygulama.md) |
 
 ## 12. Durum
 

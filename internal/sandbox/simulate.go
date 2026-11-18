@@ -308,6 +308,9 @@ func (s *Simulation) tap(ctx context.Context, tx pgx.Tx, p apikey.Principal, emp
 		PageIssuedAt: time.Now().UTC(),
 		// The caller's own address is the "where" (the tap page's rule: httpx.ClientIP). No GPS.
 		SourceIP: source,
+		// Client left zero: transactions.client is NULL (M16-04). No browser and no app wrote this
+		// tap -- an integrator's API call simulated it -- and 'browser' would be a false claim on an
+		// immutable row (§4.3).
 	}
 	res, err := s.taps.Record(ctx, req)
 	switch {

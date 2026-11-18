@@ -875,6 +875,16 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			// them aside first, inside the same rolled-back transaction (ssSetAside's statements).
 			down = ssSetAsideSQL + "\n" + down
 		}
+		if n == appDevicesMigration {
+			// M16-03: 00108's Down refuses while a device or a nonce exists, and the nonce replay test
+			// commits both. The walk sets them aside first, inside the same rolled-back transaction.
+			down = appDevicesSetAsideSQL + "\n" + down
+		}
+		if n == clientMigration {
+			// M16-04: 00109's Down refuses while a row carries a client, and the tap page writes one on
+			// every row other packages' tests commit -- set aside the same way (clSetAside's statements).
+			down = clSetAsideSQL + "\n" + down
+		}
 		out = append(out, aiLaterMigration{e.Name(), up, down})
 	}
 	slices.SortFunc(out, func(a, b aiLaterMigration) int { return strings.Compare(a.name, b.name) })

@@ -22,6 +22,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/apikey"
+	"github.com/atknatk/tappa/internal/appdevice"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
@@ -79,6 +80,9 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+func (silentDB) GetAppDeviceByID(context.Context, uuid.UUID) (db.ResolvedAppDevice, error) {
+	return db.ResolvedAppDevice{}, errSilent
+}
 
 // Issue #37: the authorization server's three resolvers (oauth.Store).
 func (silentDB) GetOAuthClient(context.Context, uuid.UUID, *string) (db.ResolvedOAuthClient, error) {
@@ -186,6 +190,7 @@ func (silentDB) GetIdentityResetByTokenHash(context.Context, string) (db.Resolve
 type appFeatures struct {
 	activation *handler.Activation
 	tap        *handler.Tap
+	app        *handler.App
 	panel      *handler.AdminAuth
 	logos      *handler.BrandLogos
 	marketing  *handler.Marketing
@@ -199,10 +204,12 @@ type appFeatures struct {
 	devTools httpx.Mounter
 	// oauth is the authorization server's surface (issue #37): on in both walks.
 	oauth *oauthapi.Surface
+	// appLinks mounts the files whose platform walkConfig configured: none off, both on.
+	appLinks *handler.AppLinks
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.oauth, f.devTools)
+	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.oauth, f.devTools, f.appLinks)
 }
 
 func (f appFeatures) named() []struct {
@@ -213,10 +220,10 @@ func (f appFeatures) named() []struct {
 		name string
 		m    httpx.Mounter
 	}{
-		{"activation", f.activation}, {"tap", f.tap}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
+		{"activation", f.activation}, {"tap", f.tap}, {"app", f.app}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
-		{"api", f.api}, {"oauth", f.oauth}, {"devtools", f.devTools},
+		{"api", f.api}, {"oauth", f.oauth}, {"devtools", f.devTools}, {"applinks", f.appLinks},
 	}
 }
 
@@ -239,6 +246,9 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 		// The panel identity flag (ADR 0031 §8): on, the panel mounts its identity surfaces, and
 		// the walk must classify them too (M14-11).
 		cfg.AdminIdentity = true
+		// The native app's two association files (M16-08), with fake values of the right shapes.
+		cfg.AppAppleTeamID = "ABCDE12345"
+		cfg.AppAndroidSignerSHA256 = []string{"14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5"}
 	}
 	return cfg
 }
@@ -283,6 +293,10 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	claims, err := claim.New(data, trail, entries, cfg.BusinessDayFrom, log)
 	must(err)
 	tap, err := handler.NewTap(verifier, directory, sessions, checkins, claims, activation, trail, cfg, log)
+	must(err)
+	devices, err := appdevice.New(data)
+	must(err)
+	app, err := handler.NewApp(devices, invites, verifier, directory, checkins, activation, trail, cfg, log)
 	must(err)
 	admins, err := adminauth.New(data, cfg)
 	must(err)
@@ -329,10 +343,13 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	ready, err := handler.NewHealth(data.Ping, log)
 	must(err)
 	f := appFeatures{
-		activation: activation, tap: tap, panel: panel, logos: logos,
+		activation: activation, tap: tap, app: app, panel: panel, logos: logos,
 		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(), oauth: oauthTokens,
 	}
+	// As run() builds it, from the configuration: walkConfig sets both platforms only when on.
+	f.appLinks, err = handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
+	must(err)
 	if !on {
 		return f
 	}
@@ -442,15 +459,24 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /admin/api-keys/apps/disconnect": true,
 	}
 	outsidePanel := map[string]string{
-		"POST /activate":        "activation",
-		"POST /api/activate":    "activation",
-		"POST /api/checkin":     "tap",
-		"POST /api/claim":       "tap",
-		"POST /admin/reset":     "reset",
-		"POST /admin/reset/new": "reset",
-		"POST /signup":          "signup",
-		"POST /signup/places":   "signup",
-		"POST /signup/account":  "signup",
+		"POST /activate":     "activation",
+		"POST /api/activate": "activation",
+		"POST /api/checkin":  "tap",
+		"POST /api/claim":    "tap",
+		// M16-07: the native app's signed surface -- the tap's and the activation's twin, outside
+		// the panel and, like the tap, without a suspension gate (ADR 0025, ADR 0045 §2.3).
+		"POST " + handler.AppActivateLookupPath:   "app",
+		"POST " + handler.AppActivateBindPath:     "app",
+		"POST " + handler.AppActivateCompletePath: "app",
+		"POST " + handler.AppNoncePath:            "app",
+		"POST " + handler.AppTapStartPath:         "app",
+		"POST " + handler.AppTapPath:              "app",
+		"POST " + handler.AppRevokePath:           "app",
+		"POST /admin/reset":                       "reset",
+		"POST /admin/reset/new":                   "reset",
+		"POST /signup":                            "signup",
+		"POST /signup/places":                     "signup",
+		"POST /signup/account":                    "signup",
 		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.

@@ -68,8 +68,8 @@ func TestStaffDB_SignOutRevokesEveryLiveSessionAndTrailsTheCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignOutPhones: %v", err)
 	}
-	if n != 3 {
-		t.Errorf("revoked %d session(s), want 3", n)
+	if n != (SignedOut{Sessions: 3}) {
+		t.Errorf("revoked %+v, want 3 sessions and no app device", n)
 	}
 	if live := f.liveSessions(t, f.tenantID, f.employeeID); live != 0 {
 		t.Errorf("%d live session(s) after the sign-out, want 0", live)
@@ -78,15 +78,16 @@ func TestStaffDB_SignOutRevokesEveryLiveSessionAndTrailsTheCount(t *testing.T) {
 		t.Fatalf("%d trail row(s), want 1", rows)
 	}
 	detail, actor := f.auditDetail(t, f.tenantID, ActionEmployeePhonesSignedOut, f.employeeID)
-	if !containsAny(detail, `"sessions_revoked": 3`, `"sessions_revoked":3`) {
-		t.Errorf("the trail detail is %s, want sessions_revoked 3", detail)
+	if !containsAny(detail, `"sessions_revoked": 3`, `"sessions_revoked":3`) ||
+		!containsAny(detail, `"app_devices_revoked": 0`, `"app_devices_revoked":0`) {
+		t.Errorf("the trail detail is %s, want sessions_revoked 3 and app_devices_revoked 0", detail)
 	}
 	if actor == nil || *actor != f.actorID {
 		t.Errorf("the trail's actor is %v, want the admin %s", actor, f.actorID)
 	}
-	// The detail is the count and nothing else -- no session id, no hash.
-	if strings.Count(detail, ":") != 1 || containsAny(detail, "hash", "token", "session_id") {
-		t.Errorf("the trail detail carries more than the count: %s", detail)
+	// The detail is the two counts and nothing else -- no session id, no hash.
+	if strings.Count(detail, ":") != 2 || containsAny(detail, "hash", "token", "session_id") {
+		t.Errorf("the trail detail carries more than the counts: %s", detail)
 	}
 }
 
@@ -97,8 +98,8 @@ func TestStaffDB_ASecondSignOutWritesNothing(t *testing.T) {
 		t.Fatalf("first SignOutPhones: %v", err)
 	}
 	n, err := f.staff.SignOutPhones(context.Background(), f.signOut())
-	if !errors.Is(err, ErrNoLiveSessions) || n != 0 {
-		t.Fatalf("the second press answered (%d, %v), want (0, ErrNoLiveSessions)", n, err)
+	if !errors.Is(err, ErrNoLiveSessions) || n.Total() != 0 {
+		t.Fatalf("the second press answered (%+v, %v), want (0, ErrNoLiveSessions)", n, err)
 	}
 	if rows := f.auditRows(t, f.tenantID, ActionEmployeePhonesSignedOut, f.employeeID); rows != 1 {
 		t.Errorf("%d trail row(s) after two presses, want 1 -- a press that revokes nothing is no act", rows)
@@ -138,8 +139,8 @@ func TestStaffDB_SignOutNeverTouchesAnotherBusinessesPerson(t *testing.T) {
 		t.Errorf("%d trail row(s) about another business's person", rows)
 	}
 	// CONTROL: the same call on this business's own person works.
-	if n, err := f.staff.SignOutPhones(context.Background(), f.signOut()); err != nil || n != 1 {
-		t.Fatalf("the control sign-out answered (%d, %v), want (1, nil)", n, err)
+	if n, err := f.staff.SignOutPhones(context.Background(), f.signOut()); err != nil || n.Sessions != 1 {
+		t.Fatalf("the control sign-out answered (%+v, %v), want (1 session, nil)", n, err)
 	}
 }
 
@@ -173,7 +174,7 @@ func TestStaffDB_ConcurrentSignOutsRevokeEachSessionOnce(t *testing.T) {
 	f.seedSessions(t, f.tenantID, f.employeeID, sessions)
 
 	var wg sync.WaitGroup
-	counts := make([]int, racers)
+	counts := make([]SignedOut, racers)
 	errs := make([]error, racers)
 	start := make(chan struct{})
 	for i := 0; i < racers; i++ {
@@ -192,7 +193,7 @@ func TestStaffDB_ConcurrentSignOutsRevokeEachSessionOnce(t *testing.T) {
 		switch {
 		case err == nil:
 			winners++
-			total += counts[i]
+			total += counts[i].Sessions
 		case errors.Is(err, ErrNoLiveSessions):
 		default:
 			t.Errorf("racer %d failed: %v", i, err)

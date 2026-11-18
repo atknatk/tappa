@@ -455,7 +455,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
        direction_source, shift_source, shift_start, shift_end, shift_overnight,
-       shift_timezone
+       shift_timezone, client
 FROM transactions t
 WHERE t.tenant_id = $1
   AND t.employee_id = $2
@@ -637,8 +637,9 @@ type GetLastOpenTransactionParams struct {
 // the entry stays open in the list. It takes a hand-written POST that hits the
 // entry's microsecond, and it gains no hours: the pair counts zero time either way.
 //
-// business_day_start, direction_source (00065, M15-09) and the five shift_* columns
-// (00095, T152) are in the list because this query returns the whole store Transaction
+// business_day_start, direction_source (00065, M15-09), the five shift_* columns
+// (00095, T152) and client (00109, M16-04) are in the list because this query returns
+// the whole store Transaction
 // (a row type without them would be a second model); nothing here filters on any of
 // them. Whether this entry is still in the tap's business day is the engine's question
 // (M15-03), and ADR 0032 §A.6 says why this query does not need the classification
@@ -684,6 +685,7 @@ func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTra
 		&i.ShiftEnd,
 		&i.ShiftOvernight,
 		&i.ShiftTimezone,
+		&i.Client,
 	)
 	return i, err
 }
@@ -695,7 +697,7 @@ SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        created_at, policy_version_id, matched_sid, policy_layer, policy_context,
        site_tenant_id, site_location_id, site_tag_uid, business_day_start,
        direction_source, shift_source, shift_start, shift_end, shift_overnight,
-       shift_timezone
+       shift_timezone, client
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
@@ -753,6 +755,7 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 		&i.ShiftEnd,
 		&i.ShiftOvernight,
 		&i.ShiftTimezone,
+		&i.Client,
 	)
 	return i, err
 }
@@ -1166,7 +1169,7 @@ INSERT INTO transactions (
     policy_version_id, matched_sid, policy_layer, policy_context,
     site_tenant_id, site_location_id, site_tag_uid, business_day_start,
     direction_source, shift_source, shift_start, shift_end, shift_overnight,
-    shift_timezone
+    shift_timezone, client
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13,
@@ -1174,7 +1177,7 @@ INSERT INTO transactions (
     $22, $23, $24, $25,
     $26, $27, $28, $29,
     $30, $31, $32, $33, $34,
-    $35
+    $35, $36
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
@@ -1182,7 +1185,7 @@ RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           created_at, policy_version_id, matched_sid, policy_layer, policy_context,
           site_tenant_id, site_location_id, site_tag_uid, business_day_start,
           direction_source, shift_source, shift_start, shift_end, shift_overnight,
-          shift_timezone
+          shift_timezone, client
 `
 
 type InsertTransactionParams struct {
@@ -1221,6 +1224,7 @@ type InsertTransactionParams struct {
 	ShiftEnd         pgtype.Time
 	ShiftOvernight   *bool
 	ShiftTimezone    *string
+	Client           *string
 }
 
 // THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
@@ -1291,6 +1295,18 @@ type InsertTransactionParams struct {
 // NULL for the rest, by the business day's rule); NULL on every row before 00095 and
 // on manual rows, which the report measures against today's shift and says so.
 // 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
+//
+// client (M16-04, migration 00109, ADR 0045 §2.4): which client wrote the tap --
+// 'browser' (the tap page, POST /api/checkin) or 'app' (the native app's /app/v1,
+// M16-07). SERVER-DERIVED from the endpoint that accepted the request (checkin.Request's
+// Client, set by the handler -- never a body field, header or user agent). NULL on every
+// row before 00109, on the manual channel (insertParams forces it: a manager's record is
+// not a tap) and on a row no client wrote (the API sandbox). The three manual statements
+// do not name the column and it has no default, so their rows are NULL. 00109's two
+// CHECKs (validated by 00110): the value set admits NULL and the two values and nothing
+// else, and a manual row carries no client -- there is no "a tap must carry a client"
+// CHECK, because it would refuse the previous binary's taps during the rollout and lose
+// them (section 4.6).
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, insertTransaction,
 		arg.TenantID,
@@ -1328,6 +1344,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.ShiftEnd,
 		arg.ShiftOvernight,
 		arg.ShiftTimezone,
+		arg.Client,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -1368,6 +1385,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		&i.ShiftEnd,
 		&i.ShiftOvernight,
 		&i.ShiftTimezone,
+		&i.Client,
 	)
 	return i, err
 }

@@ -568,24 +568,50 @@ func (t *TapLimiter) BySession(next http.Handler) http.Handler {
 	})
 }
 
+// AllowDevice is BySession for the native app (M16-07; the card's "tap yüzeyinin limiter'ı cihaz
+// başına uygulanır"): it charges one VERIFIED app device's bucket -- the session budget
+// (tapSessionLimit per tapSessionPeriod), keyed by the device -- and reports false, having
+// answered 429 with the trail refuse leaves, when the device is over it.
+//
+// CALL IT ONLY AFTER THE REQUEST'S SIGNATURE VERIFIED. A device id is a claim until then, and
+// charging a claimed id would let anyone who knows it spend the real phone's budget -- the
+// lockout the nonce cap refuses for the same reason (appdevice.MaxLiveNonces). Before the
+// signature the address bucket (ByAddress) is the bound.
+//
+// The key carries a prefix no session id can (a UUID's string never starts with "app-device:"),
+// so a device and a session never share a bucket.
+func (t *TapLimiter) AllowDevice(w http.ResponseWriter, r *http.Request, deviceID, tenantID, employeeID uuid.UUID) bool {
+	if n := t.sess.Charge("app-device:" + deviceID.String()); n > t.sess.Limit() {
+		t.refuseFor(w, r, t.sess, n, "device", tenantID, employeeID)
+		return false
+	}
+	return true
+}
+
 // refuse answers 429 and leaves the trail described on TapLimiter: an audit row
 // when a tenant is known, a WARN line either way, each written once per window.
 func (t *TapLimiter) refuse(w http.ResponseWriter, r *http.Request, l *Limiter, count int, scope string) {
+	id := IdentityOf(r)
+	t.refuseFor(w, r, l, count, scope, id.TenantID(), id.EmployeeID())
+}
+
+// refuseFor is refuse with the attribution named by the caller: the session's for the tap page,
+// the verified device's for the app.
+func (t *TapLimiter) refuseFor(w http.ResponseWriter, r *http.Request, l *Limiter, count int, scope string, tenantID, employeeID uuid.UUID) {
 	if l.FirstOverLimit(count) {
-		id := IdentityOf(r)
 		// The address is in the LOG, never in the audit detail: audit_log is
 		// permanent and a source address is personal data we have no reason to
 		// keep for years. The activation flow draws the same line.
 		t.log.Warn("tap rate limit reached", "scope", scope,
 			"ip", RateKey(ClientIP(r)), "limit", l.Limit(), "period", l.Period().String(),
-			"employee_id", id.EmployeeID())
-		if t.audit != nil && id.TenantID() != uuid.Nil {
+			"employee_id", employeeID)
+		if t.audit != nil && tenantID != uuid.Nil {
 			// T284 (a): the client leaving does not take the refusal's row with it.
 			rctx, cancel := audit.Detached(r.Context())
 			_, err := t.audit.Record(rctx, audit.Event{
-				TenantID: id.TenantID(),
+				TenantID: tenantID,
 				Action:   ActionTapRateLimited,
-				Target:   id.EmployeeID().String(),
+				Target:   employeeID.String(),
 				Detail: tapLimitDetail{
 					Scope:  scope,
 					Limit:  l.Limit(),

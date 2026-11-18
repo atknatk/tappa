@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Q35: the store and launcher name is Taptime. -->
+    <string name="app_name">Taptime</string>
+    <string name="tagline">punchless</string>
+</resources>

@@ -146,6 +146,7 @@ type manualRow struct {
 	PolicyLayer, MatchedSid *string
 	PolicyVersion           *uuid.UUID
 	PolicyContext           *string
+	Client                  *string
 	OccurredAt, CreatedAt   time.Time
 }
 
@@ -159,13 +160,13 @@ func (f *manualFixture) read(t *testing.T, tenantID, id uuid.UUID) manualRow {
 			        sun_valid, ip_match, gps_match, host(source_ip),
 			        gps_lat::text, gps_lng::text,
 			        policy_layer, matched_sid, policy_version_id, policy_context::text,
-			        occurred_at, created_at
+			        client, occurred_at, created_at
 			 FROM transactions WHERE tenant_id = $1 AND id = $2`, tenantID, id).
 			Scan(&r.Verdict, &r.Channel, &r.Type, &r.Trust, &r.Practice, &r.Queued, &r.EnteredBy,
 				&r.LocationID, &r.DeptID, &r.TagUID, &r.Note, &r.Ctr,
 				&r.SunValid, &r.IPM, &r.GPSM, &r.SourceIP, &r.GPSLat, &r.GPSLng,
 				&r.PolicyLayer, &r.MatchedSid, &r.PolicyVersion, &r.PolicyContext,
-				&r.OccurredAt, &r.CreatedAt)
+				&r.Client, &r.OccurredAt, &r.CreatedAt)
 	})
 	if err != nil {
 		t.Fatalf("reading the record back: %v", err)
@@ -266,6 +267,7 @@ func TestManualDB_WritesExactlyTheColumnsItMayAndNULLsTheREST(t *testing.T) {
 		{"policy_version_id", ptrAny(r.PolicyVersion), "same"},
 		{"policy_context", ptrAny(r.PolicyContext), "same"},
 		{"note", ptrAny(r.Note), "none was submitted"},
+		{"client", ptrAny(r.Client), "M16-04 (00109): a manager's record is not a tap -- no browser and no app touched a plaque"},
 	}
 	for _, a := range absent {
 		if a.got != nil {

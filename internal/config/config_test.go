@@ -56,6 +56,9 @@ func setRequired(t *testing.T) {
 	for _, name := range mailVariables() {
 		t.Setenv(name, "")
 	}
+	// The native app's association values (M16-08): optional, unset in the shipped state.
+	t.Setenv(config.EnvAppAppleTeamID, "")
+	t.Setenv(config.EnvAppAndroidSignerSHA256, "")
 	t.Setenv("TAPPA_ADDR", "")                         // -> default :8080
 	t.Setenv("TAPPA_DEV_TOOLS", "")                    // off unless a test opts in
 	t.Setenv("TAPPA_ENV", fixtureEnv)                  // unset -> default dev (the sandbox build: sandbox)

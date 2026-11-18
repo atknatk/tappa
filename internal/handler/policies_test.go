@@ -804,6 +804,7 @@ var policyBranchWitness = map[string]string{
 	`r.Version != ""@1`:         "version 4241",
 	`r.Stamp != ""@1`:           "zz-branch-stamp",
 	`r.Outdated != ""@1`:        "zz-branch-shipped",
+	`r.Added != ""@1`:           "zz-branch-added",
 	`r.Problem != ""@1`:         "This rule is not being applied",
 	`i > 0 && s.Reason != ""@1`: "zz-branch-second-reason",
 	`r.Lead != ""@1`:            "zz-branch-reason",
@@ -1964,6 +1965,11 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 			StoredStamp: "zz-branch-old", ShippedStamp: "zz-branch-shipped",
 			Changes: []string{"zz-branch-change"},
 		},
+		{
+			// Added: a rule a newer release added after this business was set up (M16-06).
+			Name: "zz-branch-added-rule", Managed: true, State: tenant.StateNotProvisioned,
+			ShippedStamp: "zz-branch-shipped", Added: "zz-branch-added",
+		},
 	}
 	for i := range sentinels.Authorities {
 		if sentinels.Authorities[i].FailClosed {
@@ -2203,7 +2209,7 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 		`>`+components.PanelNoticeLabel(components.ToneWarn)+`</p>`
 	calm := policyStatePage(t, policyPageState{screen: policyScreenFixture()})
 	for _, word := range policyProblemWords {
-		heading, sentence, _ := policyProblem(word)
+		heading, sentence, _ := policyProblem(word, true)
 		if sentence == "" {
 			t.Errorf("the problem word %q has no sentence, so a refusal that redirects with "+
 				"it renders NO notice at all — the page says nothing happened while something "+
@@ -2238,7 +2244,7 @@ func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
 	}
 	// AND A WORD OUTSIDE THE LIST RENDERS NOTHING — the closed-vocabulary half, or a
 	// caller could put text on somebody's page.
-	if h, s, tone := policyProblem("anything-else"); h != "" || s != "" || tone != "" {
+	if h, s, tone := policyProblem("anything-else", true); h != "" || s != "" || tone != "" {
 		t.Errorf("a word outside the closed list produced %q / %q / %q", h, s, tone)
 	}
 }
@@ -3145,5 +3151,94 @@ func TestPolicyRuleView_AnnouncesABaselineChangeOnlyWhereItChangesTheRule(t *tes
 	}
 	if got := policyRuleView(untouched, time.UTC, false, policyEditor{}); got.Outdated != "" {
 		t.Errorf("a rule the release did not change announces %q", got.Outdated)
+	}
+}
+
+// TestPolicyRuleView_AnnouncesAnAddedRuleInItsOwnWords is the 2026-11-14 bump on the
+// page (M16-06, ADR 0045 Bedel 10): an added rule carries its announcement as Added,
+// never through the Outdated sentence -- whose "Nothing changes on its own" is false
+// for a rule the next tap writes -- in both states it can be in.
+func TestPolicyRuleView_AnnouncesAnAddedRuleInItsOwnWords(t *testing.T) {
+	add, ok := policy.BaselineAddition("Taptime baseline — mock location review")
+	if !ok {
+		t.Fatal("the shipped baseline announces no added mock-location rule")
+	}
+	for _, st := range []tenant.RuleState{tenant.StateNotProvisioned, tenant.StateActive} {
+		r := tenant.Rule{
+			Name: "Taptime baseline — mock location review", Managed: true, State: st,
+			ShippedStamp: policy.BaselineVersion, Added: add.Summary,
+		}
+		if st == tenant.StateActive {
+			r.StoredStamp = policy.BaselineVersion
+		}
+		got := policyRuleView(r, time.UTC, false, policyEditor{})
+		if got.Added != add.Summary {
+			t.Errorf("%s: Added = %q, want the announcement", st, got.Added)
+		}
+		if got.Outdated != "" {
+			t.Errorf("%s: an added rule says it is outdated: %q", st, got.Outdated)
+		}
+	}
+}
+
+// orderedRules and orderedScribe write into one log, so a test can see which the
+// policies section asked first.
+type orderedRules struct {
+	*fakeRules
+	log *[]string
+}
+
+func (o orderedRules) Screen(ctx context.Context, tenantID uuid.UUID) (tenant.PolicyScreen, error) {
+	*o.log = append(*o.log, "screen")
+	return o.fakeRules.Screen(ctx, tenantID)
+}
+
+type orderedScribe struct {
+	*fakeScribe
+	log *[]string
+}
+
+func (o orderedScribe) May(ctx context.Context, tenantID uuid.UUID, actor tenant.Actor) bool {
+	*o.log = append(*o.log, "may")
+	return o.fakeScribe.May(ctx, tenantID, actor)
+}
+
+// TestPoliciesSection_AsksTheGateBeforeItReadsTheScreen (M16-06): the gate's read
+// (checkin.Service.PanelSet) completes a stored baseline short of a document a later
+// release added, so it must run BEFORE the screen is read -- the other way round, the
+// first visit after such a deploy shows the controls beside a rule still drawn as "Not
+// set up yet". MUTANT (measured in review): May moved after Screen survived without this.
+func TestPoliciesSection_AsksTheGateBeforeItReadsTheScreen(t *testing.T) {
+	var calls []string
+	b := policyBrowserWith(t, orderedRules{fakeRules: newFakeRules(), log: &calls},
+		orderedScribe{fakeScribe: newFakeScribe(), log: &calls})
+	if rec := b.do(http.MethodGet, policiesHref, nil); rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: %d, want 200", policiesHref, rec.Code)
+	}
+	if strings.Join(calls, ",") != "may,screen" {
+		t.Fatalf("the section asked %v, want the gate first and then the screen", calls)
+	}
+}
+
+// TestPolicyReadOnly_TheReasonIsTheRoleForAManager (M16-06 review): a manager is refused
+// policy:edit by a guardrail whatever the rulebook holds, so neither the read-only arm
+// nor the refusal notice may send them to a rule that reads "Not set up yet"; an owner's
+// reason IS the rules below, and both say so.
+func TestPolicyReadOnly_TheReasonIsTheRoleForAManager(t *testing.T) {
+	_, managerNotice, _ := policyProblem("not-permitted", false)
+	_, ownerNotice, _ := policyProblem("not-permitted", true)
+	for name, s := range map[string]string{"read-only arm": readOnlyWhy(false), "refusal notice": managerNotice} {
+		if strings.Contains(s, "Not set up yet") || !strings.Contains(s, "manager") {
+			t.Errorf("a manager's %s does not name their role as the reason: %q", name, s)
+		}
+	}
+	for name, s := range map[string]string{"read-only arm": readOnlyWhy(true), "refusal notice": ownerNotice} {
+		if !strings.Contains(s, "Not set up yet") {
+			t.Errorf("an owner's %s does not point at the rules below: %q", name, s)
+		}
+	}
+	page := policyStatePage(t, policyPageState{screen: policyScreenFixture(), mayEdit: false})
+	if !strings.Contains(page, htmlText(readOnlyWhy(true))) {
+		t.Error("the owner's read-only page does not print the owner's reason")
 	}
 }

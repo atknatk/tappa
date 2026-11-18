@@ -26,18 +26,22 @@ import "github.com/atknatk/tappa/web/templates/components"
 // 🔴 §4.3 / §4.6 — THE GET IS A READ AND THE FORMS ON IT POST SOMEWHERE ELSE. This
 // header said "THIS IS A READ. No form posts from this page" for two rounds after
 // phase B put four of them here, which is the wrong thing to teach the next author:
-// what is true is that RENDERING this page writes nothing, and every control posts to
+// what is true is that RENDERING this page writes nothing (the one write on its GET is
+// the gate's, asked by the handler before the page is drawn — below), and every control posts to
 // the section's CONFIRMATION step, which also writes nothing — the address that
 // changes a rulebook is reachable only from there, with a MAC bound to the exact
 // change.
 //
-// Why rendering must stay side-effect-free: the OTHER assembler of a policy set
+// Why rendering must never provision a business: the OTHER assembler of a policy set
 // (internal/domain/checkin) materialises the managed baseline when it finds it
 // missing, so a screen that borrowed its reader would INSERT a policy, a version and
 // an attachment for every shipped baseline document into a tenant somebody merely
 // looked at — into a table that is append-only, so the rows could never be taken back.
-// The gate the write path uses reads through checkin.Service.StoredSet for exactly
-// that reason.
+// The gate the page asks reads through checkin.Service.PanelSet for that reason: it
+// writes in ONE case only, an owner's view of a business whose stored baseline lacks a
+// document a later release added, and then only that document, through the tap path's
+// own materialiser (ADR 0045 Bedel 10). A manager is refused before anything is
+// written; a business with nothing stored is written nothing.
 // 🔴 EVERYTHING THIS SECTION RENDERS IS INSIDE ONE WRAPPER, AND THAT WRAPPER IS A
 // TEST BOUNDARY RATHER THAN A LAYOUT DECISION. The "nothing here is interactive"
 // net (handler.TestPoliciesSection_RendersOnlyInertMarkup) has to scan the SECTION
@@ -280,15 +284,12 @@ templ policyIntro(v PoliciesView) {
 				// 🔴 THIS ARM IS THE ENGINE'S ANSWER, NOT A ROLE. It is shown to a manager AND to
 				// an owner whose rulebook has never been set up, because in both cases the engine
 				// refuses policy:edit — and telling an owner "only owners may change these" when
-				// they ARE the owner would send them looking for the wrong problem.
+				// they ARE the owner would send them looking for the wrong problem. The WHY is
+				// role-aware (the handler's readOnlyWhy): a manager's reason is the guardrail.
 				<p class="text-sm text-ink/85">
 					You are seeing this page read-only: the rules engine does not currently grant you
 					the <span class="font-mono">policy:edit</span> authority, so no controls are shown.
-					The rules below tell you which of three things it is: your business&#39;s rules may
-					not have been set up yet (every one of them reads “Not set up yet”); one of them
-					may be stored in a form this release cannot read, which stops the whole rulebook
-					and is said at the top of this page; or they are fine and this authority is not
-					yours. Only an organisation owner is ever granted it.
+					{ v.ReadOnlyWhy } Only an organisation owner is ever granted it.
 				</p>
 			}
 		</div>
@@ -593,6 +594,13 @@ templ policyRule(r PolicyRuleView) {
 				<div class="flex flex-col gap-1 rounded-xl border border-dashed border-saffron bg-saffron-lite px-3.5 py-3">
 					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">Outdated · a newer baseline changes this rule</p>
 					<p class="text-sm text-ink">{ r.Outdated }</p>
+				</div>
+			}
+			if r.Added != "" {
+				// M16-06 / ADR 0045 Bedel 10: a rule a newer release added, told on the rule itself.
+				<div class="flex flex-col gap-1 rounded-xl border border-dashed border-saffron bg-saffron-lite px-3.5 py-3">
+					<p class="font-mono text-xs font-bold uppercase tracking-widest text-ink">New · added by a newer baseline</p>
+					<p class="text-sm text-ink">{ r.Added }</p>
 				</div>
 			}
 			if r.Problem != "" {

@@ -51,6 +51,9 @@ var plainStrings = map[string]bool{
 	// A list of strings is classified by path too (configFieldProblem): host names from the closed
 	// list in config.go (backlog T71), public by design.
 	"RedirectHosts": true,
+	// The native app's Team ID and certificate digests (M16-08): public by design, published
+	// to anyone by the two association files they fill.
+	"AppAppleTeamID": true, "AppAndroidSignerSHA256": true,
 }
 
 // harmlessTypes is the closed list of the other types Config may hold. A map, a pointer to a

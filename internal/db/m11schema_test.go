@@ -278,6 +278,30 @@ var m11Tables = map[string]map[string]m11TableACL{
 		},
 		"tappa_resolver": {Select: "tenant_id,id,token_hash,revoked_at"},
 	},
+	// 00108 (M16-03, ADR 0045 §2.3): the native app's devices. tappa_app reads every column but
+	// public_key and key_digest (only the resolver needs the key), inserts a device by naming its
+	// tenant, person, platform, key and label, and updates last_used_at and revoked_at alone -- never
+	// deletes; the device resolver's owner reads the resolution's five columns.
+	"app_devices": {
+		"tappa_app": {
+			Select: "id,tenant_id,employee_id,platform,device_label,created_at,last_used_at,revoked_at",
+			Insert: "tenant_id,employee_id,platform,public_key,device_label",
+			Update: "last_used_at,revoked_at",
+		},
+		"tappa_resolver": {Select: "id,tenant_id,employee_id,public_key,revoked_at"},
+	},
+	// 00108 (M16-03): the single-use request nonces. tappa_app reads every column (the consumption's
+	// WHERE names nonce_hash; no query returns it), inserts a nonce by naming its tenant, device,
+	// hash and expiry (created_at is the database's now()), stamps consumed_at alone, and deletes the
+	// dead ones (the sweep -- fail-closed). tappa_resolver reaches nothing here.
+	"app_request_nonces": {
+		"tappa_app": {
+			Select: "id,tenant_id,device_id,nonce_hash,created_at,expires_at,consumed_at",
+			Insert: "tenant_id,device_id,nonce_hash,expires_at",
+			Update: "consumed_at",
+			Delete: true,
+		},
+	},
 	// 00052 (M11 API-4, ADR 0028 §1, §8): the Idempotency-Key ledger. tappa_app reads it, claims a
 	// key by naming the tenant, the API key, the idempotency key and the request hash, writes the
 	// result into status and result_ref alone, and deletes the expired rows (the lazy delete).
@@ -483,6 +507,11 @@ var m11Columns = []m11Column{
 	{"transactions", "shift_end", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_overnight", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_timezone", map[string]string{"tappa_app": "SI"}},
+	// 00109 (M16-04, ADR 0045 §2.4): which client wrote a tap. tappa_app reads it through its
+	// table-level SELECT (00005) and inserts it by name (00109's column GRANT -- ADR 0038's rule),
+	// never updates it (§4.3). Neither feed writer reads it: the punch event, /v1 and the site
+	// projection carry no client (the card: carrying it there is a separate decision).
+	{"transactions", "client", map[string]string{"tappa_app": "SI"}},
 	// 00069 (M14-03, ADR 0031 §5.1): the membership's link to an identity. admin_users hands
 	// tappa_app SELECT column by column from 00069 on (the table-level SELECT of 00006 is gone --
 	// S9) and INSERT / UPDATE column by column since 00017, none of which names a new column: it
@@ -595,6 +624,12 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00100 (T76 step 3): tags' born-in-stock BEFORE INSERT check -- SECURITY INVOKER trigger
 	// function, EXECUTE in its owner alone, body asserting TG_RELID (00099's shape).
 	"tappa_forbid_birth_outside_stock()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00108 (M16-03, ADR 0045 §2.3): the device resolver -- ADR 0002 md.7's shape, EXECUTE to tappa_app
+	// alone -- and the two one-way trigger functions (00099's shape), EXECUTE in their owner alone,
+	// bodies asserting TG_RELID (appdevices_test.go binds them elsewhere).
+	"resolve_app_device_by_id(uuid)":              {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"app_devices_revocation_is_one_way()":         {owner: "tappa_owner", execute: "tappa_owner"},
+	"app_request_nonces_consumption_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose

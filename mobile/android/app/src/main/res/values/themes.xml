@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Platform theme for the window only: Compose draws every pixel inside it, and there is
+      no material3 (Q36). Light only (tappa-brand: no dark theme). The bars are left to
+      edge-to-edge (MainActivity), which targetSdk 36 enforces anyway.
+    -->
+    <style name="Theme.Taptime" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/porcelain</item>
+    </style>
+</resources>

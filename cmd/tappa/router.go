@@ -40,6 +40,7 @@ import (
 func appRouter(cfg *config.Config, log *slog.Logger,
 	activation *handler.Activation,
 	tap *handler.Tap,
+	app *handler.App,
 	panel *handler.AdminAuth,
 	invite httpx.Mounter,
 	undo httpx.Mounter,
@@ -53,6 +54,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	integrationAPI httpx.Mounter,
 	oauthTokens *oauthapi.Surface,
 	devTools httpx.Mounter,
+	appLinks *handler.AppLinks,
 ) http.Handler {
 	// invite is the manager invitation's page (M14-15, the panel's InviteAcceptance), mounted beside the
 	// panel like the recovery flow: it is reached without a session of the inviting business, so it is
@@ -62,5 +64,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	// oauthTokens is the authorization server's server-to-server surface (issue #37, ADR 0047 §5, §6):
 	// POST /oauth/token, POST /oauth/revoke and the front door GET /oauth/authorize, on the main host,
 	// outside the panel's chains. Always on (TAPPA_OAUTH_HMAC_KEY is required).
-	return httpx.NewRouter(cfg, log, activation, tap, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, oauthTokens, devTools)
+	// appLinks is the native app's two association files (M16-08): it mounts only the files whose
+	// platform is configured, so with neither it mounts nothing.
+	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, oauthTokens, devTools, appLinks)
 }

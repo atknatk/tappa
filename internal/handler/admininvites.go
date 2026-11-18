@@ -37,7 +37,8 @@ import (
 // action would meet "deny sid=default" in every business whose baseline was materialised before it
 // shipped (billingactions.go measured that shape) -- the owner locked out. The cost, stated: an owner
 // whose business's rulebook has never been set up (no tap yet) or cannot be read is refused, as on
-// the policies screen (checkin.Service.StoredSet's header), and the page says so. The two writes are
+// the policies screen (checkin.Service.StoredSet's header; a business short only of a document a later
+// release added is completed first and is not refused -- checkin.Service.PanelSet), and the page says so. The two writes are
 // in mountWriting's MAIN group (ProtectWriting): ADR 0025's closed list of suspension exceptions names
 // no invitation, so a suspended business invites nobody. Each form carries the tenant binding (§5.5).
 //

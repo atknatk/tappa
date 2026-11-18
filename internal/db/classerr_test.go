@@ -63,6 +63,10 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 		_, err := d.GetAPIKeyByHash(ctx, "h")
 		return err
 	},
+	"GetAppDeviceByID": func(ctx context.Context, d *DB) error {
+		_, err := d.GetAppDeviceByID(ctx, uuid.New())
+		return err
+	},
 	"GetOAuthClient": func(ctx context.Context, d *DB) error {
 		_, err := d.GetOAuthClient(ctx, uuid.New(), nil)
 		return err
