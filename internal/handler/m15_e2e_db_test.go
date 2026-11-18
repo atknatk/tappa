@@ -71,7 +71,6 @@ func newForgottenCheckout(t *testing.T) *forgottenCheckout {
 	if !ok || !f.leftAt.Before(next) || !next.Before(time.Now()) {
 		t.Fatalf("PREMISE: the check-in's business day [%v, %v) must hold the claimed %v and end before now", s, next, f.leftAt)
 	}
-	ctx := context.Background()
 	if err := ownerTenantTx(t, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `UPDATE locations SET shift_start = $3::time, shift_end = $4::time WHERE tenant_id = $1 AND id = $2`,
 			h.tenantID, h.locationID, local.Format("15:04"), f.leftAt.In(zone).Format("15:04")); e != nil {
@@ -87,21 +86,8 @@ func newForgottenCheckout(t *testing.T) *forgottenCheckout {
 	}
 
 	// The panel, signed in as an owner of THIS business.
-	p := newPanelHarnessWith(t, panelHarnessOptions{claims: true})
-	p.tenantID, p.adminID = h.tenantID, uuid.New()
-	p.email = "m15-e2e-" + uuid.NewString() + "@m15.example"
-	if err := p.data.WithTenant(ctx, h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-			 VALUES ($1, $2, 'M15 Owner', $3, $4, 'owner', 'active')`,
-			p.adminID, h.tenantID, p.email, ownerDigest)
-		return e
-	}); err != nil {
-		t.Fatalf("the owner: %v", err)
-	}
-	p.signIn(t)
-	f.p = p
-	if f.reader, err = ledger.NewReader(p.data, slog.New(slog.DiscardHandler)); err != nil {
+	f.p = newPanelHarnessOwning(t, h.tenantID, panelHarnessOptions{claims: true})
+	if f.reader, err = ledger.NewReader(f.p.data, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	return f

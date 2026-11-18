@@ -477,6 +477,28 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	return ph
 }
 
+// newPanelHarnessOwning is the panel signed in as a fresh owner of ANOTHER harness's business
+// (tenantID): two routers, one business, so a scenario that crosses the tap surface and the panel
+// drives the same person and the same rows. The harness's own business stays where it is; the new
+// address matches only the new owner, so the sign-in lands on tenantID without the picker.
+func newPanelHarnessOwning(t *testing.T, tenantID uuid.UUID, o panelHarnessOptions) *panelHarness {
+	t.Helper()
+	p := newPanelHarnessWith(t, o)
+	p.tenantID, p.adminID = tenantID, uuid.New()
+	p.email = "panel-owner-" + uuid.NewString() + "@e2e.example"
+	if err := p.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
+			 VALUES ($1, $2, 'E2E Owner', $3, $4, 'owner', 'active')`,
+			p.adminID, tenantID, p.email, ownerDigest)
+		return e
+	}); err != nil {
+		t.Fatalf("the owner: %v", err)
+	}
+	p.signIn(t)
+	return p
+}
+
 func (p *panelHarness) get(t *testing.T, path string) (*http.Response, string) {
 	t.Helper()
 	res, err := p.client.Get(p.server.URL + path)
