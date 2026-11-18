@@ -891,6 +891,13 @@ FAIL verir (M16-02: dosya bazlı ağ) — zamanlayıcılar ayrı bir görünüm 
 > göremez. Bu kart ya da M16-27 `<uses-feature android:name="android.hardware.location" android:required="false"/>`
 > yazıp yazmamaya karar verir. `android.hardware.nfc` zaten zorunlu değil (NFC'siz telefon kurabilir, ADR 0045).
 
+> **M16-12 devirleri (yeniden denetim, 2026-11-18).** (1) API 31+'da `SECURITY_LEVEL_UNKNOWN` bugün kabul edilir
+> (`KeystoreKeys.kt` `backingOf` → `UNKNOWN`, `Ports.kt` `KeyGate`): ucuz sertleştirme, UNKNOWN'da `isInsideSecureHardware`'e
+> de bakmak. (2) `InviteCode` port'a bakmaz, `PlaqueRead` bakar — tutarlı hale getir. (3) Keystore okunamazsa Android
+> genel sunucu metnini gösterir; iOS'un `keyUnreadable` metni + *Try again* eşi. (4) `backingOf` hata verirse yeni
+> anahtar yetim kalır. (5) **Tap ekranı dokunuştan önce kişinin adını gösterir** — ADR 0045 kabul edilmiş riskin
+> (paylaşılan telefon) hafifletmesi, kullanıcı kararı 2026-11-18.
+
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
 - **Bağımlılık:** M16-13
@@ -1007,6 +1014,14 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 > bugün sistem fontu (`RootView.swift:12,15`); tap ekranı Space Grotesk + IBM Plex Mono'yu gömer (skill `tappa-brand`).
 > (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçülmedi**;
 > M16-18'in App Store Connect'e ilk beta yüklemesi ölçer.
+
+> **M16-16 devirleri (yeniden denetim, 2026-11-18).** (1) **Tap ekranı dokunuştan önce kişinin adını gösterir** — ADR
+> 0045 kabul edilmiş riskin hafifletmesi (kullanıcı kararı 2026-11-18). (2) Kurulu ama aktive edilmemiş uygulama plaket
+> linklerini yutar (`ActivationModel.swift` tap adımı dışında yok sayar) — bu kart yönlendirmeyi kurar. (3) `save()` sil +
+> ekle atomik değil — `SecItemUpdate`. (4) Saati 24 saatten fazla kaymış telefon gerçek ölçümü hiç almaz ve hep *signed
+> out* görür; kullanıcıya *"telefonunun saatini kontrol et"* demeli. `ServerClock` yorumundaki *"UTC"* örneği yanlış
+> (saat dilimi mutlak zamanı değiştirmez). (5) `complete` yanıtı yolda kaybolursa sunucuda cihaz etkin, telefonda kayıt
+> yok → M16-18 cihaz turunda ölçülür.
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 

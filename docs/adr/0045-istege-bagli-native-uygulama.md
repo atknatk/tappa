@@ -459,3 +459,30 @@ koşu `new_key_required` alırdı). İşletmenin `transactions` sayısı her ad�
 Harness'in debounce'u bilerek 120 sn'dir (sevk edilen 60 sn değil — `tap_db_test.go` `harnessDebounce`); tekrar hemen
 gönderildiği için iki pencerenin de içindedir. Fazın büyük testleri (tam `-race`, `go test ./...`, `make check`,
 `make audit`) bu notun commit'inde CI'da koşar; sonuç ve Faz A'nın `done`'ı `state.md`'ye ana oturumca yazılır.
+
+## Faz B/C aktivasyonu: kararlar (2026-11-18, M16-12 + M16-16)
+
+**Ana oturum kararı — yazılım anahtarı reddedilir.** iOS Secure Enclave yoksa, Android Keystore'un bildirdiği seviye
+`software` ise uygulama aktivasyona girmez (*"This iPhone/phone can't be set up"*); üretilen anahtar silinir, bind'e
+gidilmez. Gerekçe: §2.3'ün *"dışa aktarılamayan donanım anahtarı"* vaadi iki platformda aynı kuraldır; Android 8+
+cihazların hemen hepsi TEE taşır. Seviye Android'de yalnız uygulama tercihlerinde tutulur, sunucuya gitmez; sunucunun
+bunu öğrenmesi M16-25 attestation'ıdır. (API 31+'da `SECURITY_LEVEL_UNKNOWN` bugün kabul edilir — M16-13 devri.)
+
+**Ana oturum kararı — telefondaki kayıt sunucu cevabıyla silinmez.** İki 401 (saat düzeltmeli yeniden denemeden sonra)
+*"This phone was signed out"* gösterir ve yeniden aktivasyon yolunu açar; kaydın üzerine yalnız yeni bir başarılı
+aktivasyon yazar. Gerekçe: sunucu tarafında tek bir hata (ör. RLS/GRANT gerilemesinin `ErrUnknownDevice` → 401'i) aksi
+halde bütün telefonların anahtarını geri dönüşsüz silerdi; tarayıcı çerezi de bu durumda silinmez. Güvenlik kaybı yok:
+iptal edilmiş anahtarı sunucu zaten reddeder. Tek silme: anahtar platform deposunda artık yoksa (kalıcı durum).
+
+**Kullanıcı kararları (2026-11-18, §9 gereği soruldu):**
+- Uygulamanın aktivasyon sihirbazında tarayıcıda olmayan düğmeler **kalır**: iOS *"Scan the plaque"* (Core NFC ancak
+  kendi sayfasıyla okur; sayfa ekran açılınca kendiliğinden gelir, düğme yalnız sayfa kapanınca görünür), Welcome'da
+  *Back*, sorun ekranlarında *Try again* / *Start again* — uygulamada tarayıcının geri/yenile düğmesi yoktur. Accent
+  §9'un slotunda kalır: 1–3. adımların birincil düğmesi (3. adımda *"Scan the plaque"*).
+- Gizlilik cümlesi uygulamada *"No finger scans, no face, no voice."* — R1 `mobile/` altında muafiyetsizdir; vaat
+  aynıdır, tarama gevşetilmez.
+- **Kabul edilmiş risk — paylaşılan telefon.** Bir telefonun Safari'sinde X'in oturumu varken Y aynı telefonda uygulamayı
+  aktive ederse, `/t` Universal/App Link olduğu için X'in plaket dokunuşları Y'nin uygulamasını açar; tarayıcının
+  *"This phone belongs to someone else"* uyarısını uygulama gösteremez (Safari çerezini görmez). Hafifletme: uygulamanın
+  tap ekranı (M16-17, M16-13) dokunuştan önce kimin adına kaydedileceğini açıkça gösterir. Paylaşılan telefon nadir bir
+  durumdur; Q40 (a) tarayıcı oturumunu yalnız **aynı kişinin** aktivasyonunda kapatır.

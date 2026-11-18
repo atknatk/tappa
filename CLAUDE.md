@@ -410,9 +410,17 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **Aktivasyon dokunuşu** (practice tap'in yerini aldı — ADR 0026): davet linki bir
   sihirbaz açar; onay POST'u yalnız onayı kaydeder ve bu tarayıcıya bağlar (daveti
   tüketmez, oturum vermez). Aktivasyon, o tarayıcıdan gelen ilk **gerçek NFC**
-  dokunuşunda tamamlanır: `sun.Verify` (atomik `ctr`) → işverenin **aktif** bir
-  plaketi (aynı tenant) → tek ifadeli tüketim → oturum. Bu dokunuş **`transactions`
-  satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
+  dokunuşunda tamamlanır: **ilerletmeyen** ön kontrol (işverenin — aynı tenant —
+  **aktif**, monte bir plaketi) → `sun.Verify` (önce CMAC, sonra atomik `ctr`) → kemer
+  (Verify'ın çözdüğü hâlâ o plaket) → tek ifadeli tüketim → oturum. **Uygulama yolu**
+  (ADR 0045 §2.3) aynı sıradır: `/app/v1/activate/bind` onayı tarayıcı yerine cihazın
+  her aktivasyonda yeni ürettiği, dışa aktarılamayan **donanım** anahtarına bağlar
+  (iOS Secure Enclave, Android Keystore; yazılım anahtarı reddedilir; kullanıcı
+  doğrulaması yok — §4.1) — tüketmez, cihaz doğurmaz; `activate/complete` ilk gerçek
+  NFC okumasını bağlı anahtarın imzasıyla taşır: sahiplik kanıtı → ön kontrol →
+  ilerletmeyen **bağ** kontrolü → `sun.Verify` → tek transaction'da tüketim + kişinin
+  tarayıcı oturumlarının ve eski uygulama cihazlarının iptali + cihazın doğuşu. İki
+  yolda da bu dokunuş **`transactions` satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 - **API'nin açtığı lokasyon** (`PUT /v1/locations`, M11) kanıtsız doğar: panelden IP/GPS tanımlanana
