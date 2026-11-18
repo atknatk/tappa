@@ -125,7 +125,13 @@ const (
 // reaches 40 relations. NOT REMEMBERED, MEASURED, on every run --
 // TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector reads both
 // operands from the live database and fails if the inequality stops holding.
-const probeLockTimeout = 25 * time.Millisecond
+//
+// 25 -> 20ms (2026-11-18): main's OAuth tables (00104-00107) and M16's app_devices
+// and app_request_nonces (00108) took the closure to exactly 40, and the gate went
+// red as predicted (CI run 44256973388: 40 x 25ms = 1s, not below 1s). 20ms holds
+// until 50 relations. The retry budget barely moves: probeBackoff caps at 200ms
+// after attempt 10 instead of 8, so 180 attempts still span ~33s.
+const probeLockTimeout = 20 * time.Millisecond
 
 // probeAttempts is the retry budget, and it is dated rather than derived because
 // nothing mechanical can pin "generous enough".
@@ -134,7 +140,7 @@ const probeLockTimeout = 25 * time.Millisecond
 // only rules once it HAS the locks, and a guard that is gone answers on the first attempt that
 // gets them (the statement succeeds and the assertion goes red). More attempts cannot let a
 // missing trigger through. What a larger budget costs is the time to report a really jammed
-// database, and one 25 ms waiter per lock in the queue of the other packages' statements.
+// database, and one probeLockTimeout waiter per lock in the queue of the other packages' statements.
 //
 // 40 -> 180 (T195, 2026-11-04). 40 attempts took 6.93 s on CI, and a TRUNCATE tenants CASCADE
 // probe needs every table of the closure free at once. internal/domain/checkin's lock tests hold
