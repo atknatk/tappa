@@ -415,11 +415,12 @@ problem texts of `internal/handler/activate.go`), all in `res/values/strings.xml
 
 1. **APP-ONLY code screen** — *"Setup"*, *"Paste your activation link"*, *"Copy the personal link
    your workplace sent you and paste it here."*, *"Continue"* (Q40: the link is not the app's).
-2. **ADAPTED, step 1 panel and terms** — the browser's sentence naming what is never collected
-   is **left out**: its key word is an R1 trigger, R1 has no waiver under `mobile/` and the
-   pre-filter that lets the browser's sentence through is not applied there (M16-02 audit). A
-   waiver (phrase + path, ADR 0012 addendum, `cmd/tappa/scripttest` pin) or a new wording is the
-   main session's decision, for both apps.
+2. **ADAPTED, step 1 panel and terms** — the browser's closing promise of what is never
+   collected names a noun that is an R1 trigger, and R1 has no waiver under `mobile/` (the
+   pre-filter that lets the browser's sentence through is not applied there, M16-02 audit). It
+   reads *"No finger scans, no face, no voice."* in both places, word for word as the iOS app
+   (`mobile/ios/Taptime/ActivationCopy.swift`; coordinator decision, 2026-11-18): the §4.1
+   promise stays on the screen.
 3. **ADAPTED, terms *"What is recorded"*** — *"A cookie keeps this phone signed in…"* becomes
    *"A key kept on this phone keeps it signed in, so you don't need a password."* (the app has
    no cookie, ADR 0045 §2.3).

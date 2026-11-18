@@ -29,10 +29,10 @@
     <!-- Step 1, Welcome. -->
     <string name="welcome_hi">Hi %1$s</string>
     <string name="welcome_sub">Let\'s set up your phone.</string>
-    <!-- ADAPTED: the browser's panel ends with a fourth sentence naming what is never
-         collected; this app's source cannot carry its key word (red-line scan R1 has no
-         waiver under mobile/). Open for the main session: README.md, "Texts". -->
-    <string name="welcome_panel">%1$s uses Taptime to record your shifts. Each tap saves the time, your phone\'s IP address and, if your phone shares it, your location at that moment. Your location is never tracked between taps.</string>
+    <!-- ADAPTED: the browser's fourth sentence names what is never collected; under
+         mobile/ red-line scan R1 has no waiver for its first noun, so it reads "finger scans"
+         here, word for word as the iOS app's copy (coordinator decision, 2026-11-18). -->
+    <string name="welcome_panel">%1$s uses Taptime to record your shifts. Each tap saves the time, your phone\'s IP address and, if your phone shares it, your location at that moment. Your location is never tracked between taps. No finger scans, no face, no voice.</string>
     <string name="new_phone_title">This is a new phone</string>
     <string name="new_phone_body">You are already set up on another phone. When you finish here, that one is signed out — only the phone you are holding will work. If you did not expect this, stop and tell your manager.</string>
     <string name="terms_lead">By continuing, you agree to the</string>
@@ -45,9 +45,9 @@
     <string name="terms_who_body">%1$s is responsible for your attendance records. Taptime processes them on its behalf.</string>
     <string name="terms_what">What is recorded</string>
     <!-- ADAPTED: the browser's second sentence names a cookie, which the app does not use
-         (ADR 0045 §2.3: a key that never leaves the phone); the fourth is dropped as in
+         (ADR 0045 §2.3: a key that never leaves the phone); the last one reads as in
          welcome_panel. -->
-    <string name="terms_what_body">The time of each tap, the venue, your phone\'s IP address and, if your phone shares it, your location at that moment. A key kept on this phone keeps it signed in, so you don\'t need a password. Your location is never tracked between taps.</string>
+    <string name="terms_what_body">The time of each tap, the venue, your phone\'s IP address and, if your phone shares it, your location at that moment. A key kept on this phone keeps it signed in, so you don\'t need a password. Your location is never tracked between taps. No finger scans, no face, no voice.</string>
     <string name="terms_why">Why</string>
     <string name="terms_why_body">To record your working hours for %1$s</string>
     <string name="terms_more">For more information, visit:</string>
