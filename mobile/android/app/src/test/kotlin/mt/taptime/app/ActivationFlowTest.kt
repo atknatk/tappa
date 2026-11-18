@@ -8,6 +8,7 @@ import mt.taptime.app.activation.PendingActivation
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.wire.AppClient
 import mt.taptime.app.wire.HttpUrlTransport
+import mt.taptime.app.wire.Outcome
 import mt.taptime.app.wire.ServerClock
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -128,6 +129,20 @@ class ActivationFlowTest {
             keys.backing = b
             val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
             assertTrue(b.name, flow.bind(code, facts) is ActivationFlow.BindResult.Bound)
+        }
+    }
+
+    @Test
+    fun aRedirectIsNotFollowed() {
+        // HttpUrlTransport sets instanceFollowRedirects = false: a signed request is never carried
+        // to a path (or host) it was not signed for. The 307 comes back as a refusal, and the
+        // place it points at never sees the request.
+        FakeAppServer(code).use { elsewhere ->
+            server.redirectTo = elsewhere.base + "/app/v1/activate/lookup"
+            val client = AppClient(HttpUrlTransport(server.base), clock, MiniJson)
+            assertEquals(Outcome.Refused(307, null), client.lookup(code))
+            assertEquals(listOf("POST /app/v1/activate/lookup"), server.seen)
+            assertTrue("the redirect target was never asked", elsewhere.seen.isEmpty())
         }
     }
 

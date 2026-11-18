@@ -402,8 +402,8 @@ adapter itself is therefore not run on the JVM; it is the device tour's (M16-14)
 | `WireTest` | the request bodies byte for byte; the writer's escaping; the contract's reply shapes; refusals of missing / mistyped fields |
 | `ClockSkewTest` | the `Date` offset; a `Date` more than a day away ignored; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
 | `InputsTest` | the code from this server's `/activate` link or alone, never from another host or path; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
-| `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone keeps its record and key until a new activation, a record without its key is dropped, a software key is never bound |
-| `MergedManifestTest` | M16-11's, unchanged |
+| `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone keeps its record and key until a new activation, a record without its key is dropped, a software key is never bound, a 307 is not followed (`Refused(307)`, the target never asked) |
+| `MergedManifestTest` | M16-11's, plus cleartext off explicitly (M16-12) |
 
 The fake server builds the canonical text **itself** (string concatenation from the format's
 description), so the app's builder is not checked against its own output; the JDK writes `Date`

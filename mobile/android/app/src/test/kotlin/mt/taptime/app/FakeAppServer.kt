@@ -41,6 +41,8 @@ class FakeAppServer(
         private set
     /** Device id -> public point; removing an entry is the panel's "sign out their phones". */
     val devices = LinkedHashMap<String, ByteArray>()
+    /** When set, every route answers 307 to this location (a captive portal, a hijacked proxy). */
+    var redirectTo: String? = null
     /** The server's clock, Unix seconds; a test may skew it. */
     var nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
 
@@ -63,6 +65,11 @@ class FakeAppServer(
         val path = ex.requestURI.rawPath
         seen += "${ex.requestMethod} $path"
         val body = ex.requestBody.readBytes()
+        redirectTo?.let {
+            ex.responseHeaders.set("Location", it)
+            ex.sendResponseHeaders(307, -1)
+            return
+        }
         when ("${ex.requestMethod} $path") {
             "POST /app/v1/activate/lookup" -> lookup(ex, body)
             "POST /app/v1/activate/bind" -> bind(ex, body)
