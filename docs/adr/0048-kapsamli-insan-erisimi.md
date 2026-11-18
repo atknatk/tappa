@@ -219,6 +219,9 @@ reddeder); (3) `tappa_forbid_mutation` satır tetikleyicisi taşıyan her tablod
    `log_min_error_statement = error` ile `STATEMENT:` satırına yazar. Düz `ALTER ROLE … PASSWORD '…'`
    başarısız olursa parola **düz metin** o log'a düşer — viewer'ın okuyabildiği yere. Parola yalnız
    psql'in `\password`'ü ile değiştirilir (istemcide SCRAM'a çevrilir; runbook 3. adım).
+   🔴 **psql'de literal kişisel veri yazma** (e-posta, ad, adres, koordinat): başarısız bir ifade aynı
+   `STATEMENT:` satırıyla, literal değerleriyle log'a düşer ve o log SigNoz'a gider (madde 12) — §7'nin
+   ihlali. Satırı id ile bul (`WHERE id = …`), değeri sorguya yazma. Mekanizma değil kural: backlog T322.
 11. **`TEMPORARY` açık** (PUBLIC'ten, `tappa` veritabanında): iki rol de oturuma özel geçici tablo
    yaratabilir (readonly'nin varsayılan READ ONLY'si bunu engeller, `BEGIN READ WRITE` engellemez).
    Başka oturum onları görmez; kalıcı veri değildir. Alınmadı, çünkü `REVOKE TEMPORARY … FROM PUBLIC`
@@ -245,7 +248,9 @@ reddeder); (3) `tappa_forbid_mutation` satır tetikleyicisi taşıyan her tablod
      (`usename`, `client_addr = 127.0.0.1`, `backend_start`) — anlık, saklanmaz; ve **reddedilen**
      ifadeler: `log_min_error_statement = error` başarısız ifadeyi `ERROR` + `STATEMENT` satırıyla
      loglar (ölçüldü: readwrite'ın reddedilen `UPDATE locations SET tenant_id …` denemesi log'da), ama
-     `log_line_prefix` (`%m [%p] `) rol adını taşımaz — yalnız saat ve pid.
+     `log_line_prefix` (`%m [%p] `) rol adını taşımaz — yalnız saat ve pid. Aynı satır **literal değerleri taşır**: readwrite ya da
+     readonly'nin hatalı bir `WHERE email = '…'`'i e-postayı ClickHouse'a yazar — psql'de literal kişisel
+     veri yazılmaz (madde 10; T322: `%u` ve genel bağlantı log'u kullanıcının ayrı kararı).
 
 ## 6. Geri alma ve iptal
 
