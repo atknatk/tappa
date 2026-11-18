@@ -49,6 +49,7 @@ class LocationCallSiteTest {
 
     private val tapLocation = "kotlin/mt/taptime/app/tap/TapLocation.kt"
     private val deadline = "kotlin/mt/taptime/app/tap/FixDeadline.kt"
+    private val fixFile = "kotlin/mt/taptime/app/tap/Fix.kt" // its declaration and its one construction
     private val activity = "kotlin/mt/taptime/app/MainActivity.kt"
 
     @Test
@@ -67,8 +68,15 @@ class LocationCallSiteTest {
         val calls = Regex("""(?<!fun )\bask\(lm,""").findAll(text).count()
         assertEquals("ask() is called by the first asks and the one fresh ask", 2, calls)
         assertEquals("the fresh ask is FixRace's", 1, Regex("""AskFresh -> ask\(lm,""").findAll(text).count())
-        assertEquals("the first asks iterate the providers once", 1, Regex("""for \(p in race\.start\(\)\)""").findAll(text).count())
-        assertEquals("no other loop", 1, Regex("""\bfor\s*\(""").findAll(text).count())
+        assertEquals("the only two loops: the first asks over the providers, and taking the asks back",
+            listOf("for (c in out)", "for (p in race.start())"),
+            Regex("""\bfor\s*\([^)]*\)\)?""").findAll(text).map { it.value }.toList().sorted())
+        // Re-review (2026-11-18): no other way to repeat an ask in this file.
+        for (loop in listOf("""\brepeat\s*\(""", """\.forEach\b""", """\bwhile\b""")) {
+            assertEquals("$loop in TapLocation.kt", 0, Regex(loop).findAll(text).count())
+        }
+        // The fresh ask is FixRace's decision alone: only Fix.kt makes one.
+        assertEquals("AskFresh is made in Fix.kt only", mapOf(fixFile to 2), count(Regex("""\bAskFresh\s*\(""")))
     }
 
     @Test

@@ -188,6 +188,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // The press's position asks are taken back first (a late answer would only be dropped, but
+        // an ask left out keeps the location provider on for nothing), then the worker is shut;
+        // anything that still arrives is dropped by LateWork.
+        location.cancel()
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -285,7 +289,7 @@ class MainActivity : ComponentActivity() {
     // one, as the browser's consent POST moves the binding.
     private fun back(p: PendingActivation) {
         screen = Screen.Welcome(p.code, p.facts)
-        worker.execute {
+        LateWork.submit(worker, isDestroyed) {
             // A key that cannot be deleted now is an unused Keystore entry, not a failure the
             // person can act on; an uncaught exception here would end the app.
             try {
@@ -441,7 +445,7 @@ class MainActivity : ComponentActivity() {
     // starts again -- at the code screen during activation, with a new touch during a tap. The
     // exception is not shown or logged -- its message is not ours.
     private fun <T> work(task: () -> T, failed: () -> Screen = { Screen.Code(Problem.SERVER) }, done: (T) -> Unit) {
-        worker.execute {
+        LateWork.submit(worker, isDestroyed || isFinishing) {
             val r = try {
                 Result.success(task())
             } catch (e: Exception) { // Keystore failures are checked exceptions (KeyStoreException)

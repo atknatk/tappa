@@ -46,6 +46,14 @@ class TapLocation(private val context: Context) {
         fun cancel()
     }
 
+    /** Takes back the current read's asks, if any; its result is never delivered (onDestroy). */
+    private var stop: (() -> Unit)? = null
+
+    fun cancel() {
+        stop?.invoke()
+        stop = null
+    }
+
     fun read(onDone: (Fix?) -> Unit) {
         val lm = context.getSystemService(LocationManager::class.java) ?: return onDone(null)
         val providers = FixRules.providers(Build.VERSION.SDK_INT, granted(Manifest.permission.ACCESS_FINE_LOCATION),
@@ -57,12 +65,17 @@ class TapLocation(private val context: Context) {
         var delivered = false
         lateinit var deadline: FixDeadline
 
-        fun finish(fix: Fix?) {
-            if (delivered) return
+        fun takeBack() {
             delivered = true
             deadline.cancel()
-            out.forEach { it.cancel() }
+            for (c in out) c.cancel()
             out.clear()
+        }
+
+        fun finish(fix: Fix?) {
+            if (delivered) return
+            takeBack()
+            stop = null
             onDone(fix)
         }
 
@@ -83,6 +96,7 @@ class TapLocation(private val context: Context) {
         }
 
         deadline = FixDeadline(FixRules.TIMEOUT_MILLIS) { next(race.expired()) }
+        stop = { if (!delivered) takeBack() }
         deadline.start()
         for (p in race.start()) {
             if (delivered) break
