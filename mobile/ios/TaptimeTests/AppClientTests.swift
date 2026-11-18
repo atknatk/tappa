@@ -224,12 +224,31 @@ final class AppClientTests: XCTestCase {
 
     func testInviteCodesComeFromTheLinkOrStandAlone() {
         let c = FakeAppServer.code
-        XCTAssertEqual(InviteCode.parse("https://taptime.mt/activate?code=\(c)"), c)
-        XCTAssertEqual(InviteCode.parse("  https://taptime.mt/activate?code=\(c)\n"), c)
-        XCTAssertEqual(InviteCode.parse(c), c)
-        XCTAssertNil(InviteCode.parse("https://taptime.mt/activate"))
-        XCTAssertNil(InviteCode.parse("https://taptime.mt/activate?code=short"))
-        XCTAssertNil(InviteCode.parse("hello"))
+        let h = "taptime.mt"
+        XCTAssertEqual(InviteCode.parse("https://taptime.mt/activate?code=\(c)", host: h), c)
+        XCTAssertEqual(InviteCode.parse("  https://TAPTIME.mt/activate?code=\(c)\n", host: h), c)
+        XCTAssertEqual(InviteCode.parse(c, host: h), c, "a bare code is still accepted")
+        XCTAssertEqual(InviteCode.parse("  \(c) ", host: h), c)
+        XCTAssertNil(InviteCode.parse("https://taptime.mt/activate", host: h))
+        XCTAssertNil(InviteCode.parse("https://taptime.mt/activate?code=short", host: h))
+        XCTAssertNil(InviteCode.parse("hello", host: h))
+    }
+
+    /// A link counts only if it is this server's /activate link (M16-16 review).
+    func testAnInviteLinkOfAnotherHostOrPathIsRefused() {
+        let c = FakeAppServer.code
+        let h = "taptime.mt"
+        for link in [
+            "https://taptime.mt.evil.example/activate?code=\(c)",
+            "https://evil.example/activate?code=\(c)",
+            "https://evil.example/?u=https://taptime.mt/activate&code=\(c)",
+            "http://taptime.mt/activate?code=\(c)",
+            "https://taptime.mt/t?code=\(c)",
+            "https://taptime.mt/activate/x?code=\(c)",
+            "taptime://activate?code=\(c)",
+        ] {
+            XCTAssertNil(InviteCode.parse(link, host: h), link)
+        }
     }
 
     func testOnlyThisServersPlaqueURLsYieldAQuery() {

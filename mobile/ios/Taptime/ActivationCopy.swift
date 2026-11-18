@@ -163,16 +163,25 @@ enum Copy {
 }
 
 enum InviteCode {
-    /// The invite code inside what the person pasted: the activation link
-    /// (<base>/activate?code=<code>) or the bare code. A code is 43 characters of unpadded
-    /// base64url, 32 bytes (internal/invite codeLen); anything else is nil and never sent.
-    static func parse(_ input: String) -> String? {
+    /// The path of the activation link (internal/invite activationURL: <base>/activate?code=..).
+    static let path = "/activate"
+
+    /// The invite code inside what the person pasted: the activation link or the bare code. A link
+    /// counts only if it is THIS server's -- https, the app's own host, the /activate path -- so a
+    /// look-alike link of another host never has its code sent here (M16-16 review). A code is 43
+    /// characters of unpadded base64url, 32 bytes (internal/invite codeLen); anything else is nil
+    /// and never sent.
+    static func parse(_ input: String, host: String) -> String? {
         let s = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let comps = URLComponents(string: s), comps.scheme != nil,
-           let code = comps.queryItems?.first(where: { $0.name == "code" })?.value {
-            return valid(code) ? code : nil
+        guard let comps = URLComponents(string: s), comps.scheme != nil else {
+            return valid(s) ? s : nil
         }
-        return valid(s) ? s : nil
+        guard comps.scheme?.lowercased() == "https", comps.host?.lowercased() == host.lowercased(),
+              comps.percentEncodedPath == path,
+              let code = comps.queryItems?.first(where: { $0.name == "code" })?.value, valid(code) else {
+            return nil
+        }
+        return code
     }
 
     private static func valid(_ c: String) -> Bool {

@@ -109,7 +109,7 @@ final class ActivationModel: ObservableObject {
     // MARK: Steps
 
     func submitCode() async {
-        guard let c = InviteCode.parse(codeInput) else {
+        guard let host = client.baseURL.host, let c = InviteCode.parse(codeInput, host: host) else {
             codeError = Copy.Code.notALink
             return
         }

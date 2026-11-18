@@ -121,6 +121,14 @@ final class ActivationModelTests: XCTestCase {
         XCTAssertTrue(server.seen.isEmpty)
     }
 
+    func testAnotherHostsInviteLinkIsNotSent() async {
+        await model.start()
+        model.codeInput = "https://evil.example/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        XCTAssertEqual(model.codeError, Copy.Code.notALink)
+        XCTAssertTrue(server.seen.isEmpty)
+    }
+
     func testABadInputIsNotSent() async {
         await model.start()
         model.codeInput = "not a link"
