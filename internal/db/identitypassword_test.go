@@ -2150,9 +2150,9 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"operator_audit_log":    "00107's Down LOCKs it first and puts 00063's kind CHECK back (issue #37)",
 		"operator_read_tickets": "00107's Down LOCKs it first and puts 00042's read-kind CHECK back (issue #37)",
 		"api_idempotency":       "00106's Down deletes the grant rows and ALTERs the table (drops grant_id, its key and CHECK, gives 00052's primary key back -- issue #37)",
-		"app_devices":           "00104's Down locks and drops its own table (M16-03)",
-		"app_request_nonces":    "00104's Down locks and drops its own table (M16-03)",
-		"employees":             "00104's Down: app_devices' composite FK to employees (it LOCKs it first)",
+		"app_devices":           "00108's Down locks and drops its own table (M16-03)",
+		"app_request_nonces":    "00108's Down locks and drops its own table (M16-03)",
+		"employees":             "00108's Down: app_devices' composite FK to employees (it LOCKs it first)",
 	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	for _, w := range walked {

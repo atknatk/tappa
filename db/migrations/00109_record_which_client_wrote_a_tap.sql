@@ -1,4 +1,4 @@
--- 00105 -- M16-04 (ADR 0045 §2.4): which client wrote a tap.
+-- 00109 -- M16-04 (ADR 0045 §2.4): which client wrote a tap.
 --
 -- WHAT. transactions.client: 'browser' when the tap came through the tap page (POST /api/checkin),
 -- 'app' when it came through the native app's signed surface (/app/v1, M16-07). Written once, by the
@@ -8,7 +8,7 @@
 --
 -- NULL IS A STATE, NOT A GAP. Every row before this column carries NULL, and this file back-fills
 -- nothing (§4.3: it would add a claim to immutable rows -- 00065's rejected alternative, the same
--- reason). NULL means "no client recorded": every row before 00105, every row the previous binary
+-- reason). NULL means "no client recorded": every row before 00109, every row the previous binary
 -- writes during the rollout, every manual row (a manager's record is not a tap: no client touched a
 -- plaque) and every row no client wrote (the API sandbox's simulated tap, ADR 0028 §11).
 --
@@ -26,13 +26,13 @@
 -- historical row is NULL. There is deliberately NO "a tap channel must carry a client" CHECK:
 -- a NOT VALID CHECK still binds every NEW row, so in the window between this migration and the new
 -- pod's rollout the previous binary -- which does not name the column -- would have every NFC and QR
--- tap refused with 23514, and a refused INSERT is a lost record (§4.6). Its VALIDATE (00106) would also
+-- tap refused with 23514, and a refused INSERT is a lost record (§4.6). Its VALIDATE (00110) would also
 -- fail on every database with history. That new rows carry a value is proved in code, not here: the
 -- Go tests (browser path 'browser', manual path NULL; the app path 'app' when M16-07 writes it) and
 -- M16-10's end-to-end DB test. The value-set CHECK is written `client IS NULL OR ...` although a NULL
 -- already passes `client IN (...)`, so the reader does not have to know that CHECK's NULL rule to see it.
 --
--- BOTH NOT VALID HERE, VALIDATED IN 00106 (00044's pattern): a validating ADD CONSTRAINT CHECK scans every
+-- BOTH NOT VALID HERE, VALIDATED IN 00110 (00044's pattern): a validating ADD CONSTRAINT CHECK scans every
 -- row under the ACCESS EXCLUSIVE this ALTER takes; ADD COLUMN with no default scans nothing. Every old
 -- row is NULL and passes; NOT VALID is chosen for the lock, not for them, and still binds every new
 -- row (internal/db's txclient_test.go measures both).
@@ -75,11 +75,11 @@ BEGIN
        AND has_column_privilege('tappa_app', 'public.transactions', a.attname, 'INSERT')
            = (a.attname IN ('id', 'created_at'));
     IF wrong IS NOT NULL THEN
-        RAISE EXCEPTION 'migration 00105: tappa_app''s INSERT on transactions is wrong on: %. It must reach every column but id and created_at. Nothing was changed.', wrong
+        RAISE EXCEPTION 'migration 00109: tappa_app''s INSERT on transactions is wrong on: %. It must reach every column but id and created_at. Nothing was changed.', wrong
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF has_table_privilege('tappa_app', 'public.transactions', 'INSERT') THEN
-        RAISE EXCEPTION 'migration 00105: tappa_app holds a table-level INSERT on transactions. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00109: tappa_app holds a table-level INSERT on transactions. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
@@ -104,7 +104,7 @@ LOCK TABLE transactions IN ACCESS EXCLUSIVE MODE;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM public.transactions WHERE client IS NOT NULL) THEN
-        RAISE EXCEPTION 'migration 00105 Down: transactions holds rows with a client (which client wrote a tap); it cannot be recomputed and records are immutable. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00109 Down: transactions holds rows with a client (which client wrote a tap); it cannot be recomputed and records are immutable. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END

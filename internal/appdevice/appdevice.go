@@ -61,7 +61,7 @@ import (
 
 // NonceTTL is how long an issued nonce stays spendable. The device asks for a nonce, signs and
 // sends at once; a minute covers a slow network without leaving a captured nonce useful for
-// long. 00104's CHECK caps any lifetime at five minutes.
+// long. 00108's CHECK caps any lifetime at five minutes.
 const NonceTTL = 60 * time.Second
 
 // Database is the narrow slice of *db.DB this package needs, declared at the consumer

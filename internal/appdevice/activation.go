@@ -15,7 +15,7 @@ import (
 //	          server draws an ActivationChallenge -- an activation id and a challenge, both its
 //	          own randomness -- and records on the invitation a consent binding derived from the
 //	          challenge, the id and the key (ActivationBinding). It spends nothing and creates no
-//	          device: "a bound but not active device" is an invitation carrying a binding (00104's
+//	          device: "a bound but not active device" is an invitation carrying a binding (00108's
 //	          header). The challenge goes back to the phone and nowhere else.
 //	complete  POST /app/v1/activate/complete: a request signed by the BOUND key in
 //	          SignedRequest's own format, with the activation id in App-Device-Id and the
@@ -31,7 +31,7 @@ import (
 // app_devices_key_digest_key's global UNIQUE.
 //
 // WHY NO NONCE ROW AND NO DEVICE ROW BEFORE THE END: a nonce is bound to an existing device
-// (00104), and the device is born at the end, ACTIVE. The challenge's single use is the
+// (00108), and the device is born at the end, ACTIVE. The challenge's single use is the
 // invitation's: the consuming statement spends the binding with the code, once -- and the
 // tap's atomic counter (sun.Verify, §4.4) is the replay guard of the request itself. A second
 // bind moves the binding (ADR 0026 "Güvenlik değerlendirmesi"), so the earlier challenge then

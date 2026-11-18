@@ -146,7 +146,7 @@ func TestVerifySignature_KnownAnswers(t *testing.T) {
 }
 
 // TestParsePublicKey_InvalidVectors: every key that is not an uncompressed point ON P-256 is
-// refused -- the off-curve one passes 00104's CHECK (65 bytes, 0x04) and is the reason the
+// refused -- the off-curve one passes 00108's CHECK (65 bytes, 0x04) and is the reason the
 // curve check lives in Go. The two real keys parse (positive control).
 func TestParsePublicKey_InvalidVectors(t *testing.T) {
 	v := loadVectors(t)

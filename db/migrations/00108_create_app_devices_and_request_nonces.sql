@@ -1,4 +1,4 @@
--- 00104 -- M16-03 (ADR 0045 §2.3): app_devices, app_request_nonces and the device resolver,
+-- 00108 -- M16-03 (ADR 0045 §2.3): app_devices, app_request_nonces and the device resolver,
 -- resolve_app_device_by_id.
 --
 -- NORMATIVE SOURCES: docs/adr/0045-istege-bagli-native-uygulama.md §2.3 (the device key, no
@@ -91,7 +91,7 @@ SET LOCAL lock_timeout = '1s';
 DO $$
 BEGIN
     IF pg_catalog.to_regprocedure('public.sessions_revocation_is_one_way()') IS NULL THEN
-        RAISE EXCEPTION 'migration 00104 (M16-03) needs migration 00099 (the one-way session revocation it copies). Migrate in order. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00108 (M16-03) needs migration 00099 (the one-way session revocation it copies). Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF pg_catalog.to_regclass('public.app_devices') IS NOT NULL
@@ -99,12 +99,12 @@ BEGIN
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
                    WHERE p.proname IN ('resolve_app_device_by_id', 'app_devices_revocation_is_one_way',
                                        'app_request_nonces_consumption_is_one_way')) THEN
-        RAISE EXCEPTION 'migration 00104 (M16-03) creates app_devices, app_request_nonces and their three functions, and one of them is already there. Migrate in order. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00108 (M16-03) creates app_devices, app_request_nonces and their three functions, and one of them is already there. Migrate in order. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
                     WHERE rolname = 'tappa_resolver' AND rolbypassrls AND NOT rolsuper AND NOT rolcanlogin) THEN
-        RAISE EXCEPTION 'migration 00104 (M16-03): role tappa_resolver must exist, NOLOGIN, NOSUPERUSER and BYPASSRLS (scripts/db-init/01-roles.sql). Nothing was changed.'
+        RAISE EXCEPTION 'migration 00108 (M16-03): role tappa_resolver must exist, NOLOGIN, NOSUPERUSER and BYPASSRLS (scripts/db-init/01-roles.sql). Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
@@ -325,7 +325,7 @@ BEGIN
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
                    WHERE a.attrelid = 'public.app_request_nonces'::pg_catalog.regclass AND a.attnum > 0 AND NOT a.attisdropped
                      AND pg_catalog.has_column_privilege('tappa_resolver', a.attrelid, a.attnum, 'SELECT')) THEN
-        RAISE EXCEPTION 'migration 00104 (M16-03): tappa_app must not read a device key or digest, delete or truncate a device, truncate the nonces, update anything but last_used_at/revoked_at and consumed_at, write a nonce''s created_at or run a trigger function, must EXECUTE the resolver where PUBLIC does not, and tappa_resolver must read no column of app_devices but the resolution''s five and none of app_request_nonces -- through PUBLIC or a role membership one of these does not hold. Fix it by hand, then migrate again. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00108 (M16-03): tappa_app must not read a device key or digest, delete or truncate a device, truncate the nonces, update anything but last_used_at/revoked_at and consumed_at, write a nonce''s created_at or run a trigger function, must EXECUTE the resolver where PUBLIC does not, and tappa_resolver must read no column of app_devices but the resolution''s five and none of app_request_nonces -- through PUBLIC or a role membership one of these does not hold. Fix it by hand, then migrate again. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END
@@ -353,7 +353,7 @@ LOCK TABLE public.app_request_nonces, public.app_devices, public.employees, publ
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM public.app_devices) OR EXISTS (SELECT 1 FROM public.app_request_nonces) THEN
-        RAISE EXCEPTION 'migration 00104 Down: app_devices or app_request_nonces holds rows (an activated phone, a nonce issued to one); dropping them would sign every app user out and erase which phone was whose. Nothing was changed.'
+        RAISE EXCEPTION 'migration 00108 Down: app_devices or app_request_nonces holds rows (an activated phone, a nonce issued to one); dropping them would sign every app user out and erase which phone was whose. Nothing was changed.'
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
 END

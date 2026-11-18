@@ -254,7 +254,7 @@
 --   FROM resolve_api_key_by_hash($1);
 
 -- GetAppDeviceByID (hand-written: internal/db.(*DB).GetAppDeviceByID, M16-03). Context-less; calls
--- resolve_app_device_by_id (00104), never public.app_devices. At most one row (app_devices.id is the
+-- resolve_app_device_by_id (00108), never public.app_devices. At most one row (app_devices.id is the
 -- primary key). Fixed columns: id, tenant_id, employee_id, public_key, revoked_at.
 --   * The input is the device id, which is NOT a credential: what authenticates an app request is
 --     the signature over a single-use nonce, verified with the key this returns (ADR 0045 §2.3,

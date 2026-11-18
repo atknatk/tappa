@@ -186,7 +186,7 @@ func TestTransactions00088_EveryShippedInsertNamesOnlyGrantedColumns(t *testing.
 // Since T152 the walk is wrapped in 00095's Down and Up, goose's own order (ADR 0038 "Bedel"): 00095
 // adds five columns 00088's list does not name, so 00088's Up at HEAD would refuse them -- its own
 // DO block, the guard working. transactions is locked first for 00095's Down (lockForDowns). Since
-// M16-04 it is wrapped once more, in 00106's and 00105's Downs and Ups, for the same reason: 00105's
+// M16-04 it is wrapped once more, in 00110's and 00109's Downs and Ups, for the same reason: 00109's
 // client is a column 00088's and 00095's lists do not name.
 func TestTransactions00088_TheDownGivesBackTheTableInsertAndTheUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)

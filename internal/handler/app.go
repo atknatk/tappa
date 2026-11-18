@@ -48,7 +48,7 @@ import (
 //
 // THE TWO UNSIGNED ROUTES AND THE ONE WITHOUT A NONCE are the card's two named exceptions plus
 // the consent screen's read: lookup and bind come before any key is registered (a nonce belongs
-// to a device row, 00104), and their replay is bounded by the invitation -- a second bind MOVES
+// to a device row, 00108), and their replay is bounded by the invitation -- a second bind MOVES
 // the binding, so an earlier one completes nothing (ADR 0026 "Güvenlik değerlendirmesi");
 // complete comes from a key with no device row, signs over the server's challenge, and its replay
 // guard is the SUN counter's atomic advance (§4.4) and the invitation's one-statement consumption.

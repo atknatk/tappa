@@ -4,7 +4,7 @@
     "Known-answer vectors for the native app's signed requests (ADR 0045 §2.3, M16-05). internal/appdevice's tests read this file; the iOS and Android request builders (M16-12, M16-16) are to read it too, so the three implementations are held to ONE byte string.",
     "canonical_text is the exact signed byte string: six lines, each ended by LF -- the prefix tappa-app-request-v1, the method, the path, the lower-case hex SHA-256 of the raw body bytes, the nonce as issued, the device id in canonical lower-case form.",
     "Signature: ECDSA P-256 with SHA-256 over canonical_text (the signer hashes it: iOS .ecdsaSignatureMessageX962SHA256, Android SHA256withECDSA), ASN.1 DER, sent as unpadded base64url in the App-Signature header. The nonce goes in App-Nonce, the device id in App-Device-Id.",
-    "public_point_hex is a device's public key in the stored form: the raw uncompressed point 04 || X || Y, 65 bytes (00104). It is named for the point so that redline R7d's key-context rule (that word plus a long hex string on one line) is not tripped by a PUBLIC value: the rule stays blunt and the name is reworded, this repository's direction.",
+    "public_point_hex is a device's public key in the stored form: the raw uncompressed point 04 || X || Y, 65 bytes (00108). It is named for the point so that redline R7d's key-context rule (that word plus a long hex string on one line) is not tripped by a PUBLIC value: the rule stays blunt and the name is reworded, this repository's direction.",
     "reads / read_signatures (M16-07): the SIGNED READ's canonical text -- GET /app/v1/me, POST /app/v1/tap/start, POST /app/v1/nonce carry a signed timestamp instead of a nonce. Six lines, each ended by LF: the prefix tappa-app-read-v1, the method, the path, the hex SHA-256 of the raw body, the decimal Unix second (no sign, no leading zero) as sent in App-Timestamp, the device id. The server accepts it within 60 s of its own clock either way. Key C is FAKE like A and B; its private half was not kept."
   ],
   "_provenance": [
@@ -143,7 +143,7 @@
     {
       "name": "off-curve",
       "public_point_hex": "048005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32e",
-      "note": "key A with the last bit of Y flipped: right length and prefix, not on P-256 -- passes 00104's CHECK"
+      "note": "key A with the last bit of Y flipped: right length and prefix, not on P-256 -- passes 00108's CHECK"
     },
     {
       "name": "hybrid-prefix",
@@ -164,7 +164,7 @@
     {
       "name": "spki",
       "public_point_hex": "3059301306072a8648ce3d020106082a8648ce3d030107034200048005cc4df812da4dbf6f66d1f63b5ee1b8e774a6e8229487f9b799f396def570bd62190c60bc3d441abd95f02b239aa4c6859a8d7109f44a664a834d2fa8f32f",
-      "note": "key A as SPKI DER: the app strips the 26-byte prefix (00104); the server never accepts the wrapper"
+      "note": "key A as SPKI DER: the app strips the 26-byte prefix (00108); the server never accepts the wrapper"
     }
   ],
   "malformed_requests": [

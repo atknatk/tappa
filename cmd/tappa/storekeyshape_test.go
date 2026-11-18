@@ -211,7 +211,7 @@ const storeDir = "internal/store"
 // M16-09 (2026-11-14) widened GetPanelPersonSummaryRow by LiveAppDevices (int64): a count of the
 // person's unrevoked app_devices rows, so the card offers "Sign out their phones" to somebody
 // signed in only in the app. Harmless by this inventory's test: a number -- no []byte, no device
-// id, no key (tappa_app cannot SELECT public_key or key_digest at all, 00104), no label.
+// id, no key (tappa_app cannot SELECT public_key or key_digest at all, 00108), no label.
 var storeSurface = map[string]string{
 	"AuditEventVisible": "(context.Context, AuditEventVisibleParams{TenantID uuid.UUID; ID uuid.UUID}) (bool, error)",
 	// M11 API-6: the API's employee (employees.sql), K-25's budget and the owner's alert (audit.sql)
@@ -381,7 +381,7 @@ var storeSurface = map[string]string{
 	"InsertPunchClaimDecision":        "(context.Context, InsertPunchClaimDecisionParams{Outcome string; DecidedBy uuid.UUID; ApprovedAt *time.Time; TransactionID *uuid.UUID; Note *string; ClaimID uuid.UUID; TenantID uuid.UUID}) (InsertPunchClaimDecisionRow{ID uuid.UUID; CreatedAt time.Time}, error)",
 	"InsertManualTransactionAtAnchor": "(context.Context, InsertManualTransactionAtAnchorParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; AnchorID uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionAtAnchorRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	"InsertPunchClaim":                "(context.Context, InsertPunchClaimParams{Kind string; ClaimedAt time.Time; PrefilledAt *time.Time; AnchorTransactionID uuid.UUID; TenantID uuid.UUID; EmployeeID uuid.UUID}) (InsertPunchClaimRow{ID uuid.UUID; CreatedAt time.Time}, error)",
-	"InsertTransaction":                "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}, error)",
+	"InsertTransaction":               "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte; SiteTenantID *uuid.UUID; SiteLocationID *uuid.UUID; SiteTagUid *string; BusinessDayStart *time.Time; DirectionSource *string; ShiftSource *string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; ShiftOvernight *bool; ShiftTimezone *string; Client *string}, error)",
 	"InsertTransactionReview":         "(context.Context, InsertTransactionReviewParams{TenantID uuid.UUID; ReviewerID uuid.UUID; Outcome string; Note *string; TransactionID uuid.UUID}) (InsertTransactionReviewRow{ID uuid.UUID; ReviewedAt time.Time}, error)",
 	"InsertUnassigned":                "(context.Context, InsertUnassignedParams{Uid string; TenantID uuid.UUID; AesKeyRef []byte; AppKeyRef []byte}) (InsertUnassignedRow{Uid string; CreatedAt time.Time}, error)",
 	"InviteConsentMatches":            "(context.Context, InviteConsentMatchesParams{ConsentBindingHash string; CodeHash string; TenantID uuid.UUID}) (bool, error)",
@@ -482,7 +482,7 @@ var storeSurface = map[string]string{
 	// shift_* columns (a source word, two pgtype.Time wall clocks, the overnight flag and a zone
 	// name) in the params and the Transaction model; ListWorkedShiftEvents returns them for the
 	// report. A word, two times, a bool and a zone: no key, no hash, no evidence.
-	// M16-04 (migration 00105, ADR 0045 §2.4): which client wrote a tap. InsertTransaction,
+	// M16-04 (migration 00109, ADR 0045 §2.4): which client wrote a tap. InsertTransaction,
 	// GetLastOpenTransaction and GetLastTransactionForEmployee carry client (a *string, 'browser' |
 	// 'app' | NULL) in the params and the Transaction model. A word, no key, no hash, no evidence;
 	// the model is transactions', which never held aes_key_ref.
@@ -608,7 +608,7 @@ var storeSurface = map[string]string{
 	"SetOAuthCodeGrant":           "(context.Context, SetOAuthCodeGrantParams{GrantID uuid.UUID; TenantID uuid.UUID; CodeID uuid.UUID}) (int64, error)",
 	"SupersedeLiveOAuthGrants":    "(context.Context, SupersedeLiveOAuthGrantsParams{TenantID uuid.UUID; ClientID uuid.UUID}) ([]uuid.UUID, error)",
 	"TouchOAuthGrant":             "(context.Context, TouchOAuthGrantParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
-	// M16-03 (migration 00104, ADR 0045 §2.3): the native app's devices and single-use request nonces
+	// M16-03 (migration 00108, ADR 0045 §2.3): the native app's devices and single-use request nonces
 	// (appdevices.sql). The device key goes IN (CreateAppDeviceParams.PublicKey) and is never handed
 	// back -- tappa_app cannot SELECT public_key or key_digest -- and the nonce's hash goes in and is
 	// never returned either; ids, instants, the platform, the coarse label and a count.
@@ -1050,7 +1050,7 @@ var resolverCallSites = map[string][]string{
 	"internal/db/resolve.go": {
 		"resolve_admin_by_email",
 		"resolve_admin_session_by_token_hash",
-		// M16-03 (00104): GetAppDeviceByID's call -- the same file, no new caller.
+		// M16-03 (00108): GetAppDeviceByID's call -- the same file, no new caller.
 		"resolve_app_device_by_id",
 		"resolve_invite_by_code_hash",
 		"resolve_password_reset_by_token_hash",
@@ -1152,7 +1152,7 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 30 -> 31 on 2026-11-14 (issue #37 phase 1): db/queries/oauth.sql, the OAuth codes, grants and
 	// tokens over oauth_codes, oauth_grants, oauth_tokens, admin_users and tenants; none calls a definer
 	// (the three resolvers are called by hand from internal/db/resolveoauth.go).
-	// 31 -> 32 on 2026-11-14 (M16-03, migration 00104): db/queries/appdevices.sql, eight named queries
+	// 31 -> 32 on 2026-11-14 (M16-03, migration 00108): db/queries/appdevices.sql, eight named queries
 	// over app_devices and app_request_nonces; none calls a definer (the device resolver is called by
 	// hand from internal/db/resolve.go). (Counted 30 -> 31 on the M16 branch; the merge that brought
 	// main's issue #37 into M16 adds them up, 2026-11-18.)
@@ -1383,7 +1383,7 @@ func TestResolverAccess_TheCallSitesAreTheOnesInventoried(t *testing.T) {
 				"resolve_admin_by_email", "resolve_admin_session_by_token_hash",
 				"resolve_invite_by_code_hash", "resolve_password_reset_by_token_hash",
 				"resolve_session_by_token_hash", "resolve_tag_by_uid",
-				// M16-03 (00104): the device resolver, called by hand from internal/db/resolve.go.
+				// M16-03 (00108): the device resolver, called by hand from internal/db/resolve.go.
 				"resolve_app_device_by_id",
 			} {
 				if strings.Contains(lit.Value, name) {
@@ -1519,7 +1519,7 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// before Deploy 1 adds them up, 2026-10-27.)
 	// 31 -> 32 (2026-11-14, issue #37 phase 1): db/queries/oauth.sql adds oauth.sql.go -- the OAuth
 	// codes, grants and tokens (nineteen methods, in storeSurface); none carries bytes, none reads tags.
-	// 32 -> 33 (2026-11-14, M16-03, migration 00104): db/queries/appdevices.sql adds appdevices.sql.go --
+	// 32 -> 33 (2026-11-14, M16-03, migration 00108): db/queries/appdevices.sql adds appdevices.sql.go --
 	// the native app's devices and request nonces (eight methods, in storeSurface). No RESULT carries
 	// bytes (the device key goes IN through CreateAppDeviceParams.PublicKey and is never returned --
 	// tappa_app cannot SELECT it); none reads tags. (Counted 31 -> 32 on the M16 branch; the merge that

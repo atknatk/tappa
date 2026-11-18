@@ -1,6 +1,6 @@
 package db
 
-// appdevices_test.go -- migration 00104 (M16-03, ADR 0045 §2.3): app_devices, app_request_nonces
+// appdevices_test.go -- migration 00108 (M16-03, ADR 0045 §2.3): app_devices, app_request_nonces
 // and the device resolver, resolve_app_device_by_id, against real Postgres. Nothing here prints a
 // key, a digest, a nonce or its hash: values are compared, never shown (§4.7, §7).
 
@@ -22,12 +22,12 @@ import (
 	"github.com/atknatk/tappa/internal/store"
 )
 
-const op00104File = "00104_create_app_devices_and_request_nonces.sql"
+const op00108File = "00108_create_app_devices_and_request_nonces.sql"
 
-// appDevicesMigration is 00104's number.
-const appDevicesMigration = 104
+// appDevicesMigration is 00108's number.
+const appDevicesMigration = 108
 
-// appDevicesSetAsideSQL removes every device and nonce inside a walk's transaction so 00104's Down --
+// appDevicesSetAsideSQL removes every device and nonce inside a walk's transaction so 00108's Down --
 // which refuses while either table holds a row -- can run; the rollback brings them back. No trigger
 // guards a delete on either table (a device is protected from tappa_app by the privilege, not by a
 // trigger), so the owner needs nothing switched off.
@@ -763,38 +763,38 @@ func TestAppRequestNonces_ConcurrentConsumeExactlyOnce(t *testing.T) {
 	t.Logf("%d concurrent consumptions of one nonce: %d succeeded, %d refused", n, wins, replays)
 }
 
-// TestAppDevices00104_DownRefusesWithRowsAndRoundTrips: the Down refuses while either table holds
+// TestAppDevices00108_DownRefusesWithRowsAndRoundTrips: the Down refuses while either table holds
 // a row (55000) and changes nothing; with both empty (the rows set aside inside the transaction) it
 // takes the tables and the three functions away -- and tappa_resolver's grant with them -- and the
 // Up builds the same catalogue again. The tables the Down locks are taken first (lockForDowns: its
 // DROPs take ACCESS EXCLUSIVE on tenants and employees, the two keys' tables).
-func TestAppDevices00104_DownRefusesWithRowsAndRoundTrips(t *testing.T) {
+func TestAppDevices00108_DownRefusesWithRowsAndRoundTrips(t *testing.T) {
 	ctx, tx := opTx(t)
-	up, down := opMigrationSections(t, op00104File)
+	up, down := opMigrationSections(t, op00108File)
 	lockForDowns(t, ctx, tx, []string{"app_request_nonces", "app_devices", "employees", "tenants"})
 	objects := `SELECT (SELECT count(*) FROM pg_class WHERE relname IN ('app_devices', 'app_request_nonces') AND relnamespace = 'public'::regnamespace)
 	                 + (SELECT count(*) FROM pg_proc WHERE proname IN ('resolve_app_device_by_id', 'app_devices_revocation_is_one_way',
 	                                                                  'app_request_nonces_consumption_is_one_way'))`
 	if n := opInt(t, ctx, tx, objects); n != 5 {
-		t.Fatalf("%d of 00104's five objects at HEAD", n)
+		t.Fatalf("%d of 00108's five objects at HEAD", n)
 	}
 	w := newAppDeviceWorld(t, ctx, tx)
 	w.addDevice(t, ctx, tx, appTestKey(t))
 	err := holdingTryDown(t, ctx, tx, down)
-	opWant(t, err, sqlstatePrerequisiteState, "00104's Down while a device exists")
+	opWant(t, err, sqlstatePrerequisiteState, "00108's Down while a device exists")
 	if n := opInt(t, ctx, tx, objects); n != 5 {
 		t.Fatalf("the refused Down changed something: %d objects", n)
 	}
 	if _, err := tx.Exec(ctx, appDevicesSetAsideSQL); err != nil {
 		t.Fatalf("set the rows aside inside the transaction: %v", err)
 	}
-	opRunSection(t, ctx, tx, down, "00104 Down")
+	opRunSection(t, ctx, tx, down, "00108 Down")
 	if n := opInt(t, ctx, tx, objects); n != 0 {
-		t.Fatalf("%d of 00104's objects survive the Down", n)
+		t.Fatalf("%d of 00108's objects survive the Down", n)
 	}
-	opRunSection(t, ctx, tx, up, "00104 Up again")
+	opRunSection(t, ctx, tx, up, "00108 Up again")
 	if n := opInt(t, ctx, tx, objects); n != 5 {
-		t.Fatalf("%d of 00104's objects after the Up, want 5", n)
+		t.Fatalf("%d of 00108's objects after the Up, want 5", n)
 	}
 	if got := opColumns(t, ctx, tx, "tappa_resolver", "app_devices", "SELECT"); got != "id,tenant_id,employee_id,public_key,revoked_at" {
 		t.Fatalf("after the Up tappa_resolver reads %q", got)

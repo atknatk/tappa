@@ -267,7 +267,7 @@ func TestManualDB_WritesExactlyTheColumnsItMayAndNULLsTheREST(t *testing.T) {
 		{"policy_version_id", ptrAny(r.PolicyVersion), "same"},
 		{"policy_context", ptrAny(r.PolicyContext), "same"},
 		{"note", ptrAny(r.Note), "none was submitted"},
-		{"client", ptrAny(r.Client), "M16-04 (00105): a manager's record is not a tap -- no browser and no app touched a plaque"},
+		{"client", ptrAny(r.Client), "M16-04 (00109): a manager's record is not a tap -- no browser and no app touched a plaque"},
 	}
 	for _, a := range absent {
 		if a.got != nil {

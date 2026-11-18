@@ -27,7 +27,7 @@ import (
 // NULL" RLS branch anywhere. "There are already five" is not an argument for a sixth
 // (the ADR says so in as many words); the sixth re-earns all five and
 // TestResolvePasswordReset_SecurityDefinerProperties measures them in the live
-// catalog. M16-03 (migration 00104) adds the device resolver, GetAppDeviceByID: its
+// catalog. M16-03 (migration 00108) adds the device resolver, GetAppDeviceByID: its
 // key is a device id rather than a secret hash -- the device id is not a credential,
 // the signature over the nonce is (ADR 0045 §2.3) -- and TestAppDevicesCatalog
 // measures the five for it.
@@ -57,7 +57,7 @@ import (
 // column-level SELECT on exactly these seven tables, and on tenants (id, api_enabled_at)
 // alone since 00051) -- NEVER public.tags / public.sessions / public.employee_invites /
 // public.admin_users / public.admin_sessions / public.password_resets /
-// public.api_keys / public.app_devices (00104) directly. tappa_app holds EXECUTE on
+// public.api_keys / public.app_devices (00108) directly. tappa_app holds EXECUTE on
 // the functions but no
 // cross-tenant SELECT on the tables, so the blast radius is those functions, not
 // the whole DB. These accessors deliberately DO NOT call set_config: they establish
@@ -270,7 +270,7 @@ type ResolvedAPIKey struct {
 }
 
 // ResolvedAppDevice is the fixed column set returned by resolve_app_device_by_id (migration
-// 00104, M16-03, ADR 0045 §2.3): whose native-app device this is, the public key its requests are
+// 00108, M16-03, ADR 0045 §2.3): whose native-app device this is, the public key its requests are
 // signed with, and whether it was revoked.
 //
 // A CONTEXT-LESS LOOKUP for the reason the others are: a signed app request carries a device id
@@ -284,7 +284,7 @@ type ResolvedAPIKey struct {
 // not revoked and resolves normally; §5 row 4 comes from employees.status under the tenant context.
 // The two are never turned into each other (§4.6).
 //
-// PublicKey is the raw uncompressed P-256 point (65 bytes, 0x04 || X || Y; 00104's CHECK). It is
+// PublicKey is the raw uncompressed P-256 point (65 bytes, 0x04 || X || Y; 00108's CHECK). It is
 // public, but it is not logged (M16-25's list) and nothing but the verifier should hold it.
 type ResolvedAppDevice struct {
 	ID         uuid.UUID

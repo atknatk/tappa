@@ -12,7 +12,7 @@ import (
 
 const (
 	// nonceBytes is the server's randomness behind one nonce (M16-03 review: 32 bytes of
-	// crypto/rand). 256 bits is why nonce_hash can be a plain SHA-256 (00104's header): there is
+	// crypto/rand). 256 bits is why nonce_hash can be a plain SHA-256 (00108's header): there is
 	// nothing to guess, so a key would add nothing.
 	nonceBytes = 32
 	// nonceLen is the wire length: 32 bytes in unpadded base64url, ceil(256/6) = 43.
@@ -27,7 +27,7 @@ const (
 var nonceEncoding = base64.RawURLEncoding.Strict()
 
 // Nonce is a single-use request nonce in transit: from IssueNonce to the response body, or from
-// the request header to the consumption. The database holds only its hash (nonce_hash, 00104).
+// the request header to the consumption. The database holds only its hash (nonce_hash, 00108).
 //
 // §7 lists the request nonce among the values never logged. The type is built like
 // session.Token for the same reasons (internal/session/token.go's header): the redacting
@@ -98,7 +98,7 @@ func (n Nonce) wire() string {
 }
 
 // hash is the value stored in and matched against app_request_nonces.nonce_hash: hex SHA-256
-// of the 32 raw bytes (00104's CHECK: ^[0-9a-f]{64}$). The raw bytes, not the wire string: the
+// of the 32 raw bytes (00108's CHECK: ^[0-9a-f]{64}$). The raw bytes, not the wire string: the
 // strict decoder makes the two one-to-one, and the bytes are what the server drew. "" for the
 // zero Nonce, which matches no row and fails the issue's CHECK -- fail closed.
 func (n Nonce) hash() string {

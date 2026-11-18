@@ -166,7 +166,7 @@ Bu alt bölüm **plan önerisidir** *(Plan önerisi — kullanıcı 2026-11-12'd
   tarihsel satırlar NULL kalır, geri doldurma yok. Değer **sunucudan türetilir** — hangi uç noktanın isteği
   kabul ettiği (`/api/checkin` → `browser`, `/app/v1` → `app`); gövde, başlık ya da user-agent okunmaz (ADR 0004 §8'in
   kanal kuralıyla aynı ilke, `internal/domain/tap/types.go:57`).
-  Şema (M16-04, 00105/00106): değer kümesine **bir** CHECK (`client IS NULL OR client IN ('browser','app')`, NULL'u
+  Şema (M16-04, 00109/00110): değer kümesine **bir** CHECK (`client IS NULL OR client IN ('browser','app')`, NULL'u
   kabul eder) + manuel satırın client taşımadığına **bir** CHECK (`channel <> 'manual' OR client IS NULL`); tap
   kanalında `client`'ı **zorunlu kılan CHECK yoktur** — rollout penceresinde eski ikilinin her dokunuşunu 23514 ile
   reddedip kaybettirirdi (§4.6). Yeni tap satırının dolu olduğunun kanıtı Go testlerindedir.
@@ -337,7 +337,7 @@ ekranı). Kartlar: [m16-mobil.md](../plan/m16-mobil.md).
 **Okundu (`70e8a016`):** yukarıdaki her `file:line` · `transactions` INSERT'i sütun listesidir (ADR 0038) → yeni
 sütun yeni bir sütun GRANT'ı ister · `redline-check.sh` `SRC` listesi `mobile/`'ı içermez (`scripts/redline-check.sh:33`),
 B1 marka kuralı `android/app/src/main`'i tarar (`:2530`) · CI hiçbir mobil derleme koşmaz (`.github/workflows/*.yml`'de
-`gradle`/`xcode` yok) · son migration `00099`, son ADR `0043` (`0040` numarası hiç kullanılmamış). **Yeniden numaralandırma (2026-11-14):** `origin/main` birleşmesiyle (`ca8b94d4`) `main`'e e-posta değiştirme ADR'si 0044 (T173) ve migration 00100–00103 girdi; bu belge 0044'ten **0045**'e taşındı, M16 migration'ları 00104'ten başlar (plan, *"Migration ve ADR numaraları"*).
+`gradle`/`xcode` yok) · son migration `00099`, son ADR `0043` (`0040` numarası hiç kullanılmamış). **Yeniden numaralandırma (2026-11-14):** `origin/main` birleşmesiyle (`ca8b94d4`) `main`'e e-posta değiştirme ADR'si 0044 (T173) ve migration 00100–00103 girdi; bu belge 0044'ten **0045**'e taşındı, M16 migration'ları 00104'ten başlar (plan, *"Migration ve ADR numaraları"*). **İkinci yeniden numaralandırma (2026-11-18):** ikinci `origin/main` birleşmesiyle (`d28014d6`) `main`'in OAuth migration'ları 00104–00107 (issue #37, ADR 0047; canlıda) ve ADR 0046/0047 girdi; M16'nın uygulanmamış üç migration'ı **00108–00110**'a taşındı (içerik ve sıra aynı), bu belgenin numarası 0045 kalır.
 
 **Doğrula (ilgili kart ölçer):** iPhone XS+ arka plan okumasının Universal Link ile kurulu uygulamayı açması (M16-17) ·
 Android NFC dağıtımının `NDEF_DISCOVERED` filtresiyle uygulamayı tarayıcıdan önce seçmesi (M16-13) · iOS sahte konum

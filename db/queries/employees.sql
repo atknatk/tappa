@@ -638,7 +638,7 @@ ORDER BY e.status;
 -- it to a person signed in only in the app -- with one "who" credential per person (Q40 (a)) that
 -- is everybody who uses the app. Same predicate as the revoke (tenant_id, employee_id,
 -- revoked_at IS NULL), so the count the warning states is the set the revoke changes. It reads
--- only columns tappa_app may SELECT (00104: never public_key or key_digest). The roster row's
+-- only columns tappa_app may SELECT (00108: never public_key or key_digest). The roster row's
 -- count stays the browser's until M16-26 lists devices on the card.
 --
 -- THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees

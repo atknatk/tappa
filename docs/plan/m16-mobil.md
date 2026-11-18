@@ -74,7 +74,7 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 | Repoda Android var mı | `android/` (ADR 0017 encode rölesi, `mt.taptime.relay`) | ⚠️ **başka uygulama**; yerinde kalır, toolchain ölçüsü oradan alınır (`android/README.md`) |
 | Kırmızı çizgi taraması mobil kodu görür mü | `scripts/redline-check.sh:33` (`SRC`), `:2530` (`B1_SRC`) | ❌ `mobile/` yok → M16-02 kod kartlarından **önce** |
 | CI mobil derler mi | `.github/workflows/*.yml` | ❌ hayır → Q36 (d) |
-| Son migration / ADR | `db/migrations/00099_*`, `docs/adr/0043-*` | ✅ `70e8a016`'da sıradaki 00100, ADR 0044 idi; `origin/main` birleşmesinden (`ca8b94d4`, 2026-11-14) sonra son migration **00103**, son ADR **0044** (e-posta değiştirme, T173) → M16'nın ADR'si **0045**, migration'ları **00104**'ten |
+| Son migration / ADR | `db/migrations/00099_*`, `docs/adr/0043-*` | ✅ `70e8a016`'da sıradaki 00100, ADR 0044 idi; `origin/main` birleşmesinden (`ca8b94d4`, 2026-11-14) sonra son migration **00103**, son ADR **0044** (e-posta değiştirme, T173) → M16'nın ADR'si **0045**, migration'ları **00104**'ten; ikinci `origin/main` birleşmesinden (`d28014d6`, 2026-11-18) sonra son migration **00107** (OAuth, issue #37 — canlıda), son ADR **0047** → M16 migration'ları **00108**'den |
 
 ## Çalışma modu (CLAUDE.md §10) — her kart için
 
@@ -111,26 +111,32 @@ Yalnız bu beş madde kullanıcının **açık** kararıdır; yeniden tartışı
 
 ## Migration ve ADR numaraları
 
-`main`'in son migration'ı **00103**, son ADR'si **0044** (`docs/adr/0044-panel-kimliginin-e-posta-degisikligi.md`,
+İlk birleşmede `main`'in son migration'ı **00103**, son ADR'si **0044** (`docs/adr/0044-panel-kimliginin-e-posta-degisikligi.md`,
 T173; `0040` hiç kullanılmadı) — `origin/main` `c89c3b5b` birleşmesinden (`ca8b94d4`, 2026-11-14) sonra. Bu yüzden
 M16'nın ADR'si **0045**'tir (yeniden numaralandı; planın ilk sürümleri onu 0044 diye anar). Aşağıdaki dağıtım **öneridir**;
 her kart açılırken `main`'in o anki son numarası **yeniden okunur** ve numara oradan alınır (başka dallar araya
 girebilir; goose, uygulanmış en yüksek sürümün altındaki bir dosyayı sonradan *missing* sayar — M15'in 2026-10-22
 numara değişikliği notu).
 
+**Yeniden numaralandırma (2026-11-18):** ikinci `origin/main` birleşmesi (`d28014d6`) `main`'in OAuth migration'larını
+(00104–00107, issue #37, ADR 0047) getirdi; bunlar canlıda uygulanmış olduğundan numaraları değişmez. M16'nın hiçbir
+ortamda uygulanmamış üç dosyası içerik ve sıra korunarak **00104 → 00108**, **00105 → 00109**, **00106 → 00110**
+oldu; tablodaki sonraki öneriler de dört kaydı. ADR'ler: `main` 0046 (timesheets) ve 0047'yi (OAuth) kullandı, M16'nınki
+**0045** kalır.
+
 | No (öneri) | Kart | İçerik | `Down` |
 |---|---|---|---|
-| 00104 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
-| 00105 | M16-04 | `transactions.client` + değer kümesi CHECK'i `client IS NULL OR client IN ('browser','app')` (NULL'u kabul eder — `00065` deseni) + manuel satır CHECK'i `channel <> 'manual' OR client IS NULL`, ikisi de `NOT VALID`; tap kanalında `client`'ı zorunlu kılan CHECK **yok** + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
-| 00106 | M16-04 | iki CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
+| 00108 | M16-03 | `app_devices` + `app_request_nonces` (§6 beşlisi, GRANT) + cihaz çözümleyicisi (SECURITY DEFINER, `tappa_resolver` — `00003` deseni) | satır varsa reddeder |
+| 00109 | M16-04 | `transactions.client` + değer kümesi CHECK'i `client IS NULL OR client IN ('browser','app')` (NULL'u kabul eder — `00065` deseni) + manuel satır CHECK'i `channel <> 'manual' OR client IS NULL`, ikisi de `NOT VALID`; tap kanalında `client`'ı zorunlu kılan CHECK **yok** + sütun INSERT GRANT'ı (ADR 0038) | dolu değer varsa reddeder |
+| 00110 | M16-04 | iki CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
 
-**Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00104) `main`'e M16-04'ten (00105/00106) **önce ya da onunla
-birlikte** ulaşır. 105/106'ya çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00104'ü sonradan **alamaz** — depo
+**Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00108) `main`'e M16-04'ten (00109/00110) **önce ya da onunla
+birlikte** ulaşır. 109/110'a çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00108'i sonradan **alamaz** — depo
 goose'u `-allow-missing` ile koşmaz — ve yeniden kurulmalıdır.
-| 00107 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
-| 00108 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
-| 00109 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
-| 00110 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
+| 00111 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
+| 00112 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
+| 00113 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
+| 00114 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
 
 ADR: **0045** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
 
@@ -422,10 +428,10 @@ muafiyet kuralı (R1'in `R1_WAIVER_PHRASES` deseni) gerekçesiz eklenmez.
   - HTTP katmanı **bilinmeyen** ve **iptal edilmiş** cihazı imza doğrulamasından **önce** aynı yanıtla karşılar
     (durum kâhini yok); iptal ile bilinmeyen ayrımı yalnız sunucu içinde, kayıtsız yolun seçiminde kullanılır.
   - Nonce **sunucuda** üretilir: 32 bayt `crypto/rand`; istemciden gelen bir nonce asla kabul edilmez.
-    Saklanan, özetidir (`nonce_hash`, `00104`).
-  - Açık anahtar Go'da **eğri üstünde** doğrulanır (`ecdsa.ParseUncompressedPublicKey`); `00104`'ün CHECK'i yalnız
+    Saklanan, özetidir (`nonce_hash`, `00108`).
+  - Açık anahtar Go'da **eğri üstünde** doğrulanır (`ecdsa.ParseUncompressedPublicKey`); `00108`'in CHECK'i yalnız
     uzunluğu (65) ve önek baytını (`0x04`) sabitler, eğri aritmetiğini yapamaz.
-  - İptal, cihazın nonce'larını aynı ifadede siler ve tüketim cihazı `FOR SHARE` ile yeniden okur (`00104`,
+  - İptal, cihazın nonce'larını aynı ifadede siler ve tüketim cihazı `FOR SHARE` ile yeniden okur (`00108`,
     `RevokeAppDevice`/`ConsumeAppRequestNonce`); Go tarafındaki iptal denetimi yine yapılır, ama tek savunma değildir.
     ⚠️ **`EXISTS … FOR SHARE` kemeri yük taşır, gereksiz değildir:** *"issue uçuşta, sonra revoke"* sırasında bir
     nonce iptalin DELETE'inden kurtulur (ifade anlık görüntüsü issue'nun commit'inden eskidir — M16-03 güvenlik
@@ -569,7 +575,7 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 >   (`appdevice.ActivationBinding`, 43 karakter — `invite.Binding`'in şekli). `complete` mevcut `SignedRequest`
 >   biçimindedir: `App-Device-Id` = aktivasyon kimliği, `App-Nonce` = meydan okuma; imza gövdenin adlandırdığı anahtarla
 >   doğrulanır (`appdevice.VerifyActivation`, saf) ve aynı anahtarın bağını verir — **sahiplik kanıtı, sunucunun verdiği
->   meydan okuma üzerinde, `CreateAppDevice`'tan önce**. 00107 kullanılmadı.
+>   meydan okuma üzerinde, `CreateAppDevice`'tan önce**. 00107 kullanılmadı (o numara sonra `main`'in OAuth kayıt migration'ına gitti; M16-19'un önerisi 00111).
 > - **Sıra `CompleteByTap`'inkidir**, önüne yalnız saf imza denetimi girer: sel tavanı · sahiplik kanıtı · davet + davet
 >   bütçesi · yalnız NFC · ilerletmeyen ön kontrol (aynı tenant, aktif, duvarda) · `sun.Verify` · tek transaction'da
 >   tüketim + oturumlar + eski cihazlar + yeni cihaz (`invite.Manager.ActivateDevice`). `transactions` satırı yok.
@@ -1040,7 +1046,7 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   bugün bilinenler (her biri `qr_live`'ı **dışarıda bırakır**): `internal/domain/checkin/checkin.go:1751`
   (`BusinessDayStart` — iş günü), `:1869` (`shiftColumns` — vardiya anlık görüntüsü), `:1899`
   (`directionSourceColumn`), `:1688` (`feedEligible`), `:1815` (NFC-only), `clientColumn` (M16-04 —
-`transactions.client`; **`qr_live` de client alır — onu uygulama ya da tarayıcı yazar**, ve 00105'in
+`transactions.client`; **`qr_live` de client alır — onu uygulama ya da tarayıcı yazar**, ve 00109'un
 `transactions_manual_has_no_client` CHECK'i yalnız `manual`'a bakar); `internal/domain/tap/directionsource.go:43`
   (`RecordedDirectionSource`); `internal/handler/tapcontext.go:388` — imzalı tap bağlamını `nfc`/`qr` dışında
   `errTapContextMalformed` ile **reddeder** (M16-07 bu bağlamı yeniden kullanırsa kayıt kaybı, §4.6);

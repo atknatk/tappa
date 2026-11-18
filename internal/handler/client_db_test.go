@@ -1,7 +1,7 @@
 package handler
 
-// client_db_test.go -- M16-04 (migration 00105, ADR 0045 §2.4): transactions.client is written by
-// the Go write path, not by the schema. 00105's CHECKs admit NULL on purpose (a "tap must carry a
+// client_db_test.go -- M16-04 (migration 00109, ADR 0045 §2.4): transactions.client is written by
+// the Go write path, not by the schema. 00109's CHECKs admit NULL on purpose (a "tap must carry a
 // client" CHECK would refuse the previous binary's taps during the rollout and lose them, §4.6), so
 // the proof that a new tap row carries its client is here:
 //   - the tap page (POST /api/checkin, through the real router) writes 'browser' on every row it

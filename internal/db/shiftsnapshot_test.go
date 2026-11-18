@@ -459,7 +459,7 @@ func TestShiftSnapshot00095_TheDownRefusesASnapshotAndOtherwiseGivesBack(t *test
 
 	t.Run("no snapshot: the Down gives 00094 back and the Up takes HEAD again", func(t *testing.T) {
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
-			// goose's own order since M16-04: 00106's and 00105's Downs first, their Ups last -- a
+			// goose's own order since M16-04: 00110's and 00109's Downs first, their Ups last -- a
 			// column 00095's Up adds again lands after transactions.client in attnum order otherwise,
 			// and the catalogue HEAD has is the one goose builds.
 			clDown(t, ctx, sp)

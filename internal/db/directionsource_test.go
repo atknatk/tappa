@@ -435,7 +435,7 @@ func dsRead(t *testing.T, ctx context.Context, q opQuerier) dsSurface {
 // that 00065's Down drops and its Up adds again is not on a list -- in goose's own order 00088's Down
 // has given the table-level INSERT back by then. Since T152 it starts with 00095's Down (every shift
 // snapshot set aside first) and ends with 00095's Up, for the same reason one file higher; since M16-04
-// with 00106's and 00105's Downs (every client set aside first) and their Ups, for the same reason. The walk runs in this test's transaction (rolled back), with the
+// with 00110's and 00109's Downs (every client set aside first) and their Ups, for the same reason. The walk runs in this test's transaction (rolled back), with the
 // tables the Downs name locked first (lockForDowns), and the Downs may take no strong lock outside
 // them.
 func TestDirectionSource00065And00066_DownsRefuseAChoiceAndOtherwiseGiveBack(t *testing.T) {

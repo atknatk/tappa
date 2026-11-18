@@ -301,7 +301,7 @@ func TestStaffDB_DeactivationLeavesTheAppDeviceLiveAndTheSignOutRefuses(t *testi
 	}
 }
 
-// THE REVOCATION IS ONE WAY (00104's app_devices_revocation_one_way, 00099's pattern): the
+// THE REVOCATION IS ONE WAY (00108's app_devices_revocation_one_way, 00099's pattern): the
 // application role cannot bring a signed-out device back, nor move its stamp.
 func TestStaffDB_ASignedOutAppDeviceCannotBeRevived(t *testing.T) {
 	f := newStaffFixture(t)

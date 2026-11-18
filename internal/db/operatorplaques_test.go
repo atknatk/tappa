@@ -198,13 +198,13 @@ var opAtVersionSkips = map[int]string{
 	105: "the three oauth resolvers and tappa_resolver's columns (issue #37, ADR 0047 §14.3) -- no operator object",
 	106: "api_idempotency's grant_id and its two partial UNIQUEs (issue #37, ADR 0047 §14.5) -- no operator object; " +
 		"its Down takes ACCESS EXCLUSIVE on api_idempotency and oauth_grants and deletes the grant rows",
-	104: "app_devices, app_request_nonces, their two one-way triggers and resolve_app_device_by_id (M16-03) -- no " +
+	108: "app_devices, app_request_nonces, their two one-way triggers and resolve_app_device_by_id (M16-03) -- no " +
 		"operator object; its Down takes ACCESS EXCLUSIVE on both tables, tenants and employees (the DROPs' keys), and " +
 		"refuses while either table holds a row -- rows TestAppRequestNonces_ConcurrentConsumeExactlyOnce commits",
-	105: "transactions.client, its NOT VALID CHECK and tappa_app's INSERT on it (M16-04) -- no operator object; its " +
+	109: "transactions.client, its NOT VALID CHECK and tappa_app's INSERT on it (M16-04) -- no operator object; its " +
 		"Down takes ACCESS EXCLUSIVE on transactions and refuses while a row carries a client -- rows every tap the " +
 		"other packages' tests commit carries",
-	106: "the validation of 00105's CHECK (M16-04) -- no operator object; its Down drops and adds it again NOT VALID " +
+	110: "the validation of 00109's CHECK (M16-04) -- no operator object; its Down drops and adds it again NOT VALID " +
 		"under ACCESS EXCLUSIVE on transactions",
 }
 

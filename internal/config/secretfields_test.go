@@ -224,7 +224,7 @@ var keyFieldExemptions = map[string]string{
 	// The signed READ's body digest (M16-07), signedRequest.bodyDigest's twin: line 4 of the canonical text.
 	"appdevice.signedRead.bodyDigest": "SHA-256 of the signed app read's raw body, part of the canonical text the signature covers; " +
 		"a comparison value, it opens nothing",
-	// The native app's device key (00104, M16-03, ADR 0045 §2.3): the PUBLIC half of a P-256 pair whose private
+	// The native app's device key (00108, M16-03, ADR 0045 §2.3): the PUBLIC half of a P-256 pair whose private
 	// half never leaves the phone's Secure Enclave / Keystore. It verifies a signature and opens nothing; it is
 	// kept out of logs by M16-25's list, not because it is secret. The digest is SHA-256 of that public key.
 	"db.ResolvedAppDevice.PublicKey":        "the device's P-256 PUBLIC key (65-byte point); it verifies, it opens nothing",

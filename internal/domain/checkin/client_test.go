@@ -9,10 +9,10 @@ import (
 )
 
 // TestInsertParams_WritesTheClientOnEveryTapAndNoneOnAManualRecord is the mapping of
-// transactions.client (M16-04, migration 00105, ADR 0045 §2.4): the handler's server-derived
+// transactions.client (M16-04, migration 00109, ADR 0045 §2.4): the handler's server-derived
 // client on every nfc and qr row WHATEVER the decision -- a refused or ignored tap still came
 // through a client -- and NULL, forced in code, on the manual channel, for the zero value and for
-// a value 00105's CHECKs do not admit (which would refuse the INSERT with 23514 and lose the
+// a value 00109's CHECKs do not admit (which would refuse the INSERT with 23514 and lose the
 // record, §4.6). The CHECKs admit NULL on purpose, so these lines are the first and only proof
 // that a new tap carries its client (the DB half: internal/handler's client_db_test.go).
 func TestInsertParams_WritesTheClientOnEveryTapAndNoneOnAManualRecord(t *testing.T) {

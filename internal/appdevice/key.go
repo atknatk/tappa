@@ -8,7 +8,7 @@ import (
 )
 
 // PublicKeyLen is the stored device key's length: the raw uncompressed P-256 point,
-// 0x04 || X || Y (SEC 1 §2.3.3; 00104's app_devices_public_key_shape CHECK).
+// 0x04 || X || Y (SEC 1 §2.3.3; 00108's app_devices_public_key_shape CHECK).
 const PublicKeyLen = 65
 
 // ErrInvalidPublicKey is a device key that is not an uncompressed point ON P-256. It is a
@@ -18,7 +18,7 @@ var ErrInvalidPublicKey = errors.New("appdevice: the device key is not an uncomp
 
 // ParsePublicKey validates a device key in its stored form and returns it ready to verify with.
 //
-// WHY GO AND NOT THE CHECK (M16-03 review): 00104's CHECK pins the length and the 0x04 prefix and
+// WHY GO AND NOT THE CHECK (M16-03 review): 00108's CHECK pins the length and the 0x04 prefix and
 // cannot do curve arithmetic. ecdsa.ParseUncompressedPublicKey refuses a point off the curve,
 // the point at infinity, a coordinate not below the field prime and any compressed or hybrid
 // form -- so an invalid-curve key never reaches VerifyASN1. The activation calls this before the

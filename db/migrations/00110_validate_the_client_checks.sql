@@ -1,8 +1,8 @@
--- 00106 -- M16-04: validate the two CHECKs 00105 added NOT VALID -- transactions_client_is_known (the
+-- 00110 -- M16-04: validate the two CHECKs 00109 added NOT VALID -- transactions_client_is_known (the
 -- value set) and transactions_manual_has_no_client (a manual row carries none).
 --
 -- WHY A FILE OF ITS OWN (00044's and 00066's pattern and reasoning): goose runs each file in its own
--- transaction, and a lock is held to the end of the transaction that took it. Inside 00105 these
+-- transaction, and a lock is held to the end of the transaction that took it. Inside 00109 these
 -- VALIDATEs would scan transactions under the ACCESS EXCLUSIVE its ALTER took -- no tap written for as
 -- long as they scan. Here each takes SHARE UPDATE EXCLUSIVE on transactions, which a tap's INSERT (ROW
 -- EXCLUSIVE) does not wait for; the scans cost time, not writes.
@@ -12,13 +12,13 @@
 -- migration) and gives up with 55P03 rather than sit in the queue; the Down drops and adds the CHECKs
 -- again under ACCESS EXCLUSIVE, briefly.
 --
--- WHAT IT CANNOT FIND: every row older than 00105 has client NULL, which both CHECKs admit (they are
--- written to admit NULL -- 00105's header says why there is no "a tap must carry a client" CHECK), and
+-- WHAT IT CANNOT FIND: every row older than 00109 has client NULL, which both CHECKs admit (they are
+-- written to admit NULL -- 00109's header says why there is no "a tap must carry a client" CHECK), and
 -- every row since was checked on its INSERT. A failure here would mean a row was written past a NOT
 -- VALID constraint -- which PostgreSQL does not do -- or by a hand that disabled one; it stops the
 -- migration, which is the right answer to either.
 --
--- internal/db's txclient_test.go pins the split (00105's ALTER scans nothing, these statements do)
+-- internal/db's txclient_test.go pins the split (00109's ALTER scans nothing, these statements do)
 -- and the Down.
 
 -- +goose Up
@@ -28,9 +28,9 @@ ALTER TABLE transactions VALIDATE CONSTRAINT transactions_client_is_known;
 ALTER TABLE transactions VALIDATE CONSTRAINT transactions_manual_has_no_client;
 
 -- +goose Down
--- VALIDATE has no inverse statement, so the inverse is the state 00105 left: the same two CHECKs, by
+-- VALIDATE has no inverse statement, so the inverse is the state 00109 left: the same two CHECKs, by
 -- the same text, NOT VALID. Dropping and adding a constraint again takes ACCESS EXCLUSIVE, briefly -- a
--- NOT VALID add scans nothing. The texts are 00105's verbatim (the Down test compares
+-- NOT VALID add scans nothing. The texts are 00109's verbatim (the Down test compares
 -- pg_get_constraintdef before and after). Nothing is dropped that holds data, so this Down needs no
 -- refusal.
 SET LOCAL lock_timeout = '1s';

@@ -135,7 +135,7 @@
 -- entry's microsecond, and it gains no hours: the pair counts zero time either way.
 --
 -- business_day_start, direction_source (00065, M15-09), the five shift_* columns
--- (00095, T152) and client (00105, M16-04) are in the list because this query returns
+-- (00095, T152) and client (00109, M16-04) are in the list because this query returns
 -- the whole store Transaction
 -- (a row type without them would be a second model); nothing here filters on any of
 -- them. Whether this entry is still in the tap's business day is the engine's question
@@ -408,14 +408,14 @@ LIMIT 1;
 -- on manual rows, which the report measures against today's shift and says so.
 -- 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
 --
--- client (M16-04, migration 00105, ADR 0045 §2.4): which client wrote the tap --
+-- client (M16-04, migration 00109, ADR 0045 §2.4): which client wrote the tap --
 -- 'browser' (the tap page, POST /api/checkin) or 'app' (the native app's /app/v1,
 -- M16-07). SERVER-DERIVED from the endpoint that accepted the request (checkin.Request's
 -- Client, set by the handler -- never a body field, header or user agent). NULL on every
--- row before 00105, on the manual channel (insertParams forces it: a manager's record is
+-- row before 00109, on the manual channel (insertParams forces it: a manager's record is
 -- not a tap) and on a row no client wrote (the API sandbox). The three manual statements
--- do not name the column and it has no default, so their rows are NULL. 00105's two
--- CHECKs (validated by 00106): the value set admits NULL and the two values and nothing
+-- do not name the column and it has no default, so their rows are NULL. 00109's two
+-- CHECKs (validated by 00110): the value set admits NULL and the two values and nothing
 -- else, and a manual row carries no client -- there is no "a tap must carry a client"
 -- CHECK, because it would refuse the previous binary's taps during the rollout and lose
 -- them (section 4.6).

@@ -124,7 +124,7 @@ type CreateAppDeviceRow struct {
 }
 
 // appdevices.sql -- the native app's devices and their single-use request nonces (M16-03, ADR 0045
-// §2.3; migration 00104).
+// §2.3; migration 00108).
 //
 // Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
 // §4.5, belt and braces). The one context-less read of app_devices is the device resolver,
@@ -133,7 +133,7 @@ type CreateAppDeviceRow struct {
 // tenant, the resolver answers the tenant, and only then do these run.
 //
 // KIRMIZI CIZGI (§4.7, §7): no query RETURNS public_key, key_digest or nonce_hash -- tappa_app
-// cannot SELECT the first two at all (00104), and the hash exists to be matched. The nonce itself
+// cannot SELECT the first two at all (00108), and the hash exists to be matched. The nonce itself
 // never reaches the database: nonce_hash is computed by internal/appdevice (M16-05).
 //
 // 🔴 EVERY WRITE TO revoked_at IS COALESCE(revoked_at, now()) OR CARRIES `revoked_at IS NULL`
@@ -184,7 +184,7 @@ type DeleteDeadAppRequestNoncesParams struct {
 	DeviceID uuid.UUID
 }
 
-// The cleanup decision of 00104: a device's dead nonces (consumed, or expired) are deleted by the
+// The cleanup decision of 00108: a device's dead nonces (consumed, or expired) are deleted by the
 // issuing path before it issues the next one. Fail-closed by construction -- a consumption needs a
 // live row, so a deleted row can only ever be a reject. Never touches a live nonce.
 func (q *Queries) DeleteDeadAppRequestNonces(ctx context.Context, arg DeleteDeadAppRequestNoncesParams) (int64, error) {
@@ -297,7 +297,7 @@ type LockAppDeviceForNonceParams struct {
 // drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
 // FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
 // closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
-// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00104).
+// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00108).
 func (q *Queries) LockAppDeviceForNonce(ctx context.Context, arg LockAppDeviceForNonceParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockAppDeviceForNonce, arg.ID, arg.TenantID)
 	var id uuid.UUID

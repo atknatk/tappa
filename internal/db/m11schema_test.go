@@ -278,7 +278,7 @@ var m11Tables = map[string]map[string]m11TableACL{
 		},
 		"tappa_resolver": {Select: "tenant_id,id,token_hash,revoked_at"},
 	},
-	// 00104 (M16-03, ADR 0045 §2.3): the native app's devices. tappa_app reads every column but
+	// 00108 (M16-03, ADR 0045 §2.3): the native app's devices. tappa_app reads every column but
 	// public_key and key_digest (only the resolver needs the key), inserts a device by naming its
 	// tenant, person, platform, key and label, and updates last_used_at and revoked_at alone -- never
 	// deletes; the device resolver's owner reads the resolution's five columns.
@@ -290,7 +290,7 @@ var m11Tables = map[string]map[string]m11TableACL{
 		},
 		"tappa_resolver": {Select: "id,tenant_id,employee_id,public_key,revoked_at"},
 	},
-	// 00104 (M16-03): the single-use request nonces. tappa_app reads every column (the consumption's
+	// 00108 (M16-03): the single-use request nonces. tappa_app reads every column (the consumption's
 	// WHERE names nonce_hash; no query returns it), inserts a nonce by naming its tenant, device,
 	// hash and expiry (created_at is the database's now()), stamps consumed_at alone, and deletes the
 	// dead ones (the sweep -- fail-closed). tappa_resolver reaches nothing here.
@@ -507,8 +507,8 @@ var m11Columns = []m11Column{
 	{"transactions", "shift_end", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_overnight", map[string]string{"tappa_app": "SI"}},
 	{"transactions", "shift_timezone", map[string]string{"tappa_app": "SI"}},
-	// 00105 (M16-04, ADR 0045 §2.4): which client wrote a tap. tappa_app reads it through its
-	// table-level SELECT (00005) and inserts it by name (00105's column GRANT -- ADR 0038's rule),
+	// 00109 (M16-04, ADR 0045 §2.4): which client wrote a tap. tappa_app reads it through its
+	// table-level SELECT (00005) and inserts it by name (00109's column GRANT -- ADR 0038's rule),
 	// never updates it (§4.3). Neither feed writer reads it: the punch event, /v1 and the site
 	// projection carry no client (the card: carrying it there is a separate decision).
 	{"transactions", "client", map[string]string{"tappa_app": "SI"}},
@@ -624,7 +624,7 @@ var m11Functions = map[string]m11FunctionACL{
 	// 00100 (T76 step 3): tags' born-in-stock BEFORE INSERT check -- SECURITY INVOKER trigger
 	// function, EXECUTE in its owner alone, body asserting TG_RELID (00099's shape).
 	"tappa_forbid_birth_outside_stock()": {owner: "tappa_owner", execute: "tappa_owner"},
-	// 00104 (M16-03, ADR 0045 §2.3): the device resolver -- ADR 0002 md.7's shape, EXECUTE to tappa_app
+	// 00108 (M16-03, ADR 0045 §2.3): the device resolver -- ADR 0002 md.7's shape, EXECUTE to tappa_app
 	// alone -- and the two one-way trigger functions (00099's shape), EXECUTE in their owner alone,
 	// bodies asserting TG_RELID (appdevices_test.go binds them elsewhere).
 	"resolve_app_device_by_id(uuid)":              {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},

@@ -465,7 +465,7 @@ type Request struct {
 	Channel      tap.Channel
 	CMACVerified bool
 
-	// Client is which client wrote this tap (transactions.client, migration 00105,
+	// Client is which client wrote this tap (transactions.client, migration 00109,
 	// ADR 0045 §2.4), SERVER-DERIVED: the HTTP handler that accepted the request
 	// names it — the tap page's POST /api/checkin passes tap.ClientBrowser, the app's
 	// /app/v1 will pass tap.ClientApp (M16-07). It is never read from the request.
@@ -1788,9 +1788,9 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	// later edit of the venue's or department's hours does not rewrite this week's late count.
 	// Same rule as the two columns above: a DIRECTED nfc/qr decision only.
 	shiftColumns(&p, req.Channel, dec, f)
-	// WHICH CLIENT WROTE THE TAP (M16-04, migration 00105, ADR 0045 §2.4): the handler's
+	// WHICH CLIENT WROTE THE TAP (M16-04, migration 00109, ADR 0045 §2.4): the handler's
 	// server-derived answer, on every nfc/qr row whatever its verdict -- a refused or ignored
-	// tap was written by a client too. NULL on the manual channel and for a value 00105's CHECKs
+	// tap was written by a client too. NULL on the manual channel and for a value 00109's CHECKs
 	// do not admit (clientColumn).
 	p.Client = clientColumn(req.Channel, req.Client)
 	// sun_valid is THREE-STATE and the third state is the point (migration 00005:
@@ -1933,14 +1933,14 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 	return nil
 }
 
-// clientColumn is transactions.client for a request (M16-04, migration 00105):
+// clientColumn is transactions.client for a request (M16-04, migration 00109):
 //
 //	nfc or qr, a known client   the handler's server-derived value, browser or app
 //	manual                      nil: a manager's record is not a tap, no client touched a plaque
-//	                            (00105's transactions_manual_has_no_client is the second safety)
+//	                            (00109's transactions_manual_has_no_client is the second safety)
 //	the zero value              nil: no client recorded (the API sandbox's simulated tap)
 //
-// A value outside tap.Clients is nil too, never written: 00105's transactions_client_is_known
+// A value outside tap.Clients is nil too, never written: 00109's transactions_client_is_known
 // would refuse it with 23514 and the record would be lost (§4.6). The handlers pass a constant; this does not rely
 // on it. Unlike the business day and the direction source it does not depend on the decision:
 // a refused or ignored tap still came through a client.

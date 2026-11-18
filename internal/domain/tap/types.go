@@ -69,7 +69,7 @@ const (
 )
 
 // Client is WHICH CLIENT wrote a tap — the value of transactions.client (migration
-// 00105, ADR 0045 §2.4). Like Channel it is SERVER-DERIVED: the endpoint that
+// 00109, ADR 0045 §2.4). Like Channel it is SERVER-DERIVED: the endpoint that
 // accepted the request names it (POST /api/checkin → browser, /app/v1 → app), never
 // a body field, a header or a user agent. It is provenance, not evidence: it changes
 // no verdict and no trust score here (M16-06 hands it to the policy context).

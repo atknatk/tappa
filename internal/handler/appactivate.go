@@ -30,7 +30,7 @@ import (
 // failure budget per invitation, whichever client presents it -- the app cannot be used to get a
 // second budget against the same invitation.
 
-// appPlatforms is the closed set app_devices.platform accepts (00104's CHECK), and the coarse label
+// appPlatforms is the closed set app_devices.platform accepts (00108's CHECK), and the coarse label
 // each gets: the label is the SERVER's, from the platform -- the app sends no free text that would
 // reach the panel's device list (sessions.device_info's promise: never derived from probing).
 var appPlatforms = map[string]string{"ios": "iPhone", "android": "Android"}

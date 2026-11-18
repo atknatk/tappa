@@ -672,7 +672,7 @@ type DeviceActivation struct {
 }
 
 // ErrDeviceKeyTaken: the app activation's key is already registered -- live or
-// revoked, in any business (00104's global app_devices_key_digest_key). NOTHING was
+// revoked, in any business (00108's global app_devices_key_digest_key). NOTHING was
 // consumed: the 23505 rolled the whole transaction back, the invitation and the
 // person's other credentials included. The app generates a NEW key pair and binds
 // again (the M16-03 review: "yeni anahtar üret").
@@ -771,7 +771,7 @@ func (m *Manager) ConsentBound(ctx context.Context, c Code, b Binding) (bool, er
 //	              (RevokeSessionsForEmployee): one "who" credential per person
 //	app devices   every live app device of the person is revoked too -- a new phone
 //	              replaces the old one, as ADR 0026's second device does
-//	device        CreateAppDevice: the new device, born ACTIVE (00104)
+//	device        CreateAppDevice: the new device, born ACTIVE (00108)
 //
 // One transaction, so either all of it happened or none: a 23505 on the key
 // (ErrDeviceKeyTaken) rolls the consumption back with the revocations, and the person

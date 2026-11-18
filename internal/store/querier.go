@@ -1327,7 +1327,7 @@ type Querier interface {
 	// which values exist, so a Go-side literal here would be a second one.
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	// appdevices.sql -- the native app's devices and their single-use request nonces (M16-03, ADR 0045
-	// §2.3; migration 00104).
+	// §2.3; migration 00108).
 	//
 	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
 	// §4.5, belt and braces). The one context-less read of app_devices is the device resolver,
@@ -1336,7 +1336,7 @@ type Querier interface {
 	// tenant, the resolver answers the tenant, and only then do these run.
 	//
 	// KIRMIZI CIZGI (§4.7, §7): no query RETURNS public_key, key_digest or nonce_hash -- tappa_app
-	// cannot SELECT the first two at all (00104), and the hash exists to be matched. The nonce itself
+	// cannot SELECT the first two at all (00108), and the hash exists to be matched. The nonce itself
 	// never reaches the database: nonce_hash is computed by internal/appdevice (M16-05).
 	//
 	// 🔴 EVERY WRITE TO revoked_at IS COALESCE(revoked_at, now()) OR CARRIES `revoked_at IS NULL`
@@ -1868,7 +1868,7 @@ type Querier interface {
 	// request) or the send failed (back-off). The request stays, due again at @due. Only under this
 	// worker's lease.
 	DeferInviteRequest(ctx context.Context, arg DeferInviteRequestParams) (*time.Time, error)
-	// The cleanup decision of 00104: a device's dead nonces (consumed, or expired) are deleted by the
+	// The cleanup decision of 00108: a device's dead nonces (consumed, or expired) are deleted by the
 	// issuing path before it issues the next one. Fail-closed by construction -- a consumption needs a
 	// live row, so a deleted row can only ever be a reject. Never touches a live nonce.
 	DeleteDeadAppRequestNonces(ctx context.Context, arg DeleteDeadAppRequestNoncesParams) (int64, error)
@@ -2794,7 +2794,7 @@ type Querier interface {
 	// entry's microsecond, and it gains no hours: the pair counts zero time either way.
 	//
 	// business_day_start, direction_source (00065, M15-09), the five shift_* columns
-	// (00095, T152) and client (00105, M16-04) are in the list because this query returns
+	// (00095, T152) and client (00109, M16-04) are in the list because this query returns
 	// the whole store Transaction
 	// (a row type without them would be a second model); nothing here filters on any of
 	// them. Whether this entry is still in the tap's business day is the engine's question
@@ -3030,7 +3030,7 @@ type Querier interface {
 	// it to a person signed in only in the app -- with one "who" credential per person (Q40 (a)) that
 	// is everybody who uses the app. Same predicate as the revoke (tenant_id, employee_id,
 	// revoked_at IS NULL), so the count the warning states is the set the revoke changes. It reads
-	// only columns tappa_app may SELECT (00104: never public_key or key_digest). The roster row's
+	// only columns tappa_app may SELECT (00108: never public_key or key_digest). The roster row's
 	// count stays the browser's until M16-26 lists devices on the card.
 	//
 	// THE SHAPE IS DICTATED BY sqlc's NULLABILITY INFERENCE, the hazard ListPanelEmployees
@@ -3777,14 +3777,14 @@ type Querier interface {
 	// on manual rows, which the report measures against today's shift and says so.
 	// 00095's NOT VALID CHECK transactions_shift_snapshot_shape is the second safety.
 	//
-	// client (M16-04, migration 00105, ADR 0045 §2.4): which client wrote the tap --
+	// client (M16-04, migration 00109, ADR 0045 §2.4): which client wrote the tap --
 	// 'browser' (the tap page, POST /api/checkin) or 'app' (the native app's /app/v1,
 	// M16-07). SERVER-DERIVED from the endpoint that accepted the request (checkin.Request's
 	// Client, set by the handler -- never a body field, header or user agent). NULL on every
-	// row before 00105, on the manual channel (insertParams forces it: a manager's record is
+	// row before 00109, on the manual channel (insertParams forces it: a manager's record is
 	// not a tap) and on a row no client wrote (the API sandbox). The three manual statements
-	// do not name the column and it has no default, so their rows are NULL. 00105's two
-	// CHECKs (validated by 00106): the value set admits NULL and the two values and nothing
+	// do not name the column and it has no default, so their rows are NULL. 00109's two
+	// CHECKs (validated by 00110): the value set admits NULL and the two values and nothing
 	// else, and a manual row carries no client -- there is no "a tap must carry a client"
 	// CHECK, because it would refuse the previous binary's taps during the rollout and lose
 	// them (section 4.6).
@@ -5889,7 +5889,7 @@ type Querier interface {
 	// drop and the insert below run one device at a time. FOR NO KEY UPDATE conflicts with another
 	// FOR NO KEY UPDATE and with the revocation's UPDATE, not with a reader. revoked_at IS NULL fails
 	// closed: a revoked device locks nothing (pgx.ErrNoRows) and is given no nonce. The lock needs
-	// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00104).
+	// UPDATE on a column of app_devices, which tappa_app holds (last_used_at, revoked_at; 00108).
 	LockAppDeviceForNonce(ctx context.Context, arg LockAppDeviceForNonceParams) (uuid.UUID, error)
 	// One employee, row-locked FOR UPDATE until the API write's transaction ends -- the mode
 	// LockEmployeeForEmailChange takes and for its reason: it conflicts with the FOR KEY SHARE a
