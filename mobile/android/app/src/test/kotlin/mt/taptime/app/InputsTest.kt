@@ -79,6 +79,13 @@ class InputsTest {
     }
 
     @Test
+    fun theDebugBuildWithoutTheOverrideTalksToProduction() {
+        // The release value is pinned in build.gradle.kts and its override refusal measured by a
+        // release build (README, "The signed requests and the clock"); this pins the default.
+        assertEquals(base, BuildConfig.BASE_URL)
+    }
+
+    @Test
     fun aNameEndingInAFullStopGetsNoSecond() {
         assertEquals("To record your working hours for KF.", endSentence("To record your working hours for KF"))
         assertEquals("To record your working hours for Kebab Ltd.", endSentence("To record your working hours for Kebab Ltd."))

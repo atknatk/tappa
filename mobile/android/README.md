@@ -371,9 +371,16 @@ private preferences (no secret among them); the invite code, the activation id a
 challenge **in memory only** — the activity declares `configChanges` so a rotation does not
 rebuild it and nothing goes into a saved-state Bundle.
 
-`BuildConfig.BASE_URL` is `https://taptime.mt`; a debug build may point elsewhere with
-`gradle -Ptaptime.baseUrl=https://…` (the build refuses anything but `https://`; no cleartext
-exception is declared — a local server for M16-14 needs TLS or that exception, decided there).
+`BuildConfig.BASE_URL` is `https://taptime.mt`. **Release is pinned** to it: with
+`taptime.baseUrl` set, any release task stops the build. A **debug** build may point elsewhere
+with `gradle -Ptaptime.baseUrl=https://…` (anything but `https://` is refused); the value is
+written as an escaped Java string literal. Measured 2026-11-18: `-Ptaptime.baseUrl=https://staging.example
+assembleRelease` → BUILD FAILED (*"the release BASE_URL is fixed to https://taptime.mt"*);
+`assembleRelease` → release `BuildConfig.BASE_URL = "https://taptime.mt"`; debug with
+`https://staging.example/a"b` → `"https://staging.example/a\"b"`; debug with `http://x` → refused.
+`InputsTest` pins the debug default. Cleartext is off **explicitly**
+(`android:usesCleartextTraffic="false"`, no `networkSecurityConfig`; `MergedManifestTest`) — a
+local server for M16-14 needs TLS, decided there.
 
 ### JSON
 

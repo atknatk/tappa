@@ -5,6 +5,31 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val PRODUCTION_BASE_URL = "https://taptime.mt"
+val baseUrlOverride: String? = providers.gradleProperty("taptime.baseUrl").orNull
+val debugBaseUrl: String = (baseUrlOverride ?: PRODUCTION_BASE_URL).also {
+    if (!it.startsWith("https://")) throw GradleException("taptime.baseUrl must be https://, got $it")
+}
+
+/** [s] as a Java string literal: backslash and quote escaped, control characters refused. */
+fun javaString(s: String): String {
+    if (s.any { it < ' ' }) throw GradleException("BASE_URL must not contain control characters")
+    return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+// A release build with the debug-only override set stops before anything runs: the release
+// BASE_URL is the production one, and a release that silently ignored the property would be the
+// worse surprise.
+gradle.taskGraph.whenReady {
+    val release = allTasks.filter { it.project == project && it.name.contains("Release") }
+    if (baseUrlOverride != null && release.isNotEmpty()) {
+        throw GradleException(
+            "taptime.baseUrl is set ($baseUrlOverride) and a release task is scheduled (${release.first().name}): " +
+                "the release BASE_URL is fixed to $PRODUCTION_BASE_URL",
+        )
+    }
+}
+
 android {
     // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
     // after the first release and is written into /.well-known/assetlinks.json (M16-08).
@@ -17,21 +42,24 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
-
-        // The server the app talks to and whose plaque URLs (<base>/t) it accepts during
-        // activation (M16-12). Production's TAPPA_BASE_URL; a debug build may point elsewhere
-        // with -Ptaptime.baseUrl=https://... (HTTPS only: no cleartext exception is declared).
-        val baseUrl = providers.gradleProperty("taptime.baseUrl").getOrElse("https://taptime.mt")
-        if (!baseUrl.startsWith("https://")) throw GradleException("taptime.baseUrl must be https://, got $baseUrl")
-        buildConfigField("String", "BASE_URL", "\"$baseUrl\"")
     }
 
     buildTypes {
+        // BASE_URL: the server the app talks to, whose activation links (<base>/activate) and
+        // plaque URLs (<base>/t) it accepts (M16-12). RELEASE IS PINNED to production's
+        // TAPPA_BASE_URL and nothing can change it: with taptime.baseUrl set, any release task
+        // stops the build (the check below). A DEBUG build may point elsewhere with
+        // -Ptaptime.baseUrl=https://... -- HTTPS only (the manifest forbids cleartext). The value
+        // is written as a Java string literal, escaped (javaString).
+        debug {
+            buildConfigField("String", "BASE_URL", javaString(debugBaseUrl))
+        }
         // No signingConfig anywhere: the debug build signs with Gradle's default debug key
         // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
         // repository is public; no keystore and no signing secret ever enters it.
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "BASE_URL", javaString(PRODUCTION_BASE_URL))
         }
     }
 
