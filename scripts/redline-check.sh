@@ -2618,8 +2618,15 @@ R7M_CALLEE='(?:(?:^|[^.\w])(?:os_log|NSLog|print|println|debugPrint|dump|fatalEr
 R7M_TRIGGERS="$R7_TRIGGERS|signature|\\bsig\\b|nonce|(pair(ing)?|approval|activation)_?code|e_?mail|latitude|longitude|coordinate|\\blat\\b|\\blng\\b|cookie|(ndef|sun)_?url"
 R7M_WINDOW='(?:[^()]|\([^()]*\)|\\\(|\.format\(|\(\s*format:)*'
 R7M_PATTERN="$R7M_CALLEE$R7M_WINDOW(?i:$R7M_TRIGGERS)"
+# KAPSAM: SRC eksi scripts/ (2026-11-18, main birlestirmesi). Kalip Swift/Kotlin/Go cagri
+# sekilleri icin yazildi; scripts/'teki gomulu Python'un `print(` cagrisi ayni sekle duser ve
+# main'in sandbox-local-oauth.sh:314'u FAIL veriyordu. O satir token'in ilk 11 karakterini
+# yazar = `tt_<kind>_<env>_` onekinin tamami (internal/oauth/value.go Prefix), sir degil.
+# Betiklerin sir yazdirmasi R7'nin genel kollarinin isi, bu mobil kolun degil.
+R7M_SRC=()
+for p in "${SRC[@]}"; do [[ $p == scripts ]] || R7M_SRC+=("$p"); done
 report FAIL R7 "Sir / kisisel veri mobil log cagrisinda (Swift os_log / Logger / print, Kotlin Log. / println) — imza, nonce, canli QR token'i, eslesme kodu, cerez, koordinat, e-posta, davet kodu loglanmaz (CLAUDE.md §7)" \
-  "$(scan -U -e "$R7M_PATTERN" || true)"
+  "$(scan_in R7M_SRC -U -e "$R7M_PATTERN" || true)"
 
 # --- R7, MOBIL IFADE KOKLERI (M16-02 denetimi, HIGH-2 + ORTA; YALNIZ mobile/) ---------
 #
