@@ -229,7 +229,7 @@ class MainActivity : ComponentActivity() {
                 s.problem,
                 Buttons.of(s.problem, s.retry),
                 onRetry = { if (s.retry == Retry.HOME) home() else startTap(s.url) },
-                onBrowser = { openInBrowser(s.url) },
+                onBrowser = { PlaqueRead.browserUrl(s.url, BuildConfig.BASE_URL)?.let(::openInBrowser) },
                 onActivate = { screen = activationEntry(null) },
             )
         }

@@ -76,6 +76,15 @@ object PlaqueRead {
         return read.rawQuery?.takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * The URL "Open in browser" hands the browser: REBUILT as this server's `<base>/t?` + the verified
+     * query, never the URL as it arrived (the iOS twin's rule). Whatever the intent carried besides
+     * -- the host's case, an explicit default port -- is not passed on; a URL that is not this
+     * server's plaque route yields none.
+     */
+    fun browserUrl(url: String, baseUrl: String): String? =
+        sunQuery(url, baseUrl)?.let { baseUrl.trimEnd('/') + PATH + "?" + it }
+
     private fun parse(s: String): URI? = try {
         URI(s.trim()).takeIf { it.isAbsolute && it.host != null && it.rawUserInfo == null }
     } catch (_: URISyntaxException) {
