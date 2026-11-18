@@ -856,9 +856,13 @@ func (a *Activation) Pending(r *http.Request) bool {
 //	                      clears the cookie so the next tap is an ordinary one.
 //	· NFC only            a QR URL carries no proof of a touch, so it cannot
 //	                      activate (and advances nothing).
-//	· sun.Verify          CMAC first, THEN the atomic ctr advance — inside Verify.
-//	· plaque checks       active, mounted, and the SAME tenant as the invitation.
+//	· plaque pre-check    NON-advancing (PreviewWithoutReplayProtection): a known
+//	                      uid, the SAME tenant as the invitation, active and
+//	                      mounted -- judged before any counter moves (audit R5).
 //	                      Any active plaque of that employer is acceptable.
+//	· sun.Verify          CMAC first, THEN the atomic ctr advance — inside Verify.
+//	· plaque belt         what Verify resolved is still that tenant's active,
+//	                      mounted plaque; then the SUN verdict itself.
 //	· finishActivation    consume (consent + binding in the same statement),
 //	                      revoke a replaced phone, issue, set the cookie.
 func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params) {
