@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun submitCode(pasted: String) {
-        val code = InviteCode.from(pasted)
+        val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
         if (code == null) {
             screen = Screen.Code(Problem.BAD_LINK)
             return

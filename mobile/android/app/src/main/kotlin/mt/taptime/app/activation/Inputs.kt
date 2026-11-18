@@ -8,19 +8,18 @@ import java.net.URISyntaxException
 /**
  * The invite code from what was pasted. Q40: the invitation link (`<base>/activate?code=…`)
  * opens the browser wizard, not the app, so the app's first screen takes the CODE -- and what a
- * person can copy out of a message is the whole link. Both are accepted: a link's `code`
- * parameter, or the bare value. The code is 43 unpadded base64url characters
- * (internal/invite, codeLen); anything else is refused here without a request, because the
- * server would answer it invalid_invite anyway.
- *
- * The link's host is NOT checked: the code alone is the credential, and a link copied from a
- * staging or local server is the same shape. The value is held in memory for the activation and
- * never stored or logged.
+ * person can copy out of a message is the whole link. Both are accepted: the bare value, or the
+ * `code` parameter of a link that is THIS server's activation link -- the base URL's scheme and
+ * host, the path exactly `/activate` (security review, 2026-11-18; the iOS twin's rule). A
+ * look-alike link of another host never has its code sent here. The code is 43 unpadded
+ * base64url characters (internal/invite, codeLen); anything else is refused without a request.
+ * The value is held in memory for the activation and never stored or logged.
  */
 object InviteCode {
+    const val PATH = "/activate"
     private const val LEN = 43
 
-    fun from(pasted: String): String? {
+    fun from(pasted: String, baseUrl: String): String? {
         val s = pasted.trim()
         if (looksLikeCode(s)) return s
         val uri = try {
@@ -28,6 +27,14 @@ object InviteCode {
         } catch (_: URISyntaxException) {
             return null
         }
+        val base = try {
+            URI(baseUrl.trim())
+        } catch (_: URISyntaxException) {
+            return null
+        }
+        if (uri.scheme == null || !uri.scheme.equals(base.scheme, ignoreCase = true)) return null
+        if (uri.host == null || !uri.host.equals(base.host, ignoreCase = true) || uri.rawUserInfo != null) return null
+        if (uri.rawPath != PATH) return null
         val query = uri.rawQuery ?: return null
         for (pair in query.split('&')) {
             val eq = pair.indexOf('=')

@@ -308,7 +308,7 @@ code ─▶ lookup ─▶ 1 Welcome ──"Agree and continue"──▶ bind ─
 
 | Step | Request | What the app does |
 |---|---|---|
-| code | — | Q40: the invitation link opens the browser, not the app. The person pastes the link (or the code); `InviteCode` reads the 43-character code out of `?code=`. Held in memory only. |
+| code | — | Q40: the invitation link opens the browser, not the app. The person pastes the link (or the code); `InviteCode` reads the 43-character code out of `?code=` — only of **this server's** activation link (the base URL's scheme and host, path exactly `/activate`; a look-alike host's code is never sent). Held in memory only. |
 | lookup | `POST /app/v1/activate/lookup` (unsigned) | the consent screen's facts: employer, person, venue, Wi-Fi, brand. Spends nothing. |
 | 1 → 2 | `POST /app/v1/activate/bind` (unsigned) | a **new** Keystore key (every activation binds a fresh pair, M16-07); its raw point as `publicKey`, `consent: true`. The server answers an activation id and a challenge. Nothing is spent, no device exists yet. |
 | 3 | `POST /app/v1/activate/complete` | NFC reader mode is on **only** while step 3 is on screen and in the foreground. The plaque's URL must be this app's `<base>/t` (`PlaqueRead`), its query goes as `sun`; the request is signed in the nonce-signed format with `App-Device-Id` = activation id, `App-Nonce` = challenge. The server runs `CompleteByTap`'s order (`internal/handler/appactivate.go`); the app judges nothing about the chip. |
@@ -394,7 +394,7 @@ adapter itself is therefore not run on the JVM; it is the device tour's (M16-14)
 | `ContractPinTest` | route paths, header names, canonical prefixes, the 16-code error vocabulary **with statuses**, the `android` platform and the request bodies' field names, read from the Go source |
 | `WireTest` | the request bodies byte for byte; the writer's escaping; the contract's reply shapes; refusals of missing / mistyped fields |
 | `ClockSkewTest` | the `Date` offset; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
-| `InputsTest` | the code from a link or alone; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
+| `InputsTest` | the code from this server's `/activate` link or alone, never from another host or path; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
 | `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone keeps its record and key until a new activation, a record without its key is dropped, a software key is never bound |
 | `MergedManifestTest` | M16-11's, unchanged |
 

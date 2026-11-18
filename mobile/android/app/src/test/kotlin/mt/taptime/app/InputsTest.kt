@@ -16,15 +16,27 @@ class InputsTest {
     private val base = "https://taptime.mt"
 
     @Test
-    fun theCodeIsReadFromTheInvitationLinkOrOnItsOwn() {
+    fun theCodeIsReadFromThisServersActivationLinkOrOnItsOwn() {
         assertEquals(43, code.length)
-        assertEquals(code, InviteCode.from(code))
-        assertEquals(code, InviteCode.from("  $code\n"))
-        assertEquals(code, InviteCode.from("https://taptime.mt/activate?code=$code"))
-        assertEquals(code, InviteCode.from("http://localhost:8080/app/activate?x=1&code=$code"))
+        assertEquals(code, InviteCode.from(code, base))
+        assertEquals(code, InviteCode.from("  $code\n", base))
+        assertEquals(code, InviteCode.from("https://taptime.mt/activate?code=$code", base))
+        assertEquals(code, InviteCode.from("https://TapTime.MT/activate?x=1&code=$code", base))
         for (junk in listOf("", "hello", code.dropLast(1), "$code=", "https://taptime.mt/activate", "https://taptime.mt/activate?code=short",
             "https://taptime.mt/activate?code=$code%20", "https://taptime.mt/activate?xcode=$code")) {
-            assertNull(junk, InviteCode.from(junk))
+            assertNull(junk, InviteCode.from(junk, base))
+        }
+    }
+
+    @Test
+    fun aLinkOfAnotherHostOrPathNeverYieldsItsCode() {
+        for (other in listOf(
+            "https://taptime.mt.evil.example/activate?code=$code", "https://evil.example/activate?code=$code",
+            "http://taptime.mt/activate?code=$code", "https://taptime.mt/activate/?code=$code",
+            "https://taptime.mt/app/activate?code=$code", "https://taptime.mt/t?code=$code",
+            "https://user@taptime.mt/activate?code=$code", "taptime.mt/activate?code=$code",
+        )) {
+            assertNull(other, InviteCode.from(other, base))
         }
     }
 
