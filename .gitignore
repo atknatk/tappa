@@ -73,3 +73,12 @@ coverage.*
 /android/local.properties
 /android/.kotlin/
 *.apk
+
+# --- iOS staff app (M16-15) — build output and per-user Xcode state ---
+# DerivedData of `make mobile-ios-test` (IOS_DERIVED_DATA default) and Xcode's per-user
+# files; the tree carries source only. No signing material is ever committed (CLAUDE.md 4.7,
+# the repository is public): *.p12 and provisioning profiles are listed for that reason.
+/mobile/ios/build/
+xcuserdata/
+*.p12
+*.mobileprovision
