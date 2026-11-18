@@ -62,13 +62,20 @@ final class ActivationModel: ObservableObject {
 
     // MARK: Launch
 
-    /// An activated phone asks the server who it is (a signed read, with the 401 retry); a phone
-    /// the server signed out goes back to the code screen and forgets its key. Offline, the stored
-    /// name stands -- being unreachable is not being signed out.
+    /// An activated phone asks the server who it is (a signed read, with the 401 retry). A phone
+    /// the server answers as signed out shows "This phone was signed out" and the way to activate
+    /// again; offline, the stored name stands -- being unreachable is not being signed out.
+    ///
+    /// THE RECORD IS NEVER DELETED HERE (M16-16 review, 2026-11-18). A 401 is the answer to a
+    /// revoked device, but also to a server-side fault -- an RLS or GRANT regression that makes
+    /// the resolver miss every device answers 401 to every phone at once -- and the Secure Enclave
+    /// key behind a deleted record is gone for good. Keeping it costs nothing: a revoked key is
+    /// refused by the server whatever the phone keeps. The browser does the same (a signed-out
+    /// tap does not clear the cookie). Only a NEW successful activation replaces the record
+    /// (ActivationStore.save).
     func start() async {
         if let record = store.load() {
             guard let signer = try? keys.restore(record.keyHandle) else {
-                store.clear()
                 screen = .code(notice: nil)
                 return
             }
@@ -77,13 +84,17 @@ final class ActivationModel: ObservableObject {
                 brand = me.brand
                 screen = .already(name: me.employeeName)
             } catch AppAPIError.unauthenticated {
-                store.clear()
-                screen = .code(notice: Copy.Problems.signedOut)
+                enterActivation(notice: Copy.Problems.signedOut)
             } catch {
                 screen = .already(name: record.employeeName)
             }
             return
         }
+        enterActivation(notice: nil)
+    }
+
+    /// The code screen, unless this phone cannot activate at all.
+    private func enterActivation(notice: Copy.Problem?) {
         guard keys.isAvailable else {
             screen = .problem(Copy.Problems.noSecureChip, retry: .none)
             return
@@ -92,7 +103,7 @@ final class ActivationModel: ObservableObject {
             screen = .problem(Copy.Problems.noReader, retry: .none)
             return
         }
-        screen = .code(notice: nil)
+        screen = .code(notice: notice)
     }
 
     // MARK: Steps

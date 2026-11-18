@@ -157,17 +157,52 @@ final class ActivationModelTests: XCTestCase {
         XCTAssertNotNil(store.record)
     }
 
-    /// Two 401s (after the clock retry) mean the server signed this phone out: the key is
-    /// forgotten and the code screen says why.
-    func testASignedOutPhoneForgetsItsKey() async {
+    /// Two 401s (after the clock retry) are the signed-out answer: the code screen says so and
+    /// offers activation again -- and the record STAYS (a 401 may be the server's fault, and the
+    /// Secure Enclave key behind a deleted record could never come back).
+    func testTwo401sKeepTheRecordAndOfferActivation() async {
+        let k = SoftwareDeviceKey()
+        let id = server.register(k)
+        server.devicesSignedOut.insert(id)
+        let rec = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: k.persistentHandle)
+        store.record = rec
+        await model.start()
+        XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
+        XCTAssertEqual(store.record, rec)
+        XCTAssertEqual(server.seen.count, 2)
+    }
+
+    /// The server comes back: the kept record works again, nothing to re-activate.
+    func testAKeptRecordWorksOnceTheServerAnswersAgain() async {
         let k = SoftwareDeviceKey()
         let id = server.register(k)
         server.devicesSignedOut.insert(id)
         store.record = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         await model.start()
         XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
-        XCTAssertNil(store.record)
-        XCTAssertEqual(server.seen.count, 2)
+        server.devicesSignedOut.remove(id)
+        await model.start()
+        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+    }
+
+    /// Only a NEW successful activation replaces the kept record.
+    func testANewActivationReplacesTheKeptRecord() async throws {
+        let old = SoftwareDeviceKey()
+        let id = server.register(old)
+        server.devicesSignedOut.insert(id)
+        store.record = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: old.persistentHandle)
+        await model.start()
+        XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
+        model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        await model.agree()
+        model.ready()
+        XCTAssertEqual(store.record?.keyHandle, old.persistentHandle, "nothing is replaced before complete")
+        await model.plaqueURLOpened(plaque)
+        XCTAssertEqual(model.screen, .done(name: "Maria Borg", secondDevice: false))
+        let rec = try XCTUnwrap(store.record)
+        XCTAssertNotEqual(rec.deviceId, id)
+        XCTAssertEqual(rec.keyHandle, keys.made.last?.persistentHandle)
     }
 
     /// One 401 is not enough: the retry passes and the phone stays activated.
