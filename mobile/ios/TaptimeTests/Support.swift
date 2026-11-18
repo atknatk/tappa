@@ -223,24 +223,29 @@ final class FakeAppServer {
                   let pk = Base64URL.decode(j["publicKey"] as? String ?? "") else {
                 return reply(400, error: "bad_request")
             }
-            guard let ch = challenge, headers[AppClient.Header.deviceID] == ch.id, headers[AppClient.Header.nonce] == ch.value,
+            // The server's order: the proof of possession is PURE (appdevice.VerifyActivation) --
+            // the signature under the key the body names, over the id and challenge the headers
+            // carry -- and a refusal is 401. Whether that binding is still the invitation's is
+            // asked later (invite.ConsentBound), and a stale or foreign one is 409
+            // activation_not_ready, not 401.
+            guard let id = headers[AppClient.Header.deviceID], let n = headers[AppClient.Header.nonce],
                   headers[AppClient.Header.timestamp] == nil,
-                  verify(pk, headers[AppClient.Header.signature],
-                         try CanonicalText.request(method: method, path: path, body: body, nonce: ch.value, deviceID: ch.id)) else {
+                  let text = try? CanonicalText.request(method: method, path: path, body: body, nonce: n, deviceID: id),
+                  verify(pk, headers[AppClient.Header.signature], text) else {
                 return reply(401)
             }
             if !completeScript.isEmpty {
                 let (status, code) = completeScript.removeFirst()
                 return reply(status, error: code)
             }
-            guard pk == ch.key else {
+            guard let ch = challenge, ch.id == id, ch.value == n, ch.key == pk else {
                 return reply(409, error: "activation_not_ready")
             }
-            let id = UUID().uuidString.lowercased()
-            devices[id] = pk
+            let device = UUID().uuidString.lowercased()
+            devices[device] = pk
             challenge = nil
             completedSUN.append(j["sun"] as? String ?? "")
-            return reply(200, object: ["deviceId": id, "employeeName": "Maria Borg"])
+            return reply(200, object: ["deviceId": device, "employeeName": "Maria Borg"])
         case AppClient.Path.me, AppClient.Path.nonce:
             guard readVerifies(method, path, body, headers) else {
                 return reply(401)

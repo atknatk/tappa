@@ -125,6 +125,20 @@ final class AppClientTests: XCTestCase {
         }
     }
 
+    /// A later bind moves the binding: completing with the earlier challenge is 409
+    /// activation_not_ready, as the server answers it (the signature itself is good).
+    func testAStaleChallengeIsActivationNotReady() async throws {
+        let k = SoftwareDeviceKey()
+        let first = try await client.bind(code: FakeAppServer.code, publicPoint: k.publicPoint)
+        _ = try await client.bind(code: FakeAppServer.code, publicPoint: k.publicPoint)
+        do {
+            _ = try await client.complete(code: FakeAppServer.code, signer: k, binding: first, sun: "tag=04&ctr=000001&cmac=00")
+            XCTFail("a stale challenge completed")
+        } catch {
+            XCTAssertEqual(error as? AppAPIError, .refused(.activationNotReady, retryAfter: nil))
+        }
+    }
+
     /// Clause (1) of the skew contract: the timestamp is the server's second, learnt from the Date
     /// header of an earlier answer -- the phone's own clock is ten minutes off and the read passes
     /// on the FIRST attempt.
