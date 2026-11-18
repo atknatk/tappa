@@ -28,6 +28,7 @@ import mt.taptime.app.device.KeystoreKeys
 import mt.taptime.app.device.PrefsDeviceState
 import mt.taptime.app.tap.Buttons
 import mt.taptime.app.tap.Fix
+import mt.taptime.app.tap.PressGuard
 import mt.taptime.app.tap.Retry
 import mt.taptime.app.tap.TapFlow
 import mt.taptime.app.tap.TapLocation
@@ -212,7 +213,7 @@ class MainActivity : ComponentActivity() {
             is Screen.SetUp -> SetUpScreen(s.name, null)
             is Screen.Blocked -> BlockedScreen(s.problem)
             is Screen.Retryable -> RetryScreen(s.problem) { home() }
-            is Screen.Plaque -> PlaqueTapScreen(s.ready.facts, s.busy) { want -> press(s, want) }
+            is Screen.Plaque -> PlaqueTapScreen(s.ready.facts, s.busy) { want -> press(s.ready, want) }
             is Screen.Result -> ResultScreen(s.reply)
             // The buttons are Buttons.of's (the iOS twin's): "Open in browser" only while the URL is
             // certainly unspent; "Try again" after a lost press goes HOME and resends nothing.
@@ -326,8 +327,13 @@ class MainActivity : ComponentActivity() {
     // The press: ONE position reading (the permission asked here the first time), then POST
     // /app/v1/tap. Both buttons are disabled at once -- a second press has nothing to hit while
     // the reading is under way (tap.js's markPending).
-    private fun press(s: Screen.Plaque, want: String) {
-        if (s.busy) return
+    //
+    // THE LIVE SCREEN DECIDES, NOT THE CAPTURED ONE (PressGuard): two clicks in one frame both carry
+    // the composition's [pressed]; the first marks the live screen busy here, on the main thread,
+    // before anything else, and the second finds it busy.
+    private fun press(pressed: TapFlow.Start.Ready, want: String) {
+        val s = screen as? Screen.Plaque
+        if (s == null || !PressGuard.mayPress(s.ready, s.busy, pressed)) return
         screen = s.copy(busy = true)
         withOneFix { fix ->
             // An unclassified failure of the press may have come after the request went out: no
