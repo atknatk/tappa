@@ -78,7 +78,7 @@ yalnızca kendi kayıtlarını görür; RLS'e ek olarak `employee_id` filtresi.
 > Saatlerim'i işletme yönetir), M16-31 (sunucu okuması + `/app/v1/hours`), M16-32
 > (tarayıcı sayfası), M16-33 (uygulama ekranları). Yukarıdaki iki kural orada kabul
 > kriteridir. Bu kart
-> ayrıca uygulanmaz; durumu `state.md`'de M16-33 bitince kapanır (o zamana dek `todo`).
+> ayrıca uygulanmaz; durumunu `state.md`'de **M16-40 (Faz G kapanışı) kapatır** (o zamana dek `todo`).
 
 ---
 

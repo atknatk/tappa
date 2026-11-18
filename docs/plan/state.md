@@ -1709,7 +1709,7 @@ yazılır.
 | M9-02 | Yönetici push bildirimleri | todo | MVP dışı |
 | M9-03 | BioTime CSV içe aktarma | todo | MVP dışı |
 | M9-04 | Tenant marka mesajı editörü | todo | MVP dışı |
-| M9-05 | Çalışan self-service saat görünümü | todo | MVP dışı · **M16 Faz G'ye alındı (2026-11-18):** M16-30/31/32/33 karşılar; M16-33 bitince kapanır |
+| M9-05 | Çalışan self-service saat görünümü | todo | MVP dışı · **M16 Faz G'ye alındı (2026-11-18):** M16-30/31/32/33 karşılar; **M16-40 kapatır** |
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 | M9-08 | **Operatör paneli** *(kullanıcı kararı 2026-08-14: "operatör paneli yapılır oradan kontrol edilir")* | todo | **§4.5 — tenant sınırını bilerek aşan ilk yüzey.** M7-06 dar sürümü sevk etti (tek ekran, tenant verisine bakmaz); borçlar M9-08 kartında |
@@ -1797,10 +1797,11 @@ yazılır.
 | M16-31 | Saatlerim: kişinin kendi kayıtlarının okuması + `/app/v1/hours` (M9-05'i karşılar) | todo | ayar sunucuda zorlanır (kapalı → 404) |
 | M16-32 | Saatlerim: tarayıcı sayfası | todo | §9 sorusu önce |
 | M16-33 | Uygulama ana ekranı ve Saatlerim — iOS + Android | todo | §9 onayı kartın ilk adımı |
-| M16-34 | ADR 0049'un kabulü — e-postayla giriş kararları (Q44, Q45) | todo | ADR 0049 *Önerildi* |
-| M16-35 | E-postayla giriş: sunucu | todo | migration 00116 (öneri) |
+| M16-34 | ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü | todo | ADR 0049 *Önerildi*; cevapsız kabul yok |
+| M16-35 | E-postayla giriş: sunucu | todo | migration 00116 + 00117 (öneri); varsayılan kapalı (`TAPPA_EMAIL_SIGNIN_TENANTS`), açılış kullanıcının config PR'ı |
 | M16-36 | E-postayla giriş: uygulama ekranları (+ tarayıcı) | todo |  |
-| M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46; 00117 yalnız Q46 (c) |
+| M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
+| M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
 | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
 | M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı |
 | M16-40 | Faz G kapanışı | todo |  |
@@ -1809,10 +1810,15 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-18 gece, ikinci tur (M16, dal `plan/m16-mobil`) — Faz G denetim bulguları kapatıldı, yalnız belge
+
+- **Ne:** `33b59838`'e iki bağımsız plan denetimi NO-GO verdi (fizibilite/güvenlik + sıfır hafızalı yürüyüş). Düzeltmeler: e-postayla giriş K-17 kuyruğu yerine `adminresetoutbox.go` biçiminde bir çıkış kutusu (kuyruk API kapısı kapalı işletmede basmaz); uç **varsayılan kapalı** (`TAPPA_EMAIL_SIGNIN_TENANTS`, önce yalnız demo, kullanıcının config PR'ı); ele geçirme azaltmaları (7 günlük bekleme, işveren davetinin korunması, her olayda panel + owner e-postası, ADR 0005 risk eki M16-34'te); ayrı giriş bütçeleri; askıdaki işletmeye giriş e-postası yok; `tappa_resolver` yetkisi + `employees (email)` indeksi (00116/00117); Saatlerim penceresi bütün haftalar (1/2/4/13); tam tel sözleşmesi; yeni kart **M16-41** (gizlilik bildirimi, M16-38'den önce — M16-27'nin metin yarısı öne alındı); M16-40 yalnız demo işletmede; M9-05'i M16-40 kapatır. Açık sorular daraltıldı: **Q44** TTL (öneri 24 sa), **Q45** (öneri: yalnız uygulama), **Q46** (öneri: panel + owner e-postası), **Q47** (öneri: manager girişiyle müdür onayı, yedek canlı QR), **Q48** (öneri: kapalı), yeni **Q49** (işletme kapatabilir — öneri: owner ayarı, varsayılan kapalı).
+- **Sıradaki:** değişmedi.
+
 ### 2026-11-18 gece (M16, dal `plan/m16-mobil`) — Faz G planlandı (personel self-servis), yalnız belge
 
 - **Ne:** kullanıcının 2026-11-18 kararlarıyla (AskUserQuestion) `m16-mobil.md`'ye **Faz G** — M16-30 … M16-40 (Saatlerim ayarı → Saatlerim → e-postayla giriş → ayarlar/hesap silme → App Review hazırlığı → kapanış); sıra **D, E, G, F** (Faz G yayından önce; M16-27/M16-28 bağımlılıkları güncellendi). **ADR 0049** (*Önerildi*, çalışanın iş e-postasıyla girişi). Yeni açık sorular **Q44** (kimlik bilgisi — öneri: taze davet), **Q45** (tarayıcı da alır mı — öneri: evet), **Q46** (silme talebi işverene — öneri: audit + owner e-postası), **Q47** (inceleyicinin aktivasyonu — öneri: demo panel girişiyle müdür onayı, M16-23), **Q48** (Saatlerim varsayılanı — öneri: kapalı, owner açar). Aynı günün ikinci kullanıcı kararı: Saatlerim'i işletme panelden açar/kapar ve pencere seçer (7/14/31/90 gün önerisi), sunucu zorlar → yeni **M16-30** (`tenants` sütunu, `day_cutoff` emsali), kartlar bir kaydı. M9-05 Faz G'ye alındı (done değil).
-- **Ölçülen:** statik QR aktivasyonu tamamlamaz (yalnız NFC; NFC'siz yollar M16-23) → kullanıcı kararı 3'ün boşluğu Q47'de; imzalı okuma sorgu dizgesini reddeder (`internal/appdevice/read.go:114`) → Saatlerim ucu `POST` imzalı okuma; `/app/v1/revoke` sunucuda var, iOS'ta istemci işlevi var ama ekran çağırmıyor, Android'de yalnız yol sabiti. Numaralar: ADR 0048 `ops/tappa-scoped-access` dalında → Faz G ADR'si 0049; migration 00115 (M16-30), 00116 (M16-35), 00117 (yalnız Q46 (c)).
+- **Ölçülen:** statik QR aktivasyonu tamamlamaz (yalnız NFC; NFC'siz yollar M16-23) → kullanıcı kararı 3'ün boşluğu Q47'de; imzalı okuma sorgu dizgesini reddeder (`internal/appdevice/read.go:114`) → Saatlerim ucu `POST` imzalı okuma; `/app/v1/revoke` sunucuda var, iOS'ta istemci işlevi var ama ekran çağırmıyor, Android'de yalnız yol sabiti. Numaralar: ADR 0048 `ops/tappa-scoped-access` dalında → Faz G ADR'si 0049; migration 00115 (M16-30), 00116 + 00117 (M16-35; ikinci turda düzeltildi — silme tablosu numarası kalktı).
 - **Sıradaki:** değişmedi — M16-14 / M16-18 cihaz turları; Faz G, Faz E'den sonra (M16-34 ADR kabulü ve Q44–Q48 kullanıcıya önceden sorulabilir).
 
 ### 2026-11-15 (Malta Calculator, dal `oauth-apps-card`) — #38/#39 canlıda, Connected apps kartı Developers sayfasına
