@@ -257,7 +257,9 @@ ediyorsa **dur ve sor**, sessizce uygulama.
    koşusunda) — definer'ların tabloları (`feed_counters`, `holding*`, `platform_*`, `oauth_clients`,
    `operator_read_tickets`, `admin_identities`) ve append-only tablolarda UPDATE/DELETE kapalı kalır
    (§4.3, §4.6); `tags`'te ayrıca anahtar sütunları, INSERT, DELETE ve `last_ctr` UPDATE kapalıdır
-   (§4.4, §4.7). Uygulama **asla** bu rollerle bağlanmaz (`verify-deployment.sh
+   (§4.4, §4.7); BYPASSRLS'nin ekleyeceği iki şey de çıkarılır: hiçbir tabloda `id`/`tenant_id`
+   UPDATE'i yok, RESTRICTIVE politikanın daralttığı fiil (`oauth_codes`/`oauth_tokens`/
+   `webhook_deliveries` DELETE) yok. Yazdıkları satır düzeyinde iz bırakmaz (ADR 0048 §5 madde 12). Uygulama **asla** bu rollerle bağlanmaz (`verify-deployment.sh
    db-role` onları yalnız loopback'ten kabul eder). Yetkiyi genişletmek kullanıcı onayı + ADR 0048
    değişikliği ister.
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,

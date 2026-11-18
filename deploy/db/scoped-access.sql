@@ -27,7 +27,9 @@
 --   tappa_readwrite the same SELECT, plus every INSERT/UPDATE/DELETE that tappa_app ITSELF holds,
 --                   at the same level (table or column), copied from pg_class.relacl and
 --                   pg_attribute.attacl at the moment this file runs -- minus the tags
---                   exceptions and goose's ledger below.
+--                   exceptions and goose's ledger below, minus UPDATE of `id`/`tenant_id`
+--                   (UPDATE is always granted as a column list), and minus any verb a
+--                   RESTRICTIVE policy narrows for tappa_app (BYPASSRLS would skip the policy).
 --   WHY tappa_app AND NOT "every table without an append-only trigger" (the first version of this
 --   file, 2026-11-17). That rule was a DENY list, so it failed OPEN: the security review measured it
 --   handing tappa_readwrite INSERT/UPDATE/DELETE on tables only a SECURITY DEFINER may write --
@@ -151,7 +153,12 @@ DECLARE
     t record;
     cols text;
 BEGIN
-    -- Writing: tappa_app's own TABLE-level INSERT/UPDATE/DELETE, verb by verb.
+    -- Writing, part 1: tappa_app's own TABLE-level INSERT and DELETE, verb by verb -- except a
+    -- verb that a RESTRICTIVE policy narrows for tappa_app. BYPASSRLS skips every policy,
+    -- restrictive ones included, so copying the verb would hand this role MORE than tappa_app has:
+    -- measured (goose 107) oauth_codes_delete_expired, oauth_tokens_delete_expired and
+    -- webhook_deliveries_delete_settled (tappa_app deletes only expired or settled rows; this role
+    -- would delete any). Derived from pg_policy, not listed.
     FOR t IN
         SELECT DISTINCT c.relname, x.privilege_type
           FROM pg_catalog.pg_class c
@@ -160,16 +167,19 @@ BEGIN
            AND c.relkind IN ('r', 'p')
            AND c.relname NOT IN ('tags', 'goose_db_version')
            AND x.grantee = 'tappa_app'::regrole
-           AND x.privilege_type IN ('INSERT', 'UPDATE', 'DELETE')
+           AND x.privilege_type IN ('INSERT', 'DELETE')
+           AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_policy pol
+                  WHERE pol.polrelid = c.oid AND NOT pol.polpermissive
+                    AND pol.polcmd IN ('*', CASE x.privilege_type WHEN 'INSERT' THEN 'a' ELSE 'd' END))
          ORDER BY 1, 2
     LOOP
         EXECUTE format('GRANT %s ON public.%I TO tappa_readwrite', t.privilege_type, t.relname);
     END LOOP;
 
-    -- ... and its COLUMN-level INSERT/UPDATE, with the same column list.
+    -- Writing, part 2: tappa_app's COLUMN-level INSERT, with the same column list.
     FOR t IN
-        SELECT c.relname, x.privilege_type,
-               string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) AS cols
+        SELECT c.relname, string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) AS cols
           FROM pg_catalog.pg_attribute a
           JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
          CROSS JOIN LATERAL aclexplode(a.attacl) x
@@ -178,11 +188,40 @@ BEGIN
            AND c.relname NOT IN ('tags', 'goose_db_version')
            AND a.attnum > 0 AND NOT a.attisdropped
            AND x.grantee = 'tappa_app'::regrole
-           AND x.privilege_type IN ('INSERT', 'UPDATE')
-         GROUP BY c.relname, x.privilege_type
-         ORDER BY 1, 2
+           AND x.privilege_type = 'INSERT'
+           AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_policy pol
+                  WHERE pol.polrelid = c.oid AND NOT pol.polpermissive AND pol.polcmd IN ('*', 'a'))
+         GROUP BY c.relname
+         ORDER BY 1
     LOOP
-        EXECUTE format('GRANT %s (%s) ON public.%I TO tappa_readwrite', t.privilege_type, t.cols, t.relname);
+        EXECUTE format('GRANT INSERT (%s) ON public.%I TO tappa_readwrite', t.cols, t.relname);
+    END LOOP;
+
+    -- Writing, part 3: UPDATE, ALWAYS as a column list -- every column tappa_app may update
+    -- (table- or column-level), minus `id` and `tenant_id`. tappa_app's own UPDATE of those is
+    -- bounded by RLS (the row stays in the session's tenant: WITH CHECK); without RLS an UPDATE of
+    -- tenant_id moves a row that nothing references into ANOTHER tenant. Measured (goose 107):
+    -- tappa_app holds table-level UPDATE on employees, departments, locations, policies and
+    -- policy_attachments, i.e. on their id and tenant_id. A RESTRICTIVE UPDATE policy withholds the
+    -- verb (none exists today; the rule is the DELETE rule's).
+    FOR t IN
+        SELECT c.relname, string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) AS cols
+          FROM pg_catalog.pg_attribute a
+          JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         WHERE c.relnamespace = 'public'::regnamespace
+           AND c.relkind IN ('r', 'p')
+           AND c.relname NOT IN ('tags', 'goose_db_version')
+           AND a.attnum > 0 AND NOT a.attisdropped
+           AND a.attname NOT IN ('id', 'tenant_id')
+           AND has_column_privilege('tappa_app', c.oid, a.attnum, 'UPDATE')
+           AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_policy pol
+                  WHERE pol.polrelid = c.oid AND NOT pol.polpermissive AND pol.polcmd IN ('*', 'w'))
+         GROUP BY c.relname
+         ORDER BY 1
+    LOOP
+        EXECUTE format('GRANT UPDATE (%s) ON public.%I TO tappa_readwrite', t.cols, t.relname);
     END LOOP;
 
     -- Sequences: USAGE only where tappa_app holds it.
@@ -218,6 +257,15 @@ BEGIN
     END IF;
 END
 $$;
+
+-- 🔴 NO CONNECTION LOG, AND WHY (ADR 0048 §5 madde 12). The intended belt was role-level
+-- `ALTER ROLE ... SET log_connections = on` / `log_disconnections = on`. Measured on PostgreSQL
+-- 17.10 (this image), as the superuser, inside and outside a transaction: "ERROR: parameter
+-- "log_connections" cannot be set after connection start" (55P02) -- both settings are
+-- superuser-backend, and ALTER ROLE ... SET refuses them. The server-wide setting would log EVERY
+-- connection, the pg_isready probes included, and is a decision of its own; log_statement would
+-- print literal values -- e-mail addresses among them -- into the postgres container's log, which
+-- the SigNoz agent collects (CLAUDE.md §7, ADR 0022 §10). So neither is set here.
 
 -- Future objects created by the migration role (every table in public is owned by tappa_owner --
 -- measured: `SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname = 'public'` -> one row,
@@ -313,6 +361,31 @@ BEGIN
          OR (v.p <> 'DELETE' AND has_any_column_privilege('tappa_readonly', c.oid, v.p)));
     IF bad IS NOT NULL THEN
         RAISE EXCEPTION 'scoped-access: tappa_readonly can write: %', bad;
+    END IF;
+
+    -- (7) no UPDATE of `id` or `tenant_id` anywhere: a row cannot be moved across tenants.
+    SELECT string_agg(c.relname || '.' || a.attname, ', ')
+      INTO bad
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+       AND a.attname IN ('id', 'tenant_id')
+       AND has_column_privilege('tappa_readwrite', c.oid, a.attnum, 'UPDATE');
+    IF bad IS NOT NULL THEN
+        RAISE EXCEPTION 'scoped-access: tappa_readwrite can UPDATE a key or tenant column: %', bad;
+    END IF;
+
+    -- (8) no verb that a RESTRICTIVE policy narrows for everyone else (BYPASSRLS would skip it).
+    SELECT string_agg(c.relname || ':' || pol.polname, ', ')
+      INTO bad
+      FROM pg_catalog.pg_policy pol
+      JOIN pg_catalog.pg_class c ON c.oid = pol.polrelid
+     WHERE c.relnamespace = 'public'::regnamespace AND NOT pol.polpermissive
+       AND ((pol.polcmd IN ('*', 'd') AND has_table_privilege('tappa_readwrite', c.oid, 'DELETE'))
+         OR (pol.polcmd IN ('*', 'w') AND has_any_column_privilege('tappa_readwrite', c.oid, 'UPDATE'))
+         OR (pol.polcmd IN ('*', 'a') AND has_any_column_privilege('tappa_readwrite', c.oid, 'INSERT')));
+    IF bad IS NOT NULL THEN
+        RAISE EXCEPTION 'scoped-access: tappa_readwrite holds a verb a RESTRICTIVE policy narrows: %', bad;
     END IF;
 
     -- (6) no SECURITY DEFINER function in public is executable by either role, whatever path

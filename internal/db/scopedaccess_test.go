@@ -72,7 +72,9 @@ func scopedAccessSnapshot(t *testing.T, ctx context.Context, tx pgx.Tx) string {
 // column -- so the eight tables only a definer writes (security review, 2026-11-17) take no write;
 // (g) a table created AFTER the file ran gets SELECT and nothing more for either role; (h) the
 // file's own postcondition refuses to finish if tappa_app is ever granted a write on a definer-only
-// table (the file then would copy it).
+// table (the file then would copy it); (i) what BYPASSRLS would add beyond tappa_app is withheld:
+// UPDATE of id/tenant_id anywhere, and DELETE where a RESTRICTIVE policy narrows it
+// (oauth_codes, oauth_tokens, webhook_deliveries).
 //
 // MUTANT (measured, 2026-11-17, second model): the table-level copy loop's `x.grantee =
 // 'tappa_app'::regrole` removed (every grantee's verbs copied) -> the file's postcondition (1)
@@ -80,7 +82,9 @@ func scopedAccessSnapshot(t *testing.T, ctx context.Context, tx pgx.Tx) string {
 // the UPDATE exclusion -> postcondition (4) aborts it; a default INSERT for tappa_readwrite added
 // AND the default REVOKE line weakened -> red at (g); the column-level copy loop emptied -> red at
 // (c) (audit_log, punch_claims, punch_claim_decisions, transactions: tappa_app's INSERT there is
-// column-level) and at (f).
+// column-level) and at (f). Third round: the `id`/`tenant_id` exclusion removed -> postcondition (7)
+// aborts the run ("can UPDATE a key or tenant column: departments.id, ..."); the restrictive-policy
+// filter of the INSERT/DELETE loop removed -> postcondition (8) aborts it.
 func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing.T) {
 	ctx, tx := opTx(t)
 	sql := scopedAccessSQL(t)
@@ -175,11 +179,18 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 	        FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
 	       CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) v(p)
 	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname NOT IN ('tags', 'goose_db_version')
-	         AND has_column_privilege('tappa_readwrite', c.oid, a.attnum, v.p) <> has_column_privilege('tappa_app', c.oid, a.attnum, v.p)
+	         AND has_column_privilege('tappa_readwrite', c.oid, a.attnum, v.p)
+	             <> (has_column_privilege('tappa_app', c.oid, a.attnum, v.p)
+	                 AND NOT (v.p = 'UPDATE' AND a.attname IN ('id', 'tenant_id'))
+	                 AND NOT EXISTS (SELECT 1 FROM pg_policy pol WHERE pol.polrelid = c.oid AND NOT pol.polpermissive
+	                                  AND pol.polcmd IN ('*', CASE v.p WHEN 'INSERT' THEN 'a' ELSE 'w' END)))
 	      UNION ALL
 	      SELECT c.relname || ' DELETE' FROM pg_class c
 	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname NOT IN ('tags', 'goose_db_version')
-	         AND has_table_privilege('tappa_readwrite', c.oid, 'DELETE') <> has_table_privilege('tappa_app', c.oid, 'DELETE')
+	         AND has_table_privilege('tappa_readwrite', c.oid, 'DELETE')
+	             <> (has_table_privilege('tappa_app', c.oid, 'DELETE')
+	                 AND NOT EXISTS (SELECT 1 FROM pg_policy pol WHERE pol.polrelid = c.oid AND NOT pol.polpermissive
+	                                  AND pol.polcmd IN ('*', 'd')))
 	      UNION ALL
 	      SELECT c.relname || ' SELECT' FROM pg_class c
 	       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname <> 'tags'
@@ -206,8 +217,32 @@ func TestScopedAccess_TheOperatorFileConvergesAndWithholdsTheRedLines(t *testing
 		t.Errorf("(f) tappa_readwrite can write a definer-only table or goose's ledger (%d)", n)
 	}
 	if n := opInt(t, ctx, tx, `SELECT count(*) FROM (VALUES ('locations', 'UPDATE'), ('locations', 'DELETE'), ('employees', 'INSERT')) v(r, p)
-	        WHERE has_table_privilege('tappa_readwrite', ('public.' || v.r)::regclass, v.p)`); n != 3 {
+	        WHERE CASE WHEN v.p = 'DELETE' THEN has_table_privilege('tappa_readwrite', ('public.' || v.r)::regclass, 'DELETE')
+	                   ELSE has_any_column_privilege('tappa_readwrite', ('public.' || v.r)::regclass, v.p) END`); n != 3 {
 		t.Errorf("(f) control: tappa_readwrite lost a write tappa_app holds (locations UPDATE/DELETE, employees INSERT): %d of 3", n)
+	}
+
+	// (i) what BYPASSRLS would add on top of tappa_app's grants is withheld: UPDATE of id/tenant_id
+	// (tappa_app's is bounded by RLS's WITH CHECK, this role's would move a row to another tenant),
+	// and a verb a RESTRICTIVE policy narrows (BYPASSRLS skips it).
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
+	        WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND a.attname IN ('id', 'tenant_id')
+	          AND has_column_privilege('tappa_app', c.oid, a.attnum, 'UPDATE')`); n < 10 {
+		t.Fatalf("(i) anti-vacuity: tappa_app may UPDATE %d id/tenant_id columns, want at least 10", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_class c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
+	        WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND a.attname IN ('id', 'tenant_id')
+	          AND has_column_privilege('tappa_readwrite', c.oid, a.attnum, 'UPDATE')`); n != 0 {
+		t.Errorf("(i) tappa_readwrite can UPDATE %d id/tenant_id columns", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid
+	        WHERE c.relnamespace = 'public'::regnamespace AND NOT pol.polpermissive AND pol.polcmd = 'd'
+	          AND c.relname IN ('oauth_codes', 'oauth_tokens', 'webhook_deliveries')`); n != 3 {
+		t.Fatalf("(i) anti-vacuity: %d of the three restrictive DELETE policies exist", n)
+	}
+	if n := opInt(t, ctx, tx, `SELECT count(*) FROM (VALUES ('oauth_codes'), ('oauth_tokens'), ('webhook_deliveries')) v(r)
+	        WHERE has_table_privilege('tappa_readwrite', ('public.' || v.r)::regclass, 'DELETE')`); n != 0 {
+		t.Errorf("(i) tappa_readwrite can DELETE from %d of the tables a RESTRICTIVE DELETE policy narrows", n)
 	}
 
 	// (g)

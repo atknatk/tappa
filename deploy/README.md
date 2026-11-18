@@ -3519,17 +3519,20 @@ kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
     sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U tappa_owner -d tappa' <<'SQL'
 ALTER ROLE tappa_readonly NOLOGIN;
 ALTER ROLE tappa_readwrite NOLOGIN;
-SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity
  WHERE usename IN ('tappa_readonly', 'tappa_readwrite');
 SELECT count(*) AS still_connected FROM pg_stat_activity
  WHERE usename IN ('tappa_readonly', 'tappa_readwrite');
 SQL
 ```
 
-beklenen: iki `ALTER ROLE`, kesilen her oturum için bir `t` satırı, sonra `still_connected` = 0.
+beklenen: iki `ALTER ROLE`, kesilen her oturum için bir `t` satırı (her biri en çok 5 sn bekler — oturum
+gerçekten kapanmadan sayım okunmasın), sonra `still_connected` = 0.
 
 Küme — token Secret'ını sil. ⚠️ **Anında değil:** API sunucusunun token önbelleği silinen token'ı
-~10 s daha kabul eder (ölçüldü). Yeni tünel ve kubectl görüntüleme ondan sonra `Unauthorized`.
+~10 s daha kabul eder (ölçüldü). Ondan sonra **yeni** tünel ve **yeni** her kubectl isteği
+`Unauthorized`; kurulmuş `get -w` ve `logs -f` akışları ise istek başında yetkilendirildiği için sürer
+(port-forward gibi) — açık bir izleme varsa alıcı onu kendisi kapatana ya da bağlantı kopana dek akar.
 Yeniden vermek: 1. adımın ikinci satırı yeni bir token üretir, 5. adımla yeni kubeconfig.
 
 ```bash
@@ -3538,6 +3541,10 @@ kubectl --context hetzner-k8s-1 -n tappa delete secret tappa-viewer-token
 
 ⚠️ **Geri yüklemeden sonra (B YOLU, taze küme):** iki rol `01-roles.sql`'den **NOLOGIN** doğar
 (roller ve parolalar dökümde yoktur; yetkiler vardır). Erişim isteniyorsa 3. adım.
+
+🔴 **İz:** readwrite'ın yazdığı satır, uygulamanın yazdığından ayırt edilemez ve bağlantılar
+loglanmaz (ADR 0048 §5 madde 12 — PG17 rol düzeyinde `log_connections`'ı reddediyor, ifade log'u
+SigNoz'a e-posta taşırdı). Bu rolü kime verdiğin kaydın kendisidir.
 
 ## Webhook (M11 API-9) — `TAPPA_WEBHOOK_KEK` ve düğüm/ingress adres listesi
 

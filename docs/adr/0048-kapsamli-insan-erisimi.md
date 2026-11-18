@@ -1,6 +1,8 @@
 # ADR 0048 — Kapsamlı insan erişimi: `tappa_readonly` / `tappa_readwrite` ve `tappa-viewer`
 
-- **Durum:** Kabul edildi ve **üretimde uygulandı** (2026-11-17). **Revizyon 1 (2026-11-17, iki denetimin
+- **Durum:** Kabul edildi ve **üretimde uygulandı** (2026-11-17). **Revizyon 2 (2026-11-18, güvenlik denetiminin 2. turu):** `id`/`tenant_id`
+  UPDATE'i ve RESTRICTIVE politikanın daralttığı fiiller çıkarıldı (§5 madde 2); iz bırakmama sınırı (§5 madde
+  12); bağlantı log'u PG17'de rol düzeyinde kurulamıyor (ölçüldü). **Revizyon 1 (2026-11-17, iki denetimin
   bulguları):** `tappa_readwrite`'ın yazma yetkisi artık `tappa_app`'ınkinin kopyası (§3); iptal açık
   oturumları da keser (§6); §5'e dört sınır eklendi.
 - **Karar veren:** kullanıcı (ürün sahibi), 2026-11-17 — istek: *"Tappa uygulamasına readonly ve
@@ -37,7 +39,7 @@ veritabanları `postgres`, `tappa`, `template0`, `template1` — başka uygulama
 | nitelik | NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION **BYPASSRLS**, LOGIN (parola bant dışı) | aynı |
 | üyelik / sahiplik | yok / yok (dosyanın ön koşulu reddeder) | aynı |
 | oturum | `default_transaction_read_only = on` (kemer) | — |
-| tablolar | her public tabloda SELECT (`tags`: sütun listesi, §3) | aynı SELECT + **`tappa_app`'ın kendi INSERT/UPDATE/DELETE'i**, aynı düzeyde (tablo ya da sütun) — eksi `tags` istisnaları ve `goose_db_version` (§3) |
+| tablolar | her public tabloda SELECT (`tags`: sütun listesi, §3) | aynı SELECT + **`tappa_app`'ın kendi INSERT/UPDATE/DELETE'i**, aynı düzeyde (tablo ya da sütun) — eksi `tags` istisnaları ve `goose_db_version` (§3), eksi `id`/`tenant_id` UPDATE'i (UPDATE hep sütun listesi) ve RESTRICTIVE politikanın daralttığı fiiller (§5 madde 2) |
 | sequence | SELECT | SELECT; USAGE yalnız `tappa_app`'ın USAGE'ı olduğu yerde (bugün hiçbiri) |
 | şema | USAGE; CREATE **yok** | aynı |
 | fonksiyon | SECURITY DEFINER'a EXECUTE **yok** (dosyanın son koşulu reddeder) | aynı |
@@ -176,7 +178,19 @@ reddeder); (3) `tappa_forbid_mutation` satır tetikleyicisi taşıyan her tablod
    değiştirir ve siler (FK'ler RESTRICT / NO ACTION; ölçüldü: cascade eden FK yok, yani silme
    append-only satırlara ya da `tags`'e ulaşamaz), `transactions`'a ve `audit_log`'a `tappa_app`'ın
    sütunlarıyla **INSERT** edebilir (sahte mesai satırı, sahte iz — §4.3 düzeltmenin yeni kayıt
-   olduğunu söyler). Uygulama sınırının ötesine geçmez: definer'ların tabloları (§3) kapalıdır.
+   olduğunu söyler). Definer'ların tabloları (§3) kapalıdır. ⚠️ **Ama "`tappa_app` kadar" uygulama
+   sınırıyla aynı şey değildir:** BYPASSRLS iki şeyi kendiliğinden ekler ve ikisi de Revizyon 2'de
+   (2026-11-18) çıkarıldı — (a) RESTRICTIVE politikalar readwrite'a uygulanmaz:
+   `oauth_codes_delete_expired`, `oauth_tokens_delete_expired`, `webhook_deliveries_delete_settled`
+   `tappa_app`'ın DELETE'ini süresi dolmuş/yerleşmiş satırlara daraltır, readwrite her satırı
+   silebilirdi → bu üç tabloda readwrite'ın DELETE'i **yok** (kural `pg_policy`'den türetilir: bir
+   fiili daraltan RESTRICTIVE politika varsa fiil kopyalanmaz); (b) `employees`, `departments`,
+   `locations`, `policies`, `policy_attachments`'ta `tappa_app` tablo düzeyi UPDATE taşır, yani `id` ve
+   `tenant_id` UPDATE'ini de — RLS'nin `WITH CHECK`'i onu tenant içinde tutar, readwrite'ta ise
+   başvurusu olmayan bir satır başka tenant'a taşınabilirdi → readwrite'ın UPDATE'i **her tabloda
+   sütun listesidir ve `id`, `tenant_id`'yi içermez**. İkisi de "readwrite ⊆ `tappa_app`" ilkesinin
+   içinde (daha dar) ve son koşul (7) ile (8) ölçer. Kalan fark: readwrite `tappa_app`'ın
+   değiştirebildiği satırı **her tenant'ta** değiştirir.
 3. **`tappa_readonly` da her şeyi okur**: işçi verisi, e-posta adresleri, parola özetleri, token
    özetleri. Bu bir GDPR erişimidir; kimin elinde olduğu kayıt altındadır (bu ADR).
 4. **Tünel sızıntısı:** port-forward açıkken yerel makinenin `localhost:15432`'si o makinedeki her
@@ -212,6 +226,27 @@ reddeder); (3) `tappa_forbid_mutation` satır tetikleyicisi taşıyan her tablod
    yaratmıyor (ağaçtaki iki geçici tablo, `cmd/opadmin` ve `cmd/rotatekek`, `tappa_owner` olarak koşar) —
    yani alınabilirdi, ama bedeli üretim uygulamasının yetkisine dokunmaktır ve kazancı küçüktür.
 
+12. **readwrite'ın yazdıkları satır düzeyinde iz bırakmaz.** Yalnız ne yaptığı değil, **ne zaman bağlı
+   kaldığı da loglanmıyor**, ve ikisi de ölçüldü:
+   - *Bağlantı log'u kurulamadı.* Planlanan kemer rol düzeyinde `log_connections = on` /
+     `log_disconnections = on` idi. PostgreSQL 17.10 bunu reddediyor: süper kullanıcı olarak, transaction
+     içinde ve dışında `ALTER ROLE … SET log_connections = on` → *"parameter "log_connections" cannot be
+     set after connection start"* (55P02). İki ayar `superuser-backend` bağlamındadır. Rolün kendisi de
+     kapatamaz (aynı hata). Sunucu genelinde açmak **her** bağlantıyı loglar — `pg_isready` sondaları
+     dahil — ve ayrı bir karardır; bu ADR onu vermiyor.
+   - *İfade log'u bilerek yok.* `log_statement = 'mod'` literal değerleri (e-posta adresleri, bir
+     `webhook_endpoints.url` — içinde sorgu dizesiyle bir sır taşıyabilen adres) Postgres log'una basardı.
+     O log toplanıyor: ölçüldü (2026-11-18), SigNoz otel ajanının (`signoz/k8s-infra-otel-agent`)
+     `filelog/k8s` alıcısı `/var/log/pods/*/*/*.log`'u okur ve `exclude` listesi `tappa`'yı saymaz — yani
+     `tappa-postgres-0`'ın log'u ClickHouse'a gider. Bu CLAUDE.md §7'yi (e-posta adresi asla loglanmaz,
+     ADR 0022 §10) ihlal ederdi. `pgaudit` kurulu değil.
+   - **Sonuç:** bir `transactions` (ya da `audit_log`, `employees` …) satırının readwrite'tan mı
+     uygulamadan mı geldiği **ayırt edilemez**. Elde kalan izler: canlı `pg_stat_activity`
+     (`usename`, `client_addr = 127.0.0.1`, `backend_start`) — anlık, saklanmaz; ve **reddedilen**
+     ifadeler: `log_min_error_statement = error` başarısız ifadeyi `ERROR` + `STATEMENT` satırıyla
+     loglar (ölçüldü: readwrite'ın reddedilen `UPDATE locations SET tenant_id …` denemesi log'da), ama
+     `log_line_prefix` (`%m [%p] `) rol adını taşımaz — yalnız saat ve pid.
+
 ## 6. Geri alma ve iptal
 
 🔴 **Token'ı silmek kurulmuş tüneli kesmez** (§4: silindikten 15 s sonra aynı tünelden yeni bir psql
@@ -220,10 +255,12 @@ yalnız **yeni** tünelleri durdurur (~10 s içinde). Erişimi gerçekten kesmek
 
 1. **Veritabanı girişini kapat:** `ALTER ROLE tappa_readonly NOLOGIN; ALTER ROLE tappa_readwrite NOLOGIN;`
    — açık tünelden yeni bağlantı artık giriş yapamaz.
-2. **Açık oturumları kes:** `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename IN
-   ('tappa_readonly', 'tappa_readwrite');` (README'nin operatör yüzeyi geri almasındaki desen).
+2. **Açık oturumları kes:** `SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE usename IN
+   ('tappa_readonly', 'tappa_readwrite');` (5 sn bekler, sonra bağlı oturum sayısının 0 olduğu okunur) (README'nin operatör yüzeyi geri almasındaki desen).
 3. **Küme erişimini kapat:** `kubectl -n tappa delete secret tappa-viewer-token` — yeni tünel ~10 s sonra
-   açılamaz; kubectl görüntüleme de aynı anda biter.
+   açılamaz ve yeni her kubectl isteği `Unauthorized` olur. ⚠️ Kurulmuş `kubectl get -w` ve `logs -f`
+   akışları da port-forward gibi istek başında yetkilendirilir ve **sürer**; onları kesen token değil,
+   akışın kendi sonudur.
 
 Ayrıntı ve komutlar: `deploy/README.md` → *"Kapsamlı erişim (ADR 0048)"* 6. adım. Rolleri **DROP etmek**
 önerilmez: yetkileri taşıyan bir yedek, rol yoksa B YOLU'nda yüklenemez (§2.1).
