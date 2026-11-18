@@ -366,3 +366,94 @@ M16-01'de: kullanıcı onayı, Q35–Q42'nin cevapları (ya da hangi kartı blok
    sütunları dolu — §2.5); her biri blokladığı kartla `open-questions.md`'de *"açık —
    bloklar M16-xx"* durumundadır. Q42 açık olduğu için `docs/handoff.md`'nin sloganı ve *"app-less akış"* cümleleri
    değişmedi (M16-01 kartının kuralı).
+
+## Faz A uygulandı (2026-11-18, M16-10)
+
+Faz A'nın (M16-02 … M16-09) sunucu yüzeyi kodda, dal `plan/m16-mobil`'de; `main`'e alınmadı. Bu ADR'nin normatif
+metni değişmedi; kart başına sapmalar ve ölçümler kartların tarihli *"Kart düzeltmesi"* / *"Uygulama notu"*
+bloklarındadır ([m16-mobil.md](../plan/m16-mobil.md)) — aşağıdaki liste onların özeti, yeni bir ölçüm değildir
+(yeni ölçüm yalnız son maddedeki uçtan uca testtir).
+
+**Migration'lar: 00108–00110.** 00108 `app_devices` + `app_request_nonces` + çözümleyici (M16-03) → 00109
+`transactions.client` + iki `NOT VALID` CHECK (M16-04) → 00110 iki CHECK'in `VALIDATE`'i (M16-04). Yazıldıklarında
+00104–00106 idiler; `main`'in canlıdaki OAuth migration'ları 00104–00107'yi aldığı için **ikinci kez**
+numaralandılar (`8c0b4a36`, içerik ve sıra aynı; ilk yeniden numaralandırma 2026-11-14, §5). M16-07 bağ için
+migration istemedi (00107 kullanılmadı). Sıra kısıtı `state.md`'dedir: 00108, 00109/00110'dan önce ya da onunla
+birlikte `main`'e ulaşır.
+
+**Kart zinciri** (`state.md` defteri; plan/durum commit'leri hariç):
+
+| Kart | Commit'ler |
+|---|---|
+| M16-02 | `dc71d79c` · `407d9c3f` · `5f845abc` |
+| M16-03 (00108) | `007bad76` · `f46f619d` · `e0106956` (merge `cac2be3d`) |
+| M16-04 (00109, 00110) | `e15be4a0` · `cfdb2aee` (merge `2b13ae9b`) |
+| M16-05 | `28cef5e1` · `dfcf5345` · `dc335edf` · `803ef966` |
+| M16-06 | `f49c58c0` · `6cb876b6` · `caf8d2d6` · `14d518f9` |
+| M16-07 | `29c018dc` · `709966a7` · `9c21c5b4` · `6bd81ee5` · `0fea5832` (merge `b175ac76`) |
+| M16-08 | `fc04f789` · `d7a8a21d` |
+| M16-09 | `9a14f415` · `abcfac8e` · `6dc8d7e7` |
+| `main` birleşmesi | `2d79609c` · `8c0b4a36` · `d2bc1763` · `6634be5b` |
+| M16-10 | `cb18ef3c` · bu not |
+
+**ADR metninden sapmalar (kartların kaydı):**
+- **§2.3 kanonik metin** altı satırdır ve bir **alan ayırma önekiyle** başlar (`tappa-app-request-v1`; imzalı okuma
+  `tappa-app-read-v1`); yol kablodaki yoldur, **sorgu dizesi reddedilir**. İmza ECDSA P-256 / SHA-256, ASN.1 DER;
+  **yüksek S kabul edilir** (Secure Enclave ve Keystore normalize etmez; tekrar koruması nonce'tur). Nonce 32 bayt,
+  ömrü 60 sn; cihaz başına en çok 8 canlı nonce, aşılınca **en eskisi düşer** (istek reddedilmez) — kilitsiz şekil
+  mutasyonla ölçüldü: 32 eşzamanlı verişte 20–21 canlı nonce (M16-05, M16-07).
+- **§2.3 "bağlı ama etkin olmayan cihaz"** bir tablo durumu değildir: bağ davette durur (`consent_binding_hash`, ADR
+  0026 deseni), cihaz satırı aktivasyonun **sonunda, etkin** doğar (M16-03). Tamamlamanın sırası `CompleteByTap`'inkidir,
+  önüne bir **ilerletmeyen bağ ön kontrolü** girdi — imzalayabilen ama bağlanmamış bir anahtar plaketin sayacını
+  harcamaz (M16-07 inceleme turu).
+- **§2.3 anahtar sütunu** `key_digest` adını aldı (*"parmak izi"*nin İngilizcesi R1'in biyometri tetikleyicisidir;
+  ilk taslak 11 satırla R1 FAIL verdi — M16-03); açık anahtar SPKI değil **ham 65 baytlık sıkıştırılmamış nokta**.
+- **§2.3 uç noktalar:** kartta olmayan `POST /app/v1/activate/lookup` eklendi (onaydan önce veri sorumlusu, GDPR
+  Art. 13); okumalar (`/me`, `tap/start`, `nonce`) nonce yerine imzalı `App-Timestamp` taşır, pencere ±60 sn. Gövdeler
+  katı çözülür (bilinmeyen alan 400; `encoding/json` alan adlarını büyük/küçük harfe duyarsız eşler — ölçüldü). Tel
+  sözleşmesi M16-07'nin bloğundadır.
+- **§2.3 iptal edilmiş cihazın uyarı satırı** M16-07'nin handler'ındadır ve **tenant ile çalışanı taşımaz** (yalnız kanal
+  ve sunulan kimliğin SHA-256'sının ilk 16 hex'i): kimlik o anda imzası doğrulanmamış bir başlıktır (ana oturum kararı,
+  2026-11-14 — M16-09'un ilk metnini değiştirdi). Tarayıcı ikizi tenant/çalışan taşımaya devam eder.
+- **§2.3 telefon çıkışı** oturumları, cihazları (+ canlı nonce'ları) ve `audit_log` satırını tek transaction'da kapatır;
+  40P01'de bütün transaction en çok 3 kez yeniden denenir (M16-09).
+- **§3 R1** Google'ın `"sha256_cert_fingerprints"` anahtarına çarptı (38 satır FAIL, ölçüldü); muafiyet tırnaklı
+  anahtara ve iki dosyaya bağlı (ADR 0012'nin M16-08 eki). Android'in yol listesi `assetlinks.json`'da değil
+  manifesttedir; Ingress değişmedi (YAML'ın statik okuması, **canlıda ölçülmedi**). İki env de canlıda **boş**.
+- **Bedel 10** karar (d) ile kapandı: panel eksik baseline belgesini de tamamlar (M16-06; yukarıdaki not).
+
+**`main` birleşmesinin ana oturum düzeltmeleri (2026-11-18):**
+- `d2bc1763` — R7'nin mobil log kolu (`R7M`) artık `scripts/`'i taramaz: kalıp Swift/Kotlin/Go çağrı şekilleri için
+  yazılmıştı, `main`'in `scripts/sandbox-local-oauth.sh`'indeki gömülü Python `print(`'i aynı şekle düştü; o satır
+  token'ın yalnız ilk 11 karakterini (`tt_<kind>_<env>_` öneki, sır değil) yazar. Betiklerin sır yazdırması R7'nin genel
+  kollarının işidir.
+- `6634be5b` — `TRUNCATE tenants CASCADE` yoklamasının kilit beklemesi 25 → 20 ms: `main`'in OAuth tabloları ve
+  00108'in iki tablosu kapanışı 40 ilişkiye çıkardı, 40 × 25 ms = 1 sn `deadlock_timeout`'a ulaştı ve kapı yorumunun
+  öngördüğü gibi kırmızıya döndü (CI koşusu 44256973388); 20 ms 50 ilişkiye kadar tutar.
+
+**Uçtan uca kanıt (M16-10, `cb18ef3c`).** `TestM16DB_TheAppSurfaceSignedEndToEnd`
+(`internal/handler/m16_e2e_db_test.go`): uygulamasız, gerçek Postgres'e karşı, iki router tek işletme (tap + `/app/v1`
+yüzeyi ve panel). Sahte istemci her telefon için taze bir P-256 anahtarıyla, M16-05 vektörlerinin sabitlediği kanonik
+metinleri imzalar (vektörlerin sabit anahtarı kullanılamaz: `key_digest` silinemeyen satırlarda global UNIQUE, ikinci
+koşu `new_key_required` alırdı). İşletmenin `transactions` sayısı her adımdan sonra ölçüldü (yerel özel DB, 2026-11-18):
+
+| Adım | Satır |
+|---|---|
+| fikstür | 0 |
+| aktivasyon (lookup → bind → complete, ilk gerçek NFC okuması) | 0 |
+| `tap/start` | 0 |
+| nonce'lu `tap` → `ok`, `nfc`, `client='app'` | 1 |
+| hemen tekrar → `ignored` (§5 satır 5, kayıtlı), `client='app'` | 2 |
+| panelin *"Sign out their phones"*'u (cihaz iptal, iz satırı `app_devices_revoked: 1`) | 2 |
+| tutulan `tap`, yeni `tap/start`, nonce, `/me` → dördü de 401 boş gövde (satır 3'ün ikizi) + uyarı satırı | 2 |
+| ayrı kişinin uygulama aktivasyonu | 2 |
+| panelden deaktivasyon (cihaz **iptal edilmedi**) | 2 |
+| deaktive kişinin dokunuşu → `reject`, `sys:employee-deactivated`, `client='app'`, bir güvenlik uyarısı | 3 |
+| tarayıcı `GET /t` (gerçek okuma) | 3 |
+| tarayıcı `POST /api/checkin` → `ok`, `client='browser'` | 4 |
+| panelin manuel kaydı, inceleme adımı | 4 |
+| panelin manuel kaydı → `channel='manual'`, `entered_by` = owner, `client IS NULL` | 5 |
+
+Harness'in debounce'u bilerek 120 sn'dir (sevk edilen 60 sn değil — `tap_db_test.go` `harnessDebounce`); tekrar hemen
+gönderildiği için iki pencerenin de içindedir. Fazın büyük testleri (tam `-race`, `go test ./...`, `make check`,
+`make audit`) bu notun commit'inde CI'da koşar; sonuç ve Faz A'nın `done`'ı `state.md`'ye ana oturumca yazılır.
