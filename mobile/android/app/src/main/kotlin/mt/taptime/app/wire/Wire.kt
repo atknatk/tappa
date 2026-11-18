@@ -80,13 +80,18 @@ data class LookupReply(
     val brand: Brand,
 )
 
-data class BindReply(val activationId: String, val challenge: String)
+data class BindReply(val activationId: String, val challenge: String) {
+    // The challenge is signed over (a nonce in all but name): never in a printed value (§7).
+    override fun toString() = "BindReply(activationId=$activationId, challenge=<redacted>)"
+}
 
 data class CompleteReply(val deviceId: String, val employeeName: String)
 
 data class MeReply(val employeeName: String, val brand: Brand, val direction: String)
 
-data class NonceReply(val nonce: String, val expiresAt: String)
+data class NonceReply(val nonce: String, val expiresAt: String) {
+    override fun toString() = "NonceReply(nonce=<redacted>, expiresAt=$expiresAt)"
+}
 
 /**
  * POST /app/v1/tap/start's answer, GET /t's twin: the person, the TAPPED venue (null for a plaque
@@ -101,7 +106,11 @@ data class TapStartReply(
     val direction: String,
     val qr: Boolean,
     val context: String,
-)
+) {
+    // The signed tap context carries the plaque's uid and counter (tapcontext.go): not printed.
+    override fun toString() =
+        "TapStartReply(locationName=$locationName, brand=$brand, direction=$direction, qr=$qr, context=<redacted>)"
+}
 
 /** POST /app/v1/tap's answer: what the result screen draws. [direction] is "in", "out" or "". */
 data class TapReply(

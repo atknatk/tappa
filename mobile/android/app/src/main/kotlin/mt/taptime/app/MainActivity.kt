@@ -83,7 +83,10 @@ class MainActivity : ComponentActivity() {
         data class Welcome(
             val code: String, val facts: LookupReply,
             val problem: Problem? = null, val busy: Boolean = false, val terms: Boolean = false,
-        ) : Screen
+        ) : Screen {
+            // The invite code is a credential (§7): never in a printed value.
+            override fun toString() = "Welcome(code=<redacted>, problem=$problem, busy=$busy, terms=$terms)"
+        }
         data class Ready(val pending: PendingActivation) : Screen
         data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
@@ -98,9 +101,14 @@ class MainActivity : ComponentActivity() {
 
         // --- the plaque tap (M16-13) ---
         /** The press is decided by this screen's [ready]; [busy] from the press until the answer. */
-        data class Plaque(val url: String, val ready: TapFlow.Start.Ready, val busy: Boolean = false) : Screen
+        /** [url] as it arrived (for "Try again"), never printed: it carries the chip's CMAC. */
+        data class Plaque(val url: String, val ready: TapFlow.Start.Ready, val busy: Boolean = false) : Screen {
+            override fun toString() = "Plaque(url=<redacted>, ready=$ready, busy=$busy)"
+        }
         data class Result(val reply: TapReply) : Screen
-        data class TapTrouble(val problem: TapProblem, val url: String, val retry: Retry) : Screen
+        data class TapTrouble(val problem: TapProblem, val url: String, val retry: Retry) : Screen {
+            override fun toString() = "TapTrouble(problem=$problem, url=<redacted>, retry=$retry)"
+        }
     }
 
     private var screen by mutableStateOf<Screen>(Screen.Loading)

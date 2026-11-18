@@ -60,7 +60,10 @@ class ActivationFlow(
         /** Stay on the tap step: tap again. [pending] may be a NEW bind (new_key_required). */
         data class TapAgain(val pending: PendingActivation, val problem: Problem) : CompleteResult
         /** The bind no longer holds: back to the consent screen with the same code. */
-        data class Rebind(val code: String, val problem: Problem) : CompleteResult
+        data class Rebind(val code: String, val problem: Problem) : CompleteResult {
+            // The invite code is a credential (§7): never in a printed value.
+            override fun toString() = "Rebind(code=<redacted>, problem=$problem)"
+        }
         /** The invitation is not usable: back to the code screen. */
         data class Restart(val problem: Problem) : CompleteResult
     }

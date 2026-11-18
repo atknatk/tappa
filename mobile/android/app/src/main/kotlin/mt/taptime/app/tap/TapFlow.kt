@@ -105,7 +105,10 @@ class TapFlow(
 ) {
     sealed interface Start {
         /** The tap screen. [sun] is kept for "Try again" and for nothing else. */
-        data class Ready(val device: ActiveDevice, val signer: Signer, val sun: String, val facts: TapStartReply) : Start
+        data class Ready(val device: ActiveDevice, val signer: Signer, val sun: String, val facts: TapStartReply) : Start {
+            // The SUN query carries the chip's CMAC and counter: never in a printed value (§7).
+            override fun toString() = "Ready(device=${device.deviceId}, sun=<redacted>, facts=$facts)"
+        }
         data class Problem(val problem: TapProblem, val retry: Retry) : Start
     }
 
