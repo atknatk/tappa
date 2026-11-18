@@ -7,7 +7,13 @@ import mt.taptime.app.wire.LookupReply
 import mt.taptime.app.wire.Outcome
 
 /** The screens' closed set of problems; each one is a fixed text (strings.xml), never a server value. */
-enum class Problem { BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER }
+enum class Problem {
+    BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER,
+    /** M16-16 hand-over (4), the iOS twin's clock: a 401 while the phone's clock is a day or more off. */
+    CLOCK,
+    /** M16-12 hand-over (3): the Keystore did not hand out the device key (iOS's keyUnreadable). */
+    KEY_UNREADABLE,
+}
 
 /** The bind the tap step holds: the code, the fresh key and the server's challenge. Memory only. */
 class PendingActivation(val code: String, val facts: LookupReply, val key: DeviceKey, val bound: BindReply)
@@ -54,7 +60,10 @@ class ActivationFlow(
         /** Stay on the tap step: tap again. [pending] may be a NEW bind (new_key_required). */
         data class TapAgain(val pending: PendingActivation, val problem: Problem) : CompleteResult
         /** The bind no longer holds: back to the consent screen with the same code. */
-        data class Rebind(val code: String, val problem: Problem) : CompleteResult
+        data class Rebind(val code: String, val problem: Problem) : CompleteResult {
+            // The invite code is a credential (§7): never in a printed value.
+            override fun toString() = "Rebind(code=<redacted>, problem=$problem)"
+        }
         /** The invitation is not usable: back to the code screen. */
         data class Restart(val problem: Problem) : CompleteResult
     }
@@ -151,6 +160,17 @@ class ActivationFlow(
         data object NotActivated : HomeResult
         data class SetUp(val device: ActiveDevice) : HomeResult
         data object SignedOut : HomeResult
+        /**
+         * The Keystore refused to load or sign with the key (M16-12 hand-over (3), iOS's
+         * keyUnreadable): "Try again" runs home again. The record and the key are KEPT.
+         */
+        data object KeyUnreadable : HomeResult
+        /**
+         * Two 401s while the last answer's Date was more than a day off this phone's clock
+         * (ServerClock.lastAnswerWasFarOff): the phone's clock, not a signed-out device -- iOS's
+         * "Check your phone's clock" (M16-16 hand-over (4)). "Try again" runs home again.
+         */
+        data object Clock : HomeResult
     }
 
     /**
@@ -169,18 +189,37 @@ class ActivationFlow(
      */
     fun home(): HomeResult {
         val device = state.active() ?: return HomeResult.NotActivated
-        val signer = keys.load(device.keyAlias)
+        // ONE retry, then the "Try again" screen -- never a deletion (M16-12 hand-over (3); the iOS
+        // twin's start()): a Keystore that fails once usually answers the next time, and a deleted
+        // key never would. Until this card a throwing Keystore ended at the code screen with the
+        // server's text, which was both wrong and a dead end.
+        val signer = try {
+            keys.load(device.keyAlias)
+        } catch (_: Exception) {
+            try {
+                keys.load(device.keyAlias)
+            } catch (_: Exception) {
+                return HomeResult.KeyUnreadable
+            }
+        }
         if (signer == null) {
             state.clear()
             return HomeResult.NotActivated
         }
-        return when (val r = client.me(device.deviceId, signer)) {
+        val r = try {
+            client.me(device.deviceId, signer)
+        } catch (_: Exception) {
+            // Only the signer throws on this path (AppClient turns transport failures into
+            // Outcome.Failed and replies it cannot read into Outcome.Failed too).
+            return HomeResult.KeyUnreadable
+        }
+        return when (r) {
             is Outcome.Ok -> {
                 val fresh = device.copy(employeeName = r.value.employeeName)
                 if (fresh != device) state.save(fresh)
                 HomeResult.SetUp(fresh)
             }
-            Outcome.Unauthenticated -> HomeResult.SignedOut
+            Outcome.Unauthenticated -> if (client.clock.lastAnswerWasFarOff) HomeResult.Clock else HomeResult.SignedOut
             else -> HomeResult.SetUp(device)
         }
     }

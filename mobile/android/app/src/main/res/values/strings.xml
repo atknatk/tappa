@@ -134,4 +134,98 @@
     <string name="p_no_key_title">This phone can\'t be set up</string>
     <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
     <string name="p_no_key_hint">Ask your manager — you can still use Taptime in your browser.</string>
+
+    <!-- APP-ONLY (M16-13): a plaque opened the app on a phone where it is not set up; adapted from
+         the browser's "Finish setup in this browser". Its own problem screen, with "Open in browser"
+         and "Set up this phone" (the code screen), as on iOS (NotSetUpScreen). -->
+    <string name="p_not_set_up_title">This app isn\'t set up yet</string>
+    <string name="p_not_set_up_message">This app hasn\'t been set up for Taptime yet, so it can\'t record this tap.</string>
+    <string name="p_not_set_up_hint">Open the tap in your browser instead, or set up the app with the link your workplace sent you.</string>
+    <!-- APP-ONLY (M16-12 hand-over (3)): the Keystore did not hand out the device key. The iOS app's
+         keyUnreadable text, word for word; its screen carries "Try again". -->
+    <string name="p_key_unreadable_title">Taptime couldn\'t open this phone\'s key</string>
+    <string name="p_key_unreadable_message">Nothing was changed on this phone.</string>
+    <string name="p_key_unreadable_hint">Try again in a moment. If it keeps happening, you can set this phone up again.</string>
+
+    <!-- The two buttons of the problem screens (M16-13). "Try again" is the browser's
+         (renderRetryableProblem); "Open in browser" is the app's exit to the same plaque URL, shown
+         ONLY on not set up, signed out and can't reach Taptime (coordinator decision 2026-11-18,
+         ADR 0045 Bedel 8). -->
+    <string name="try_again">Try again</string>
+    <string name="open_in_browser">Open in browser</string>
+    <!-- The signed-out tap screen's way back to activation, iOS's Copy.startAgain. -->
+    <string name="start_again">Start again</string>
+    <!-- APP-ONLY (M16-16 hand-over (4), iOS's TapCopy.Problems.clock word for word): a 401 while the
+         phone's clock is more than a day off the server's. -->
+    <string name="p_clock_title">Check your phone\'s clock</string>
+    <string name="p_clock_message">Your phone\'s date and time are too far off for Taptime to accept them. Nothing was recorded.</string>
+    <string name="p_clock_hint">Set the date and time to automatic in Settings, then try again.</string>
+
+    <!--
+      THE TAP SCREEN (M16-13): web/templates/pages/tap.templ and view.go's TapDirection, word for
+      word. TapCopyTest reads the browser's source and holds every line below to it; a line marked
+      ADAPTED or APP-ONLY is listed there with the browser's original.
+    -->
+    <string name="tap_tapping">Tapping</string>
+    <string name="tap_hello">Hello %1$s</string>
+    <string name="tap_clock_in">Clock in</string>
+    <string name="tap_clock_out">Clock out</string>
+    <string name="tap_tap">Tap</string>
+    <string name="tap_not_right">Not right? %1$s</string>
+    <!-- tap.js's pending word, on the button while the reading and the request are under way. -->
+    <string name="tap_pending">Tapping…</string>
+
+    <!-- THE RESULT SCREEN: result.templ's words, chosen by ResultCopy. No button (§9). -->
+    <string name="result_clocked_in">Clocked in</string>
+    <string name="result_clocked_out">Clocked out</string>
+    <string name="result_tapped">Tapped</string>
+    <string name="result_already">Already tapped</string>
+    <string name="result_not_counted">Not counted</string>
+    <string name="result_practice">This practice tap does not count toward your hours.</string>
+    <string name="brand_restaurant_in">Have a great shift — keep those kebabs rolling! 🌯</string>
+    <string name="brand_restaurant_out">Great work today. See you next shift! 👋</string>
+    <string name="brand_production_in">Have a productive shift — stay safe on the floor! 🏭</string>
+    <string name="brand_production_out">Shift complete. Thank you for your work today! 👋</string>
+    <string name="brand_other_in">Have a great shift!</string>
+    <string name="brand_other_out">Thanks for today. See you next time! 👋</string>
+    <string name="brand_no_direction">Thanks — have a good one!</string>
+    <!-- ADAPTED: the browser's "All done — you can close this page." (CLAUDE.md §9) and "You can
+         close this page.": the app has no page; the activation screens already say "close the app". -->
+    <string name="result_all_done">All done — you can close the app.</string>
+    <string name="result_close">You can close the app.</string>
+    <string name="result_ignored">You tapped a moment ago, so this one was not counted. Tell your manager if that looks wrong.</string>
+    <string name="result_rejected">This tap was recorded but not counted. Tell your manager if that looks wrong.</string>
+
+    <!-- THE TAP PROBLEM TEXTS: internal/handler/tap.go's tapProblem* values, title / message / hint. -->
+    <string name="tp_bad_link_title">That link didn\'t work</string>
+    <!-- ADAPTED: "This page opens when …": the app has no page. -->
+    <string name="tp_bad_link_message">Taptime opens when you hold your phone to the plaque at the door.</string>
+    <string name="tp_bad_link_hint">Try tapping the plaque again.</string>
+    <string name="tp_unknown_title">We don\'t know that plaque</string>
+    <string name="tp_unknown_message">This plaque isn\'t set up with Taptime, or it has been replaced.</string>
+    <string name="tp_unknown_hint">Tell your manager which door you tapped.</string>
+    <string name="tp_server_title">Something went wrong on our side</string>
+    <string name="tp_server_message">Nothing was recorded. This is not your fault and it is not your time.</string>
+    <string name="tp_server_hint">Tap the plaque again in a moment.</string>
+    <string name="tp_too_many_title">Too many taps from here</string>
+    <string name="tp_too_many_message">We have paused requests from this network for a few minutes.</string>
+    <string name="tp_too_many_hint">Wait a moment and tap the plaque again. Tell your manager if it keeps happening.</string>
+    <string name="tp_stale_title">That tap has expired</string>
+    <!-- ADAPTED: "Tap pages are only good …": the app has no page. -->
+    <string name="tp_stale_message">Nothing was recorded. Tap screens are only good for a few minutes.</string>
+    <string name="tp_stale_hint">Hold your phone to the plaque again.</string>
+    <string name="tp_foreign_title">That plaque isn\'t yours</string>
+    <string name="tp_foreign_message">This plaque belongs to a different employer, so nothing was recorded.</string>
+    <string name="tp_foreign_hint">Use your own workplace\'s plaque, or tell your manager.</string>
+    <!-- APP-ONLY: no answer to tap/start (the browser shows its own offline page). tap/start writes
+         nothing, so "nothing was recorded" is true and "Try again" is safe. Title as activation's. -->
+    <string name="tp_unreachable_title">Can\'t reach Taptime</string>
+    <string name="tp_unreachable_message">Nothing was recorded.</string>
+    <string name="tp_unreachable_hint">Check your connection and tap the plaque again.</string>
+    <!-- APP-ONLY: no readable answer to the PRESS. The record may exist, so the screen does not say
+         it does not; there is no queue (ADR 0045 §2.8) and no "Try again" (the same counter again
+         would be recorded as a reject): the next touch of the plaque is a fresh tap. -->
+    <string name="tp_lost_title">Can\'t reach Taptime</string>
+    <string name="tp_lost_message">We couldn\'t confirm this tap, so it may not have been recorded.</string>
+    <string name="tp_lost_hint">Check your connection and tap the plaque again. Tell your manager if that looks wrong.</string>
 </resources>

@@ -90,4 +90,25 @@ class InputsTest {
         assertEquals("To record your working hours for KF.", endSentence("To record your working hours for KF"))
         assertEquals("To record your working hours for Kebab Ltd.", endSentence("To record your working hours for Kebab Ltd."))
     }
+
+    // Parity with iOS (2026-11-18): "Open in browser" rebuilds <base>/t + the verified query; the
+    // URL as it arrived (host case, an explicit default port) is not passed on.
+    @Test
+    fun theBrowserGetsThePlaqueUrlRebuiltFromTheBase() {
+        val q = "tag=04A1B2C3D4E5F6&ctr=000011&cmac=0011223344556677"
+        assertEquals("https://taptime.mt/t?$q", PlaqueRead.browserUrl("https://TAPTIME.mt:443/t?$q", base))
+        assertEquals("https://taptime.mt/t?$q", PlaqueRead.browserUrl("https://taptime.mt/t?$q", "https://taptime.mt/"))
+        for (other in listOf("https://evil.example/t?$q", "https://taptime.mt/t?$q#x", "https://taptime.mt/t", "")) {
+            assertNull(other, PlaqueRead.browserUrl(other, base))
+        }
+    }
+
+    // M16-12 hand-over (2): InviteCode compares the port, as PlaqueRead always did.
+    @Test
+    fun theCodesLinkMustBeOnThisServersPort() {
+        assertEquals(code, InviteCode.from("https://taptime.mt:443/activate?code=$code", base))
+        assertNull(InviteCode.from("https://taptime.mt:8443/activate?code=$code", base))
+        assertNull(InviteCode.from("https://taptime.mt:443/activate?code=$code", "https://taptime.mt:8443"))
+        assertEquals(code, InviteCode.from("https://taptime.mt:8443/activate?code=$code", "https://taptime.mt:8443"))
+    }
 }

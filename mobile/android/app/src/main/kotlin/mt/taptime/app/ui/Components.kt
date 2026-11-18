@@ -33,6 +33,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mt.taptime.app.activation.AccentFill
@@ -151,6 +152,28 @@ fun QuietLink(text: String, enabled: Boolean = true, onClick: () -> Unit) {
         contentAlignment = Alignment.Center) {
         BasicText(text, style = Display.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Ink.copy(alpha = 0.7f)))
     }
+}
+
+/**
+ * The tap screen's "Not right? …" (tap.templ's tapCorrection): ink on porcelain, underlined, at
+ * least 44 dp tall, 24 dp under the primary button (the caller's spacing plus this 8 dp top margin).
+ * It takes no accent: the accent's slot is the primary button's fill and nothing else (ADR 0023 §2).
+ */
+@Composable
+fun CorrectionLink(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.heightIn(min = 44.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            BasicText(text, style = Display.copy(fontSize = 16.sp, textDecoration = TextDecoration.Underline,
+                color = if (enabled) Palette.Ink else Palette.Ink.copy(alpha = 0.5f)))
+        }
+    }
+}
+
+/** The result's time: mono, the headline's second line (result.templ: font-mono, xl, ink/70). */
+@Composable
+fun MonoTime(text: String) {
+    BasicText(text, style = Mono.copy(fontSize = 20.sp, color = Palette.Ink.copy(alpha = 0.7f)))
 }
 
 /** The three progress bars; a done bar is green, ink beside a tenant accent (WL-13). */

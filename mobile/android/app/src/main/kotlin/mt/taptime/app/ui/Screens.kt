@@ -60,6 +60,8 @@ fun ProblemNotice(p: Problem) {
         Problem.SIGNED_OUT -> Triple(R.string.p_signed_out_title, R.string.p_signed_out_message, R.string.p_signed_out_hint)
         Problem.NO_SECURE_KEY -> Triple(R.string.p_no_key_title, R.string.p_no_key_message, R.string.p_no_key_hint)
         Problem.NO_READER -> Triple(R.string.p_no_reader_title, R.string.p_no_reader_message, R.string.p_no_reader_hint)
+        Problem.CLOCK -> Triple(R.string.p_clock_title, R.string.p_clock_message, R.string.p_clock_hint)
+        Problem.KEY_UNREADABLE -> Triple(R.string.p_key_unreadable_title, R.string.p_key_unreadable_message, R.string.p_key_unreadable_hint)
     }
     Notice(Tone.ALERT, stringResource(t), stringResource(m), stringResource(h))
 }
@@ -246,6 +248,15 @@ private fun SetupStampRow() {
 @Composable
 fun BlockedScreen(problem: Problem) {
     Page({ header(null) }) { ProblemNotice(problem) }
+}
+
+/** A problem with "Try again": the key could not be opened (M16-12 hand-over (3)) or the clock is off (M16-16 (4)). */
+@Composable
+fun RetryScreen(problem: Problem, onRetry: () -> Unit) {
+    Page({ header(null) }) {
+        ProblemNotice(problem)
+        PrimaryButton(stringResource(R.string.try_again), accent = null, enabled = true, onClick = onRetry)
+    }
 }
 
 @Composable

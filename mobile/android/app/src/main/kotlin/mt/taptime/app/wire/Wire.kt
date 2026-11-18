@@ -80,13 +80,63 @@ data class LookupReply(
     val brand: Brand,
 )
 
-data class BindReply(val activationId: String, val challenge: String)
+data class BindReply(val activationId: String, val challenge: String) {
+    // The challenge is signed over (a nonce in all but name): never in a printed value (§7).
+    override fun toString() = "BindReply(activationId=$activationId, challenge=<redacted>)"
+}
 
 data class CompleteReply(val deviceId: String, val employeeName: String)
 
 data class MeReply(val employeeName: String, val brand: Brand, val direction: String)
 
-data class NonceReply(val nonce: String, val expiresAt: String)
+data class NonceReply(val nonce: String, val expiresAt: String) {
+    override fun toString() = "NonceReply(nonce=<redacted>, expiresAt=$expiresAt)"
+}
+
+/**
+ * POST /app/v1/tap/start's answer, GET /t's twin: the person, the TAPPED venue (null for a plaque
+ * of another business, or none), the brand (Taptime's for another business's plaque), the predicted
+ * direction ("in", "out" or "" for the direction-neutral "Tap"), whether the read was a QR one, and
+ * the signed tap context POST /app/v1/tap carries back.
+ */
+data class TapStartReply(
+    val employeeName: String,
+    val locationName: String?,
+    val brand: Brand,
+    val direction: String,
+    val qr: Boolean,
+    val context: String,
+) {
+    // The signed tap context carries the plaque's uid and counter (tapcontext.go): not printed.
+    override fun toString() =
+        "TapStartReply(locationName=$locationName, brand=$brand, direction=$direction, qr=$qr, context=<redacted>)"
+}
+
+/** POST /app/v1/tap's answer: what the result screen draws. [direction] is "in", "out" or "". */
+data class TapReply(
+    val outcome: String,
+    val verdict: String,
+    val direction: String,
+    val venue: String,
+    val at: String,
+    val businessType: String,
+    val practice: Boolean,
+)
+
+/** The wire's direction words; anything else is the direction-neutral "" (read tolerantly). */
+object Direction {
+    const val IN = "in"
+    const val OUT = "out"
+
+    fun of(s: String?): String = if (s == IN || s == OUT) s else ""
+
+    /** The other direction, "" for none: what the "Not right? …" button offers. */
+    fun other(d: String): String = when (d) {
+        IN -> OUT
+        OUT -> IN
+        else -> ""
+    }
+}
 
 /** Maps decoded objects to the reply types. Pure; every function throws [JsonException] on a shape it cannot read. */
 object Replies {
@@ -126,6 +176,33 @@ object Replies {
         MeReply(string("employeeName"), brand(optObject("brand")), optString("direction") ?: "")
     }
 
+    fun tapStart(m: Map<String, Any?>): TapStartReply = Fields(m).run {
+        val context = string("context")
+        // The context goes back verbatim in the signed body; an empty one is a reply this app
+        // cannot press with.
+        if (context.isEmpty()) throw JsonException("tap start reply: empty context")
+        TapStartReply(
+            employeeName = string("employeeName"),
+            locationName = optString("locationName")?.takeIf { it.isNotEmpty() },
+            brand = brand(optObject("brand")),
+            direction = Direction.of(optString("direction")),
+            qr = optBool("qr"),
+            context = context,
+        )
+    }
+
+    fun tap(m: Map<String, Any?>): TapReply = Fields(m).run {
+        TapReply(
+            outcome = string("outcome"),
+            verdict = string("verdict"),
+            direction = Direction.of(optString("direction")),
+            venue = optString("venue").orEmpty(),
+            at = optString("at").orEmpty(),
+            businessType = optString("businessType").orEmpty(),
+            practice = optBool("practice"),
+        )
+    }
+
     fun nonce(m: Map<String, Any?>): NonceReply = Fields(m).run {
         val n = string("nonce")
         if (!Canonical.validNonce(n)) throw JsonException("nonce reply: malformed nonce")
@@ -145,4 +222,21 @@ object Bodies {
     fun complete(code: String, publicPoint: ByteArray, sun: String): ByteArray =
         JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint))
             .put("platform", PLATFORM).put("sun", sun).bytes()
+
+    fun tapStart(sun: String): ByteArray = JsonObjectWriter().put("sun", sun).bytes()
+
+    /**
+     * POST /app/v1/tap's body. [want] is sent only when the pressed button said a direction; the
+     * fix only as a pair; [mockLocation] ONLY WHEN TRUE (card M16-13: the platform's mock flag is a
+     * client report that can only tighten -- base:mock-location-review -- and its absence proves
+     * nothing, ADR 0045 §2.4, so "false" is never written). occurredAt is never sent: there is no
+     * queue (ADR 0045 §2.8).
+     */
+    fun tap(context: String, want: String?, lat: Double?, lng: Double?, mockLocation: Boolean): ByteArray {
+        val w = JsonObjectWriter().put("context", context)
+        if (want == Direction.IN || want == Direction.OUT) w.put("want", want)
+        if (lat != null && lng != null) w.put("lat", lat).put("lng", lng)
+        if (mockLocation && lat != null && lng != null) w.put("mockLocation", true)
+        return w.bytes()
+    }
 }

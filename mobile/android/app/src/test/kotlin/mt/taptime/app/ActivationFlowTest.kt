@@ -225,4 +225,66 @@ class ActivationFlowTest {
         assertFalse(second.device.keyAlias in keys.deleted)
         assertEquals(second.device, state.device)
     }
+
+    // M16-12 hand-over (3): a Keystore that fails to hand out the key at launch is a "Try again"
+    // screen, the record and the key kept -- once is retried silently, twice is the screen.
+    @Test
+    fun aKeystoreThatFailsAtLaunchIsTryAgainAndKeepsEverything() {
+        val p = bound()
+        val device = (flow.complete(p, sun(17)) as CompleteResult.Activated).device
+        server.seen.clear()
+        var failures = 2
+        val flaky = object : mt.taptime.app.activation.DeviceKeys by keys {
+            override fun load(alias: String): mt.taptime.app.wire.Signer? {
+                if (failures > 0) {
+                    failures--
+                    throw java.security.KeyStoreException("keystore busy")
+                }
+                return keys.load(alias)
+            }
+        }
+        val f = ActivationFlow(AppClient(HttpUrlTransport(server.base), clock, MiniJson), flaky, state)
+        assertEquals(ActivationFlow.HomeResult.KeyUnreadable, f.home())
+        assertEquals(device, state.device)
+        assertTrue(keys.deleted.isEmpty())
+        assertTrue("nothing was asked", server.seen.isEmpty())
+        failures = 1
+        assertEquals(ActivationFlow.HomeResult.SetUp(device), f.home())
+    }
+
+    // M16-12 hand-over (1): API 31+'s unknown level passes only when the key reports itself inside
+    // secure hardware; every other report is mapped as before.
+    @Test
+    fun theBackingIsReadFromTheReportWithUnknownCrossChecked() {
+        val L = KeyBacking.Level.entries
+        for (level in L) for (inside in listOf(true, false)) for (sb in listOf(true, false)) {
+            val got = KeyBacking.fromReport(31, level, inside, sb)
+            val want = when (level) {
+                KeyBacking.Level.STRONGBOX -> KeyBacking.STRONGBOX
+                KeyBacking.Level.TRUSTED_ENVIRONMENT -> KeyBacking.TEE
+                KeyBacking.Level.UNKNOWN_SECURE -> KeyBacking.SECURE_HARDWARE
+                KeyBacking.Level.SOFTWARE -> KeyBacking.SOFTWARE
+                KeyBacking.Level.OTHER -> if (inside) KeyBacking.UNKNOWN else KeyBacking.SOFTWARE
+            }
+            assertEquals("31 $level inside=$inside", want, got)
+            // 26-30: the level is not reported at all; the older report decides.
+            val old = KeyBacking.fromReport(30, level, inside, sb)
+            assertEquals("30 inside=$inside sb=$sb", if (!inside) KeyBacking.SOFTWARE else if (sb) KeyBacking.STRONGBOX else KeyBacking.SECURE_HARDWARE, old)
+        }
+        assertFalse("an unknown level outside secure hardware is refused", KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, false, false)))
+        assertTrue(KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, true, false)))
+    }
+
+    // M16-16 hand-over (4), the iOS twin's clock: at launch, two 401s whose Date is a day or more off
+    // this phone's clock are "Check your phone's clock", not "signed out"; the record is kept.
+    @Test
+    fun aPhoneADayOffAtLaunchIsToldToCheckItsClock() {
+        val p = bound()
+        val device = (flow.complete(p, sun(17)) as CompleteResult.Activated).device
+        phoneOffsetMillis = -2L * 24 * 60 * 60 * 1000
+        assertEquals(ActivationFlow.HomeResult.Clock, flow.home())
+        assertEquals(device, state.device)
+        phoneOffsetMillis = 0
+        assertEquals(ActivationFlow.HomeResult.SetUp(device), flow.home())
+    }
 }

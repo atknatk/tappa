@@ -30,7 +30,8 @@ interface Signer {
 // through this class; none is written anywhere but the request (CLAUDE.md §7).
 class AppClient(
     private val transport: Transport,
-    private val clock: ServerClock,
+    /** Read by the flows for [ServerClock.lastAnswerWasFarOff]: a 401 then means the phone's clock. */
+    val clock: ServerClock,
     private val json: JsonDecoder,
 ) {
     // --- unsigned ---------------------------------------------------------------------------
@@ -58,6 +59,22 @@ class AppClient(
 
     fun me(deviceId: String, key: Signer): Outcome<MeReply> =
         signedRead("GET", Paths.ME, null, deviceId, key, Replies::me)
+
+    /** GET /t's twin: a signed read, so it spends no nonce and advances no counter. */
+    fun tapStart(deviceId: String, key: Signer, sun: String): Outcome<TapStartReply> =
+        signedRead("POST", Paths.TAP_START, Bodies.tapStart(sun), deviceId, key, Replies::tapStart)
+
+    /**
+     * POST /api/checkin's twin, nonce-signed. An empty 2xx is an answer this app cannot read: the
+     * record may exist, so it is [Outcome.Failed], never Ok.
+     */
+    fun tap(deviceId: String, key: Signer, body: ByteArray): Outcome<TapReply> =
+        when (val r = signedRequest("POST", Paths.TAP, body, deviceId, key, Replies::tap)) {
+            is Outcome.Ok -> r.value?.let { Outcome.Ok(it) } ?: Outcome.Failed("empty reply")
+            is Outcome.Refused -> r
+            is Outcome.Failed -> r
+            Outcome.Unauthenticated -> Outcome.Unauthenticated
+        }
 
     fun nonce(deviceId: String, key: Signer): Outcome<NonceReply> =
         signedRead("POST", Paths.NONCE, ByteArray(0), deviceId, key, Replies::nonce)

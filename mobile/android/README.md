@@ -1,9 +1,9 @@
-# Taptime staff app — Android (M16-11 scaffold, M16-12 activation)
+# Taptime staff app — Android (M16-11 scaffold, M16-12 activation, M16-13 tap)
 
 The optional native staff app decided in
 [ADR 0045](../../docs/adr/0045-istege-bagli-native-uygulama.md), Android half. M16-11 was
 the **scaffold** (the closed permission list, no backup, the build and test targets);
-M16-12 adds the **device key and the activation** (below). The tap screen is M16-13's; the
+M16-12 adds the **device key and the activation**, M16-13 the **plaque tap** (both below). The
 browser path stays the default and is unchanged.
 
 User-facing name **Taptime**, package and applicationId **`mt.taptime.app`** (Q35,
@@ -203,7 +203,7 @@ No Google Play services artefact, no network client library, no analytics.
 
 `src/main/AndroidManifest.xml` asks for **NFC, INTERNET, ACCESS_FINE_LOCATION,
 ACCESS_COARSE_LOCATION** and nothing else (CLAUDE.md §4.2: the location permissions
-serve a one-shot, foreground reading at the tap, M16-13; they are requested at the tap,
+serve a one-shot, foreground reading at the press, M16-13; they are requested at the press,
 not at start). What a phone grants is the **merged** manifest, every library's folded
 in, so that is what is measured:
 
@@ -272,11 +272,8 @@ waiver to carry.
 ## Observed, not fixed
 
 - **Mobile CI** — done in M16-12: see *CI* under *Activation* below.
-- **`android.hardware.location` is an implied required feature** (review finding B-3).
-  Because the manifest asks for the location permissions, Google Play treats
-  `android.hardware.location` as a required feature unless a `<uses-feature>` says
-  otherwise, which would hide the app from devices without one. Whether to declare it with
-  `android:required="false"` is decided in M16-13 or M16-27; no code change here.
+- **`android.hardware.location` was an implied required feature** (review finding B-3) —
+  decided and fixed in M16-13, see *The tap* below.
 
 ## Fixed after review
 
@@ -474,6 +471,235 @@ the ones listed under *Android only* and *platform word*). What differs from the
    *not ready* → the consent step; an unusable invitation → the code screen.
 10. **Dropped / not shown** — the step-3 note *"Tapped and saw “Finish setup in this browser”?"*;
     the browser's *"This phone belongs to someone else"* warnings (the app activates only when it
-    holds no live device); the logo (no logo bytes reach the app yet — M16-07 hands over only
-    digest and box; the header is the wordmark, ink beside an accent); the waiting screen's
-    moving rings (the plaque is drawn still).
+    holds no live device); the logo (no logo bytes reach the app — M16-07 hands over only
+    digest and box, and M16-13 left it so: see *The tap*; the header is the wordmark, ink beside
+    an accent); the waiting screen's moving rings (the plaque is drawn still).
+
+## The tap (M16-13)
+
+GET /t and POST /api/checkin's twin over M16-07's wire contract. The server decides everything
+(`checkin.Service.Record`, `client='app'` server-derived); the app judges nothing about the chip.
+
+```
+plaque URL ─▶ tap/start (signed read) ─▶ Tap screen ──press──▶ one reading ─▶ /nonce ─▶ /tap ─▶ Result
+ (NFC or App Link)   nothing written,        name, venue,      (TapLocation,     nonce-signed       no button
+                     no counter advanced     one button        ≤ 8 s)
+```
+
+### How a plaque opens the app
+
+Two filters on `MainActivity`, both `https://<BASE_URL host>/t` and nothing else
+(`MergedManifestTest.thePlaqueRouteOpensTheAppAndNothingElseDoes`; the host is a manifest
+placeholder from `BASE_URL`, so a debug build pointed elsewhere takes that host's plaques):
+
+- **`NDEF_DISCOVERED`** — the NFC read of the plaque's URI record. Whether Android's tag
+  dispatch picks the app before the browser is **to be measured on a real phone** (M16-14).
+- **`VIEW` + `BROWSABLE`, `autoVerify="true"`** — the same URL as a link: a QR scanned by the
+  camera, a link in a message. Verified against `/.well-known/assetlinks.json` (M16-08), which
+  links `/t` only. `/activate` is not the app's (Q40).
+
+The URL reaches `TapFlow.start` (or, during activation step 2/3, the activation's complete — the
+browser's consented activation takes `GET /t` the same way). `PlaqueRead` re-checks scheme, host,
+port and the exact path before anything is sent. **A plaque URL is acted on once**, when it is delivered:
+reopened from Recents (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`) or after the system rebuilt the
+activity, the same intent carries the same spent counter, and a press on it could only record a
+`sun-invalid` reject that starts the 60-second debounce over the real next tap (`tap.js` keeps a
+restored NFC page as it was for the same reason) — such a launch is the launcher's. A new touch
+while a press is in flight is ignored (its counter is simply the next one); a new touch on the
+tap, result or problem screen starts over.
+
+**One press per tap screen** (security review 2026-11-18, `PressGuard`): the primary button and
+*"Not right? …"* are drawn from one composition, and two clicks in the same frame both carry its
+state. The press judges the **live** screen on the main thread — the same tap screen, not busy — and
+marks it busy before anything else, so the second click of the pair does nothing. (Judged by the
+captured state, both went through: two POSTs with one context, the second recorded as a
+`sun-invalid` reject and shown as *"Not counted"*.) `PressGuardTest`.
+
+**"Open in browser" sends a rebuilt URL** — `<base>/t?` + the query `PlaqueRead` verified
+(`PlaqueRead.browserUrl`, the iOS twin's rule), never the URL as the intent carried it.
+
+**No secret in a printed value** (security review 2026-11-18): every data class carrying the plaque
+URL, the SUN query, the signed context, a nonce, the activation challenge or the invite code
+overrides `toString` (`<redacted>`) — a generated one would print them into any log or crash line
+it reached. `RedactionTest` holds it over the source (every such data class under `src/main`) and
+over the values.
+
+### Screens — the browser's order and words
+
+| Screen | What is on it | Browser source |
+|---|---|---|
+| Tap | header (wordmark; ink beside an accent) · docket *"Tapping"* / *"Hello Maria"* / the tapped venue · **one button**: *"Clock in"*, *"Clock out"* or *"Tap"*, in the tenant accent · under a predicted direction only, *"Not right? Clock out"* (ink, underlined, no accent). While the press is under way both are disabled and the button says *"Tapping…"*. | `tap.templ`, `view.go`, `tap.js` |
+| Result | header (wordmark, **no accent**) · docket: venue, headline (*"Clocked in"* / *"Clocked out"* / *"Tapped"* / *"Already tapped"* / *"Not counted"*), the time in mono, the practice line · closing: on `ok` the brand line and *"All done — you can close the app."*; on `flag` *"You can close the app."*; on `ignored` / `reject` the browser's sentence and *"You can close the app."* **No button** (§9). | `result.templ` |
+| Tap problem | the browser's tap problem texts in a notice, with the iOS twin's buttons (`Buttons.of`, below) | `tap.go` `tapProblem*` |
+| Not set up | its own problem screen, as iOS's `NotSetUpScreen`: *"This app isn't set up yet"* + **"Open in browser"** + *"Set up this phone"* (the code screen) | adapted from `activate.go`'s *"Finish setup in this browser"* |
+| Signed out | the problem screen *"This phone was signed out"* + **"Open in browser"** + *"Start again"* (activation) | `activate.go` |
+| Check your phone's clock | a 401 while the last answer's `Date` was a day or more off this phone's clock (`ServerClock.lastAnswerWasFarOff`), at launch, at the start or at the press, instead of *signed out* (M16-16 hand-over (4), iOS's clock screen) + *"Try again"* | app-only |
+
+**The person's name is on the tap screen before anything is recorded** (M16-12 hand-over (5),
+user decision 2026-11-18): it is the mitigation of ADR 0045's accepted shared-phone risk —
+*"Hello Maria"*, the browser's own greeting.
+
+`TapCopyTest` reads the browser's source (`tap.go`, `tap.templ`, `result.templ`, `view.go`,
+`tap.js`, all declared task inputs) and holds every tap string to it; each string is *verbatim*,
+*adapted* or *app-only*, and every one is classified.
+
+**One list with iOS** (coordinator decision 2026-11-18): every tap line that has an iOS twin is,
+character for character, a literal of `mobile/ios/Taptime/TapCopy.swift` / `ActivationCopy.swift`
+(*"iPhone"* read as *"phone"*). `IosCopyTest` holds it; on a branch without the Swift files it is
+**skipped**, not passed, and `-Ptaptime.iosRoot=<dir>` points it at another checkout. Measured
+2026-11-18 against the iOS commit `543e1acd`: **63 of 63** shared lines identical, *"Not right? …"*
+(built by `+` on iOS) identical by its parts.
+
+Differences from the browser:
+
+1. **Adapted — "page" has no app twin:** *"All done — you can close the app."* / *"You can close
+   the app."* (browser: *"… close this page."*, the activation screens already say *"close the
+   app"*); *"Taptime opens when you hold your phone to the plaque at the door."* (*"This page
+   opens …"*); *"Nothing was recorded. Tap screens are only good for a few minutes."* (*"Tap
+   pages …"*). The iOS twin's drafts (M16-17, read 2026-11-18) carry the same words.
+2. **App-only — no answer from the network** (the browser shows its own offline page):
+   - at `tap/start`: *"Can't reach Taptime"* / *"Nothing was recorded."* / *"Check your
+     connection and tap the plaque again."* + *"Try again"* + *"Open in browser"*;
+   - at the **press**: *"Can't reach Taptime"* / *"We couldn't confirm this tap, so it may not
+     have been recorded."* / *"Check your connection and tap the plaque again. Tell your manager
+     if that looks wrong."* + *"Try again"* that **resends nothing** (below), and **no** *"Open in
+     browser"*.
+3. **App-only — not set up:** *"This app isn't set up yet"* / *"This app hasn't been set up for
+   Taptime yet, so it can't record this tap."* / *"Open the tap in your browser instead, or set up
+   the app with the link your workplace sent you."*
+4. **App-only — the phone's clock:** *"Check your phone's clock"* / *"Your phone's date and time
+   are too far off for Taptime to accept them. Nothing was recorded."* / *"Set the date and time to
+   automatic in Settings, then try again."*
+5. **App-only buttons** (the iOS twin's, `Buttons.of`): *"Open in browser"* only where the plaque
+   URL is certainly unspent **and** the app cannot go on — not set up, signed out, no answer
+   **before** the press (coordinator decisions 2026-11-18, narrowing the user's "error screens
+   only"); *"Try again"*, *"Start again"* (signed out → activation) and *"Set up this phone"* (not
+   set up → the code screen) — the user-approved app-only buttons.
+6. **Not carried:** the logo and the M15-17 claim card — both wait for the separate `/app/v1`
+   wire-contract card the coordinator is opening (below); the browser's back-forward-cache reload
+   of a QR page (the app has no page cache: a new scan is a new intent).
+7. **No *"The plaque wasn't read"*** (iOS's `notRead`). On iOS it is the Core NFC scan sheet
+   closing on an error. Android has no app-owned read on the tap path: the system's tag dispatch
+   delivers an intent only after it has parsed an NDEF URI record that matches `https://<host>/t`,
+   so a failed or foreign read never reaches the app (the system handles it, or nothing happens).
+   An intent that matched the filter but is not this server's exact plaque URL (a fragment, another
+   port) is *"That link didn't work"* — iOS's `badURL`, the same text. The activation step's reader
+   mode is the one app-owned read, and its failure already has M16-12's *"That tap didn't finish
+   setup"*.
+
+**"Try again" rules.** Before the press it starts over with the same URL (`Retry.RESTART`: a
+server error, no answer, a Keystore that would not open, the clock) — `tap/start` writes nothing
+and advances nothing, and a refused signature records nothing. **After a press whose answer was
+lost it goes home** (`Retry.HOME`, the launch check) **and resends nothing**: the same signed context
+again would carry the same counter, and if the first press did reach the record the second is a
+recorded `sun-invalid` reject. The next touch of the plaque is a fresh counter. A press refused with
+an answer (expired, another employer's plaque, unknown plaque, too many, server) has no *"Try
+again"*: a fresh context comes from touching the plaque.
+
+### No queue — the known cost
+
+There is no offline queue (ADR 0045 §2.8, coordinator decision 2026-11-18). A press whose answer
+is lost says *"tap the plaque again"*; the record may or may not exist. If it does, the next touch
+within 60 s is `ignored` (recorded, harmless); if it does not, the next touch records. The lost
+touch's counter is spent either way — the plaque's counter gap (A1's `ctrGap`) counts it. That
+screen therefore offers **no "Open in browser"** (coordinator decision 2026-11-18, as on iOS): if the
+lost press did reach the record, the same URL in the browser would record a `sun-invalid` reject and
+start the person's 60-second debounce.
+
+### The one reading (`tap/TapLocation.kt`) — CLAUDE.md §4.2
+
+- **Only at the press**, after the button is pressed, never at start or on screen. The permission
+  (fine + coarse) is asked **at the press** the first time; a refusal sends no fix and the press
+  goes on (§5 rows 6–7; the record is written either way, §4.6).
+- **Platform `LocationManager`**, no Play services (Q36). Every ask goes through **one function**,
+  `TapLocation.ask()`, which holds the app's only two location requests:
+  - **first ask, API 30+:** `getCurrentLocation(provider, CancellationSignal, mainExecutor, …)` —
+    one answer, cancellable;
+  - **first ask, API 26–29:** `requestSingleUpdate(provider, listener, mainLooper)` (all four
+    listener callbacks are written: they are abstract below API 30);
+  - **the fresh ask:** `requestSingleUpdate` on every level — a new one-shot registration is
+    answered by a new reading, where a second `getCurrentLocation` would hand back the same cache
+    within its own window (deprecated on 30+, not removed; **to be measured on a real phone,
+    M16-14**).
+- **Providers** (`FixRules.providers`): API 31+ the platform's **fused** provider alone (AOSP: it
+  combines GPS and network itself, works with the coarse permission); otherwise, with the fine
+  permission, **GPS and network side by side** (review D-2: indoors GPS may not fix within 8 s);
+  with the coarse permission only, network; otherwise none.
+- **The race** (`FixRace`, pure, `FixRulesTest`): each provider asked **once** at the press; the
+  first accepted reading wins and every other ask is cancelled; an empty answer waits for the rest;
+  all empty is no fix. A **refused cache** (below) gets **one** fresh ask of the same provider in
+  what is left of the deadline (review O-1, coordinator decision (a)) — one in all, never another.
+  The deadline cancels everything that is out and the press goes without a fix (the record is
+  written either way).
+- **Deadline 8 s** — `tap.js`'s `FIX_TIMEOUT_MS`, read from `tap.js` by `FixRulesTest`. The timer is
+  `tap/FixDeadline.kt` (one `postDelayed`, never re-armed), **apart from** the location file: the
+  red-line scan's R2 periodic net fails a file holding both (card *Tuzaklar*).
+- **A reading taken before the request is refused** (`FixRules.accept` / `isStale`, by
+  `elapsedRealtimeNanos`): `tap.js` asks with `maximumAge: 0`, and `getCurrentLocation` may answer
+  with a cached one — which is why the race asks once more. Out of range or not finite is no
+  reading.
+- **Mock flag** — `Location.isMock()` on API 31+, `isFromMockProvider()` before, of **that**
+  reading; sent as `"mockLocation":true` **only when true and only with a fix** (`Bodies.tap`).
+  False is never written: its absence proves nothing (ADR 0045 §2.4).
+- **`LocationCallSiteTest`** pins the call sites over the whole of `src/main`: `getCurrentLocation`
+  and `requestSingleUpdate` once each, in `TapLocation.kt` only, both inside `ask()`; `ask()` called
+  from two places only (the first asks, iterating the providers once, and FixRace's one fresh ask),
+  and no other loop in the file; no last-known or continuous request anywhere; `TapLocation` constructed once and read only inside `MainActivity.withOneFix`,
+  which only the press calls; no timer in `TapLocation.kt`, the timer in `FixDeadline.kt`, which
+  asks for no position.
+- **Nothing is logged** — `NoLogTest` pins the inventory of log calls under `src/main` at **zero**
+  (and `android.util.Log` is not imported); a future log line is held to carry no coordinate,
+  signature, nonce, context, SUN query or code.
+
+### B-3 — location hardware is optional (decided here)
+
+`<uses-feature android:name="android.hardware.location" android:required="false"/>`: a fix is
+backup evidence, never a requirement (§5 rows 6–7), so a phone without location hardware must
+still see the app (an NFC-less phone already does, ADR 0045). Measured on the debug APK
+(2026-11-18, `aapt2 dump badging`, build-tools 36.0.0): `uses-feature-not-required:
+name='android.hardware.location'`; the only `uses-feature` left is the default `faketouch`.
+`MergedManifestTest.noHardwareFeatureIsRequired` pins it.
+
+### No logo, no claim card
+
+Both wait for the separate `/app/v1` wire-contract card the coordinator is opening (2026-11-18):
+the logo bytes have no app route (`GET /t/logo/{sha}` answers a browser session, and the
+peer-plaque `?tag=` distinction is not in `tap/start`'s `brand`), and the tap reply has no field
+for the M15-17 claim card. Until then the header is the wordmark, ink beside an accent (K-2a).
+
+### M16-12 hand-overs done here
+
+1. **API 31+ unknown security level** — `KeyBacking.fromReport`: a level this version cannot name
+   is UNKNOWN (accepted) only when `isInsideSecureHardware` also says so; otherwise SOFTWARE
+   (refused by `KeyGate`).
+2. **`InviteCode` compares the port** as `PlaqueRead` does (`effectivePort`, one function).
+3. **A Keystore that will not open the key** — at launch and at the tap — retries once, then shows
+   iOS's text *"Taptime couldn't open this phone's key"* / *"Nothing was changed on this phone."* /
+   *"Try again in a moment. If it keeps happening, you can set this phone up again."* with *"Try
+   again"*. The record and the key are kept (never deleted on a Keystore failure).
+4. **A key whose level cannot be read is deleted** before the failure goes up (`KeystoreKeys.generate`).
+5. **The name before the tap** — above.
+
+### Tests added (`make mobile-android-test`)
+
+| Class | What it holds |
+|---|---|
+| `PressGuardTest` | two clicks in one frame send one press; a click drawn for another (or no) tap screen does nothing; identity, not equality |
+| `RedactionTest` | every data class carrying a secret overrides `toString`; the overrides print none of it |
+| `IosCopyTest` | every shared tap line is a literal of the iOS app's copy (skipped without the Swift files) |
+| `TapFlowTest` | the tap over a socket against `FakeAppServer`: the clock screen at the start and at the press (an in-range answer clears it); the problem screens' buttons are the iOS twin's; `tap/start` is a signed read of the plaque's query verbatim, no nonce; the press body byte for byte (want, fix, mock only when true); no fix / no direction send neither; not set up, key gone (dropped), Keystore failing twice (kept, *Try again*) or once (goes through), a throwing signer at start and at the press (nothing sent); another host's URL sent nowhere; signed out after one retry at start and at the press; every refusal of start and press to its screen and retry rule; no answer to start → retry; a lost press answer → *Try again* goes home, sent once |
+| `FixRulesTest` | provider names are the platform's; the providers by API level, permission and what is on (GPS **and** network below 31); the race: first fresh reading wins, empty waits, a refused cache gets one fresh ask and no more, the deadline ends it; a reading before the request refused; out of range refused; the deadline is `tap.js`'s |
+| `TapCopyTest` | every tap string verbatim / adapted / app-only against the browser's source; every result line has its string; the result's lines verdict by verdict |
+| `LocationCallSiteTest` | the call-site allow-list above |
+| `NoLogTest` | zero log calls under `src/main` |
+| additions | `WireTest` tap bodies and replies · `ContractPinTest` tap bodies against `apptap.go`'s structs · `InputsTest` the code link's port · `ActivationFlowTest` Keystore failing at launch, `fromReport` for every level · `MergedManifestTest` the two plaque filters, no required feature |
+
+**Mutations** (2026-11-18, applied, tests run, restored): mock flag always written → `WireTest`
+red · a second `getCurrentLocation` in `MainActivity` → `LocationCallSiteTest` red · a `Log.d` in
+`TapFlow` → `NoLogTest` red · the before-the-request check dropped → `FixRulesTest` red · one tap
+hint reworded → `TapCopyTest` red · location `required="true"` → `MergedManifestTest` red · *Try
+again* offered after a lost press → `TapFlowTest` red · `InviteCode`'s port check dropped →
+`InputsTest` red. Review fixes (2026-11-18): `PressGuard` ignoring busy → `PressGuardTest` red · `FixRace`
+never asking fresh → `FixRulesTest` red · GPS **or** network instead of both → `FixRulesTest` red ·
+`TapStartReply`'s `toString` override dropped → `RedactionTest` red · the browser URL passed on as it
+arrived → `InputsTest` red.

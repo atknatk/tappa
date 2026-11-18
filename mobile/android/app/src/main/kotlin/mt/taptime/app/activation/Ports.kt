@@ -27,7 +27,39 @@ enum class KeyBacking(val stored: String) {
 
     companion object {
         fun of(stored: String?): KeyBacking = entries.firstOrNull { it.stored == stored } ?: UNKNOWN
+
+        /**
+         * The backing from what KeyInfo reported (device/KeystoreKeys.kt reads it). Pure, so every
+         * combination is driven by a JVM test.
+         *
+         * API 31+ reports a security level; [level] is it in this app's words. A level this version
+         * cannot name ([Level.OTHER], SECURITY_LEVEL_UNKNOWN included) is UNKNOWN -- accepted by
+         * [KeyGate] -- ONLY when the older report, inside secure hardware, also says so; otherwise
+         * it is SOFTWARE and refused (M16-12 hand-over (1): a cheap hardening, an unknown level is
+         * no longer taken on trust). API 26-30 have only that older report: outside secure hardware
+         * is SOFTWARE, a key generated with the StrongBox flag is STRONGBOX (the flag makes
+         * generation fail otherwise), any other secure one SECURE_HARDWARE.
+         */
+        fun fromReport(sdk: Int, level: Level, insideSecureHardware: Boolean, inStrongBox: Boolean): KeyBacking {
+            if (sdk >= 31) {
+                return when (level) {
+                    Level.STRONGBOX -> STRONGBOX
+                    Level.TRUSTED_ENVIRONMENT -> TEE
+                    Level.UNKNOWN_SECURE -> SECURE_HARDWARE
+                    Level.SOFTWARE -> SOFTWARE
+                    Level.OTHER -> if (insideSecureHardware) UNKNOWN else SOFTWARE
+                }
+            }
+            return when {
+                !insideSecureHardware -> SOFTWARE
+                inStrongBox -> STRONGBOX
+                else -> SECURE_HARDWARE
+            }
+        }
     }
+
+    /** KeyInfo.getSecurityLevel's answers (API 31+), and OTHER for any value not named here. */
+    enum class Level { STRONGBOX, TRUSTED_ENVIRONMENT, UNKNOWN_SECURE, SOFTWARE, OTHER }
 }
 
 /**
@@ -35,9 +67,10 @@ enum class KeyBacking(val stored: String) {
  * Secure Enclave). A key the Keystore reports as SOFTWARE is deleted before any bind and the
  * phone is told it cannot be set up: the device key is the app's whole proof of "who", and a
  * software key is a file. Every other level is accepted -- TEE, StrongBox, "secure hardware"
- * (API 26-30), and UNKNOWN (a level a newer platform reports that this version cannot name is not
- * evidence of software). The level is the generator's own report, handed in with the key, so the
- * gate is a pure function the unit tests drive with every value.
+ * (API 26-30), and UNKNOWN (a level a newer platform reports that this version cannot name, while
+ * the key reports itself inside secure hardware -- [KeyBacking.fromReport], M16-13). The level is
+ * the generator's own report, handed in with the key, so the gate is a pure function the unit
+ * tests drive with every value.
  */
 object KeyGate {
     fun accepts(backing: KeyBacking): Boolean = backing != KeyBacking.SOFTWARE

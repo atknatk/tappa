@@ -127,4 +127,44 @@ class MergedManifestTest {
     fun thePackageIsTheQ35One() {
         assertEquals("mt.taptime.app", merged.documentElement.getAttribute("package"))
     }
+
+    // M16-13: the plaque opens the app -- an NFC read (NDEF_DISCOVERED) and an App Link (VIEW,
+    // autoVerify) -- for this build's BASE_URL host and the path /t, and for nothing else: the
+    // activation link (/activate) stays the browser's (Q40).
+    @Test
+    fun thePlaqueRouteOpensTheAppAndNothingElseDoes() {
+        val host = java.net.URI(BuildConfig.BASE_URL).host
+        val activity = merged.elements("activity").single { it.getAttributeNS(androidNs, "name").endsWith(".MainActivity") }
+        val filters = activity.getElementsByTagName("intent-filter").let { n -> (0 until n.length).map { n.item(it) as Element } }
+        fun Element.children(tag: String) = getElementsByTagName(tag).let { n -> (0 until n.length).map { n.item(it) as Element } }
+        fun actions(f: Element) = f.children("action").map { it.getAttributeNS(androidNs, "name") }.toSet()
+        val withData = filters.filter { it.children("data").isNotEmpty() }
+        assertEquals("two filters carry a URL", 2, withData.size)
+        for (f in withData) {
+            val data = f.children("data").single()
+            assertEquals("https", data.getAttributeNS(androidNs, "scheme"))
+            assertEquals(host, data.getAttributeNS(androidNs, "host"))
+            assertEquals("/t", data.getAttributeNS(androidNs, "path"))
+            assertEquals("no prefix or pattern can widen /t", "", data.getAttributeNS(androidNs, "pathPrefix") + data.getAttributeNS(androidNs, "pathPattern"))
+        }
+        val nfc = withData.single { actions(it) == setOf("android.nfc.action.NDEF_DISCOVERED") }
+        assertTrue("android.intent.category.DEFAULT" in nfc.children("category").map { it.getAttributeNS(androidNs, "name") })
+        val link = withData.single { actions(it) == setOf("android.intent.action.VIEW") }
+        assertEquals("true", link.getAttributeNS(androidNs, "autoVerify"))
+        assertEquals(setOf("android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"),
+            link.children("category").map { it.getAttributeNS(androidNs, "name") }.toSet())
+        // No other component of the merged manifest takes a URL.
+        assertEquals("data elements in the merged manifest", 2, merged.elements("data").size)
+    }
+
+    // M16-11 review B-3, decided by M16-13: location hardware is optional (a fix is backup evidence,
+    // CLAUDE.md §5 rows 6-7); no feature is required at all.
+    @Test
+    fun noHardwareFeatureIsRequired() {
+        val features = merged.elements("uses-feature")
+        val location = features.single { it.getAttributeNS(androidNs, "name") == "android.hardware.location" }
+        assertEquals("false", location.getAttributeNS(androidNs, "required"))
+        val required = features.filter { it.getAttributeNS(androidNs, "required") != "false" }.map { it.getAttributeNS(androidNs, "name") }
+        assertEquals("features declared required", emptyList<String>(), required)
+    }
 }

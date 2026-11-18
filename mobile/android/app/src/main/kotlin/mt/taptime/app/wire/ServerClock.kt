@@ -26,6 +26,17 @@ class ServerClock(private val localMillis: () -> Long = System::currentTimeMilli
         private set
 
     /**
+     * Whether the LAST readable Date header was more than [MAX_OFFSET_MILLIS] from this phone's
+     * clock -- the one measurement that is refused (M16-16 hand-over (4), the iOS twin's
+     * lastAnswerWasFarOff). A 401 that arrives with it is far likelier the phone's own clock than a
+     * signed-out device, so the screens say "Check your phone's clock" instead. A later in-range
+     * answer clears it.
+     */
+    @Volatile
+    var lastAnswerWasFarOff: Boolean = false
+        private set
+
+    /**
      * Records the server's clock from a Date header value; an unreadable one changes nothing, and
      * so does one more than [MAX_OFFSET_MILLIS] away from this phone's clock (security review,
      * 2026-11-18). A Date is not signed: a captive portal, a proxy or anything on the path can
@@ -36,7 +47,11 @@ class ServerClock(private val localMillis: () -> Long = System::currentTimeMilli
     fun observe(dateHeader: String?) {
         val server = parseHttpDate(dateHeader) ?: return
         val offset = server - localMillis()
-        if (Math.abs(offset) > MAX_OFFSET_MILLIS) return
+        if (Math.abs(offset) > MAX_OFFSET_MILLIS) {
+            lastAnswerWasFarOff = true
+            return
+        }
+        lastAnswerWasFarOff = false
         offsetMillis = offset
         measured = true
     }

@@ -34,6 +34,9 @@ object InviteCode {
         }
         if (uri.scheme == null || !uri.scheme.equals(base.scheme, ignoreCase = true)) return null
         if (uri.host == null || !uri.host.equals(base.host, ignoreCase = true) || uri.rawUserInfo != null) return null
+        // The PORT too (M16-12 hand-over (2)): PlaqueRead compares it, and the two readers of
+        // "this server's URL" must agree -- https://taptime.mt:8443 is another server.
+        if (effectivePort(uri) != effectivePort(base)) return null
         if (uri.rawPath != PATH) return null
         val query = uri.rawQuery ?: return null
         for (pair in query.split('&')) {
@@ -67,11 +70,20 @@ object PlaqueRead {
         val base = parse(baseUrl) ?: return null
         if (!read.scheme.equals(base.scheme, ignoreCase = true)) return null
         if (!read.host.equals(base.host, ignoreCase = true)) return null
-        if (port(read) != port(base)) return null
+        if (effectivePort(read) != effectivePort(base)) return null
         if (read.rawPath != PATH) return null
         if (read.rawFragment != null) return null
         return read.rawQuery?.takeIf { it.isNotEmpty() }
     }
+
+    /**
+     * The URL "Open in browser" hands the browser: REBUILT as this server's `<base>/t?` + the verified
+     * query, never the URL as it arrived (the iOS twin's rule). Whatever the intent carried besides
+     * -- the host's case, an explicit default port -- is not passed on; a URL that is not this
+     * server's plaque route yields none.
+     */
+    fun browserUrl(url: String, baseUrl: String): String? =
+        sunQuery(url, baseUrl)?.let { baseUrl.trimEnd('/') + PATH + "?" + it }
 
     private fun parse(s: String): URI? = try {
         URI(s.trim()).takeIf { it.isAbsolute && it.host != null && it.rawUserInfo == null }
@@ -79,9 +91,11 @@ object PlaqueRead {
         null
     }
 
-    private fun port(u: URI): Int = when {
-        u.port != -1 -> u.port
-        u.scheme.equals("https", ignoreCase = true) -> 443
-        else -> 80
-    }
+}
+
+/** The URI's port, the scheme's default when none is written: what both readers compare. */
+internal fun effectivePort(u: URI): Int = when {
+    u.port != -1 -> u.port
+    u.scheme.equals("https", ignoreCase = true) -> 443
+    else -> 80
 }
