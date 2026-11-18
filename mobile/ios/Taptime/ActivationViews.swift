@@ -7,7 +7,7 @@ import SwiftUI
 // browser; iOS reads a plaque only while its own sheet is open, so the tap step opens the sheet by
 // itself and offers "Scan the plaque" again only when the sheet has closed.
 //
-// Fonts are the system's here; the tap screen (M16-17) embeds Space Grotesk and IBM Plex Mono.
+// Fonts: Space Grotesk and IBM Plex Mono (Typeface.swift, M16-17), as on every browser screen.
 
 // MARK: - Building blocks
 
@@ -17,10 +17,10 @@ struct Wordmark: View {
     var body: some View {
         VStack(spacing: 2) {
             Text("taptime")
-                .font(.system(size: 22, weight: .bold))
+                .font(Typeface.display(22, .bold))
                 .foregroundColor(look.mark)
             Text("PUNCHLESS")
-                .font(.system(size: 10, design: .monospaced))
+                .font(Typeface.mono(10))
                 .kerning(2)
                 .foregroundColor(Palette.ink.opacity(0.7))
         }
@@ -54,7 +54,7 @@ struct DocketLabel: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(Typeface.mono(11, bold: true))
             .kerning(1.5)
             .foregroundColor(Palette.ink.opacity(0.7))
     }
@@ -79,7 +79,7 @@ struct Heading: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.offset) { i, l in
                 Text(l)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(Typeface.display(28, .bold))
                     .foregroundColor(i == 0 ? Palette.ink : Palette.ink.opacity(0.7))
             }
         }
@@ -111,11 +111,11 @@ struct Notice: View {
             Rectangle().fill(tone.color).frame(width: 4)
             VStack(alignment: .leading, spacing: 6) {
                 if let t = title {
-                    Text(t).font(.system(size: 17, weight: .bold))
+                    Text(t).font(Typeface.display(17, .bold))
                 }
-                Text(text).font(.system(size: 15))
+                Text(text).font(Typeface.display(15))
                 if let h = hint {
-                    Text(h).font(.system(size: 15)).foregroundColor(Palette.ink.opacity(0.7))
+                    Text(h).font(Typeface.display(15)).foregroundColor(Palette.ink.opacity(0.7))
                 }
             }
             .padding(12)
@@ -140,7 +140,7 @@ struct PrimaryButton: View {
                     ProgressView().progressViewStyle(CircularProgressViewStyle(tint: look.buttonText))
                 }
             }
-            .font(.system(size: 20, weight: .bold))
+            .font(Typeface.display(20, .bold))
             .foregroundColor(look.buttonText)
             .frame(maxWidth: .infinity, minHeight: 64)
             .background(look.buttonFill)
@@ -157,7 +157,7 @@ struct BackButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 17))
+                .font(Typeface.display(17))
                 .underline()
                 .foregroundColor(Palette.ink.opacity(0.85))
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -193,7 +193,7 @@ struct ActivatedStamp: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 11, weight: .bold))
+            .font(Typeface.display(11, .bold))
             .kerning(2)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -219,14 +219,14 @@ struct CodeScreen: View {
             Docket {
                 DocketLabel(text: Copy.Code.label)
                 Heading(lines: [Copy.Code.title])
-                Text(Copy.Code.body).font(.system(size: 17))
+                Text(Copy.Code.body).font(Typeface.display(17))
             }
             TextField(Copy.Code.field, text: $model.codeInput)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .keyboardType(.URL)
                 .textContentType(.URL)
-                .font(.system(size: 15, design: .monospaced))
+                .font(Typeface.mono(15))
                 .padding(12)
                 .frame(minHeight: 44)
                 .background(Palette.paper)
@@ -257,15 +257,15 @@ struct WelcomeScreen: View {
                 Heading(lines: [Copy.Welcome.hi(invite.employeeName), Copy.Welcome.sub])
             }
             Docket {
-                Text(Copy.Welcome.panel(invite.businessName)).font(.system(size: 16))
+                Text(Copy.Welcome.panel(invite.businessName)).font(Typeface.display(16))
             }
             if invite.secondDevice {
                 Notice(tone: .warn, title: Copy.Welcome.newPhoneTitle, text: Copy.Welcome.newPhoneBody)
             }
             VStack(spacing: 4) {
-                Text(Copy.Welcome.termsLead).font(.system(size: 15))
+                Text(Copy.Welcome.termsLead).font(Typeface.display(15))
                 Button(Copy.Welcome.termsLink) { showTerms = true }
-                    .font(.system(size: 15).bold())
+                    .font(Typeface.display(15, .bold))
                     .foregroundColor(Palette.ink)
                     .frame(minHeight: 44)
             }
@@ -292,11 +292,11 @@ struct TermsSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(Copy.Terms.title).font(.system(size: 22, weight: .bold))
+                        Text(Copy.Terms.title).font(Typeface.display(22, .bold))
                         section(Copy.Terms.whoHeading, Copy.Terms.who(employer))
                         section(Copy.Terms.whatHeading, Copy.Terms.what)
                         section(Copy.Terms.whyHeading, Copy.Terms.why(employer))
-                        Text(Copy.Terms.more).font(.system(size: 15)).padding(.top, 8)
+                        Text(Copy.Terms.more).font(Typeface.display(15)).padding(.top, 8)
                         Link(Copy.Terms.privacy, destination: baseURL.appendingPathComponent("legal/privacy"))
                             .frame(minHeight: 44)
                         Link(Copy.Terms.terms, destination: baseURL.appendingPathComponent("legal/terms"))
@@ -306,7 +306,7 @@ struct TermsSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button(Copy.Terms.close, action: close)
-                    .font(.system(size: 17, weight: .bold))
+                    .font(Typeface.display(17, .bold))
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .overlay(Rectangle().frame(height: 1).foregroundColor(Palette.line), alignment: .top)
             }
@@ -316,8 +316,8 @@ struct TermsSheet: View {
 
     private func section(_ heading: String, _ body: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(heading).font(.system(size: 15, weight: .bold))
-            Text(body).font(.system(size: 15))
+            Text(heading).font(Typeface.display(15, .bold))
+            Text(body).font(Typeface.display(15))
         }
         .padding(.top, 6)
     }
@@ -337,17 +337,17 @@ struct ReadyScreen: View {
             }
             Docket {
                 HStack(alignment: .top, spacing: 12) {
-                    Text("01").font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundColor(look.mark)
+                    Text("01").font(Typeface.mono(15, bold: true)).foregroundColor(look.mark)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(Copy.Ready.wifiTitle).font(.system(size: 17, weight: .bold))
+                        Text(Copy.Ready.wifiTitle).font(Typeface.display(17, .bold))
                         if let ssid = invite.wifiSsid, !ssid.isEmpty {
                             (Text(Copy.Ready.wifiConnect + " ")
-                                + Text(ssid).font(.system(size: 15, weight: .bold, design: .monospaced))
+                                + Text(ssid).font(Typeface.mono(15, bold: true))
                                 + Text(" " + Copy.Ready.wifiBody))
-                                .font(.system(size: 15))
-                            Text(Copy.Ready.wifiSkip).font(.system(size: 15)).foregroundColor(Palette.ink.opacity(0.7))
+                                .font(Typeface.display(15))
+                            Text(Copy.Ready.wifiSkip).font(Typeface.display(15)).foregroundColor(Palette.ink.opacity(0.7))
                         } else {
-                            Text(Copy.Ready.noWifi).font(.system(size: 15))
+                            Text(Copy.Ready.noWifi).font(Typeface.display(15))
                         }
                     }
                 }
@@ -373,14 +373,14 @@ struct TapStepScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 DocketLabel(text: Copy.Tap.label)
                 Heading(lines: [Copy.Tap.title])
-                Text(Copy.Tap.body(invite.businessName)).font(.system(size: 17))
-                Text(Copy.Tap.firstTap).font(.system(size: 17))
+                Text(Copy.Tap.body(invite.businessName)).font(Typeface.display(17))
+                Text(Copy.Tap.firstTap).font(Typeface.display(17))
             }
             HStack(spacing: 8) {
                 if model.scanning || model.busy {
                     ProgressView()
                 }
-                Text(Copy.Tap.waiting).font(.system(size: 15, design: .monospaced))
+                Text(Copy.Tap.waiting).font(Typeface.mono(15))
             }
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
@@ -388,7 +388,7 @@ struct TapStepScreen: View {
                 Notice(tone: .warn, text: Copy.Tap.signsOtherOut)
             }
             Text(Copy.Tap.whenDone)
-                .font(.system(size: 15))
+                .font(Typeface.display(15))
                 .foregroundColor(Palette.ink.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -415,7 +415,7 @@ struct DoneScreen: View {
                 }
                 Heading(lines: [Copy.Done.title])
                 if !name.isEmpty {
-                    Text(Copy.Done.setFor(name)).font(.system(size: 16))
+                    Text(Copy.Done.setFor(name)).font(Typeface.display(16))
                 }
             }
             Notice(tone: .ok, title: Copy.Done.clockTitle, text: Copy.Done.clockBody)
@@ -423,33 +423,7 @@ struct DoneScreen: View {
                 Notice(tone: .warn, text: Copy.Done.otherOut)
             }
             Text(Copy.Done.close)
-                .font(.system(size: 18))
-                .foregroundColor(Palette.ink.opacity(0.7))
-                .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-struct AlreadyScreen: View {
-    let name: String
-    let look: BrandLook
-
-    var body: some View {
-        ScreenFrame(look: look) {
-            Docket {
-                HStack(alignment: .top) {
-                    DocketLabel(text: Copy.Already.label)
-                    Spacer()
-                    ActivatedStamp(text: Copy.Already.stamp)
-                }
-                Heading(lines: [Copy.Already.title])
-                if !name.isEmpty {
-                    Text(Copy.Already.signedInAs(name)).font(.system(size: 16))
-                }
-            }
-            Notice(tone: .ok, text: Copy.Already.notice)
-            Text(Copy.Already.close)
-                .font(.system(size: 18))
+                .font(Typeface.display(18))
                 .foregroundColor(Palette.ink.opacity(0.7))
                 .frame(maxWidth: .infinity)
         }

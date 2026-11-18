@@ -10,6 +10,9 @@ import Foundation
 //   tap      "Now tap the plaque": the first genuine NFC read               → complete
 //   done     "Activation complete"
 //
+// After it, the phone is ACTIVATED and the tap screens (TapFlow.swift, M16-17) take over: the
+// launch hands the restored key to them instead of greeting the person here.
+//
 // NOTHING BEFORE THE TAP ACTIVATES ANYTHING. bind records consent bound to this key and spends
 // nothing; the device is born on the server only when complete passes CompleteByTap's order --
 // and that touch writes no transactions row (CLAUDE.md §5, "Aktivasyon dokunuşu").
@@ -35,7 +38,11 @@ final class ActivationModel: ObservableObject {
         case ready
         case tap(problem: Copy.Problem?)
         case done(name: String, secondDevice: Bool)
-        case already(name: String)
+        /// The phone is activated: the tap screens are showing (RootView).
+        case activated
+        /// A plaque URL reached a phone that is not set up (M16-16 hand-off 2): Safari can record it,
+        /// or the person sets up the app.
+        case notSetUp(URL)
         case problem(Copy.Problem, retry: Retry)
     }
 
@@ -46,8 +53,23 @@ final class ActivationModel: ObservableObject {
     @Published private(set) var scanning = false
     @Published private(set) var invite: LookupResponse?
     @Published private(set) var brand: AppBrand = .taptime
+    /// The activated device: restored at launch, or made by a successful activation. nil until
+    /// then. Only a new successful activation replaces it.
+    @Published private(set) var device: ActivatedDevice?
+    /// "Try again" on the unreadable-key screen runs the whole launch again (AppModel), so an
+    /// activated phone lands on its tap screen, not on an empty one.
+    var onRelaunch: (() -> Void)?
+    /// Where a plaque link that waited (queuedURL) is sent when the work it waited for is done:
+    /// AppModel.open, so it is routed as if it had just arrived. nil: straight back here.
+    var onQueuedURL: ((URL) -> Void)?
+    /// A plaque link that arrived while the model was busy or still reading the record. ONE slot:
+    /// it is handled once, after the work, and a second arrival of the link replaces it rather than
+    /// queueing it twice (M16-17 review: it used to be dropped).
+    private var queuedURL: URL?
 
     private let client: AppClient
+    /// The server's origin (the terms sheet links its legal pages).
+    var baseURL: URL { client.baseURL }
     private let keys: DeviceKeyFactory
     private let store: ActivationStore
     private let reader: PlaqueReading
@@ -64,11 +86,12 @@ final class ActivationModel: ObservableObject {
 
     // MARK: Launch
 
-    /// An activated phone asks the server who it is (a signed read, with the 401 retry). A phone
-    /// the server answers as signed out shows "This phone was signed out" and the way to activate
-    /// again; offline, the stored name stands -- being unreachable is not being signed out.
+    /// An activated phone restores its key and goes to the tap screens, which ask the server who
+    /// it is (TapModel.home: a signed read, with the 401 retry). A phone the server answers as
+    /// signed out comes back here through signedOut(): "This phone was signed out" and the way to
+    /// activate again; offline, the stored name stands -- being unreachable is not being signed out.
     ///
-    /// THE RECORD IS NEVER DELETED HERE (M16-16 review, 2026-11-18). A 401 is the answer to a
+    /// THE RECORD IS NEVER DELETED (M16-16 review, 2026-11-18). A 401 is the answer to a
     /// revoked device, but also to a server-side fault -- an RLS or GRANT regression that makes
     /// the resolver miss every device answers 401 to every phone at once -- and the Secure Enclave
     /// key behind a deleted record is gone for good. Keeping it costs nothing: a revoked key is
@@ -76,6 +99,11 @@ final class ActivationModel: ObservableObject {
     /// tap does not clear the cookie). Only a NEW successful activation replaces the record
     /// (ActivationStore.save).
     func start() async {
+        restore()
+        drainQueued()
+    }
+
+    private func restore() {
         if let record = store.load() {
             // ONE retry, then a "try again" screen -- never a deletion (the same rule as the 401
             // above): a Secure Enclave that fails once (a locked moment, a busy chip) usually
@@ -84,18 +112,44 @@ final class ActivationModel: ObservableObject {
                 screen = .problem(Copy.Problems.keyUnreadable, retry: .relaunch)
                 return
             }
-            do {
-                let me = try await client.me(DeviceIdentity(deviceID: record.deviceId, signer: signer))
-                brand = me.brand
-                screen = .already(name: me.employeeName)
-            } catch AppAPIError.unauthenticated {
-                enterActivation(notice: Copy.Problems.signedOut)
-            } catch {
-                screen = .already(name: record.employeeName)
-            }
+            device = ActivatedDevice(identity: DeviceIdentity(deviceID: record.deviceId, signer: signer),
+                                     storedName: record.employeeName)
+            screen = .activated
             return
         }
         enterActivation(notice: nil)
+    }
+
+    /// The server answered the activated phone as signed out: the code screen with the notice.
+    /// The record and the device stay (see start()); a new activation replaces them.
+    func signedOut() {
+        enterActivation(notice: Copy.Problems.signedOut)
+    }
+
+    /// "Start again" from a tap problem screen: the code screen, nothing deleted.
+    func startAgain() {
+        reset()
+        enterActivation(notice: nil)
+    }
+
+    /// The tap screens take over (a plaque URL, or the app back in front after "Activation
+    /// complete"). Only for an activated phone.
+    func showActivated() {
+        guard device != nil else {
+            return
+        }
+        screen = .activated
+    }
+
+    /// True while the wizard holds an invitation the person is working through: a plaque URL then
+    /// belongs to the activation, whatever device this phone already has.
+    var inWizard: Bool {
+        switch screen {
+        case .welcome, .ready, .tap:
+            return true
+        default:
+            return false
+        }
     }
 
     /// The code screen, unless this phone cannot activate at all.
@@ -120,7 +174,7 @@ final class ActivationModel: ObservableObject {
         }
         codeError = nil
         busy = true
-        defer { busy = false }
+        defer { endBusy() }
         do {
             let found = try await client.lookup(code: c)
             code = c
@@ -135,7 +189,7 @@ final class ActivationModel: ObservableObject {
     /// "Agree and continue": a fresh key, then bind.
     func agree() async {
         busy = true
-        defer { busy = false }
+        defer { endBusy() }
         if await bindNewKey() {
             screen = .ready
         }
@@ -170,7 +224,11 @@ final class ActivationModel: ObservableObject {
             screen = binding == nil ? .code(notice: nil) : .tap(problem: nil)
         case .relaunch:
             screen = .checking
-            Task { await start() }
+            if let again = onRelaunch {
+                again()
+            } else {
+                Task { await start() }
+            }
         case .none:
             break
         }
@@ -198,10 +256,36 @@ final class ActivationModel: ObservableObject {
         }
     }
 
-    /// A plaque URL -- read by the sheet, or opened as a link while the tap step is showing.
-    /// Anywhere else it is ignored: only the tap step completes an activation.
+    /// A plaque URL -- read by the sheet, or opened as a link -- on a phone that is NOT activated
+    /// (an activated one's go to the tap screens, AppModel). Where it lands (M16-16 hand-off 2):
+    ///   tap step, or "I'm ready" with the consent bound   completes the activation (the browser's
+    ///                                                      pending activation does the same)
+    ///   welcome (no consent yet)                           "Finish the setup steps first"
+    ///   anywhere else                                      "This app isn't set up yet", with Safari
     func plaqueURLOpened(_ url: URL) async {
-        guard case .tap = screen, !busy, let c = code, let b = binding, let key = pendingKey else {
+        if busy || screen == .checking {
+            queuedURL = url
+            return
+        }
+        switch screen {
+        case .tap:
+            break
+        case .ready where binding != nil:
+            screen = .tap(problem: nil)
+        case .welcome:
+            screen = .problem(Copy.Problems.notReady, retry: .toWelcome)
+            return
+        default:
+            // Only a plaque URL of this server, rebuilt from its checked query, is kept -- it is
+            // the URL "Open in browser" will hand to Safari.
+            guard let host = client.baseURL.host, let sun = PlaqueURL.sunQuery(of: url, host: host),
+                  let safe = PlaqueURL.url(base: client.baseURL, sun: sun) else {
+                return
+            }
+            screen = .notSetUp(safe)
+            return
+        }
+        guard let c = code, let b = binding, let key = pendingKey else {
             return
         }
         guard let host = client.baseURL.host, let sun = PlaqueURL.sunQuery(of: url, host: host) else {
@@ -209,7 +293,7 @@ final class ActivationModel: ObservableObject {
             return
         }
         busy = true
-        defer { busy = false }
+        defer { endBusy() }
         do {
             let done = try await client.complete(code: c, signer: key, binding: b, sun: sun)
             do {
@@ -224,6 +308,8 @@ final class ActivationModel: ObservableObject {
             }
             let second = invite?.secondDevice ?? false
             reset()
+            device = ActivatedDevice(identity: DeviceIdentity(deviceID: done.deviceId, signer: key),
+                                     storedName: done.employeeName)
             screen = .done(name: done.employeeName, secondDevice: second)
         } catch AppAPIError.refused(let code, _) {
             await completeRefused(code)
@@ -235,6 +321,24 @@ final class ActivationModel: ObservableObject {
     }
 
     // MARK: Internals
+
+    private func endBusy() {
+        busy = false
+        drainQueued()
+    }
+
+    /// Hands the link that waited to its router, once.
+    private func drainQueued() {
+        guard let url = queuedURL, !busy, screen != .checking else {
+            return
+        }
+        queuedURL = nil
+        if let route = onQueuedURL {
+            route(url)
+        } else {
+            Task { await self.plaqueURLOpened(url) }
+        }
+    }
 
     private func completeRefused(_ code: AppErrorCode) async {
         switch code {
@@ -317,7 +421,7 @@ extension ActivationModel.Screen {
         switch self {
         case .welcome, .ready, .tap:
             return BrandLook(brand)
-        case .checking, .code, .done, .already, .problem:
+        case .checking, .code, .done, .activated, .notSetUp, .problem:
             return BrandLook(.taptime)
         }
     }

@@ -16,15 +16,21 @@ import Foundation
 // own resolution is one second, far inside the 60 s window.
 final class ServerClock {
     /// The largest offset a measurement may set: one day either way (M16-16 review). A phone's
-    /// clock is off by seconds or minutes, at worst a time zone set as UTC; a Date header further
-    /// off than a day is not the server's clock but something answering in its place, and taking
-    /// it would make every later signature carry a time the server refuses.
+    /// clock is usually off by seconds or minutes -- a drifting clock, a date and time set by hand.
+    /// (A wrong TIME ZONE is not an offset at all: it changes how the phone shows the time, not the
+    /// instant it signs. The M16-16 version of this comment said otherwise; corrected in M16-17.)
+    /// A Date header further off than a day is not taken: it may be something answering in the
+    /// server's place, and taking it would make every later signature carry a time the server
+    /// refuses. It is REMEMBERED, though (lastAnswerWasFarOff): if the answers that refuse the
+    /// phone keep carrying such a header, the likelier story is the phone's own clock, and the
+    /// screen says so instead of "signed out" (M16-16 hand-off 4).
     static let maxOffset: TimeInterval = 24 * 60 * 60
 
     private let localNow: () -> Date
     private let lock = NSLock()
     private var offset: TimeInterval = 0
     private var measured = false
+    private var farOff = false
 
     init(localNow: @escaping () -> Date = Date.init) {
         self.localNow = localNow
@@ -54,6 +60,14 @@ final class ServerClock {
         return offset
     }
 
+    /// Whether the LAST readable Date header was more than maxOffset from the local clock -- the
+    /// one measurement that is refused. A later in-range answer clears it.
+    var lastAnswerWasFarOff: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return farOff
+    }
+
     /// Records the server's clock from one answer's Date header. A missing or unreadable header,
     /// or one more than maxOffset from the local clock, leaves the previous measurement in place
     /// (false).
@@ -64,13 +78,15 @@ final class ServerClock {
         }
         let mid = sentAt.addingTimeInterval(receivedAt.timeIntervalSince(sentAt) / 2)
         let candidate = server.timeIntervalSince(mid)
+        lock.lock()
+        defer { lock.unlock() }
         guard abs(candidate) <= ServerClock.maxOffset else {
+            farOff = true
             return false
         }
-        lock.lock()
+        farOff = false
         offset = candidate
         measured = true
-        lock.unlock()
         return true
     }
 

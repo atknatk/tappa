@@ -54,6 +54,36 @@ final class MemoryActivationStore: ActivationStore {
     func clear() { record = nil }
 }
 
+/// The press's location reading: what it answers, and whether it answers at once or when the test
+/// says so. Counts every reading started -- §4.2 says one per press and none otherwise.
+final class FakeLocation: TapLocating {
+    var answer = TapLocationReport(lat: 35.9189, lng: 14.4893, mock: false)
+    /// Hold the answer until deliver() (a fix that takes its time).
+    var hold = false
+    private(set) var reads: [Date] = []
+    private var pending: ((TapLocationReport) -> Void)?
+
+    func readOnce(pressedAt: Date, timeout: TimeInterval, completion: @escaping (TapLocationReport) -> Void) {
+        reads.append(pressedAt)
+        if hold {
+            pending = completion
+        } else {
+            completion(answer)
+        }
+    }
+
+    func deliver() {
+        let p = pending
+        pending = nil
+        p?(answer)
+    }
+}
+
+final class FakeBrowser: BrowserOpening {
+    private(set) var opened: [URL] = []
+    func open(_ url: URL) { opened.append(url) }
+}
+
 final class FakePlaqueReader: PlaqueReading {
     var isAvailable = true
     private(set) var alerts: [String] = []
@@ -170,6 +200,21 @@ final class FakeAppServer {
     ]
     /// Scripted answers for complete, consumed in order before the normal path runs.
     var completeScript: [(Int, String?)] = []
+    var meBody: [String: Any] = ["employeeName": "Maria Borg", "brand": [String: Any](), "direction": "in"]
+    var tapStartBody: [String: Any] = [
+        "employeeName": "Maria Borg", "locationName": "St Julians", "brand": ["accent": "DA291C"],
+        "direction": "in", "qr": false, "context": "signed-context-1",
+    ]
+    var tapBody: [String: Any] = [
+        "outcome": "recorded", "verdict": "ok", "direction": "in", "venue": "St Julians", "at": "09:12",
+        "businessType": "restaurant",
+    ]
+    /// Scripted answers for tap/start and tap, consumed in order before the normal path runs.
+    var tapStartScript: [(Int, String?)] = []
+    var tapScript: [(Int, String?)] = []
+    /// The sun queries tap/start was sent, and the bodies tap was sent (as JSON objects).
+    private(set) var tapStarts: [String] = []
+    private(set) var taps: [[String: Any]] = []
     /// Answer 401 to the next n signed reads, whatever they carry.
     var refuseReads = 0
     /// Answer 401 to the next n nonce'd requests.
@@ -246,12 +291,40 @@ final class FakeAppServer {
             challenge = nil
             completedSUN.append(j["sun"] as? String ?? "")
             return reply(200, object: ["deviceId": device, "employeeName": "Maria Borg"])
+        case AppClient.Path.tapStart:
+            guard readVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            guard method == "POST", fields(body) == ["sun"], let sun = json(body)["sun"] as? String else {
+                return reply(400, error: "bad_request")
+            }
+            tapStarts.append(sun)
+            if !tapStartScript.isEmpty {
+                let (status, code) = tapStartScript.removeFirst()
+                return reply(status, error: code)
+            }
+            return reply(200, object: tapStartBody)
+        case AppClient.Path.tap:
+            guard noncedVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            // The real surface decodes strictly: a field outside the contract is a 400.
+            let allowed: Set<String> = ["context", "want", "lat", "lng", "mockLocation", "occurredAt"]
+            guard method == "POST", Set(fields(body)).isSubset(of: allowed), json(body)["context"] is String else {
+                return reply(400, error: "bad_request")
+            }
+            taps.append(json(body))
+            if !tapScript.isEmpty {
+                let (status, code) = tapScript.removeFirst()
+                return reply(status, error: code)
+            }
+            return reply(200, object: tapBody)
         case AppClient.Path.me, AppClient.Path.nonce:
             guard readVerifies(method, path, body, headers) else {
                 return reply(401)
             }
             if path == AppClient.Path.me {
-                return reply(200, object: ["employeeName": "Maria Borg", "brand": [String: Any](), "direction": "in"])
+                return reply(200, object: meBody)
             }
             let n = Base64URL.encode(Data((0..<32).map { _ in UInt8.random(in: 0...255) }))
             liveNonces.insert(n)

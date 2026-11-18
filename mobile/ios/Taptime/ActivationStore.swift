@@ -51,18 +51,34 @@ struct KeychainActivationStore: ActivationStore {
         return try? JSONDecoder().decode(ActivationRecord.self, from: data)
     }
 
+    /// Replaces the record IN PLACE (M16-16 hand-off 3): SecItemUpdate when an item exists, so there
+    /// is no moment -- a crash, a failing add -- between a delete and an add where the phone holds
+    /// no record at all while the server holds an active device. SecItemAdd only when there is none.
+    /// The update rewrites the protection class too, so an item written before this rule keeps the
+    /// key's class.
     func save(_ record: ActivationRecord) throws {
         guard let data = try? JSONEncoder().encode(record) else {
             throw ActivationStoreError.encoding
         }
-        clear()
-        var q = query
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = DeviceKeyPolicy.protection
-        q[kSecAttrSynchronizable as String] = false
-        let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw ActivationStoreError.keychain(status)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: DeviceKeyPolicy.protection,
+        ]
+        var match = query
+        match[kSecAttrSynchronizable as String] = false
+        let updated = SecItemUpdate(match as CFDictionary, attributes as CFDictionary)
+        switch updated {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            var q = match
+            q.merge(attributes) { _, new in new }
+            let status = SecItemAdd(q as CFDictionary, nil)
+            guard status == errSecSuccess else {
+                throw ActivationStoreError.keychain(status)
+            }
+        default:
+            throw ActivationStoreError.keychain(updated)
         }
     }
 

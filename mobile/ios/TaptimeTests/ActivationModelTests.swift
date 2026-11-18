@@ -14,6 +14,8 @@ final class ActivationModelTests: XCTestCase {
     var store: MemoryActivationStore!
     var reader: FakePlaqueReader!
     var model: ActivationModel!
+    var tap: TapModel!
+    var app: AppModel!
 
     override func setUp() async throws {
         server = FakeAppServer(now: local.addingTimeInterval(600))
@@ -27,6 +29,16 @@ final class ActivationModelTests: XCTestCase {
                                session: AppClient.makeSession(protocolClasses: [MockURLProtocol.self]),
                                clock: ServerClock(localNow: { l }))
         model = ActivationModel(client: client, keys: keys, store: store, reader: reader)
+        tap = TapModel(client: client, reader: reader, location: FakeLocation(), browser: FakeBrowser(), now: { l })
+        app = AppModel(activation: model, tap: tap, browser: FakeBrowser())
+    }
+
+    /// The tap screen's greeting, or nil when the tap screen is not showing.
+    private var greeted: String? {
+        guard model.screen == .activated, case .tap(let v, _) = tap.screen else {
+            return nil
+        }
+        return v.employeeName
     }
 
     override func tearDown() async throws {
@@ -114,11 +126,134 @@ final class ActivationModelTests: XCTestCase {
         XCTAssertEqual(server.seen.count, before)
     }
 
-    func testAPlaqueURLOutsideTheTapStepIsIgnored() async {
-        await model.start()
-        await model.plaqueURLOpened(plaque)
-        XCTAssertEqual(model.screen, .code(notice: nil))
+    /// M16-16 hand-off 2: a plaque link on a phone that is not set up is no longer swallowed -- it
+    /// says so and offers Safari (the URL is unspent: nothing was sent).
+    func testAPlaqueURLOnAPhoneNotSetUpSaysSoAndSendsNothing() async {
+        await app.launch()
+        await app.open(plaque)
+        XCTAssertEqual(model.screen, .notSetUp(plaque))
         XCTAssertTrue(server.seen.isEmpty)
+        model.retry(.toCode)
+        XCTAssertEqual(model.screen, .code(notice: nil))
+    }
+
+    /// The not-set-up screen keeps only a plaque URL of this server, rebuilt from its checked
+    /// query; anything else is not kept for Safari at all.
+    func testTheNotSetUpScreenKeepsOnlyACheckedRebuiltPlaqueURL() async {
+        await app.launch()
+        await app.open(URL(string: "https://taptime.mt:444/t?tag=04&ctr=000001&cmac=00")!)
+        XCTAssertEqual(model.screen, .code(notice: nil), "a port: not a plaque URL")
+        await app.open(URL(string: "https://taptime.mt/t?tag=04&ctr=000001&cmac=00#frag")!)
+        XCTAssertEqual(model.screen, .code(notice: nil), "a fragment: not a plaque URL")
+        await app.open(URL(string: "https://Taptime.MT/t?tag=04A1B2C3D4E5F6&ctr=000012&cmac=8899AABBCCDDEEFF")!)
+        XCTAssertEqual(model.screen, .notSetUp(plaque), "rebuilt from the server's origin")
+    }
+
+    /// A plaque link that arrives while the model is busy waits and is handled ONCE when the work
+    /// is done (it used to be dropped). Here it arrives -- twice -- during "Agree and continue"'s
+    /// bind, which the test holds open; when bind answers, the link completes the activation, and
+    /// the second arrival did not run a second time (that would have left "This app isn't set up").
+    func testALinkDuringBusyWaitsAndIsHandledOnce() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        let s = server!
+        MockURLProtocol.handler = { req, body in
+            if req.url?.path == AppClient.Path.bind {
+                gate.wait()
+            }
+            return try s.handle(req, body)
+        }
+        await app.launch()   // the waiting link is routed through AppModel.open, as in the app
+        model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        let agreeing = Task { await model.agree() }
+        for _ in 0..<300 where !model.busy {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(model.busy)
+        await model.plaqueURLOpened(plaque)
+        await model.plaqueURLOpened(plaque)
+        XCTAssertEqual(model.screen, .welcome, "nothing happens while busy")
+        gate.signal()
+        await agreeing.value
+        for _ in 0..<300 where model.screen != .done(name: "Maria Borg", secondDevice: false) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(model.screen, .done(name: "Maria Borg", secondDevice: false))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(model.screen, .done(name: "Maria Borg", secondDevice: false), "handled once")
+        XCTAssertEqual(server.completedSUN.count, 1)
+    }
+
+    /// A link that arrives while the record is still being read (.checking) waits for it.
+    func testALinkDuringCheckingWaits() async throws {
+        await model.start()
+        model.retry(.relaunch)   // .checking, start() queued as a Task
+        XCTAssertEqual(model.screen, .checking)
+        await model.plaqueURLOpened(plaque)
+        for _ in 0..<300 where model.screen == .checking || model.screen == .code(notice: nil) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(model.screen, .notSetUp(plaque))
+        XCTAssertTrue(server.seen.isEmpty)
+    }
+
+    /// "I'm ready" with the consent bound: the plaque completes the activation, as the browser's
+    /// pending activation does on any /t tap.
+    func testOnTheReadyStepAPlaqueCompletesTheActivation() async {
+        await app.launch()
+        model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        await model.agree()
+        XCTAssertEqual(model.screen, .ready)
+        await app.open(plaque)
+        XCTAssertEqual(model.screen, .done(name: "Maria Borg", secondDevice: false))
+    }
+
+    /// Before the consent, the browser says "Finish the setup steps first"; so does the app.
+    func testOnWelcomeAPlaqueSaysFinishTheStepsFirst() async {
+        await app.launch()
+        model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        XCTAssertEqual(model.screen, .welcome)
+        await app.open(plaque)
+        XCTAssertEqual(model.screen, .problem(Copy.Problems.notReady, retry: .toWelcome))
+        XCTAssertEqual(server.seen.map(\.path), ["/app/v1/activate/lookup"])
+    }
+
+    /// After "Activation complete" the next plaque is an ordinary tap (§5): the tap screen of that
+    /// read, nothing recorded until the press.
+    func testAfterActivationTheNextPlaqueIsATap() async {
+        await app.launch()
+        await walkToTheTapStepFromHere()
+        await model.plaqueURLOpened(plaque)
+        XCTAssertEqual(model.screen, .done(name: "Maria Borg", secondDevice: false))
+        await app.open(plaque)
+        XCTAssertEqual(model.screen, .activated)
+        guard case .tap(let v, nil) = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
+        XCTAssertEqual(v.locationName, "St Julians")
+        XCTAssertTrue(server.taps.isEmpty)
+    }
+
+    /// "Activation complete" has no button; back in front, the app opens on its tap screen.
+    func testAfterActivationTheAppComesBackOnItsTapScreen() async throws {
+        await app.launch()
+        await walkToTheTapStepFromHere()
+        await model.plaqueURLOpened(plaque)
+        app.scenePhase(.background)
+        app.scenePhase(.active)
+        for _ in 0..<200 where greeted == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(greeted, "Maria Borg")
+    }
+
+    private func walkToTheTapStepFromHere() async {
+        model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
+        await model.submitCode()
+        await model.agree()
+        model.ready()
     }
 
     func testAnotherHostsInviteLinkIsNotSent() async {
@@ -160,8 +295,8 @@ final class ActivationModelTests: XCTestCase {
     func testAnActivatedPhoneIsGreetedByTheServersName() async {
         let k = SoftwareDeviceKey()
         store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Old Name", keyHandle: k.persistentHandle)
-        await model.start()
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        await app.launch()
+        XCTAssertEqual(greeted, "Maria Borg")
         XCTAssertNotNil(store.record)
     }
 
@@ -174,7 +309,7 @@ final class ActivationModelTests: XCTestCase {
         server.devicesSignedOut.insert(id)
         let rec = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         store.record = rec
-        await model.start()
+        await app.launch()
         XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
         XCTAssertEqual(store.record, rec)
         XCTAssertEqual(server.seen.count, 2)
@@ -186,11 +321,14 @@ final class ActivationModelTests: XCTestCase {
         let id = server.register(k)
         server.devicesSignedOut.insert(id)
         store.record = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: k.persistentHandle)
-        await model.start()
+        await app.launch()
         XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
         server.devicesSignedOut.remove(id)
-        await model.start()
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        await app.open(plaque)
+        XCTAssertEqual(model.screen, .activated, "the kept device answers again")
+        guard case .tap = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
     }
 
     /// Only a NEW successful activation replaces the kept record.
@@ -199,7 +337,7 @@ final class ActivationModelTests: XCTestCase {
         let id = server.register(old)
         server.devicesSignedOut.insert(id)
         store.record = ActivationRecord(deviceId: id, employeeName: "Maria Borg", keyHandle: old.persistentHandle)
-        await model.start()
+        await app.launch()
         XCTAssertEqual(model.screen, .code(notice: Copy.Problems.signedOut))
         model.codeInput = "https://taptime.mt/activate?code=\(FakeAppServer.code)"
         await model.submitCode()
@@ -218,8 +356,8 @@ final class ActivationModelTests: XCTestCase {
         let k = SoftwareDeviceKey()
         store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         server.refuseReads = 1
-        await model.start()
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        await app.launch()
+        XCTAssertEqual(greeted, "Maria Borg")
         XCTAssertNotNil(store.record)
     }
 
@@ -228,9 +366,9 @@ final class ActivationModelTests: XCTestCase {
         let k = SoftwareDeviceKey()
         store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         keys.failRestores = 1
-        await model.start()
+        await app.launch()
         XCTAssertEqual(keys.restores, 2)
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        XCTAssertEqual(greeted, "Maria Borg")
     }
 
     /// Two failures: a "try again" screen, the record kept, nothing sent; the next try works.
@@ -239,17 +377,17 @@ final class ActivationModelTests: XCTestCase {
         let rec = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         store.record = rec
         keys.failRestores = 2
-        await model.start()
+        await app.launch()
         XCTAssertEqual(keys.restores, 2, "one retry, no more")
         XCTAssertEqual(model.screen, .problem(Copy.Problems.keyUnreadable, retry: .relaunch))
         XCTAssertEqual(store.record, rec)
         XCTAssertTrue(server.seen.isEmpty)
 
         model.retry(.relaunch)
-        for _ in 0..<200 where model.screen != .already(name: "Maria Borg") {
+        for _ in 0..<200 where greeted == nil {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        XCTAssertEqual(greeted, "Maria Borg", "the relaunch lands on the tap screen")
         XCTAssertEqual(store.record, rec)
     }
 
@@ -259,7 +397,7 @@ final class ActivationModelTests: XCTestCase {
         let rec = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         store.record = rec
         keys.failRestores = 2
-        await model.start()
+        await app.launch()
         model.retry(.toCode)
         XCTAssertEqual(model.screen, .code(notice: nil))
         XCTAssertEqual(store.record, rec)
@@ -269,8 +407,8 @@ final class ActivationModelTests: XCTestCase {
         let k = SoftwareDeviceKey()
         store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
         MockURLProtocol.handler = { _, _ in throw URLError(.notConnectedToInternet) }
-        await model.start()
-        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        await app.launch()
+        XCTAssertEqual(greeted, "Maria Borg")
         XCTAssertNotNil(store.record)
     }
 }
@@ -311,7 +449,7 @@ final class PrimaryLookTests: XCTestCase {
     func testEveryOtherScreenIsTaptimesGreen() {
         let others: [ActivationModel.Screen] = [
             .checking, .code(notice: nil), .code(notice: Copy.Problems.signedOut), .done(name: "A", secondDevice: false),
-            .already(name: "A"), .problem(Copy.Problems.badLink, retry: .toCode),
+            .activated, .notSetUp(URL(string: "https://taptime.mt/t?tag=04")!), .problem(Copy.Problems.badLink, retry: .toCode),
         ]
         for screen in others {
             XCTAssertFalse(screen.primaryLook(brand).accented, "\(screen)")

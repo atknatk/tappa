@@ -27,6 +27,20 @@
 		0A000000000000000000020D /* AppClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000010D /* AppClientTests.swift */; };
 		0A000000000000000000020E /* ActivationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000010E /* ActivationModelTests.swift */; };
 		0A0000000000000000000280 /* appdevice_vectors.json in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000180 /* appdevice_vectors.json */; };
+		0A0000000000000000000210 /* Typeface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000110 /* Typeface.swift */; };
+		0A0000000000000000000211 /* TapCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000111 /* TapCopy.swift */; };
+		0A0000000000000000000212 /* TapFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000112 /* TapFlow.swift */; };
+		0A0000000000000000000213 /* TapViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000113 /* TapViews.swift */; };
+		0A0000000000000000000214 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000114 /* AppModel.swift */; };
+		0A000000000000000000020F /* TapModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000010F /* TapModelTests.swift */; };
+		0A0000000000000000000281 /* space-grotesk-v22-latin-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */; };
+		0A0000000000000000000282 /* space-grotesk-v22-latin-ext-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */; };
+		0A0000000000000000000283 /* ibm-plex-mono-v20-latin-400.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */; };
+		0A0000000000000000000284 /* ibm-plex-mono-v20-latin-ext-400.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000184 /* ibm-plex-mono-v20-latin-ext-400.woff2 */; };
+		0A0000000000000000000285 /* ibm-plex-mono-v20-latin-700.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000185 /* ibm-plex-mono-v20-latin-700.woff2 */; };
+		0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */; };
+		0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */; };
+		0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000188 /* OFL-IBMPlexMono.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +78,20 @@
 		0A000000000000000000010D /* AppClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppClientTests.swift; sourceTree = "<group>"; };
 		0A000000000000000000010E /* ActivationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationModelTests.swift; sourceTree = "<group>"; };
 		0A0000000000000000000180 /* appdevice_vectors.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = appdevice_vectors.json; path = ../../test/fixtures/appdevice_vectors.json; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000110 /* Typeface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typeface.swift; sourceTree = "<group>"; };
+		0A0000000000000000000111 /* TapCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapCopy.swift; sourceTree = "<group>"; };
+		0A0000000000000000000112 /* TapFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapFlow.swift; sourceTree = "<group>"; };
+		0A0000000000000000000113 /* TapViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapViews.swift; sourceTree = "<group>"; };
+		0A0000000000000000000114 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		0A000000000000000000010F /* TapModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapModelTests.swift; sourceTree = "<group>"; };
+		0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-wght.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-ext-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-ext-wght.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-400.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-400.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000184 /* ibm-plex-mono-v20-latin-ext-400.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-ext-400.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-ext-400.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000185 /* ibm-plex-mono-v20-latin-700.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-700.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-700.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-ext-700.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-ext-700.woff2; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-SpaceGrotesk.txt; path = ../../web/static/fonts/OFL-SpaceGrotesk.txt; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000188 /* OFL-IBMPlexMono.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-IBMPlexMono.txt; path = ../../web/static/fonts/OFL-IBMPlexMono.txt; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,6 +146,19 @@
 				0A0000000000000000000107 /* ActivationCopy.swift */,
 				0A0000000000000000000108 /* ActivationModel.swift */,
 				0A0000000000000000000109 /* ActivationViews.swift */,
+				0A0000000000000000000110 /* Typeface.swift */,
+				0A0000000000000000000111 /* TapCopy.swift */,
+				0A0000000000000000000112 /* TapFlow.swift */,
+				0A0000000000000000000113 /* TapViews.swift */,
+				0A0000000000000000000114 /* AppModel.swift */,
+				0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */,
+				0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */,
+				0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */,
+				0A0000000000000000000184 /* ibm-plex-mono-v20-latin-ext-400.woff2 */,
+				0A0000000000000000000185 /* ibm-plex-mono-v20-latin-700.woff2 */,
+				0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */,
+				0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */,
+				0A0000000000000000000188 /* OFL-IBMPlexMono.txt */,
 				0A0000000000000000000013 /* Info.plist */,
 				0A0000000000000000000014 /* Taptime.entitlements */,
 			);
@@ -133,6 +174,7 @@
 				0A000000000000000000010C /* DeviceKeyPolicyTests.swift */,
 				0A000000000000000000010D /* AppClientTests.swift */,
 				0A000000000000000000010E /* ActivationModelTests.swift */,
+				0A000000000000000000010F /* TapModelTests.swift */,
 				0A0000000000000000000180 /* appdevice_vectors.json */,
 			);
 			path = TaptimeTests;
@@ -219,6 +261,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A0000000000000000000281 /* space-grotesk-v22-latin-wght.woff2 in Resources */,
+				0A0000000000000000000282 /* space-grotesk-v22-latin-ext-wght.woff2 in Resources */,
+				0A0000000000000000000283 /* ibm-plex-mono-v20-latin-400.woff2 in Resources */,
+				0A0000000000000000000284 /* ibm-plex-mono-v20-latin-ext-400.woff2 in Resources */,
+				0A0000000000000000000285 /* ibm-plex-mono-v20-latin-700.woff2 in Resources */,
+				0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */,
+				0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */,
+				0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +300,11 @@
 				0A0000000000000000000207 /* ActivationCopy.swift in Sources */,
 				0A0000000000000000000208 /* ActivationModel.swift in Sources */,
 				0A0000000000000000000209 /* ActivationViews.swift in Sources */,
+				0A0000000000000000000210 /* Typeface.swift in Sources */,
+				0A0000000000000000000211 /* TapCopy.swift in Sources */,
+				0A0000000000000000000212 /* TapFlow.swift in Sources */,
+				0A0000000000000000000213 /* TapViews.swift in Sources */,
+				0A0000000000000000000214 /* AppModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,6 +318,7 @@
 				0A000000000000000000020C /* DeviceKeyPolicyTests.swift in Sources */,
 				0A000000000000000000020D /* AppClientTests.swift in Sources */,
 				0A000000000000000000020E /* ActivationModelTests.swift in Sources */,
+				0A000000000000000000020F /* TapModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

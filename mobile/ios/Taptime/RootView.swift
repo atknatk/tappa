@@ -1,48 +1,59 @@
 import SwiftUI
 
 // The app's one window: the activation screens until this phone is activated (M16-16), then the
-// "already set up" screen that M16-17's tap screen replaces.
+// tap screens (M16-17). Where a plaque URL goes and what the app shows when it comes back to the
+// front is AppModel's; this view only draws the screen each model says.
 struct RootView: View {
-    @StateObject var model: ActivationModel
-    let baseURL: URL
+    @ObservedObject var app: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        content
-            .task { await model.start() }
-            // A plaque link opened while the tap step is showing completes the activation like a
-            // read from the scan sheet; anywhere else the model ignores it (M16-17 routes the rest).
-            .onOpenURL { url in Task { await model.plaqueURLOpened(url) } }
+        RootContent(app: app, activation: app.activation, tap: app.tap)
+            .task { await app.launch() }
+            .onOpenURL { url in
+                // Synchronously first: the link owns this return to the front (AppModel.linkArrived).
+                app.linkArrived()
+                Task { await app.open(url) }
+            }
+            .onChange(of: scenePhase) { phase in app.scenePhase(phase) }
     }
+}
 
-    @ViewBuilder
-    private var content: some View {
+private struct RootContent: View {
+    let app: AppModel
+    @ObservedObject var activation: ActivationModel
+    @ObservedObject var tap: TapModel
+
+    var body: some View {
         // The header and marks follow the brand on every branded screen; the primary button
         // follows primaryLook (accent only on the wizard's steps 1-3).
-        let look = BrandLook(model.brand)
-        let button = model.screen.primaryLook(model.brand)
-        switch model.screen {
+        let look = BrandLook(activation.brand)
+        let button = activation.screen.primaryLook(activation.brand)
+        switch activation.screen {
         case .checking:
             ScreenFrame(look: BrandLook(.taptime)) { EmptyView() }
+        case .activated:
+            TapRootView(model: tap)
+        case .notSetUp(let url):
+            NotSetUpScreen(model: activation, url: url) { app.openInBrowser($0) }
         case .code(let notice):
-            CodeScreen(model: model, notice: notice, look: button)
+            CodeScreen(model: activation, notice: notice, look: button)
         case .welcome:
-            if let invite = model.invite {
-                WelcomeScreen(model: model, invite: invite, look: button, baseURL: baseURL)
+            if let invite = activation.invite {
+                WelcomeScreen(model: activation, invite: invite, look: button, baseURL: activation.baseURL)
             }
         case .ready:
-            if let invite = model.invite {
-                ReadyScreen(model: model, invite: invite, look: button)
+            if let invite = activation.invite {
+                ReadyScreen(model: activation, invite: invite, look: button)
             }
         case .tap(let problem):
-            if let invite = model.invite {
-                TapStepScreen(model: model, invite: invite, look: button, problem: problem)
+            if let invite = activation.invite {
+                TapStepScreen(model: activation, invite: invite, look: button, problem: problem)
             }
         case .done(let name, let second):
             DoneScreen(name: name, secondDevice: second, look: look)
-        case .already(let name):
-            AlreadyScreen(name: name, look: look)
         case .problem(let p, let retry):
-            ProblemScreen(model: model, problem: p, retry: retry, look: button)
+            ProblemScreen(model: activation, problem: p, retry: retry, look: button)
         }
     }
 }

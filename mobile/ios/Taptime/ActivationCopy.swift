@@ -96,15 +96,6 @@ enum Copy {
         static let close = "You can close the app." // [adapted: "You can close this page."]
     }
 
-    enum Already {
-        static let label = "Setup"
-        static let stamp = "Activated"
-        static let title = "This phone is already set up"
-        static func signedInAs(_ name: String) -> String { "Signed in as \(name)" }
-        static let notice = "Tap a plaque to check in. There is nothing else to do here."
-        static let close = "You can close the app." // [adapted]
-    }
-
     struct Problem: Equatable {
         let title: String
         let message: String

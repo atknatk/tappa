@@ -2,7 +2,7 @@ import Foundation
 
 // THE /app/v1 CLIENT (M16-07's wire contract, docs/plan/m16-mobil.md "Tel sözleşmesi"). One
 // surface, the browser flow's twin: activate/lookup, activate/bind, activate/complete, and the
-// signed requests every later screen uses (nonce, me, revoke; tap/start and tap are M16-17's).
+// signed requests every later screen uses (nonce, me, tap/start, tap, revoke).
 //
 // THE SERVER DECODES STRICTLY: an unknown field is a 400 (DisallowUnknownFields), and it matches
 // field names case-insensitively. So every request body here is a struct with exactly the
@@ -67,6 +67,32 @@ struct MeResponse: Decodable, Equatable {
     let direction: String
 }
 
+/// GET /t's twin: the tap screen of THIS plaque read. Nothing was recorded and no counter moved.
+struct TapStartResponse: Decodable, Equatable {
+    let employeeName: String
+    /// The TAPPED venue, "" for another business's plaque (the screen then has no venue line).
+    let locationName: String
+    let brand: AppBrand
+    /// "in", "out", or "" for the direction-neutral "Tap".
+    let direction: String
+    let qr: Bool
+    /// The signed tap context POST /app/v1/tap carries back, bound to this device.
+    let context: String
+}
+
+/// POST /api/checkin's answer, as the result screen draws it.
+struct TapResponse: Decodable, Equatable {
+    let outcome: String
+    /// ok / flag / reject / ignored.
+    let verdict: String
+    let direction: String
+    let venue: String
+    /// HH:MM in the business's time zone, already formatted by the server.
+    let at: String
+    let businessType: String
+    let practice: Bool?
+}
+
 private struct LookupRequest: Encodable {
     let code: String
 }
@@ -82,6 +108,21 @@ private struct CompleteRequest: Encodable {
     let publicKey: String
     let platform: String
     let sun: String
+}
+
+private struct TapStartRequest: Encodable {
+    let sun: String
+}
+
+/// The press: the signed context, the direction pressed, and at most one fix with its mock report.
+/// Every optional the press does not have is OMITTED (synthesised Encodable writes nil optionals
+/// with encodeIfPresent), so "no fix" is no lat/lng at all, never a null.
+struct TapRequest: Encodable, Equatable {
+    let context: String
+    let want: String?
+    let lat: Double?
+    let lng: Double?
+    let mockLocation: Bool?
 }
 
 private struct ErrorBody: Decodable {
@@ -140,6 +181,8 @@ final class AppClient {
         static let complete = "/app/v1/activate/complete"
         static let nonce = "/app/v1/nonce"
         static let me = "/app/v1/me"
+        static let tapStart = "/app/v1/tap/start"
+        static let tap = "/app/v1/tap"
         static let revoke = "/app/v1/revoke"
     }
 
@@ -234,6 +277,27 @@ final class AppClient {
 
     func me(_ device: DeviceIdentity) async throws -> MeResponse {
         let (data, resp) = try await signedRead("GET", Path.me, body: Data(), device: device)
+        return try decode(data, resp)
+    }
+
+    /// The plaque read's screen: a signed read (nothing recorded, no counter spent), retried once on
+    /// a 401 like every signed read.
+    func tapStart(_ device: DeviceIdentity, sun: String) async throws -> TapStartResponse {
+        let body = try encode(TapStartRequest(sun: sun))
+        let (data, resp) = try await signedRead("POST", Path.tapStart, body: body, device: device)
+        let r: TapStartResponse = try decode(data, resp)
+        guard !r.context.isEmpty else {
+            throw AppAPIError.unexpected(status: resp.statusCode)
+        }
+        return r
+    }
+
+    /// THE APP'S ONE WRITER. Nonce-signed; a 401 is retried once with a new nonce (a refused
+    /// signature records nothing). Any other failure is NOT retried here: an answer lost on the way
+    /// back may belong to a recorded tap, and only a new physical read may follow it.
+    func tap(_ device: DeviceIdentity, _ press: TapRequest) async throws -> TapResponse {
+        let body = try encode(press)
+        let (data, resp) = try await signedWithNonce("POST", Path.tap, body: body, device: device)
         return try decode(data, resp)
     }
 

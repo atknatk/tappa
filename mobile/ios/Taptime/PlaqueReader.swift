@@ -74,15 +74,30 @@ enum PlaqueURL {
     static let path = "/t"
 
     /// The SUN query of a plaque URL on this server, as written by the chip (percent-encoding
-    /// untouched), or nil for any other URL -- a URL of another host is never sent anywhere.
+    /// untouched), or nil for any other URL -- a URL of another host is never sent anywhere. The
+    /// chip writes https://<host>/t?<query> and nothing else, so a port, a user, a password or a
+    /// fragment makes it not a plaque URL (M16-17 review).
     static func sunQuery(of url: URL, host: String) -> String? {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               comps.scheme?.lowercased() == "https",
               comps.host?.lowercased() == host.lowercased(),
+              comps.port == nil, comps.user == nil, comps.password == nil, comps.fragment == nil,
               comps.percentEncodedPath == path,
               let query = comps.percentEncodedQuery, !query.isEmpty else {
             return nil
         }
         return query
+    }
+
+    /// The plaque URL rebuilt from THIS server's origin and a query sunQuery let through -- what
+    /// "Open in browser" opens. The URL that arrived is never handed to the system as it came.
+    static func url(base: URL, sun: String) -> URL? {
+        guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        comps.percentEncodedPath = path
+        comps.percentEncodedQuery = sun
+        comps.fragment = nil
+        return comps.url
     }
 }
