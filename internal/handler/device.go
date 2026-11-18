@@ -86,8 +86,10 @@ func coarseDevice(ua string) string {
 
 // embeddedBrowser reports whether a User-Agent has the SHAPE of a browser embedded
 // in another app (a mail or chat app's own window) rather than the phone's browser.
-// It exists for one log line (logCookieLost), so the next dropped activation cookie
-// says whether this was the cause; nothing branches on it.
+// It exists for diagnosis only — the lost-cookie and finish-here log lines
+// (logCookieLost, logFinishHere) and the activation.consented audit detail — so the
+// next activation that lands in the wrong browser says whether this was the cause;
+// nothing branches on it.
 //
 // Two structural signals, no list of app names:
 //
