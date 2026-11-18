@@ -152,15 +152,30 @@ class ActivationFlowTest {
     }
 
     @Test
-    fun aSignedOutPhoneDropsItsDeviceAndKeyAfterTheRetry() {
+    fun aSignedOutPhoneKeepsItsRecordAndKeyUntilANewActivation() {
         val done = flow.complete(bound(), sun(1)) as CompleteResult.Activated
-        server.devices.clear() // the panel's "Sign out their phones"
+        server.devices.clear() // the panel's "Sign out their phones" -- or a server fault answering 401
         server.seen.clear()
         assertEquals(ActivationFlow.HomeResult.SignedOut, flow.home())
-        assertEquals(listOf("GET /app/v1/me", "GET /app/v1/me"), server.seen)
-        assertNull(state.device)
-        assertTrue(done.device.keyAlias in keys.deleted)
+        assertEquals("one 401, one retry", listOf("GET /app/v1/me", "GET /app/v1/me"), server.seen)
+        assertEquals("the record is kept", done.device, state.device)
+        assertTrue("the key is kept", keys.deleted.isEmpty())
+        assertEquals("and the next launch asks again", ActivationFlow.HomeResult.SignedOut, flow.home())
+        // Only a new successful activation replaces the record, and then the old key goes.
+        val again = flow.complete(bound(), sun(2)) as CompleteResult.Activated
+        assertEquals(again.device, state.device)
+        assertEquals(listOf(done.device.keyAlias), keys.deleted)
+        assertTrue(flow.home() is ActivationFlow.HomeResult.SetUp)
+    }
+
+    @Test
+    fun aRecordWhoseKeyIsGoneIsDropped() {
+        val done = flow.complete(bound(), sun(1)) as CompleteResult.Activated
+        keys.live.remove(done.device.keyAlias)
+        server.seen.clear()
         assertEquals(ActivationFlow.HomeResult.NotActivated, flow.home())
+        assertNull(state.device)
+        assertTrue("nothing was asked of the server", server.seen.isEmpty())
     }
 
     @Test

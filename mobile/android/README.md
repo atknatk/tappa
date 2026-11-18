@@ -357,9 +357,14 @@ in it logs. The clock-skew contract (card M16-12): every reply's `Date` re-measu
 server-minus-phone offset (`wire/ServerClock.kt`) and signed reads carry the corrected second;
 a 401 to a signed read or a nonce-signed request is retried **once** (the 401's own `Date` is
 the fresh measurement; a nonce-signed retry fetches a fresh nonce) and only the second 401 means
-signed out. On launch the app asks `GET /app/v1/me`; a signed-out answer drops the stored device
-and its key and shows the code screen with *"This phone was signed out"*. No answer at all keeps
-the device (offline is not signed out).
+signed out. On launch the app asks `GET /app/v1/me`; a signed-out answer shows the code screen with
+*"This phone was signed out"* and **keeps the stored device and its key** (security review,
+2026-11-18, same rule as iOS): a 401 is also what a server-side fault — an RLS or GRANT
+regression that makes the resolver miss every device — answers to every phone at once, and a
+deleted Keystore key cannot come back. Only a new successful activation replaces the record (and
+then deletes the old key). A record whose Keystore entry is already gone is dropped — that state
+is permanent. No answer at all keeps the device (offline is not signed out). Mutation
+(2026-11-18): the deletion on 401 put back → `aSignedOutPhoneKeepsItsRecordAndKeyUntilANewActivation` red.
 
 Where the app keeps what: the device id, the key's alias, the backing and the person's name in
 private preferences (no secret among them); the invite code, the activation id and the
@@ -390,7 +395,7 @@ adapter itself is therefore not run on the JVM; it is the device tour's (M16-14)
 | `WireTest` | the request bodies byte for byte; the writer's escaping; the contract's reply shapes; refusals of missing / mistyped fields |
 | `ClockSkewTest` | the `Date` offset; a skewed read retried once with the server's second; a second 401 is signed out with no third try; refusals and no-answer are not retried; a nonce-signed retry uses a fresh nonce |
 | `InputsTest` | the code from a link or alone; only `<base>/t` yields a SUN query; the accent's label and edge equal ADR 0023 §3's table |
-| `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone drops device and key |
+| `ActivationFlowTest` | the whole activation over a socket against `FakeAppServer` (`com.sun.net.httpserver`, the JDK's — usable on the unit-test JVM, measured): request order, the bound key is the one activated, replay → tap again, no counter → not a touch, `new_key_required` → fresh pair, a moved binding → back to consent with no counter spent, a phone **five minutes slow** still set up after one corrected retry, a signed-out phone keeps its record and key until a new activation, a record without its key is dropped, a software key is never bound |
 | `MergedManifestTest` | M16-11's, unchanged |
 
 The fake server builds the canonical text **itself** (string concatenation from the format's

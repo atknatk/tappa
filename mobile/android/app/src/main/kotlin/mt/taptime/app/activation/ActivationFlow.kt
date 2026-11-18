@@ -149,9 +149,17 @@ class ActivationFlow(
 
     /**
      * The launch check: is this phone still a device? GET /app/v1/me, signed. Only a 401 that
-     * survives AppClient's one clock-corrected retry means signed out (the clock-skew contract);
-     * the local device and its key are then dropped and the person activates again. No answer at
-     * all keeps the stored device: being offline is not being signed out.
+     * survives AppClient's one clock-corrected retry means signed out (the clock-skew contract):
+     * the phone shows "This phone was signed out" and the way to activate again. No answer at all
+     * keeps the stored device: being offline is not being signed out.
+     *
+     * A 401 NEVER DELETES THE RECORD OR THE KEY (security review, 2026-11-18; the iOS twin keeps
+     * the same rule). A 401 is the answer to a revoked device, but also to a server-side fault --
+     * an RLS or GRANT regression that makes the resolver miss every device answers 401 to every
+     * phone at once -- and a deleted Keystore key cannot come back. Keeping it costs nothing: the
+     * server refuses a revoked key whatever the phone keeps. Only a NEW successful activation
+     * replaces the record (complete). The one case that is dropped is a record whose Keystore
+     * entry is already gone: that state is permanent, nothing can ever sign for it.
      */
     fun home(): HomeResult {
         val device = state.active() ?: return HomeResult.NotActivated
@@ -166,11 +174,7 @@ class ActivationFlow(
                 if (fresh != device) state.save(fresh)
                 HomeResult.SetUp(fresh)
             }
-            Outcome.Unauthenticated -> {
-                state.clear()
-                drop(device.keyAlias)
-                HomeResult.SignedOut
-            }
+            Outcome.Unauthenticated -> HomeResult.SignedOut
             else -> HomeResult.SetUp(device)
         }
     }
