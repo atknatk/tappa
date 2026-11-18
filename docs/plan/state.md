@@ -1773,11 +1773,11 @@ yazılır.
 | M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | **done** | `fc04f789` + `d7a8a21d`; iki mercek ONAY (R1 muafiyeti yola bağlı, ADR 0012 eki); Team ID + Android imza özeti env'den — **canlıda doldurulmadı** (uygulama `/t`'yi karşılayınca) |
 | M16-09 | İptal yolları uygulama cihazlarını da kapatır | **done** | `9a14f415` + `abcfac8e`; güvenlik ONAY, üçüncü göz RED (WARN sahipsiz → M16-07'ye karar) → düzeltildi; telefon çıkışı tarayıcı + uygulamayı tek transaction'da kapatır, deaktivasyon hiçbirini |
 | M16-10 | Faz A kapanışı | todo |  |
-| M16-11 | Android iskeleti (`mobile/android/`) | todo |  |
+| M16-11 | Android iskeleti (`mobile/android/`) | done | `06cfe19d` + `b166645c` (emoji2), merge `209f0215` |
 | M16-12 | Android cihaz anahtarı ve aktivasyon | todo |  |
 | M16-13 | Android tap ekranı: NFC, tek seferlik konum, sahte konum | todo |  |
 | M16-14 | Faz B kapanışı — gerçek cihaz turu | todo |  |
-| M16-15 | iOS iskeleti (`mobile/ios/`) | todo |  |
+| M16-15 | iOS iskeleti (`mobile/ios/`) | done | `eec78d13`, merge `c88a1662` |
 | M16-16 | iOS cihaz anahtarı ve aktivasyon | todo |  |
 | M16-17 | iOS tap ekranı: Universal Link + Core NFC ön plan okuma | todo |  |
 | M16-18 | Faz C kapanışı — gerçek cihaz turu | todo |  |
@@ -1808,6 +1808,13 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 ### 2026-11-14 (Malta Calculator, dal `api-timesheets` + `api-oauth`) — #36 timesheets PR #38, #37 OAuth ADR 0047 kabul
 
 **Yapılan:** #36 `GET /v1/timesheets` (ADR 0046, API-14) yazıldı, beş denetim turundan geçti, PR #38 açıldı (CI yeşil). Yerel sandbox tarifi ve karar motorundan geçen bir haftalık seed (57 kayıt). #37 ADR 0047 üç denetim turuyla kabul edildi; faz 1 (veri katmanı) yazıldı. **Öğrenilen:** (1) seed'in 60 sn debounce beklemesi tur başından değil kişi başına, DB saatinden ölçülmeli (tur başı ölçüm yük altında `ignored` üretti ve işletmeyi yaktı — `transactions` silinemez). (2) `cmd/opadmin` `TestTablesLock_` build tag'li test dosyalarını da tarar. (3) Yerel Go 1.27.1: staticcheck 2025.1.1 okuyamaz → `GOTOOLCHAIN=go1.26.11 make check`; ama `make fmt`'nin `gofmt`'i yerel ikilidir ve iki dosyayı yeniden biçimler — commit'ten önce geri al. (4) ADR sağlamlaştırması 3. turdan sonra durduruldu (ders 11); kalan doğrulama uygulama testleriyle. **Kalan:** #36 birleştirmesi (kullanıcı) · #37 faz 1 denetimi, faz 2–4 · Malta Calculator'a sorular (#37 yorumu): yerel callback portu, işletme başına çok hesap.
+### 2026-11-18 (M16, dal `plan/m16-mobil`) — `main` birleşti (00108–00110), M16-11 + M16-15 done, M16-10 CI'da
+
+- **Ne:** `origin/main` (`d28014d6`, OAuth 00104–00107 canlı) birleşti (`2d79609c`); M16 migration'ları **00108–00110** (`8c0b4a36`). Birleşme iki kapıyı kızarttı: R7M mobil log kolu main'in `scripts/sandbox-local-oauth.sh`'ine düştü (`d2bc1763`, kör nokta T323) ve TRUNCATE yoklaması closure 40 ilişkiye vardı (`6634be5b`, 25→20 ms). M16-10 uçtan uca test (`cb18ef3c`, ADR notu `1b4d63cd`, `c0f0d1fe`) iki mercek ONAY; fazın büyük koşusu CI'da. Kullanıcı Faz B + C'yi paralel başlattı: M16-11 Android iskeleti (BOM 2026.06.01 — Compose 1.12 compileSdk 37 ister; emoji2 font sağlayıcısı kaldırıldı) ve M16-15 iOS iskeleti (hedef iOS 15.0, iPhone 7 dahil; Apple hesabına dokunulmadı) tek mercek ONAY, birleşti.
+- **Kullanıcıdan:** Apple Team ID `P6PM935BK2` (Everva, Xcode'da Admin); iPhone 17 Pro (iOS 27.2.1) Wi-Fi ile eşleşti, Developer Mode açık.
+- **Devirler:** Android JVM CI → M16-12 kartı; `android.hardware.location` required → M16-13/M16-27; iOS `readingAvailable` + fontlar + NDEF/ITMS-90778 ölçümü → M16-17/18. Canlıya çıkışta ADR 0048 `scoped-access.sql` yeniden koşulmalı (yeni tablolar).
+- **Sıradaki:** M16-10 CI yeşilse done → sevk kararı kullanıcıya; M16-12 + M16-16 (cihaz anahtarı + aktivasyon) paralel.
+
 ### 2026-11-14 gece (M16 Faz A) — M16-05, M16-06 done; Q35/Q36/Q40/Q41 cevaplandı
 
 - **Ne:** M16-05 (`internal/appdevice`) ve M16-06 (sahte konum baseline'ı + panel eksik baseline'ı tamamlar, karar (d)) birleşti. Kullanıcı dört soruyu öneriyle cevapladı: Q35 *Taptime* · `mt.taptime.app`; Q36 Compose (material3 yok), QR kütüphanesi yok, Play Integrity yalnız Faz E, Android JVM CI'da / iOS yerelde; Q40 (a) kişi başına tek kimlik, `/activate` uygulamaya bağlanmaz; Q41 (a) eski iPhone'da tek ekran tek düğme. Açık kalanlar: Q37, Q38, Q39, Q42.

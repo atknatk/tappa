@@ -845,6 +845,11 @@ taramasından geçen boş bir personel uygulaması.
 > farkı hesaplar ve **düzeltilmiş saatle** imzalar; (2) bir 401'i *"oturum kapandı / yeniden aktive ol"* diye ancak taze
 > bir fark ölçümüyle **bir kez yeniden denedikten** sonra yorumlar.
 
+> **M16-11 devri (denetim B-1, 2026-11-18).** Q36 (d) *"Android JVM testleri CI'da"* bu kartındır: `ci.yml`'e
+> `mobile/android` için `testDebugUnitTest` işi (yalnız birinci parti action'lar — `ci.yml:7-8`; JDK `actions/setup-java`,
+> Gradle 9.7.1 sağlama toplamıyla indirilir, runner imajındaki SDK 36 ölçülür). Rölenin (`android/`) testleri de aynı işe
+> girebilir. Kabul: dal push'unda iş yeşil ve `MergedManifestTest` + bu kartın vektör testleri CI çıktısında görünür.
+
 ## M16-13 — Android tap ekranı: NFC, tek seferlik konum, sahte konum
 
 - **Bağımlılık:** M16-12, M16-08
@@ -880,6 +885,11 @@ FAIL verir (M16-02: dosya bazlı ağ) — zamanlayıcılar ayrı bir görünüm 
 > **eş işletme plaketi** ayrımı gerekir: tarayıcıda `tenant.PageBrand.PeerTag` doluysa logo `/t/logo/<sha>?tag=<uid>`
 > (eşin logosu, `holding_logo` üzerinden) yolundan gelir, değilse oturumun kendi işletmesinin yolundan. `tap/start`'ın
 > `brand`'i bugün bu ayrımı taşımaz; logo yolu eklenirken taşımalıdır.
+
+> **M16-11 devri (denetim B-3, 2026-11-18).** Konum izinleri Play'de `android.hardware.location`'ı örtük **zorunlu**
+> özellik yapar (`aapt2 dump badging`: `uses-implied-feature … required`) — konum donanımı olmayan cihaz uygulamayı
+> göremez. Bu kart ya da M16-27 `<uses-feature android:name="android.hardware.location" android:required="false"/>`
+> yazıp yazmamaya karar verir. `android.hardware.nfc` zaten zorunlu değil (NFC'siz telefon kurabilir, ADR 0045).
 
 ## M16-14 — Faz B kapanışı — gerçek cihaz turu
 
@@ -990,6 +1000,13 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 > **eş işletme plaketi** ayrımı gerekir: tarayıcıda `tenant.PageBrand.PeerTag` doluysa logo `/t/logo/<sha>?tag=<uid>`
 > (eşin logosu, `holding_logo` üzerinden) yolundan gelir, değilse oturumun kendi işletmesinin yolundan. `tap/start`'ın
 > `brand`'i bugün bu ayrımı taşımaz; logo yolu eklenirken taşımalıdır.
+
+> **M16-15 devirleri (denetim, 2026-11-18).** (1) Dağıtım hedefi iOS 15.0; iPhone 6s/6s Plus/SE (1. nesil) iOS 15
+> çalıştırır ama Core NFC okuyamaz ve `UIRequiredDeviceCapabilities`'te `nfc` **bilerek yok** (Faz D canlı QR onlara
+> açık) → okuma başlatmadan önce `NFCNDEFReaderSession.readingAvailable` kontrolü, yoksa QR/tarayıcı yolu. (2) Wordmark
+> bugün sistem fontu (`RootView.swift:12,15`); tap ekranı Space Grotesk + IBM Plex Mono'yu gömer (skill `tappa-brand`).
+> (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçülmedi**;
+> M16-18'in ilk TestFlight yüklemesi ölçer.
 
 ## M16-18 — Faz C kapanışı — gerçek cihaz turu
 
