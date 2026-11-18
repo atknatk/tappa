@@ -246,3 +246,33 @@ final class BrandLookTests: XCTestCase {
         XCTAssertFalse(BrandLook(AppBrand(name: nil, logo: nil, accent: "#1F5C41")).accented)
     }
 }
+
+/// CLAUDE.md §9: the accent fills the primary button of the wizard's steps 1-3 and nothing else.
+final class PrimaryLookTests: XCTestCase {
+    let brand = AppBrand(name: nil, logo: nil, accent: "DA291C")
+
+    func testTheAccentFillsStepsOneToThree() {
+        for screen: ActivationModel.Screen in [.welcome, .ready, .tap(problem: nil), .tap(problem: Copy.Problems.tapFailed)] {
+            XCTAssertEqual(screen.primaryLook(brand), BrandLook(brand), "\(screen)")
+            XCTAssertTrue(screen.primaryLook(brand).accented, "\(screen)")
+        }
+    }
+
+    func testEveryOtherScreenIsTaptimesGreen() {
+        let others: [ActivationModel.Screen] = [
+            .checking, .code(notice: nil), .code(notice: Copy.Problems.signedOut), .done(name: "A", secondDevice: false),
+            .already(name: "A"), .problem(Copy.Problems.badLink, retry: .toCode),
+        ]
+        for screen in others {
+            XCTAssertFalse(screen.primaryLook(brand).accented, "\(screen)")
+        }
+    }
+
+    /// The step-3 scan button draws the look it is handed (the rule's), not a fixed green.
+    func testTheScanButtonTakesTheStepsLook() throws {
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Taptime/ActivationViews.swift"), encoding: .utf8)
+        XCTAssertTrue(src.contains("PrimaryButton(title: Copy.Tap.scan, look: look)"))
+        XCTAssertFalse(src.contains("BrandLook(.taptime)"), "the views take their button look from primaryLook")
+    }
+}

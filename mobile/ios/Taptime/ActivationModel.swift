@@ -299,6 +299,22 @@ final class ActivationModel: ObservableObject {
     }
 }
 
+extension ActivationModel.Screen {
+    /// The look of this screen's primary button (CLAUDE.md §9; ADR 0023 §2, WL-13): the business's
+    /// accent on the wizard's steps 1-3 -- "Agree and continue", "I'm ready" and step 3's "Scan the
+    /// plaque" -- and Taptime's green everywhere else. The code screen comes before any invitation
+    /// is known, and a problem screen must not tell a live invitation from a dead one by its
+    /// colours (the browser's problem screens take no brand either).
+    func primaryLook(_ brand: AppBrand) -> BrandLook {
+        switch self {
+        case .welcome, .ready, .tap:
+            return BrandLook(brand)
+        case .checking, .code, .done, .already, .problem:
+            return BrandLook(.taptime)
+        }
+    }
+}
+
 private extension Error {
     var isInvalidInvite: Bool {
         if case AppAPIError.refused(.invalidInvite, _)? = self as? AppAPIError {

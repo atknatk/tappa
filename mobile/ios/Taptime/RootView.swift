@@ -16,30 +16,33 @@ struct RootView: View {
 
     @ViewBuilder
     private var content: some View {
+        // The header and marks follow the brand on every branded screen; the primary button
+        // follows primaryLook (accent only on the wizard's steps 1-3).
         let look = BrandLook(model.brand)
+        let button = model.screen.primaryLook(model.brand)
         switch model.screen {
         case .checking:
             ScreenFrame(look: BrandLook(.taptime)) { EmptyView() }
         case .code(let notice):
-            CodeScreen(model: model, notice: notice)
+            CodeScreen(model: model, notice: notice, look: button)
         case .welcome:
             if let invite = model.invite {
-                WelcomeScreen(model: model, invite: invite, look: look, baseURL: baseURL)
+                WelcomeScreen(model: model, invite: invite, look: button, baseURL: baseURL)
             }
         case .ready:
             if let invite = model.invite {
-                ReadyScreen(model: model, invite: invite, look: look)
+                ReadyScreen(model: model, invite: invite, look: button)
             }
         case .tap(let problem):
             if let invite = model.invite {
-                TapStepScreen(model: model, invite: invite, look: look, problem: problem)
+                TapStepScreen(model: model, invite: invite, look: button, problem: problem)
             }
         case .done(let name, let second):
             DoneScreen(name: name, secondDevice: second, look: look)
         case .already(let name):
             AlreadyScreen(name: name, look: look)
         case .problem(let p, let retry):
-            ProblemScreen(model: model, problem: p, retry: retry)
+            ProblemScreen(model: model, problem: p, retry: retry, look: button)
         }
     }
 }

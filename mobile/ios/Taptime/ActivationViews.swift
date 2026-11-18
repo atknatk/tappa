@@ -2,7 +2,8 @@ import SwiftUI
 
 // The activation screens (M16-16), drawn after the browser wizard (web/templates/pages/
 // activate.templ): the same order, the same words (ActivationCopy.swift), the kitchen-docket
-// panels and the palette of skill tappa-brand. The waiting step has no primary button in the
+// panels and the palette of skill tappa-brand. Which look each screen's primary button takes is
+// ONE rule, ActivationModel.Screen.primaryLook (CLAUDE.md §9) -- the views only draw it. The waiting step has no primary button in the
 // browser; iOS reads a plaque only while its own sheet is open, so the tap step opens the sheet by
 // itself and offers "Scan the plaque" again only when the sheet has closed.
 //
@@ -208,9 +209,10 @@ struct ActivatedStamp: View {
 struct CodeScreen: View {
     @ObservedObject var model: ActivationModel
     let notice: Copy.Problem?
+    let look: BrandLook
 
     var body: some View {
-        ScreenFrame(look: BrandLook(.taptime)) {
+        ScreenFrame(look: look) {
             if let n = notice {
                 Notice(tone: .alert, title: n.title, text: n.message, hint: n.hint)
             }
@@ -233,7 +235,7 @@ struct CodeScreen: View {
             if let e = model.codeError {
                 Notice(tone: .alert, text: e)
             }
-            PrimaryButton(title: Copy.Code.button, look: BrandLook(.taptime), busy: model.busy) {
+            PrimaryButton(title: Copy.Code.button, look: look, busy: model.busy) {
                 Task { await model.submitCode() }
             }
         }
@@ -391,9 +393,7 @@ struct TapStepScreen: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             if !model.scanning && !model.busy {
-                // Taptime's green, not the accent: the accent's slot is steps 1-3's primary button
-                // in the browser, and this step has none there.
-                PrimaryButton(title: Copy.Tap.scan, look: BrandLook(.taptime)) { model.scan() }
+                PrimaryButton(title: Copy.Tap.scan, look: look) { model.scan() }
             }
             BackButton(title: Copy.Tap.back) { model.back() }
         }
@@ -462,17 +462,18 @@ struct ProblemScreen: View {
     @ObservedObject var model: ActivationModel
     let problem: Copy.Problem
     let retry: ActivationModel.Retry
+    let look: BrandLook
 
     var body: some View {
-        ScreenFrame(look: BrandLook(.taptime)) {
+        ScreenFrame(look: look) {
             Notice(tone: .alert, title: problem.title, text: problem.message, hint: problem.hint)
             switch retry {
             case .none:
                 EmptyView()
             case .toCode:
-                PrimaryButton(title: Copy.startAgain, look: BrandLook(.taptime)) { model.retry(.toCode) }
+                PrimaryButton(title: Copy.startAgain, look: look) { model.retry(.toCode) }
             case .toWelcome, .toTap:
-                PrimaryButton(title: Copy.tryAgain, look: BrandLook(.taptime)) { model.retry(retry) }
+                PrimaryButton(title: Copy.tryAgain, look: look) { model.retry(retry) }
             }
         }
     }
