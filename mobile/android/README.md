@@ -508,6 +508,22 @@ restored NFC page as it was for the same reason) — such a launch is the launch
 while a press is in flight is ignored (its counter is simply the next one); a new touch on the
 tap, result or problem screen starts over.
 
+**One press per tap screen** (security review 2026-11-18, `PressGuard`): the primary button and
+*"Not right? …"* are drawn from one composition, and two clicks in the same frame both carry its
+state. The press judges the **live** screen on the main thread — the same tap screen, not busy — and
+marks it busy before anything else, so the second click of the pair does nothing. (Judged by the
+captured state, both went through: two POSTs with one context, the second recorded as a
+`sun-invalid` reject and shown as *"Not counted"*.) `PressGuardTest`.
+
+**"Open in browser" sends a rebuilt URL** — `<base>/t?` + the query `PlaqueRead` verified
+(`PlaqueRead.browserUrl`, the iOS twin's rule), never the URL as the intent carried it.
+
+**No secret in a printed value** (security review 2026-11-18): every data class carrying the plaque
+URL, the SUN query, the signed context, a nonce, the activation challenge or the invite code
+overrides `toString` (`<redacted>`) — a generated one would print them into any log or crash line
+it reached. `RedactionTest` holds it over the source (every such data class under `src/main`) and
+over the values.
+
 ### Screens — the browser's order and words
 
 | Screen | What is on it | Browser source |
@@ -595,26 +611,40 @@ start the person's 60-second debounce.
 - **Only at the press**, after the button is pressed, never at start or on screen. The permission
   (fine + coarse) is asked **at the press** the first time; a refusal sends no fix and the press
   goes on (§5 rows 6–7; the record is written either way, §4.6).
-- **Platform `LocationManager`**, no Play services (Q36):
-  - **API 30+:** `getCurrentLocation(provider, CancellationSignal, mainExecutor, …)` — one answer,
-    cancelled at the deadline;
-  - **API 26–29:** `requestSingleUpdate(provider, listener, mainLooper)` — removed at the
-    deadline (all four listener callbacks are written: they are abstract below API 30).
-- **Provider** (`FixRules.provider`): API 31+ the platform's **fused** provider (AOSP, works with
-  the coarse permission); otherwise **GPS** with the fine permission; otherwise **network**;
-  otherwise none.
+- **Platform `LocationManager`**, no Play services (Q36). Every ask goes through **one function**,
+  `TapLocation.ask()`, which holds the app's only two location requests:
+  - **first ask, API 30+:** `getCurrentLocation(provider, CancellationSignal, mainExecutor, …)` —
+    one answer, cancellable;
+  - **first ask, API 26–29:** `requestSingleUpdate(provider, listener, mainLooper)` (all four
+    listener callbacks are written: they are abstract below API 30);
+  - **the fresh ask:** `requestSingleUpdate` on every level — a new one-shot registration is
+    answered by a new reading, where a second `getCurrentLocation` would hand back the same cache
+    within its own window (deprecated on 30+, not removed; **to be measured on a real phone,
+    M16-14**).
+- **Providers** (`FixRules.providers`): API 31+ the platform's **fused** provider alone (AOSP: it
+  combines GPS and network itself, works with the coarse permission); otherwise, with the fine
+  permission, **GPS and network side by side** (review D-2: indoors GPS may not fix within 8 s);
+  with the coarse permission only, network; otherwise none.
+- **The race** (`FixRace`, pure, `FixRulesTest`): each provider asked **once** at the press; the
+  first accepted reading wins and every other ask is cancelled; an empty answer waits for the rest;
+  all empty is no fix. A **refused cache** (below) gets **one** fresh ask of the same provider in
+  what is left of the deadline (review O-1, coordinator decision (a)) — one in all, never another.
+  The deadline cancels everything that is out and the press goes without a fix (the record is
+  written either way).
 - **Deadline 8 s** — `tap.js`'s `FIX_TIMEOUT_MS`, read from `tap.js` by `FixRulesTest`. The timer is
   `tap/FixDeadline.kt` (one `postDelayed`, never re-armed), **apart from** the location file: the
   red-line scan's R2 periodic net fails a file holding both (card *Tuzaklar*).
-- **A reading taken before the request is refused** (`FixRules.accept`, by `elapsedRealtimeNanos`):
-  `tap.js` asks with `maximumAge: 0`, and `getCurrentLocation` may answer with a cached one. Out of
-  range or not finite is no reading.
+- **A reading taken before the request is refused** (`FixRules.accept` / `isStale`, by
+  `elapsedRealtimeNanos`): `tap.js` asks with `maximumAge: 0`, and `getCurrentLocation` may answer
+  with a cached one — which is why the race asks once more. Out of range or not finite is no
+  reading.
 - **Mock flag** — `Location.isMock()` on API 31+, `isFromMockProvider()` before, of **that**
   reading; sent as `"mockLocation":true` **only when true and only with a fix** (`Bodies.tap`).
   False is never written: its absence proves nothing (ADR 0045 §2.4).
 - **`LocationCallSiteTest`** pins the call sites over the whole of `src/main`: `getCurrentLocation`
-  and `requestSingleUpdate` once each, in `TapLocation.kt` only; no last-known or continuous
-  request anywhere; `TapLocation` constructed once and read only inside `MainActivity.withOneFix`,
+  and `requestSingleUpdate` once each, in `TapLocation.kt` only, both inside `ask()`; `ask()` called
+  from two places only (the first asks, iterating the providers once, and FixRace's one fresh ask),
+  and no other loop in the file; no last-known or continuous request anywhere; `TapLocation` constructed once and read only inside `MainActivity.withOneFix`,
   which only the press calls; no timer in `TapLocation.kt`, the timer in `FixDeadline.kt`, which
   asks for no position.
 - **Nothing is logged** — `NoLogTest` pins the inventory of log calls under `src/main` at **zero**
@@ -654,9 +684,11 @@ for the M15-17 claim card. Until then the header is the wordmark, ink beside an 
 
 | Class | What it holds |
 |---|---|
+| `PressGuardTest` | two clicks in one frame send one press; a click drawn for another (or no) tap screen does nothing; identity, not equality |
+| `RedactionTest` | every data class carrying a secret overrides `toString`; the overrides print none of it |
 | `IosCopyTest` | every shared tap line is a literal of the iOS app's copy (skipped without the Swift files) |
 | `TapFlowTest` | the tap over a socket against `FakeAppServer`: the clock screen at the start and at the press (an in-range answer clears it); the problem screens' buttons are the iOS twin's; `tap/start` is a signed read of the plaque's query verbatim, no nonce; the press body byte for byte (want, fix, mock only when true); no fix / no direction send neither; not set up, key gone (dropped), Keystore failing twice (kept, *Try again*) or once (goes through), a throwing signer at start and at the press (nothing sent); another host's URL sent nowhere; signed out after one retry at start and at the press; every refusal of start and press to its screen and retry rule; no answer to start → retry; a lost press answer → *Try again* goes home, sent once |
-| `FixRulesTest` | provider names are the platform's; provider choice by API level, permission and what is on; a reading before the request refused; out of range refused; the deadline is `tap.js`'s |
+| `FixRulesTest` | provider names are the platform's; the providers by API level, permission and what is on (GPS **and** network below 31); the race: first fresh reading wins, empty waits, a refused cache gets one fresh ask and no more, the deadline ends it; a reading before the request refused; out of range refused; the deadline is `tap.js`'s |
 | `TapCopyTest` | every tap string verbatim / adapted / app-only against the browser's source; every result line has its string; the result's lines verdict by verdict |
 | `LocationCallSiteTest` | the call-site allow-list above |
 | `NoLogTest` | zero log calls under `src/main` |
@@ -667,4 +699,7 @@ red · a second `getCurrentLocation` in `MainActivity` → `LocationCallSiteTest
 `TapFlow` → `NoLogTest` red · the before-the-request check dropped → `FixRulesTest` red · one tap
 hint reworded → `TapCopyTest` red · location `required="true"` → `MergedManifestTest` red · *Try
 again* offered after a lost press → `TapFlowTest` red · `InviteCode`'s port check dropped →
-`InputsTest` red.
+`InputsTest` red. Review fixes (2026-11-18): `PressGuard` ignoring busy → `PressGuardTest` red · `FixRace`
+never asking fresh → `FixRulesTest` red · GPS **or** network instead of both → `FixRulesTest` red ·
+`TapStartReply`'s `toString` override dropped → `RedactionTest` red · the browser URL passed on as it
+arrived → `InputsTest` red.
