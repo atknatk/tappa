@@ -1,61 +1,266 @@
 package mt.taptime.app
 
+import android.content.Intent
+import android.net.Uri
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.nfc.tech.Ndef
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import mt.taptime.app.activation.ActivationFlow
+import mt.taptime.app.activation.InviteCode
+import mt.taptime.app.activation.PendingActivation
+import mt.taptime.app.activation.PlaqueRead
+import mt.taptime.app.activation.Problem
+import mt.taptime.app.device.KeystoreKeys
+import mt.taptime.app.device.PrefsDeviceState
+import mt.taptime.app.ui.ActivatedScreen
+import mt.taptime.app.ui.BlockedScreen
+import mt.taptime.app.ui.CodeScreen
+import mt.taptime.app.ui.LoadingScreen
+import mt.taptime.app.ui.NfcState
+import mt.taptime.app.ui.ReadyScreen
+import mt.taptime.app.ui.SetUpScreen
+import mt.taptime.app.ui.TapScreen
+import mt.taptime.app.ui.TermsSheet
+import mt.taptime.app.ui.WelcomeScreen
+import mt.taptime.app.wire.AppClient
+import mt.taptime.app.wire.Brand
+import mt.taptime.app.wire.HttpUrlTransport
+import mt.taptime.app.wire.LookupReply
+import mt.taptime.app.wire.OrgJsonDecoder
+import mt.taptime.app.wire.ServerClock
 
-// The scaffold's one screen: the name and nothing else. Activation (M16-12) and the tap screen
-// (M16-13) replace it. Foundation only -- BasicText, no material3 (Q36); the brand's own
-// components are drawn by hand when the screens arrive (skill tappa-brand).
+// The staff app's one activity. M16-12: launch check and activation; the tap screen is M16-13's.
+//
+// STATE IS HELD HERE, IN MEMORY, AND NOWHERE ELSE. The manifest keeps this activity across
+// configuration changes (android:configChanges), so a rotation does not rebuild it and the
+// pending activation -- the invite code and the server's challenge -- never goes into a saved
+// state Bundle, which the system may write to disk. If the process dies, the person starts over
+// at the code screen; a second bind simply moves the binding (ADR 0026).
+//
+// NETWORK AND KEYSTORE WORK runs on one background thread (a plain executor: no coroutine
+// library is declared, Q36); results come back on the UI thread.
+//
+// THE PLAQUE IS READ IN READER MODE, only while step 3 is on screen and the activity is in the
+// foreground: the read's URL goes to activate/complete and nowhere else, and outside step 3 a
+// plaque touch is the system's (the browser today; the app's own filter is M16-13's).
 class MainActivity : ComponentActivity() {
+    private sealed interface Screen {
+        data object Loading : Screen
+        data class Code(val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false) : Screen
+        data class Welcome(
+            val code: String, val facts: LookupReply,
+            val problem: Problem? = null, val busy: Boolean = false, val terms: Boolean = false,
+        ) : Screen
+        data class Ready(val pending: PendingActivation) : Screen
+        data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
+        data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
+        data class SetUp(val name: String) : Screen
+        /** This phone cannot activate (KeyGate, or no NFC reader). */
+        data class Blocked(val problem: Problem) : Screen
+    }
+
+    private var screen by mutableStateOf<Screen>(Screen.Loading)
+    private var nfcState by mutableStateOf(NfcState.NONE)
+
+    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
+    private lateinit var flow: ActivationFlow
+    private var nfc: NfcAdapter? = null
+    private var readerOn = false
+    private var resumed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { Placeholder() }
+        val client = AppClient(HttpUrlTransport(BuildConfig.BASE_URL), ServerClock(), OrgJsonDecoder)
+        flow = ActivationFlow(client, KeystoreKeys(applicationContext), PrefsDeviceState(applicationContext))
+        nfc = NfcAdapter.getDefaultAdapter(this)
+        setContent { Render() }
+        work({ flow.home() }) { r ->
+            screen = when (r) {
+                ActivationFlow.HomeResult.NotActivated -> activationEntry(null)
+                ActivationFlow.HomeResult.SignedOut -> activationEntry(Problem.SIGNED_OUT)
+                is ActivationFlow.HomeResult.SetUp -> Screen.SetUp(r.device.employeeName)
+            }
+        }
     }
-}
 
-// Palette tokens, verbatim from skill tappa-brand (res/values/colors.xml carries the same).
-private val Ink = Color(0xFF152219)
-private val Porcelain = Color(0xFFEDF0EA)
-private val TappaGreen = Color(0xFF1F5C41)
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+        updateReader()
+    }
 
-@Composable
-private fun Placeholder() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Porcelain)
-            .safeDrawingPadding()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        BasicText(
-            text = stringResource(R.string.app_name),
-            style = TextStyle(color = Ink, fontSize = 32.sp, fontWeight = FontWeight.Bold),
-        )
-        BasicText(
-            text = stringResource(R.string.tagline),
-            style = TextStyle(color = TappaGreen, fontSize = 14.sp, fontFamily = FontFamily.Monospace),
-        )
+    override fun onPause() {
+        resumed = false
+        stopReader()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        worker.shutdownNow()
+        super.onDestroy()
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun Render() {
+        when (val s = screen) {
+            Screen.Loading -> LoadingScreen()
+            is Screen.Code -> CodeScreen(s.problem, s.notALink, s.busy, ::submitCode)
+            is Screen.Welcome -> if (s.terms) {
+                BackHandler { screen = s.copy(terms = false) }
+                TermsSheet(s.facts.businessName, { open("/legal/privacy") }, { open("/legal/terms") }) {
+                    screen = s.copy(terms = false)
+                }
+            } else {
+                BackHandler(enabled = !s.busy) { screen = Screen.Code(null) }
+                WelcomeScreen(s.facts, s.problem, s.busy,
+                    onTerms = { screen = s.copy(terms = true) },
+                    onAgree = { agree(s) },
+                    onBack = { screen = Screen.Code(null) })
+            }
+            is Screen.Ready -> {
+                BackHandler { back(s.pending) }
+                ReadyScreen(s.pending.facts, onReady = { screen = Screen.Tap(s.pending); updateReader() }, onBack = { back(s.pending) })
+            }
+            is Screen.Tap -> {
+                BackHandler(enabled = !s.busy) { screen = Screen.Ready(s.pending); updateReader() }
+                TapScreen(s.pending.facts, nfcState, s.problem, s.busy) { screen = Screen.Ready(s.pending); updateReader() }
+            }
+            is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
+            is Screen.SetUp -> SetUpScreen(s.name, null)
+            is Screen.Blocked -> BlockedScreen(s.problem)
+        }
+    }
+
+    // The code screen, unless this phone cannot activate at all (ActivationFlow.refusedAtLaunch).
+    private fun activationEntry(notice: Problem?): Screen =
+        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it) } ?: Screen.Code(notice)
+
+    private fun submitCode(pasted: String) {
+        val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
+        if (code == null) {
+            screen = Screen.Code(null, notALink = true)
+            return
+        }
+        screen = Screen.Code(null, busy = true)
+        work({ flow.lookup(code) }) { r ->
+            screen = when (r) {
+                is ActivationFlow.LookupResult.Facts -> Screen.Welcome(code, r.facts)
+                is ActivationFlow.LookupResult.Refused -> Screen.Code(r.problem)
+            }
+        }
+    }
+
+    private fun agree(s: Screen.Welcome) {
+        screen = s.copy(busy = true, problem = null)
+        work({ flow.bind(s.code, s.facts) }) { r ->
+            screen = when (r) {
+                is ActivationFlow.BindResult.Bound -> Screen.Ready(r.pending)
+                is ActivationFlow.BindResult.Restart -> Screen.Code(r.problem)
+                is ActivationFlow.BindResult.Retry -> s.copy(busy = false, problem = r.problem)
+                ActivationFlow.BindResult.Unsupported -> Screen.Blocked(Problem.NO_SECURE_KEY)
+            }
+        }
+    }
+
+    // Back from step 2 to step 1: the bind is dropped with its key. Agreeing again binds a new
+    // one, as the browser's consent POST moves the binding.
+    private fun back(p: PendingActivation) {
+        screen = Screen.Welcome(p.code, p.facts)
+        worker.execute {
+            // A key that cannot be deleted now is an unused Keystore entry, not a failure the
+            // person can act on; an uncaught exception here would end the app.
+            try {
+                flow.abandon(p)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun onPlaque(url: String) {
+        val s = screen as? Screen.Tap ?: return
+        if (s.busy) return
+        val sun = PlaqueRead.sunQuery(url, BuildConfig.BASE_URL)
+        if (sun == null) {
+            screen = s.copy(problem = Problem.TAP_FAILED)
+            return
+        }
+        screen = s.copy(busy = true, problem = null)
+        work({ flow.complete(s.pending, sun) }) { r ->
+            screen = when (r) {
+                is ActivationFlow.CompleteResult.Activated ->
+                    Screen.Activated(r.device.employeeName, r.secondDevice, s.pending.facts.brand)
+                is ActivationFlow.CompleteResult.TapAgain -> Screen.Tap(r.pending, r.problem)
+                is ActivationFlow.CompleteResult.Rebind -> Screen.Welcome(r.code, s.pending.facts, problem = r.problem)
+                is ActivationFlow.CompleteResult.Restart ->
+                    if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
+            }
+            updateReader()
+        }
+    }
+
+    private fun updateReader() {
+        val adapter = nfc
+        nfcState = when {
+            adapter == null -> NfcState.NONE
+            !adapter.isEnabled -> NfcState.OFF
+            else -> NfcState.READY
+        }
+        if (screen is Screen.Tap && nfcState == NfcState.READY) startReader() else stopReader()
+    }
+
+    private fun startReader() {
+        val adapter = nfc ?: return
+        if (readerOn || !resumed) return
+        // NFC-A only: NTAG 424 DNA. The platform's NDEF check reads the file -- the read the chip
+        // answers with a fresh counter and CMAC -- and caches the message on the Ndef object.
+        adapter.enableReaderMode(this, ::onTag, NfcAdapter.FLAG_READER_NFC_A, null)
+        readerOn = true
+    }
+
+    private fun stopReader() {
+        if (!readerOn) return
+        nfc?.disableReaderMode(this)
+        readerOn = false
+    }
+
+    // Called on a binder thread.
+    private fun onTag(tag: Tag) {
+        val url = Ndef.get(tag)?.cachedNdefMessage?.records?.firstOrNull()?.toUri()?.toString()
+        runOnUiThread { if (url != null) onPlaque(url) else onPlaque("") }
+    }
+
+    private fun open(path: String) {
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.BASE_URL.trimEnd('/') + path)))
+    }
+
+    // A failure nobody classified (the Keystore refusing a key, an unexpected exception) ends
+    // the flow at the code screen with the server-side text: nothing was activated, and the
+    // person starts again. The exception is not shown or logged -- its message is not ours.
+    private fun <T> work(task: () -> T, done: (T) -> Unit) {
+        worker.execute {
+            val r = try {
+                Result.success(task())
+            } catch (e: Exception) { // Keystore failures are checked exceptions (KeyStoreException)
+                Result.failure(e)
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                r.fold(done) {
+                    screen = Screen.Code(Problem.SERVER)
+                    updateReader()
+                }
+            }
+        }
     }
 }

@@ -76,6 +76,16 @@ class MergedManifestTest {
         )
     }
 
+    // M16-12: the app speaks HTTPS only. targetSdk 28+ already defaults cleartext to off, but a
+    // library's manifest or a networkSecurityConfig could turn it back on; the merged manifest
+    // must say false explicitly and point at no network security config that could relax it.
+    @Test
+    fun cleartextTrafficIsOffExplicitly() {
+        val app = merged.elements("application").single()
+        assertEquals("android:usesCleartextTraffic", "false", app.getAttributeNS(androidNs, "usesCleartextTraffic"))
+        assertEquals("android:networkSecurityConfig", "", app.getAttributeNS(androidNs, "networkSecurityConfig"))
+    }
+
     @Test
     fun theExtractionRulesExcludeEveryDomainFromBothPaths() {
         val rules = parse(file("taptime.dataExtractionRules"))

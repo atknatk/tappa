@@ -5,6 +5,31 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val PRODUCTION_BASE_URL = "https://taptime.mt"
+val baseUrlOverride: String? = providers.gradleProperty("taptime.baseUrl").orNull
+val debugBaseUrl: String = (baseUrlOverride ?: PRODUCTION_BASE_URL).also {
+    if (!it.startsWith("https://")) throw GradleException("taptime.baseUrl must be https://, got $it")
+}
+
+/** [s] as a Java string literal: backslash and quote escaped, control characters refused. */
+fun javaString(s: String): String {
+    if (s.any { it < ' ' }) throw GradleException("BASE_URL must not contain control characters")
+    return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+// A release build with the debug-only override set stops before anything runs: the release
+// BASE_URL is the production one, and a release that silently ignored the property would be the
+// worse surprise.
+gradle.taskGraph.whenReady {
+    val release = allTasks.filter { it.project == project && it.name.contains("Release") }
+    if (baseUrlOverride != null && release.isNotEmpty()) {
+        throw GradleException(
+            "taptime.baseUrl is set ($baseUrlOverride) and a release task is scheduled (${release.first().name}): " +
+                "the release BASE_URL is fixed to $PRODUCTION_BASE_URL",
+        )
+    }
+}
+
 android {
     // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
     // after the first release and is written into /.well-known/assetlinks.json (M16-08).
@@ -20,16 +45,27 @@ android {
     }
 
     buildTypes {
+        // BASE_URL: the server the app talks to, whose activation links (<base>/activate) and
+        // plaque URLs (<base>/t) it accepts (M16-12). RELEASE IS PINNED to production's
+        // TAPPA_BASE_URL and nothing can change it: with taptime.baseUrl set, any release task
+        // stops the build (the check below). A DEBUG build may point elsewhere with
+        // -Ptaptime.baseUrl=https://... -- HTTPS only (the manifest forbids cleartext). The value
+        // is written as a Java string literal, escaped (javaString).
+        debug {
+            buildConfigField("String", "BASE_URL", javaString(debugBaseUrl))
+        }
         // No signingConfig anywhere: the debug build signs with Gradle's default debug key
         // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
         // repository is public; no keystore and no signing secret ever enters it.
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "BASE_URL", javaString(PRODUCTION_BASE_URL))
         }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -61,6 +97,17 @@ class MergedManifestArg(
         listOf("-Dtaptime.mergedManifest=${manifest.get().asFile.absolutePath}")
 }
 
+// The repository files the JVM tests read, by system property (M16-12). ContractPinTest checks
+// that it reads nothing outside this map.
+val serverFiles = mapOf(
+    "taptime.vectors" to "test/fixtures/appdevice_vectors.json",
+    "taptime.go.app" to "internal/handler/app.go",
+    "taptime.go.appactivate" to "internal/handler/appactivate.go",
+    "taptime.go.request" to "internal/appdevice/request.go",
+    "taptime.go.read" to "internal/appdevice/read.go",
+    "taptime.go.canonical" to "internal/appdevice/canonical.go",
+)
+
 val mergedManifests = mutableMapOf<String, Provider<RegularFile>>()
 androidComponents {
     onVariants { variant ->
@@ -77,6 +124,15 @@ tasks.withType<Test>().configureEach {
     val rules = layout.projectDirectory.file("src/main/res/xml/data_extraction_rules.xml")
     inputs.file(rules).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.dataExtractionRules", rules.asFile.absolutePath)
+    // M16-12: the server's own files the wire tests are held to -- the known-answer vectors
+    // (M16-05, M16-07) and the Go source of the routes, headers and error vocabulary
+    // (ContractPinTest). Declared INPUTS, so a change on the server side re-runs the tests
+    // instead of leaving them UP-TO-DATE on a warm tree (the relay's audit B1 lesson).
+    for ((property, path) in serverFiles) {
+        val f = rootProject.file("../../$path")
+        inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)
+        systemProperty(property, f.absolutePath)
+    }
 }
 
 dependencies {

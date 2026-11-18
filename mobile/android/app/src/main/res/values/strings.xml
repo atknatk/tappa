@@ -3,4 +3,135 @@
     <!-- Q35: the store and launcher name is Taptime. -->
     <string name="app_name">Taptime</string>
     <string name="tagline">punchless</string>
+    <string name="wordmark">taptime</string>
+
+    <!--
+      The activation screens (M16-12). Every text below is the browser wizard's
+      (web/templates/pages/activate.templ and the problem texts of
+      internal/handler/activate.go), word for word, unless its comment says otherwise. The
+      iOS app (M16-16) carries the same list. A difference from the browser is a CLAUDE.md
+      §9 question; the ones this card had to make are marked APP-ONLY or ADAPTED and listed
+      in mobile/android/README.md.
+    -->
+
+    <!-- APP-ONLY: the code screen. The browser has none: its link carries the code (Q40). The
+         same words as the iOS app (mobile/ios/Taptime/ActivationCopy.swift, Copy.Code). -->
+    <string name="code_label">Setup</string>
+    <string name="code_title">Set up this phone</string>
+    <string name="code_body">Paste the activation link your workplace sent you.</string>
+    <string name="code_field">Activation link</string>
+    <string name="code_not_a_link">That isn\'t an activation link. Copy the whole link from the message your workplace sent and paste it here.</string>
+    <string name="code_button">Continue</string>
+
+    <!-- The wizard's progress line: "Step 1 of 3 · Welcome". -->
+    <string name="step_progress">Step %1$d of %2$d · %3$s</string>
+    <string name="step_welcome">Welcome</string>
+    <string name="step_ready">Get ready</string>
+    <string name="step_tap">Tap</string>
+
+    <!-- Step 1, Welcome. -->
+    <string name="welcome_hi">Hi %1$s</string>
+    <string name="welcome_sub">Let\'s set up your phone.</string>
+    <!-- ADAPTED: the browser's fourth sentence names what is never collected; under
+         mobile/ red-line scan R1 has no waiver for its first noun, so it reads "finger scans"
+         here, word for word as the iOS app's copy (coordinator decision, 2026-11-18). -->
+    <string name="welcome_panel">%1$s uses Taptime to record your shifts. Each tap saves the time, your phone\'s IP address and, if your phone shares it, your location at that moment. Your location is never tracked between taps. No finger scans, no face, no voice.</string>
+    <string name="new_phone_title">This is a new phone</string>
+    <string name="new_phone_body">You are already set up on another phone. When you finish here, that one is signed out — only the phone you are holding will work. If you did not expect this, stop and tell your manager.</string>
+    <string name="terms_lead">By continuing, you agree to the</string>
+    <string name="terms_link">terms and privacy details.</string>
+    <string name="agree">Agree and continue</string>
+
+    <!-- The terms sheet of step 1. -->
+    <string name="terms_title">Terms and privacy</string>
+    <string name="terms_who">Who is responsible</string>
+    <string name="terms_who_body">%1$s is responsible for your attendance records. Taptime processes them on its behalf.</string>
+    <string name="terms_what">What is recorded</string>
+    <!-- ADAPTED: the browser's second sentence names a cookie, which the app does not use
+         (ADR 0045 §2.3: a key that never leaves the phone); the last one reads as in
+         welcome_panel. -->
+    <string name="terms_what_body">The time of each tap, the venue, your phone\'s IP address and, if your phone shares it, your location at that moment. A key kept on this phone keeps it signed in, so you don\'t need a password. Your location is never tracked between taps. No finger scans, no face, no voice.</string>
+    <string name="terms_why">Why</string>
+    <string name="terms_why_body">To record your working hours for %1$s</string>
+    <string name="terms_more">For more information, visit:</string>
+    <string name="terms_privacy">Privacy policy</string>
+    <string name="terms_service">Terms of service</string>
+    <string name="terms_close">Close</string>
+
+    <!-- Step 2, Get ready. -->
+    <string name="ready_label">Get ready</string>
+    <!-- ADAPTED: the browser says "Two quick things"; its second, "Stay in this browser",
+         is about the browser's cookie and has no app twin. -->
+    <string name="ready_title">One quick thing before you tap.</string>
+    <string name="ready_wifi">Join the Wi-Fi</string>
+    <string name="ready_wifi_lead">Connect to</string>
+    <string name="ready_wifi_tail">when you are at work. Being on the venue\'s network is how Taptime knows you are really there.</string>
+    <string name="ready_wifi_skip">You can skip this. Your taps then use your location instead, and your manager may need to confirm them.</string>
+    <string name="ready_no_wifi">This workplace has no staff network to join, so Taptime checks your location at the moment you tap instead.</string>
+    <string name="ready_button">I\'m ready</string>
+    <string name="back">Back</string>
+
+    <!-- Step 3, Tap. -->
+    <string name="tap_label">Last step</string>
+    <string name="tap_title">Now tap the plaque.</string>
+    <string name="tap_hold">Hold the top of your phone against any Taptime plaque at your workplace,</string>
+    <string name="tap_not_clock">That first tap finishes setting up this phone — it doesn\'t clock you in.</string>
+    <string name="tap_waiting">Waiting for your tap…</string>
+    <string name="tap_signs_out">Your tap signs your other phone out.</string>
+    <string name="tap_shows">When the tap goes through, your phone shows “Activation complete”.</string>
+    <string name="plaque_hold">Hold your phone here</string>
+    <!-- APP-ONLY (Android): the browser cannot see the phone's NFC switch; the app reads the
+         plaque itself. iOS has no switch to name. -->
+    <string name="nfc_off">Turn on NFC in your phone\'s settings, then tap the plaque.</string>
+
+    <!-- Activation complete, and already set up. -->
+    <string name="setup_label">Setup</string>
+    <string name="stamp_activated">Activated</string>
+    <string name="activated_title">Activation complete</string>
+    <string name="activated_for">This phone is set up for %1$s</string>
+    <string name="activated_notice_title">This phone is now your time clock.</string>
+    <string name="activated_notice_body">To check in, tap the plaque again — that next tap counts.</string>
+    <string name="activated_other_out">Your other phone has been signed out. Only this one works now.</string>
+    <string name="close_page">You can close the app.</string>
+    <string name="setup_already_title">This phone is already set up</string>
+    <string name="setup_signed_in_as">Signed in as %1$s</string>
+    <string name="setup_already_notice">Tap a plaque to check in. There is nothing else to do here.</string>
+
+    <!-- The problem texts: activate.go's problem* constants, title / message / hint. ADAPTED as
+         on iOS: too_many, server and not_ready no longer send the person back to "your link" (
+         the link opens the browser, not the app, Q40), and the activated screens say "close
+         the app", not "this page". -->
+    <string name="p_bad_link_title">This link can\'t be used</string>
+    <string name="p_bad_link_message">It may already have been used, or it may have run out of time.</string>
+    <string name="p_bad_link_hint">Ask your manager for a new one — it only takes a moment.</string>
+    <string name="p_too_many_title">Too many attempts</string>
+    <string name="p_too_many_message">We have stopped accepting activations from here for a few minutes.</string>
+    <string name="p_too_many_hint">Wait a little and try again.</string>
+    <string name="p_server_title">Something went wrong on our side</string>
+    <string name="p_server_message">Nothing was activated and nothing was recorded against you.</string>
+    <string name="p_server_hint">Try again in a minute.</string>
+    <!-- APP-ONLY: no answer at all; the browser shows its own offline page instead. iOS's words. -->
+    <string name="p_network_title">Can\'t reach Taptime</string>
+    <string name="p_network_message">Nothing was activated and nothing was recorded against you.</string>
+    <string name="p_network_hint">Check your connection and try again.</string>
+    <string name="p_tap_failed_title">That tap didn\'t finish setup</string>
+    <string name="p_tap_failed_message">Your phone isn\'t activated yet, and nothing was recorded.</string>
+    <string name="p_tap_failed_hint">Hold the top of your phone against a Taptime plaque at your workplace and try again.</string>
+    <string name="p_needs_touch_title">Hold your phone against the plaque</string>
+    <string name="p_needs_touch_message">Activation needs a real tap on the plaque, so this didn\'t finish it.</string>
+    <string name="p_needs_touch_hint">Touch the top of your phone to the plaque to finish.</string>
+    <string name="p_not_ready_title">Finish the setup steps first</string>
+    <string name="p_not_ready_message">This phone hasn\'t agreed to the privacy notice yet, so the tap didn\'t activate it.</string>
+    <string name="p_not_ready_hint">Go through the steps again, then tap the plaque.</string>
+    <string name="p_signed_out_title">This phone was signed out</string>
+    <string name="p_signed_out_message">This phone is no longer signed in to Taptime, so it can\'t record time.</string>
+    <string name="p_signed_out_hint">Ask your manager for a new activation link.</string>
+    <!-- APP-ONLY: no NFC reader at all, refused at launch. The iOS twin says "This iPhone ...". -->
+    <string name="p_no_reader_title">This phone can\'t read the plaque</string>
+    <string name="p_no_reader_message">Setting up the app needs a tap on the plaque, and this phone has no NFC reader.</string>
+    <string name="p_no_reader_hint">Ask your manager — setup without a plaque tap isn\'t available yet.</string>
+    <!-- APP-ONLY: the Keystore is software only (KeyGate). The iOS twin says "This iPhone ...". -->
+    <string name="p_no_key_title">This phone can\'t be set up</string>
+    <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
+    <string name="p_no_key_hint">Ask your manager — you can still use Taptime in your browser.</string>
 </resources>

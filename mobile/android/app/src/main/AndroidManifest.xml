@@ -36,18 +36,26 @@
       device-to-device transfer copy the app's data, so dataExtractionRules excludes every
       domain from both. The device key is non-exportable anyway (M16-12); the rest of the app
       data must not travel either (card M16-11).
+      usesCleartextTraffic=false: HTTPS only, said explicitly (M16-12; MergedManifestTest).
     -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
         android:theme="@style/Theme.Taptime"
         tools:targetApi="31">
 
+        <!--
+          configChanges: Compose redraws for a rotation, a resize or a theme change without the
+          activity being rebuilt, so the pending activation (invite code, server challenge) stays
+          in memory and never goes into a saved-state Bundle (M16-12, MainActivity).
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|fontScale|uiMode|locale|layoutDirection"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
