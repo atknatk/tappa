@@ -144,6 +144,10 @@ enum Copy {
             title: "Finish the setup steps first",
             message: "This phone hasn't agreed to the privacy notice yet, so the tap didn't activate it.",
             hint: "Go through the steps again, then tap the plaque.") // [adapted: "Open your activation link again, ..."]
+        static let keyUnreadable = Problem( // [app]
+            title: "Taptime couldn't open this phone's key",
+            message: "Nothing was changed on this phone.",
+            hint: "Try again in a moment. If it keeps happening, you can set this phone up again.")
         static let noReader = Problem( // [app]
             title: "This iPhone can't read the plaque",
             message: "Setting up the app needs a tap on the plaque, and this iPhone has no NFC reader.",

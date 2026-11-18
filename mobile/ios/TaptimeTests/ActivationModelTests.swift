@@ -223,6 +223,48 @@ final class ActivationModelTests: XCTestCase {
         XCTAssertNotNil(store.record)
     }
 
+    /// A restore that fails once is retried once and the phone carries on.
+    func testOneFailedRestoreIsRetried() async {
+        let k = SoftwareDeviceKey()
+        store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
+        keys.failRestores = 1
+        await model.start()
+        XCTAssertEqual(keys.restores, 2)
+        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+    }
+
+    /// Two failures: a "try again" screen, the record kept, nothing sent; the next try works.
+    func testARestoreThatKeepsFailingKeepsTheRecordAndOffersTryAgain() async throws {
+        let k = SoftwareDeviceKey()
+        let rec = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
+        store.record = rec
+        keys.failRestores = 2
+        await model.start()
+        XCTAssertEqual(keys.restores, 2, "one retry, no more")
+        XCTAssertEqual(model.screen, .problem(Copy.Problems.keyUnreadable, retry: .relaunch))
+        XCTAssertEqual(store.record, rec)
+        XCTAssertTrue(server.seen.isEmpty)
+
+        model.retry(.relaunch)
+        for _ in 0..<200 where model.screen != .already(name: "Maria Borg") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(model.screen, .already(name: "Maria Borg"))
+        XCTAssertEqual(store.record, rec)
+    }
+
+    /// "Start again" from that screen activates anew without deleting first.
+    func testStartAgainFromAnUnreadableKeyKeepsTheRecordUntilANewActivation() async {
+        let k = SoftwareDeviceKey()
+        let rec = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)
+        store.record = rec
+        keys.failRestores = 2
+        await model.start()
+        model.retry(.toCode)
+        XCTAssertEqual(model.screen, .code(notice: nil))
+        XCTAssertEqual(store.record, rec)
+    }
+
     func testOfflineIsNotSignedOut() async {
         let k = SoftwareDeviceKey()
         store.record = ActivationRecord(deviceId: server.register(k), employeeName: "Maria Borg", keyHandle: k.persistentHandle)

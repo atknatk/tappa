@@ -22,6 +22,8 @@ import Foundation
 final class ActivationModel: ObservableObject {
     enum Retry: Equatable {
         case toCode, toWelcome, toTap
+        /// Run the launch again (the stored key could not be opened just now).
+        case relaunch
         /// Nothing the person can do on this phone (no reader, no secure chip).
         case none
     }
@@ -75,8 +77,11 @@ final class ActivationModel: ObservableObject {
     /// (ActivationStore.save).
     func start() async {
         if let record = store.load() {
-            guard let signer = try? keys.restore(record.keyHandle) else {
-                screen = .code(notice: nil)
+            // ONE retry, then a "try again" screen -- never a deletion (the same rule as the 401
+            // above): a Secure Enclave that fails once (a locked moment, a busy chip) usually
+            // answers the next time, and a deleted handle never would.
+            guard let signer = (try? keys.restore(record.keyHandle)) ?? (try? keys.restore(record.keyHandle)) else {
+                screen = .problem(Copy.Problems.keyUnreadable, retry: .relaunch)
                 return
             }
             do {
@@ -163,6 +168,9 @@ final class ActivationModel: ObservableObject {
             screen = invite == nil ? .code(notice: nil) : .welcome
         case .toTap:
             screen = binding == nil ? .code(notice: nil) : .tap(problem: nil)
+        case .relaunch:
+            screen = .checking
+            Task { await start() }
         case .none:
             break
         }

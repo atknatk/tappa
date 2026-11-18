@@ -25,6 +25,9 @@ struct SoftwareDeviceKey: DeviceSigner {
 
 final class SoftwareKeyFactory: DeviceKeyFactory {
     var isAvailable = true
+    /// The next n restores fail, as a Secure Enclave that cannot open a handle would.
+    var failRestores = 0
+    private(set) var restores = 0
     private(set) var made: [SoftwareDeviceKey] = []
 
     func newKey() throws -> DeviceSigner {
@@ -34,7 +37,12 @@ final class SoftwareKeyFactory: DeviceKeyFactory {
     }
 
     func restore(_ handle: Data) throws -> DeviceSigner {
-        SoftwareDeviceKey(key: try P256.Signing.PrivateKey(rawRepresentation: handle))
+        restores += 1
+        if failRestores > 0 {
+            failRestores -= 1
+            throw DeviceKeyError.keyUnavailable
+        }
+        return SoftwareDeviceKey(key: try P256.Signing.PrivateKey(rawRepresentation: handle))
     }
 }
 

@@ -474,6 +474,11 @@ struct ProblemScreen: View {
                 PrimaryButton(title: Copy.startAgain, look: look) { model.retry(.toCode) }
             case .toWelcome, .toTap:
                 PrimaryButton(title: Copy.tryAgain, look: look) { model.retry(retry) }
+            case .relaunch:
+                PrimaryButton(title: Copy.tryAgain, look: look) { model.retry(.relaunch) }
+                // Not a dead end when the handle never opens again: activating anew replaces the
+                // record; nothing is deleted before that succeeds.
+                BackButton(title: Copy.startAgain) { model.retry(.toCode) }
             }
         }
     }
