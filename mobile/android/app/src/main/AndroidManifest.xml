@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The staff app's permissions are a closed list (M16-11, CLAUDE.md §4.2): NFC, INTERNET, and
+  the two location permissions a one-shot, foreground, at-the-tap reading needs (Android 12+
+  asks for the coarse one next to the fine one). Nothing else: no background or service
+  location, no camera, nothing a library brings in. MergedManifestTest reads the MERGED
+  manifest, every library's included, and fails on any other permission.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Ordinary NFC permission, not a runtime one. -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Runtime permissions, asked for at the tap only (M16-13), never at start. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+      androidx.core declares and requests an app-private signature permission
+      (<applicationId>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) for ContextCompat's
+      not-exported receivers on API < 33. This app registers no broadcast receiver, so the
+      pair is removed by name (measured in the merged manifest, README.md). Should a receiver
+      ever be needed, it is registered with the platform's own flag on 33+ and this removal
+      is revisited, not silently widened.
+    -->
+    <permission
+        android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+    <uses-permission
+        android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+
+    <!--
+      allowBackup=false: no cloud backup. On Android 12+ that flag alone still lets
+      device-to-device transfer copy the app's data, so dataExtractionRules excludes every
+      domain from both. The device key is non-exportable anyway (M16-12); the rest of the app
+      data must not travel either (card M16-11).
+    -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.Taptime"
+        tools:targetApi="31">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

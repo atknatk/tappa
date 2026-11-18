@@ -1,0 +1,15 @@
+# Build output and machine-local configuration of the staff app's Gradle build. Source only
+# is committed -- no binaries, no wrapper JAR, no keystore (the debug build signs with
+# Gradle's own per-machine debug key, which lives under ~/.android, never here).
+#
+# scripts/redline-check.sh S2 fails if any file under these patterns is tracked anyway
+# (`git add -f`): ripgrep honours this file and would never scan such a file.
+/.gradle/
+/.kotlin/
+/build/
+/app/build/
+/local.properties
+/captures/
+*.iml
+*.keystore
+*.jks
