@@ -116,6 +116,12 @@ func (s *Surface) mount(r chi.Router) {
 			r.Post("/holdings", s.createHolding)
 			r.Post("/holdings/{id}/members", s.addHoldingMember)
 			r.Post("/holdings/{id}/members/{tenant}/remove", s.removeHoldingMember)
+			// The app registry (issue #37, ADR 0047 §10; apps.go).
+			r.Get("/apps", s.appsPage)
+			r.Post("/apps", s.registerApp)
+			r.Post("/apps/{id}/rotate", s.rotateAppSecret)
+			r.Post("/apps/{id}/redirects", s.setAppRedirects)
+			r.Post("/apps/{id}/disable", s.disableApp)
 		})
 	})
 }

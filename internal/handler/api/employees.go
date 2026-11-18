@@ -63,7 +63,7 @@ type Employees interface {
 	APIEmployeeByRef(ctx context.Context, tenantID uuid.UUID, ref string) (tenant.APIEmployee, error)
 	APIEmployeeByID(ctx context.Context, tenantID, id uuid.UUID) (tenant.APIEmployee, error)
 	ListAPIEmployees(ctx context.Context, tenantID uuid.UUID, after *uuid.UUID, limit int) ([]tenant.APIEmployee, error)
-	RecordDeactivationBudgetExceeded(ctx context.Context, tenantID, keyID uuid.UUID, via string, budget int) error
+	RecordDeactivationBudgetExceeded(ctx context.Context, tenantID, keyID uuid.UUID, via, clientID string, budget int) error
 }
 
 var _ Employees = (*tenant.Staff)(nil)
@@ -370,8 +370,9 @@ func (s *Surface) employeeWrite(w http.ResponseWriter, r *http.Request, body []b
 	if !ok {
 		if over != nil {
 			// The owner's alert, in a transaction of its own: the request's was rolled back.
-			if err := s.employees.RecordDeactivationBudgetExceeded(context.WithoutCancel(r.Context()), p.TenantID, p.KeyID, p.Attribution().Via, s.budget); err != nil {
-				s.log.ErrorContext(r.Context(), "api: the deactivation budget alert was not written", "tenant_id", p.TenantID, "key_id", p.KeyID, "err", err)
+			// K-25's budget is the CREDENTIAL's -- the key's, or the grant's (ADR 0047 §8.7).
+			if err := s.employees.RecordDeactivationBudgetExceeded(context.WithoutCancel(r.Context()), p.TenantID, p.ActorID(), p.Attribution().Via, p.Attribution().ClientID, s.budget); err != nil {
+				s.log.ErrorContext(r.Context(), "api: the deactivation budget alert was not written", "tenant_id", p.TenantID, "actor_id", p.ActorID(), "err", err)
 			}
 		}
 		return
@@ -421,7 +422,7 @@ func (s *Surface) putEmployee(w http.ResponseWriter, r *http.Request) {
 		return http.StatusOK
 	}, func(ctx context.Context, tx pgx.Tx, g *Gate, p apikey.Principal) (tenant.EmployeePutResult, error) {
 		return s.employees.PutEmployeeTx(ctx, tx, tenant.EmployeePut{
-			TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ExternalRef: ref,
+			TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ClientID: p.Attribution().ClientID, ExternalRef: ref,
 			FirstName: in.first, LastName: in.last, EmployeeCode: in.code, Email: in.email, Active: in.active,
 			Budget: s.budget,
 		}, func(ctx context.Context, wr tenant.EmployeeWrite) error { return g.Admit(ctx, classOf(wr)) })
@@ -445,7 +446,7 @@ func (s *Surface) deleteEmployee(w http.ResponseWriter, r *http.Request) {
 				return tenant.EmployeePutResult{}, err
 			}
 			return s.employees.DeleteEmployeeTx(ctx, tx, tenant.EmployeeDelete{
-				TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ExternalRef: ref, Budget: s.budget,
+				TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ClientID: p.Attribution().ClientID, ExternalRef: ref, Budget: s.budget,
 			})
 		})
 }
@@ -467,7 +468,7 @@ func (s *Surface) resendActivation(w http.ResponseWriter, r *http.Request) {
 				return tenant.EmployeePutResult{}, err
 			}
 			return s.employees.ResendActivationTx(ctx, tx, tenant.EmployeeResend{
-				TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ExternalRef: ref,
+				TenantID: p.TenantID, ActorID: *p.Actor(), Via: p.Attribution().Via, ClientID: p.Attribution().ClientID, ExternalRef: ref,
 			})
 		})
 }

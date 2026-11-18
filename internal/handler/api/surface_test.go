@@ -41,8 +41,10 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 )
 
 const apiHost = "api.taptime.mt"
@@ -123,7 +125,9 @@ type rig struct {
 	work     *workSet
 	macKey   []byte
 	logs     *bytes.Buffer
-	h        http.Handler
+	// grants is the OAuth access token's half of the chain (oauthchain_test.go's fake).
+	grants *fakeGrants
+	h      http.Handler
 }
 
 type rigOption func(*Config)
@@ -143,8 +147,10 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	logs := &bytes.Buffer{}
 	log := slog.New(slog.NewJSONHandler(&syncWriter{w: logs}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	work := &workSet{}
-	c := Config{Host: apiHost, Keys: chain, Writes: refuseWrites{}, Suspension: suspendedSwitch{}, Work: work,
-		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Log: log}
+	grants := &fakeGrants{answer: func() (oauth.Access, error) { return oauth.Access{}, oauth.ErrInvalidToken }}
+	c := Config{Host: apiHost, Keys: chain, Grants: grants, Writes: refuseWrites{}, Suspension: suspendedSwitch{}, Work: work,
+		Locations: refuseLocations{}, Employees: refuseEmployees{}, Punches: refusePunches{}, Directory: refuseDirectory{}, Timesheets: refuseTimesheets{},
+		Business: refuseBusiness{}, Log: log}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -152,7 +158,7 @@ func newRig(t *testing.T, answer func(hash string) (db.ResolvedAPIKey, error), o
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{s: s, resolver: res, touches: touches, work: work, macKey: mac, logs: logs}
+	r := &rig{s: s, resolver: res, touches: touches, work: work, macKey: mac, logs: logs, grants: grants}
 	withTestRoutes(s, func(r chi.Router) {
 		r.Get("/_whoami", func(w http.ResponseWriter, r *http.Request) {
 			p, _ := PrincipalOf(r)
@@ -252,13 +258,13 @@ func (refuseEmployees) ListAPIEmployees(context.Context, uuid.UUID, *uuid.UUID, 
 	return nil, errors.New("this rig reads no employee")
 }
 
-func (refuseEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, int) error {
+func (refuseEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, string, int) error {
 	return errors.New("this rig writes no trail")
 }
 
 type refusePunches struct{}
 
-func (refusePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int) (tenant.PunchPage, error) {
+func (refusePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int, bool) (tenant.PunchPage, error) {
 	return tenant.PunchPage{}, errors.New("this rig reads no punch")
 }
 
@@ -270,6 +276,12 @@ type refuseDirectory struct{}
 
 func (refuseDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.DirectoryQuery, int) (tenant.DirectoryPage, error) {
 	return tenant.DirectoryPage{}, errors.New("this rig reads no directory")
+}
+
+type refuseTimesheets struct{}
+
+func (refuseTimesheets) Timesheet(context.Context, uuid.UUID, ledger.TimesheetQuery) (ledger.TimesheetPage, error) {
+	return ledger.TimesheetPage{}, errors.New("this rig reads no timesheet")
 }
 
 func known(tenant, key uuid.UUID) func(string) (db.ResolvedAPIKey, error) {

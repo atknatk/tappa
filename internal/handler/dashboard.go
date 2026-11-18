@@ -87,6 +87,9 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// M11 API-3: owner-only, read included (apikeys.go).
 		case pages.TabAPIKeys:
 			r.Get(s.Href, a.apiKeysSection)
+			// Issue #37 (ADR 0047 §12): the "Connected apps" card's old page -- the card is drawn on the
+			// section itself since 2026-11-15, and this address 303s the owner to it (connectedapps.go).
+			r.Get(connectedAppsHref, a.connectedAppsSection)
 		// GRP-1: both roles; a business in no group reads the empty state (group.go).
 		case pages.TabGroup:
 			r.Get(s.Href, a.groupSection)
@@ -271,6 +274,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// the sibling group at the end of this function (K-26: a suspension does not stop a
 		// defence).
 		r.Post(apiKeysHref, a.apiKeyCreate)
+		// 🔴 THE APP CONSENT'S APPROVAL (issue #37, ADR 0047 §4.5): a new grant is a write, so a
+		// suspended business is refused it here (route class 1). It answers a 303 to the app's
+		// REGISTERED redirect URI -- S14's named exception (oauthconsent.go).
+		r.Post(oauthAuthorizeHref, a.oauthApprove)
 		// 🔴 THE WEBHOOK'S WRITES (M11 API-9, API-10). Here for the ordinary reason -- the
 		// Origin check runs AHEAD of the resolver (GATE-1) -- and owner-only inside the
 		// handlers. The test ping and the resend are the panel writes that make an outbound
@@ -388,6 +395,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
 		// exactly that reason: the two must never share a gate.
 		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// THE APP CONSENT'S REFUSAL (issue #37, ADR 0047 §4.5, DÜŞÜK-1): it writes no row -- only the
+		// pending request cookie is cleared -- so a suspension does not stop it, and the app hears
+		// access_denied from a suspended business too (ADR 0025's exception list, by name).
+		r.Post(oauthDenyHref, a.oauthDeny)
 		// SIGN OUT EVERYWHERE (M14-11): the person's own sessions, beside their own password
 		// (ADR 0025's M14 note). Mounted only while TAPPA_ADMIN_IDENTITY is on (ADR 0031 §8);
 		// any live admin, like the password.
@@ -440,6 +451,10 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (internal/apikey's Revoke). Owner-only inside the handlers, as before.
 		r.Post(apiKeyRevokeHref, a.apiKeyRevoke)
 		r.Post(apiKeyRevokeAllHref, a.apiKeyRevokeAll)
+		// 🔴 DISCONNECTING A CONNECTED APP (issue #37, ADR 0047 §11.2, §12) -- K-26 again: it ends an
+		// OAuth grant, taking away what an app may do for the business. Owner-only inside the handler
+		// and again in the domain.
+		r.Post(appDisconnectHref, a.appDisconnect)
 		a.mountWebhookWrites(r, true)
 		// 🔴 DISABLING A MEMBERSHIP AND MAKING AN OWNER A MANAGER (M14-16) -- K-26's reasoning applied to
 		// people: both NARROW who can act for the business, and a suspended business that could not shut

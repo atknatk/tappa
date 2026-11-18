@@ -1767,6 +1767,12 @@ var holdingDownTables = []string{
 	// above) -- SHARE for 00103's and 00102's, ACCESS EXCLUSIVE for 00101's -- and 00101's ALTERs it
 	// (its CHECKs and columns); ecLiftDownRefusals writes it.
 	"admin_identity_verifications",
+	// 00104/00106 (issue #37, ADR 0047): api_idempotency's grant key names oauth_grants, so 00052's Down
+	// -- its DROP TABLE, run at HEAD by TestApiIdempotency00052_DownGivesBackAndUpTakesItAgain and
+	// TestApiKeys00051_DownGivesBackAndUpTakesItAgain -- takes ACCESS EXCLUSIVE on oauth_grants too.
+	// 00107 (issue #37): its Down LOCKs oauth_clients (with platform_admins, operator_audit_log and
+	// operator_read_tickets, above) before it drops the registry's key to platform_admins.
+	"oauth_grants", "oauth_clients",
 }
 
 // holdingLockForDowns takes, inside the savepoint sp, ACCESS EXCLUSIVE on every one of

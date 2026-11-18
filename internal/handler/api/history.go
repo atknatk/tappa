@@ -171,11 +171,12 @@ func parseHistoryCursor(v string) (historyCursor, bool) {
 
 // listPunchHistory answers one page of the history query.
 func (s *Surface) listPunchHistory(w http.ResponseWriter, r *http.Request, req punchRequest) {
-	q := tenant.HistoryQuery{From: req.from, To: req.to, First: req.at == nil}
+	p, _ := PrincipalOf(r)
+	// OwnOnly: an OAuth token's history leaves the holding peers out, as its feed does (ADR 0047 §8.5).
+	q := tenant.HistoryQuery{From: req.from, To: req.to, First: req.at == nil, OwnOnly: p.OwnOnly()}
 	if req.at != nil {
 		q.At = req.at.pos
 	}
-	p, _ := PrincipalOf(r)
 	page, err := s.punches.HistoryPage(r.Context(), p.TenantID, req.role, q, req.limit)
 	switch {
 	case errors.Is(err, tenant.ErrCursorAhead), errors.Is(err, tenant.ErrHistoryRange):

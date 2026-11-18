@@ -196,7 +196,9 @@ func (s *Surface) listDirectory(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, prob)
 		return
 	}
-	q := tenant.DirectoryQuery{Since: req.since}
+	// OwnOnly: an OAuth token's directory is the business's own people alone -- holding_directory is
+	// not called (ADR 0047 §8.5, OA-4). An API key reads its peers' too, as before.
+	q := tenant.DirectoryQuery{Since: req.since, OwnOnly: p.OwnOnly()}
 	if req.at != nil {
 		pos := req.at.pos
 		q.After, q.AsOf = &pos, req.at.asOf

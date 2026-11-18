@@ -42,6 +42,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -211,6 +212,11 @@ func (c schemaChecker) check(schema, val any, where string) []string {
 			case "uuid":
 				if _, err := uuid.Parse(str); err != nil || len(str) != 36 {
 					fail("%q is not a uuid", str)
+				}
+			case "date":
+				// RFC 3339's full-date (the timesheet's days, API-14): exactly YYYY-MM-DD, a real day.
+				if _, err := time.Parse("2006-01-02", str); err != nil || len(str) != 10 {
+					fail("%q is not an RFC 3339 full-date", str)
 				}
 			default:
 				fail("a format the checker does not know: %v", f)
@@ -675,13 +681,13 @@ func (p probeEmployees) ListAPIEmployees(context.Context, uuid.UUID, *uuid.UUID,
 	return []tenant.APIEmployee{probeEmployee()}, nil
 }
 
-func (probeEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, int) error {
+func (probeEmployees) RecordDeactivationBudgetExceeded(context.Context, uuid.UUID, uuid.UUID, string, string, int) error {
 	return nil
 }
 
 type probePunches struct{}
 
-func (probePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int) (tenant.PunchPage, error) {
+func (probePunches) PunchPage(context.Context, uuid.UUID, tenant.FeedRole, int64, int, bool) (tenant.PunchPage, error) {
 	return tenant.PunchPage{Next: 7}, nil
 }
 
@@ -695,6 +701,34 @@ func (probeDirectory) DirectoryPage(context.Context, uuid.UUID, tenant.Directory
 	return tenant.DirectoryPage{AsOf: time.Now()}, nil
 }
 
+// probeBusiness answers a business with a company code.
+type probeBusiness struct{}
+
+func (probeBusiness) APIBusiness(_ context.Context, id uuid.UUID) (tenant.APIBusiness, error) {
+	code := "KF"
+	return tenant.APIBusiness{ID: id, Name: "Kebab Factory Ltd", APICode: &code}, nil
+}
+
+// probeTimesheets answers one employee's period: every figure and every day mark set, so the answer
+// exercises the whole Timesheet schema.
+type probeTimesheets struct{}
+
+func (probeTimesheets) Timesheet(_ context.Context, _ uuid.UUID, q ledger.TimesheetQuery) (ledger.TimesheetPage, error) {
+	period, err := ledger.RangeOf(q.From, q.To, time.UTC)
+	if err != nil {
+		return ledger.TimesheetPage{}, err
+	}
+	ref, code, first, last := "E-1042", "1042", "Jane", "Example"
+	h := ledger.PersonHours{Worked: 8*time.Hour + 30*time.Second, Awaiting: time.Hour, Shifts: 1, Open: 1, OutWithoutIn: 1, ManualShifts: 1,
+		Daily: make([]time.Duration, period.Days()), Marks: make([]ledger.DayMarks, period.Days())}
+	h.Daily[0] = h.Worked
+	h.Marks[0] = ledger.DayMarks{ManualShift: true, Open: true, InMissing: true}
+	next := uuid.New()
+	return ledger.TimesheetPage{Period: period, Zone: time.UTC, HasMore: true, Next: &next, People: []ledger.TimesheetPerson{{
+		Employee: ledger.TimesheetEmployee{ID: next, ExternalRef: &ref, EmployeeCode: &code, FirstName: &first, LastName: &last, FullName: "Jane Example"},
+		Hours:    h}}}, nil
+}
+
 // probe is one request against the shipped surface with fakes set up for one outcome.
 type probe struct {
 	name   string
@@ -702,8 +736,10 @@ type probe struct {
 	path   string
 	body   string
 	auth   string // "" none, "key" a valid key, "closed" a key of a business whose API is closed
-	hdr    []string
-	cfg    func(*Config)
+	// token, when set, sends a live OAuth access token of exactly these scopes instead (auth unused).
+	token []string
+	hdr   []string
+	cfg   func(*Config)
 	// twice sends the request twice and answers the second (a bucket of one).
 	twice bool
 	// failTouch makes last_used_at's write fail (an outage on our side).
@@ -724,6 +760,8 @@ func (p probe) run(t *testing.T) *httptest.ResponseRecorder {
 	r := newRig(t, answer, func(c *Config) {
 		c.Writes = &fakeWrites{}
 		c.Locations, c.Employees, c.Punches, c.Directory = probeLocations{created: true}, probeEmployees{created: true}, probePunches{}, probeDirectory{}
+		c.Timesheets = probeTimesheets{}
+		c.Business = probeBusiness{}
 		if p.cfg != nil {
 			p.cfg(c)
 		}
@@ -732,6 +770,10 @@ func (p probe) run(t *testing.T) *httptest.ResponseRecorder {
 	auth := ""
 	if p.auth != "" {
 		auth = "Bearer " + liveKey(t)
+	}
+	if p.token != nil {
+		r.grants.set(grantOf(p.token...))
+		auth = "Bearer " + accessToken(t)
 	}
 	send := func() *httptest.ResponseRecorder {
 		return r.do(p.method, p.path, auth, "", strings.NewReader(p.body), p.hdr...)
@@ -799,7 +841,8 @@ func surfaceProbes() []probe {
 	type route struct{ method, path, body string }
 	routes := []route{{"PUT", "/v1/locations/KF-VLT", locBody}, {"GET", "/v1/employees", ""}, {"GET", "/v1/employees/E-1042", ""},
 		{"PUT", "/v1/employees/E-1042", empBody}, {"DELETE", "/v1/employees/E-1042", ""}, {"POST", "/v1/employees/E-1042/resend-activation", ""},
-		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}}
+		{"GET", "/v1/punches?scope=employer", ""}, {"GET", "/v1/directory", ""}, {"GET", "/v1/timesheets?from=2026-11-02&to=2026-11-08", ""},
+		{"GET", "/v1/business", ""}}
 	for _, rt := range routes {
 		out = append(out,
 			probe{name: "no key", method: rt.method, path: rt.path, body: rt.body, want: 401, code: CodeUnauthorized},
@@ -809,6 +852,22 @@ func surfaceProbes() []probe {
 			probe{name: "a compressed body", method: rt.method, path: rt.path, body: rt.body, auth: "key", hdr: gz, want: 400, code: CodeInvalidRequest},
 			probe{name: "a body over the bound", method: rt.method, path: rt.path, body: big, auth: "key", want: 400, code: CodeBodyTooLarge},
 		)
+	}
+	// An OAuth access token (issue #37, ADR 0047 §8.2, §8.3): on every route of a scope, a token of
+	// another scope is 403 insufficient_scope; GET /v1/business opens to a token of any scope.
+	other := map[string][]string{"locations:write": {"employees:write"}, "employees:read": {"timesheets:read"},
+		"employees:write": {"employees:read"}, "punches:read": {"employees:read"}, "timesheets:read": {"punches:read"}}
+	for _, rt := range routes {
+		pattern := strings.NewReplacer("/KF-VLT", "/{ref}", "/E-1042", "/{ref}").Replace(strings.SplitN(rt.path, "?", 2)[0])
+		need, listed := RouteScope(rt.method, pattern)
+		if !listed {
+			panic("the probe route " + rt.method + " " + pattern + " is not in the scope table")
+		}
+		if need == anyScope {
+			out = append(out, probe{name: "a token of any scope", method: rt.method, path: rt.path, body: rt.body, token: []string{"timesheets:read"}, want: 200})
+			continue
+		}
+		out = append(out, probe{name: "a token of another scope", method: rt.method, path: rt.path, body: rt.body, token: other[need], want: 403, code: CodeInsufficientScope})
 	}
 	k := "key"
 	out = append(out,
@@ -863,6 +922,14 @@ func surfaceProbes() []probe {
 		probe{name: "the directory", method: "GET", path: "/v1/directory", auth: k, want: 200},
 		probe{name: "an unknown parameter", method: "GET", path: "/v1/directory?since=x", auth: k, want: 400, code: CodeInvalidRequest},
 		probe{name: "a query string that does not parse", method: "GET", path: "/v1/directory?li%mit=1", auth: k, want: 400, code: CodeInvalidRequest},
+		// GET /v1/timesheets
+		probe{name: "a timesheet page", method: "GET", path: "/v1/timesheets?from=2026-11-02&to=2026-11-08", auth: k, want: 200},
+		probe{name: "no period", method: "GET", path: "/v1/timesheets", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "an unknown parameter", method: "GET", path: "/v1/timesheets?from=2026-11-02&to=2026-11-08&scope=employer", auth: k, want: 400, code: CodeInvalidRequest},
+		probe{name: "a query string that does not parse", method: "GET", path: "/v1/timesheets?from=2026-11-02&%zz", auth: k, want: 400, code: CodeInvalidRequest},
+		// GET /v1/business (issue #37)
+		probe{name: "the business", method: "GET", path: "/v1/business", auth: k, want: 200},
+		probe{name: "a query parameter", method: "GET", path: "/v1/business?x=1", auth: k, want: 400, code: CodeInvalidRequest},
 	)
 	return out
 }
@@ -1056,6 +1123,8 @@ func TestOpenAPI_EveryRouteAndErrorDocumented(t *testing.T) {
 	pins := map[string]float64{
 		"requestsPerAddressPerMinute": perMinute(addressLimit, addressPeriod),
 		"requestsPerKeyPerMinute":     perMinute(keyLimit, keyPeriod),
+		"requestsPerGrantPerMinute":   perMinute(grantLimit, grantPeriod),
+		"requestsPerAppPerMinute":     perMinute(clientLimit, clientPeriod),
 		"deactivationsPerKeyPerHour":  float64(tenant.DefaultDeactivationBudget) * float64(time.Hour) / float64(tenant.DeactivationBudgetWindow),
 		"maxBodyBytes":                MaxBody,
 		"defaultPageSize":             DefaultLimit,
@@ -1064,6 +1133,7 @@ func TestOpenAPI_EveryRouteAndErrorDocumented(t *testing.T) {
 		"requestTimeoutSeconds":       httpx.RequestTimeout.Seconds(),
 		"feedWindowPositions":         tenant.PunchFeedWindow,
 		"historyMaxHours":             tenant.MaxHistoryRange.Hours(),
+		"timesheetMaxDays":            ledger.TimesheetMaxDays,
 		"directoryOverlapMinutes":     tenant.DirectoryOverlap.Minutes(),
 		"webhookTimeoutSeconds":       egress.TotalTimeout.Seconds(),
 		"webhookAttempts":             delivery.MaxAttempts,

@@ -225,11 +225,19 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	// that a state moved (the tenant's own audit row, and its overview, say that).
 	db.OperatorAuditTenantSuspended:  "Tenant suspension recorded",
 	db.OperatorAuditTenantReinstated: "Tenant reinstatement recorded",
+	// Issue #37 (migration 00107, ADR 0047 §10.2): the app registry. Registration is written only
+	// when the app was created, so its word says so; the three edits are written on every accepted
+	// call WHETHER OR NOT the app changed (a disabled app is not edited), so their words say what
+	// was ASKED.
+	db.OperatorAuditOAuthClientRegistered:       "Connected app registered",
+	db.OperatorAuditOAuthClientSecretRotated:    "Asked to rotate a connected app's secret",
+	db.OperatorAuditOAuthClientRedirectsChanged: "Asked to change a connected app's redirect addresses",
+	db.OperatorAuditOAuthClientDisabled:         "Asked to disable a connected app",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --
-// the eight kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing,
-// 00034 OP-16's tenant_vat, 00042 M11 API-1a's holdings).
+// the nine kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing,
+// 00034 OP-16's tenant_vat, 00042 M11 API-1a's holdings, 00107 issue #37's oauth_clients).
 // The end-to-end test reads that CHECK and op_read_audit's own list from the catalog and
 // holds this map's keys equal to both
 // (TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns), and a test without a
@@ -245,6 +253,7 @@ var auditScopeWords = map[string]string{
 	"tenant_billing": "a tenant's billing",
 	"tenant_vat":     "a tenant's VAT number",
 	"holdings":       "the holdings",
+	"oauth_clients":  "the connected-app registry",
 }
 
 // auditSearchWords is the word for each search class a tenant-list read records (00029:

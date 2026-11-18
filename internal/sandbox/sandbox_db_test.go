@@ -28,9 +28,11 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler/api"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/test/fixtures"
 )
@@ -98,9 +100,10 @@ func newRigOn(t *testing.T, poolMax int) *rig {
 		t.Fatal(err)
 	}
 	surface, err := api.New(api.Config{
-		Host: apiHost, Keys: chain, Writes: must(apikey.NewWrites(d)), Suspension: tenant.WriteSuspension{}, Work: noWork{},
+		Host: apiHost, Keys: chain, Grants: must(oauth.NewServer(mac, d, trail, quiet)), Business: must(tenant.NewBusinessCard(d)),
+		Writes: must(apikey.NewWrites(d)), Suspension: tenant.WriteSuspension{}, Work: noWork{},
 		Locations: must(tenant.NewVenues(d, trail, quiet)), Employees: must(tenant.NewStaff(d, trail, quiet)),
-		Punches: must(tenant.NewPunchFeed(d)), Directory: must(tenant.NewEmployeeDirectory(d)),
+		Punches: must(tenant.NewPunchFeed(d)), Directory: must(tenant.NewEmployeeDirectory(d)), Timesheets: must(ledger.NewReader(d, quiet)),
 		Extensions: []api.Extension{sim}, Log: quiet,
 	})
 	if err != nil {

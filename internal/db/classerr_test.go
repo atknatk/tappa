@@ -67,6 +67,18 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 		_, err := d.GetAppDeviceByID(ctx, uuid.New())
 		return err
 	},
+	"GetOAuthClient": func(ctx context.Context, d *DB) error {
+		_, err := d.GetOAuthClient(ctx, uuid.New(), nil)
+		return err
+	},
+	"GetOAuthCodeByHash": func(ctx context.Context, d *DB) error {
+		_, err := d.GetOAuthCodeByHash(ctx, "h")
+		return err
+	},
+	"GetOAuthTokenByHash": func(ctx context.Context, d *DB) error {
+		_, err := d.GetOAuthTokenByHash(ctx, "h")
+		return err
+	},
 	"ResolveIdentityByEmail": func(ctx context.Context, d *DB) error {
 		_, err := d.ResolveIdentityByEmail(ctx, "a@b.example")
 		return err

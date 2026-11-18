@@ -2400,6 +2400,155 @@ func TestAdminHome_IsBehindTheGate(t *testing.T) {
 	}
 }
 
+// TestAdminLoginPage_SendsASignedInVisitorToThePanel is T318 (the user's call,
+// 2026-11-15): a session exists, so the sign-in form must not open. Every row also
+// counts the resolver, because "no cookie costs nothing" is the bound that made the
+// check acceptable on an unauthenticated page.
+func TestAdminLoginPage_SendsASignedInVisitorToThePanel(t *testing.T) {
+	live := func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: uuid.New(), TenantID: uuid.New(), AdminUserID: uuid.New(),
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}
+	dead := func() (adminauth.Resolved, error) { return adminauth.Resolved{}, adminauth.ErrNoSession }
+	outage := func() (adminauth.Resolved, error) { return adminauth.Resolved{}, fmt.Errorf("connection refused") }
+	const recoveredSentence = "Your new password is set"
+
+	tests := []struct {
+		name          string
+		cookie        bool
+		path          string
+		verify        func() (adminauth.Resolved, error)
+		wantStatus    int
+		wantResolves  int
+		wantCleared   bool
+		wantRecovered bool
+	}{
+		{name: "no cookie: the form, and the resolver is not asked", path: "/admin/login",
+			verify: live, wantStatus: http.StatusOK, wantResolves: 0},
+		{name: "a live session: 303 to the panel", cookie: true, path: "/admin/login",
+			verify: live, wantStatus: http.StatusSeeOther, wantResolves: 1},
+		{name: "a live session after a reset: 303 too", cookie: true, path: "/admin/login?recovered=1",
+			verify: live, wantStatus: http.StatusSeeOther, wantResolves: 1},
+		{name: "a dead cookie: the form, and the cookie is cleared", cookie: true, path: "/admin/login",
+			verify: dead, wantStatus: http.StatusOK, wantResolves: 1, wantCleared: true},
+		{name: "a dead cookie after a reset: the sentence still shows", cookie: true, path: "/admin/login?recovered=1",
+			verify: dead, wantStatus: http.StatusOK, wantResolves: 1, wantCleared: true, wantRecovered: true},
+		{name: "no cookie after a reset: the sentence still shows", path: "/admin/login?recovered=1",
+			verify: live, wantStatus: http.StatusOK, wantResolves: 0, wantRecovered: true},
+		{name: "a database outage: the form, the cookie kept", cookie: true, path: "/admin/login",
+			verify: outage, wantStatus: http.StatusOK, wantResolves: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			admins := &fakeAdmins{verify: tc.verify}
+			h := newAdminRouter(t, admins, &fakeTrail{})
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.RemoteAddr = "203.0.113.9:1234"
+			if tc.cookie {
+				req.AddCookie(&http.Cookie{Name: adminauth.CookieName, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if got := admins.verifiedCount(); got != tc.wantResolves {
+				t.Fatalf("the resolver ran %d times, want %d", got, tc.wantResolves)
+			}
+			set := map[string]*http.Cookie{}
+			for _, ck := range rec.Result().Cookies() {
+				set[ck.Name] = ck
+			}
+			if tc.wantStatus == http.StatusSeeOther {
+				if got := rec.Header().Get("Location"); got != "/admin" {
+					t.Fatalf("location %q, want /admin", got)
+				}
+				for name := range set {
+					t.Fatalf("the redirect set cookie %q, want none: no sign-in state is minted for a signed-in visitor", name)
+				}
+				return
+			}
+			body := htmlOf(t, rec)
+			csrfFrom(t, body)
+			if set[adminLoginCookieName] == nil {
+				t.Fatalf("the form was rendered without minting the sign-in state")
+			}
+			ck := set[adminauth.CookieName]
+			if cleared := ck != nil && ck.MaxAge < 0; cleared != tc.wantCleared {
+				t.Fatalf("panel cookie cleared = %v, want %v", cleared, tc.wantCleared)
+			}
+			if got := strings.Contains(body, recoveredSentence); got != tc.wantRecovered {
+				t.Fatalf("recovered sentence shown = %v, want %v", got, tc.wantRecovered)
+			}
+		})
+	}
+}
+
+// TestAdminLoginPage_ADeadCookieDoesNotLoop: requireLogin sends a dead cookie to the
+// sign-in page without clearing it, so the page must answer with the form (not a 303
+// back to the panel), and clear the cookie so the next panel load costs no resolver.
+func TestAdminLoginPage_ADeadCookieDoesNotLoop(t *testing.T) {
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) { return adminauth.Resolved{}, adminauth.ErrNoSession }}
+	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+	rec := b.do(http.MethodGet, "/admin", nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("GET /admin: %d -> %q, want 303 -> /admin/login", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = b.do(http.MethodGet, "/admin/login", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /admin/login with a dead cookie: %d -> %q, want the form (200)", rec.Code, rec.Header().Get("Location"))
+	}
+	csrfFrom(t, htmlOf(t, rec))
+	if _, ok := b.cookies[adminauth.CookieName]; ok {
+		t.Fatalf("the dead panel cookie survived the sign-in page")
+	}
+	before := admins.verifiedCount()
+	if rec := b.do(http.MethodGet, "/admin", nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("GET /admin after the clear: %d, want 303", rec.Code)
+	}
+	if got := admins.verifiedCount() - before; got != 0 {
+		t.Fatalf("the cleared cookie was resolved %d more times, want 0", got)
+	}
+}
+
+// TestAdminLoginPage_ChargesTheSessionBudget: a live session resolving on the sign-in
+// page is charged like any panel load, so the page is not an unbudgeted resolver loop.
+// Past the budget it answers the FORM, not a 429 (T318 round 2): signing in again is how a
+// spent session gets a fresh one, and the POST needs the state this GET mints. The charge
+// still counts: the panel itself is then refused for the same session.
+func TestAdminLoginPage_ChargesTheSessionBudget(t *testing.T) {
+	sessionID := uuid.New()
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{SessionID: sessionID, TenantID: uuid.New(), AdminUserID: uuid.New(), Role: "owner"}, nil
+	}}
+	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	for i := 1; i <= adminSessionLimit; i++ {
+		if rec := b.do(http.MethodGet, "/admin/login", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("load %d: status %d, want 303 inside the budget", i, rec.Code)
+		}
+	}
+	if _, ok := b.cookies[adminLoginCookieName]; ok {
+		t.Fatalf("PREMISE: a sign-in state was minted inside the budget")
+	}
+	rec := b.do(http.MethodGet, "/admin/login", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("load %d: status %d -> %q, want the form (200) past the session budget", adminSessionLimit+1, rec.Code, rec.Header().Get("Location"))
+	}
+	csrfFrom(t, htmlOf(t, rec))
+	if _, ok := b.cookies[adminLoginCookieName]; !ok {
+		t.Fatalf("the form past the budget minted no sign-in state, so its POST cannot work")
+	}
+	if rec := b.do(http.MethodGet, "/admin", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("GET /admin for the spent session: %d, want 429 — the sign-in page did not charge the budget", rec.Code)
+	}
+}
+
 // TestAdminLogout_RevokesAndClears.
 func TestAdminLogout_RevokesAndClears(t *testing.T) {
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
@@ -2455,11 +2604,17 @@ func TestAdminScreens_CarryTheSecurityHeaders(t *testing.T) {
 				AdminUserID: v.AdminUserID, Role: "owner", FullName: "KF Owner"}, nil
 		},
 	}
-	b := newBrowser(t, newAdminRouter(t, admins, &fakeTrail{}))
-	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	h := newAdminRouter(t, admins, &fakeTrail{})
 
 	for _, path := range []string{"/admin/login", "/admin"} {
 		t.Run(path, func(t *testing.T) {
+			// The sign-in form is a SIGNED-OUT page: with a live session /admin/login
+			// is a 303 to the panel (T318, TestAdminLoginPage_SendsASignedInVisitorToThePanel),
+			// so the form's headers are read without the panel cookie.
+			b := newBrowser(t, h)
+			if path != "/admin/login" {
+				b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			}
 			rec := b.do(http.MethodGet, path, nil)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d", rec.Code)
@@ -3069,22 +3224,28 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 // Both routes now sit behind a.floodGate, mounted AHEAD of Protect — the order
 // tap.go uses and httpx/router.go defends.
 func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
+	// resolves marks the rows whose handler resolves the cookie when served (T318: the
+	// sign-in page resolves a present panel cookie). On those rows the positive control
+	// asserts the resolver DID run for a fresh address, which is what makes "0 on an
+	// exhausted address" a measurement of the shield's position and not a blind counter.
 	routes := []struct {
 		name, method, path string
 		form               url.Values
+		resolves           bool
 	}{
-		{"GET /admin/login", http.MethodGet, "/admin/login", nil},
-		{"POST /admin/login", http.MethodPost, "/admin/login", url.Values{}},
-		{"GET /admin/login/choose", http.MethodGet, "/admin/login/choose", nil},
-		{"POST /admin/login/choose", http.MethodPost, "/admin/login/choose", url.Values{}},
-		{"GET /admin (behind Protect)", http.MethodGet, "/admin", nil},
+		{"GET /admin/login", http.MethodGet, "/admin/login", nil, true},
+		{"POST /admin/login", http.MethodPost, "/admin/login", url.Values{}, false},
+		{"GET /admin/login/choose", http.MethodGet, "/admin/login/choose", nil, false},
+		{"POST /admin/login/choose", http.MethodPost, "/admin/login/choose", url.Values{}, false},
+		{"GET /admin (behind Protect)", http.MethodGet, "/admin", nil, true},
 	}
 	// ⚠️ POST /admin/logout IS DELIBERATELY ABSENT and it is not an omission: it is
 	// METERED but never REFUSED, because a third party must not be able to stop
 	// somebody ending their own session. TestAdminLogout_CannotBeBlockedByAThirdParty
 	// is the invariant that replaces a row here.
 
-	h := newAdminRouter(t, &fakeAdmins{}, &fakeTrail{})
+	admins := &fakeAdmins{}
+	h := newAdminRouter(t, admins, &fakeTrail{})
 
 	// ⚠️ THE BUDGET IS BURNT ONCE, NOT ONCE PER ROUTE, and the reason is cost. The
 	// ceiling moved from 200 to 3000 in round 14 (adminratelimit.go re-derives it),
@@ -3117,9 +3278,17 @@ func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
 			b := newBrowser(t, h)
 			b.ip = "198.51.100.1:1234"
 			b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			before := admins.verifiedCount()
 			if got := b.do(tc.method, tc.path, tc.form).Code; got != http.StatusTooManyRequests {
 				t.Fatalf("with the address budget exhausted, %s answered %d, want 429 — this "+
 					"route is not behind the flood ceiling", tc.name, got)
+			}
+			// COST, NOT OUTCOME (TestSameOriginGate_RefusesBeforeTheResolver's rule): a 429
+			// returned AFTER the resolver ran is the right answer bought at the wrong price,
+			// and it is what an exhausted address could then buy once per request.
+			if got := admins.verifiedCount() - before; got != 0 {
+				t.Fatalf("with the address budget exhausted, %s still resolved the cookie %d time(s), "+
+					"want 0 — the shield is not ahead of the resolver", tc.name, got)
 			}
 
 			// POSITIVE CONTROL per route: a FRESH address is served, so the 429
@@ -3127,8 +3296,13 @@ func TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute(t *testing.T) {
 			fresh := newBrowser(t, h)
 			fresh.ip = "198.51.100.200:1234"
 			fresh.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			before = admins.verifiedCount()
 			if got := fresh.do(tc.method, tc.path, tc.form).Code; got == http.StatusTooManyRequests {
 				t.Fatalf("control: %s refused a FRESH address with 429", tc.name)
+			}
+			if got := admins.verifiedCount() - before; tc.resolves && got != 1 {
+				t.Fatalf("control: %s resolved the cookie %d time(s) for a FRESH address, want 1 — "+
+					"the counter above would be blind", tc.name, got)
 			}
 		})
 	}

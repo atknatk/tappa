@@ -109,7 +109,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	queue, err := invite.NewQueue(invites, invitations.QueueSink(quiet), trail)
+	queue, err := invite.NewQueue(invites, invitations.QueueSink(quiet), trail, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestAPIWiring_AnEmployeeRunsThroughTheShippedSurfaceAndTheQueue(t *testing.
 	if err := work.Add(queue); err != nil {
 		t.Fatal(err)
 	}
-	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, quiet)
+	surface, err := openAPISurface(cfg, data, work, venues, staff, nil, ledgerFor(t, data), quiet, grantsFor(t, data))
 	if err != nil || surface == nil {
 		t.Fatalf("openAPISurface: %v %v", surface, err)
 	}

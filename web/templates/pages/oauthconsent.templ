@@ -1,0 +1,124 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// OAuthConsent is the app consent page (issue #37, ADR 0047 §4.3-§4.5): the sign-in family's frame
+// (layout.Auth, like the switch page -- a step between Taptime and an app, not a section of a
+// business), Taptime's own colours and no tenant brand.
+//
+// IT NAMES THREE THINGS IN WORDS: the app (the operator's registration), the business the consent is
+// for (the session's -- never the request's), and the host the browser returns to. The scopes are
+// sentences; the wire word sits beside each in mono, small.
+//
+// TWO BUTTONS, EACH ITS OWN FORM. "Allow" posts decision=allow and rd to the approval; "Don't allow"
+// posts rd to the refusal. Neither form carries a request parameter: the server applies the pending
+// request cookie whose digest rd is. "Allow" is DRAWN DISABLED and /static/js/oauthconsent.js enables it
+// once the page has been visible and focused for a moment (and disables it again on blur) -- a
+// double-click staged on another page cannot land on it. A browser without JavaScript gets the
+// <noscript> twin: the same form, the same binding and fields, enabled -- the delay is the script's,
+// so without one there is none (a named limit; the shared stylesheet declares no motion, so CSS
+// cannot stand in).
+//
+// THE THREE OTHER STATES draw no "Allow": a manager is told connecting apps is the owner's, a
+// suspended business and one whose integrations Taptime turned off say so -- each with the way back
+// to the app (the refusal, which tells the app access_denied). The "Not this business?" list is the
+// person's other owner memberships as the ordinary switch forms.
+templ OAuthConsent(v OAuthConsentView) {
+	@layout.Auth("Connect "+v.AppName+" — Taptime", v.Script) {
+		<div>
+			@AuthHeader("")
+			<main class="mx-auto flex w-full max-w-[640px] flex-col gap-[22px] px-4 pb-10 pt-4 md:gap-7 md:px-10 md:pb-14 md:pt-6">
+				<section class="flex flex-col gap-5 md:rounded-[18px] md:border md:border-line md:bg-paper md:px-9 md:pb-8 md:pt-9">
+					<div class="flex flex-col gap-2">
+						<p class="lbl">Connect an app</p>
+						<h1 class="font-display text-3xl font-bold leading-tight tracking-tight md:text-[34px]">
+							{ v.AppName } wants to connect to { v.BusinessName }
+						</h1>
+						<p class="text-[15px] leading-normal text-ink/70">
+							You'll return to <span class="font-mono text-ink">{ v.ReturnHost }</span>.
+						</p>
+					</div>
+					switch v.State {
+						case OAuthConsentAsk:
+							<div class="flex flex-col gap-3">
+								<p class="text-[15px] leading-normal">If you allow it, { v.AppName } can, for { v.BusinessName } only:</p>
+								<ul class="flex flex-col gap-2">
+									for _, s := range v.Scopes {
+										<li class="flex flex-col gap-0.5 border-l-2 border-tappa-green pl-3">
+											<span class="text-[15px] leading-snug">{ s.Label }</span>
+											<span class="font-mono text-[11px] text-ink/70">{ s.Word }</span>
+										</li>
+									}
+								</ul>
+								<p class="text-sm leading-normal text-ink/70">
+									Any owner of { v.BusinessName } can disconnect it at any time. Taptime never shares your employees' locations or anything of another business.
+								</p>
+							</div>
+							<div class="flex flex-col gap-3 md:flex-row-reverse">
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.AllowHref)) } class="md:flex-1" data-oauth-allow-form>
+									<input type="hidden" name="decision" value="allow"/>
+									<input type="hidden" name="rd" value={ v.Digest }/>
+									<button type="submit" data-oauth-allow disabled class="btn btn--primary w-full rounded-xl">Allow</button>
+								</form>
+								<noscript>
+									<form method="post" action={ templ.URL(components.Bound(ctx, v.AllowHref)) } class="md:flex-1">
+										<input type="hidden" name="decision" value="allow"/>
+										<input type="hidden" name="rd" value={ v.Digest }/>
+										<button type="submit" class="btn btn--primary w-full rounded-xl">Allow</button>
+									</form>
+								</noscript>
+								<form method="post" action={ templ.URL(components.Bound(ctx, v.DenyHref)) } class="md:flex-1">
+									<input type="hidden" name="rd" value={ v.Digest }/>
+									<button type="submit" class="btn btn--quiet min-h-12 w-full rounded-xl">Don't allow</button>
+								</form>
+							</div>
+						case OAuthConsentOwnersOnly:
+							@components.Notice(components.ToneWarn, "Connecting apps is the owner's") {
+								<p>Only an owner of { v.BusinessName } can connect an app to it. Ask an owner to connect { v.AppName }, or switch to a business you own.</p>
+							}
+							@oauthConsentBack(v)
+						case OAuthConsentSuspended:
+							@components.Notice(components.ToneWarn, "This business is suspended") {
+								<p>{ v.BusinessName } is suspended, so no app can be connected to it now.</p>
+							}
+							@oauthConsentBack(v)
+						case OAuthConsentIntegrationsOff:
+							@components.Notice(components.ToneWarn, "Integrations are turned off for this business by Taptime") {
+								<p>No app can be connected to { v.BusinessName } while its integrations are off.</p>
+							}
+							@oauthConsentBack(v)
+					}
+				</section>
+				if len(v.Others) > 0 {
+					<section class="flex flex-col gap-3">
+						<h2 class="font-display text-lg font-bold tracking-tight">Not this business?</h2>
+						<p class="text-sm leading-normal text-ink/70">Switch to another business you own; you'll come back to this request.</p>
+						@businessRail() {
+							for _, b := range v.Others {
+								@businessRailItem() {
+									<form method="post" action={ templ.URL(components.Bound(ctx, v.SwitchHref)) } class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-5 desk:flex-col desk:items-stretch desk:gap-3.5">
+										<input type="hidden" name="csrf" value={ v.SwitchCSRF }/>
+										<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+										@businessDocketBody(b.TenantName, b.Role, b.Suspended)
+									</form>
+								}
+							}
+						}
+					</section>
+				}
+			</main>
+		</div>
+	}
+}
+
+// oauthConsentBack is the refusal form of the three states without "Allow": the app hears
+// access_denied.
+templ oauthConsentBack(v OAuthConsentView) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, v.DenyHref)) }>
+		<input type="hidden" name="rd" value={ v.Digest }/>
+		<button type="submit" class="btn btn--quiet min-h-12 w-full rounded-xl">Back to { v.AppName }</button>
+	</form>
+}

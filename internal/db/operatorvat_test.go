@@ -530,7 +530,7 @@ func TestOperator00034_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	// HEAD's exact CHECKs.
 	for _, c := range []struct{ table, name, want string }{
 		// HEAD's read kinds: 00034's seven and, since 00042 (M11 API-1a), 'holdings'.
-		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt42)},
+		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAtHead)},
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
 		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDefOf(opTenantWriteKinds)},
 		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef33(opAuthEventKinds, opOwnerKinds)},

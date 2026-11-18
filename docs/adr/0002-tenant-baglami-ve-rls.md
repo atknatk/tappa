@@ -585,3 +585,29 @@ Kararın kendisi değişmez; M14'ün etkisi:
 - **Yazan `identity_*` fonksiyonları md.7 değildir**, CLAUDE.md §4.5'in **(3)** numaralı bilinçli
   istisnasıdır (ADR 0031 §6, §6.1; sahibi `tappa_identitydefiner`). md.7'de yalnız salt okuma
   çözümleyiciler kalır (ADR 0031 §13, K-13).
+
+## Not (2026-11-15, ADR 0047) — md.7: OAuth'un üç çözümleyicisi
+
+*Bu not yalnız ekler; yukarıdaki metin ve notlar değişmedi.* Kaynak:
+[ADR 0047](0047-oauth-bagli-uygulamalar.md) §9, §14.3 (issue #37, migration `00105`).
+
+- **md.7'nin sayımına üç çözümleyici girer** (sahibi `tappa_resolver`, `SECURITY DEFINER`, `STABLE`,
+  `search_path = pg_catalog, pg_temp`, `tappa_app`'e yalnız `EXECUTE`, PUBLIC'ten `REVOKE` —
+  `TestOAuthResolvers_SecurityDefinerProperties`):
+  - `resolve_oauth_token_by_hash(p_token_hash)` — erişim/refresh tokenını tenant bilinmeden çözer; ≤ 1 satır
+    `oauth_tokens.token_hash`'in küresel UNIQUE'inden; grant, istemci ve `tenants`'a PK join; *"taşı,
+    uygulama"*: iptal, istemci kapanışı, süre ve operatör kapanışı kararları uygulamada, önbelleksiz;
+  - `resolve_oauth_code_by_hash(p_code_hash)` — yetki kodu; ≤ 1 satır `code_hash` UNIQUE'inden;
+  - `resolve_oauth_client(p_client_id, p_secret_hash)` — **(i)'den bilinçli sapma**: girdi hash değil, açık
+    bir kimlik (`client_id`, URL'de dolaşan genel bir değer). Gerekçe (ADR 0047 §14.3): bir **tenant
+    çözümlemesi değildir** (dönüşte tenant yok, okuduğu tablo tenant verisi taşımaz), dönen sütunlar onay
+    ekranının zaten gösterdikleridir, secret eşleşmesi yalnız bir boolean'dır (`secret_ok`; hash dönmez).
+    Emsal `resolve_admin_owners_by_tenant`. Öteki dört kısıt aynen.
+- **`tappa_resolver`'ın `tenants` yetkisi bir sütun genişler:** M11 notunun *"yalnız `SELECT (id,
+  api_enabled_at)`"* ve *"patlama yarıçapı iki sütun"* cümleleri ADR 0047'den sonra **üç sütun** okunur —
+  `SELECT (api_code)` eklendi (`00105:89`). Gerekçe: token çözümleyicisi operatörün K-22 kapanışını (`api_enabled_at
+  IS NULL AND api_code IS NOT NULL` — ADR 0047 §11.4) taşır. `api_code` sır değildir (punch'ta yayımlanır).
+- **Sonraki her sorgu** `WithTenant(principal.TenantID)` + açık `tenant_id` filtresiyle; OAuth tabloları
+  (`oauth_grants`, `oauth_codes`, `oauth_tokens`) CLAUDE.md §6'nın beşlisini taşır ve RLS izolasyon testi
+  filtresiz sorguyla koşar (`TestOAuthRLS_TenantIsolation`). Cross-tenant: bir işletmenin tokenı öbürünün
+  hiçbir verisine ulaşmaz (`internal/handler/api`'nin `TestOAuthAPI_AnotherBusinessIsNeverReached`).

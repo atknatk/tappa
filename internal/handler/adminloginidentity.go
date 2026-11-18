@@ -131,7 +131,8 @@ func (a *AdminAuth) completePersonLogin(w http.ResponseWriter, r *http.Request, 
 	a.resetLogin(w)
 	// linked is a number for this line, never for an audit row (R21).
 	a.log.Info("panel sign-in", "admin_user_id", s.AdminUserID, "ip", ip, "path", "identity", "linked", linked)
-	a.redirect(w, "/admin")
+	// A pending app consent (issue #37, ADR 0047 §4.2) lands on its ONE fixed continue path.
+	a.redirect(w, a.landingAfterSignIn(r, "/admin"))
 }
 
 // abandonedLogin answers a sign-in whose identity session was opened -- committed, with the

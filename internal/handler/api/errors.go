@@ -22,11 +22,14 @@ type Code string
 
 // The codes, each with its one status (statusOf).
 const (
-	CodeInvalidRequest       Code = "invalid_request"        // 400: a parameter or header the contract refuses
-	CodeBodyTooLarge         Code = "body_too_large"         // 400: a body over MaxBody bytes
-	CodeUnauthorized         Code = "unauthorized"           // 401: no key, a key of another shape, unknown or revoked
-	CodeAPIDisabled          Code = "api_disabled"           // 403: the operator has not opened this business's API (K-22)
-	CodeTenantSuspended      Code = "tenant_suspended"       // 403: a write the suspension closes (ADR 0028 §10)
+	CodeInvalidRequest  Code = "invalid_request"  // 400: a parameter or header the contract refuses
+	CodeBodyTooLarge    Code = "body_too_large"   // 400: a body over MaxBody bytes
+	CodeUnauthorized    Code = "unauthorized"     // 401: no key, a key of another shape, unknown or revoked
+	CodeAPIDisabled     Code = "api_disabled"     // 403: the operator has not opened this business's API (K-22)
+	CodeTenantSuspended Code = "tenant_suspended" // 403: a write the suspension closes (ADR 0028 §10)
+	// CodeInsufficientScope is an OAuth access token's 403 on a route outside its scopes (issue #37,
+	// ADR 0047 §8.3): details.scope names the route's scope. An API key never gets it.
+	CodeInsufficientScope    Code = "insufficient_scope"
 	CodeNotFound             Code = "not_found"              // 404: no such route or resource (and an unsupported method)
 	CodeEmailUnavailable     Code = "email_unavailable"      // 409: another active employee of the business has the address (K-24)
 	CodeAlreadyActivated     Code = "already_activated"      // 409: resend-activation for an employee who activated (ADR 0028 §9)
@@ -43,7 +46,7 @@ const (
 // Codes is the closed set, in a stable order (the OpenAPI enum's).
 func Codes() []Code {
 	return []Code{CodeInvalidRequest, CodeBodyTooLarge, CodeUnauthorized, CodeAPIDisabled, CodeTenantSuspended,
-		CodeNotFound, CodeEmailUnavailable, CodeAlreadyActivated, CodeIdempotencyKeyReused, CodeValidationFailed,
+		CodeInsufficientScope, CodeNotFound, CodeEmailUnavailable, CodeAlreadyActivated, CodeIdempotencyKeyReused, CodeValidationFailed,
 		CodeTimezoneMismatch, CodeRateLimited, CodeDeactivationBudgetExceeded, CodeUnavailable}
 }
 
@@ -60,7 +63,7 @@ func StatusOf(c Code) int {
 		return http.StatusBadRequest
 	case CodeUnauthorized:
 		return http.StatusUnauthorized
-	case CodeAPIDisabled, CodeTenantSuspended:
+	case CodeAPIDisabled, CodeTenantSuspended, CodeInsufficientScope:
 		return http.StatusForbidden
 	case CodeNotFound:
 		return http.StatusNotFound
@@ -86,6 +89,9 @@ type Problem struct {
 	Details map[string]any
 	// retryAfter is 429's Retry-After.
 	retryAfter time.Duration
+	// challenge, when set, is the WWW-Authenticate value (RFC 6750 §3: an OAuth access token's
+	// invalid_token and insufficient_scope); else a 401 carries the plain Bearer realm.
+	challenge string
 }
 
 func (p *Problem) Error() string { return "api: " + string(p.Code) }
@@ -94,6 +100,17 @@ func (p *Problem) Error() string { return "api: " + string(p.Code) }
 var (
 	problemUnauthorized = &Problem{Code: CodeUnauthorized,
 		Message: "A valid integration key is required: Authorization: Bearer <key>."}
+	// problemInvalidToken is an OAuth access token that is unknown, expired, revoked, of a revoked
+	// grant or of a disabled app (ADR 0047 §8.1 step 4) -- one answer for all, RFC 6750 §3.1's
+	// error="invalid_token" in the challenge.
+	problemInvalidToken = &Problem{Code: CodeUnauthorized,
+		Message:   "The access token is invalid, expired or revoked. Refresh it, or connect the app again.",
+		challenge: `Bearer realm="taptime", error="invalid_token"`}
+	// problemNotForOAuth is an authenticated route that is not in the scope table (scope.go): closed
+	// to every OAuth access token, whatever its scopes. It names no scope -- there is none to ask for.
+	problemNotForOAuth = &Problem{Code: CodeInsufficientScope,
+		Message:   "This route is not open to OAuth access tokens.",
+		challenge: `Bearer realm="taptime", error="insufficient_scope"`}
 	problemAPIDisabled = &Problem{Code: CodeAPIDisabled,
 		Message: "The integration API is not enabled for this business. Ask Taptime to enable it."}
 	problemTenantSuspended = &Problem{Code: CodeTenantSuspended,
@@ -113,6 +130,15 @@ var (
 	problemLimit = &Problem{Code: CodeInvalidRequest,
 		Message: "limit must be a whole number from 1 to 1000.", Details: map[string]any{"parameter": "limit", "max": MaxLimit}}
 )
+
+// insufficientScope is ADR 0047 §8.3's 403: the token's grant does not include the route's scope.
+// details.scope is the route's (a constant of the scope table), never input.
+func insufficientScope(scope string) *Problem {
+	return &Problem{Code: CodeInsufficientScope,
+		Message:   "This token's grant does not include the scope this route needs.",
+		Details:   map[string]any{"scope": scope},
+		challenge: `Bearer realm="taptime", error="insufficient_scope", scope="` + scope + `"`}
+}
 
 // rateLimited is 429 with when to retry, in seconds (Retry-After and details agree).
 func rateLimited(after time.Duration) *Problem {
@@ -135,7 +161,10 @@ func writeProblem(w http.ResponseWriter, p *Problem) {
 	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
-	if status == http.StatusUnauthorized {
+	switch {
+	case p.challenge != "":
+		h.Set("WWW-Authenticate", p.challenge)
+	case status == http.StatusUnauthorized:
 		h.Set("WWW-Authenticate", `Bearer realm="taptime"`)
 	}
 	if status == http.StatusTooManyRequests {

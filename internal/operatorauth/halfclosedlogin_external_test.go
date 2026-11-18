@@ -65,7 +65,7 @@ func TestSurface_ASignInTheClientLeftBeforeItsLookupRingsNoAlarm(t *testing.T) {
 	var comparisons atomic.Int64
 	operatorauth.HoldComparisons(a, func() { comparisons.Add(1) })
 	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{},
-		surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+		surfApps{}, surfSecrets, surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

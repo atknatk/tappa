@@ -40,7 +40,7 @@ var plainNotFoundPaths = []string{
 	"/admin/no-such-screen", "/admin", "/admin/brand/logo/", "/t/no-such-thing", "/t/logo/",
 	"/activate/no-such-step", "/api/no-such-endpoint", "/brand/no-such-asset",
 	"/brand/theme/a/b", "/brand", "/static", "/operator/no-such-screen", "/v1/no-such-resource",
-	"/healthz/x", "/readyz/x", "/dev/no-such-tool", "/.well-known/no-such-file",
+	"/healthz/x", "/readyz/x", "/dev/no-such-tool", "/oauth/no-such-endpoint", "/.well-known/no-such-file",
 	"/.well-known/apple-app-site-association", "/.well-known/assetlinks.json",
 	"/app/no-such-route",
 	"/admin/../no-such-page", "//admin/x", "/%61dmin/x", "/admin%2Fx", "/ADMIN/x", `/\admin/x`,

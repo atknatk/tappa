@@ -746,6 +746,11 @@ var designedHeaders = map[string]designed{
 	"C189": {ct: pageType}, "C190": {ct: pageType}, "C191": {loc: "/operator/login"}, "C192": {allow: "POST"},
 	"C193": {loc: "/operator/holdings?done=remove&holding=61000000-0000-4000-8000-0000000000a2&tenant=61000000-0000-4000-8000-0000000000a3"},
 	"C194": {loc: "/operator/login"}, "C195": {ct: pageType}, "C196": {ct: pageType}, "C197": {ct: pageType},
+	// Issue #37's app registry.
+	"C243": {ct: pageType}, "C244": {ct: pageType}, "C245": {ct: pageType},
+	"C246": {loc: "/operator/apps?done=redirects&app=" + appHeaderApp}, "C247": {loc: "/operator/apps?done=disabled&app=" + appHeaderApp},
+	"C248": {allow: "GET,POST"}, "C249": {allow: "POST"}, "C250": {allow: "POST"}, "C251": {allow: "POST"},
+	"C252": {ct: pageType},
 	"C198": {loc: "/operator/login"}, "C199": {allow: "POST"},
 	// M11 API-13a's integration API on the tenant overview (tenantapi_test.go): the overview and the
 	// refusals are pages -- a 403, 404, 413, 422, 429 or 503 page, none carrying a Location; the

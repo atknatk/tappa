@@ -226,6 +226,7 @@ func (a *AdminAuth) adminSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.log.Info("panel switched business", "actor_id", id.Admin.AdminUserID)
-	// POST-redirect-GET into the panel's home: no binding, no target in the address.
-	a.redirect(w, transactionsHref)
+	// POST-redirect-GET into the panel's home: no binding, no target in the address -- or, with a
+	// pending app consent in the browser, its ONE fixed continue path (issue #37, ADR 0047 §4.3).
+	a.redirect(w, a.landingAfterSignIn(r, transactionsHref))
 }

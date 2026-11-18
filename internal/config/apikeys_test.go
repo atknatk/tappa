@@ -8,14 +8,15 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 )
 
-// allKeyVariables are the eight key variables Config holds (M11 API-3). That the list covers
+// allKeyVariables are the nine key variables Config holds (M11 API-3; TAPPA_OAUTH_HMAC_KEY since issue #37). That the list covers
 // every key FIELD of Config is TestNamedKeys_ListEveryKeyFieldOfTheConfig's job.
 var allKeyVariables = []string{
 	"TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_TAG_KEK_PREVIOUS", "TAPPA_INVITE_HMAC_KEY",
-	"TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK", "TAPPA_OPERATOR_TOTP_KEK", "TAPPA_OPERATOR_TOKEN_HMAC_KEY",
+	"TAPPA_API_KEY_HMAC_KEY", "TAPPA_OAUTH_HMAC_KEY", "TAPPA_WEBHOOK_KEK", "TAPPA_OPERATOR_TOTP_KEK",
+	"TAPPA_OPERATOR_TOKEN_HMAC_KEY",
 }
 
-// setEveryKeyDistinct sets the required variables and every one of the eight keys to its own
+// setEveryKeyDistinct sets the required variables and every one of the nine keys to its own
 // random value (the operator surface on, so its two keys are read).
 func setEveryKeyDistinct(t *testing.T) {
 	t.Helper()
@@ -29,23 +30,23 @@ func setEveryKeyDistinct(t *testing.T) {
 
 // TestConfig_EqualEnvKeysRefuseToStart is ADR 0028 §3's acceptance ("eşit env anahtarıyla
 // başlamaz"): TAPPA_API_KEY_HMAC_KEY and TAPPA_WEBHOOK_KEK are in namedKeys and EVERY unordered
-// pair of the eight keys is compared -- the rule that compared only pairs with an operator key
-// (config.go:688-692 before API-3) is general now. Each of the 28 pairs set equal is a refusal
+// pair of the nine keys is compared (TAPPA_OAUTH_HMAC_KEY among them since issue #37) -- the rule that compared only pairs with an operator key
+// (config.go:688-692 before API-3) is general now. Each of the 36 pairs set equal is a refusal
 // naming both variables (the two pairs with a dedicated check -- session/invite, tag KEK/previous --
-// name both in their own sentence); with all eight distinct the configuration loads. And the API
+// name both in their own sentence); with all nine distinct the configuration loads. And the API
 // key's HMAC key is required: unset, short or not base64 -- no start; the webhook KEK is optional
 // in dev (required elsewhere since API-9 -- TestConfig_WebhookSettingsAreRequiredOutsideDev), and
 // when set must be 32 bytes.
 //
 // MUTANT (measured): keysSeparation's inner loop restricted to pairs with an operator key (the
-// pre-API-3 rule) -> 13 of the 28 pairs load.
+// pre-API-3 rule) -> 13 of the 28 pairs load (measured before TAPPA_OAUTH_HMAC_KEY joined).
 func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
 	untaggedOnly(t)
-	t.Run("control: eight distinct keys load", func(t *testing.T) {
+	t.Run("control: nine distinct keys load", func(t *testing.T) {
 		setEveryKeyDistinct(t)
 		c, err := config.Load()
 		if err != nil {
-			t.Fatalf("eight distinct keys must load: %v", err)
+			t.Fatalf("nine distinct keys must load: %v", err)
 		}
 		if c.APIKeyHMACKey.Len() != 32 || c.WebhookKEK.Len() != 32 {
 			t.Fatalf("the API key's HMAC key is %d bytes and the webhook KEK %d, want 32 and 32", c.APIKeyHMACKey.Len(), c.WebhookKEK.Len())
@@ -74,8 +75,8 @@ func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
 			})
 		}
 	}
-	if pairs != 28 {
-		t.Fatalf("walked %d pairs, want 28", pairs)
+	if pairs != 36 {
+		t.Fatalf("walked %d pairs, want 36", pairs)
 	}
 
 	for _, c := range []struct{ what, value, say string }{
@@ -86,6 +87,22 @@ func TestConfig_EqualEnvKeysRefuseToStart(t *testing.T) {
 		t.Run("the API key's HMAC key "+c.what+" refuses to start", func(t *testing.T) {
 			setEveryKeyDistinct(t)
 			t.Setenv("TAPPA_API_KEY_HMAC_KEY", c.value)
+			_, err := config.Load()
+			if err == nil || !strings.Contains(err.Error(), c.say) {
+				t.Fatalf("got %v, want a refusal saying %q", err, c.say)
+			}
+		})
+	}
+	// The OAuth authorization server's key (issue #37, ADR 0047 §7.2) is required everywhere, like the
+	// API key's: unset, short or not base64 -- no start.
+	for _, c := range []struct{ what, value, say string }{
+		{"unset", "", "TAPPA_OAUTH_HMAC_KEY is required"},
+		{"short", base64.StdEncoding.EncodeToString(make([]byte, 16)), "want 32 bytes"},
+		{"not base64", "!!!not-base64!!!", "not valid base64"},
+	} {
+		t.Run("the OAuth HMAC key "+c.what+" refuses to start", func(t *testing.T) {
+			setEveryKeyDistinct(t)
+			t.Setenv("TAPPA_OAUTH_HMAC_KEY", c.value)
 			_, err := config.Load()
 			if err == nil || !strings.Contains(err.Error(), c.say) {
 				t.Fatalf("got %v, want a refusal saying %q", err, c.say)

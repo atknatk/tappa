@@ -6,6 +6,8 @@
 # --- secrets & local config ---
 .env
 .env.local
+# scripts/sandbox-local.sh's per-database configuration: DSNs and fresh keys of a LOCAL sandbox.
+/.sandbox-local/
 *.pem
 *.key
 # NTAG AES keys must NEVER be committed. See CLAUDE.md "Kirmizi Cizgiler".

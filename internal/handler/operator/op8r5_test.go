@@ -202,10 +202,16 @@ var classRoutes = map[string]classRoute{
 	"C238": {"POST", "/operator/tenants/{id}/reinstate", 400}, "C239": {"POST", "/operator/tenants/{id}/reinstate", 413},
 	"C240": {"POST", "/operator/tenants/{id}/reinstate", 503}, "C241": {"POST", "/operator/tenants/{id}/reinstate", 303},
 	"C242": {"GET", "/operator/tenants/{id}/reinstate", 405},
+	// Issue #37's app registry (apps_test.go, TestOperatorHeaders_TheAppRegistryClassesCarryThePolicy).
+	"C243": {"GET", "/operator/apps", 200}, "C244": {"POST", "/operator/apps", 200},
+	"C245": {"POST", "/operator/apps/{id}/rotate", 200}, "C246": {"POST", "/operator/apps/{id}/redirects", 303},
+	"C247": {"POST", "/operator/apps/{id}/disable", 303}, "C248": {"PUT", "/operator/apps", 405},
+	"C249": {"GET", "/operator/apps/{id}/rotate", 405}, "C250": {"GET", "/operator/apps/{id}/redirects", 405},
+	"C251": {"GET", "/operator/apps/{id}/disable", 405}, "C252": {"POST", "/operator/apps/{id}/disable", 400},
 }
 
 // classCount is the number of classes of the header tables, C1 to C<classCount>.
-const classCount = 242
+const classCount = 252
 
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
 // itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
@@ -239,6 +245,11 @@ func routeOf(l driveLog) string {
 			p = operator.Prefix + "/tenants/{id}/suspend"
 		case seg != "" && tail == "reinstate":
 			p = operator.Prefix + "/tenants/{id}/reinstate"
+		}
+	}
+	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/apps/"); ok {
+		if parts := strings.Split(rest, "/"); len(parts) == 2 && (parts[1] == "rotate" || parts[1] == "redirects" || parts[1] == "disable") {
+			p = operator.Prefix + "/apps/{id}/" + parts[1]
 		}
 	}
 	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/holdings/"); ok {

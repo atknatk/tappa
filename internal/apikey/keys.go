@@ -68,6 +68,9 @@ type Keys struct {
 	key    config.Key
 	data   Database
 	trail  Trail
+	// apps names an OAuth grant's app in a budget alert (NameAppsWith); nil: the alert says "a
+	// connected app".
+	apps AppNames
 }
 
 // NewKeys builds the service for the deployment's prefix and HMAC key.
@@ -123,12 +126,17 @@ type Listing struct {
 	BudgetAlerts []BudgetAlert
 }
 
-// BudgetAlert is one key that reached its deactivation budget: when, and the key as it is named
-// now ("" when the trail names a key the business no longer lists).
+// BudgetAlert is one key -- or, since issue #37, one OAuth grant (ADR 0047 §8.7) -- that reached its
+// deactivation budget: when, and the key as it is named now ("" when the trail names a key the
+// business no longer lists). A grant's alert carries its app's id and the app's name as the registry
+// holds it now (resolve_oauth_client -- "" when it cannot be named).
 type BudgetAlert struct {
-	At      time.Time
-	KeyID   string
-	KeyName string
+	At time.Time
+	// KeyID is the alert row's target: the key's id, or the grant's.
+	KeyID    string
+	KeyName  string
+	ClientID *uuid.UUID
+	AppName  string
 	// Budget is the hourly budget the alert row recorded (its detail.budget), 0 when it has none.
 	Budget int
 }
@@ -251,6 +259,7 @@ func (k *Keys) List(ctx context.Context, tenantID, actorID uuid.UUID) (Listing, 
 	if err != nil {
 		return Listing{}, pass(err, "list")
 	}
+	k.nameApps(ctx, out.BudgetAlerts)
 	return out, nil
 }
 
@@ -266,9 +275,42 @@ func budgetAlerts(ctx context.Context, q *store.Queries, tenantID uuid.UUID) ([]
 		if a.Target != nil {
 			id = *a.Target
 		}
-		out = append(out, BudgetAlert{At: a.At, KeyID: id, KeyName: a.KeyName, Budget: int(a.Budget)})
+		out = append(out, BudgetAlert{At: a.At, KeyID: id, KeyName: a.KeyName, ClientID: a.GrantClientID, Budget: int(a.Budget)})
 	}
 	return out, nil
+}
+
+// AppNames is the registry's resolver (*db.DB's resolve_oauth_client), declared at the consumer (§7):
+// tappa_app reads nothing of oauth_clients, so an app's name is never a join (ADR 0047 §8.7).
+type AppNames interface {
+	GetOAuthClient(ctx context.Context, clientID uuid.UUID, secretHash *string) (db.ResolvedOAuthClient, error)
+}
+
+// NameAppsWith gives the keys service the registry's resolver, so a grant's budget alert names its
+// app. cmd/tappa passes *db.DB.
+func (k *Keys) NameAppsWith(a AppNames) { k.apps = a }
+
+// nameApps fills AppName on the grants' alerts: once per distinct app seen in the window, AFTER the
+// transaction (the resolver is a pool read of its own). A failed or empty lookup leaves the name "":
+// the alert still stands, the panel says "a connected app".
+func (k *Keys) nameApps(ctx context.Context, alerts []BudgetAlert) {
+	if k.apps == nil {
+		return
+	}
+	names := map[uuid.UUID]string{}
+	for i, a := range alerts {
+		if a.ClientID == nil {
+			continue
+		}
+		name, seen := names[*a.ClientID]
+		if !seen {
+			if c, err := k.apps.GetOAuthClient(ctx, *a.ClientID, nil); err == nil {
+				name = c.Name
+			}
+			names[*a.ClientID] = name
+		}
+		alerts[i].AppName = name
+	}
 }
 
 // BudgetAlerts is the owner's alert alone (ADR 0028 §12) -- what the panel's home banner reads,
@@ -287,6 +329,7 @@ func (k *Keys) BudgetAlerts(ctx context.Context, tenantID, actorID uuid.UUID) ([
 	if err != nil {
 		return nil, pass(err, "budget alerts")
 	}
+	k.nameApps(ctx, out)
 	return out, nil
 }
 

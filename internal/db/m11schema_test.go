@@ -305,10 +305,12 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// 00052 (M11 API-4, ADR 0028 §1, §8): the Idempotency-Key ledger. tappa_app reads it, claims a
 	// key by naming the tenant, the API key, the idempotency key and the request hash, writes the
 	// result into status and result_ref alone, and deletes the expired rows (the lazy delete).
+	// 00106 (issue #37, ADR 0047 §14.5): and the grant's namespace -- tappa_app reads and names
+	// grant_id in a claim (exactly one of key_id and grant_id per row); UPDATE is unchanged.
 	"api_idempotency": {
 		"tappa_app": {
-			Select: "tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at",
-			Insert: "tenant_id,key_id,idem_key,request_hash",
+			Select: "tenant_id,key_id,idem_key,request_hash,status,result_ref,created_at,grant_id",
+			Insert: "tenant_id,key_id,idem_key,request_hash,grant_id",
 			Update: "status,result_ref",
 			Delete: true,
 		},
@@ -349,6 +351,52 @@ var m11Tables = map[string]map[string]m11TableACL{
 		"tappa_app":       {Select: "tenant_id,plan,effective_from"},
 		"tappa_opdefiner": {Select: "tenant_id,plan,effective_from"},
 	},
+	// 00104/00105/00107 (issue #37, ADR 0047 §14.1): the OAuth app registry -- TENANT-SCOPE-LESS
+	// (m11ScopelessTables). tappa_app holds NOTHING (it learns an app through resolve_oauth_client);
+	// the resolver reads the six columns resolve_oauth_client returns or compares (secret_hash, never
+	// returned); the operator's definer reads every column but secret_hash, registers an app and
+	// edits the secret, the redirect list and disabled_at -- never name, allowed_scopes or created_*.
+	"oauth_clients": {
+		"tappa_resolver": {Select: "id,name,redirect_uris,allowed_scopes,secret_hash,disabled_at"},
+		"tappa_opdefiner": {
+			Select: "id,name,redirect_uris,allowed_scopes,secret_hint,secret_rotated_at,created_at,created_by,disabled_at",
+			Insert: "name,redirect_uris,allowed_scopes,secret_hash,secret_hint,created_by",
+			Update: "redirect_uris,secret_hash,secret_hint,secret_rotated_at,disabled_at",
+		},
+	},
+	// 00104/00105 (issue #37, ADR 0047 §14.2-§14.3): the three tenant tables. tappa_app reads every
+	// column but the hashes (the resolvers are their one reader), inserts by naming what a writer
+	// chooses -- never created_at (the one clock is the DEFAULT now()); oauth_tokens.expires_at is in
+	// the list because a DEFAULT cannot read kind, and the equality CHECK binds it -- and updates the
+	// one-way stamps alone. DELETE on codes and tokens only, confined by their restrictive policies;
+	// grants are never deleted. The resolver reads what its two hash resolvers filter on and return,
+	// and the grant's (id, tenant_id, client_id, revoked_at) for the token's join.
+	"oauth_grants": {
+		"tappa_app": {
+			Select: "tenant_id,id,client_id,scopes,created_by,created_at,last_used_at,revoked_at,revoked_reason,revoked_by",
+			Insert: "tenant_id,client_id,scopes,created_by",
+			Update: "last_used_at,revoked_at,revoked_reason,revoked_by",
+		},
+		"tappa_resolver": {Select: "tenant_id,id,client_id,revoked_at"},
+	},
+	"oauth_codes": {
+		"tappa_app": {
+			Select: "tenant_id,id,client_id,created_by,redirect_uri,scopes,code_challenge,created_at,expires_at,consumed_at,grant_id",
+			Insert: "tenant_id,code_hash,client_id,created_by,redirect_uri,scopes,code_challenge",
+			Update: "consumed_at,grant_id",
+			Delete: true,
+		},
+		"tappa_resolver": {Select: "tenant_id,id,code_hash,client_id,expires_at,consumed_at,grant_id"},
+	},
+	"oauth_tokens": {
+		"tappa_app": {
+			Select: "tenant_id,id,grant_id,kind,scopes,created_at,expires_at,used_at,revoked_at",
+			Insert: "tenant_id,grant_id,kind,token_hash,scopes,expires_at",
+			Update: "used_at,revoked_at",
+			Delete: true,
+		},
+		"tappa_resolver": {Select: "tenant_id,id,grant_id,kind,token_hash,scopes,expires_at,used_at,revoked_at"},
+	},
 }
 
 // feedEventInsertColumns are the columns both feed writers insert into punch_events (attnum order;
@@ -365,7 +413,9 @@ var m11ScopelessTables = map[string]bool{"holdings": true, "holding_members": tr
 	// 00072 (M14-05).
 	"admin_identity_resets": true, "admin_identity_verifications": true, "admin_identity_events": true,
 	// 00078 (M14-17).
-	"admin_signup_claims": true}
+	"admin_signup_claims": true,
+	// 00104 (issue #37, ADR 0047 §14.1).
+	"oauth_clients": true}
 
 // m11Column is one column added at or after 00037 to a table that existed before, with each
 // role's verbs on it ("S", "I", "U" in that order; "" for nothing).
@@ -405,7 +455,9 @@ var m11Columns = []m11Column{
 	// (op_add_holding_member, op_enable_tenant_api) and op_read_holdings.
 	// 00043 (M11 API-1b): and tappa_holdingdefiner reads the site's code (holding_tap_site).
 	// 00049 (M11 API-2): and tappa_feedwriter (the event's company code).
-	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
+	// 00105 (issue #37, ADR 0047 §14.3, §11.4): and tappa_resolver -- the OAuth token resolver carries it
+	// beside api_enabled_at ("closed by the operator" is api_enabled_at NULL with a code).
+	{"tenants", "api_code", map[string]string{"tappa_app": "S", "tappa_opdefiner": "SU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S", "tappa_resolver": "S"}},
 	// 00063 (M10 OP-15, ADR 0025 §1): the suspension. tappa_app READS both through its table-level
 	// SELECT (00001) and writes neither -- a customer that could would lift its own suspension
 	// (00063's precondition refuses a table-level UPDATE or INSERT reaching it); the one writer is
@@ -646,6 +698,23 @@ var m11Functions = map[string]m11FunctionACL{
 	// tappa_opdefiner (op_read_tenant_billing).
 	"tappa_record_plan_change()":                              {owner: "tappa_owner", execute: "tappa_owner"},
 	"tappa_plan_in_force(uuid,timestamp with time zone,text)": {owner: "tappa_owner", execute: "tappa_app,tappa_opdefiner,tappa_owner"},
+	// 00104 (issue #37, ADR 0047 §12, §14.2): the four one-way trigger functions -- SECURITY INVOKER,
+	// EXECUTE in their owner alone, each body asserting its TG_RELID and event.
+	"oauth_clients_disabling_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
+	"oauth_grants_revocation_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
+	"oauth_codes_spending_is_one_way()":    {owner: "tappa_owner", execute: "tappa_owner"},
+	"oauth_tokens_state_is_one_way()":      {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00105 (issue #37, ADR 0047 §14.3, ADR 0002 md.7): the three resolvers -- tappa_resolver's,
+	// EXECUTE to tappa_app alone.
+	"resolve_oauth_client(uuid,text)":   {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_oauth_code_by_hash(text)":  {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_oauth_token_by_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	// 00107 (issue #37, ADR 0047 §10.2): the registry's op_* of ADR 0021's class.
+	"op_register_oauth_client(text,text,text[],text[],text,text)": {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_rotate_oauth_client_secret(text,uuid,text,text)":          {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_set_oauth_client_redirects(text,uuid,text[])":             {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_disable_oauth_client(text,uuid)":                          {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
+	"op_read_oauth_clients(text,text,integer,integer)":            {owner: "tappa_opdefiner", definer: true, execute: "tappa_opdefiner,tappa_operator"},
 }
 
 // m11DefaultACLStatement is production's pg_default_acl, which m11DefaultACLInit gives every
@@ -1350,6 +1419,7 @@ var employeeLocationNonReaders = map[string]string{
 	"ListPanelTransactions":           "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
 	"ListTapsTakenTogether":           "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
 	"ListWorkedShiftEvents":           "t.location_id, the record's venue; employees is joined for full_name",
+	"ListTimesheetShiftEvents":        "t.location_id, the record's venue; employees is joined for full_name (M11 API-14: ListWorkedShiftEvents' columns)",
 	// M11 API-1c: the manager's record at a holding peer's venue -- location_id is WRITTEN NULL (K-30:
 	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
 	// read for the id and the department alone, so an employee with no home venue is filed the same.

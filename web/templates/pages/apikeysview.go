@@ -40,6 +40,10 @@ type APIKeysView struct {
 	RevokeHref    string
 	RevokeAllHref string
 
+	// ConnectedApps is the "Connected apps" card (issue #37, ADR 0047 §12), drawn under the keys and
+	// before the webhook; nil when the panel has no authorization server, and then no card is drawn.
+	ConnectedApps *ConnectedAppsCard
+
 	Done    string
 	Problem string
 

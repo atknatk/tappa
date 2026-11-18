@@ -77,6 +77,7 @@ func TestEgress_TheShippedListRefusesTheNodesIPv6Network(t *testing.T) {
 	t.Setenv("TAPPA_TAG_KEK_PREVIOUS", "")
 	t.Setenv("TAPPA_INVITE_HMAC_KEY", key('I'))
 	t.Setenv("TAPPA_API_KEY_HMAC_KEY", key('A'))
+	t.Setenv("TAPPA_OAUTH_HMAC_KEY", key('H'))
 	t.Setenv("TAPPA_WEBHOOK_KEK", key('W'))
 	creds := config.SMTPCredentialVariables()
 	t.Setenv(creds[0], "jkq4wvz8xqp2zkv6")

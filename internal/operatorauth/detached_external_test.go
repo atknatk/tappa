@@ -229,7 +229,7 @@ func TestSurface_AHalfClosedRefusalIsTheSameAnswer(t *testing.T) {
 	}
 	operatorauth.HoldComparisons(a, wait)
 	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{},
-		surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+		surfApps{}, surfSecrets, surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

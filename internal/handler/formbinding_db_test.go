@@ -106,6 +106,11 @@ func TestFormBinding_AStaleFormWritesNothingInTheOtherBusiness(t *testing.T) {
 	}
 
 	tenantB, emailB := p.addBusiness(t)
+	// Signed out of A first: a signed-in browser is sent from the sign-in page to the panel
+	// (T318), so this browser reaches B's sign-in the way a person does. A's page stays open.
+	if res, _ := p.post(t, "/admin/logout", url.Values{}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("signing out of A answered %d", res.StatusCode)
+	}
 	p.tenantID, p.email = tenantB, emailB
 	p.signIn(t)
 	fresh := venueFormAction.FindStringSubmatch(p.rawPage(t, "/admin/locations?venue=new"))

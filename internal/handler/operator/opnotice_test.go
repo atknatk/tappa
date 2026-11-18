@@ -71,7 +71,7 @@ func noticesOn(t *testing.T, name, body string) []noticeOf {
 // section with the tone's role and class -- with the tone and the heading it had in
 // components.Notice before the port, and no operator render draws components.Notice's frame.
 //
-// PART I -- the 49 renders of screens() and eight more (the API card's two answers, the legal
+// PART I -- the 50 renders of screens() and eight more (the API card's two answers, the legal
 // screen behind its page, the enrollment's three refusals one at a time, the code step's two):
 // each render carries exactly the notices the table below names, in order, tone by tone and
 // heading by heading, each saying the part of its body sentence the table names -- the whole of a
@@ -159,8 +159,8 @@ func TestOperatorNotice_EveryCallerKeepsItsToneAndHeadingInTheOperatorsOwnBox(t 
 		"holdings, added":      {{"ok", "Added.", "N"}},
 		"holdings, not added":  {{"warn", "Not added — nothing changed.", "N R1 R2"}},
 	}
-	if len(renders) != 49+6 {
-		t.Fatalf("PREMISE: %d renders, want 55", len(renders))
+	if len(renders) != 50+6 {
+		t.Fatalf("PREMISE: %d renders, want 56", len(renders))
 	}
 	for k := range want {
 		if _, ok := renders[k]; !ok {

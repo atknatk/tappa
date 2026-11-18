@@ -204,3 +204,11 @@ UPDATE tenants
 SET day_cutoff = @day_cutoff
 WHERE id = @tenant_id
 RETURNING id, day_cutoff;
+
+-- name: GetAPIBusiness :one
+-- GET /v1/business (issue #37, ADR 0047 §8.4, OA-2): the credential's business as the integration API
+-- names it -- its id, its name and its company code (tenants.api_code, NULL until the operator opens
+-- the API). WithTenant + the explicit id: the ONE business the key or the grant resolved to.
+SELECT id, name, api_code
+FROM tenants
+WHERE id = @tenant_id;

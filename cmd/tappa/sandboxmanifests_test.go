@@ -148,7 +148,7 @@ func TestSandboxManifests_AreTheSandboxsOwn(t *testing.T) {
 		t.Errorf("the sandbox server's image is not the sandbox image")
 	}
 	env := containerEnvEntries(t, app.body, "tappa")
-	required := []string{"DATABASE_URL", "TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
+	required := []string{"DATABASE_URL", "TAPPA_SESSION_HMAC_KEY", "TAPPA_TAG_KEK", "TAPPA_INVITE_HMAC_KEY", "TAPPA_API_KEY_HMAC_KEY", "TAPPA_OAUTH_HMAC_KEY", "TAPPA_WEBHOOK_KEK"}
 	required = append(required, config.OperatorSurfaceVariables()...)
 	for _, name := range required {
 		if e, ok := env[name]; !ok || !e.hasSource || e.optional {
@@ -228,7 +228,7 @@ func TestSandboxManifests_TheConfigMapStartsOnlyTheSandboxBuild(t *testing.T) {
 	key := func(c byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{c}, 32)) }
 	for name, v := range map[string]string{
 		"DATABASE_URL": "postgres://tappa_app@127.0.0.1:1/tappa", "TAPPA_SESSION_HMAC_KEY": key('S'), "TAPPA_TAG_KEK": key('K'),
-		"TAPPA_INVITE_HMAC_KEY": key('I'), "TAPPA_API_KEY_HMAC_KEY": key('A'), "TAPPA_WEBHOOK_KEK": key('W'),
+		"TAPPA_INVITE_HMAC_KEY": key('I'), "TAPPA_API_KEY_HMAC_KEY": key('A'), "TAPPA_OAUTH_HMAC_KEY": key('H'), "TAPPA_WEBHOOK_KEK": key('W'),
 		"TAPPA_OPERATOR_DATABASE_URL": "postgres://tappa_operator@127.0.0.1:1/tappa", "TAPPA_OPERATOR_TOTP_KEK": key('T'),
 		"TAPPA_OPERATOR_TOKEN_HMAC_KEY": key('O'), "TAPPA_OPERATOR_HOST": "ops.sandbox.example",
 	} {

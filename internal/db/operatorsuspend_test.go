@@ -524,14 +524,18 @@ func TestOperator00063_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		if len(missing) > 0 || undone != earlier {
 			t.Errorf("00063's %s is not %s's body with its edits (edits not held exactly once: %v)", fn, c.earlierFile, missing)
 		}
-		if got := live(fn); got != b63 || got != opNewestUpBody(t, fn) {
-			t.Errorf("the live %s is not 00063's body (or 00063 is not its newest definition)", fn)
+		// Since 00107 (issue #37) 00063's op_begin_read and op_read_audit are no longer the newest: the
+		// live one is the newest migration's, and 00107's own test holds that one to 00063's plus its
+		// edits (TestOperator00107_TheBodiesAre00063sWithTheirEdits). op_read_tenants and
+		// op_read_tenant_detail are still 00063's.
+		if got := live(fn); got != opNewestUpBody(t, fn) || (fn != "op_begin_read" && fn != "op_read_audit" && got != b63) {
+			t.Errorf("the live %s is not its newest migration's body (00063's, for the two reads it alone redefines)", fn)
 		}
 	}
 
 	// HEAD's exact CHECKs.
 	for _, c := range []struct{ table, name, want string }{
-		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAt42)},
+		{"operator_read_tickets", "operator_read_tickets_kind_check", opKindCheckDef(opKindsAtHead)},
 		{"operator_audit_log", "operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
 		{"operator_audit_log", opTenantWriteShape, opTenantWriteShapeDefOf(opTenantWriteKinds)},
 		{"operator_audit_log", "operator_audit_log_actor_shape", opActorShapeDef33(opAuthEventKinds, opOwnerKinds)},
@@ -1378,7 +1382,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 		what, text string
 		set        []string
 	}{
-		{"00063's Up", part(up), opAuditKinds},
+		{"00063's Up", part(up), opAuditKinds63},
 		{"00063's Down", part(down), opAuditKinds42},
 	} {
 		var conds []string
@@ -1408,7 +1412,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 		if s.writes != 2 || s.begin != begin63 || s.audit != audit63 || s.tenantsBody != tenants63 || s.detailBody != detail63 ||
 			s.tenantsResult != opReadTenantsResult63 || s.detailResult != opReadDetailResult63 ||
 			s.columns != 2 || s.checks != 2 || !s.readsOwned || !s.readsOperatorX || s.readsForeignX ||
-			s.kinds != notValid(opKindCheckDef(opAuditKinds), kindsNV) || s.kindsValid == kindsNV ||
+			s.kinds != notValid(opKindCheckDef(opAuditKinds63), kindsNV) || s.kindsValid == kindsNV ||
 			s.shape != opTenantWriteShapeDefOf(opTenantWriteKinds) || !s.shapeValid ||
 			s.tenantsSel != opDefinerTenantsSel63 || s.tenantsUpd != opDefinerTenantsUpd63 {
 			t.Errorf("%s: writes=%d bodies are 00063's=%v/%v/%v/%v results=%q/%q columns=%d checks=%d owned=%v operator=%v foreign=%v\n kinds=%s (%v)\n shape=%s (%v)\n definer SELECT=(%s) UPDATE=(%s)\n want 00063's state, kinds NOT VALID=%v",
@@ -1587,7 +1591,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	sp = branch()
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `', 'zz_later_kind'))`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds63, "', '") + `', 'zz_later_kind'))`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Up: %v", err)
@@ -1598,7 +1602,7 @@ func TestOperator00063_DownGivesBack00062AndUpTakesItAgain(t *testing.T) {
 	}
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `')) NOT VALID`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds63, "', '") + `')) NOT VALID`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Down: %v", err)

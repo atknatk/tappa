@@ -1059,11 +1059,20 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		// names, NOT id, changed_by (which operator) or recorded_at. SELECT only: the table is
 		// append-only and the definer changes no plan (OP-17's writer is not built).
 		"tenant_plan_history:SELECT": "tenant_id,plan,effective_from",
+		// 00107 (issue #37, ADR 0047 §10.2, §14.1): the app registry's four writers and its read --
+		// op_register_oauth_client inserts an app (id, created_at, secret_rotated_at and disabled_at
+		// are DEFAULTs or NULL at birth), the rotation writes the secret's hash, hint and time, the
+		// redirect edit the list, the disabling disabled_at; op_read_oauth_clients reads every column
+		// but secret_hash. No DELETE or TRUNCATE; name and allowed_scopes are never updated (v1).
+		"oauth_clients:SELECT": "id,name,redirect_uris,allowed_scopes,secret_hint,secret_rotated_at,created_at,created_by,disabled_at",
+		"oauth_clients:INSERT": "name,redirect_uris,allowed_scopes,secret_hash,secret_hint,created_by",
+		"oauth_clients:UPDATE": "redirect_uris,secret_hash,secret_hint,secret_rotated_at,disabled_at",
 	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},
 		{"sessions", "token_hash"}, {"admin_sessions", "token_hash"},
 		{"password_resets", "token_hash"}, {"employee_invites", "code_hash"},
+		{"oauth_clients", "secret_hash"},
 	}
 	for _, nc := range neverSelect {
 		var may bool
@@ -1178,6 +1187,11 @@ func TestOperator00026_AppHoldsNothingUnderTheProductionDefaultACL(t *testing.T)
 	// rolled-back transaction, as 00098's own Down drops it.
 	if _, err := tx.Exec(ctx, `ALTER TABLE tenant_plan_history DROP CONSTRAINT IF EXISTS tenant_plan_history_changed_by_fkey`); err != nil {
 		t.Fatalf("drop 00098's key to platform_admins inside the transaction: %v", err)
+	}
+	// 00107 (issue #37) keys oauth_clients.created_by to platform_admins the same way; its own Down
+	// drops the key first too.
+	if _, err := tx.Exec(ctx, `ALTER TABLE oauth_clients DROP CONSTRAINT IF EXISTS oauth_clients_creator_fk`); err != nil {
+		t.Fatalf("drop 00107's key to platform_admins inside the transaction: %v", err)
 	}
 	if _, err := tx.Conn().PgConn().Exec(ctx, down).ReadAll(); err != nil {
 		t.Fatalf("run 00026 Down inside the transaction: %v", err)

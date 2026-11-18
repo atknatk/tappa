@@ -6,6 +6,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/handler"
+	"github.com/atknatk/tappa/internal/handler/oauthapi"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 )
@@ -51,6 +52,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	theme *handler.BrandTheme,
 	operatorSurface *operator.Surface,
 	integrationAPI httpx.Mounter,
+	oauthTokens *oauthapi.Surface,
 	devTools httpx.Mounter,
 	appLinks *handler.AppLinks,
 ) http.Handler {
@@ -59,7 +61,10 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	// outside the panel's chains.
 	// undo is the sign-in address change's undo page (T173, the panel's EmailUndo): sessionless, outside
 	// the panel's chains, for the same reason.
+	// oauthTokens is the authorization server's server-to-server surface (issue #37, ADR 0047 §5, §6):
+	// POST /oauth/token, POST /oauth/revoke and the front door GET /oauth/authorize, on the main host,
+	// outside the panel's chains. Always on (TAPPA_OAUTH_HMAC_KEY is required).
 	// appLinks is the native app's two association files (M16-08): it mounts only the files whose
 	// platform is configured, so with neither it mounts nothing.
-	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, devTools, appLinks)
+	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, oauthTokens, devTools, appLinks)
 }

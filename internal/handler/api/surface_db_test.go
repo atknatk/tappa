@@ -28,8 +28,10 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -43,6 +45,9 @@ type dbRig struct {
 	venues *tenant.Venues
 	staff  *tenant.Staff
 	writes *apikey.Writes
+	// grants is the shipped authorization server over the same pool (issue #37): an OAuth access
+	// token the rig mints (oauth_db_test.go) resolves through it.
+	grants *oauth.Server
 	s      *Surface
 	h      http.Handler
 	// The suspension is OP-15's column, read by the shipped tenant.WriteSuspension (API-4b), and a
@@ -107,8 +112,21 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Host: apiHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work,
-		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Log: slog.New(slog.DiscardHandler)}
+	timesheets, err := ledger.NewReader(d, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants, err := oauth.NewServer(mac, d, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	business, err := tenant.NewBusinessCard(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Host: apiHost, Keys: chain, Grants: grants, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: work,
+		Locations: venues, Employees: staff, Punches: punches, Directory: directory, Timesheets: timesheets, Business: business,
+		Log: slog.New(slog.DiscardHandler)}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -117,7 +135,7 @@ func newDBRig(t *testing.T, opts ...func(*Config)) *dbRig {
 		t.Fatal(err)
 	}
 	r := &dbRig{t: t, d: d, owner: owner, keys: keys, trail: trail, work: work, venues: venues, staff: staff,
-		writes: writes, s: s}
+		writes: writes, s: s, grants: grants}
 	withTestRoutes(s, func(rt chi.Router) {
 		// A read in the key's tenant: an api_keys row by id, WithTenant + an explicit filter -- the
 		// shape every API-5..8 read takes.

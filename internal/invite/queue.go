@@ -48,6 +48,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -119,6 +120,8 @@ type Queue struct {
 	m     *Manager
 	sink  QueueSink
 	audit auditRecorder
+	// apps resolves an OAuth app for the gate (resolve_oauth_client -- ADR 0047 §11.3 step 3).
+	apps AppResolver
 	// now is the wall clock (tests freeze it with the Manager's).
 	now func() time.Time
 	// afterMint, when set, runs inside the minting transaction after the invitation is inserted
@@ -136,9 +139,17 @@ type QueueSink interface {
 	Refusing() bool
 }
 
+// AppResolver is the OAuth registry's resolver (*db.DB's resolve_oauth_client), declared here at the
+// consumer (§7): the gate asks whether an app holding a live employees:write grant is still enabled
+// (ADR 0047 §11.3 step 3). tappa_app reads nothing of oauth_clients, so it is never a join.
+type AppResolver interface {
+	GetOAuthClient(ctx context.Context, clientID uuid.UUID, secretHash *string) (db.ResolvedOAuthClient, error)
+}
+
 // NewQueue builds the worker. The sink is the e-mail route's (the panel's per-mailbox cap and
-// breaker around the one transport — cmd/tappa); the recorder writes the outcome rows.
-func NewQueue(m *Manager, sink QueueSink, rec auditRecorder) (*Queue, error) {
+// breaker around the one transport — cmd/tappa); the recorder writes the outcome rows; apps resolves
+// the OAuth apps the gate consults (issue #37).
+func NewQueue(m *Manager, sink QueueSink, rec auditRecorder, apps AppResolver) (*Queue, error) {
 	switch {
 	case m == nil:
 		return nil, errors.New("invite: queue: nil manager")
@@ -146,8 +157,10 @@ func NewQueue(m *Manager, sink QueueSink, rec auditRecorder) (*Queue, error) {
 		return nil, errors.New("invite: queue: nil mail sink")
 	case rec == nil:
 		return nil, errors.New("invite: queue: nil audit recorder")
+	case apps == nil:
+		return nil, errors.New("invite: queue: nil OAuth app resolver")
 	}
-	return &Queue{m: m, sink: sink, audit: rec, now: m.clock}, nil
+	return &Queue{m: m, sink: sink, audit: rec, apps: apps, now: m.clock}, nil
 }
 
 // RunFor drains the tenant's due requests, one at a time, each under its own lease. A request
@@ -289,11 +302,13 @@ func (q *Queue) process(ctx context.Context, tenant uuid.UUID, c store.ClaimInvi
 		// API the operator closed has nothing minted or sent for it. The request is NOT dropped --
 		// reopened within its lifetime, it goes on (API-6 review O-A). The read takes no lock: a
 		// closing committed after it does not stop the one send already in flight (named, ADR 0028).
-		open, err := s.GetTenantAPIEnabledAt(ctx, tenant)
+		// Since issue #37 (ADR 0047 §11.3) the gate is also open for a business that never had its API
+		// opened but is connected to an enabled app with employees:write (q.gate).
+		open, err := q.gate(ctx, s, tenant)
 		if err != nil {
 			return fmt.Errorf("read the API gate: %w", err)
 		}
-		if open == nil {
+		if !open {
 			result = closed
 			return errRollback
 		}
@@ -552,4 +567,56 @@ func (q *Queue) deferTo(ctx context.Context, tenant, employee uuid.UUID, lease, 
 		return fmt.Errorf("invite: queue: defer %s: %w", employee, err)
 	}
 	return nil
+}
+
+// gate is the invitation queue's K-22 gate with ADR 0047 §11.3's grant arm (issue #37, YÜKSEK-1), in
+// the request's own transaction, in this order:
+//
+//	1 GetTenantAPIGate        api_enabled_at set: OPEN (the API key's gate, as before) -- the grant
+//	                          query does not run
+//	                          api_code set with api_enabled_at NULL: the operator CLOSED the API --
+//	                          CLOSED, whatever grant there is (§11.4: the operator's closing outranks
+//	                          a grant)
+//	2 ListLiveWritingOAuthClients   both NULL (never opened): the apps holding a live grant with
+//	                          employees:write and a live refresh token in this business, in
+//	                          client_id order, no LIMIT
+//	3 resolve_oauth_client    the FIRST enabled one opens the gate; none: CLOSED
+//
+// Why employees:write: the three paths that write a request (a PUT with an address, an address change,
+// resend-activation) need it (§8.2) -- a timesheets:read connection does not open the business's
+// invitations. Why per business, not per the credential that wrote the request: invite_requests holds
+// one row per employee (00037's primary key), which a key, a grant or a later request overwrites; the
+// invitation goes to the business's own employee, never to the app.
+//
+// The app's state is read through the resolver (a pool read of its own, inside this transaction's
+// lifetime): oauth_clients is tenant-less and tappa_app holds nothing on it, so a single statement
+// would need a grant on it or a definer that takes a tenant id (§11.3, "Neden tek ifade değil").
+func (q *Queue) gate(ctx context.Context, s *store.Queries, tenant uuid.UUID) (bool, error) {
+	g, err := s.GetTenantAPIGate(ctx, tenant)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case g.ApiEnabledAt != nil:
+		return true, nil
+	case g.ApiCode != nil:
+		return false, nil
+	}
+	apps, err := s.ListLiveWritingOAuthClients(ctx, tenant)
+	if err != nil {
+		return false, err
+	}
+	for _, id := range apps {
+		c, err := q.apps.GetOAuthClient(ctx, id, nil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if c.DisabledAt == nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }

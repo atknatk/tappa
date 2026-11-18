@@ -1,12 +1,12 @@
 # Taptime integration API — integration guide
 
-Guide edition 3 (2026-10-22), for API version 1. This guide is served by the API itself, without a
+Guide edition 5 (2026-11-15), for API version 1. This guide is served by the API itself, without a
 key, at `GET /v1/guide.md`; its Turkish translation, the same document section by section, at
 `GET /v1/guide.tr.md`. The machine-readable contract is the OpenAPI 3.1 document at
 `GET /v1/openapi.yaml`; this guide explains it, and where they say the same thing they agree.
 
 Every example answer in this guide is an answer the API gave: they come from one story, told in
-sections 4 to 9, run against the real service.
+sections 4 to 10, run against the real service.
 
 <a id="contents"></a>
 ## Contents
@@ -19,10 +19,12 @@ sections 4 to 9, run against the real service.
 - [6. The punch feed](#feed)
 - [7. The history query](#history)
 - [8. The directory](#directory)
-- [9. Webhooks](#webhooks)
-- [10. Suspension](#suspension)
-- [11. Contract differences](#differences)
-- [12. Changes to this guide](#changes)
+- [9. Timesheets](#timesheets)
+- [10. Webhooks](#webhooks)
+- [11. Suspension](#suspension)
+- [12. Contract differences](#differences)
+- [13. Apps connecting with OAuth](#oauth)
+- [14. Changes to this guide](#changes)
 
 <a id="overview"></a>
 ## 1. Overview
@@ -38,6 +40,8 @@ their own phone. The integration API lets a business's HR or ERP system:
 - read the business's **punches** from a feed that never loses one (`GET /v1/punches`), or a time
   range of them (the history query);
 - read the **directory** of the employees the business may know of (`GET /v1/directory`);
+- read the **counted working time** of the business's own employees over a pay period — the figures
+  of Taptime's own report (`GET /v1/timesheets`);
 - receive each punch as it happens, by **webhook**.
 
 A request reads and writes **one business only — the one its key belongs to**. No request names a
@@ -70,7 +74,8 @@ KM who works a shift at KF's Valletta touches KF's plaque there.
 The API has a host of its own: the `servers` URL of the OpenAPI document. Every path is under
 `/v1`. The examples below write that address as `$TAPTIME_API` and the key as `$TAPTIME_KEY`; they
 are placeholders, not values. On any other Taptime host `/v1` does not exist (404), and the API's
-host answers nothing but `/v1` (404). The API sets no cookie and reads none.
+host answers nothing but `/v1` (404). The API sets no cookie and reads none. An app that connects
+with OAuth also uses Taptime's own address, for three endpoints — see [section 13](#oauth).
 
 <a id="overview-sandbox"></a>
 ### 1.4 Sandbox
@@ -127,7 +132,8 @@ An `Idempotency-Key` works as on every write ([3.3](#idempotency)).
   owner's, in the Taptime panel.
 - A location has no time zone of its own: the business's time zone is every location's.
 - A partner company cannot approve another company's employee's punch.
-- It has no OAuth: a key is the only credential.
+- Its credentials are a business's keys and the access tokens of the apps a business connected with
+  OAuth ([section 13](#oauth)); there is no other.
 
 <a id="auth"></a>
 ## 2. Authentication and keys
@@ -139,6 +145,10 @@ The API works for a business only after Taptime enables it for that business (an
 company code). Until then — and again if Taptime disables it — every request with a valid key is
 answered **403 `api_disabled`**, and the business's webhook sends nothing; the business's punches
 are still recorded in its feed. A business owner cannot create a key while the API is disabled.
+
+**An app connected with OAuth ([section 13](#oauth)) does not need this step**: its access token works
+for a business whose API Taptime never enabled. When Taptime has disabled a business's API, a token is
+answered **403 `api_disabled`** too ([13.9](#oauth-api)).
 
 <a id="auth-keys"></a>
 ### 2.2 Keys
@@ -161,15 +171,23 @@ Authorization: Bearer <key>
 - Keep the key out of logs, URLs and headers other than `Authorization`.
 - **Never put a key or another secret into `X-Request-Id`.** Taptime may write the `X-Request-Id`
   you send into its logs as the request's id: a value of 1 to 64 characters, each one of `A`–`Z`,
-  `a`–`z`, `0`–`9`, `-`, `_` and `.`, that contains none of `tt_live_`, `tt_test_` and `tt_whsec_`
+  `a`–`z`, `0`–`9`, `-`, `_` and `.`, that contains none of `tt_live_`, `tt_test_`, `tt_whsec_`, `tt_cs_`, `tt_ac_`, `tt_at_` and `tt_rt_`
   (in any case). Such a value is written as it is — a key's characters without its prefix
-  included. Any other value — longer, with another character, or with one of the three prefixes — is
+  included. Any other value — longer, with another character, or with one of these prefixes — is
   replaced by an id of Taptime's own: keep to the set and the length if you want to match your id
   with Taptime's support.
 
 A business may have several keys (one per system is a good rule). Each key has its own request
 budget and its own deactivation budget, and its own Idempotency-Keys — see
 [section 3.3](#idempotency) and [section 3.4](#rate-limits).
+
+<a id="auth-business"></a>
+### 2.3 The business
+
+`GET /v1/business` answers the business the key — or the OAuth token, [section 13.9](#oauth-api) — acts for: its `id` (`biz_` followed by a UUID), its
+`name` and its `companyCode` — the company code Taptime sets when it enables the API, the same value
+a punch carries as `company`. It takes no query parameter, and it is open while the business is
+suspended.
 
 <a id="common"></a>
 ## 3. The common contract
@@ -198,9 +216,10 @@ Each operation of the OpenAPI document lists, in `x-error-codes`, exactly the co
 |---|---|---|
 | `invalid_request` | 400 | A parameter, a header or a body the contract refuses. |
 | `body_too_large` | 400 | The request body is over 65536 bytes. |
-| `unauthorized` | 401 | No key, or a key that is not valid. |
+| `unauthorized` | 401 | No key or access token, or one that is not valid (an expired or revoked token included). |
 | `api_disabled` | 403 | The API is not enabled for this business. |
 | `tenant_suspended` | 403 | The business is suspended and this change is not accepted. |
+| `insufficient_scope` | 403 | An app connected with OAuth called a route its connection does not include (`details.scope`). A key never gets it. |
 | `not_found` | 404 | No such resource (also: an unknown path, or a method the path does not take). |
 | `email_unavailable` | 409 | Another active employee of the business has this e-mail address. |
 | `already_activated` | 409 | The employee has activated already. |
@@ -224,8 +243,10 @@ The keys of `details`:
 | `max` | The largest `limit`. |
 | `maxBytes` | The largest body. |
 | `maxHours` | The longest history range, in hours. |
+| `maxDays` | The longest timesheet period, in days. |
 | `retryAfterSeconds` | The same as `Retry-After`. |
 | `businessTimezone` | The business's own time zone (`timezone_mismatch`). |
+| `scope` | The OAuth scope the route needs (`insufficient_scope`). |
 
 The values of `reason`:
 
@@ -255,7 +276,7 @@ Anything else — 0, 1001, a sign, a fraction — is **400 `invalid_request`** w
 `details.parameter` `limit`; a second `limit` is a repeated parameter, answered like one
 ([3.7](#query)). Each list has its own cursor and its own rule for the last page;
 they are described with the lists ([5.6](#employees-read), [6.4](#feed-paging),
-[7](#history), [8.2](#directory-walk)).
+[7](#history), [8.2](#directory-walk), [9.3](#timesheets-paging)).
 
 <a id="idempotency"></a>
 ### 3.3 Idempotency-Key
@@ -287,12 +308,16 @@ that failed (any 4xx or 503) recorded nothing — its key can be used again.
 | Requests per client address per minute | 1200 |
 | Requests per key per minute | 600 |
 | Deactivations per key per hour | 20 |
+| Requests per OAuth connection per minute | 600 |
+| Requests per OAuth app per minute, across its connections | 6000 |
 
 The address limit counts the requests from one address — the three documents, and every request
 whose key is well formed — before the key is even looked up; the key limit counts a key's requests
 from every address. Over either:
 **429 `rate_limited`** with `Retry-After` (seconds; today the whole minute). No other rate-limit
-header is sent. Deactivations have their own budget — see [section 5.5](#employees-deactivate).
+header is sent. Deactivations have their own budget — see [section 5.5](#employees-deactivate). An
+OAuth access token is counted on the address budget too, and given back once it is accepted; then the
+connection's and the app's budgets count it — see [section 13.9](#oauth-api).
 
 <a id="limits"></a>
 ### 3.5 Limits at a glance
@@ -303,6 +328,8 @@ These are the OpenAPI document's `info.x-limits`, and the service's own values.
 |---|---|---|
 | `requestsPerAddressPerMinute` | 1200 | Requests per client address per minute. |
 | `requestsPerKeyPerMinute` | 600 | Requests per key per minute. |
+| `requestsPerGrantPerMinute` | 600 | Requests per OAuth connection per minute. |
+| `requestsPerAppPerMinute` | 6000 | Requests per OAuth app per minute, across its connections. |
 | `deactivationsPerKeyPerHour` | 20 | Deactivations per key per hour. |
 | `maxBodyBytes` | 65536 | The largest request body. |
 | `defaultPageSize` | 500 | A page without `limit`. |
@@ -311,6 +338,7 @@ These are the OpenAPI document's `info.x-limits`, and the service's own values.
 | `requestTimeoutSeconds` | 30 | A request not answered by then is 503. |
 | `feedWindowPositions` | 10000 | The feed positions one page reads at most. |
 | `historyMaxHours` | 745 | The longest history range (31 days and one hour). |
+| `timesheetMaxDays` | 31 | The longest timesheet period, in days. |
 | `directoryOverlapMinutes` | 10 | How far before `updatedSince` the directory reads. |
 | `webhookTimeoutSeconds` | 10 | How long a webhook try waits for an answer. |
 | `webhookAttempts` | 6 | Tries of one webhook delivery. |
@@ -352,7 +380,8 @@ Instants in a query string (`from`, `to`, `updatedSince`) are RFC 3339 —
 `YYYY-MM-DDThh:mm:ss`, an optional `.fraction` after a dot, then `Z` or an offset `±hh:mm` — with
 upper-case `T` and `Z` and at most microsecond precision (a finer instant is refused, not rounded).
 **Encode the `+` of an offset as `%2B`**: unencoded it arrives as a space, and the answer is 400
-with `reason` `unencoded_plus`.
+with `reason` `unencoded_plus`. The timesheet's `from` and `to` are not instants but calendar
+dates, `YYYY-MM-DD` ([9.1](#timesheets-period)).
 
 <a id="identifiers"></a>
 ### 3.8 Identifiers, references and times
@@ -365,7 +394,7 @@ with `reason` `unencoded_plus`.
   be percent-encoded: it is decoded **once** and must then match (`%41BC` is `ABC`; an encoded
   `/`, a control character or a double encoding such as `%2541` is 422 with `field` `ref`).
 - Every instant the API answers is RFC 3339 in **UTC**. A business's time zone matters for its
-  reports, not for the API.
+  reports and for the days of its timesheet ([9.1](#timesheets-period)), never for an instant.
 - A field that has no value is `null`, never absent.
 
 <a id="headers"></a>
@@ -413,7 +442,7 @@ Every `/v1` answer carries `Cache-Control: no-store`, `X-Content-Type-Options: n
   characters or a tag character outside a flag: 422 `validation_failed`, `reason`
   `hidden_character` (a length refusal is `invalid`). A name already on file is accepted as it is.
 - While the business is suspended this endpoint is 403 `tenant_suspended`
-  ([section 10](#suspension)).
+  ([section 11](#suspension)).
 
 In the story, KF puts its location:
 
@@ -579,7 +608,7 @@ are refused from then on, and their history stays.
   already deactivated and for a reference the business never held — and so is every `PUT` with
   `active: false` that lands on an existing employee, one already deactivated included. A `PUT` with
   `active: false` on a reference the business never held lands on no employee: it stays 404
-  ([section 10](#suspension)).
+  ([section 11](#suspension)).
 
 <!-- example: deleteEmployee 200 -->
 ```json
@@ -721,7 +750,8 @@ across them are refused from the end on.
   written later can change that — most often a manual clock-in a manager enters before the `out`,
   after which Taptime counts the time — and a manual record is not in the feed ([6.1](#feed-what)).
   Such an `in` leaves the previous clock-in without a clock-out, and Taptime counts no time for that
-  one either. For hours, Taptime's report is the record. For example, with the employer's business
+  one either. For hours, Taptime's report is the record — read it with `GET /v1/timesheets`
+  ([9](#timesheets)). For example, with the employer's business
   day starting at 05:00: an `in` yesterday at 15:00, then today at 07:00 "Not right? Clock out".
   Taptime counts 0 hours and lists the 07:00 `out` as "Check-in missing"; a system that pairs the
   two pays 16 hours.
@@ -758,7 +788,7 @@ repeat:
   only if Taptime's data was restored from a backup without its counters being moved on: stop and
   tell Taptime — do not wait silently.
 - Deduplicate by `id` + `version`: the feed answers each punch once per scope, but a webhook can
-  deliver it again ([section 9.7](#webhook-duplicates)).
+  deliver it again ([section 10.7](#webhook-duplicates)).
 
 In the story, KF reads its `location` scope: Joe, an employee of KM, touched in at Valletta, and so
 did Jane (KF).
@@ -854,7 +884,8 @@ both:
 ```
 
 The Taptime panel of the location's company (KF) lists a group employee's touches at its plaques
-but does not compute their working time either: working time is the employer's.
+but does not compute their working time either: working time is the employer's, and the
+employer's timesheet counts it ([9](#timesheets)).
 
 <a id="history"></a>
 ## 7. The history query
@@ -946,11 +977,193 @@ persists, start the walk again with the same `updatedSince`. Restarting at once 
 new walk meets the same entry); the block lasts as long as the clock's step, and nothing is lost.
 The directory stays open while the business is suspended.
 
+<a id="timesheets"></a>
+## 9. Timesheets
+
+`GET /v1/timesheets?from=…&to=…` answers, for a pay period, the working time Taptime **counts** for
+each of the business's own employees, per local day: the figures of Taptime's own report, computed
+by the same engine. It is the read for payroll. The feed ([6](#feed)) is not: a manual record a
+manager enters is not a punch ([6.1](#feed-what)), but its time counts here.
+
+```sh
+curl -sS "$TAPTIME_API/v1/timesheets?from=2026-11-01&to=2026-11-30" \
+  -H "Authorization: Bearer $TAPTIME_KEY"
+```
+
+What counts is what Taptime's report counts:
+
+- a shift from a check-in to a check-out, both `ok` — or flagged and **approved** by a manager;
+- a shift with a check-in or a check-out a manager entered by hand (a **manual record**) — it counts,
+  and it is also in `manualShifts`;
+- **not** a shift waiting for a manager's approval (its time is in `awaitingMinutes`), a rejected
+  one, or a practice tap;
+- **not** a check-in with no check-out: Taptime does not guess a check-out, so the check-in is in
+  `openEntries` and its time is in no figure until a manager enters the check-out. A check-out more
+  than 18 hours after its check-in is no shift either: the check-in stays open;
+- **not** a check-out with no check-in (`checkInMissing`).
+
+A check-in and a check-out are paired by the employee's last open check-in, as at the tap — not by
+the calendar day.
+
+<a id="timesheets-period"></a>
+### 9.1 The period
+
+- `from` and `to` are calendar dates, `YYYY-MM-DD`, in the business's time zone (`period.timeZone`),
+  and **both are included**: `from=2026-11-01&to=2026-11-30` is November.
+- `to` is on or after `from`, and a period is at most **31 days**. Anything else — a missing date,
+  `2026-11-31`, a date with a time, a longer period — is **400 `invalid_request`** with
+  `details.parameters` `from` and `to` and `details.maxDays` 31.
+- **A shift counts on the local day it started.** An 18:00–02:00 night shift is the first day's; one
+  that starts on the period's last day counts in full in this period (Taptime reads past the
+  period's end for its check-out); one that started before `from` belongs to the previous period,
+  even when it ended inside this one. Two periods that meet count each shift once.
+- A check-out with no check-in is in `checkInMissing` on its own day. One exception at the seam: a
+  check-out made on `from` before the business's day starts (its business day began the day before)
+  with no check-in is in neither period's figures; the Taptime panel lists it as "Check-in missing".
+- Minutes are **whole minutes, rounded down**, each figure from its own exact time. A person's days
+  can add up to less than their `workedMinutes`, by under a minute a day; `workedMinutes` is the
+  figure to pay.
+
+<a id="timesheets-answer"></a>
+### 9.2 The answer
+
+| Field | |
+|---|---|
+| `period` | `from` and `to` as asked, and `timeZone`: the business's time zone, in which the days are counted. |
+| `complete` | See [9.3](#timesheets-paging). |
+| `truncated` | `true` when one employee's records alone are more than one request reads: that employee's figures are a floor, not a total, and `complete` is `false`. |
+| `employee` | `id` (`emp_…`), `externalRef`, `employeeCode`, `firstName`, `lastName` and `fullName` — the identifiers of the directory ([8.1](#directory-entry)). |
+| `workedMinutes` | The counted time of the period. |
+| `awaitingMinutes` | Time waiting for a manager's approval — not in `workedMinutes`. |
+| `shifts` | The shifts behind `workedMinutes`. |
+| `openEntries` | Check-ins with no check-out. |
+| `checkInMissing` | Check-outs with no check-in. |
+| `manualShifts` | The shifts (of `shifts`) with a check-in or a check-out a manager entered by hand. |
+| `days` | **Every** day of the period, in order: `date`, `workedMinutes` (of the shifts that started that day), `manual` (one of them was entered by hand), `open` (a check-in of that day has no check-out) and `checkInMissing` (a check-out of that day has no check-in). |
+
+- Only the business's **own** employees are listed — a deactivated one too, when the period holds
+  their records. A group partner's employee who worked at your locations is not here: that time is
+  their employer's, and the employer's timesheet counts it ([6.5](#feed-working-time)). Your own
+  employee's shift at a partner's location is yours, and it is here.
+- An employee with no record in the period is not listed: their counted time is zero.
+- Nothing else of a record is in the answer: no network address, coordinate, note or reason of a
+  decision, and no e-mail address.
+
+In the story, KM reads its timesheet for the day. Joe's shift began at KF's Valletta and ended at
+KM's Production a little over a minute later: one minute, rounded down — and KM's time:
+
+<!-- example: listTimesheets 200 km -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": true,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_42f028c7-242a-4903-89df-8fde6176926b",
+        "externalRef": "M-2001",
+        "employeeCode": "2001",
+        "firstName": "Joe",
+        "lastName": "Sample",
+        "fullName": "Joe Sample"
+      },
+      "workedMinutes": 1,
+      "awaitingMinutes": 0,
+      "shifts": 1,
+      "openEntries": 0,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 1,
+          "manual": false,
+          "open": false,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+KF reads the same day. Jane checked in at Valletta and has not checked out: her check-in is open and
+counts no time, so KF's page is not complete. Joe is not on it — his time is KM's:
+
+<!-- example: listTimesheets 200 kf -->
+```json
+{
+  "period": {
+    "from": "2026-10-16",
+    "to": "2026-10-16",
+    "timeZone": "Europe/Malta"
+  },
+  "complete": false,
+  "truncated": false,
+  "data": [
+    {
+      "employee": {
+        "id": "emp_8973fbc8-5e76-48e2-a80b-67d5b10baa91",
+        "externalRef": "E-1042",
+        "employeeCode": "1042",
+        "firstName": "Jane",
+        "lastName": "Example",
+        "fullName": "Jane Example"
+      },
+      "workedMinutes": 0,
+      "awaitingMinutes": 0,
+      "shifts": 0,
+      "openEntries": 1,
+      "checkInMissing": 0,
+      "manualShifts": 0,
+      "days": [
+        {
+          "date": "2026-10-16",
+          "workedMinutes": 0,
+          "manual": false,
+          "open": true,
+          "checkInMissing": false
+        }
+      ]
+    }
+  ],
+  "nextCursor": null,
+  "hasMore": false
+}
+```
+
+<a id="timesheets-paging"></a>
+### 9.3 Pages and `complete`
+
+- Employees come in `employee.id` order, at most `limit` a page (500 by default, at most 1000 —
+  [3.2](#paging)). A page can hold fewer while `hasMore` is `true`: a request reads a bounded number
+  of records, and a page ends before an employee whose records would not fit.
+- Pass `nextCursor` as `cursor`, with the **same** `from` and `to`, until `hasMore` is `false`;
+  `nextCursor` is present exactly when `hasMore` is `true` (`null` at the end). A cursor sent with
+  another period, or by another business, is **400 `invalid_request`** (`details.parameter`
+  `cursor`).
+- `complete` is `true` when **no employee on the page** has time waiting for approval, an open entry
+  or a missing check-in, and the page is not `truncated`. A period is complete when **every** page
+  of the walk says so. Before you pay a period that is not complete, ask the business to approve,
+  correct or enter in Taptime what is missing.
+- The answer describes the records **as they are when you read them**: a manager's correction, an
+  approval, or a tap still to come in a period that has not ended changes it. Read the period again
+  right before you pay.
+- Only `from`, `to`, `cursor` and `limit` are accepted ([3.7](#query)). While the business is
+  suspended this endpoint stays open ([11](#suspension)).
+
 <a id="webhooks"></a>
-## 9. Webhooks
+## 10. Webhooks
 
 <a id="webhook-setup"></a>
-### 9.1 Setting up the endpoint
+### 10.1 Setting up the endpoint
 
 A business has **one** webhook endpoint. Its **owner** sets it up in the Taptime panel (section
 API keys, part Webhook); the API cannot. The address must be:
@@ -971,16 +1184,16 @@ delivery log name it a failed secure connection. Redirects are **not followed**;
 an answer must come within **10 seconds**; the answer's body is not read.
 
 <a id="webhook-key"></a>
-### 9.2 The signing key
+### 10.2 The signing key
 
 Taptime signs every request with the endpoint's **signing key**, `tt_whsec_` followed by 43
 characters. The panel shows it **once** — when the endpoint is created and when the key is rotated
 — and never again. After a rotation **no request is signed with the old key any more**: switch your
 receiver to the new key at once (a receiver that refuses the new signature makes deliveries fail,
-and they are retried on the schedule of [section 9.6](#webhook-retries)).
+and they are retried on the schedule of [section 10.6](#webhook-retries)).
 
 <a id="webhook-verify"></a>
-### 9.3 Verifying the signature
+### 10.3 Verifying the signature
 
 Every request carries `X-Taptime-Signature: sha256=<hex>`: the lower-case hexadecimal
 HMAC-SHA256 of the request body's **raw bytes**, keyed by the signing key **as text** (the
@@ -1029,7 +1242,7 @@ receiver's own language — its standard HMAC-SHA256, with the key read from you
 compare in constant time.
 
 <a id="webhook-requests"></a>
-### 9.4 The requests
+### 10.4 The requests
 
 Every request is a `POST` with three headers — `Content-Type: application/json`,
 `User-Agent: Taptime-Webhooks/1` and `X-Taptime-Signature` — and a JSON body whose `event` says what
@@ -1046,14 +1259,14 @@ with the same headers and the same signature. The owner sends it from the panel,
 — the same 10 that "Send again now" spends. It names no punch: **do not count it as one**.
 
 <a id="webhook-answer"></a>
-### 9.5 Answering
+### 10.5 Answering
 
 **Any 2xx is "delivered".** Anything else is a failed try: another status — a **3xx included**
 (redirects are not followed) —, no answer within 10 seconds, a TLS or connection failure. Answer
 quickly, after storing, and do the rest of your work afterwards.
 
 <a id="webhook-retries"></a>
-### 9.6 Retries
+### 10.6 Retries
 
 The first try is at once. After a failed try the next waits 1 minute, 5 minutes, 30 minutes, 2
 hours, 6 hours; the **sixth** failed try makes the delivery **failed** (`dead`), and it is not
@@ -1081,7 +1294,7 @@ longer be sent again. A delivery that is still waiting is never deleted. The pun
 the feed.
 
 <a id="webhook-duplicates"></a>
-### 9.7 Duplicates and order
+### 10.7 Duplicates and order
 
 - **One punch can arrive more than once**: a retry, a request in flight when Taptime restarted, a
   "Send again now". Every try of one delivery carries the same `deliveryId` and the **same bytes**.
@@ -1090,13 +1303,13 @@ the feed.
   between two companies is two independent deliveries to two endpoints.
 
 <a id="webhook-delays"></a>
-### 9.8 Delays and gaps
+### 10.8 Delays and gaps
 
 - **After Taptime restarts** (every deploy included) waiting retries — and queued activation
   e-mails — wait until the business's next tap, approval or API request. The feed is not affected.
 - **Endpoint switched off**: deliveries already queued **wait** (they are not dropped) and go at
   once when the owner switches the endpoint on again (or changes its address, or rotates its key)
-  — none of which the owner can do while the business is suspended ([section 10](#suspension)).
+  — none of which the owner can do while the business is suspended ([section 11](#suspension)).
   Punches recorded **while it is off** are never delivered.
 - **API disabled by Taptime**: the same — queued deliveries wait, and go within 15 minutes of the
   API being enabled again (or at the business's next tap, approval or API request if Taptime
@@ -1104,7 +1317,7 @@ the feed.
 - An endpoint receives the punches recorded after it was created.
 
 <a id="webhook-source"></a>
-### 9.9 The feed is the record
+### 10.9 The feed is the record
 
 A webhook is a fast notice, not the record: punches recorded while the endpoint was off are never
 delivered, and a `dead` delivery does not come back by itself. **Read the feed regularly** with its
@@ -1112,22 +1325,25 @@ cursor ([section 6.4](#feed-paging)) and treat the webhook as "news now"; with d
 `id` + `version`, the two never count a punch twice.
 
 <a id="suspension"></a>
-## 10. Suspension
+## 11. Suspension
 
 Taptime can suspend a business (for example over billing). A suspension is a **write lock** that
 leaves reading — and the records — alone:
 
 | Open while suspended | 403 `tenant_suspended` while suspended |
 |---|---|
-| every `GET` — the feed, the history query, the directory, the employees | `PUT /v1/locations/{ref}` |
+| every `GET` — the feed, the history query, the directory, the employees, the timesheet | `PUT /v1/locations/{ref}` |
 | `PUT /v1/employees/{ref}` that creates a **new** employee, a re-hire included | every `PUT /v1/employees/{ref}` that lands on an existing employee — a change, a binding by address, `active: false` (also of an employee already deactivated), and one that changes nothing |
 | `POST /v1/employees/{ref}/resend-activation` | every `DELETE /v1/employees/{ref}`, also of an employee already deactivated or of a reference never held |
 | webhook deliveries, and the queue of activation e-mails | in the panel: creating a key; creating, re-addressing, rotating or switching on the endpoint; test messages; "Send again now" |
 | taps are recorded and punches enter the feed (a group's too) | |
 | in the panel: revoking a key, switching the endpoint off | |
 
+An OAuth access token ([section 13](#oauth)) is under the same table. Its refresh and its revocation,
+and the owner's Disconnect, stay open while the business is suspended; a new connection does not.
+
 <a id="differences"></a>
-## 11. Contract differences
+## 12. Contract differences
 
 How Taptime differs from what an integration might assume. Each item links to where it is
 explained.
@@ -1147,11 +1363,11 @@ explained.
 13. `resend-activation` for an activated employee is 409 `already_activated`. ([5.4](#employees-resend))
 14. When an activated employee's e-mail address changes, no activation e-mail is sent. ([5.1](#employees-put))
 15. Activation is by NFC only (a QR code cannot activate). ([5.2](#employees-activation))
-16. Webhooks have no order guarantee; deduplicate by `id` + `version`. ([9.7](#webhook-duplicates))
+16. Webhooks have no order guarantee; deduplicate by `id` + `version`. ([10.7](#webhook-duplicates))
 17. Manual records do not enter the feed. ([6.1](#feed-what))
 18. The history query (`from`/`to`) spans at most 31 days and one hour (a local calendar month, a daylight-saving change included), is paged, and is a snapshot — punches that arrive late are certain only in the feed. ([7](#history))
 19. `updatedSince` (the directory) reads with a 10-minute overlap; entries that come back are overwritten by `id`. ([8.2](#directory-walk))
-20. When Taptime restarts (every deploy included), waiting webhook retries and queued activation e-mails wait until the business's next tap or API request. The feed is not affected. ([9.8](#webhook-delays))
+20. When Taptime restarts (every deploy included), waiting webhook retries and queued activation e-mails wait until the business's next tap or API request. The feed is not affected. ([10.8](#webhook-delays))
 21. A punch of an employee not bound to a reference yet comes with `employee.externalRef: null`. ([6.3](#feed-punch))
 22. Deactivation is limited by an hourly budget per key; past it the answer is 429. ([5.5](#employees-deactivate))
 23. The API and the webhook work with the access Taptime enabled for the business. ([2.1](#auth-enable))
@@ -1164,11 +1380,258 @@ explained.
 30. In a KM shift that starts at a KF location and ends **at a KM plaque**, KF (`scope=location`) receives only the **in**; the out is a punch at a KM location and comes in both of KM's scopes. Every punch carries the `direction` recorded **at the employer** (`in`/`out`); the integration does not have to work it out — except that a punch with `directionSource: employee` is not paired with the punch before it ([6.3](#feed-punch)). The Taptime panel of the location's company lists a group employee's touches but does not compute their time ("time is the employer's"). ([6.5](#feed-working-time))
 31. **An integration that computes working time with `scope=location`, beware:** a partner company's employee's punches at your locations do not include the employer's events in between (touches at the other company's plaques); pairing in and out from this scope alone can count the time **too long**. **This holds with `direction` too:** each punch's direction is right, but what is missing are the **events in between** — the pair of an `in` at your location may never appear there, or may be an `out` at another location. For a group employee's time, the employer company's data (its `employer` scope) is the record. ([6.5](#feed-working-time))
 
+<a id="oauth"></a>
+## 13. Apps connecting with OAuth
+
+A key ([section 2.2](#auth-keys)) is a business's own credential for its own system. An **app that
+serves many businesses** — a payroll service, for example — connects to each of them with OAuth 2.0
+instead: the business's owner approves the app in the Taptime panel, and the app receives an access
+token that acts for that one business, on the routes of the scopes the owner approved. Everything in
+sections 3 to 11 holds for a token as for a key, with the differences this section names.
+
+The app talks to two addresses: the API's host (`$TAPTIME_API`, [section 1.3](#overview-host)) for
+`/v1`, and **Taptime's own address** — the panel's host, not the API's — for the three OAuth
+endpoints `/oauth/authorize`, `/oauth/token` and `/oauth/revoke`. The examples write that address as
+`$TAPTIME_OAUTH`; the OpenAPI document's `oauth` security scheme names the three URLs.
+
+<a id="oauth-register"></a>
+### 13.1 Registration
+
+Taptime registers the app — there is no self-service registration. Tell Taptime the app's name, its
+redirect URIs (each `https://`, no query, no fragment) and the scopes it needs ([13.2](#oauth-scopes)).
+You receive:
+
+- a `client_id`: `app_` followed by a UUID. It is not a secret; it travels in the authorization URL.
+- a client secret: `tt_cs_live_` followed by 43 base64url characters. It is shown **once**; keep it
+  on your server and nowhere else. Taptime can replace it on request: the old secret is refused from
+  the next request on, and the tokens issued before keep working.
+
+A redirect URI must match a registered one **byte for byte**: no trailing `/` added, no other case,
+no other port, no `www.` variant. If the app also serves another host, ask for that URI to be
+registered as well.
+
+<a id="oauth-scopes"></a>
+### 13.2 Scopes
+
+| Scope | Opens |
+|---|---|
+| `timesheets:read` | `GET /v1/timesheets` |
+| `employees:read` | `GET /v1/employees`, `GET /v1/employees/{ref}`, `GET /v1/directory` |
+| `employees:write` | `PUT /v1/employees/{ref}`, `DELETE /v1/employees/{ref}`, `POST /v1/employees/{ref}/resend-activation` |
+| `locations:write` | `PUT /v1/locations/{ref}` |
+| `punches:read` | `GET /v1/punches` (the feed and the history query) |
+
+- **No scope implies another**: `employees:write` does not open `GET /v1/employees`.
+- `GET /v1/business` opens to a token of any scope ([13.9](#oauth-api)).
+- A route the token's scopes do not open is **403 `insufficient_scope`**, with `details.scope` the
+  scope the route needs and `WWW-Authenticate: Bearer realm="taptime", error="insufficient_scope", scope="<scope>"`.
+  A key never gets it.
+- The OAuth scope is not the punch feed's `scope` parameter (`employer` or `location`,
+  [section 6.2](#feed-scopes)): `GET /v1/punches?scope=employer` needs the OAuth scope `punches:read`.
+
+<a id="oauth-authorize"></a>
+### 13.3 The authorization request
+
+Send the owner's browser to `$TAPTIME_OAUTH/oauth/authorize` with these query parameters, each at
+most once:
+
+| Parameter | Value |
+|---|---|
+| `response_type` | `code` |
+| `client_id` | your `client_id` |
+| `redirect_uri` | **required**; one of your registered URIs, byte for byte |
+| `scope` | **required**; space-separated, a subset of the scopes registered for the app |
+| `state` | optional; at most 1024 bytes of printable ASCII; it comes back unchanged |
+| `code_challenge` | the base64url SHA-256 of your `code_verifier`, 43 characters |
+| `code_challenge_method` | `S256` — required; `plain` is refused |
+
+Taptime answers `303` to the consent page in its panel ([13.4](#oauth-consent)); the browser follows.
+
+The browser stays on Taptime's error page, and **nothing is sent to any address**, when the query
+string does not parse; when `client_id` is missing, repeated, not of its shape, unknown or turned off;
+or when `redirect_uri` is missing, repeated or not one registered for the app. Every other problem —
+another parameter missing, repeated or malformed, a scope the app may not ask for — is sent back to
+your `redirect_uri` as `error` (`invalid_request`, `unsupported_response_type` or `invalid_scope`) with
+`iss` and your `state` — but only a valid `state`: one that is repeated, too long or outside printable
+ASCII comes back as `invalid_request` with no `state`, and so does a request too large for Taptime to
+hold while the owner decides.
+
+Every answer to your `redirect_uri` carries `iss` (RFC 9207): check that it is `$TAPTIME_OAUTH`, and
+that `state` is the one you sent, before you use a `code`. Keep the `code_verifier` — and later the
+refresh token — on your server alone, tied to the user's session there; never give either to the
+browser.
+
+<a id="oauth-consent"></a>
+### 13.4 The consent
+
+- **Only an active owner** of the business approves. The page names the app, the business and the
+  host the browser returns to. A manager, a business that is suspended, and a business whose
+  integrations Taptime turned off see no "Allow", only "Back to" the app, which answers
+  `error=access_denied`.
+- The connection is for **one business** — the one the owner is signed in to. The page lists the
+  person's other businesses where they are an owner and that are not suspended; they can switch to one
+  before approving.
+- The owner approves the scopes the app asked for, all of them, or none ("Don't allow" —
+  `error=access_denied`).
+- The page holds the request for **10 minutes**: approve within them (a sign-in on the way included),
+  or start again from the app.
+- A business has **one connection per app**: a new approval and its code exchange replace the
+  previous connection, and every token of the previous one is revoked.
+
+On "Allow" the browser goes to `redirect_uri` with `code`, `state` and `iss`.
+
+<a id="oauth-token"></a>
+### 13.5 The code exchange
+
+`POST $TAPTIME_OAUTH/oauth/token`, a form body (`application/x-www-form-urlencoded`), the client
+authenticated with **HTTP Basic** (`client_id` and the client secret):
+
+```sh
+curl -sS -X POST "$TAPTIME_OAUTH/oauth/token" \
+  --user "$TAPTIME_CLIENT_ID:$TAPTIME_CLIENT_SECRET" \
+  --data-urlencode grant_type=authorization_code \
+  --data-urlencode "code=$CODE" \
+  --data-urlencode "code_verifier=$CODE_VERIFIER" \
+  --data-urlencode "redirect_uri=https://app.example.com/callback"
+```
+
+- `code_verifier`: 43 to 128 characters of `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_` and `~` (RFC 7636).
+- `redirect_uri` may be left out; when it is sent, it must be the authorization request's, byte for byte.
+- `client_id` in the body too is accepted when it is the Basic one; a `client_secret` in the body is
+  `invalid_request`.
+- A code lives **60 seconds** and is spent by its **first** presentation, a failed one included.
+  Presenting a spent code again revokes the connection it made: exchange a code once, and if the
+  answer is lost, start again from the authorization request.
+- At the exchange a code is also refused (`invalid_grant`) when, since the approval, the business was
+  suspended, Taptime turned its integrations off, or the approving person stopped being its active owner.
+
+The answer (`200`, `Cache-Control: no-store`):
+
+```json
+{"access_token": "tt_at_live_…", "token_type": "Bearer", "expires_in": 3599,
+ "refresh_token": "tt_rt_live_…", "scope": "employees:read employees:write timesheets:read"}
+```
+
+`scope` is the access token's scopes, space-separated, in an order of Taptime's; `expires_in` is the
+seconds the access token has left (an hour, less the time the answer took).
+
+<a id="oauth-refresh"></a>
+### 13.6 Refreshing
+
+`POST $TAPTIME_OAUTH/oauth/token` with `grant_type=refresh_token` and `refresh_token`, the client
+authenticated as above. `scope` is optional: a subset of the connection's scopes gives an access
+token of that subset alone (the new refresh token keeps the connection's); an empty or a wider
+`scope` is `invalid_scope`.
+
+- **Every refresh answers a new pair.** The refresh token you sent is used up: always store the
+  newest refresh token. The previous access token keeps working until it expires.
+- **A retry within 30 seconds** — the same used refresh token again, within 30 seconds of its first
+  use — answers a new pair and revokes every other token of the connection: a refresh whose answer
+  was lost is not lost.
+- **Later than that**, the same used refresh token **revokes the connection** (`invalid_grant`): the
+  owner has to approve the app again.
+- Never send two refreshes with one refresh token at the same time. After a timeout, close the
+  connection, wait **at least 10 seconds** (the endpoint's own limit on a request), and retry within 30
+  seconds of the first request.
+- A refresh token not used for **90 days** dies; the owner has to approve the app again.
+- Keep the refresh token on your server alone, tied to the connection; never give it to the browser.
+- A refresh works while the business is suspended, and while Taptime has its integrations turned off.
+
+<a id="oauth-revoke"></a>
+### 13.7 Revoking
+
+`POST $TAPTIME_OAUTH/oauth/revoke` (RFC 7009), the client authenticated as above, a form body
+`token=…` (`token_type_hint` is accepted and not needed: the prefix says which token it is).
+
+- A **refresh token** ends the connection: every token of it, the next request on.
+- An **access token** ends that token alone. To disconnect, revoke the refresh token.
+- The answer is `200` with no body — also for an unknown or an already revoked token, and for
+  another app's token, where nothing is done.
+
+<a id="oauth-lifetimes"></a>
+### 13.8 Lifetimes
+
+| Value | Prefix | Lifetime |
+|---|---|---|
+| authorization code | `tt_ac_live_` | 60 seconds, one presentation |
+| access token | `tt_at_live_` | 1 hour |
+| refresh token | `tt_rt_live_` | replaced by every refresh; 90 days unused |
+| client secret | `tt_cs_live_` | until Taptime replaces it |
+| pending consent request | — | 10 minutes |
+
+A revocation, a disconnection and Taptime turning the app off take effect on the next request:
+nothing is cached. Keep every one of these values out of logs, URLs and `X-Request-Id`
+([section 2.2](#auth-keys)).
+
+<a id="oauth-api"></a>
+### 13.9 Calling the API with a token
+
+Send the access token as a key is sent: `Authorization: Bearer <token>`, on `$TAPTIME_API`.
+
+- `GET /v1/business` names the business the token acts for — the `id` to keep the connection under.
+  Its `companyCode` can be `null`: Taptime sets it when it enables the business's API, and a business
+  can connect an app without that ([2.1](#auth-enable)).
+- An expired or revoked token, a disconnected connection or an app Taptime turned off: **401
+  `unauthorized`**, with `WWW-Authenticate: Bearer realm="taptime", error="invalid_token"`. Refresh —
+  and if the refresh is `invalid_grant`, the owner has to approve the app again.
+- A business whose integrations Taptime turned off: **403 `api_disabled`**. The connection stays: a
+  refresh still works, and once Taptime turns them on again the same tokens work.
+- **A holding partner's data never comes with a token** ([1.2](#overview-companies)): the directory
+  lists the business's own employees alone, and the feed and the history query carry the business's
+  own punches alone — a punch across the group's companies is left out in both scopes. The timesheet is
+  the business's own employees' anyway. With a key the answers are as sections 6 to 8 say.
+- Rate limits ([3.4](#rate-limits)): a token is counted on the client address's budget like a key, and
+  given back when it is accepted — an accepted token is counted per connection (600 a minute) and per
+  app across all its connections (6000 a minute) instead. Tokens that are refused spend the address's
+  budget.
+- A write's deactivation budget and its Idempotency-Keys are the connection's own, as a key's are its
+  own. An activation e-mail an `employees:write` token asks for is sent even when Taptime has not
+  enabled the business's API.
+- A suspension ([section 11](#suspension)) closes a token's writes as it closes a key's.
+
+In the sandbox ([1.4](#overview-sandbox)) the values start with `_test_` in place of `_live_`
+(`tt_at_test_` and so on), and an app registered there may also use a loopback redirect URI —
+`http://`, then the loopback name or the IPv4 loopback address (not the IPv6 one), then a port —
+still matched byte for byte. Production refuses every loopback redirect URI. POST /v1/sandbox/taps is not open to
+a token (403 `insufficient_scope`): simulate a tap with the business's `tt_test_` key.
+
+<a id="oauth-disconnect"></a>
+### 13.10 Disconnecting
+
+The business's owner sees the connection in the Taptime panel on the **Developers** page, in its
+**Connected apps** card under the integration keys: the app, its scopes, when and by whom it was connected and when it was last used. Any owner of the
+business can **Disconnect** it — the next request with its tokens is 401. The connection is the
+business's, not the approving person's: it keeps working when that person leaves. Taptime can turn an
+app off for every business: its tokens are 401 and the token endpoint answers `invalid_client`.
+
+<a id="oauth-errors"></a>
+### 13.11 Errors of the OAuth endpoints
+
+`/oauth/token` and `/oauth/revoke` answer RFC 6749's error shape, **not** the `/v1` one: a JSON body
+`{"error": "<code>", "error_description": "<a fixed sentence>"}`. Act on `error`; the description is
+for your logs, not for a person. The two endpoints have a budget of their own: 60 requests a minute
+per client address (a request whose client is refused keeps its place), and 600 a minute per app
+once its credentials are accepted.
+
+| `error` | Status | When |
+|---|---|---|
+| `invalid_request` | 400 | a parameter missing, repeated or malformed; Basic and a body credential disagree |
+| `invalid_client` | 401 | the client is unknown, turned off, or the secret is wrong (`WWW-Authenticate: Basic realm="taptime"`) |
+| `invalid_grant` | 400 | the code or the refresh token is unknown, expired, spent, revoked or another app's; the `code_verifier` or the `redirect_uri` does not match; at the code exchange: the business is suspended, Taptime turned its integrations off, or the approver is no longer its active owner |
+| `unsupported_grant_type` | 400 | a `grant_type` other than `authorization_code` and `refresh_token` |
+| `invalid_scope` | 400 | a refresh's `scope` empty, unknown or wider than the connection's |
+| `temporarily_unavailable` | 429 | too many requests — with `Retry-After` |
+| `temporarily_unavailable` | 503 | a fault on Taptime's side; retry later |
+
+`temporarily_unavailable` is not in RFC 6749's set for this endpoint: look at the HTTP status too.
+
 <a id="changes"></a>
-## 12. Changes to this guide
+## 14. Changes to this guide
 
 | Edition | Date | Changes |
 |---|---|---|
 | 1 | 2026-10-16 | The first edition, for API version 1. |
 | 2 | 2026-10-18 | §1.4 describes the sandbox: `tt_test_` keys, its own operator, no e-mail, and the tap simulation (its domain is not chosen yet). |
 | 3 | 2026-10-22 | §6.3: a punch carries `directionSource` (`auto` \| `employee` \| `null`) — whose `direction` it is: the one Taptime computed at the tap, or not. The examples and the signature's known answer carry it. §3: within version 1 answers and webhook bodies can gain fields — ignore one you do not know. The answer schemas of editions 1 and 2 were closed (`additionalProperties: false`); this edition opens every answer and webhook schema; request bodies stay closed. |
+| 4 | 2026-11-14 | §9 is new: `GET /v1/timesheets`, the counted working time of the business's own employees over a pay period, per local day — the figures of Taptime's own report. Sections 9 to 12 are now 10 to 13. §3.1: `details.maxDays`; §3.5: `timesheetMaxDays`. |
+| 5 | 2026-11-15 | §13 is new: apps connecting with OAuth — registration, the authorization request and the consent, the code exchange, refreshing, revoking, the scopes, `GET /v1/business` and what differs on `/v1` with a token; "Changes to this guide" is now §14. §2.2: `X-Request-Id` refuses the OAuth prefixes too. §3.4, §3.5: `requestsPerGrantPerMinute`, `requestsPerAppPerMinute`. §1.5: the API has OAuth. |

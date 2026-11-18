@@ -98,11 +98,12 @@ var opKindsAt30 = []string{"legal_versions", "tenants", "tenant_detail", "tenant
 // that migration's Down. (00031's own 'password_ok' is not here: 00031's Down test measures
 // what its Down does with such a row.)
 var opAuditKindsAddedBy = map[int][]string{
-	33: {"operator_created", "operator_mfa_reset", "operator_disabled"},
-	34: {"tenant_vat_checked"},
-	39: {"tenant_api_enabled", "tenant_api_disabled"},
-	42: {"holding_created", "holding_member_added", "holding_member_removed"},
-	63: {"tenant_suspended", "tenant_reinstated"},
+	33:  {"operator_created", "operator_mfa_reset", "operator_disabled"},
+	34:  {"tenant_vat_checked"},
+	39:  {"tenant_api_enabled", "tenant_api_disabled"},
+	42:  {"holding_created", "holding_member_added", "holding_member_removed"},
+	63:  {"tenant_suspended", "tenant_reinstated"},
+	107: {"oauth_client_registered", "oauth_client_secret_rotated", "oauth_client_redirects_changed", "oauth_client_disabled"},
 }
 
 // opSuspensionMigration is 00063's number (M10 OP-15): its Down REFUSES while a tenant is
@@ -191,6 +192,12 @@ var opAtVersionSkips = map[int]string{
 		"their operator half and IS walked); its Down takes ACCESS EXCLUSIVE on tenants and refuses while a plan " +
 		"change is recorded -- rows the billing tests commit -- and the tenant's own billing statements call " +
 		"tappa_plan_in_force at every version the walk reaches",
+	104: "the four oauth tables and their one-way triggers (issue #37, ADR 0047 §14.1-§14.2) -- no operator object " +
+		"(00107 is the registry's operator half and IS walked); its Down drops the tables, taking ACCESS EXCLUSIVE on " +
+		"tenants and admin_users (their keys)",
+	105: "the three oauth resolvers and tappa_resolver's columns (issue #37, ADR 0047 §14.3) -- no operator object",
+	106: "api_idempotency's grant_id and its two partial UNIQUEs (issue #37, ADR 0047 §14.5) -- no operator object; " +
+		"its Down takes ACCESS EXCLUSIVE on api_idempotency and oauth_grants and deletes the grant rows",
 	104: "app_devices, app_request_nonces, their two one-way triggers and resolve_app_device_by_id (M16-03) -- no " +
 		"operator object; its Down takes ACCESS EXCLUSIVE on both tables, tenants and employees (the DROPs' keys), and " +
 		"refuses while either table holds a row -- rows TestAppRequestNonces_ConcurrentConsumeExactlyOnce commits",

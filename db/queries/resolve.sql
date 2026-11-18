@@ -266,3 +266,19 @@
 --     authentication reads them); tappa_resolver cannot read them either.
 --   SELECT id, tenant_id, employee_id, public_key, revoked_at
 --   FROM resolve_app_device_by_id($1);
+-- GetOAuthClient / GetOAuthCodeByHash / GetOAuthTokenByHash (hand-written:
+-- internal/db/resolveoauth.go, issue #37 phase 1, ADR 0047 §14.3). Context-less; each calls its
+-- 00105 resolver, never public.oauth_* or public.tenants. At most one row each: oauth_clients by its
+-- primary key, code_hash and token_hash globally UNIQUE, every join by a primary key.
+--   * resolve_oauth_client's input is the app's PUBLIC id (ADR 0047 §14.3's named deviation from md.7
+--     (i)) and an optional secret hash, compared inside the function: secret_ok comes back (NULL for
+--     no hash), the stored hash never does.
+--   * Every state -- consumed, used, expired, revoked, disabled, the K-22 pair -- is returned and NOT
+--     filtered; internal/oauth decides on every request (00051's rule).
+--   SELECT id, name, redirect_uris, allowed_scopes, disabled_at, secret_ok
+--   FROM resolve_oauth_client($1, $2);
+--   SELECT tenant_id, code_id, client_id, consumed_at, expires_at, grant_id
+--   FROM resolve_oauth_code_by_hash($1);
+--   SELECT tenant_id, token_id, kind, grant_id, client_id, token_scopes, expires_at, used_at,
+--          token_revoked_at, grant_revoked_at, client_disabled_at, api_enabled_at, api_code
+--   FROM resolve_oauth_token_by_hash($1);

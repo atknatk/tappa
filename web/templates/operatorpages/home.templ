@@ -19,8 +19,8 @@ import "github.com/atknatk/tappa/web/templates/components"
 // definer reads an operator's email (a new op_* is a migration).
 //
 // THE REDESIGN (M13-06; docs/design/operator-redesign README §6.1 "Home hub", screens.md §3):
-// still one card -- the mono label over the h1, at the board's 28 px at every width; the four
-// links each beside its gloss from the tablet on and above it on the phone, every link 44 px
+// still one card -- the mono label over the h1, at the board's 28 px at every width; the five
+// links (Apps since issue #37 phase 3) each beside its gloss from the tablet on and above it on the phone, every link 44 px
 // tall; the session sentence the card's last line. The links' 17 px comes from their list item,
 // not from a class on the anchor, whose whole tag is pinned. No icon tiles: the only drawings a
 // signed-in page carries are the nav's five (TestEnrollQR_OnlyOnTheFirstLoad). Pinned by
@@ -48,6 +48,10 @@ templ Home() {
 				<li class="flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1">
 					<a href="/operator/audit" class="op-link">Audit log</a>
 					<span class="text-sm leading-[1.45] text-ink/70">— every sign-in, read and publication on this surface</span>
+				</li>
+				<li class="flex flex-col items-start border-b border-dashed border-line pt-0.5 pb-3 text-[17px] md:grid md:grid-cols-[128px_minmax(0,1fr)] md:items-baseline md:justify-items-start md:gap-x-4 md:py-1">
+					<a href="/operator/apps" class="op-link">Apps</a>
+					<span class="text-sm leading-[1.45] text-ink/70">— the apps a business may connect to with OAuth: register, rotate a secret, disable</span>
 				</li>
 			</ul>
 			<p class="max-w-[620px] text-sm leading-normal text-ink/70">

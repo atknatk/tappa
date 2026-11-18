@@ -3904,3 +3904,45 @@ devri de gereksizdir: `created_by` bir **iz** sütunudur (kim oluşturdu), yetki
   *"…those keep working. Review the API keys"*) kalıcıdır; "T174 karara bağlanana dek" koşulu düştü.
 - **T189 (2026-11-03):** kişinin reddettiği üyelik `status='active'` kalır ve `tappa_app` `unlinked_at`'i okuyamaz; liste böyle bir oluşturanı üye listesinin **kuralıyla** (aktif owner satırı + `db.SignInOwners`'ta yok; yeni fonksiyon, grant, migration yok) ve **sözcüğüyle** *"Creator can't sign in"* diye işaretler, sebebi söylemez, anahtar yine çalışır — pin: `TestApiKeyPanel_ARefusedCreatorIsMarkedAndTheKeyKeepsWorking`, `TestDevelopers_ACreatorWhoCannotSignInIsMarkedBesideTheCreator`.
 - Migration yok.
+
+## Not (2026-11-15, ADR 0047) — OAuth grant'ı ikinci kimlik türü: K-22, K-23, §9, §10
+
+*Bu not yalnız ekler; yukarıdaki metin, ekler ve notlar değişmedi.* Kaynak:
+[ADR 0047](0047-oauth-bagli-uygulamalar.md) (issue #37 — *"Connected apps"*; dal `api-oauth`). `/v1`'in
+Bearer zinciri bir OAuth **erişim tokenını** (`tt_at_live_` + 43; sandbox'ta `tt_at_test_`) API anahtarının
+yanında kabul eder; biçim DB'siz ayrılır, anahtarın yolu **değişmedi** (ADR 0047 §8.1,
+`internal/handler/api/chain.go`).
+
+- **K-22 (§2) — grant türü için yeniden tanım (ADR 0047 §11, OA-1 = (a)).** Operatörün kaydettiği (etkin)
+  bir uygulamaya owner'ın bağlanması işletmenin API'si için operatör adımı **istemez**: **hiç açılmamış**
+  K-22 (`api_enabled_at` ve `api_code` ikisi de NULL) bir grant'ı durdurmaz ve grant `api_enabled_at`'i
+  yazmaz. **Operatörün kapattığı** K-22 (`api_enabled_at IS NULL AND api_code IS NOT NULL`) ise grant'tan
+  üstündür: token `/v1`'de 403 `api_disabled` (anahtarla aynı kod), yeni onay ve kod takası reddedilir,
+  refresh açık kalır (ADR 0047 §11.4). Anahtarlar, anahtar oluşturma ve owner'ın kendi webhook'u K-22'ye
+  **bağlı kalır** (ADR 0047 §11.3'ün G1–G5'i — SSRF gerekçesi aynen). K-22'nin bütün okuyucularının tek tek
+  dökümü ADR 0047 §11.3'ün tablosundadır. `api_code`'un tek yazarı `op_enable_tenant_api`'dir
+  (`internal/db`'nin `TestOAuth_APICodeHasOneWriter` — çıkarımın pini).
+- **K-23 (§3) — aktör genelleşir (ADR 0047 §8.7).** API kaynaklı audit satırı `actor_id =
+  Principal.ActorID()` — anahtar id'si **ya da** grant id'si; `detail.via = "api"` değişmez
+  (`CountAPIDeactivations`'ın sayımı aynen); grant'ta ek olarak `detail.client_id` (`app_<uuid>`). K-25
+  bütçesi ve kilidi `ActorID`'ye bağlı → grant başına. Owner'ın bütçe uyarısı (`ListAPIBudgetAlerts`)
+  `oauth_grants`'a LEFT JOIN'le istemciyi döndürür, ad Go'da çözülür. Idempotency grant'ın kendi ad
+  alanında (`api_idempotency.grant_id`, `00106`).
+- **§9 — davet kuyruğunun kapısı (ADR 0047 §11.3, YÜKSEK-1).** Kuyruğun tek K-22 okuması
+  (`internal/invite/queue.go`, `Queue.gate`) şu olur: **açık ⇔** `api_enabled_at IS NOT NULL` **veya**
+  (operatörce kapatılmamış **ve** işletmede, **etkin** bir istemcinin, kapsamında `employees:write` bulunan
+  ve **canlı refresh tokenı olan** en az bir grant'ı var). Kapı işletme düzeyindedir (`invite_requests`'in
+  PK'si çalışan başına tek satır). Kapandığında bekleyen istek bugünkü K-22 kapanışındaki gibi silinmez,
+  `closed` alır ve ömrü içinde kapı yeniden açılırsa gönderilir. Testler:
+  `TestInviteQueue_TheGateOpensForAWritingAppsLiveGrantAlone` (başka işletmenin grant'ı bu işletmenin
+  kapısını açmaz satırı dahil), `TestOAuthAPI_ATokenInvitesOnABusinessWhoseAPIWasNeverOpened` (API'si hiç
+  açılmamış işletmede tokenla yeni çalışan, adres değişikliği ve `resend-activation` → üç gönderim).
+- **§10 — askı tablosu grant'a birebir (ADR 0047 §8.7, §11.2).** Kontrol noktası yazmanın kendi işleminde
+  tenant'tan okur, principal türünden bağımsızdır: tokenla okumalar askıda açık, yazmalar §10'un
+  hücreleriyle (`TestOAuthAPI_ASuspensionClosesAGrantsWritesNotItsReads`). OAuth'a özgü: askıda yeni onay
+  403, ret `access_denied`, refresh ve revoke açık, owner'ın Disconnect'i açık (ADR 0025'in kapalı istisna
+  listesi — ADR 0025'in 2026-11-15 notu).
+- **§11 — sandbox:** `POST /v1/sandbox/taps` OAuth tokenına kapalıdır (kapsam tablosunda yok → 403
+  `insufficient_scope`); simülasyon işletmenin `tt_test_` anahtarıyla. Sandbox derlemesi OAuth'ta loopback
+  dönüş adresini (`http://localhost|127.0.0.1:<port>/…`) kabul eder, prod derlemesi hiçbir yolda (ADR 0047
+  §10.4). Yerel deneme tarifi: `deploy/README.md` *"Sandbox (API-11)"* §10.

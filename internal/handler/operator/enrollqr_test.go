@@ -201,9 +201,9 @@ var enrollFirstLoadMarks = []string{"<svg", `class="op-key"`, `class="op-uri"`, 
 
 // TestEnrollQR_OnlyOnTheFirstLoad: the code is on the enrollment page's first load and on
 // no other page -- a re-render after a refused attempt has no svg, no key, no setup link
-// (no op-uri paragraph and no otpauth scheme; the handler cannot open the blob), and of the 49 renders screens() makes, the one enrollment render
+// (no op-uri paragraph and no otpauth scheme; the handler cannot open the blob), and of the 50 renders screens() makes, the one enrollment render
 // that carries a QR matrix is the only signed-out one with an svg, and it draws one; the
-// other eight signed-out renders draw none. Each of the 40 signed-in renders draws exactly
+// other eight signed-out renders draw none. Each of the 41 signed-in renders draws exactly
 // five, the operator nav's icons (M13-01): all five inside <nav class="op-nav">, each
 // aria-hidden="true", and none anywhere else on the page.
 func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
@@ -267,7 +267,7 @@ func TestEnrollQR_OnlyOnTheFirstLoad(t *testing.T) {
 			t.Errorf("%s: %d svg element(s), nav at %d; want %d and no nav", name, got, nav, want)
 		}
 	}
-	if signedIn != 40 {
-		t.Fatalf("PREMISE: %d signed-in render(s), the comment says 40", signedIn)
+	if signedIn != 41 {
+		t.Fatalf("PREMISE: %d signed-in render(s), the comment says 41", signedIn)
 	}
 }

@@ -169,6 +169,7 @@ var redactingTypes = []string{
 	"adminauth.proofHash",
 	"domain/signup.Address",
 	"webhook.SigningKey",
+	"oauth.Value", "oauth.Digest",
 	"db.PasswordHash",
 	"sun.WipeableKey",
 }
@@ -194,11 +195,24 @@ var keyFieldExemptions = map[string]string{
 	// A comparison value, not a proof: no definer takes it to find a row by.
 	"apikey.WriteRequest.RequestHash": "SHA-256 of the request's method, route and body, the idempotency ledger's comparison value " +
 		"(a replay with another body is refused by it); it opens nothing",
+	// Issue #37 phase 3: the same value as the ledger row returns it (writes.go's two namespaces).
+	"apikey.recorded.RequestHash": "the ledger row's copy of WriteRequest.RequestHash (a comparison value); it opens nothing",
 	// Sealed under a KEK: printing it gives ciphertext the database row already holds.
 	"db.ResolvedTag.AESKeyRef": "AES-256-GCM envelope under TAPPA_TAG_KEK; the plaque key is not recoverable from it",
 	// A proof or a MAC, not a key.
 	"adminauth.Proof.mac": "a MAC over a password digest, a value type compared with ==, printing redacted through its own methods; " +
 		"a holder's unexported field still reaches it, see backlog T253",
+	// The OAuth registry's secret hint (issue #37, ADR 0047 §14.1): the prefix and the first four characters
+	// of a client secret, the API key's prefix_hint shape -- 24 of 256 bits, shown on the operator's list.
+	"db.OAuthClientRow.SecretHint": "a client secret's prefix and first four characters (prefix_hint's shape), not the secret",
+	"store.OauthClient.SecretHint": "oauth_clients.secret_hint: a client secret's prefix and first four characters, not the secret",
+	// A token's scope set, matched by "token" in its name.
+	"db.ResolvedOAuthToken.TokenScopes": "the closed scope words an OAuth access token carries (timesheets:read, ...), no secret",
+	// The token endpoint's JSON answer (issue #37, ADR 0047 §5.4): the one place the two tokens leave
+	// the server, filled from oauth.Value's RevealInTokenResponse; token_type is the constant "Bearer".
+	"handler/oauthapi.tokenResponse.AccessToken":  "RFC 6749 §5.1's access_token field: the response body is the token's one exit",
+	"handler/oauthapi.tokenResponse.RefreshToken": "RFC 6749 §5.1's refresh_token field: the response body is the token's one exit",
+	"handler/oauthapi.tokenResponse.TokenType":    "the constant \"Bearer\", no secret",
 	// A signed value that travels to the browser anyway.
 	"handler.claimStep.token": "the signed moment in a confirmation form's hidden field; it is sent to the browser by design",
 	// The /app/v1 surface's carriers of a device's PUBLIC key (M16-07): the bind and complete bodies (base64url

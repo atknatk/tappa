@@ -55,6 +55,8 @@ type VenuePut struct {
 	// Via is detail.via of the trail row -- K-23's "api" (apikey.Via). Required: a trail row
 	// that does not say where the act came from is K-23's gap.
 	Via string
+	// ClientID is detail.client_id when the actor is an OAuth grant (ADR 0047 §8.7), "" for a key.
+	ClientID string
 	// ExternalRef is the path's ref, exactly as sent.
 	ExternalRef string
 	Name        string
@@ -105,6 +107,7 @@ func (e *TimezoneMismatch) Is(target error) bool { return target == ErrVenueTime
 // request body.
 type apiVenueDetail struct {
 	Via         string `json:"via"`
+	ClientID    string `json:"client_id,omitempty"`
 	ExternalRef string `json:"external_ref"`
 
 	FromName string `json:"from_name,omitempty"`
@@ -210,7 +213,7 @@ func (v *Venues) PutVenueTx(ctx context.Context, tx pgx.Tx, c VenuePut) (VenuePu
 		case err == nil:
 			row := apiVenueRow(created)
 			if err := v.recordAPIVenue(ctx, tx, c, ActionLocationCreated, row, apiVenueDetail{
-				Via: c.Via, ExternalRef: ref, ToName: row.Name, ToActive: row.Active, LostProofOfPlace: !row.hasProofOfPlace(),
+				Via: c.Via, ClientID: c.ClientID, ExternalRef: ref, ToName: row.Name, ToActive: row.Active, LostProofOfPlace: !row.hasProofOfPlace(),
 			}); err != nil {
 				return VenuePutResult{}, err
 			}
@@ -253,7 +256,7 @@ func (v *Venues) PutVenueTx(ctx context.Context, tx pgx.Tx, c VenuePut) (VenuePu
 	row := apiVenueRow(updated)
 	fromActive := before.Active
 	if err := v.recordAPIVenue(ctx, tx, c, ActionLocationUpdated, row, apiVenueDetail{
-		Via: c.Via, ExternalRef: ref, FromName: before.Name, ToName: row.Name,
+		Via: c.Via, ClientID: c.ClientID, ExternalRef: ref, FromName: before.Name, ToName: row.Name,
 		FromActive: &fromActive, ToActive: row.Active, LostProofOfPlace: !row.hasProofOfPlace(),
 	}); err != nil {
 		return VenuePutResult{}, err

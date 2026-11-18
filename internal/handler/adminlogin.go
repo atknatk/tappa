@@ -123,10 +123,16 @@ const (
 //   - It does not tell anyone whether an email exists. See renderLoginFailure.
 //   - It does not lock an account out. See adminratelimit.go for the two readings
 //     and why the address is metered instead.
-//   - It does not read the panel cookie on GET /admin/login to "helpfully" skip a
-//     login somebody is already signed in for. That would put a resolver read plus
-//     an UPDATE on an unauthenticated endpoint for a convenience, and the cost of
-//     NOT doing it is one extra click.
+//
+// GET /admin/login SENDS A SIGNED-IN VISITOR TO THE PANEL (T318, the user's call of
+// 2026-11-15). This list used to say the page "does not read the panel cookie", to keep
+// a resolver read plus an UPDATE off an unauthenticated endpoint; the user overrode that
+// (a session existed and the form still opened -- the market pattern is the app). The
+// cost is bounded, not free, and LoginPage carries how: no cookie, no database work;
+// a cookie is resolved only behind the page's address shield (pinned by counting the
+// resolver), by the gate Protect uses, and charged to the session budget like any panel
+// load -- but a spent budget gets the FORM here, not a 429, because signing in again is
+// how a session whose budget is spent gets a fresh one.
 type AdminAuth struct {
 	admins adminAuthenticator
 	audit  auditRecorder
@@ -397,6 +403,12 @@ type AdminAuth struct {
 	brandUploadLimiter *limiter
 	brandWriteLimiter  *limiter
 
+	// oauth is the authorization server's consent half (issue #37, oauthconsent.go), given by the
+	// OAuthConsent option; oauthClock is its pending request's clock (nil: time.Now -- a test ages a
+	// cookie with it).
+	oauth      panelOAuth
+	oauthClock func() time.Time
+
 	log *slog.Logger
 }
 
@@ -623,6 +635,12 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// panel built without the service would take away the owner's switch-off (K-26). Pinned by
 	// TestNewAdminAuth_TheWebhookServiceMatchesTheConfiguration and cmd/tappa's
 	// TestWebhookWiring_TheEndpointServiceReachesThePanel.
+	// 🔴 THE SAME FOR THE OAUTH CONSENT (issue #37, ADR 0047): TAPPA_OAUTH_HMAC_KEY is required by
+	// config.Load, so every production Config carries it, and a panel without the authorization server
+	// would answer every app's "Connect" with a 503. Refused at start-up (cmd/tappa passes OAuthConsent).
+	if cfg.OAuthHMACKey.Len() > 0 && isNil(a.oauth) {
+		return nil, errors.New("handler: the configuration holds the OAuth HMAC key and the panel was given no authorization server (OAuthConsent)")
+	}
 	if cfg.WebhookKEK.Len() > 0 && a.webhook == nil {
 		return nil, errors.New("handler: the configuration holds the webhook KEK and the panel was given no webhook service (IntegrationWebhook)")
 	}
@@ -670,6 +688,10 @@ func (a *AdminAuth) Mount(r chi.Router) {
 		// spent). The UNDO link's page and press are mounted by their own call (MountEmailUndo).
 		r.With(a.floodGate("admin_email_change_link")).Get(emailChangeLandingPath, a.emailChangeLanding)
 	})
+
+	// THE OAUTH CONSENT'S READS (issue #37, oauthconsent.go): the two GETs, each on ADR 0047 §4.2's own
+	// chain; the approval and the refusal are in mountWriting, the front door in internal/handler/oauthapi.
+	a.mountOAuthReads(r)
 
 	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.
@@ -834,22 +856,33 @@ func (a *AdminAuth) sameOriginGate(next http.Handler) http.Handler {
 // without letting anybody else spend that budget.
 func (a *AdminAuth) sessionGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := httpx.AdminOf(r)
-		if !id.Live() {
-			next.ServeHTTP(w, r)
-			return
-		}
-		key := id.Admin.SessionID.String()
-		if n := a.sessionLimiter.Charge(key); n > adminSessionLimit {
-			if a.sessionLimiter.FirstOverLimit(n) {
-				a.log.Warn("panel session budget reached", "session_id", key,
-					"limit", adminSessionLimit, "period", adminSessionPeriod.String())
-			}
+		if a.sessionSpent(r) {
 			a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sessionSpent charges the request's live session one unit of its budget and reports
+// whether the budget is now exceeded (logged once per window). No live session: no
+// charge, false. sessionGate answers true with 429; the sign-in page answers it with the
+// form (loginPageSignedIn), because signing in again is the way out of a spent budget.
+func (a *AdminAuth) sessionSpent(r *http.Request) bool {
+	id := httpx.AdminOf(r)
+	if !id.Live() {
+		return false
+	}
+	key := id.Admin.SessionID.String()
+	n := a.sessionLimiter.Charge(key)
+	if n <= adminSessionLimit {
+		return false
+	}
+	if a.sessionLimiter.FirstOverLimit(n) {
+		a.log.Warn("panel session budget reached", "session_id", key,
+			"limit", adminSessionLimit, "period", adminSessionPeriod.String())
+	}
+	return true
 }
 
 // requireAdmin is the bare gate, without any budget. Only the sign-out group uses
@@ -1081,13 +1114,71 @@ func readFailedProblem(r *http.Request) pages.ProblemView {
 	return problemPanelWriteFailed
 }
 
-// LoginPage serves GET /admin/login: mint the synchronizer token and render the
-// form.
+// LoginPage serves GET /admin/login: a visitor already signed in is sent to the
+// panel; anybody else gets the synchronizer token minted and the form rendered.
+//
+// THE SIGNED-IN CHECK (T318) RUNS ONLY WHEN A PANEL COOKIE IS PRESENT, after the
+// address shield and before anything is minted:
+//
+//	no cookie       the form, exactly as before -- zero database work.
+//	live session    303 to where a completed sign-in lands (landingAfterSignIn: the
+//	                panel, or a pending app consent), no sign-in state minted. Even
+//	                with ?recovered=1: the sentence is for somebody about to sign in.
+//	dead cookie     the form, and the cookie is cleared. requireLogin sends a dead
+//	                cookie here without clearing it; clearing it HERE is what keeps
+//	                GET /admin -> login from resolving it again on every load.
+//	outage          the form, cookie kept, logged as requireLogin logs it: the
+//	                sign-in page must keep working through a database blip.
+//	live, budget    the FORM, not sessionGate's 429 (round 2 of T318's review): a
+//	spent           session whose budget is spent can only get a fresh one by
+//	                signing in again, and the POST needs the state this GET mints.
+//	                The charge still happens (sessionSpent), so the budget counts
+//	                this page; the resolve already ran, so the form costs nothing
+//	                more, and the address shield still bounds the anonymous load.
+//
+// THE SHIELD COMES FIRST and that order is pinned (TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute
+// counts the resolver on an exhausted address): moved after the resolve, an
+// exhausted address would buy a resolver read per request on a cookie it invented.
+//
+// IT IS httpx.RequireAdmin, THE GATE Protect USES, not a second resolver: whatever
+// the panel accepts as signed in this accepts, whatever it refuses this refuses, in
+// either TAPPA_ADMIN_IDENTITY setting.
 func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if a.flooded(w, r, ip, "admin_login_page") {
 		return
 	}
+	if _, err := a.cookies.Read(r); err == nil {
+		httpx.RequireAdmin(a.cookies, a.admins, http.HandlerFunc(a.loginPageWithoutSession))(
+			http.HandlerFunc(a.loginPageSignedIn)).ServeHTTP(w, r)
+		return
+	}
+	a.renderLoginForm(w, r)
+}
+
+// loginPageSignedIn is LoginPage's answer to a live session: where a sign-in lands,
+// or the form when the session's budget is spent (see LoginPage).
+func (a *AdminAuth) loginPageSignedIn(w http.ResponseWriter, r *http.Request) {
+	if a.sessionSpent(r) {
+		a.renderLoginForm(w, r)
+		return
+	}
+	a.redirect(w, a.landingAfterSignIn(r, "/admin"))
+}
+
+// loginPageWithoutSession is LoginPage's answer to a panel cookie that did not
+// resolve to a live session. See LoginPage for the dead-cookie and outage rows.
+func (a *AdminAuth) loginPageWithoutSession(w http.ResponseWriter, r *http.Request) {
+	if err := httpx.AdminOf(r).Err; err != nil {
+		a.log.Error("panel: could not resolve the admin session on the sign-in page", "err", err)
+	} else {
+		a.cookies.Clear(w)
+	}
+	a.renderLoginForm(w, r)
+}
+
+// renderLoginForm mints the synchronizer token and renders the form.
+func (a *AdminAuth) renderLoginForm(w http.ResponseWriter, r *http.Request) {
 	// A FRESH pair on every render, rather than reusing an existing cookie. It
 	// costs 64 bytes of randomness and it means a token left in a shared browser is
 	// superseded the moment anyone loads the page again.
@@ -1491,7 +1582,8 @@ func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip str
 	// completePersonLogin's, path=identity. The contract is talked about when this one nears zero
 	// (ADR 0031 §5.15).
 	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip, "path", "legacy")
-	a.redirect(w, "/admin")
+	// A pending app consent (issue #37, ADR 0047 §4.2) lands on its ONE fixed continue path.
+	a.redirect(w, a.landingAfterSignIn(r, "/admin"))
 }
 
 // failLogin is the SINGLE exit for every credential failure.

@@ -365,6 +365,14 @@ spec:
                 secretKeyRef:
                   name: tappa-secrets
                   key: TAPPA_API_KEY_HMAC_KEY
+            # The "Connected apps" authorization server's key (issue #37, ADR 0047 §7.2): REQUIRED --
+            # internal/config refuses to start without it. ⚠️ It must be in tappa-secrets before this
+            # manifest reaches the cluster, and differ from every other key.
+            - name: TAPPA_OAUTH_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OAUTH_HMAC_KEY
             - name: TAPPA_WEBHOOK_KEK
               valueFrom:
                 secretKeyRef:

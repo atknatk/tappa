@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // fixedMACKey is a test-only 32-byte value: the bytes 1..32.
@@ -142,5 +144,33 @@ func TestPrincipal_AttributesAnAPIActToTheKey(t *testing.T) {
 	}
 	if p.Attribution().Via != "api" || Via != "api" {
 		t.Fatalf("via %q, want api", p.Attribution().Via)
+	}
+}
+
+// TestPrincipal_FullFailsClosed (ADR 0047 §8.1, §8.3): full authority is an API key's alone -- a key
+// id and no grant id. A principal that is neither (the zero value) is full on nothing, has no scope
+// and leaves the holding peers out; a grant is never full whatever else is set.
+//
+// MUTANT (measured, phase 4 report): Full back to !IsGrant() -> the zero principal is full and holds
+// every scope, red.
+func TestPrincipal_FullFailsClosed(t *testing.T) {
+	key, grant := uuid.UUID{1}, uuid.UUID{2}
+	tests := []struct {
+		name          string
+		p             Principal
+		full, ownOnly bool
+		scope         bool
+	}{
+		{"neither a key nor a grant", Principal{TenantID: uuid.UUID{3}}, false, true, false},
+		{"a key", Principal{TenantID: uuid.UUID{3}, KeyID: key}, true, false, true},
+		{"a grant of another scope", Principal{TenantID: uuid.UUID{3}, GrantID: grant, Scopes: []string{"employees:read"}}, false, true, false},
+		{"both ids (never built)", Principal{TenantID: uuid.UUID{3}, KeyID: key, GrantID: grant}, false, true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.p.Full() != tc.full || tc.p.OwnOnly() != tc.ownOnly || tc.p.HasScope("timesheets:read") != tc.scope {
+				t.Fatalf("Full %v OwnOnly %v HasScope %v, want %v %v %v", tc.p.Full(), tc.p.OwnOnly(), tc.p.HasScope("timesheets:read"), tc.full, tc.ownOnly, tc.scope)
+			}
+		})
 	}
 }

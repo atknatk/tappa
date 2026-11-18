@@ -37,6 +37,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/handler/api"
+	"github.com/atknatk/tappa/internal/handler/oauthapi"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
@@ -81,6 +82,17 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 func (silentDB) Ping(context.Context) error { return errSilent }
 func (silentDB) GetAppDeviceByID(context.Context, uuid.UUID) (db.ResolvedAppDevice, error) {
 	return db.ResolvedAppDevice{}, errSilent
+}
+
+// Issue #37: the authorization server's three resolvers (oauth.Store).
+func (silentDB) GetOAuthClient(context.Context, uuid.UUID, *string) (db.ResolvedOAuthClient, error) {
+	return db.ResolvedOAuthClient{}, errSilent
+}
+func (silentDB) GetOAuthCodeByHash(context.Context, string) (db.ResolvedOAuthCode, error) {
+	return db.ResolvedOAuthCode{}, errSilent
+}
+func (silentDB) GetOAuthTokenByHash(context.Context, string) (db.ResolvedOAuthToken, error) {
+	return db.ResolvedOAuthToken{}, errSilent
 }
 
 // M14-17: the registration drafts' four calls (adminauth.SignupClaimDatabase).
@@ -190,12 +202,14 @@ type appFeatures struct {
 	// api and devTools are nil interfaces when off, exactly as run() hands them.
 	api      httpx.Mounter
 	devTools httpx.Mounter
+	// oauth is the authorization server's surface (issue #37): on in both walks.
+	oauth *oauthapi.Surface
 	// appLinks mounts the files whose platform walkConfig configured: none off, both on.
 	appLinks *handler.AppLinks
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.devTools, f.appLinks)
+	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.oauth, f.devTools, f.appLinks)
 }
 
 func (f appFeatures) named() []struct {
@@ -209,7 +223,7 @@ func (f appFeatures) named() []struct {
 		{"activation", f.activation}, {"tap", f.tap}, {"app", f.app}, {"panel", f.panel}, {"invite", f.panel.InviteAcceptance()}, {"undo", f.panel.EmailUndo()}, {"logos", f.logos},
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
-		{"api", f.api}, {"devtools", f.devTools}, {"applinks", f.appLinks},
+		{"api", f.api}, {"oauth", f.oauth}, {"devtools", f.devTools}, {"applinks", f.appLinks},
 	}
 }
 
@@ -222,7 +236,7 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 	cfg := &config.Config{
 		Env: config.EnvDev, BaseURL: "https://taptime.mt",
 		SessionHMACKey: config.NewKey(randBytes(t, 32)), InviteHMACKey: config.NewKey(randBytes(t, 32)), TagKEK: config.NewKey(randBytes(t, 32)),
-		APIKeyHMACKey:   config.NewKey(randBytes(t, 32)),
+		APIKeyHMACKey: config.NewKey(randBytes(t, 32)), OAuthHMACKey: config.NewKey(randBytes(t, 32)),
 		GPSRadiusMeters: 150, Debounce: 60 * time.Second, Freshness: 180 * time.Second, RetentionYears: 2,
 	}
 	if on {
@@ -312,7 +326,9 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	apiKeys, err := apikey.NewKeys(apiKeyPrefix, cfg.APIKeyHMACKey.Reveal(), data, trail)
 	must(err)
-	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, handler.IntegrationKeys(apiKeys))
+	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, log)
+	must(err)
+	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, handler.IntegrationKeys(apiKeys), handler.OAuthConsent(oauthServer))
 	must(err)
 	logos, err := handler.NewBrandLogos(brandReader, panel, tap, log)
 	must(err)
@@ -329,7 +345,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	f := appFeatures{
 		activation: activation, tap: tap, app: app, panel: panel, logos: logos,
 		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
-		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(),
+		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(), oauth: oauthTokens,
 	}
 	// As run() builds it, from the configuration: walkConfig sets both platforms only when on.
 	f.appLinks, err = handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
@@ -347,9 +363,11 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	employees, err := tenant.NewEmployeeDirectory(data)
 	must(err)
+	business, err := tenant.NewBusinessCard(data)
+	must(err)
 	surface, err := api.New(api.Config{
-		Host: cfg.APIHost, Keys: chain, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
-		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Log: log,
+		Host: cfg.APIHost, Keys: chain, Grants: oauthServer, Writes: writes, Suspension: tenant.WriteSuspension{}, Work: noWork{},
+		Locations: venues, Employees: staff, Punches: punches, Directory: employees, Timesheets: records, Business: business, Log: log,
 	})
 	must(err)
 	f.api = surface
@@ -433,6 +451,12 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST /admin/api-keys/webhook/disable": true,
 		// T59 (ADR 0025 §3, user decision 2026-11-09): signing a person's phones out, a defence.
 		"POST /admin/employees/sign-out": true,
+		// Issue #37 (ADR 0047 §4.2, §4.5): refusing an app's consent writes nothing (class 2); its
+		// approval, POST /admin/oauth/authorize, is class 1 -- behind ProtectWriting.
+		"POST /admin/oauth/authorize/deny": true,
+		// Issue #37 phase 3 (ADR 0047 §11.2, §12): the owner's Disconnect of a connected app -- a
+		// defence (K-26: it narrows what the business exposes), behind protectWritingThroughSuspension.
+		"POST /admin/api-keys/apps/disconnect": true,
 	}
 	outsidePanel := map[string]string{
 		"POST /activate":     "activation",
@@ -457,6 +481,10 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.
 		"POST /admin/signup/confirm": "signup",
+		// Issue #37 (ADR 0047 §5, §6): the authorization server's server-to-server endpoints -- no
+		// cookie, no panel identity; the client's own Basic credentials, the address bucket.
+		"POST /oauth/token":  "oauth",
+		"POST /oauth/revoke": "oauth",
 	}
 	// Panel exceptions that exist only with the panel identity flag on (ADR 0025's M14 note):
 	// signing yourself out everywhere (M14-11), switching businesses (M14-10), the account page's

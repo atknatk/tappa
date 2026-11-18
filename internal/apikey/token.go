@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/atknatk/tappa/internal/oauth"
 )
 
 const (
@@ -164,3 +166,8 @@ func validPrefix(p string) error {
 	}
 	return nil
 }
+
+// OAuth hands the bearer value to the OAuth access token's shape check (issue #37, ADR 0047 §8.1
+// step 2: one Authorization header, two credential kinds told apart by their shape). The value
+// stays wrapped: oauth.Value prints a placeholder as Token does.
+func (t Token) OAuth() oauth.Value { return oauth.ParseValue(t.reveal()) }

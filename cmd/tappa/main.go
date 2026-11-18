@@ -832,7 +832,7 @@ func run() error {
 		// as the panel's press (one set of ceilings, ADR 0022 §9) and the same invite.Manager (one
 		// code key). It is a job of K-19's worker: it runs for a tenant the worker hands it, never
 		// across tenants.
-		queue, err := invite.NewQueue(invites, invitations.QueueSink(slog.Default()), trail)
+		queue, err := invite.NewQueue(invites, invitations.QueueSink(slog.Default()), trail, data)
 		if err != nil {
 			return err
 		}
@@ -853,6 +853,15 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.IntegrationKeys(apiKeys))
+	// A grant's deactivation budget alert names its app through the registry's resolver (ADR 0047 §8.7).
+	apiKeys.NameAppsWith(data)
+	// THE "CONNECTED APPS" AUTHORIZATION SERVER (issue #37, ADR 0047): the panel's consent and the
+	// token endpoint's surface share one server over the pool and the trail (oauth.go).
+	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, handler.OAuthConsent(oauthServer))
 	// THE WEBHOOK ENDPOINT (M11 API-9, ADR 0028 §6, §7): the owner's one endpoint and its test ping,
 	// sent through internal/egress -- the SSRF-safe client, the only defence while egress is open. It
 	// is built whenever TAPPA_WEBHOOK_KEK is set, which config.Load requires outside dev; a dev
@@ -1007,14 +1016,14 @@ func run() error {
 	}
 
 	// THE INTEGRATION API (M11 API-4): /v1 on TAPPA_API_HOST, or nothing (a nil Mounter, which
-	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5) and
-	// the panel's employee domain (API-6); api.go says the rest.
+	// NewRouter skips). It is handed the pool, K-19's worker, the panel's venue domain (API-5), the
+	// panel's employee domain (API-6) and the panel's report reader (API-14); api.go says the rest.
 	// The sandbox build's simulation (sandbox.go); none in the production build (nosandbox.go).
 	extensions, err := sandboxExtensions(cfg, data, work, slog.Default())
 	if err != nil {
 		return err
 	}
-	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, slog.Default())
+	integrationAPI, err := openAPISurface(cfg, data, work, venues, staff, extensions, records, slog.Default(), oauthServer)
 	if err != nil {
 		return err
 	}
@@ -1047,7 +1056,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, devTools, appLinks),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools, appLinks),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

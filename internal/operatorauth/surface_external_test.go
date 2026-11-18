@@ -40,6 +40,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/operatorauth"
 	"github.com/atknatk/tappa/internal/sun"
 )
@@ -245,7 +246,7 @@ func newSurfRig(t *testing.T) *surfRig {
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
 	s, err := operator.New(a, surfLegal{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{}, surfTenants{},
-		surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
+		surfApps{}, surfSecrets, surfVIES{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,3 +490,31 @@ func TestSurface_ACrossOriginPostPaysNothing(t *testing.T) {
 		t.Fatalf("CONTROL: a same-origin enrollment the store refuses = %d with %d digest(s), want 400 and 1", w.Code, g.digests()-d0)
 	}
 }
+
+// surfApps is the app registry store (issue #37's operator screen): these tests never reach it, so
+// every call is refused. surfSecrets mints under a fixed, fake TAPPA_OAUTH_HMAC_KEY.
+type surfApps struct{}
+
+func (surfApps) OAuthClients(context.Context, string, int32) ([]db.OAuthClientRow, error) {
+	return nil, db.ErrOperatorRefused
+}
+func (surfApps) RegisterOAuthClient(context.Context, string, string, []string, []string, string, string) (uuid.UUID, error) {
+	return uuid.Nil, db.ErrOperatorRefused
+}
+func (surfApps) RotateOAuthClientSecret(context.Context, string, uuid.UUID, string, string) error {
+	return db.ErrOperatorRefused
+}
+func (surfApps) SetOAuthClientRedirects(context.Context, string, uuid.UUID, []string) error {
+	return db.ErrOperatorRefused
+}
+func (surfApps) DisableOAuthClient(context.Context, string, uuid.UUID) error {
+	return db.ErrOperatorRefused
+}
+
+var surfSecrets = func() *oauth.Hasher {
+	h, err := oauth.NewHasher(bytes.Repeat([]byte("s"), 32))
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()

@@ -1806,6 +1806,163 @@ func (q *Queries) ListRecentTapsForEmployee(ctx context.Context, arg ListRecentT
 	return items, nil
 }
 
+const listTimesheetShiftEvents = `-- name: ListTimesheetShiftEvents :many
+WITH page AS (
+    SELECT DISTINCT p.employee_id
+    FROM transactions p
+    WHERE p.tenant_id = $1
+      AND p.employee_id IS NOT NULL
+      AND p.type IS NOT NULL
+      AND NOT p.practice
+      AND p.occurred_at >= $2
+      AND p.occurred_at <  $5
+      AND ($6::uuid IS NULL OR p.employee_id > $6::uuid)
+    ORDER BY p.employee_id
+    LIMIT $7::int
+)
+SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
+       t.site_location_id,
+       t.created_at, t.business_day_start,
+       t.shift_source, t.shift_start, t.shift_end, t.shift_overnight, t.shift_timezone,
+       rv.outcome AS review_outcome,
+       e.full_name AS employee_name,
+       l.name AS location_name,
+       l.shift_start AS location_shift_start,
+       l.shift_end   AS location_shift_end,
+       l.overnight   AS location_overnight,
+       d.shift_start AS department_shift_start,
+       d.shift_end   AS department_shift_end,
+       d.overnight   AS department_overnight
+FROM transactions t
+JOIN page pg ON pg.employee_id = t.employee_id
+LEFT JOIN transaction_reviews rv
+       ON rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id
+LEFT JOIN employees   e ON e.tenant_id = t.tenant_id AND e.id = t.employee_id
+LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
+LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
+WHERE t.tenant_id = $1
+  AND t.type IS NOT NULL
+  AND NOT t.practice
+  AND t.occurred_at >= $2
+  AND t.occurred_at <  $3
+ORDER BY t.employee_id, t.occurred_at, t.id
+LIMIT $4::int
+`
+
+type ListTimesheetShiftEventsParams struct {
+	TenantID      uuid.UUID
+	FromAt        time.Time
+	UntilAt       time.Time
+	RowLimit      int32
+	ToAt          time.Time
+	AfterEmployee *uuid.UUID
+	PageSize      int32
+}
+
+type ListTimesheetShiftEventsRow struct {
+	EmployeeID           *uuid.UUID
+	OccurredAt           time.Time
+	Type                 *string
+	Verdict              string
+	Channel              string
+	LocationID           *uuid.UUID
+	SiteLocationID       *uuid.UUID
+	CreatedAt            time.Time
+	BusinessDayStart     *time.Time
+	ShiftSource          *string
+	ShiftStart           pgtype.Time
+	ShiftEnd             pgtype.Time
+	ShiftOvernight       *bool
+	ShiftTimezone        *string
+	ReviewOutcome        *string
+	EmployeeName         *string
+	LocationName         *string
+	LocationShiftStart   pgtype.Time
+	LocationShiftEnd     pgtype.Time
+	LocationOvernight    *bool
+	DepartmentShiftStart pgtype.Time
+	DepartmentShiftEnd   pgtype.Time
+	DepartmentOvernight  *bool
+}
+
+// GET /v1/timesheets' read (M11 API-14, ADR 0046): ListWorkedShiftEvents for ONE PAGE OF EMPLOYEES.
+//
+// 🔴 THE COLUMN LIST IS ListWorkedShiftEvents' OWN, COLUMN FOR COLUMN, AND THAT IS THE GUARANTEE
+// THAT THERE IS ONE ARITHMETIC. internal/domain/ledger converts each row of this statement to a
+// store.ListWorkedShiftEventsRow (a Go type conversion, which compiles only while the two generated
+// row types have the same fields in the same order with the same types) and hands it to the same
+// events() and accumulate() the panel's report runs. A column added to one statement and not the
+// other is a build failure, not a drift. Everything ListWorkedShiftEvents' block says about what is
+// NOT selected (no gps_lat, gps_lng, source_ip, policy_context, entered_by -- section 4.7), about the
+// LEFT JOINs (section 4.6), about NOT t.practice and t.type IS NOT NULL, and about the window's two
+// edges holds here unchanged.
+//
+// WHAT IS DIFFERENT IS THE PAGE. `page` picks at most page_size employees, in id order after the
+// cursor (NULL: the first page), among those with a direction-carrying, non-practice record IN THE
+// PERIOD [from_at, to_at) -- the population the report lists. The main read then takes those
+// employees' rows over the report's own window [from_at, until_at), the tail included, ordered so one
+// pass rebuilds each chain. A person's chain is per person (accumulate resets at every new employee),
+// so a page of people gives each of them exactly the figures the whole-tenant read gives them.
+//
+// THE LIMIT IS STILL A BOUND ON THE REQUEST (row_limit = ReportEventCap + 1). The caller drops the
+// last employee of a read that hit it -- half a chain is a wrong total -- and the next page starts at
+// that employee (ledger.Timesheet).
+//
+// TENANT SCOPE (section 4.5, belt + braces): the explicit tenant_id predicate in the page AND in the
+// read, RLS beside both, every JOIN re-stating tenant_id. The tenant is the API key's, never a
+// request parameter.
+func (q *Queries) ListTimesheetShiftEvents(ctx context.Context, arg ListTimesheetShiftEventsParams) ([]ListTimesheetShiftEventsRow, error) {
+	rows, err := q.db.Query(ctx, listTimesheetShiftEvents,
+		arg.TenantID,
+		arg.FromAt,
+		arg.UntilAt,
+		arg.RowLimit,
+		arg.ToAt,
+		arg.AfterEmployee,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTimesheetShiftEventsRow{}
+	for rows.Next() {
+		var i ListTimesheetShiftEventsRow
+		if err := rows.Scan(
+			&i.EmployeeID,
+			&i.OccurredAt,
+			&i.Type,
+			&i.Verdict,
+			&i.Channel,
+			&i.LocationID,
+			&i.SiteLocationID,
+			&i.CreatedAt,
+			&i.BusinessDayStart,
+			&i.ShiftSource,
+			&i.ShiftStart,
+			&i.ShiftEnd,
+			&i.ShiftOvernight,
+			&i.ShiftTimezone,
+			&i.ReviewOutcome,
+			&i.EmployeeName,
+			&i.LocationName,
+			&i.LocationShiftStart,
+			&i.LocationShiftEnd,
+			&i.LocationOvernight,
+			&i.DepartmentShiftStart,
+			&i.DepartmentShiftEnd,
+			&i.DepartmentOvernight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkedShiftEvents = `-- name: ListWorkedShiftEvents :many
 SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
        t.site_location_id,

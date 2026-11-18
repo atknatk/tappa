@@ -71,6 +71,14 @@ type Config struct {
 	// other key here (keysSeparation).
 	APIKeyHMACKey Key
 
+	// OAuthHMACKey keys every stored OAuth value of the "Connected apps" authorization server (issue
+	// #37, ADR 0047 §7.2, TAPPA_OAUTH_HMAC_KEY): a client secret's, an authorization code's and an
+	// access or refresh token's hash, the pending request cookie's signature and the consent page's
+	// request digest -- each under its own domain label (internal/oauth). REQUIRED -- the token
+	// endpoint and the consent page are always mounted, and a deployment that could not hash a token
+	// must not start -- 32 bytes, and different from every other key here (keysSeparation).
+	OAuthHMACKey Key
+
 	// WebhookKEK seals each webhook endpoint's signing key (ADR 0028 §6, TAPPA_WEBHOOK_KEK;
 	// internal/webhook/endpoints). REQUIRED outside TAPPA_ENV=dev since M11 API-9 (webhookSettings):
 	// a production or staging panel offers the webhook to every owner whose API the operator opened,
@@ -441,6 +449,10 @@ func Load() (*Config, error) {
 	if c.WebhookKEK, err = optionalKey32(envWebhookKEK); err != nil {
 		push(err)
 	}
+	// The OAuth authorization server's one key (issue #37, ADR 0047 §7.2): required everywhere.
+	if c.OAuthHMACKey, err = key32(envOAuthHMACKey); err != nil {
+		push(err)
+	}
 	if c.WebhookBlockedAddresses, err = blockedAddresses(os.Getenv(envWebhookBlocked)); err != nil {
 		push(err)
 	}
@@ -549,6 +561,18 @@ var envValues = []string{EnvDev, EnvStaging, EnvProd, EnvSandbox}
 // build_sandbox.go) -- the one build that may start with TAPPA_ENV=sandbox, and may start with
 // nothing else.
 func SandboxBuild() bool { return sandboxBuild }
+
+// The build facts as constants, for the packages whose behaviour is the build's and must stay a
+// compile-time fact (internal/oauth -- ADR 0047 §7.1, §10.4): only build_default.go and
+// build_sandbox.go carry a build constraint (internal/db's TestProductCode_CarriesNoBuildConstraint),
+// so a package splits by build by reading these, never by a constraint of its own.
+const (
+	// IsSandboxBuild is sandboxBuild: true only in the sandbox build.
+	IsSandboxBuild = sandboxBuild
+	// CredentialWord is the environment word inside every credential of this build: "live", or
+	// "test" in the sandbox build.
+	CredentialWord = credentialWord
+)
 
 // envDefault is TAPPA_ENV's value: the variable when set; unset, "dev" in an untagged build and
 // nothing in the sandbox build, where an absent value is a refusal (envForBuild), not a default.
@@ -1241,6 +1265,9 @@ const (
 	envWebhookKEK    = "TAPPA_WEBHOOK_KEK"
 )
 
+// envOAuthHMACKey is the OAuth authorization server's key variable (issue #37, ADR 0047 §7.2).
+const envOAuthHMACKey = "TAPPA_OAUTH_HMAC_KEY"
+
 // envWebhookBlocked is the node/ingress address list (M11 API-9, ADR 0028 §7).
 const envWebhookBlocked = "TAPPA_WEBHOOK_BLOCKED_ADDRESSES"
 
@@ -1319,6 +1346,7 @@ func (c *Config) namedKeys() []namedKey {
 		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious},
 		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey},
 		{envAPIKeyHMACKey, c.APIKeyHMACKey},
+		{envOAuthHMACKey, c.OAuthHMACKey},
 		{envWebhookKEK, c.WebhookKEK},
 		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
 		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},

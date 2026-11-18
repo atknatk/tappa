@@ -482,13 +482,14 @@ func TestAuditWords_NameEveryKindAndNothingElse(t *testing.T) {
 		derived = append(derived, constant.StringVal(c.Val()))
 	}
 	slices.Sort(derived)
-	if len(derived) != 22 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
+	if len(derived) != 26 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
 		!slices.Contains(derived, string(db.OperatorAuditOperatorDisabled)) ||
 		!slices.Contains(derived, string(db.OperatorAuditTenantVATChecked)) ||
 		!slices.Contains(derived, string(db.OperatorAuditTenantAPIEnabled)) ||
 		!slices.Contains(derived, string(db.OperatorAuditHoldingMemberAdded)) ||
 		!slices.Contains(derived, string(db.OperatorAuditTenantSuspended)) ||
-		!slices.Contains(derived, string(db.OperatorAuditTenantReinstated)) {
+		!slices.Contains(derived, string(db.OperatorAuditTenantReinstated)) ||
+		!slices.Contains(derived, string(db.OperatorAuditOAuthClientDisabled)) {
 		t.Fatalf("CONTROL: the derived kinds are %v", derived)
 	}
 	var listed []string

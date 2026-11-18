@@ -11,6 +11,7 @@ import (
 	"github.com/atknatk/tappa/internal/apikey"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -152,7 +153,7 @@ func (a *AdminAuth) apiKeysSection(w http.ResponseWriter, r *http.Request) {
 // apiKeysView reads the keys and builds the screen; on a failed read it has answered already.
 func (a *AdminAuth) apiKeysView(w http.ResponseWriter, r *http.Request, id httpx.AdminIdentity) (pages.APIKeysView, bool) {
 	v, err := a.readAPIKeysView(r, id)
-	if errors.Is(err, apikey.ErrNotPermitted) || errors.Is(err, endpoints.ErrNotPermitted) {
+	if errors.Is(err, apikey.ErrNotPermitted) || errors.Is(err, endpoints.ErrNotPermitted) || errors.Is(err, oauth.ErrNotOwner) {
 		a.log.Warn("panel api keys page refused by the domain: the actor is not an active owner",
 			"actor_id", id.Admin.AdminUserID)
 		a.renderProblem(w, r, http.StatusForbidden, problemAPIKeysOwnerOnly)
@@ -177,10 +178,20 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 		NameMaxLength: apikey.NameLimit,
 	}
 	v.Kicker = "Owner only · keys and the webhook for your payroll or HR system"
-	if a.apiKeys == nil && a.webhook == nil {
+	if a.apiKeys == nil && a.webhook == nil && isNil(a.oauth) {
 		return v, nil
 	}
 	zone := a.webhookZone(r, id)
+	// The connected apps card (issue #37, connectedapps.go) has its own read: a failure there is the
+	// card's sentence, and only the domain's owner refusal comes back as an error.
+	apps, err := a.readConnectedApps(r, id, zone)
+	if err != nil {
+		return v, err
+	}
+	v.ConnectedApps = apps
+	if a.apiKeys == nil && a.webhook == nil {
+		return v, nil
+	}
 	// The webhook part (M11 API-9) is read first and on its own: it has its own service and its
 	// own "not configured" state.
 	wh, err := a.readWebhookView(r, id, zone)
@@ -199,7 +210,13 @@ func (a *AdminAuth) readAPIKeysView(r *http.Request, id httpx.AdminIdentity) (pa
 	v.APIEnabled = list.APIEnabled
 	for _, al := range list.BudgetAlerts {
 		name := al.KeyName
-		if name == "" {
+		switch {
+		case al.ClientID != nil && al.AppName != "":
+			// An OAuth grant's alert (ADR 0047 §8.7): the app, by the registry's name today.
+			name = al.AppName + " (connected app)"
+		case al.ClientID != nil:
+			name = "a connected app"
+		case name == "":
 			name = "an unnamed key"
 		}
 		v.BudgetAlerts = append(v.BudgetAlerts, pages.APIKeyBudgetAlert{KeyName: name, At: al.At.In(zone).Format("2 January 2006, 15:04"), Budget: al.Budget})
