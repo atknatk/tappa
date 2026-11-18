@@ -1810,6 +1810,11 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-18 gece, beşinci tur (M16, dal `plan/m16-mobil`) — Faz G dördüncü denetim turu kapatıldı, yalnız belge
+
+- **Ne:** `3f1413d4`'ün tek bloklayanı kapatıldı: owner uyarısı istek yolundan çıktı (ana oturum kararı) — `ownerNotices` arka plan işi (32'lik FIFO, 2 işçi, iş başına 4 eşzamanlı gönderim, 120 sn), `context.WithoutCancel`, `(*AdminReset).Drain`'in yanında boşaltma; cevap gönderimi beklemez ([G35-t]). Ayrıca: kırmızıya dönecek beş var olan test M16-35'te, 00115'in `opAtVersionSkips` girişi M16-30'da adlandırıldı; migration tablosunun 00116 satırı karta eşitlendi; D-3'ün gerekçesi düzeltildi (kilit sırası değil, aktivasyonların davet basımına dizilmesi); imzası çıkmış dokunuş kontrol sırası env → ayar → SUN; `invite.DeliveryRecorder`; [G35-r]'nin taranan kümesi hesaplanır; [G35-j] davet kodu ve `ActivationURL`'yi de kapsar.
+- **Sıradaki:** değişmedi.
+
 ### 2026-11-18 gece, dördüncü tur (M16, dal `plan/m16-mobil`) — Faz G üçüncü denetim turu kapatıldı, yalnız belge
 
 - **Ne:** `32565ae8`'e iki denetim NO-GO (bulgular daralıyor). Düzeltmeler: 00116 `tappa_resolver`'a yalnız **yeni** `tenants` sütunlarını verir/geri alır (`tenants.id` `00051`'den beri var; geri almak `/v1` API anahtarı ve OAuth kimliğini kırardı) + `Down` sonrası `resolve_api_key_by_hash` testi, `privCatalogAllowed` satırı genişler; süreç alt bütçesi `Reserve`/`Keep`/`Refund`, DB bütçeleri önce, yönetici adresli çalışan çözümleyicide elenir, giriş kanalı `invite.email_refused` yazmaz; `tap.signed_out_phone` yalnız kullanıcı onaylarsa (M16-34'te gerçek AskUserQuestion), yalnız listedeki ve açık işletmede, yalnız SUN ön kontrolü geçince; `consume` `Activation.Origin` döndürür, M16-23'ün yolları dahil bütün tüketen çağıranlar uyarıyı çağırır (statik test); `invite.NewSigninChannel`, `ErrQueued`, `ErrAddressChanged`, `IssueParams.ExpectAddress`; rota yalnız e-posta modunda; iki atlama haritası adlandırıldı; M16-31'in kesilme sınırı parametre; M16-40'ta TTL sırası (önce B'nin reddi, sonra A).

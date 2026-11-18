@@ -141,15 +141,20 @@ tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve
   onayı yolları. Her biri tüketim döner dönmez — oturum verme adımından önce, `context.WithoutCancel` ile — tek
   `selfActivationNotice`'ı çağırır; statik bir test yeni bir tüketen çağıranın onu atlamasını yakalar.
 - **Owner e-postası `Breaker.SendExempt` ile** (kesicide sayılır, asla reddedilmez — `passwordnotice.go:46`,
-  `emailchangenotice.go:19` emsali), giriş çıkış kutusundan **geçmeden**, istek içinde commit'ten sonra kendi gönderim
-  süresiyle (10 sn): reset formundan kesiciyi doldurmak (~960/sa tek kaynaktan, `breaker.go:16`) ya da giriş çıkış kutusunu
+  `emailchangenotice.go:19` emsali), giriş çıkış kutusundan **geçmeden**, **istek yolunda değil**: tüketim commit edince
+  sınırlı bir arka plan işi başlar (kendi FIFO'su 32 iş, 2 işçi, iş başına 4 eşzamanlı gönderim ve toplam 120 sn,
+  `context.WithoutCancel`, kapanış boşaltmasına `(*AdminReset).Drain`'in yanında girer) — owner listesi 200'e kadardır
+  (`00081`) ve istek içinde gönderim, uygulamanın okuma süresini (Android 15 sn, iOS 20 sn) aşıp cevabı kaybettirebilirdi
+  (davet harcanmış, cihaz kimliği öğrenilmemiş, bekleme süresi kurtarmayı kapatmış). Pod ölümünde uyarı gider ve satırsız
+  kalır; panel sinyali dayanıklıdır. Reset formundan kesiciyi doldurmak (~960/sa tek kaynaktan, `breaker.go:16`) ya da giriş çıkış kutusunu
   doldurmak uyarıyı susturamaz. Owner başına günde 20 — bellekte `httpx.Limiter.TryCharge` (`passwordnotice.go:336-339`'un
   deseni). Owner kimlikleri `resolve_admin_owners_by_tenant` (`00081`), adresleri `passwordnotice.go`'nun alıcı yolundan.
 - **Panel (dayanıklı):** M6-11 anomali ekranında *"Phones set up by email sign-in (last 30 days)"* ve **"Taps from a
   signed-out phone within 14 days of an email sign-in"**; çalışan kartında *"Set up by email sign-in on <date>"*.
 - **İmzası çıkmış telefonun dokunuşu — kullanıcı onaylarsa** (M16-34'ün AskUserQuestion'ı; bugün bilerek yalnız WARN —
-  ADR 0010:219-224, T59 DÜŞÜK-1): yalnız env listesindeki ve (Q49 (a)) ayarı açık işletmede, `GET /t`'nin iptal edilmiş oturum
-  dalında **ilerletmeyen SUN ön kontrolü geçerse** `tap.signed_out_phone` audit satırı (`target` çalışan, `detail` yalnız kanal;
+  ADR 0010:219-224, T59 DÜŞÜK-1): sırayla env listesi (bellekte), (Q49 (a)) ayar, sonra **ilerletmeyen SUN ön
+  kontrolü** — ilk ikisi önce gelir ki listede olmayan işletmede yeni okuma ve log satırı olmasın; plaketin ve oturumun tenant'ı
+  eşit olmalı — geçerse `tap.signed_out_phone` audit satırı (`target` çalışan, `detail` yalnız kanal;
   kişi başına 10 dakikada bir). *"Plaket kanıtı taşıyan sayfa açılışı"*dır, tekrara karşı kanıt değil. Listede olmayan işletme
   (KF/KM) bayt bayt bugünkü gibi. `transactions` satırı **değildir**. Anomali yüklemi `at ∈ [used_at, used_at + 14 gün]`.
   **Uygulama yolu değişmez:** iptal edilmiş cihazın kimliği imzadan önce bir iddiadır (M16-07); **uygulamadan gelen kayıp
@@ -197,8 +202,11 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
    alır, e-posta gelmez; uygulamanın ekranı *"No email after a few minutes? Ask your manager for an invite."* der (müdürün
    daveti beklemeye takılmaz).
 7. **Mekân NAT'ı** ve **bellekteki kovaların pod sayısıyla çarpılması** (§2.4).
-8. **Owner uyarısı tamamlanmanın cevabını** en kötü durumda gönderim süresi kadar (10 sn) geciktirir.
-9. **Bekleme süresi yarışı:** `consume` kiracı kilidini almaz (almak basımın kilit sırasını tersine çevirirdi); eşzamanlı bir
+8. **Owner uyarısı en iyi çabadır ve cevabı geciktirmez:** arka plan işidir (§2.6); süre ya da boşaltma kesince kalan owner'lar
+   `undelivered` satırı alır, pod ölümünde uyarı **satırsız** kaybolur (giriş çıkış kutusunun aynı boşluğu). Dayanıklı olan
+   panel sinyalidir.
+9. **Bekleme süresi yarışı:** `consume` kiracı kilidini almaz — kilit sırası sorunu yoktur (`consume`'un ilk ifadesi olsaydı sıra
+   basımınkiyle aynı olurdu), ama o kilit işletmenin **her** aktivasyonunu davet basımının arkasına dizerdi; eşzamanlı bir
    `self` tüketimi ve basımı en çok bir fazla davet bırakır — kişi bütçesi (1/sa) sınırlar, o davet ayrı bir plaket dokunuşu
    ister ve tamamlanırsa ikinci bir owner uyarısı gider.
 10. **Süreç alt bütçesi ve kaynak kovası bellektedir** — pod sayısıyla çarpılır.
