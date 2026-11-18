@@ -120,4 +120,12 @@
     <string name="p_signed_out_title">This phone was signed out</string>
     <string name="p_signed_out_message">This phone is no longer signed in to Taptime, so it can\'t record time.</string>
     <string name="p_signed_out_hint">Ask your manager for a new activation link.</string>
+    <!-- APP-ONLY: no NFC reader at all, refused at launch. The iOS twin says "This iPhone ...". -->
+    <string name="p_no_reader_title">This phone can\'t read the plaque</string>
+    <string name="p_no_reader_message">Setting up the app needs a tap on the plaque, and this phone has no NFC reader.</string>
+    <string name="p_no_reader_hint">Ask your manager — setup without a plaque tap isn\'t available yet.</string>
+    <!-- APP-ONLY: the Keystore is software only (KeyGate). The iOS twin says "This iPhone ...". -->
+    <string name="p_no_key_title">This phone can\'t be set up</string>
+    <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
+    <string name="p_no_key_hint">Ask your manager — you can still use Taptime in your browser.</string>
 </resources>

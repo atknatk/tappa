@@ -7,7 +7,7 @@ import mt.taptime.app.wire.LookupReply
 import mt.taptime.app.wire.Outcome
 
 /** The screens' closed set of problems; each one is a fixed text (strings.xml), never a server value. */
-enum class Problem { BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT }
+enum class Problem { BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER }
 
 /** The bind the tap step holds: the code, the fresh key and the server's challenge. Memory only. */
 class PendingActivation(val code: String, val facts: LookupReply, val key: DeviceKey, val bound: BindReply)
@@ -45,6 +45,8 @@ class ActivationFlow(
         data class Restart(val problem: Problem) : BindResult
         /** Stay on the consent screen; the person may press again. */
         data class Retry(val problem: Problem) : BindResult
+        /** This phone's Keystore is software only (KeyGate): it cannot be set up. Nothing was sent. */
+        data object Unsupported : BindResult
     }
 
     sealed interface CompleteResult {
@@ -64,6 +66,10 @@ class ActivationFlow(
 
     fun bind(code: String, facts: LookupReply): BindResult {
         val key = keys.generate()
+        if (!KeyGate.accepts(key.backing)) {
+            drop(key.alias)
+            return BindResult.Unsupported
+        }
         return when (val r = client.bind(code, key.signer)) {
             is Outcome.Ok -> BindResult.Bound(PendingActivation(code, facts, key, r.value))
             else -> {
@@ -119,6 +125,7 @@ class ActivationFlow(
             is BindResult.Bound -> CompleteResult.TapAgain(b.pending, Problem.TAP_FAILED)
             is BindResult.Restart -> CompleteResult.Restart(b.problem)
             is BindResult.Retry -> CompleteResult.Rebind(p.code, b.problem)
+            BindResult.Unsupported -> CompleteResult.Restart(Problem.NO_SECURE_KEY)
         }
     }
 

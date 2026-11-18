@@ -23,6 +23,7 @@ import mt.taptime.app.activation.Problem
 import mt.taptime.app.device.KeystoreKeys
 import mt.taptime.app.device.PrefsDeviceState
 import mt.taptime.app.ui.ActivatedScreen
+import mt.taptime.app.ui.BlockedScreen
 import mt.taptime.app.ui.CodeScreen
 import mt.taptime.app.ui.LoadingScreen
 import mt.taptime.app.ui.NfcState
@@ -64,6 +65,8 @@ class MainActivity : ComponentActivity() {
         data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
         data class SetUp(val name: String) : Screen
+        /** This phone cannot activate (KeyGate, or no NFC reader). */
+        data class Blocked(val problem: Problem) : Screen
     }
 
     private var screen by mutableStateOf<Screen>(Screen.Loading)
@@ -135,6 +138,7 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
             is Screen.SetUp -> SetUpScreen(s.name, null)
+            is Screen.Blocked -> BlockedScreen(s.problem)
         }
     }
 
@@ -160,6 +164,7 @@ class MainActivity : ComponentActivity() {
                 is ActivationFlow.BindResult.Bound -> Screen.Ready(r.pending)
                 is ActivationFlow.BindResult.Restart -> Screen.Code(r.problem)
                 is ActivationFlow.BindResult.Retry -> s.copy(busy = false, problem = r.problem)
+                ActivationFlow.BindResult.Unsupported -> Screen.Blocked(Problem.NO_SECURE_KEY)
             }
         }
     }
@@ -193,7 +198,8 @@ class MainActivity : ComponentActivity() {
                     Screen.Activated(r.device.employeeName, r.secondDevice, s.pending.facts.brand)
                 is ActivationFlow.CompleteResult.TapAgain -> Screen.Tap(r.pending, r.problem)
                 is ActivationFlow.CompleteResult.Rebind -> Screen.Welcome(r.code, s.pending.facts, problem = r.problem)
-                is ActivationFlow.CompleteResult.Restart -> Screen.Code(r.problem)
+                is ActivationFlow.CompleteResult.Restart ->
+                    if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
             }
             updateReader()
         }

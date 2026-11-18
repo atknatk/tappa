@@ -335,8 +335,13 @@ it (CLAUDE.md §5).
   `strongbox`, any other secure one `secure_hardware`, and a software one `software`. The value
   is **recorded with the device** in the app's private preferences (`key_backing`,
   `device/PrefsDeviceState.kt`) and **not sent** — the wire contract has no field for it and the
-  server decodes strictly. A software-backed key is not refused (emulators, some old phones);
-  attestation (M16-25) is where the server learns this.
+  server decodes strictly.
+- **A software-backed key is refused** (`KeyGate`, coordinator decision 2026-11-18 — the iOS twin
+  refuses a phone without a Secure Enclave): when the level read back is `software`, the key is
+  deleted, no bind is sent, and the phone shows *"This phone can't be set up"*. Every other level
+  passes, `unknown` included (a level this version cannot name is not evidence of software). The
+  gate is a pure function of the level the generator reports, driven with every value in
+  `ActivationFlowTest`.
 - **No user-authentication requirement on the key** (CLAUDE.md §4.1, ADR 0045 §2.3): the phone's
   own screen lock is not Taptime's layer. `scripts/redline-check.sh` R1 fails on the Keystore
   builder method that would add one anywhere under `mobile/` — so the rule is enforced by the

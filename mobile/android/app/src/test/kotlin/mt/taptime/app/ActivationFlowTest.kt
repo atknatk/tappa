@@ -2,6 +2,8 @@ package mt.taptime.app
 
 import mt.taptime.app.activation.ActivationFlow
 import mt.taptime.app.activation.ActivationFlow.CompleteResult
+import mt.taptime.app.activation.KeyBacking
+import mt.taptime.app.activation.KeyGate
 import mt.taptime.app.activation.PendingActivation
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.wire.AppClient
@@ -106,6 +108,27 @@ class ActivationFlowTest {
         assertEquals(code, r.code)
         assertTrue(p.key.alias in keys.deleted)
         assertEquals("the plaque's counter was not spent by an unbound key", -1, server.lastCtr)
+    }
+
+    @Test
+    fun aSoftwareKeyIsDeletedAndNeverBound() {
+        keys.backing = KeyBacking.SOFTWARE
+        val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+        assertEquals(ActivationFlow.BindResult.Unsupported, flow.bind(code, facts))
+        assertEquals("the key was generated and deleted", listOf("test-key-1"), keys.deleted)
+        assertTrue(keys.live.isEmpty())
+        assertEquals("no bind was sent", listOf("POST /app/v1/activate/lookup"), server.seen)
+        assertNull(server.bound)
+    }
+
+    @Test
+    fun theGateRefusesOnlySoftware() {
+        for (b in KeyBacking.entries) assertEquals(b.name, b != KeyBacking.SOFTWARE, KeyGate.accepts(b))
+        for (b in KeyBacking.entries.filter { it != KeyBacking.SOFTWARE }) {
+            keys.backing = b
+            val facts = (flow.lookup(code) as ActivationFlow.LookupResult.Facts).facts
+            assertTrue(b.name, flow.bind(code, facts) is ActivationFlow.BindResult.Bound)
+        }
     }
 
     @Test

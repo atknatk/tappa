@@ -58,6 +58,8 @@ fun ProblemNotice(p: Problem) {
         Problem.NEEDS_TOUCH -> Triple(R.string.p_needs_touch_title, R.string.p_needs_touch_message, R.string.p_needs_touch_hint)
         Problem.NOT_READY -> Triple(R.string.p_not_ready_title, R.string.p_not_ready_message, R.string.p_not_ready_hint)
         Problem.SIGNED_OUT -> Triple(R.string.p_signed_out_title, R.string.p_signed_out_message, R.string.p_signed_out_hint)
+        Problem.NO_SECURE_KEY -> Triple(R.string.p_no_key_title, R.string.p_no_key_message, R.string.p_no_key_hint)
+        Problem.NO_READER -> Triple(R.string.p_no_reader_title, R.string.p_no_reader_message, R.string.p_no_reader_hint)
     }
     Notice(Tone.ALERT, stringResource(t), stringResource(m), stringResource(h))
 }
@@ -236,6 +238,12 @@ private fun SetupStampRow() {
         DocketLabel(stringResource(R.string.setup_label))
         Stamp(stringResource(R.string.stamp_activated), Tone.OK)
     }
+}
+
+/** A phone that cannot activate at all (no secure key store, no NFC reader): the problem, no button. */
+@Composable
+fun BlockedScreen(problem: Problem) {
+    Page({ header(null) }) { ProblemNotice(problem) }
 }
 
 @Composable

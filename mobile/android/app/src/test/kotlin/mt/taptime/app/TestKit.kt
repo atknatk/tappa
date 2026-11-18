@@ -69,8 +69,8 @@ class JdkSigner(private val pair: KeyPair = newPair()) : Signer {
     }
 }
 
-/** DeviceKeys over JDK keys, recording what was generated and deleted. */
-class JdkKeys : DeviceKeys {
+/** DeviceKeys over JDK keys, recording what was generated and deleted; [backing] is the level it reports. */
+class JdkKeys(var backing: KeyBacking = KeyBacking.TEE) : DeviceKeys {
     val live = LinkedHashMap<String, JdkSigner>()
     val deleted = mutableListOf<String>()
     private var n = 0
@@ -79,7 +79,7 @@ class JdkKeys : DeviceKeys {
         val alias = "test-key-${++n}"
         val s = JdkSigner()
         live[alias] = s
-        return DeviceKey(alias, KeyBacking.SOFTWARE, s)
+        return DeviceKey(alias, backing, s)
     }
 
     override fun load(alias: String): Signer? = live[alias]
