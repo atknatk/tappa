@@ -129,7 +129,7 @@ func TestM16DB_TheAppSurfaceSignedEndToEnd(t *testing.T) {
 		t.Fatalf("the repeat = %d %+v, want a recorded ignored (§5 row 5)", w.Code, again)
 	}
 	rows("the repeat (§5 row 5 is recorded)", 2)
-	if rep := h.lastRecord(t, rita); rep.ID == first.ID || rep.Verdict != "ignored" {
+	if rep := h.lastRecord(t, rita); rep.ID == first.ID || rep.Verdict != "ignored" || deref(rep.MatchedSid) != "sys:person-debounce" {
 		t.Fatalf("the repeat's row: %+v", rep)
 	} else if c := h.clientOf(t, rep.ID); c == nil || *c != "app" {
 		t.Fatalf("the repeat's row has client %s, want 'app'", clientText(c))

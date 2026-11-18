@@ -2622,7 +2622,10 @@ R7M_PATTERN="$R7M_CALLEE$R7M_WINDOW(?i:$R7M_TRIGGERS)"
 # sekilleri icin yazildi; scripts/'teki gomulu Python'un `print(` cagrisi ayni sekle duser ve
 # main'in sandbox-local-oauth.sh:314'u FAIL veriyordu. O satir token'in ilk 11 karakterini
 # yazar = `tt_<kind>_<env>_` onekinin tamami (internal/oauth/value.go Prefix), sir degil.
-# Betiklerin sir yazdirmasi R7'nin genel kollarinin isi, bu mobil kolun degil.
+# ⚠️ SINIR (M16-10 guvenlik mercegi, 2026-11-18): scripts/'teki gomulu Python `print(`'i
+# BASKA HICBIR R7 kolu gormez -- genel R7_PATTERN yalniz Go'nun (slog|log|fmt). cagrilarina
+# bakar. Bugun scripts/'te R7M'e dusen tek satir yukaridaki onek satiridir (olculdu); kor
+# nokta adiyla backlog T323'te (yola+satira bagli muafiyetle kapsami geri acmak).
 R7M_SRC=()
 for p in "${SRC[@]}"; do [[ $p == scripts ]] || R7M_SRC+=("$p"); done
 report FAIL R7 "Sir / kisisel veri mobil log cagrisinda (Swift os_log / Logger / print, Kotlin Log. / println) — imza, nonce, canli QR token'i, eslesme kodu, cerez, koordinat, e-posta, davet kodu loglanmaz (CLAUDE.md §7)" \

@@ -425,8 +425,10 @@ birlikte `main`'e ulaşır.
 **`main` birleşmesinin ana oturum düzeltmeleri (2026-11-18):**
 - `d2bc1763` — R7'nin mobil log kolu (`R7M`) artık `scripts/`'i taramaz: kalıp Swift/Kotlin/Go çağrı şekilleri için
   yazılmıştı, `main`'in `scripts/sandbox-local-oauth.sh`'indeki gömülü Python `print(`'i aynı şekle düştü; o satır
-  token'ın yalnız ilk 11 karakterini (`tt_<kind>_<env>_` öneki, sır değil) yazar. Betiklerin sır yazdırması R7'nin genel
-  kollarının işidir.
+  token'ın yalnız ilk 11 karakterini (`tt_<kind>_<env>_` öneki, sır değil) yazar. **Sınır:** `scripts/`'teki
+  gömülü Python `print(`'ini başka hiçbir R7 kolu görmez (genel kol yalnız Go'nun `slog|log|fmt` çağrıları); bugün
+  orada R7M'e düşen tek satır o önek satırıdır (M16-10 güvenlik merceği ölçtü). Kapsamı yola ve satıra bağlı bir
+  muafiyetle geri açmak backlog T323.
 - `6634be5b` — `TRUNCATE tenants CASCADE` yoklamasının kilit beklemesi 25 → 20 ms: `main`'in OAuth tabloları ve
   00108'in iki tablosu kapanışı 40 ilişkiye çıkardı, 40 × 25 ms = 1 sn `deadlock_timeout`'a ulaştı ve kapı yorumunun
   öngördüğü gibi kırmızıya döndü (CI koşusu 44256973388); 20 ms 50 ilişkiye kadar tutar.
