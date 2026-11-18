@@ -1772,7 +1772,7 @@ yazılır.
 | M16-07 | `/app/v1` JSON yüzeyi: activate / tap / me / revoke | **done** | `29c018dc` + `709966a7` + `9c21c5b4` + CLAUDE.md §5 (`0fea5832`), merge `b175ac76`; güvenlik ONAY, üçüncü göz RED (cihaz başına limit testsiz) → düzeltildi + dar kontrol ONAY; Q40 (a) iki yarı, Q41 tahmin eşitliği ölçüldü; tel sözleşmesi kartta |
 | M16-08 | `/.well-known` dosyaları (Universal Link / App Link) | **done** | `fc04f789` + `d7a8a21d`; iki mercek ONAY (R1 muafiyeti yola bağlı, ADR 0012 eki); Team ID + Android imza özeti env'den — **canlıda doldurulmadı** (uygulama `/t`'yi karşılayınca) |
 | M16-09 | İptal yolları uygulama cihazlarını da kapatır | **done** | `9a14f415` + `abcfac8e`; güvenlik ONAY, üçüncü göz RED (WARN sahipsiz → M16-07'ye karar) → düzeltildi; telefon çıkışı tarayıcı + uygulamayı tek transaction'da kapatır, deaktivasyon hiçbirini |
-| M16-10 | Faz A kapanışı | todo |  |
+| M16-10 | Faz A kapanışı | done | `cb18ef3c` + `1b4d63cd` + `c0f0d1fe`; büyük koşu CI 44269600526 yeşil (make check + make audit) |
 | M16-11 | Android iskeleti (`mobile/android/`) | done | `06cfe19d` + `b166645c` (emoji2), merge `209f0215` |
 | M16-12 | Android cihaz anahtarı ve aktivasyon | todo |  |
 | M16-13 | Android tap ekranı: NFC, tek seferlik konum, sahte konum | todo |  |
@@ -1813,7 +1813,8 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 - **Ne:** `origin/main` (`d28014d6`, OAuth 00104–00107 canlı) birleşti (`2d79609c`); M16 migration'ları **00108–00110** (`8c0b4a36`). Birleşme iki kapıyı kızarttı: R7M mobil log kolu main'in `scripts/sandbox-local-oauth.sh`'ine düştü (`d2bc1763`, kör nokta T323) ve TRUNCATE yoklaması closure 40 ilişkiye vardı (`6634be5b`, 25→20 ms). M16-10 uçtan uca test (`cb18ef3c`, ADR notu `1b4d63cd`, `c0f0d1fe`) iki mercek ONAY; fazın büyük koşusu CI'da. Kullanıcı Faz B + C'yi paralel başlattı: M16-11 Android iskeleti (BOM 2026.06.01 — Compose 1.12 compileSdk 37 ister; emoji2 font sağlayıcısı kaldırıldı) ve M16-15 iOS iskeleti (hedef iOS 15.0, iPhone 7 dahil; Apple hesabına dokunulmadı) tek mercek ONAY, birleşti.
 - **Kullanıcıdan:** Apple Team ID `P6PM935BK2` (Everva, Xcode'da Admin); iPhone 17 Pro (iOS 27.2.1) Wi-Fi ile eşleşti, Developer Mode açık.
 - **Devirler:** Android JVM CI → M16-12 kartı; `android.hardware.location` required → M16-13/M16-27; iOS `readingAvailable` + fontlar + NDEF/ITMS-90778 ölçümü → M16-17/18. Canlıya çıkışta ADR 0048 `scoped-access.sql` yeniden koşulmalı (yeni tablolar).
-- **Sıradaki:** M16-10 CI yeşilse done → sevk kararı kullanıcıya; M16-12 + M16-16 (cihaz anahtarı + aktivasyon) paralel.
+- **Faz A DONE** (M16-01…M16-10): kapanış koşusu CI 44269600526 (`c0f0d1fe`) yeşil. Sevk (main'e birleştirme) kararı kullanıcıda.
+- **Sıradaki:** M16-12 + M16-16 (cihaz anahtarı + aktivasyon) paralel.
 
 ### 2026-11-14 gece (M16 Faz A) — M16-05, M16-06 done; Q35/Q36/Q40/Q41 cevaplandı
 
