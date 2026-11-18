@@ -20,6 +20,20 @@ final class ServerClockTests: XCTestCase {
         XCTAssertEqual(c.now().timeIntervalSince1970, local.timeIntervalSince1970 + 302, accuracy: 0.001)
     }
 
+    /// More than a day off is not the server's clock: the measurement is refused and the
+    /// previous one stays; exactly a day is still taken (M16-16 review).
+    func testAnOffsetBeyondADayIsIgnored() {
+        let local = Date(timeIntervalSince1970: 1_794_700_800)
+        let c = ServerClock(localNow: { local })
+        XCTAssertTrue(c.observe(dateHeader: httpDate(local.addingTimeInterval(120)), sentAt: local, receivedAt: local))
+        XCTAssertFalse(c.observe(dateHeader: httpDate(local.addingTimeInterval(86_401)), sentAt: local, receivedAt: local))
+        XCTAssertFalse(c.observe(dateHeader: httpDate(local.addingTimeInterval(-86_401)), sentAt: local, receivedAt: local))
+        XCTAssertFalse(c.observe(dateHeader: "Mon, 01 Jan 2001 00:00:00 GMT", sentAt: local, receivedAt: local))
+        XCTAssertEqual(c.currentOffset, 120, accuracy: 0.001)
+        XCTAssertTrue(c.observe(dateHeader: httpDate(local.addingTimeInterval(-86_400)), sentAt: local, receivedAt: local))
+        XCTAssertEqual(c.currentOffset, -86_400, accuracy: 0.001)
+    }
+
     func testAnUnreadableHeaderKeepsThePreviousMeasurement() {
         let local = Date(timeIntervalSince1970: 1_794_700_800)
         let c = ServerClock(localNow: { local })
@@ -252,6 +266,18 @@ final class AppClientTests: XCTestCase {
             XCTAssertEqual(error as? AppAPIError, .unexpected(status: 307))
         }
         XCTAssertEqual(seen, 1)
+    }
+
+    /// Through the client: an answer whose Date is two days off does not move the signing clock.
+    func testAFarOffDateHeaderDoesNotMoveTheSigningClock() async throws {
+        let l = local
+        MockURLProtocol.handler = { _, _ in
+            MockURLProtocol.Reply(status: 200, body: Data(#"{"employeeName":"A","businessName":"B","secondDevice":false,"brand":{}}"#.utf8),
+                                  headers: ["Date": httpDate(l.addingTimeInterval(2 * 86_400))])
+        }
+        _ = try await client.lookup(code: FakeAppServer.code)
+        XCTAssertFalse(client.clock.hasMeasurement)
+        XCTAssertEqual(client.clock.now(), local)
     }
 
     func testAnswersWithExtraFieldsStillDecode() async throws {

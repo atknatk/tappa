@@ -15,6 +15,12 @@ import Foundation
 // somewhere between sending and receiving, and the midpoint halves the worst error. The header's
 // own resolution is one second, far inside the 60 s window.
 final class ServerClock {
+    /// The largest offset a measurement may set: one day either way (M16-16 review). A phone's
+    /// clock is off by seconds or minutes, at worst a time zone set as UTC; a Date header further
+    /// off than a day is not the server's clock but something answering in its place, and taking
+    /// it would make every later signature carry a time the server refuses.
+    static let maxOffset: TimeInterval = 24 * 60 * 60
+
     private let localNow: () -> Date
     private let lock = NSLock()
     private var offset: TimeInterval = 0
@@ -48,16 +54,21 @@ final class ServerClock {
         return offset
     }
 
-    /// Records the server's clock from one answer's Date header. A missing or unreadable header
-    /// leaves the previous measurement in place (false).
+    /// Records the server's clock from one answer's Date header. A missing or unreadable header,
+    /// or one more than maxOffset from the local clock, leaves the previous measurement in place
+    /// (false).
     @discardableResult
     func observe(dateHeader: String?, sentAt: Date, receivedAt: Date) -> Bool {
         guard let header = dateHeader, let server = ServerClock.parseHTTPDate(header) else {
             return false
         }
         let mid = sentAt.addingTimeInterval(receivedAt.timeIntervalSince(sentAt) / 2)
+        let candidate = server.timeIntervalSince(mid)
+        guard abs(candidate) <= ServerClock.maxOffset else {
+            return false
+        }
         lock.lock()
-        offset = server.timeIntervalSince(mid)
+        offset = candidate
         measured = true
         lock.unlock()
         return true
