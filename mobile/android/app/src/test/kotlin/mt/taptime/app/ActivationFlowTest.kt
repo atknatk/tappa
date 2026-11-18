@@ -274,4 +274,17 @@ class ActivationFlowTest {
         assertFalse("an unknown level outside secure hardware is refused", KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, false, false)))
         assertTrue(KeyGate.accepts(KeyBacking.fromReport(36, KeyBacking.Level.OTHER, true, false)))
     }
+
+    // M16-16 hand-over (4), the iOS twin's clock: at launch, two 401s whose Date is a day or more off
+    // this phone's clock are "Check your phone's clock", not "signed out"; the record is kept.
+    @Test
+    fun aPhoneADayOffAtLaunchIsToldToCheckItsClock() {
+        val p = bound()
+        val device = (flow.complete(p, sun(17)) as CompleteResult.Activated).device
+        phoneOffsetMillis = -2L * 24 * 60 * 60 * 1000
+        assertEquals(ActivationFlow.HomeResult.Clock, flow.home())
+        assertEquals(device, state.device)
+        phoneOffsetMillis = 0
+        assertEquals(ActivationFlow.HomeResult.SetUp(device), flow.home())
+    }
 }

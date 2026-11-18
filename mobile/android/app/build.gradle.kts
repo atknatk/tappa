@@ -152,6 +152,18 @@ tasks.withType<Test>().configureEach {
     val mainSrc = layout.projectDirectory.dir("src/main")
     inputs.dir(mainSrc).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.mainSrc", mainSrc.asFile.absolutePath)
+    // M16-13: the iOS twin's tap copy (mobile/ios/Taptime/TapCopy.swift, ActivationCopy.swift), held
+    // line for line by IosCopyTest. The files exist on a branch that carries both apps; on a branch
+    // without them the test is SKIPPED, not passed. -Ptaptime.iosRoot=<dir> reads another checkout's
+    // (a measurement, never a build input of release).
+    val iosRoot = providers.gradleProperty("taptime.iosRoot").orNull?.let { file(it) } ?: rootProject.file("../ios")
+    for ((property, name) in mapOf("taptime.ios.tapCopy" to "Taptime/TapCopy.swift", "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift")) {
+        val f = File(iosRoot, name)
+        if (f.isFile) {
+            inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)
+            systemProperty(property, f.absolutePath)
+        }
+    }
     for ((property, path) in serverFiles) {
         val f = rootProject.file("../../$path")
         inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)

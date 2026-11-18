@@ -135,9 +135,9 @@
     <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
     <string name="p_no_key_hint">Ask your manager — you can still use Taptime in your browser.</string>
 
-    <!-- APP-ONLY (M16-13): a plaque opened the app on a phone where it is not set up. The browser
-         sends a session-less tap to the activation page ("Finish setup in this browser"); the app's
-         activation page is the code screen, which shows this notice and the "Open in browser" exit. -->
+    <!-- APP-ONLY (M16-13): a plaque opened the app on a phone where it is not set up; adapted from
+         the browser's "Finish setup in this browser". Its own problem screen, with "Open in browser"
+         and "Set up this phone" (the code screen), as on iOS (NotSetUpScreen). -->
     <string name="p_not_set_up_title">This app isn\'t set up yet</string>
     <string name="p_not_set_up_message">This app hasn\'t been set up for Taptime yet, so it can\'t record this tap.</string>
     <string name="p_not_set_up_hint">Open the tap in your browser instead, or set up the app with the link your workplace sent you.</string>
@@ -153,6 +153,13 @@
          ADR 0045 Bedel 8). -->
     <string name="try_again">Try again</string>
     <string name="open_in_browser">Open in browser</string>
+    <!-- The signed-out tap screen's way back to activation, iOS's Copy.startAgain. -->
+    <string name="start_again">Start again</string>
+    <!-- APP-ONLY (M16-16 hand-over (4), iOS's TapCopy.Problems.clock word for word): a 401 while the
+         phone's clock is more than a day off the server's. -->
+    <string name="p_clock_title">Check your phone\'s clock</string>
+    <string name="p_clock_message">Your phone\'s date and time are too far off for Taptime to accept them. Nothing was recorded.</string>
+    <string name="p_clock_hint">Set the date and time to automatic in Settings, then try again.</string>
 
     <!--
       THE TAP SCREEN (M16-13): web/templates/pages/tap.templ and view.go's TapDirection, word for

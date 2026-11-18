@@ -30,7 +30,8 @@ interface Signer {
 // through this class; none is written anywhere but the request (CLAUDE.md §7).
 class AppClient(
     private val transport: Transport,
-    private val clock: ServerClock,
+    /** Read by the flows for [ServerClock.lastAnswerWasFarOff]: a 401 then means the phone's clock. */
+    val clock: ServerClock,
     private val json: JsonDecoder,
 ) {
     // --- unsigned ---------------------------------------------------------------------------

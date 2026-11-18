@@ -76,6 +76,10 @@ class TapCopyTest {
         "tp_lost_message" to "We couldn't confirm this tap, so it may not have been recorded.",
         "tp_lost_hint" to "Check your connection and tap the plaque again. Tell your manager if that looks wrong.",
         "open_in_browser" to "Open in browser",
+        "start_again" to "Start again",
+        "p_clock_title" to "Check your phone's clock",
+        "p_clock_message" to "Your phone's date and time are too far off for Taptime to accept them. Nothing was recorded.",
+        "p_clock_hint" to "Set the date and time to automatic in Settings, then try again.",
         "p_not_set_up_title" to "This app isn't set up yet",
         "p_not_set_up_message" to "This app hasn't been set up for Taptime yet, so it can't record this tap.",
         "p_not_set_up_hint" to "Open the tap in your browser instead, or set up the app with the link your workplace sent you.",
@@ -111,7 +115,7 @@ class TapCopyTest {
             it.startsWith("tap_tapping") || it.startsWith("tap_hello") || it.startsWith("tap_clock") || it == "tap_tap" ||
                 it.startsWith("tap_not_right") || it.startsWith("tap_pending") ||
                 it.startsWith("result_") || it.startsWith("brand_") || it.startsWith("tp_") || it == "try_again" ||
-                it == "open_in_browser" || it.startsWith("p_not_set_up")
+                it == "open_in_browser" || it.startsWith("p_not_set_up") || it == "start_again" || it.startsWith("p_clock")
         }.toSet()
         assertEquals(tapKeys, (verbatim + adapted.keys + appOnly.keys).toSet())
     }

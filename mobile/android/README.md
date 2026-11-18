@@ -514,8 +514,10 @@ tap, result or problem screen starts over.
 |---|---|---|
 | Tap | header (wordmark; ink beside an accent) · docket *"Tapping"* / *"Hello Maria"* / the tapped venue · **one button**: *"Clock in"*, *"Clock out"* or *"Tap"*, in the tenant accent · under a predicted direction only, *"Not right? Clock out"* (ink, underlined, no accent). While the press is under way both are disabled and the button says *"Tapping…"*. | `tap.templ`, `view.go`, `tap.js` |
 | Result | header (wordmark, **no accent**) · docket: venue, headline (*"Clocked in"* / *"Clocked out"* / *"Tapped"* / *"Already tapped"* / *"Not counted"*), the time in mono, the practice line · closing: on `ok` the brand line and *"All done — you can close the app."*; on `flag` *"You can close the app."*; on `ignored` / `reject` the browser's sentence and *"You can close the app."* **No button** (§9). | `result.templ` |
-| Tap problem | the browser's tap problem texts in a notice; *"Try again"* only where nothing could have reached the record; *"Open in browser"* only on *can't reach Taptime* | `tap.go` `tapProblem*` |
-| Not set up / signed out | the **code screen** (the app's activation page, as the browser sends a session-less tap to `/activate`) with a notice and *"Open in browser"* under the form | `activate.go` |
+| Tap problem | the browser's tap problem texts in a notice, with the iOS twin's buttons (`Buttons.of`, below) | `tap.go` `tapProblem*` |
+| Not set up | its own problem screen, as iOS's `NotSetUpScreen`: *"This app isn't set up yet"* + **"Open in browser"** + *"Set up this phone"* (the code screen) | adapted from `activate.go`'s *"Finish setup in this browser"* |
+| Signed out | the problem screen *"This phone was signed out"* + **"Open in browser"** + *"Start again"* (activation) | `activate.go` |
+| Check your phone's clock | a 401 while the last answer's `Date` was a day or more off this phone's clock (`ServerClock.lastAnswerWasFarOff`), at launch, at the start or at the press, instead of *signed out* (M16-16 hand-over (4), iOS's clock screen) + *"Try again"* | app-only |
 
 **The person's name is on the tap screen before anything is recorded** (M16-12 hand-over (5),
 user decision 2026-11-18): it is the mitigation of ADR 0045's accepted shared-phone risk —
@@ -523,7 +525,16 @@ user decision 2026-11-18): it is the mitigation of ADR 0045's accepted shared-ph
 
 `TapCopyTest` reads the browser's source (`tap.go`, `tap.templ`, `result.templ`, `view.go`,
 `tap.js`, all declared task inputs) and holds every tap string to it; each string is *verbatim*,
-*adapted* or *app-only*, and every one is classified. Differences from the browser:
+*adapted* or *app-only*, and every one is classified.
+
+**One list with iOS** (coordinator decision 2026-11-18): every tap line that has an iOS twin is,
+character for character, a literal of `mobile/ios/Taptime/TapCopy.swift` / `ActivationCopy.swift`
+(*"iPhone"* read as *"phone"*). `IosCopyTest` holds it; on a branch without the Swift files it is
+**skipped**, not passed, and `-Ptaptime.iosRoot=<dir>` points it at another checkout. Measured
+2026-11-18 against the iOS commit `543e1acd`: **63 of 63** shared lines identical, *"Not right? …"*
+(built by `+` on iOS) identical by its parts.
+
+Differences from the browser:
 
 1. **Adapted — "page" has no app twin:** *"All done — you can close the app."* / *"You can close
    the app."* (browser: *"… close this page."*, the activation screens already say *"close the
@@ -535,34 +546,49 @@ user decision 2026-11-18): it is the mitigation of ADR 0045's accepted shared-ph
      connection and tap the plaque again."* + *"Try again"* + *"Open in browser"*;
    - at the **press**: *"Can't reach Taptime"* / *"We couldn't confirm this tap, so it may not
      have been recorded."* / *"Check your connection and tap the plaque again. Tell your manager
-     if that looks wrong."* + *"Open in browser"*, **no** *"Try again"* (below).
+     if that looks wrong."* + *"Try again"* that **resends nothing** (below), and **no** *"Open in
+     browser"*.
 3. **App-only — not set up:** *"This app isn't set up yet"* / *"This app hasn't been set up for
    Taptime yet, so it can't record this tap."* / *"Open the tap in your browser instead, or set up
-   the app with the link your workplace sent you."* on the code screen.
-   Signed out reuses M16-12's *"This phone was signed out"* text.
-4. **App-only buttons:** *"Open in browser"* (coordinator decision 2026-11-18: only on not set
-   up, signed out, can't reach Taptime — and on *"This phone can't read the plaque"* when a QR
-   opened the app on a phone without NFC, which is the same not-set-up state); *"Try again"* on
-   the problem screens where a retry is safe (user-approved app-only retry buttons).
-5. **Not carried:** the logo (below); the M15-17 claim card (the tap reply has no field for it —
-   a wire change, shared with iOS); the browser's back-forward-cache reload of a QR page (the app
-   has no page cache: a new scan is a new intent).
+   the app with the link your workplace sent you."*
+4. **App-only — the phone's clock:** *"Check your phone's clock"* / *"Your phone's date and time
+   are too far off for Taptime to accept them. Nothing was recorded."* / *"Set the date and time to
+   automatic in Settings, then try again."*
+5. **App-only buttons** (the iOS twin's, `Buttons.of`): *"Open in browser"* only where the plaque
+   URL is certainly unspent **and** the app cannot go on — not set up, signed out, no answer
+   **before** the press (coordinator decisions 2026-11-18, narrowing the user's "error screens
+   only"); *"Try again"*, *"Start again"* (signed out → activation) and *"Set up this phone"* (not
+   set up → the code screen) — the user-approved app-only buttons.
+6. **Not carried:** the logo and the M15-17 claim card — both wait for the separate `/app/v1`
+   wire-contract card the coordinator is opening (below); the browser's back-forward-cache reload
+   of a QR page (the app has no page cache: a new scan is a new intent).
+7. **No *"The plaque wasn't read"*** (iOS's `notRead`). On iOS it is the Core NFC scan sheet
+   closing on an error. Android has no app-owned read on the tap path: the system's tag dispatch
+   delivers an intent only after it has parsed an NDEF URI record that matches `https://<host>/t`,
+   so a failed or foreign read never reaches the app (the system handles it, or nothing happens).
+   An intent that matched the filter but is not this server's exact plaque URL (a fragment, another
+   port) is *"That link didn't work"* — iOS's `badURL`, the same text. The activation step's reader
+   mode is the one app-owned read, and its failure already has M16-12's *"That tap didn't finish
+   setup"*.
 
-**"Try again" rules** are the browser's `renderRetryableProblem` table: offered after `tap/start`
-failed with a server error, no answer, or a Keystore that would not open (`tap/start` writes
-nothing and advances nothing); **never after a press** — the same signed context again would carry
-the same counter, and if the first press did reach the record the second is a recorded
-`sun-invalid` reject. The next touch of the plaque is a fresh counter.
+**"Try again" rules.** Before the press it starts over with the same URL (`Retry.RESTART`: a
+server error, no answer, a Keystore that would not open, the clock) — `tap/start` writes nothing
+and advances nothing, and a refused signature records nothing. **After a press whose answer was
+lost it goes home** (`Retry.HOME`, the launch check) **and resends nothing**: the same signed context
+again would carry the same counter, and if the first press did reach the record the second is a
+recorded `sun-invalid` reject. The next touch of the plaque is a fresh counter. A press refused with
+an answer (expired, another employer's plaque, unknown plaque, too many, server) has no *"Try
+again"*: a fresh context comes from touching the plaque.
 
 ### No queue — the known cost
 
 There is no offline queue (ADR 0045 §2.8, coordinator decision 2026-11-18). A press whose answer
 is lost says *"tap the plaque again"*; the record may or may not exist. If it does, the next touch
 within 60 s is `ignored` (recorded, harmless); if it does not, the next touch records. The lost
-touch's counter is spent either way — the plaque's counter gap (A1's `ctrGap`) counts it. **"Open
-in browser" on that screen opens the same URL**: if the lost press did reach the record, the
-browser's press records a `sun-invalid` reject, which starts the person's 60-second debounce.
-Nothing is lost by it; the browser is the person's way out when the app cannot reach the server.
+touch's counter is spent either way — the plaque's counter gap (A1's `ctrGap`) counts it. That
+screen therefore offers **no "Open in browser"** (coordinator decision 2026-11-18, as on iOS): if the
+lost press did reach the record, the same URL in the browser would record a `sun-invalid` reject and
+start the person's 60-second debounce.
 
 ### The one reading (`tap/TapLocation.kt`) — CLAUDE.md §4.2
 
@@ -604,15 +630,12 @@ still see the app (an NFC-less phone already does, ADR 0045). Measured on the de
 name='android.hardware.location'`; the only `uses-feature` left is the default `faketouch`.
 `MergedManifestTest.noHardwareFeatureIsRequired` pins it.
 
-### No logo — and why
+### No logo, no claim card
 
-The tap and result screens draw the wordmark, not the business's logo. `tap/start` hands over the
-logo's digest and box only; the bytes are served by `GET /t/logo/{sha}`, which answers a **browser
-session** (cookie), and `/app/v1` has no logo route. Adding one is a change to the `/app/v1` wire
-contract shared with iOS (M16-17) — and it must carry the peer-plaque distinction
-(`/t/logo/<sha>?tag=<uid>`, ADR 0027 §10), which `tap/start`'s `brand` does not carry today. That
-decision is not this card's alone (coordinator's brief), so the logo slot stays empty and the
-header is the wordmark, ink beside an accent (K-2a) — as on the activation screens.
+Both wait for the separate `/app/v1` wire-contract card the coordinator is opening (2026-11-18):
+the logo bytes have no app route (`GET /t/logo/{sha}` answers a browser session, and the
+peer-plaque `?tag=` distinction is not in `tap/start`'s `brand`), and the tap reply has no field
+for the M15-17 claim card. Until then the header is the wordmark, ink beside an accent (K-2a).
 
 ### M16-12 hand-overs done here
 
@@ -631,7 +654,8 @@ header is the wordmark, ink beside an accent (K-2a) — as on the activation scr
 
 | Class | What it holds |
 |---|---|
-| `TapFlowTest` | the tap over a socket against `FakeAppServer`: `tap/start` is a signed read of the plaque's query verbatim, no nonce; the press body byte for byte (want, fix, mock only when true); no fix / no direction send neither; not set up, key gone (dropped), Keystore failing twice (kept, *Try again*) or once (goes through), a throwing signer at start and at the press (nothing sent); another host's URL sent nowhere; signed out after one retry at start and at the press; every refusal of start and press to its screen and retry rule; no answer to start → retry; a lost press answer → no retry, sent once |
+| `IosCopyTest` | every shared tap line is a literal of the iOS app's copy (skipped without the Swift files) |
+| `TapFlowTest` | the tap over a socket against `FakeAppServer`: the clock screen at the start and at the press (an in-range answer clears it); the problem screens' buttons are the iOS twin's; `tap/start` is a signed read of the plaque's query verbatim, no nonce; the press body byte for byte (want, fix, mock only when true); no fix / no direction send neither; not set up, key gone (dropped), Keystore failing twice (kept, *Try again*) or once (goes through), a throwing signer at start and at the press (nothing sent); another host's URL sent nowhere; signed out after one retry at start and at the press; every refusal of start and press to its screen and retry rule; no answer to start → retry; a lost press answer → *Try again* goes home, sent once |
 | `FixRulesTest` | provider names are the platform's; provider choice by API level, permission and what is on; a reading before the request refused; out of range refused; the deadline is `tap.js`'s |
 | `TapCopyTest` | every tap string verbatim / adapted / app-only against the browser's source; every result line has its string; the result's lines verdict by verdict |
 | `LocationCallSiteTest` | the call-site allow-list above |

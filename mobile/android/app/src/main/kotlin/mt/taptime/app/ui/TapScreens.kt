@@ -11,7 +11,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mt.taptime.app.R
 import mt.taptime.app.activation.AccentFill
+import mt.taptime.app.tap.Buttons
 import mt.taptime.app.tap.ResultCopy
+import mt.taptime.app.tap.Retry
 import mt.taptime.app.tap.TapProblem
 import mt.taptime.app.wire.Direction
 import mt.taptime.app.wire.TapReply
@@ -120,11 +122,13 @@ private fun line(l: ResultCopy.Line): String = stringResource(
 )
 
 /**
- * A tap problem: Taptime's look (the browser's problem pages take no brand), the browser's words,
- * "Try again" when [onRetry] is set and "Open in browser" when [onBrowser] is.
+ * A tap problem: Taptime's look (the browser's problem pages take no brand), the browser's words, and
+ * the iOS twin's buttons ([Buttons]): "Try again" first when there is one, then "Open in browser";
+ * without "Try again", "Open in browser" is the primary button and "Start again" / "Set up this
+ * phone" the quiet one under it.
  */
 @Composable
-fun TapProblemScreen(problem: TapProblem, onRetry: (() -> Unit)?, onBrowser: (() -> Unit)?) {
+fun TapProblemScreen(problem: TapProblem, buttons: Buttons, onRetry: () -> Unit, onBrowser: () -> Unit, onActivate: () -> Unit) {
     val (t, m, h) = when (problem) {
         TapProblem.BAD_LINK -> Triple(R.string.tp_bad_link_title, R.string.tp_bad_link_message, R.string.tp_bad_link_hint)
         TapProblem.UNKNOWN_PLAQUE -> Triple(R.string.tp_unknown_title, R.string.tp_unknown_message, R.string.tp_unknown_hint)
@@ -135,10 +139,19 @@ fun TapProblemScreen(problem: TapProblem, onRetry: (() -> Unit)?, onBrowser: (()
         TapProblem.UNREACHABLE -> Triple(R.string.tp_unreachable_title, R.string.tp_unreachable_message, R.string.tp_unreachable_hint)
         TapProblem.LOST -> Triple(R.string.tp_lost_title, R.string.tp_lost_message, R.string.tp_lost_hint)
         TapProblem.KEY_UNREADABLE -> Triple(R.string.p_key_unreadable_title, R.string.p_key_unreadable_message, R.string.p_key_unreadable_hint)
+        TapProblem.SIGNED_OUT -> Triple(R.string.p_signed_out_title, R.string.p_signed_out_message, R.string.p_signed_out_hint)
+        TapProblem.NOT_SET_UP -> Triple(R.string.p_not_set_up_title, R.string.p_not_set_up_message, R.string.p_not_set_up_hint)
+        TapProblem.CLOCK -> Triple(R.string.p_clock_title, R.string.p_clock_message, R.string.p_clock_hint)
     }
     Page({ tapHeader(null) }) {
         Notice(Tone.ALERT, stringResource(t), stringResource(m), stringResource(h))
-        if (onRetry != null) PrimaryButton(stringResource(R.string.try_again), accent = null, enabled = true, onClick = onRetry)
-        if (onBrowser != null) QuietLink(stringResource(R.string.open_in_browser), onClick = onBrowser)
+        if (buttons.tryAgain != Retry.NONE) {
+            PrimaryButton(stringResource(R.string.try_again), accent = null, enabled = true, onClick = onRetry)
+            if (buttons.browser) QuietLink(stringResource(R.string.open_in_browser), onClick = onBrowser)
+        } else if (buttons.browser) {
+            PrimaryButton(stringResource(R.string.open_in_browser), accent = null, enabled = true, onClick = onBrowser)
+        }
+        if (buttons.startAgain) QuietLink(stringResource(R.string.start_again), onClick = onActivate)
+        if (buttons.setUp) QuietLink(stringResource(R.string.code_title), onClick = onActivate)
     }
 }

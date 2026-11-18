@@ -60,18 +60,14 @@ fun ProblemNotice(p: Problem) {
         Problem.SIGNED_OUT -> Triple(R.string.p_signed_out_title, R.string.p_signed_out_message, R.string.p_signed_out_hint)
         Problem.NO_SECURE_KEY -> Triple(R.string.p_no_key_title, R.string.p_no_key_message, R.string.p_no_key_hint)
         Problem.NO_READER -> Triple(R.string.p_no_reader_title, R.string.p_no_reader_message, R.string.p_no_reader_hint)
-        Problem.NOT_SET_UP -> Triple(R.string.p_not_set_up_title, R.string.p_not_set_up_message, R.string.p_not_set_up_hint)
+        Problem.CLOCK -> Triple(R.string.p_clock_title, R.string.p_clock_message, R.string.p_clock_hint)
         Problem.KEY_UNREADABLE -> Triple(R.string.p_key_unreadable_title, R.string.p_key_unreadable_message, R.string.p_key_unreadable_hint)
     }
     Notice(Tone.ALERT, stringResource(t), stringResource(m), stringResource(h))
 }
 
-/**
- * The code screen. [onBrowser] is set only when a PLAQUE opened the app on a phone that is not set
- * up or was signed out (M16-13): the "Open in browser" exit to that plaque's URL, under the form.
- */
 @Composable
-fun CodeScreen(problem: Problem?, notALink: Boolean, busy: Boolean, onBrowser: (() -> Unit)? = null, onContinue: (String) -> Unit) {
+fun CodeScreen(problem: Problem?, notALink: Boolean, busy: Boolean, onContinue: (String) -> Unit) {
     var input by remember { mutableStateOf("") }
     Page({ header(null) }) {
         if (problem != null) ProblemNotice(problem)
@@ -94,7 +90,6 @@ fun CodeScreen(problem: Problem?, notALink: Boolean, busy: Boolean, onBrowser: (
         PrimaryButton(stringResource(R.string.code_button), accent = null, enabled = !busy && input.isNotBlank()) {
             onContinue(input)
         }
-        if (onBrowser != null) QuietLink(stringResource(R.string.open_in_browser), enabled = !busy, onClick = onBrowser)
     }
 }
 
@@ -249,19 +244,13 @@ private fun SetupStampRow() {
     }
 }
 
-/**
- * A phone that cannot activate at all (no secure key store, no NFC reader): the problem, no button
- * -- except "Open in browser" when a plaque (a QR, through the App Link) opened the app (M16-13).
- */
+/** A phone that cannot activate at all (no secure key store, no NFC reader): the problem, no button. */
 @Composable
-fun BlockedScreen(problem: Problem, onBrowser: (() -> Unit)? = null) {
-    Page({ header(null) }) {
-        ProblemNotice(problem)
-        if (onBrowser != null) QuietLink(stringResource(R.string.open_in_browser), onClick = onBrowser)
-    }
+fun BlockedScreen(problem: Problem) {
+    Page({ header(null) }) { ProblemNotice(problem) }
 }
 
-/** A problem with "Try again" (M16-12 hand-over (3): the key could not be opened at launch). */
+/** A problem with "Try again": the key could not be opened (M16-12 hand-over (3)) or the clock is off (M16-16 (4)). */
 @Composable
 fun RetryScreen(problem: Problem, onRetry: () -> Unit) {
     Page({ header(null) }) {

@@ -26,7 +26,9 @@ import mt.taptime.app.activation.PlaqueRead
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.device.KeystoreKeys
 import mt.taptime.app.device.PrefsDeviceState
+import mt.taptime.app.tap.Buttons
 import mt.taptime.app.tap.Fix
+import mt.taptime.app.tap.Retry
 import mt.taptime.app.tap.TapFlow
 import mt.taptime.app.tap.TapLocation
 import mt.taptime.app.tap.TapProblem
@@ -76,13 +78,7 @@ import mt.taptime.app.wire.TapReply
 class MainActivity : ComponentActivity() {
     private sealed interface Screen {
         data object Loading : Screen
-        /**
-         * [browserUrl]: the plaque URL that opened the app on a phone that is not set up or was
-         * signed out -- the screen then offers "Open in browser" for it (M16-13).
-         */
-        data class Code(
-            val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false, val browserUrl: String? = null,
-        ) : Screen
+        data class Code(val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false) : Screen
         data class Welcome(
             val code: String, val facts: LookupReply,
             val problem: Problem? = null, val busy: Boolean = false, val terms: Boolean = false,
@@ -91,16 +87,19 @@ class MainActivity : ComponentActivity() {
         data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
         data class SetUp(val name: String) : Screen
-        /** This phone cannot activate (KeyGate, or no NFC reader); [browserUrl] as on [Code]. */
-        data class Blocked(val problem: Problem, val browserUrl: String? = null) : Screen
-        /** The launch check could not open the key (M16-12 hand-over (3)): "Try again" runs it again. */
-        data class KeyUnreadable(val problem: Problem) : Screen
+        /** This phone cannot activate (KeyGate, or no NFC reader). */
+        data class Blocked(val problem: Problem) : Screen
+        /**
+         * The launch check could not open the key (M16-12 hand-over (3)) or the clock is a day off
+         * (M16-16 (4)): "Try again" runs it again.
+         */
+        data class Retryable(val problem: Problem) : Screen
 
         // --- the plaque tap (M16-13) ---
         /** The press is decided by this screen's [ready]; [busy] from the press until the answer. */
         data class Plaque(val url: String, val ready: TapFlow.Start.Ready, val busy: Boolean = false) : Screen
         data class Result(val reply: TapReply) : Screen
-        data class TapTrouble(val problem: TapProblem, val url: String, val retry: Boolean) : Screen
+        data class TapTrouble(val problem: TapProblem, val url: String, val retry: Retry) : Screen
     }
 
     private var screen by mutableStateOf<Screen>(Screen.Loading)
@@ -188,7 +187,7 @@ class MainActivity : ComponentActivity() {
     private fun Render() {
         when (val s = screen) {
             Screen.Loading -> LoadingScreen()
-            is Screen.Code -> CodeScreen(s.problem, s.notALink, s.busy, s.browserUrl?.let { u -> { openInBrowser(u) } }, ::submitCode)
+            is Screen.Code -> CodeScreen(s.problem, s.notALink, s.busy, ::submitCode)
             is Screen.Welcome -> if (s.terms) {
                 BackHandler { screen = s.copy(terms = false) }
                 TermsSheet(s.facts.businessName, { open("/legal/privacy") }, { open("/legal/terms") }) {
@@ -211,16 +210,18 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
             is Screen.SetUp -> SetUpScreen(s.name, null)
-            is Screen.Blocked -> BlockedScreen(s.problem, s.browserUrl?.let { u -> { openInBrowser(u) } })
-            is Screen.KeyUnreadable -> RetryScreen(s.problem) { home() }
+            is Screen.Blocked -> BlockedScreen(s.problem)
+            is Screen.Retryable -> RetryScreen(s.problem) { home() }
             is Screen.Plaque -> PlaqueTapScreen(s.ready.facts, s.busy) { want -> press(s, want) }
             is Screen.Result -> ResultScreen(s.reply)
+            // The buttons are Buttons.of's (the iOS twin's): "Open in browser" only while the URL is
+            // certainly unspent; "Try again" after a lost press goes HOME and resends nothing.
             is Screen.TapTrouble -> TapProblemScreen(
                 s.problem,
-                onRetry = if (s.retry) ({ startTap(s.url) }) else null,
-                // "Open in browser" ONLY where the app cannot go on (coordinator decision 2026-11-18);
-                // not set up and signed out are the code screen's.
-                onBrowser = if (s.problem == TapProblem.UNREACHABLE || s.problem == TapProblem.LOST) ({ openInBrowser(s.url) }) else null,
+                Buttons.of(s.problem, s.retry),
+                onRetry = { if (s.retry == Retry.HOME) home() else startTap(s.url) },
+                onBrowser = { openInBrowser(s.url) },
+                onActivate = { screen = activationEntry(null) },
             )
         }
     }
@@ -233,25 +234,24 @@ class MainActivity : ComponentActivity() {
             screen = when (r) {
                 ActivationFlow.HomeResult.NotActivated -> activationEntry(null)
                 ActivationFlow.HomeResult.SignedOut -> activationEntry(Problem.SIGNED_OUT)
-                ActivationFlow.HomeResult.KeyUnreadable -> Screen.KeyUnreadable(Problem.KEY_UNREADABLE)
+                ActivationFlow.HomeResult.KeyUnreadable -> Screen.Retryable(Problem.KEY_UNREADABLE)
+                ActivationFlow.HomeResult.Clock -> Screen.Retryable(Problem.CLOCK)
                 is ActivationFlow.HomeResult.SetUp -> Screen.SetUp(r.device.employeeName)
             }
         }
     }
 
     // The code screen, unless this phone cannot activate at all (ActivationFlow.refusedAtLaunch).
-    private fun activationEntry(notice: Problem?, browserUrl: String? = null): Screen =
-        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it, browserUrl) }
-            ?: Screen.Code(notice, browserUrl = browserUrl)
+    private fun activationEntry(notice: Problem?): Screen =
+        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it) } ?: Screen.Code(notice)
 
     private fun submitCode(pasted: String) {
         val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
-        val browserUrl = (screen as? Screen.Code)?.browserUrl
         if (code == null) {
-            screen = Screen.Code(null, notALink = true, browserUrl = browserUrl)
+            screen = Screen.Code(null, notALink = true)
             return
         }
-        screen = Screen.Code(null, busy = true, browserUrl = browserUrl)
+        screen = Screen.Code(null, busy = true)
         work({ flow.lookup(code) }) { r ->
             screen = when (r) {
                 is ActivationFlow.LookupResult.Facts -> Screen.Welcome(code, r.facts)
@@ -315,11 +315,9 @@ class MainActivity : ComponentActivity() {
         screen = Screen.Loading
         updateReader()
         // Nothing was written by a start that failed in a way nobody classified: "Try again" is safe.
-        work({ tapFlow.start(url) }, failed = { Screen.TapTrouble(TapProblem.SERVER, url, retry = true) }) { r ->
+        work({ tapFlow.start(url) }, failed = { Screen.TapTrouble(TapProblem.SERVER, url, Retry.RESTART) }) { r ->
             screen = when (r) {
                 is TapFlow.Start.Ready -> Screen.Plaque(url, r)
-                TapFlow.Start.NotSetUp -> activationEntry(Problem.NOT_SET_UP, browserUrl = url)
-                TapFlow.Start.SignedOut -> activationEntry(Problem.SIGNED_OUT, browserUrl = url)
                 is TapFlow.Start.Problem -> Screen.TapTrouble(r.problem, url, r.retry)
             }
         }
@@ -334,12 +332,9 @@ class MainActivity : ComponentActivity() {
         withOneFix { fix ->
             // An unclassified failure of the press may have come after the request went out: no
             // retry of the same context, the next touch is a fresh tap.
-            work({ tapFlow.press(s.ready, want.ifEmpty { null }, fix) }, failed = { Screen.TapTrouble(TapProblem.LOST, s.url, retry = false) }) { r ->
+            work({ tapFlow.press(s.ready, want.ifEmpty { null }, fix) }, failed = { Screen.TapTrouble(TapProblem.LOST, s.url, Retry.HOME) }) { r ->
                 screen = when (r) {
                     is TapFlow.Press.Recorded -> Screen.Result(r.reply)
-                    TapFlow.Press.SignedOut -> activationEntry(Problem.SIGNED_OUT, browserUrl = s.url)
-                    // "Try again" after a press re-runs START: a fresh tap screen from the same read
-                    // (only offered where nothing reached the record).
                     is TapFlow.Press.Problem -> Screen.TapTrouble(r.problem, s.url, r.retry)
                 }
             }
@@ -412,8 +407,8 @@ class MainActivity : ComponentActivity() {
     // "Open in browser" (ADR 0045 Bedel 8): the SAME plaque URL, in a browser. A plain VIEW intent
     // would come straight back here -- this app is the URL's App Link -- so the intent carries a
     // selector that only browsers answer (CATEGORY_APP_BROWSER); the browser receives the URL.
-    // The counter in the URL is unspent unless a press was sent: a press whose answer was lost may
-    // have spent it, and the browser's press would then record a sun-invalid reject (README).
+    // Offered only while the URL is certainly unspent (Buttons.of): never after a press whose
+    // answer was lost.
     private fun openInBrowser(url: String) {
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
             addCategory(Intent.CATEGORY_BROWSABLE)

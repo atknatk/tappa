@@ -6,6 +6,8 @@ import mt.taptime.app.tap.Fix
 import mt.taptime.app.tap.TapFlow
 import mt.taptime.app.tap.TapFlow.Press
 import mt.taptime.app.tap.TapFlow.Start
+import mt.taptime.app.tap.Buttons
+import mt.taptime.app.tap.Retry
 import mt.taptime.app.tap.TapProblem
 import mt.taptime.app.wire.AppClient
 import mt.taptime.app.wire.HttpUrlTransport
@@ -92,7 +94,7 @@ class TapFlowTest {
 
     @Test
     fun aPhoneWithNoDeviceIsNotSetUpAndAsksNothing() {
-        assertEquals(Start.NotSetUp, flow.start(url))
+        assertEquals(Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE), flow.start(url))
         assertTrue(server.seen.isEmpty())
     }
 
@@ -100,7 +102,7 @@ class TapFlowTest {
     fun aRecordWhoseKeyIsGoneIsDroppedAndTheAppIsNotSetUp() {
         val d = activated()
         keys.live.remove(d.keyAlias)
-        assertEquals(Start.NotSetUp, flow.start(url))
+        assertEquals(Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE), flow.start(url))
         assertNull("a record nothing can sign for is dropped (permanent)", state.device)
         assertTrue(server.seen.isEmpty())
     }
@@ -110,7 +112,7 @@ class TapFlowTest {
         val d = activated()
         val failing = FailingKeys(keys, loadFailures = 2)
         val f = TapFlow(AppClient(HttpUrlTransport(server.base), ServerClock(), MiniJson), failing, state, server.base)
-        assertEquals(Start.Problem(TapProblem.KEY_UNREADABLE, retry = true), f.start(url))
+        assertEquals(Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART), f.start(url))
         assertEquals("never deleted on a Keystore failure", d, state.device)
         assertTrue(server.seen.isEmpty())
         // One failure is retried once and goes through.
@@ -122,7 +124,7 @@ class TapFlowTest {
     fun aSignerThatThrowsIsKeyUnreadableNotACrash() {
         activated()
         val f = TapFlow(AppClient(HttpUrlTransport(server.base), ServerClock(), MiniJson), FailingKeys(keys, signFails = true), state, server.base)
-        assertEquals(Start.Problem(TapProblem.KEY_UNREADABLE, retry = true), f.start(url))
+        assertEquals(Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART), f.start(url))
         // The press signs with the signer its screen was drawn with: one that throws by then (the
         // Keystore refusing mid-shift) is the same screen, and nothing reaches the record.
         val r = ready()
@@ -130,7 +132,7 @@ class TapFlowTest {
             override val publicPoint = r.signer.publicPoint
             override fun sign(message: ByteArray): ByteArray = throw java.security.ProviderException("keystore refused")
         }
-        assertEquals(Press.Problem(TapProblem.KEY_UNREADABLE, retry = true), flow.press(r.copy(signer = throwing), "in", null))
+        assertEquals(Press.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART), flow.press(r.copy(signer = throwing), "in", null))
         assertEquals("nothing reached the record", 0, server.recorded)
         assertTrue("the press never went out", "POST /app/v1/tap" !in server.seen)
     }
@@ -139,7 +141,7 @@ class TapFlowTest {
     fun anotherHostsUrlIsABadLinkAndIsSentNowhere() {
         activated()
         for (other in listOf("https://evil.example/t?$sun", "${server.base}/activate?code=x", "${server.base}/t")) {
-            assertEquals(other, Start.Problem(TapProblem.BAD_LINK, retry = false), flow.start(other))
+            assertEquals(other, Start.Problem(TapProblem.BAD_LINK, Retry.NONE), flow.start(other))
         }
         assertTrue(server.seen.isEmpty())
     }
@@ -148,7 +150,7 @@ class TapFlowTest {
     fun aSignedOutPhoneIsToldSoAfterOneRetryAndKeepsItsRecord() {
         val d = activated()
         server.devices.clear()
-        assertEquals(Start.SignedOut, flow.start(url))
+        assertEquals(Start.Problem(TapProblem.SIGNED_OUT, Retry.NONE), flow.start(url))
         assertEquals("one clock-corrected retry, no third", 2, server.seen.size)
         assertEquals(d, state.device)
 
@@ -156,7 +158,7 @@ class TapFlowTest {
         val d2 = activated()
         val r = ready()
         server.devices.remove(d2.deviceId)
-        assertEquals(Press.SignedOut, flow.press(r, "in", null))
+        assertEquals(Press.Problem(TapProblem.SIGNED_OUT, Retry.NONE), flow.press(r, "in", null))
         assertEquals(0, server.recorded)
     }
 
@@ -164,11 +166,11 @@ class TapFlowTest {
     fun theStartRefusalsAreGetTsAnswers() {
         activated()
         val cases = listOf(
-            (400 to "bad_request") to Start.Problem(TapProblem.BAD_LINK, retry = false),
-            (404 to "unknown_plaque") to Start.Problem(TapProblem.UNKNOWN_PLAQUE, retry = false),
-            (429 to "rate_limited") to Start.Problem(TapProblem.TOO_MANY, retry = false),
-            (500 to "server_error") to Start.Problem(TapProblem.SERVER, retry = true),
-            (409 to "something_new") to Start.Problem(TapProblem.SERVER, retry = true),
+            (400 to "bad_request") to Start.Problem(TapProblem.BAD_LINK, Retry.NONE),
+            (404 to "unknown_plaque") to Start.Problem(TapProblem.UNKNOWN_PLAQUE, Retry.NONE),
+            (429 to "rate_limited") to Start.Problem(TapProblem.TOO_MANY, Retry.NONE),
+            (500 to "server_error") to Start.Problem(TapProblem.SERVER, Retry.RESTART),
+            (409 to "something_new") to Start.Problem(TapProblem.SERVER, Retry.RESTART),
         )
         for ((answer, want) in cases) {
             server.tapStartFailsOnce = answer
@@ -190,7 +192,7 @@ class TapFlowTest {
         for ((answer, want) in cases) {
             val r = ready()
             server.tapFailsOnce = answer
-            assertEquals(answer.second, Press.Problem(want, retry = false), flow.press(r, "in", null))
+            assertEquals(answer.second, Press.Problem(want, Retry.NONE), flow.press(r, "in", null))
         }
     }
 
@@ -198,7 +200,7 @@ class TapFlowTest {
     fun noAnswerToTheStartIsUnreachableAndSafeToRetry() {
         activated()
         server.close()
-        assertEquals(Start.Problem(TapProblem.UNREACHABLE, retry = true), flow.start(url))
+        assertEquals(Start.Problem(TapProblem.UNREACHABLE, Retry.RESTART), flow.start(url))
     }
 
     @Test
@@ -206,7 +208,7 @@ class TapFlowTest {
         activated()
         val r = ready()
         server.tapAnswerLostOnce = true
-        assertEquals(Press.Problem(TapProblem.LOST, retry = false), flow.press(r, "in", null))
+        assertEquals("Try again goes home and resends nothing", Press.Problem(TapProblem.LOST, Retry.HOME), flow.press(r, "in", null))
         assertEquals("the record was written; the app did not send it twice", 1, server.recorded)
         assertEquals(1, server.tapBodies.size)
     }
@@ -228,6 +230,40 @@ class TapFlowTest {
         assertNull(r.facts.brand.accent)
         assertNotNull(r.facts.context)
         assertFalse(r.facts.qr)
+    }
+
+    // M16-16 hand-over (4), the iOS twin's clock screen: a 401 whose answers carried a Date more than
+    // a day off this phone's clock is the phone's clock, not a signed-out device -- at the start and
+    // at the press. An in-range Date afterwards clears it.
+    @Test
+    fun aPhoneADayOffIsToldToCheckItsClockNotThatItWasSignedOut() {
+        activated()
+        var offsetMillis = 0L
+        val clock = ServerClock { System.currentTimeMillis() + offsetMillis }
+        val f = TapFlow(AppClient(HttpUrlTransport(server.base), clock, MiniJson), keys, state, server.base)
+        val r = f.start(url) as Start.Ready
+        offsetMillis = 3L * 24 * 60 * 60 * 1000 // the phone jumps three days ahead
+        assertEquals(Press.Problem(TapProblem.CLOCK, Retry.RESTART), f.press(r, "in", null))
+        assertEquals(Start.Problem(TapProblem.CLOCK, Retry.RESTART), f.start(url))
+        assertEquals(0, server.recorded)
+        offsetMillis = 0
+        assertTrue("an in-range answer clears it", f.start(url) is Start.Ready)
+        assertFalse(clock.lastAnswerWasFarOff)
+    }
+
+    // The coordinator's decisions (2026-11-18), the iOS twin's buttons: "Open in browser" only while
+    // the URL is certainly unspent and the app cannot go on; never after a lost press.
+    @Test
+    fun theProblemScreensButtonsAreTheIosTwins() {
+        assertEquals(Buttons(Retry.HOME, browser = false, startAgain = false, setUp = false), Buttons.of(TapProblem.LOST, Retry.HOME))
+        assertEquals(Buttons(Retry.RESTART, browser = true, startAgain = false, setUp = false), Buttons.of(TapProblem.UNREACHABLE, Retry.RESTART))
+        assertEquals(Buttons(Retry.NONE, browser = true, startAgain = false, setUp = true), Buttons.of(TapProblem.NOT_SET_UP, Retry.NONE))
+        assertEquals(Buttons(Retry.NONE, browser = true, startAgain = true, setUp = false), Buttons.of(TapProblem.SIGNED_OUT, Retry.NONE))
+        for (p in TapProblem.entries) {
+            val b = Buttons.of(p, Retry.RESTART)
+            assertEquals("$p: Open in browser only where the app cannot go on and the URL is unspent",
+                p in setOf(TapProblem.NOT_SET_UP, TapProblem.SIGNED_OUT, TapProblem.UNREACHABLE), b.browser)
+        }
     }
 
     /** A key store whose load fails [loadFailures] times, and whose signer throws when [signFails]. */

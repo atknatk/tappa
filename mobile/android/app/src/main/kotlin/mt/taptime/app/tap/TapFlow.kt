@@ -36,6 +36,47 @@ enum class TapProblem {
     LOST,
     /** APP-ONLY (iOS's keyUnreadable): the Keystore did not hand out the device key. */
     KEY_UNREADABLE,
+    /** Two 401s (AppClient's clock-corrected retry): the browser's "This phone was signed out". */
+    SIGNED_OUT,
+    /** APP-ONLY: no device on this phone (or its key is gone for good): iOS's notSetUp. */
+    NOT_SET_UP,
+    /**
+     * APP-ONLY (M16-16 hand-over (4), iOS's clock): a 401 while the last Date header was more than a
+     * day off this phone's clock (ServerClock.lastAnswerWasFarOff) -- the phone's clock, not a
+     * signed-out device.
+     */
+    CLOCK,
+}
+
+/** What a problem screen's "Try again" does. */
+enum class Retry {
+    /** No "Try again". */
+    NONE,
+    /** tap/start again with the same URL: safe, nothing reached the record (start writes nothing). */
+    RESTART,
+    /**
+     * Back to the app's home (the launch check): resends NOTHING. The press's answer was lost and
+     * the record may exist, so the same URL is never sent again (coordinator decision 2026-11-18,
+     * the iOS twin's offlineUnknown).
+     */
+    HOME,
+}
+
+/**
+ * The buttons of a problem screen, the iOS twin's TapProblemScreen / NotSetUpScreen, as a pure
+ * function. "Open in browser" only where the plaque URL is certainly unspent AND the app cannot go
+ * on -- not set up, signed out, no answer BEFORE the press (coordinator decisions 2026-11-18): after
+ * a press whose answer was lost the same URL could record a reject and start the debounce.
+ */
+data class Buttons(val tryAgain: Retry, val browser: Boolean, val startAgain: Boolean, val setUp: Boolean) {
+    companion object {
+        fun of(problem: TapProblem, retry: Retry): Buttons = when (problem) {
+            TapProblem.NOT_SET_UP -> Buttons(Retry.NONE, browser = true, startAgain = false, setUp = true)
+            TapProblem.SIGNED_OUT -> Buttons(Retry.NONE, browser = true, startAgain = true, setUp = false)
+            TapProblem.UNREACHABLE -> Buttons(retry, browser = true, startAgain = false, setUp = false)
+            else -> Buttons(retry, browser = false, startAgain = false, setUp = false)
+        }
+    }
 }
 
 /** A key the Keystore failed to load or to sign with: the screen is "couldn't open this phone's key". */
@@ -65,39 +106,40 @@ class TapFlow(
     sealed interface Start {
         /** The tap screen. [sun] is kept for "Try again" and for nothing else. */
         data class Ready(val device: ActiveDevice, val signer: Signer, val sun: String, val facts: TapStartReply) : Start
-        /** No device on this phone, or its Keystore entry is gone: the activation entry. */
-        data object NotSetUp : Start
-        /** Two 401s (AppClient's clock-corrected retry): this phone was signed out. */
-        data object SignedOut : Start
-        /** [retry]: "Try again" re-runs start with the same URL -- safe, start writes nothing. */
-        data class Problem(val problem: TapProblem, val retry: Boolean) : Start
+        data class Problem(val problem: TapProblem, val retry: Retry) : Start
     }
 
     sealed interface Press {
         data class Recorded(val reply: TapReply) : Press
-        data object SignedOut : Press
-        /** [retry]: "Try again" re-runs START (nothing reached the record). */
-        data class Problem(val problem: TapProblem, val retry: Boolean) : Press
+        data class Problem(val problem: TapProblem, val retry: Retry) : Press
     }
 
+    // A 401 that survived the clock-corrected retry: signed out -- unless the last answer's Date was
+    // more than a day off this phone's clock, which is the phone's clock (iOS's clock screen). A 401
+    // records nothing, so the URL is unspent either way: "Try again" may start over.
+    private fun refusedSignature(): TapProblem =
+        if (client.clock.lastAnswerWasFarOff) TapProblem.CLOCK else TapProblem.SIGNED_OUT
+
+    private fun retryOf(p: TapProblem) = if (p == TapProblem.CLOCK) Retry.RESTART else Retry.NONE
+
     fun start(url: String): Start {
-        val sun = PlaqueRead.sunQuery(url, baseUrl) ?: return Start.Problem(TapProblem.BAD_LINK, retry = false)
-        val device = state.active() ?: return Start.NotSetUp
+        val sun = PlaqueRead.sunQuery(url, baseUrl) ?: return Start.Problem(TapProblem.BAD_LINK, Retry.NONE)
+        val device = state.active() ?: return Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE)
         val signer = try {
             loadTwice(device.keyAlias)
         } catch (_: KeyUnreadable) {
-            return Start.Problem(TapProblem.KEY_UNREADABLE, retry = true)
+            return Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
         if (signer == null) {
             // The Keystore entry is gone for good: nothing can ever sign for this record
             // (ActivationFlow.home drops it the same way).
             state.clear()
-            return Start.NotSetUp
+            return Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE)
         }
         val r = try {
             client.tapStart(device.deviceId, Guarded(signer), sun)
         } catch (_: KeyUnreadable) {
-            return Start.Problem(TapProblem.KEY_UNREADABLE, retry = true)
+            return Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
         return when (r) {
             is Outcome.Ok -> {
@@ -105,15 +147,15 @@ class TapFlow(
                 if (name.isNotEmpty() && name != device.employeeName) state.save(device.copy(employeeName = name))
                 Start.Ready(device, signer, sun, r.value)
             }
-            Outcome.Unauthenticated -> Start.SignedOut
-            is Outcome.Failed -> Start.Problem(TapProblem.UNREACHABLE, retry = true)
+            Outcome.Unauthenticated -> refusedSignature().let { Start.Problem(it, retryOf(it)) }
+            is Outcome.Failed -> Start.Problem(TapProblem.UNREACHABLE, Retry.RESTART)
             // GET /t's answers (internal/handler/tap.go): an unusable URL is not retried, an unknown
             // uid is not, the rate limit deliberately is not, a server failure is.
             is Outcome.Refused -> when (r.code) {
-                AppErrorCode.BAD_REQUEST -> Start.Problem(TapProblem.BAD_LINK, retry = false)
-                AppErrorCode.UNKNOWN_PLAQUE -> Start.Problem(TapProblem.UNKNOWN_PLAQUE, retry = false)
-                AppErrorCode.RATE_LIMITED -> Start.Problem(TapProblem.TOO_MANY, retry = false)
-                else -> Start.Problem(TapProblem.SERVER, retry = true)
+                AppErrorCode.BAD_REQUEST -> Start.Problem(TapProblem.BAD_LINK, Retry.NONE)
+                AppErrorCode.UNKNOWN_PLAQUE -> Start.Problem(TapProblem.UNKNOWN_PLAQUE, Retry.NONE)
+                AppErrorCode.RATE_LIMITED -> Start.Problem(TapProblem.TOO_MANY, Retry.NONE)
+                else -> Start.Problem(TapProblem.SERVER, Retry.RESTART)
             }
         }
     }
@@ -129,12 +171,14 @@ class TapFlow(
             client.tap(ready.device.deviceId, Guarded(ready.signer), body)
         } catch (_: KeyUnreadable) {
             // Signing failed before POST /app/v1/tap went out: nothing reached the record.
-            return Press.Problem(TapProblem.KEY_UNREADABLE, retry = true)
+            return Press.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
         return when (r) {
             is Outcome.Ok -> Press.Recorded(r.value)
-            Outcome.Unauthenticated -> Press.SignedOut
-            is Outcome.Failed -> Press.Problem(TapProblem.LOST, retry = false)
+            // A refused signature records nothing: the URL is unspent (signed out keeps its exits).
+            Outcome.Unauthenticated -> refusedSignature().let { Press.Problem(it, retryOf(it)) }
+            // The answer is lost: "Try again" goes home and resends nothing (coordinator decision).
+            is Outcome.Failed -> Press.Problem(TapProblem.LOST, Retry.HOME)
             // POST /api/checkin's answers: none offers a retry (internal/handler/tap.go,
             // renderRetryableProblem's table) -- a fresh context comes from touching the plaque.
             is Outcome.Refused -> Press.Problem(
@@ -145,7 +189,7 @@ class TapFlow(
                     AppErrorCode.RATE_LIMITED -> TapProblem.TOO_MANY
                     else -> TapProblem.SERVER
                 },
-                retry = false,
+                Retry.NONE,
             )
         }
     }

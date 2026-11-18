@@ -9,8 +9,8 @@ import mt.taptime.app.wire.Outcome
 /** The screens' closed set of problems; each one is a fixed text (strings.xml), never a server value. */
 enum class Problem {
     BAD_LINK, TOO_MANY, SERVER, NETWORK, TAP_FAILED, NEEDS_TOUCH, NOT_READY, SIGNED_OUT, NO_SECURE_KEY, NO_READER,
-    /** M16-13: a plaque opened the app on a phone that is not set up (the code screen's notice). */
-    NOT_SET_UP,
+    /** M16-16 hand-over (4), the iOS twin's clock: a 401 while the phone's clock is a day or more off. */
+    CLOCK,
     /** M16-12 hand-over (3): the Keystore did not hand out the device key (iOS's keyUnreadable). */
     KEY_UNREADABLE,
 }
@@ -162,6 +162,12 @@ class ActivationFlow(
          * keyUnreadable): "Try again" runs home again. The record and the key are KEPT.
          */
         data object KeyUnreadable : HomeResult
+        /**
+         * Two 401s while the last answer's Date was more than a day off this phone's clock
+         * (ServerClock.lastAnswerWasFarOff): the phone's clock, not a signed-out device -- iOS's
+         * "Check your phone's clock" (M16-16 hand-over (4)). "Try again" runs home again.
+         */
+        data object Clock : HomeResult
     }
 
     /**
@@ -210,7 +216,7 @@ class ActivationFlow(
                 if (fresh != device) state.save(fresh)
                 HomeResult.SetUp(fresh)
             }
-            Outcome.Unauthenticated -> HomeResult.SignedOut
+            Outcome.Unauthenticated -> if (client.clock.lastAnswerWasFarOff) HomeResult.Clock else HomeResult.SignedOut
             else -> HomeResult.SetUp(device)
         }
     }
