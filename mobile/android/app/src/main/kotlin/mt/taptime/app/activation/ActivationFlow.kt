@@ -91,8 +91,11 @@ class ActivationFlow(
                 if (previous != null && previous.keyAlias != p.key.alias) drop(previous.keyAlias)
                 return CompleteResult.Activated(device, p.facts.secondDevice)
             }
+            // Where each answer leads is the iOS twin's (ActivationModel.completeRefused): the tap
+            // step for a read the server judged, the consent step for anything else it refused.
             is Outcome.Refused -> return when (r.code) {
-                AppErrorCode.ACTIVATION_TAP_FAILED -> CompleteResult.TapAgain(p, Problem.TAP_FAILED)
+                AppErrorCode.ACTIVATION_TAP_FAILED, AppErrorCode.UNKNOWN_PLAQUE, AppErrorCode.FOREIGN_TENANT,
+                AppErrorCode.STALE_CONTEXT -> CompleteResult.TapAgain(p, Problem.TAP_FAILED)
                 AppErrorCode.ACTIVATION_NEEDS_TOUCH -> CompleteResult.TapAgain(p, Problem.NEEDS_TOUCH)
                 AppErrorCode.RATE_LIMITED -> CompleteResult.TapAgain(p, Problem.TOO_MANY)
                 AppErrorCode.NEW_KEY_REQUIRED -> rebindWithANewKey(p)
@@ -104,7 +107,10 @@ class ActivationFlow(
                     drop(p.key.alias)
                     CompleteResult.Restart(Problem.BAD_LINK)
                 }
-                else -> CompleteResult.TapAgain(p, Problem.SERVER)
+                else -> {
+                    drop(p.key.alias)
+                    CompleteResult.Rebind(p.code, Problem.SERVER)
+                }
             }
             // The proof of possession refused: this key cannot complete this bind. Not a clock
             // matter (the text carries no time), so no retry; bind again from the consent screen.
@@ -180,6 +186,13 @@ class ActivationFlow(
     }
 
     companion object {
+        /**
+         * What stops this phone before the code screen: no NFC reader means no first tap to
+         * finish with (the iOS twin refuses the same phone at the same point). null: ask for the
+         * code. The secure-key check needs a key generated, so it is the bind's (KeyGate).
+         */
+        fun refusedAtLaunch(hasNfcReader: Boolean): Problem? = if (hasNfcReader) null else Problem.NO_READER
+
         fun problemOf(r: Outcome<*>): Problem = when (r) {
             is Outcome.Ok -> Problem.SERVER
             Outcome.Unauthenticated -> Problem.SERVER

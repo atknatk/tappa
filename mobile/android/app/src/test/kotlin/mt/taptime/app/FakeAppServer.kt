@@ -37,6 +37,8 @@ class FakeAppServer(
         private set
     var lastCtr = -1
     var newKeyOnce = false
+    /** When set, the next complete answers this status and error code, once. */
+    var completeFailsOnce: Pair<Int, String>? = null
     var completed = 0
         private set
     /** Device id -> public point; removing an entry is the panel's "sign out their phones". */
@@ -100,6 +102,10 @@ class FakeAppServer(
     }
 
     private fun complete(ex: HttpExchange, body: ByteArray) {
+        completeFailsOnce?.let { (status, code) ->
+            completeFailsOnce = null
+            return error(ex, status, code)
+        }
         val id = ex.requestHeaders.getFirst("App-Device-Id")
         val nonce = ex.requestHeaders.getFirst("App-Nonce")
         val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)

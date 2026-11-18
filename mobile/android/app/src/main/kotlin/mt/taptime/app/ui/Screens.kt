@@ -195,7 +195,7 @@ fun TapScreen(facts: LookupReply, nfc: NfcState, problem: Problem?, busy: Boolea
         }
         when (nfc) {
             NfcState.OFF -> Notice(Tone.WARN, null, stringResource(R.string.nfc_off))
-            NfcState.NONE -> Notice(Tone.ALERT, null, stringResource(R.string.nfc_none))
+            NfcState.NONE -> ProblemNotice(Problem.NO_READER) // refused at launch; kept for a reader that vanished
             NfcState.READY -> Unit
         }
         if (problem != null) ProblemNotice(problem)

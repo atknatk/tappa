@@ -87,8 +87,8 @@ class MainActivity : ComponentActivity() {
         setContent { Render() }
         work({ flow.home() }) { r ->
             screen = when (r) {
-                ActivationFlow.HomeResult.NotActivated -> Screen.Code(null)
-                ActivationFlow.HomeResult.SignedOut -> Screen.Code(Problem.SIGNED_OUT)
+                ActivationFlow.HomeResult.NotActivated -> activationEntry(null)
+                ActivationFlow.HomeResult.SignedOut -> activationEntry(Problem.SIGNED_OUT)
                 is ActivationFlow.HomeResult.SetUp -> Screen.SetUp(r.device.employeeName)
             }
         }
@@ -141,6 +141,10 @@ class MainActivity : ComponentActivity() {
             is Screen.Blocked -> BlockedScreen(s.problem)
         }
     }
+
+    // The code screen, unless this phone cannot activate at all (ActivationFlow.refusedAtLaunch).
+    private fun activationEntry(notice: Problem?): Screen =
+        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it) } ?: Screen.Code(notice)
 
     private fun submitCode(pasted: String) {
         val code = InviteCode.from(pasted, BuildConfig.BASE_URL)

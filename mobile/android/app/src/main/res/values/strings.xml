@@ -83,7 +83,6 @@
     <!-- APP-ONLY (Android): the browser cannot see the phone's NFC switch; the app reads the
          plaque itself. iOS has no switch to name. -->
     <string name="nfc_off">Turn on NFC in your phone\'s settings, then tap the plaque.</string>
-    <string name="nfc_none">This phone can\'t read the plaque, so it can\'t be set up in this app.</string>
 
     <!-- Activation complete, and already set up. -->
     <string name="setup_label">Setup</string>

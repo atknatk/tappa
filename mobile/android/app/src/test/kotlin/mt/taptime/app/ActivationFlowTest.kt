@@ -147,6 +147,29 @@ class ActivationFlowTest {
     }
 
     @Test
+    fun aServerErrorAtTheTapSendsThePersonBackToConsentAndAPlaqueErrorStaysAtTheTap() {
+        val p = bound()
+        server.completeFailsOnce = 500 to "server_error"
+        val r = flow.complete(p, sun(1)) as CompleteResult.Rebind
+        assertEquals(Problem.SERVER, r.problem)
+        assertTrue(p.key.alias in keys.deleted)
+        for (plaque in listOf(400 to "activation_tap_failed", 404 to "unknown_plaque", 403 to "foreign_tenant", 400 to "stale_context")) {
+            val q = bound()
+            server.completeFailsOnce = plaque
+            assertEquals(plaque.second, CompleteResult.TapAgain(q, Problem.TAP_FAILED), flow.complete(q, sun(2)))
+        }
+        val net = bound()
+        server.close()
+        assertEquals(CompleteResult.TapAgain(net, Problem.NETWORK), flow.complete(net, sun(3)))
+    }
+
+    @Test
+    fun aPhoneWithoutAReaderIsRefusedBeforeTheCodeScreen() {
+        assertEquals(Problem.NO_READER, ActivationFlow.refusedAtLaunch(hasNfcReader = false))
+        assertNull(ActivationFlow.refusedAtLaunch(hasNfcReader = true))
+    }
+
+    @Test
     fun anUnknownCodeIsOneAnswer() {
         val r = flow.lookup("A".repeat(43)) as ActivationFlow.LookupResult.Refused
         assertEquals(Problem.BAD_LINK, r.problem)
