@@ -1813,6 +1813,8 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
 - **Ne:** PR #42 `main`'e birleşti (`8a7b7504`, kullanıcı kararı *"şimdi canlıya al"*); main CI ilk koşuda main'in OAuth testinde deadlock flake'i (`TestOAuthConsentDB_OnlyAnActiveOwnerApproves`, 40P01, fixture) → deploy atlandı, yeniden koşu. M16-12 (Android Keystore, StrongBox→TEE, yazılım anahtarı reddi, CI'da `android` işi) ve M16-16 (iOS Secure Enclave) iki mercek + düzeltme turu + dar yeniden denetim ONAY. CLAUDE.md §5 *Aktivasyon dokunuşu* ölçülen sıraya eşitlendi ve uygulama yolu eklendi; ADR 0045'e kararlar (yazılım anahtarı reddi, kayıt 401'de silinmez, kullanıcının üç §9 kararı, paylaşılan telefon kabul edilmiş riski).
 - **Flake'ler (M16 dışı paketler):** `resetstall` (adminauth), `TestAdminBackfill00073_…` lock timeout (db), OAuth consent deadlock (handler).
+- **Faz A CANLI** (2026-11-18 11:46 UTC): deploy 44297157659 yeşil, goose **110** (00108–00110 deploy günlüğünde), `/healthz` 200, `/app/v1` JSON sözlüğüyle cevap veriyor, `/.well-known` 404 (Team ID/imza özeti uygulama `/t`'yi karşılayana dek boş — tasarım). ADR 0048 `scoped-access.sql` yeniden koşuldu: `tappa_readwrite` yeni iki tabloda `tappa_app`'ın sütun yetkilerinin kopyası, `tappa_readonly` yalnız SELECT (ölçüldü).
+- **Kullanıcı kararı (§9, ADR 0045 bedel 8):** uygulamanın *"Open in browser"* çıkışı **yalnız hata ekranlarında**; sonuç ekranı düğmesiz kalır.
 - **Sıradaki:** M16-13 (Android tap ekranı) + M16-17 (iOS tap ekranı) paralel; devir notları kartlarda.
 
 ### 2026-11-18 (M16, dal `plan/m16-mobil`) — `main` birleşti (00108–00110), M16-11 + M16-15 done, M16-10 CI'da
