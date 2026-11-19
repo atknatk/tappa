@@ -1666,6 +1666,16 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 > `business_day_start`, `shift_*`, `client`, `direction_source`, `sun_valid`, `trust`, `ip_match`, `gps_match` **eşit**
 > beklenir ve eşittir.
 >
+> **Denetim DÜŞÜK'leri (2026-11-19, iki mercek ONAY sonrası, ayrı commit):** (a) güvenlik R8 — doğrulanmış ama bitişi
+> olmayan canlı QR isteği `checkin.Request.validate`'te `ErrInvalidRequest` (yoksa `sys:live-qr-expired`'in anahtarı yazılmaz
+> ve eski fotoğraf taze sayılırdı; M16-22'nin uygulama yolu alanı unutursa kapanır) —
+> `TestValidate_AVerifiedLiveQRCodeCarriesItsScreenAndItsExpiry`; (b) kayıttaki `sun_valid` sabitlemesinin tek başına
+> ölçümü — `TestInsertParams_ALiveQRRowNeverWritesATrueSUN` (karar `true` dese de satır `false`; sabitleme silinince
+> kırmızı); (c) kartın merkez iddiası kalıcı — `TestPolicySetDB_ABusinessSetUpBeforeTheLiveQRRuleGetsItOnItsFirstLiveQRTap`
+> (2026-11-14'te kurulmuş işletmenin ilk GPS-only canlı QR dokunuşu `review via base:live-qr-requires-ip`; kontrol: eski
+> set `allow via base:gps-only-allow`); (d) tazelik `TAPPA_FRESHNESS_SECONDS`'a bağlı — M16-24 maddesi ve ADR 0005 risk 10;
+> (e) v2 bağlamı tek kullanımlık değil — ADR 0045 §2.5 notu (8), kabul edilen bedel.
+
 > **M16-22'ye devir (uygulama yolu, ölçüldü):** `/app/v1/tap/start` bugün bir canlı QR URL'inin sorgusunu (`t=<token>`)
 > `sun.Parse`'tan geçirir; `tag` olmadığı için **400 `bad_request`**, kayıt yok, sayaç yok
 > (`TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`). §4.6 anlamında **kayıt kaybı yok** (tap/start hiç yazmaz ve
@@ -1748,6 +1758,9 @@ kalkışı).
   (AskUserQuestion) ve seçilirse rotayı kardeş gruba taşır + `TestSuspensionRoutes_EveryPanelWriteIsGatedOrANamedException`.
 - **`scoped-access`:** Faz E başındaki M16-19 devri (okuma rolleri `live_qr_displays`'in iki özet sütununu görmez; 00114'ün
   `last_seen_at`'i özet değildir).
+- **Tazelik penceresi (M16-21 üçüncü göz DÜŞÜK-4):** canlıdaki `TAPPA_FRESHNESS_SECONDS` değeri ölçülür; canlı QR açılmadan
+  önce **≤180** olmalı. Canlı QR'ın okuma ile basış arasındaki tek sınırı `sys:tap-freshness`'tir; 900'de imzalı bağlamın
+  15 dk'lık ömrüne eşit olur ve sınır fiilen kalkar (ADR 0005 risk 10).
 - Fazın büyük testleri bir kez.
 
 ---

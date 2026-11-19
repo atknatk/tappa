@@ -1416,6 +1416,16 @@ func (r Request) validate() error {
 		if r.TokenVerified && r.DisplayID == uuid.Nil {
 			return fmt.Errorf("%w: a verified live QR code names its screen", ErrInvalidRequest)
 		}
+		// 🔴 AND ITS EXPIRY (the M16-21 security review, R8). tap.Decide writes
+		// tap:tokenOverdueSeconds only for a verified code WITH an expiry, and
+		// sys:live-qr-expired never matches a missing key -- so a caller that verified the
+		// code and forgot to carry its window would have every old photograph decided as a
+		// fresh scan (`ok` with an IP). GET /q's context cannot say verified without an
+		// expiry (parseLive refuses it); this closes the same door for any other caller
+		// (M16-22's app path) rather than trusting it to remember.
+		if r.TokenVerified && r.TokenExpiresAt.IsZero() {
+			return fmt.Errorf("%w: a verified live QR code carries its expiry", ErrInvalidRequest)
+		}
 	case r.Channel != tap.ChannelManual && r.TagUID == "":
 		return fmt.Errorf("%w: a tap needs a tag", ErrInvalidRequest)
 	}

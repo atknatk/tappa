@@ -234,6 +234,12 @@ politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan öneris
   > (`version 2`) ekran kimliğini, doğrulama sonucunu ve token bitişini taşır — token'ın kendisini değil.
   > (7) **`/v1`:** `channel: qr` + `qrKind: static|live` (statik QR olayına da eklenir; NFC olayında alan
   > **yoktur** — NFC gövdesinin baytları ve imzaları değişmedi), canlı QR'da `tagId: null`.
+  > (8) **Kabul edilen bedel — v2 bağlamı tek kullanımlık değildir (M16-21 güvenlik denetimi R4/R6).** `GET /q`'nun
+  > bastığı imzalı bağlam, statik QR'ınki gibi, oturuma bağlıdır ama harcanmaz: tazelik penceresi
+  > (`TAPPA_FRESHNESS_SECONDS`, gönderilen 180 sn) içinde aynı sayfadan 60 sn'lik debounce aralıklarıyla **birden çok
+  > kayıt** yazılabilir — her biri kayıtlıdır (§4.6), kişinin kendi adınadır ve aynı kanıtla karar verilir. NFC'yi
+  > bundan sayaç korur; QR kanallarında sayaç yoktur ve tek fren kişi başına debounce'tur (CLAUDE.md §5). Bağlamı tek
+  > kullanımlık yapmak sunucuda bir harcama tablosu ister; statik QR ile aynı davranış olduğu için kabul edildi.
 - **Reddedilenler (plan önerisi):** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
   (konum izni ister, IP kanıtı zaten aynı şeyi söyler) · paylaşılan kiosk + PIN (buddy punching'i kolaylaştırır —
   telefon artık kişinin değil mekânındır).
