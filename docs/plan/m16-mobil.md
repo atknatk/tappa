@@ -71,6 +71,13 @@ Ana oturumun AskUserQuestion'ıyla alındı; yeniden tartışılmaz:
    listesi (2), yalnız listedeki ve girişi açık işletmelerde, yalnız tarayıcı yolunda. Kartlar seçilen dala daraltıldı;
    reddedilenler tek satırlık *"reddedildi"* notudur.
 
+6. **Faz G ekleri** (2026-11-19, ürün sahibi, AskUserQuestion): native personel uygulamasına altı ek — (1) unutulan çıkışı
+   uygulamadan bildirme (ADR 0032 Faz C'nin talebi), (2) *"hâlâ içeridesin"* hatırlatması (telefonun **yerel** bildirimi),
+   (3) bugünkü ve sıradaki vardiya, (4) kilit ekranında *"içeride"* sayacı, (5) onay bekleyen kayıtlarımın durumu, (6) dil
+   seçeneği. Kartlar **M16-42 … M16-49** (özellik 5 yeni kart değil: M16-31 ve M16-33'e ek kriter — gerekçe Faz G
+   başlığında); açık soruları **Q50 … Q54**; ADR **0050** (öneri, M16-42). Hiçbiri tap ya da sonuç ekranına girmez
+   (CLAUDE.md §9); sunucu push'u (APNs/FCM) ve konum yok (§4.2).
+
 **Gerekçe — Apple App Store Review Guidelines** (ana oturumun 2026-11-18 okuması; numaralar o okumadan, bu belgeyi yazan
 yeniden açmadı — **doğrula** M16-40'ta):
 
@@ -79,7 +86,9 @@ yeniden açmadı — **doğrula** M16-40'ta):
 - **2.1(a):** *"include demo account info (and turn on your back-end service!) if your app includes a login"*; demo
   modu yalnız *"with prior approval by Apple"*; gereken donanım/kaynak gönderilir (Apple'ın kendi örneği: *"a sample QR
   code"*). Asıl ret riski budur: inceleyicinin daveti ve NTAG plaketi yoktur → M16-39.
-- **4.2:** uygulama yeniden paketlenmiş bir web sitesinden fazlası olmalı → Saatlerim (M16-30 … M16-33) bunu güçlendirir.
+- **4.2:** uygulama yeniden paketlenmiş bir web sitesinden fazlası olmalı → Saatlerim (M16-30 … M16-33) bunu güçlendirir;
+  Faz G ekleri (M16-43 … M16-49: uygulamadan talep, yerel hatırlatma, kilit ekranı sayacı, vardiyam, dil) yerel işlevlerle
+  güçlendirir — Apple'ın bunları yeterli saydığı **ölçülmedi** (doğrula, M16-39/M16-40).
 - **3.1.3 / 3.1.3(c) Enterprise Services:** işletmenin kaydı ve faturası uygulamada değil, web'de kalır; uygulama
   yalnız personel içindir, hesapları işveren açar.
 - **4.8:** Sign in with Apple gerekmez (kendi hesap sistemimiz; işletme hesabı istisnası).
@@ -188,6 +197,8 @@ oldu; tablodaki sonraki öneriler de dört kaydı. ADR'ler: `main` 0046 (timeshe
 | 00115 | M16-30 | `tenants.staff_hours_weeks smallint` + `CHECK (… IS NULL OR … IN (1, 2, 4, 13))` + `GRANT UPDATE (staff_hours_weeks)`; varsayılansız (Q48 (a), 2026-11-19 — her satır NULL = kapalı) — `00064`'ün `day_cutoff` deseni | `DROP COLUMN` (yapılandırma; geçmişi `audit_log`'da — `00064:181-182`) |
 | 00116 | M16-35 | `employee_invites.origin text NOT NULL DEFAULT 'employer'` + `CHECK (origin IN ('employer','self'))`; çözümleyici `resolve_employees_for_signin(citext, uuid[])` (SECURITY DEFINER, `tappa_resolver`, `OPERATOR(public.=)` — `00011:295-313`) + **`GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`** + **`GRANT SELECT (suspended_at, email_signin) ON tenants TO tappa_resolver`** (yalnız yeni sütunlar — `tenants.id` `00051:155`'ten beri var, dokunulmaz); `tenants.email_signin boolean NOT NULL DEFAULT false` + `GRANT UPDATE (email_signin)` (Q49 (a)) | `origin='self'` satırı varsa reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar |
 | 00117 | M16-35 | `CREATE INDEX CONCURRENTLY employees_email_idx ON employees (email) WHERE email IS NOT NULL` — **ayrı dosya**, `-- +goose NO TRANSACTION`, kendi `lock_timeout`'u (CLAUDE.md §6 sıcak tablo kuralı; `00091` emsali) | `DROP INDEX CONCURRENTLY` |
+| 00119 | M16-45 | **koşullu — yalnız Q52 (2) (c):** `tenants.staff_shift_visible boolean NOT NULL DEFAULT false` + `GRANT UPDATE (staff_shift_visible) ON tenants TO tappa_app` + `SET LOCAL lock_timeout = '1s'` — `00064`'ün `day_cutoff` deseni | `DROP COLUMN` (yapılandırma; geçmişi `audit_log`'da) |
+| 00120 | M16-45 | **koşullu — yalnız Q51 (3) (b)** (öneri değil): `tenants.staff_reminders boolean NOT NULL DEFAULT false` + `GRANT UPDATE (staff_reminders)` + `lock_timeout` | `DROP COLUMN` |
 
 **Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00108) `main`'e M16-04'ten (00109/00110) **önce ya da onunla
 birlikte** ulaşır. 109/110'a çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00108'i sonradan **alamaz** — depo
@@ -201,9 +212,20 @@ numara ayrılmaz. M16-31 migration beklemez: kişinin kayıtlarını okuyacak in
 `transactions_tenant_employee_occurred_idx` (`00005:175`, `(tenant_id, employee_id, occurred_at DESC)`) zaten var — kart
 planı ölçer. Kural aynı: her kart açılırken `main`'in ve diğer dalların son numarası **yeniden okunur**.
 
+**Faz G ekleri numara ölçümü (2026-11-19, taban `b3c877fd`):** 279 yerel ve uzak dalın hiçbirinde `docs/adr/0050+` ya da
+`db/migrations/00111+` yok (`for b in $(git for-each-ref --format='%(refname:short)' refs/heads refs/remotes); do git ls-tree -r
+--name-only $b -- docs/adr db/migrations | grep -E 'adr/005|migrations/001(1[1-9]|2)'; done` → boş; son ADR **0049**). Eklerin
+ADR'si **0050**, koşullu migration'ları **00119** / **00120** (yalnız ilgili seçenek seçilirse; seçilmeyen numara kullanılmaz). **Not (ana oturum, 2026-11-19):** paralel M16-19 şeridi ek bir
+`VALIDATE` migration'ı (00113) aldı ve sonraki ayırmaları bir kaydırdı (M16-23 → 00114, M16-25 → 00115, M16-30 → 00116, M16-35
+→ 00117 + 00118) — o kaydırma M16-19 dalındadır ve bu tabloya birleştirmede ana oturum işler; eklerin numaraları bu yüzden
+00118'den değil **00119**'dan başlar.
+Koşulsuz ekler migration istemez: talep okuması `punch_claims` (00068), içeride durumu `GetLastOpenTransaction`'ın zaten seçtiği
+`shift_*` sütunları (00095) üzerindedir.
+
 ADR: **0045** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
 Faz G'nin e-postayla girişi **ayrı ADR**dir: [0049](../adr/0049-calisanin-e-postayla-girisi.md) (*Önerildi*, M16-34'te
-kabul edilir).
+kabul edilir). Faz G eklerinin kararları **ADR 0050**'dir (öneri ad `0050-personel-uygulamasinin-yerel-yuzeyleri.md`; M16-42 yazar
+ve kabul ettirir).
 
 ## Kullanıcı tarafı ön koşulları
 
@@ -225,7 +247,11 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | **Canlı taban ölçümü** (salt okuma: adresli personel, KF/KM'de çift adres, davet hacmi, aktivasyon başarısızlığı, K-22 durumu) — kullanıcı ya da ana oturum | ADR 0049'un sayıları | M16-34 |
 | **Gizlilik bildiriminin yayımı** — hukukçu onayı + operatörden yayım | M16-38'in linki; mağaza gönderimi | M16-41 |
 | **App Store Connect inceleme notu ve Play inceleme erişimi** — davet linki ve (Q47 (a)) manager panel kimliği **yalnız** App Store Connect / Play Console'a yazılır, depoya asla (depo PUBLIC) | 2.1(a) | M16-39 |
-| Faz G'nin §9 kararları (panelin Saatlerim ayarı, e-postayla giriş ayarı ve panel sinyalleri, uygulama ana ekranı, Saatlerim'in durum görünümü, e-postayla giriş girişi) — AskUserQuestion + mockup | CLAUDE.md §9 | M16-30, M16-32, M16-33, M16-35, M16-36 |
+| Faz G'nin §9 kararları (panelin Saatlerim ayarı, e-postayla giriş ayarı ve panel sinyalleri, uygulama ana ekranı, Saatlerim'in durum görünümü ve bekleyen sayısı, e-postayla giriş girişi; **ekler:** *"Missing times"* ekranı ve girişi, hatırlatma ve sayaç aç/kapaları ile izin isteme anı, bildirim ve kilit ekranı metinleri, vardiyam satırı ve panel ayarı, her dilin tap/sonuç ekranı metni) — AskUserQuestion + mockup | CLAUDE.md §9 | M16-30, M16-32, M16-33, M16-35, M16-36, **M16-42** (M16-44 … M16-49) |
+| **Faz G eklerinin açık soruları** Q50 … Q54 — AskUserQuestion | K4 kullanıcı kararıdır (ADR 0032); bildirim, vardiya ve dil ürün kararıdır | M16-42 |
+| **iOS kilit ekranı uzantısının kimliği** (`mt.taptime.app.timer`, öneri) ve profili — otomatik imza kaydı yapabilir (doğrula, `project.pbxproj:387` `CODE_SIGN_STYLE = Automatic`) | yeni hedef = yeni bundle kimliği | M16-47 |
+| **Her ek dil için anadili konuşan bir onaycı** (adı repoya yazılmaz) | makine taslağı onaysız yayımlanmaz | M16-49 |
+| **Üretimde vardiya değerlerinin anlamı** (salt okuma: vardiyalı lokasyon/departman sayısı; değer açılış penceresi mi kişi vardiyası mı) — kullanıcı ya da ana oturum | Q52 (2)'nin gerekçesi | M16-42 |
 
 ## Kart listesi
 
@@ -267,6 +293,14 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | G | M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | iki |
 | G | M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (**M16-38'den önce**) | tek |
 | G | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | tek |
+| G | M16-42 | Faz G ekleri: ADR 0050, Q50–Q54 ve §9 kararları | iki |
+| G | M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | iki |
+| G | M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | iki |
+| G | M16-45 | `/app/v1/me`: içeride durumu, vardiya bitişi ve vardiyam (sunucu; koşullu 00119/00120) | iki |
+| G | M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | iki |
+| G | M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | iki |
+| G | M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | tek |
+| G | M16-49 | Dil: personel uygulamasının metinleri (Q54'e bağlı) | iki |
 | G | M16-39 | App Review hazırlığı: inceleme notu, basılabilir QR, inceleyicinin aktivasyonu | tek |
 | G | M16-40 | Faz G kapanışı | iki |
 | F | M16-27 | Gizlilik: `/legal/privacy`, mağaza etiketleri | tek |
@@ -1445,8 +1479,22 @@ tek cihazı iptal edebilmek.
 > **Yayından (Faz F) önce** gelir.
 >
 > **Uygulama sırası** (numara sırası değil): M16-30 → M16-31 → M16-32 → M16-33 → M16-34 → M16-35 → M16-36 → M16-37 →
-> **M16-41** → M16-38 → M16-39 → M16-40. M16-41 (gizlilik bildiriminin yayımı) denetim turunda eklendi ve M16-38'den
-> **önce** gelir; numarası bu yüzden sondadır.
+> **M16-41** → M16-38 → **M16-43 → M16-44 → M16-45 → M16-46 → M16-47 → M16-48 → M16-49** → M16-39 → M16-40. M16-41
+> (gizlilik bildiriminin yayımı) denetim turunda eklendi ve M16-38'den **önce** gelir; numarası bu yüzden sondadır.
+> **M16-42** (eklerin ADR'si ve soruları) M16-34 gibi belge kartıdır: M16-30 … M16-38 ile paralel yürür, M16-43'ten ve
+> M16-41'in metninden önce biter.
+>
+> **Ekler (kullanıcı kararı 6, 2026-11-19).** Sıranın gerekçesi: talep (M16-43/44) önce — sunucu yarısı canlıda (M15),
+> değeri en yüksek ve anomali listesinin *"çıkış eksik"*ini doğrudan azaltır; sonra tek sunucu kaynağı (M16-45) ve onu
+> okuyan üç uygulama kartı (M16-46 hatırlatma → M16-47 sayaç, ikisi aynı senkron fonksiyonu paylaşır → M16-48 vardiyam);
+> aç/kapalar M16-38'in Ayarlar ekranına girdiği için M16-38'den sonra; dil (M16-49) **son** — bütün yeni metinleri bir kez
+> çevirir; App Review (M16-39) hepsinden sonra, çünkü 4.2 notu bu yerel işlevleri anar. Q54 (5) dili yayından sonraya
+> atarsa M16-49 M16-40'ı bloklamaz. **Özellik → kart:** (1) M16-43, M16-44 · (2) M16-45, M16-46 · (3) M16-45, M16-48 · (4)
+> M16-45, M16-47 · (5) **yeni kart yok** — M16-31'in tel sözleşmesi durumu zaten taşır (`records[].state`: `waiting` /
+> `approved` / `rejected`; `records[].claim`: `pending` / `approved` / `rejected`); eksik olan yalnız pencere geneli bir
+> *"bekleyen"* sayısıdır → M16-31 ve M16-33'e **ek kriter** (bir sayım sorgusu, bir satır), talebin kendi durumu M16-43'ün
+> `sent` listesinde Saatlerim'den bağımsız; Saatlerim kapalı işletmede `flag` durumu görünmez (owner'ın kararı — Q48 (a)) ·
+> (6) M16-49. **Eklerin atıfları** `b3c877fd`'ye göredir.
 >
 > **Ortak kurallar.** (1) Yeni her çalışan yüzeyi tap ekranından **ayrıdır**; tap ekranı tek ekran, tek düğme kalır
 > (CLAUDE.md §9) — plaket linki, NFC okuması ve QR açılışı bugünkü gibi doğrudan tap ekranını açar. (2) Yeni her çalışan
@@ -1600,6 +1648,14 @@ işletmenin ayarı ve penceresi içinde.
   sayfa, ikisinde aynı `totals`; başka haftanın imleci 400. [G31-k] `qr_live` satırı `"qr_live"` döner. [G31-l] `cap = 3` ile 4
   satırlık hafta → `truncated:true`, `complete:false`; `cap = 4` → `truncated:false`; üretim kurulumu `cap = ReportEventCap`
   geçirir (kurucu testi).
+- **Ek (2026-11-19, kullanıcı kararı 6 — özellik 5 *"onay bekleyen kayıtlarım"*).** Yeni kart açılmadı: durum bu kartın
+  `records[].state` ve `records[].claim` alanlarıdır. Eklenen tek şey pencere geneli bir sayı — yanıtın kökünde
+  `"waiting": {"records": int, "claims": int}`: pencere `[P, now)` içinde kararı bekleyen `flag` satırları (`transaction_reviews`
+  satırı yok) ve karar satırı olmayan talepler (çapası pencerede); her sayfada ve her haftada aynı değer. **Üçüncü sqlc sorgusu**
+  `CountOwnWaiting` (öneri ad; `tenant_id = @tenant_id AND employee_id = @employee_id`, çıplak parametreler, `practice` hariç;
+  plan `EXPLAIN`'le) — kartın *"iki sqlc sorgusu"* araç satırı bununla üçtür. Ayar kapalıyken (404) sayı da yoktur. Test
+  [G31-m]: sayı, pencerenin her haftasındaki `state:"waiting"` satırlarının ve `claim:"pending"` çapalarının toplamına eşit;
+  karar verilince bir azalır.
 - M9-05'i **M16-40 kapatır** (state.md; bu kart değil).
 
 ## M16-32 — Saatlerim: tarayıcı sayfası
@@ -1673,6 +1729,13 @@ işletmenin ayarı ve penceresi içinde.
 - İki platform tek metin listesi (Android `IosCopyTest` deseni). Konum API'si yok — M16-13/M16-17'nin çağrı-yeri izin
   listeleri değişmez.
 - CLAUDE.md §9 *"Uygulama ekranları"* paragrafına ana ekran ve Saatlerim kararı (bu kartla).
+- **Ek (2026-11-19, özellik 5):** Saatlerim'in başında, `waiting` (M16-31 eki) sıfırdan büyükse tek bilgi satırı — öneri metin
+  *"2 records and 1 time claim are waiting for your manager."* (tekil/çoğul biçimleri; kelimeler §9 sorusu (3)'ün cevabıyla aynı
+  aile); gezinme yok. Ana ekrana sayı konmaz (1 (a)'da ana ekran tap ekranıdır). [G33-c] iki platformda satırın sıfırda
+  görünmediği ve sayıları doğru çoğullaştırdığı.
+- **Ek (M16-44):** ana ekranın yerleşimi sorusunda (1) *"Missing times"* girişinin yeri de gösterilir (M16-42'nin §9 adımı (1)
+  bu soruyla birlikte sorulur) — 1 (a)'da düğmenin altındaki metin bağlantıları ailesinde, yalnız talep kabul eden bir kayıt
+  varken.
 
 ## M16-34 — ADR 0049'un kabulü ve canlı taban ölçümü
 
@@ -2069,7 +2132,8 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
 
 ## M16-41 — Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce)
 
-- **Bağımlılık:** M16-37 (silme talebinin anlamı) · **kullanıcı + hukukçu**
+- **Bağımlılık:** M16-37 (silme talebinin anlamı) · **M16-42** (eklerin kararları — metin bir kez yayımlanır) · **kullanıcı +
+  hukukçu**
 - **Kırmızı çizgi:** — (GDPR Art. 13; mağaza beyanı yasal beyandır)
 - **Araç:** yapıcı alt ajan (metin taslağı, CLAUDE.md §10) + kullanıcı (onay ve yayım) · **Mercek: tek**
 - **Commit:** `docs(legal): describe the staff app before the store`
@@ -2084,8 +2148,10 @@ alınır; M16-27 mağaza etiketleri ve pazarlama cümleleriyle kalır.
 - `docs/legal/privacy-draft.md`'ye başlığı **`The Taptime staff app`** olan bir bölüm: toplanan (cihaz açık anahtarı, kaba
   cihaz etiketi, tap anında konum, sahte konum bayrağı, attestation sonucu — Faz E), **iş e-postası** (yalnız eşleşme ve
   gönderim; cihazda ve log'da yok — ADR 0049), **Saatlerim** (işletme açtıysa ve seçtiği pencere kadar; koordinat, IP, güven
-  puanı yok), **hesap silme talebi** (ne kapanır, ne kalır, işverene nasıl gider — panel + owner e-postası, Q46 (b)); **toplanmayan** (biyometri, arka plan
-  konum, reklam kimliği, analitik).
+  puanı yok), **hesap silme talebi** (ne kapanır, ne kalır, işverene nasıl gider — panel + owner e-postası, Q46 (b)); **ekler
+  (M16-42'nin cevaplarıyla):** uygulamadan gönderilen talep (işverenin `punch_claims` satırı; saat yalnız müdürün onayıyla
+  yazılır), **yerel hatırlatma ve kilit ekranı sayacı** (telefonda kurulur; push servisi yok, sunucu yeni veri toplamaz, konum
+  yok), vardiyam (işletme açtıysa); **toplanmayan** (biyometri, arka plan konum, reklam kimliği, analitik, push token'ı).
 - Hukukçunun onayı ve yayım **kullanıcıdadır** (operatör `/operator/legal`). Kabul: canlıda `curl -s https://taptime.mt/legal/privacy`
   çıktısında *"Not in force yet"* **yok** ve *"The Taptime staff app"* başlığı **var** (kullanıcı ya da ana oturum ölçer).
 - **Bu kart mağaza gönderimini de bloklar** (her iki mağaza gizlilik politikası URL'si ister).
@@ -2112,9 +2178,429 @@ alınır; M16-27 mağaza etiketleri ve pazarlama cümleleriyle kalır.
   Keychain sorgusu); [G38-c]/[G38-d] sahte logger ile ad ve işletme adının log çağrısına girmediği (M16-33'ün R7M eki
   `employeeName`'i de kapsar).
 
+## M16-42 — Faz G ekleri: ADR 0050, Q50–Q54 ve §9 kararları
+
+- **Bağımlılık:** — (M16-30 … M16-38 ile paralel yürüyebilir; M16-43 … M16-49'dan **önce** biter) · kullanıcı: Q50–Q54
+  (AskUserQuestion) ve §9 mockup onayları
+- **Kırmızı çizgi:** §4.2 (yerel bildirim ve kilit ekranı konum kullanmaz; konum tetikleyicisi ve geofence yok), §4.3 + §4.6
+  (talep kayıt değildir; kayıt yalnız müdürün onayıyla yazılır), §9
+- **Araç:** **yapıcı alt ajan** belge değişikliklerini yazar (CLAUDE.md §10); ana oturum yalnız AskUserQuestion'ları ve
+  mockup'ları sorar · **Mercek: iki**
+- **Commit:** `docs(adr): decide the staff app's claims, reminders, shifts and languages`
+
+**Amaç.** Kullanıcı kararı 6'nın (2026-11-19) altı ekini kod kartlarından **önce** kararla bağlamak: K4'ün uygulama girişiyle
+ilişkisi, yerel bildirimlerin ve kilit ekranının sınırları, vardiyanın hangi kaynaktan ve kimin izniyle gösterileceği, dil.
+
+**Kabul kriterleri.**
+- **Soru adımı:** [Q50](open-questions.md), Q51, Q52, Q53, Q54 kullanıcıya AskUserQuestion ile sorulur (her soruda önerilen
+  seçenek ilk sırada). Cevaplar `open-questions.md`'de *cevaplandı* olur; bu dosyada M16-43 … M16-49 seçilen dala daraltılır,
+  reddedilenler tek satırlık *"Reddedildi: … (kullanıcı, TARİH)"* notudur (Faz G'nin 2026-11-19 deseni). Kartlar önerilen
+  seçenekle yazılmıştır; cevap öneriden farklıysa kart düzeltmesi **bu kartta** yapılır ve yapıcı kart düzeltmesini okur.
+- **§9 adımı** (AskUserQuestion + iki platformun mockup'ları, skill `tappa-brand`; tek soru turu): (1) *"Missing times"*
+  ekranı ve ona giriş — M16-33'ün ana ekran cevabıyla birlikte (Q50 (1)); (2) Ayarlar'daki iki aç/kapa (*"Remind me to clock
+  out"*, *"Show a timer on the lock screen"*) ve izin isteme anı (Q51 (4), Q53 (1)); (3) bildirimin ve kilit ekranının metni
+  (M16-46, M16-47'nin öneri metinleri); (4) vardiyam satırı ve yeri (Q52); (5) Q54 bir dil eklerse her dilin tap ve sonuç
+  ekranı metni (CLAUDE.md §9: tap ekranında her değişiklik önce sorulur — çeviri anlamı değiştirmese de). Cevaplar kart
+  düzeltmesine; cevapsız bir şey kurulmaz.
+- **[ADR 0050](../adr/0050-personel-uygulamasinin-yerel-yuzeyleri.md)** (öneri ad; numara kart açılırken `main` ve dallar
+  yeniden okunarak kesinleşir) yazılır, *Önerildi* → kullanıcıya kabul ettirilir. İçerik: (i) uygulamadan talep ADR 0032 Faz
+  C'nin **ikinci giriş noktasıdır** — aynı `claim.Service.Submit`, aynı kişi kilidi, pencere, ön dolgu, `MaxBackdate`, tek
+  talep kuralı ve müdür kuyruğu; K4'ün bu girişe uygulanıp uygulanmadığı (Q50 (2)); (ii) yerel hatırlatma ve kilit ekranı
+  sayacı: sunucu push'u (APNs/FCM) **yok**, arka plan modu yok, konum yok, konum tetikleyicili bildirim yok
+  (`UNLocationNotificationTrigger` R2'ye girer — M16-46), Android'de foreground service ve açılışta uyanma
+  (`RECEIVE_BOOT_COMPLETED`) yok; anlar yalnız sunucunun `/me`'sinden; tarayıcıdan çıkışın bedeli (M16-46); (iii)
+  vardiyam'ın kaynağı (departman, yoksa profil lokasyonu), kapsamı (*"usual"*, tarih yok — roster yok) ve ayarı (Q52); (iv)
+  dil (Q54). Kırmızı çizgi analizi tablosu (§4.1–§4.7) ve *"Değerlendirilen alternatifler"* (sunucu push'u, foreground
+  service, `NotificationCompat`/WorkManager bağımlılığı, *"next shift"*) ADR'dedir.
+- **ADR 0032'ye append notu** (satır silinmez — kabul edilmiş ADR'nin ek deseni): *"Uygulama girişi (ADR 0050, TARİH): K4 …"*
+  — Q50 (2)'nin cevabını ve gerekçesini söyler; `TestClaimDB_TheCardIsShownOnTwoTapsOnly`'in ölçtüğü sonuç ekranı kuralı
+  değişmez.
+- **Q54 bir dil eklerse** CLAUDE.md §7'nin cümlesi (`CLAUDE.md:528-529`: *"Kullanıcıya görünen metinler ve bu repodaki
+  dokümanlar Türkçe/İngilizce olabilir."*) **kullanıcının onayıyla** bu kartta genişler — öneri metin: *"… Türkçe/İngilizce
+  olabilir; personel uygulamasının ekran metinleri ayrıca ADR 0050'nin dil listesindeki dillerde (kaynak dil İngilizce)."*
+  Log, hata mesajı ve identifier İngilizce kalır.
+- **Canlı taban ölçümü** (salt okuma; üretimde kullanıcı ya da ana oturum — yapıcı değil; sayılar ADR 0050'nin *Bağlam*ına):
+  (1) KF ve KM'de vardiyası dolu lokasyon ve departman sayısı ve değerleri (açılış penceresi mi kişi vardiyası mı — Q52 (2));
+  (2) son 30 günde açık kalan giriş sayısı (anomali listesinin *"çıkış eksik"*i) ve tarayıcıdan gönderilen talep sayısı
+  (`claim.submitted` audit satırları) — Q50'nin ihtiyacını ölçer; (3) son 30 günde `transactions.shift_source` dağılımı
+  (`department` / `location` / `none`) — hatırlatmanın kaç girişte kurulabileceğini öngörür (Q51 (2)).
+- `GOTOOLCHAIN=go1.26.11 go test -run 'TestEveryNamedTestExists' ./cmd/tappa/` ve `bash scripts/redline-check.sh` yeşil.
+
+## M16-43 — Unutulan çıkış talebi: sunucu (`POST /app/v1/claims`, `POST /app/v1/claims/send`)
+
+- **Bağımlılık:** M16-42 (Q50 cevaplandı, ADR 0050 kabul) · M16-10 (`/app/v1`) · M15-16/M15-17 (talep domain'i — canlıda)
+- **Kırmızı çizgi:** §4.3 (talep kayıt değildir; saati yalnız müdürün onayı manuel satırla yazar — mevcut kural), §4.5 (kimlik
+  doğrulanmış cihazdan; açık `tenant_id` **ve** `employee_id` + RLS), §4.6, §5 *"Unutulan çıkış"*, §7
+- **Araç:** yapıcı + agent `tappa-db-migrator` (bir sqlc sorgusu; migration yok) · **Mercek: iki**
+- **Commit:** `feat(app): let an employee send a missing time from the app`
+
+**Amaç.** Bugün yalnız tarayıcının sonuç ekranındaki kartla (M15-17) gönderilebilen *eksik yarı talebini* uygulamanın ana
+ekranından da gönderilebilir yapmak — **ikinci bir yazma yolu açmadan**: aynı `claim.Service.Submit`, aynı kişi kilidi, aynı
+pencere ve ön dolgu, aynı müdür kuyruğu. Kullanıcının örneği: dün çıkışı unutan çalışan, ertesi gün bir şey dokunmadan
+uygulamadan *"18:00'de çıktım"* der; müdür panelde onaylar.
+
+**Bugün (ölçüldü, `b3c877fd`).**
+- Çalışanın **tek** yolu sonuç ekranının kartıdır. Kart kayıt commit edildikten sonra `Tap.resultClaim`'de okunur
+  (`internal/handler/claim.go:117-151` → `claim.Service.Offer`, `internal/domain/claim/offer.go:35-95`); cevabı `POST
+  /api/claim` (`ClaimPath`, `claim.go:47`; rota tap zincirinde ve limiter'ında, askıyı bilmez — `internal/handler/tap.go:302`)
+  → `Tap.Claim` (`claim.go:298-395`) → `claim.Service.Submit` (`internal/domain/claim/submit.go:68-171`).
+- Kimlik `tappa_session` çerezidir; kartın *talep bağlamı* oturum id'sine bağlı bir MAC'tir (`internal/handler/claimcontext.go:151`
+  `mint`, `:169` `parse`; ömür 15 dk, `:65`). Çapa ve tür **yalnız** bağlamdan okunur (`claim.go:366-370`; ADR 0032 `:791` —
+  *"K4'ü gönderimde uygulayan tek şey budur"*).
+- `Submit` kişi kilidi (`LockEmployeeForTap`) altında hepsini **yeniden** sınar (`submit.go:51-67` listesi): kişi aktif, çapa
+  bu kişinin kaydı, çapada talep yok, eksik yarı hâlâ eksik (`Chain.Missing`), an pencerede (`Chain.WindowOf`), an
+  `manual.MaxBackdate` içinde (90 gün, `internal/domain/manual/manual.go:218`); ön dolguyu kendisi hesaplar; `audit_log`
+  `claim.submitted`, `ActorID` nil (`submit.go:157-159`).
+- Müdür onayı paneldedir: `/admin/review/claims` (GET `internal/handler/dashboard.go:67`, karar POST `:204` — ana yazma grubu,
+  askı kararı durdurur); `claim.Service.Decide` manuel satır + karar satırı + audit satırlarını tek transaction'da yazar (ADR
+  0032 §C.4). **Bu kart onay akışına dokunmaz.**
+- Uygulamanın tap yanıtı kartı taşımaz (`internal/handler/apptap.go:278-287`; `mobile/android/README.md:663-668`; M16-07 devri
+  (3)). **Bu kart o devri kapatmaz:** sonuç ekranı kartının uygulama eşi §9 sonuç ekranı değişikliğidir ve Faz G dışıdır
+  (*Sonra*).
+- K4 sonuç ekranında aynı eksik yarının **en çok iki kez** sorulmasıdır (ADR 0032 `:631-646`; kullanıcı kararı, `:11`;
+  `Chain.Shown`, `internal/domain/claim/chain.go:379`).
+
+**Kabul kriterleri** (Q50'nin önerileriyle yazıldı; başka cevapta M16-42 kart düzeltmesi yapar).
+- **Domain okuması (yeni):** `claim.Service.Open(ctx, tenantID, employeeID)` (öneri ad) — kişinin zincirinde, çapası `now − 7
+  gün` (Q50 (4)) ile `now` arasında olan **talep kabul eden her çapa**: `Chain.Missing(i)` dolu (`chain.go:140`),
+  `Chain.DayCutShort` değil (`:297`), `WindowOf(i, cutoff, now)` (`:233`) boş değil ve `now − MaxBackdate`'ten yeni, çapada
+  talep yok (`ListPunchClaimedAnchors`), çapanın `business_day_start`'ı dolu (Ü-Y2 — `Offer`'ın kuralı). Her çapa için
+  `Offer`'ın kurduğu **aynı** `Card` (`offer.go:19-25`; ön dolgu aynı `Prefill`, `chain.go:481`). Kilit yok, satır yok — `Offer`
+  gibi *"okuma ve yalnız okuma"*. Sıra: en yeni çapa önce; en çok 20 öğe (öneri). Q50 (2) (a) ile K4 uygulanmaz: iki
+  gösterimi geçmiş çapa da listededir.
+- **Gönderilmiş talepler (yeni sqlc sorgusu `ListOwnPunchClaims`, öneri ad, `db/queries/punchclaims.sql`):** kişinin
+  `created_at >= @since` (öneri `now − 30 gün`) taleplerinin `kind`, `claimed_at`, çapanın `occurred_at`'ı, kararın `outcome`'ı
+  ve `approved_at`'ı (karar satırı yok = bekliyor — `00068` iki tablosu). Kararın `note`'u ve `decided_by` **seçilmez**
+  (M16-31'in çalışan ekranı kuralı). Yüklemler `tenant_id = @tenant_id AND employee_id = @employee_id` (çıplak parametreler,
+  CLAUDE.md §6), `ORDER BY created_at DESC, id DESC LIMIT 50`; plan [G43-g]'de.
+- **Bağlam cihaza bağlıdır:** `claimContexts`'e `mintForDevice` / `parseForDevice` — `tapContexts`'in deseni
+  (`internal/handler/tapcontext.go:307` `signFor`, `:320` `appDeviceHolder`, `:325`, `:339`): aynı yük, etiket, anahtar ve 15 dk;
+  tutucu `app-device:<id>`. Oturumun bağlamı uygulamada, cihazın bağlamı `POST /api/claim`'de doğrulanmaz [G43-c].
+- **Uçlar** (`internal/handler/app.go` `Mount`, `:174-189`; başlık yorumunun rota tablosu `:33-47` genişler; `NewApp`'e bir
+  `appClaims` tüketici arayüzü — `Open`, `Submit`, gönderilenlerin okuması — CLAUDE.md §7; `cmd/tappa` kablolaması):
+  - **`POST /app/v1/claims`** — imzalı okuma (`authRead`, `app.go:329`); `GET` değil: imzalı okuma sorgu dizgesini reddeder
+    (`internal/appdevice/read.go:114`) ve ileride sayfalama gövdede taşınır (M16-31'in gerekçesi). Gövde `{}`
+    (`DisallowUnknownFields`). Yanıt (200):
+    `{"open":[{"context":string,"kind":"in"|"out","anchorDate":"YYYY-MM-DD","anchorAt":"HH:MM","day":"today"|"yesterday"|"earlier",`
+    `"venue":string,"windowFrom":{"at":"HH:MM","inclusive":bool},"windowTo":{"at":"HH:MM","inclusive":bool},"prefill":"HH:MM"|null}],`
+    `"sent":[{"kind":"in"|"out","anchorDate":"YYYY-MM-DD","anchorAt":"HH:MM","claimedAt":"HH:MM","state":"pending"|"approved"|"rejected","approvedAt":"HH:MM"|null}]}`
+    Saatler ve tarihler işletmenin diliminde, **sunucuda** (§6; `claimCardView`'ın kuralı, `claim.go:169-200`). `day` sunucunun
+    *şimdi*sine göre işletmenin takvim günüdür — tarayıcıda kartı gösteren dokunuşa göreydi; uygulamada dokunuş yok
+    (adlandırılmış fark, ekran cümlesi aynı kalır). `venue` ledger'ın adlandırması (holding dokunuşunda eş mekânın adı).
+    Deaktive kişide `open` boş (`Submit` zaten reddederdi), `sent` dolu.
+  - **`POST /app/v1/claims/send`** — nonce'lu imza (`authRequest`, `app.go:346`): bir yazmadır, `POST /app/v1/tap` gibi. Gövde
+    `{"context":string,"at":"HH:MM"|"HH:MM:SS"}` (`DisallowUnknownFields`). Sıra: imza → cihaz kovası (`AllowDevice`) → gövde →
+    `parseForDevice` → `parseWallClock` (`claim.go:213`) → `resolveClaimedAt` (`:242`) → `Submit` — `Tap.Claim`'in sırası ve
+    kuralı **birebir**, *"zaten gönderildi pencereden önce"* dahil (`claim.go:351-365`). Ortak gövde tek bir yardımcıya çıkarılır
+    ve iki yüzey onu koşar (yapıcı adlandırır); **`Submit`'e üçüncü bir çağıran eklenmez** [G43-j].
+  - **Sonuçlar veridir, hata değil** (tap yanıtının `outcome` deseni): 200 `{"result":"sent"|"already_sent"|"outside_window"|"expired"|"resolved"|"not_active"}`.
+    `already_sent` ekranda *"Sent"*tir (ADR 0032 §C.5). Bozuk, süresi geçmiş ya da başka cihazın bağlamı → var olan
+    `stale_context` (`appErrors`, `app.go:241`) — kapalı hata sözlüğüne **yeni kod eklenmez**; 401'ler M16-07'nin tek cevabı.
+- **Audit izi:** `claim.submitted`'in `detail`'ine isteğe bağlı `"via":"app"` (`submitDetail`, `submit.go:39-49`; `claim.Claim`'e
+  bir `Via` alanı). Tarayıcı yolu alanı yazmaz; `Submit`'in sınamaları değişmez. Gerekçe: M16-29 pilotunun *"uygulamadan
+  gönderilen talep"* sayısı audit'ten okunur.
+- **Askı** (ADR 0025): `POST /api/claim` gibi askıyı bilmez (`internal/domain/claim/claim.go` paket yorumu, *SUSPENSION*);
+  karar panelde olduğu için askıda durur.
+- **Log:** `Tap.Claim`'in satırları (opak id, tür); `at`, ad, mekân yok.
+- **Tel sözleşmesi:** M16-07'nin tablosuna iki satır; `TestAppContract_RequestShapes` / `TestAppContract_ResponseShapes`
+  (`internal/handler/app_test.go`) genişler.
+- **Testler** (DB, gerçek Postgres). [G43-a] Uygulamadan gönderilen talep tarayıcıdakiyle aynı satırı yazar: bir
+  `punch_claims` satırı, `prefilled_at` sunucunun, bir `claim.submitted` satırı `via:"app"` ile; `transactions` sayısı
+  değişmez. [G43-b] Aynı çapaya ikinci gönderim `already_sent`, tek satır (`TestSubmitDB_ASecondSendIsAlreadySent`'in ikizi).
+  [G43-c] Tarayıcı bağlamı uygulama ucunda `stale_context`; uygulama bağlamı `POST /api/claim`'de *"expired"* sayfası; ikisinde
+  de satır yok. [G43-d] X'in cihazı Y'nin bağlamını kullanamaz (`stale_context`); X'in cihazına basılmış bağlamda çapa yalnız
+  X'indir. [G43-e] RLS: A bağlamı B'nin `punch_claims` satırını görmez (açık süzgeçsiz ifadeyle). [G43-f] `Open`'ın her kartı
+  aynı çapa ve aynı `now` için `Offer`'ın kartıyla aynı `Kind`, `Window`, `Prefilled`; iki gösterimi geçmiş çapa listede (Q50
+  (2) (a)). [G43-g] `EXPLAIN` — iki okuma indeks kullanır. [G43-h] Deaktive kişi: `open` boş, `send` → `not_active`, satır yok.
+  [G43-i] Uygulamadan gelen talebin onayı tarayıcıdakiyle aynı manuel satırı yazar (`claim.Decide` değişmeden). [G43-j] statik:
+  `Submit`'in üretim çağıranları tam olarak ortak yardımcıdır (`go/ast` ya da `grep` sayımı). Komut: `GOTOOLCHAIN=go1.26.11 go
+  test -run '<G43 testlerinin adları>' ./internal/domain/claim/ ./internal/handler/`.
+
+## M16-44 — Unutulan çıkış talebi: uygulama ekranı — iOS + Android
+
+- **Bağımlılık:** M16-43, M16-33 (ana ekran), M16-42'nin §9 cevabı (1)
+- **Kırmızı çizgi:** §9 (yeni çalışan ekranı; tap ve sonuç ekranına girmez), §4.2 (bu ekranda konum çağrısı yok), §7
+- **Araç:** iki yapıcı paralel (iOS, Android) + skill `tappa-brand` · **Mercek: iki**
+- **Commit:** `feat(mobile): send a missing clock-in or clock-out time`
+
+**Kabul kriterleri.**
+- **Giriş yeri M16-42'nin §9 cevabıdır** (öneri Q50 (1) (a)): ana ekranda yalnız `open` boş değilken görünen *"Missing times"*
+  girişi. M16-33'ün cevabı 1 (a) ise (tap ekranı ana ekrandır) giriş, düğmenin altındaki *"My hours"* / *"Settings"* metin
+  bağlantılarının ailesidir — accent'siz, düğmenin altında, onaylanmış mockup'taki yerde; 1 (b) ise ana ekranın satırı.
+  **Sonuç ekranına hiçbir şey eklenmez.** Saatlerim açıksa açık kaydın satırı da aynı ekrana götürür.
+- **Kart metni tarayıcınınkinin birebir eşidir** — `claimCardView` (`internal/handler/claim.go:153-200`): *"You clocked in at
+  11:00 and didn't clock out."* / *"Yesterday you clocked in at 09:12 but there's no clock-out."* / *"On Mon 19 Oct you clocked
+  in at 09:12 but there's no clock-out."* ve giriş taleplerinin üç ikizi; ardından *"What time did you leave?"* / *"What time did
+  you come in?"*. Cümle `day` + `anchorDate` + `anchorAt`'tan kurulur; tarih biçimi Go'nun `"Mon 2 Jan"`'ının aynısı. Saat
+  alanı `prefill` ile dolu ya da boş ve zorunlu; düğme *"Send to my manager"*, altında *"You can skip this."* (M15-17,
+  `web/templates/pages/claim.templ:25-58` yapıcıca okunur).
+- **Cevaplar:** `sent` / `already_sent` → tarayıcının *ClaimSent* metni; `outside_window` → kart, tarayıcının cümlesiyle
+  yeniden: *"That time does not fit this record. It has to be <pencere>."* — pencere `claimWindowPhrase`'in kuralıyla
+  (`internal/handler/claimqueue.go:437-446`: dışlanmış uç *"after"* / *"and before"*, dahil uç *"from"* / *"up to"*);
+  `expired` / `resolved` / `not_active` → tarayıcının üç problem ekranının başlık / mesaj / ipucu üçlüsü (`claim.go:66-92`,
+  *"Your tap itself is recorded."* cümlesi yerine `[adapted]` bir cümle — burada dokunuş yok; öneri: *"Nothing was sent to
+  your manager."* yalnız; §9 sorusuyla). Boş alan → *"Enter the time, then send it."* (`claim.go:356`).
+- **Gönderilenler (`sent`)** aynı ekranın altında: kelimeler M16-32'nin §9 cevabıyla aynı aile (öneri (b) düz kelimeler:
+  *"Waiting for your manager"* / *"Approved"* / *"Not approved"*); onaylanan saat `approvedAt` (müdürün *Edit*'i yüzünden talep
+  edilenden farklı olabilir — ADR 0032 §C.2; ekran ikisini de söyler).
+- Bağlam 15 dk'dır: ekran her açılışta ve ön plana dönüşte listeyi yeniden okur; `stale_context` → liste yenilenir, kişinin
+  yazdığı saat alanda kalır.
+- İki platform tek metin listesi: iOS'ta yeni `ClaimCopy` (öneri ad; `mobile/ios/Taptime/TapCopy.swift`'in deseni ve başlık
+  yorumu, `[app]` / `[adapted]` işaretleri — `TapCopy.swift:10-16`), Android `res/values/strings.xml`; `IosCopyTest`'in `shared`
+  listesi genişler (`mobile/android/app/src/test/kotlin/mt/taptime/app/IosCopyTest.kt:39-56`).
+- Talepler ve saatler cihazda saklanmaz; log yok. [G44-a] Android JVM, [G44-b] iOS birim: sahte logger ile cevap işleyen kod
+  yolunun log çağrısı yapmadığı. R7M'ye `claimedAt|anchorAt` tetikleyicisi (gürültü önce ölçülür — değişiklikten önce ve sonra
+  `bash scripts/redline-check.sh` çıktısı karta) ve pini `TestRedline_M16_MobileLogCalls` genişler.
+- Konum API'si yok — M16-13/M16-17'nin çağrı-yeri izin listeleri değişmez. [G44-c] iki platformda gönderim akışı sahte sunucuyla:
+  `context` + `at` gövdesi, nonce'lu imza, dört sonucun dört ekranı.
+
+## M16-45 — `/app/v1/me`: içeride durumu, vardiya bitişi ve vardiyam (sunucu)
+
+- **Bağımlılık:** M16-42 (Q51, Q52, Q53 cevaplandı) · M16-10
+- **Kırmızı çizgi:** §4.5, §5 *"Geç kalma"* (vardiya çözümü), §6 (UTC; yerel saat yalnız yanıtın biçiminde), §7
+- **Araç:** yapıcı (+ agent `tappa-db-migrator` yalnız Q52 (2) (c) seçilirse — 00119; Q51 (3) (b) seçilirse — 00120) ·
+  **Mercek: iki**
+- **Commit:** `feat(app): tell the app when its person is at work and when the shift ends`
+
+**Amaç.** Hatırlatma (M16-46), kilit ekranı sayacı (M16-47) ve vardiyam (M16-48) için **tek** sunucu kaynağı. Uygulama yön,
+süre ya da vardiya hesaplamaz; sunucunun verdiği anları kullanır (miras kısıt: sunucu karar verir).
+
+**Bugün (ölçüldü).**
+- `GET /app/v1/me` `{"employeeName","brand","direction"}` döndürür (`internal/handler/apptap.go:76-81`, `:87`; rota
+  `app.go:186`). Yön `tenant.Directory.AppHome` → `predictTap`'tendir (`internal/domain/tenant/apphome.go:55-100`,
+  `tapprediction.go:47`): kişi aktif ve iş günü anahtarı açıksa `GetLastOpenTransaction` (`db/queries/transactions.sql:16`, `@at =
+  now`, `tapprediction.go:63`) ve `tap.PredictDirection`.
+- O sorgu açık girişin **dondurulmuş vardiyasını** zaten seçer (`shift_source, shift_start, shift_end, shift_overnight,
+  shift_timezone` — `transactions.sql:149-150`; ADR 0042, migration 00095): motorun o dokunuşu ölçtüğü vardiya — departmanınki,
+  yoksa **dokunulan** lokasyonunki (`internal/domain/checkin/checkin.go:1462-1463`, `:1490`, `:1511-1522`; CLAUDE.md §5).
+- **Vardiya modeli:** `locations` ve `departments`'ta günlük duvar saati `shift_start` / `shift_end` / `overnight`
+  (`db/migrations/00002_create_locations_departments.sql:32-34`, `:79-81`); haftanın günü yok; **vardiya planı (roster) tablosu
+  yok** (`git grep -n -i -E 'create table [a-z_]*(roster|schedule|rota|shift)' -- db/migrations` → 0 satır). Çalışanın profil
+  lokasyonu `employees.location_id` (`db/migrations/00003_create_employees_sessions.sql:32`), departmanı isteğe bağlı (`:40`).
+  Örnek veride KF mekân vardiyası 10:00–22:00'dir (`test/fixtures/seed.sql:174`) — bir açılış penceresi, bir kişinin vardiyası
+  değil; **üretim değerleri ölçülmedi** (M16-42'nin taban ölçümü (1)).
+- `claim` paketi `tenant`'ı içe aktarır (`internal/domain/claim/chain.go:499-500`, `tenant.CutoffBandBefore`) — `tenant` paketi
+  `claim.SpanOf`'u (`chain.go:465`) çağıramaz (döngü). `SpanOf` `tap.ShiftSpanAt`'in (`internal/domain/tap/decide.go:504`) ince
+  sarmalayıcısıdır.
+
+**Kabul kriterleri.**
+- `AppHomeFacts`'e (`apphome.go:21-34`) `OpenIn *OpenIn` (öneri ad: `At time.Time`, `Shift *tap.Shift` — satırın `shift_*`
+  sütunlarından, `checkin.shiftOf`'un kuralıyla; `'none'` ya da NULL → nil). **Yalnız** `Prediction != nil &&
+  Prediction.Direction == tap.TypeOut` iken dolu: motor bir sonraki dokunuşu **çıkış** sayacakken. Önceki iş gününden ya da
+  bayat kalmış açık giriş (`Prediction.LeftOpen`) içeride sayılmaz. Aynı transaction, `predictTap`'in **aynı** satırı — ikinci
+  sorgu yok.
+- **Yanıt eki** (`appMeResponse`; iki uygulama bilinmeyen alanı yok sayar — Faz G ortak kural (3)):
+  `"presence": {"inSince": RFC3339, "shiftEndsAt": RFC3339|null, "remindAt": RFC3339|null, "staleAt": RFC3339} | null`
+  - `shiftEndsAt` = `tap.ShiftSpanAt(inSince, shift)`'in sonu; vardiya yoksa null. Talep kartının çıkış ön dolgusuyla aynı an
+    ([G45-b]).
+  - `remindAt` = `shiftEndsAt + 30 dk` (Q51 (1) (a)); vardiya yoksa null (Q51 (2) (a)); Q51 (3) (b) seçildiyse işletme ayarı
+    kapalıyken null. Geçmişte de olsa döner — uygulama geçmiş bir anı kurmaz (M16-46).
+  - `staleAt` = `inSince + tap.StaleOpenIn` (18 sa, `decide.go:558`): bu andan sonra açık giriş bayattır ve bir sonraki dokunuş
+    giriştir — sayaç ve bildirim en geç burada kalkar.
+  - Deaktive kişide, iş günü anahtarı kapalıyken ve tahmin okunamadığında `presence` null (bugünkü `direction`'ın kuralı).
+- **Vardiyam** (Q52 (1) (a), (2) (c) öneri): `"shift": {"start":"HH:MM","end":"HH:MM","overnight":bool,"venue":string} | null` —
+  kişinin departman vardiyası, yoksa **profil** lokasyonunun vardiyası; `venue` o lokasyonun adı (departman vardiyasında
+  departmanın lokasyonu). Burada dokunulan lokasyon yoktur: CLAUDE.md §5'in *"profildeki lokasyon değil"* kuralı **geç
+  kalmanın** kuralıdır ve bu alan geç kalma hesaplamaz; ekran *"usual"* der (M16-48). Yalnız işletme ayarı açıkken dolu:
+  - **00119** `ALTER TABLE tenants ADD COLUMN staff_shift_visible boolean NOT NULL DEFAULT false` (PG11+ varsayılanı katalogda —
+    tablo yeniden yazılmaz) + `SET LOCAL lock_timeout = '1s'` + `GRANT UPDATE (staff_shift_visible) ON tenants TO tappa_app`;
+    `Down` `DROP COLUMN` (yapılandırmadır — `00064:181-182` emsali).
+  - Panel: owner, Account ekranında M16-30'un kontrolünün yanında aç/kapa; değişiklik ve `audit_log` `tenant.staff_shift_updated`
+    (`{"before":bool,"after":bool}`) tek transaction'da; yalnız owner (`brandEditorRole`, `internal/domain/tenant/brand.go:125`);
+    panel metni (anlamı) *"Shows each employee the shift times set on their department, or else on their home venue. Check that
+    these are real shift times, not opening hours."*; görünüm §9 sorusudur (M16-42 (4)).
+  - M16-30'un kırmızıya dönecek testleri aynı nedenle burada da: `privCatalogAllowed` satırı genişler
+    (`…,staff_hours_weeks,staff_shift_visible`), `opAtVersionSkips` haritasına 00119, `m11Columns`'a girdi.
+  - Q52 (1) (a) reddedilirse alan da 00119 de yoktur; (2) (a) ya da (b) seçilirse 00119 yoktur ve kapı ayarsız ya da
+    `staff_hours_weeks IS NOT NULL`'dır.
+- **Q51 (3) (b) seçilirse** (öneri değil): **00120** `tenants.staff_reminders boolean NOT NULL DEFAULT false`, aynı desen
+  (GRANT, audit `tenant.staff_reminders_updated`, owner kontrolü, aynı kırmızı testler); kapalıyken `remindAt` null.
+- **Tap yanıtı değişmez** (`appTapResponse`, `apptap.go:278-287`): uygulama bir dokunuş sonucundan sonra `/me`'yi yeniden okur
+  (M16-46). Tarayıcıya dokunulmaz.
+- **Testler** (DB). [G45-a] Açık giriş 09:00, vardiya 09:00–17:00 → `inSince` 09:00, `shiftEndsAt` 17:00, `remindAt` 17:30,
+  `staleAt` ertesi gün 03:00 (UTC karşılıkları); çıkıştan sonra `presence` null. [G45-b] `shiftEndsAt` = aynı çapa için
+  `claim.Prefill(claim.KindOut, …)`'in değeri (pencere içindeyken). [G45-c] Gece vardiyası (18:00–02:00, `overnight`) → bitiş
+  ertesi gün 02:00; Malta'nın Mart ve Ekim saat değişimi günlerinde doğru UTC. [G45-d] Önceki iş gününden kalmış açık giriş →
+  `presence` null. [G45-e] `shift_source='none'` → `shiftEndsAt` ve `remindAt` null, `inSince` dolu. [G45-f] Deaktive kişi →
+  `presence` null. [G45-g] (Q52 (2) (c)) ayar kapalı → `shift` null; açık + departman vardiyası → departmanınki; departmansız →
+  profil lokasyonununki. [G45-h] Sözleşme şekli (`TestAppContract_ResponseShapes` genişler). [G45-i] (Q52 (2) (c)) owner
+  değiştirir → sütun + audit aynı transaction; manager ve başka işletmenin owner'ı reddedilir; RLS. Komut:
+  `GOTOOLCHAIN=go1.26.11 go test -run '<G45 testlerinin adları>' ./internal/domain/tenant/ ./internal/handler/ ./internal/db/`.
+
+## M16-46 — "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android)
+
+- **Bağımlılık:** M16-45, M16-38 (Ayarlar ekranı), M16-42 (Q51 ve §9 (2), (3))
+- **Kırmızı çizgi:** §4.2 (konum yok, konum tetikleyicisi yok, arka plan modu yok), §9 (izin tap, sonuç ve aktivasyon ekranında
+  istenmez), §7
+- **Araç:** iki yapıcı paralel + skill `tappa-brand` · **Mercek: iki**
+- **Commit:** `feat(mobile): remind an employee who may have forgotten to clock out`
+
+**Amaç.** Unutulan çıkışı **önlemek**: telefon, sunucunun verdiği ana (`presence.remindAt`) **kendi** yerel bildirimini kurar. Push
+altyapısı (APNs/FCM) yok, sunucu telefonu uyandırmaz, konum okunmaz, sistem hiçbir kayıt üretmez (CLAUDE.md §5 *"Unutulan
+çıkış"*: kaydı yine kişi dokunarak ya da müdür yazar).
+
+**Bugün (ölçüldü).** iOS: ön plana dönüşte `AppModel.scenePhase` `tap.home()`'u, o da `/me`'yi çağırır
+(`mobile/ios/Taptime/AppModel.swift:103-139`); `UIBackgroundModes` yoktur ve pinlidir (`mobile/ios/TaptimeTests/InfoPlistTests.swift:38`,
+`testNoBackgroundModeAndNoAlwaysLocation`). Android: `/me` yalnız açılışta (`mobile/android/app/src/main/kotlin/mt/taptime/app/MainActivity.kt:152`)
+ve yeniden denemede okunur, `onResume` (`:178`) yalnız NFC okuyucusunu kurar; izinler kapalı bir listedir
+(`mobile/android/app/src/main/AndroidManifest.xml:13-17`) ve birleşik manifesti `MergedManifestTest` tutar
+(`theMergedManifestAsksForTheClosedListOnly`, `MergedManifestTest.kt:46`); manifest *"This app registers no broadcast
+receiver"* der (`AndroidManifest.xml:29-36`). `minSdk 26`, `targetSdk 36` (`mobile/android/app/build.gradle.kts:46-47`) —
+bildirim kanalları ve `setAndAllowWhileIdle` platformda vardır. R2'nin konum kalıpları `UNLocationNotificationTrigger`'ı
+**içermez** (`scripts/redline-check.sh:511`).
+
+**Kabul kriterleri.**
+- **Açma (Q51 (4) (a) öneri):** Ayarlar'da *"Remind me to clock out"*, **varsayılan kapalı**; açılırken izin istenir — iOS
+  `UNUserNotificationCenter.requestAuthorization(options: [.alert, .sound])`, Android 13+ `POST_NOTIFICATIONS` çalışma anı isteği
+  (26–32'de izin gerekmez). İzin **hiçbir zaman** tap ekranında, sonuç ekranında ya da aktivasyon ailesinde istenmez (CLAUDE.md
+  §9). İzin reddedilmişse aç/kapa kapalı kalır, satır (öneri) *"Notifications are off for Taptime in your phone's Settings."*
+  der. Tercih cihazda yalnız bir bayraktır (`UserDefaults` / `SharedPreferences`; saat, an, ad değil).
+- **Tek senkron fonksiyonu** (öneri ad `PresenceSync`; M16-47 aynısını kullanır): girdi `/me`'nin `presence`'ı ve tercih; çıktı:
+  `remindAt` dolu ve (sunucu saatiyle düzeltilmiş) şimdiden sonraysa **tek** bekleyen bildirim — sabit bir kimlikle, yenisi
+  eskisinin yerini alır — değilse hiç. Çağrıldığı yerler: (1) her dokunuş sonucundan sonra (`ok` / `flag`): yanıt gelince `/me`
+  yeniden okunur — tap ve sonuç ekranının görünüşü **değişmez**; (2) uygulama ön plana geldiğinde (iOS'un mevcut kancası;
+  **Android'e `onResume`'da `/me` okuması eklenir**, ekranı değiştirmeden); (3) *Remove this phone*, *Delete my account* ve
+  oturum 401'i → bekleyen silinir; (4) aç/kapa kapatılınca silinir. Saat dönüşümü uygulamanın sunucu saati düzeltmesiyle
+  (`mobile/ios/Taptime/ServerClock.swift`, `mobile/android/.../wire/ServerClock.kt`).
+- **iOS — en dar API:** `UNTimeIntervalNotificationTrigger(timeInterval:repeats: false)` (aralık = `remindAt` − düzeltilmiş
+  şimdi); `UNLocationNotificationTrigger` **yok**. Yeni Info.plist anahtarı, entitlement ve arka plan modu yok — `InfoPlistTests`
+  değişmeden yeşil.
+- **Android — en dar API:** platform `AlarmManager.setAndAllowWhileIdle(RTC_WAKEUP, …)` — **kesin olmayan** alarm, dolayısıyla
+  `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` izni yok (birkaç dakikalık kayma kabul; Doze'daki gecikme gerçek cihazda M16-40'ta
+  ölçülür — doğrula) — + `PendingIntent.FLAG_IMMUTABLE` + manifestte `android:exported="false"` bir `BroadcastReceiver` →
+  platform `NotificationManager`, kanal *"Clock-out reminders"* (öneri). **androidx `NotificationCompat` ve WorkManager yok**
+  (onaylı Compose kümesi dışında doğrudan bağımlılık olurdu — CLAUDE.md §1; `minSdk 26` platform API'lerini yeterli kılar).
+  `RECEIVE_BOOT_COMPLETED` **yok**: yeniden başlatma bekleyen hatırlatmayı siler, uygulama bir sonraki açılışta yeniden kurar
+  (adlandırılmış bedel; açılışta uyanmak bir arka plan başlatmasıdır). Manifest yorumu (`AndroidManifest.xml:29-36`) düzeltilir:
+  `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` kaldırması **kalır** (manifestte tanımlı alıcı çalışma anında kaydedilmez — yorumun
+  kendi *"revisited"* kuralı). Birleşik manifeste yalnız `android.permission.POST_NOTIFICATIONS` girer; `MergedManifestTest`'in
+  kapalı listesi ve alıcının `exported=false` olduğunu söyleyen yeni bir vaka genişler.
+- **Metin** (öneri; tarayıcıda karşılığı yok → `[app]`; §9 sorusu M16-42 (3)): başlık *"Still at work?"*, gövde *"If you've
+  finished, remember to clock out. Your shift ended at 17:00."* — **koşullu** dil: kişi tarayıcıdan çıkmış ya da hâlâ çalışıyor
+  olabilir (aşağıda); bildirim çalışmayı bitirmeye çağırmaz. İşletme adı, mekân ve kişinin adı **yok** (kilit ekranında
+  görünür). Bildirime dokunmak uygulamanın ana ekranını açar (M16-33'ün cevabı; plaket okumaz).
+- **Bedel — tarayıcıdan çıkış:** kişi çıkışı tarayıcıyla yaparsa sunucu telefona haber veremez (push yok) ve kurulu bildirim yine
+  düşer. Hafifletme: (i) koşullu metin; (ii) uygulamanın her ön plana gelişi ve her dokunuşu yeniden senkronlar; (iii)
+  `staleAt`'ten sonra hiçbir bildirim kurulmaz. M16-40 bunu ölçer.
+- **R2 genişler:** `UNLocationNotificationTrigger` `R2_LINE`'a (`scripts/redline-check.sh:511`) eklenir — bölge girişi tetikleyen
+  bildirim bir geofence'tir (§4.2); pin `TestRedline_M16_MobileBackgroundLocation` (`cmd/tappa/scripttest/redline_m16_test.go:150`)
+  kırmızı bir vakayla genişler.
+- **Testler.** [G46-a] iOS birim, [G46-b] Android JVM — `PresenceSync` sahte bildirim merkezi / alarm yöneticisiyle:
+  `presence` null → bekleyen yok; `remindAt` gelecekte → tek bekleyen, sabit kimlik; ikinci senkron ikinciyi eklemez; `remindAt`
+  geçmişte → yok; tercih kapalı → yok; 401 → silinir. [G46-c] iki platformda sahte logger: `remindAt` / `inSince` log'a girmez.
+  [G46-d] Android birleşik manifest: tek yeni izin, alıcı `exported=false`; `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE*`,
+  exact-alarm izinleri yok.
+
+## M16-47 — Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim
+
+- **Bağımlılık:** M16-46 (`PresenceSync`), M16-45, M16-42 (Q53 ve §9 (2), (3)) · kullanıcı: iOS uzantısının bundle kimliği ve
+  imzası (ön koşullar tablosu)
+- **Kırmızı çizgi:** §4.2 (arka planda süreç yok, konum yok, foreground service yok), §9, §7
+- **Araç:** iki yapıcı paralel + skill `tappa-brand` · **Mercek: iki**
+- **Commit:** `feat(mobile): show the time at work on the lock screen`
+
+**Bugün (ölçüldü).** Xcode projesinde iki hedef vardır — uygulama ve birim testleri (`mobile/ios/Taptime.xcodeproj/project.pbxproj:201`,
+`:219`); dağıtım hedefi **iOS 15.0** (`:354`; pin `InfoPlistTests.swift:23` — iPhone 7'nin son sürümü 15.x); imza otomatik
+(`:387`); entitlement listesi iki öğedir (`mobile/ios/Taptime/Taptime.entitlements`). Swift Package / CocoaPods yok (Q36).
+`mobile/` altındaki her uygulama kaynağı taranır (S1, `scripts/redline-check.sh:55-56`).
+
+**Kabul kriterleri.**
+- **Açma (Q53 (1) (a) öneri):** Ayarlar'da *"Show a timer on the lock screen"*, varsayılan kapalı; Android'de M16-46'nın bildirim
+  izniyle aynı izin; iOS'ta sistemin Live Activity izni (Ayarlar → Taptime) kapalıysa satır bunu söyler.
+- **Sayaç yalnız sunucunun anından türer:** `presence.inSince` (düzeltilmiş sunucu saatiyle); uygulama yön tahmin etmez, kendi
+  saymaz — çizimi sistem yapar. Başlat / güncelle / bitir `PresenceSync`'tedir (M16-46): `presence` null → sayaç biter.
+- **iOS:** ActivityKit Live Activity, **iOS 16.1+** (`if #available`); iOS 15'teki telefonlar (iPhone 7 dahil) sayaç görmez
+  (Q53 (3) (a); uygulamanın dağıtım hedefi 15.0 kalır). Yeni **Widget Extension** hedefi `mobile/ios/TaptimeTimer/` (öneri ad;
+  `mobile/` altında, S1 tarar): kendi Info.plist'i (`NSExtension` → `NSExtensionPointIdentifier = com.apple.widgetkit-extension`),
+  dağıtım hedefi 16.1, bundle kimliği `mt.taptime.app.timer` (öneri; Q35 kimliğinin alt kimliği), uygulama hedefine gömme adımı
+  (*Embed Foundation Extensions*); ortak `ActivityAttributes` tipi iki hedefin üyesi olan tek dosyada. Uygulamanın Info.plist'ine
+  `NSSupportsLiveActivities = YES`; kullanım açıklaması anahtarı **eklenmez** (`testOnlyTheTwoAllowedUsageDescriptions` yeşil
+  kalır). Yerel başlatma `Activity.request(attributes:content:pushType: nil)` — **push token yok**; görünüm
+  `Text(timerInterval: inSince...staleAt, countsDown: false)`; `staleDate = staleAt`. Uzantının entitlement'ı yok (doğrula: yerel
+  Live Activity entitlement istemez). ⚠️ **Doğrula** (Apple belgesi kartın turunda okunur): bir Live Activity'nin en uzun etkin
+  süresi (bilinen değer ~8 sa, sonra kilit ekranında bir süre daha durur) — vardiya bunu aşarsa sayaç sistemce biter; sayaç
+  `inSince`'ten türediği için hiçbir zaman yanlış süre göstermez, yalnız kaybolur (adlandırılmış bedel). Live Activity yalnız
+  uygulama ön plandayken başlatılabilir (doğrula) — dokunuş sonucu ve ön plana dönüş zaten öyledir.
+- **Android:** platform `Notification.Builder` ile **süren (ongoing)** bildirim: `setOngoing(true)`, `setUsesChronometer(true)`,
+  `setWhen(inSince)`, `setTimeoutAfter(staleAt − şimdi)`, düşük önemli sessiz kanal *"At-work timer"* (öneri). **Foreground
+  service YOK** — `FOREGROUND_SERVICE*` izni yok: sürekli çalışan süreç §4.2'nin ruhuna ve Play'in foreground service beyanına
+  aykırıdır; kronometreyi sistem arayüzü çizer, uygulama süreci gerekmez. ⚠️ Doğrula: Android 14+'ta süren bildirimi kullanıcı
+  kaydırarak kapatabilir (foreground service dışında); kapatılırsa (Q53 (4) (a)) aynı `inSince` için yeniden gösterilmez —
+  kapatma `setDeleteIntent` ile öğrenilir ve yalnız o `inSince` için bayrak tutulur (an değil, karşılaştırma özeti; yapıcı
+  seçer ve yazar).
+- **Kilit ekranı içeriği** (§9 (3), Q53 (2) (a) öneri): *"Clocked in"* + sayaç (+ varsa *"Shift ends 17:00"*); işletme adı, mekân
+  ve kişinin adı **yok** (kilit ekranını herkes görür). Dokunmak uygulamanın ana ekranını açar.
+- **Bedel — tarayıcıdan çıkış:** M16-46'nınki; sayaç en geç `staleAt`'te kalkar.
+- **Testler.** [G47-a] iOS birim: `PresenceSync`'in sayaç dalı — null → bitir, dolu → başlat, ikinci senkron güncelle (sahte
+  activity yöneticisi). [G47-b] Android JVM: aynısı, sahte bildirim yöneticisi; `setTimeoutAfter` = `staleAt − now`; kapatılmış
+  `inSince` yeniden gösterilmez. [G47-c] iOS: uygulamanın derlenmiş Info.plist'i `NSSupportsLiveActivities` taşır ve
+  `UIBackgroundModes` taşımaz; uzantının Info.plist'i yalnız widgetkit uzantı noktasıdır (`InfoPlistTests` deseninde yeni pin).
+  [G47-d] `bash scripts/redline-check.sh` yeşil (uzantı dizini taranır, S1 FAIL vermez).
+
+## M16-48 — Vardiyam: olağan vardiya satırı — iOS + Android
+
+- **Bağımlılık:** M16-45 (`shift`, `presence.shiftEndsAt`), M16-33 (ana ekran ve Saatlerim), M16-42 (Q52 ve §9 (4))
+- **Kırmızı çizgi:** §9, §6 (sunucu `HH:MM` verir; uygulama saat dilimi hesabı yapmaz)
+- **Araç:** iki yapıcı paralel + skill `tappa-brand` · **Mercek: tek** (sunucu yarısı M16-45'in iki merceğinden geçti)
+- **Commit:** `feat(mobile): show an employee their usual shift`
+
+**Kabul kriterleri.**
+- **Yalnız `shift` dolu iken** (Q52 (2) (c): işletme ayarı açık). Yer M16-42'nin §9 cevabıdır (öneri: Saatlerim'in başında; M16-33
+  1 (b) seçildiyse ana ekranda tek satır; 1 (a)'da tap ekranına **girmez**).
+- Metin (öneri): *"Usual shift: 09:00–17:00 · <venue>"*; gece vardiyasında *"18:00–02:00 (next day)"*. **"Next shift" ya da tarih
+  YOK** (Q52 (1) (a)): vardiya planı tablosu yoktur ve ürün kişinin izin günlerini bilmez (M16-45 ölçümü) — *"Tomorrow 09:00"* bir
+  izin gününde yanlış olurdu. İçerideyken `presence.shiftEndsAt` doluysa ayrıca *"Today's shift ends at 17:00"* — dokunulan
+  mekânın **dondurulmuş** vardiyasından (profil lokasyonununkinden farklı olabilir; o gün için doğru olan budur).
+- Cihazda saklanmaz; loglanmaz ([G48-a] Android, [G48-b] iOS: sahte logger). İki platform tek metin listesi (`IosCopyTest`
+  genişler).
+
+## M16-49 — Dil: personel uygulamasının metinleri (Q54'e bağlı)
+
+- **Bağımlılık:** **Q54 cevaplandı** (M16-42) — cevapsız başlamaz; Q54 (1) (c) *"yalnız İngilizce"* seçilirse kart *Sonra*'ya
+  gider · M16-44, M16-46, M16-47, M16-48 (çevrilecek metinler önce yerinde) · kullanıcı: her dil için anadili konuşan onaycı
+  (ön koşullar tablosu) · M16-42'nin §9 adımı (5) (her dilin tap ve sonuç ekranı metni)
+- **Kırmızı çizgi:** §9 (tap ve sonuç ekranının metni dile göre değişir, anlamı değişmez — her dil kullanıcının onayıyla), §7 (log,
+  hata kodu ve identifier İngilizce kalır)
+- **Araç:** iki yapıcı paralel + kullanıcı (çeviri onayı) · **Mercek: iki**
+- **Commit:** `feat(mobile): speak the employee's language`
+
+**Bugün (ölçüldü).** iOS metinleri iki Swift dosyasında düz dizgelerdir (`mobile/ios/Taptime/TapCopy.swift`,
+`ActivationCopy.swift`); yerelleştirme kataloğu yok. Android metinleri `mobile/android/app/src/main/res/values/strings.xml`'dedir
+(ör. `:170` `tap_hello`) ve platform `values-<dil>/` klasörlerini destekler. İki platformun eşitliğini `IosCopyTest` Swift dizge
+**literal'lerinden** ölçer (`IosCopyTest.kt:10-18`, `:33-37`) — yerelleştirilmiş katalogla bu ölçüm yeniden tasarlanır. Sunucu
+uygulamaya **metin değil veri** gönderir (`verdict`, `direction`, `venue`, `at`, `businessType` — `internal/handler/apptap.go:278-287`;
+hata gövdeleri kapalı kod sözlüğü — `app.go:241`; M16-43'ün `day` / `HH:MM` alanları da veridir), dolayısıyla uygulama metni
+sunucuya dokunmadan çevrilebilir; kişi, mekân ve işletme adı çevrilmez. Tarayıcıda i18n yoktur: sayfalar `<html lang="en">`
+(`web/templates/layout/base.templ:131`); tek emsal API rehberinin dil başına yoludur (`internal/handler/api/guide.go:22`, ADR
+0030); `golang.org/x/text` bağımlılık değildir (`internal/handler/reportscsv.go:545`). CLAUDE.md §7 kullanıcıya görünen metni
+Türkçe/İngilizce'yle sınırlar (`CLAUDE.md:528-529`) — M16-42 genişletir.
+
+**Kabul kriterleri** (Q54'ün önerileriyle yazıldı; başka cevapta M16-42 kart düzeltmesi yapar).
+- **Kaynak dil İngilizce** ve tarayıcı ekranının birebir eşi kalır; her ek dil bir çeviri tablosudur — iOS'ta proje içi
+  yerelleştirme (string catalog ya da `.strings`; platform, bağımlılık değil — doğrula: kurulu Xcode sürümü ve
+  `CFBundleDevelopmentRegion` ile `knownRegions`), Android'de `res/values-<dil>/strings.xml`. iOS'un düz Swift dizgeleri
+  yerelleştirilebilir anahtarlara taşınır; İngilizce değerleri **bayt bayt aynı** kalır (bugünkü `IosCopyTest` yeşil kalır ya da
+  aynı ölçümü katalogdan yapan biçime çevrilir — İngilizce satırların kaybolmadığı önce ölçülür).
+- **Dil seçimi telefonun dilidir** (Q54 (3) (a)): iOS'un uygulama başına dili (Ayarlar → Taptime → Language) ve Android 13+'ün
+  uygulama başına dili (`android:localeConfig` + `res/xml/locales_config.xml`) **platformun** ayarıdır — uygulamaya dil seçici
+  ekranı eklenmez (§9 yüzeyi büyümez). Listede olmayan dil → İngilizce.
+- **Çeviri hattı** (Q54 (2) (a)): makine taslağı + her dil için **anadili konuşan bir onaycı** satır satır onaylar (onaycının adı
+  repoya yazılmaz — depo PUBLIC). Onaysız satır İngilizce kalır; eksik çeviri sessizce yanlış metin göstermez. Hukuki metin
+  (gizlilik bildirimi, M16-41) çevrilmez; İngilizce yetkili metindir ve uygulama ona link verir.
+- **Parite:** dil başına iki platform aynı anahtar kümesini ve aynı metni taşır; biçim delikleri (`%1$s` ↔ Swift
+  interpolasyonu) aynı.
+- Tarih: sunucunun `HH:MM`'si aynen gösterilir; `anchorDate` (M16-43) cihazın diliyle biçimlenir, İngilizcede Go'nun
+  `"Mon 2 Jan"`'ı korunur (tarayıcı eşitliği).
+- **Tarayıcı tap ekranı bu kartta çevrilmez** (Q54 (4) (a)): CLAUDE.md §9, `Accept-Language` okuması ve templ katmanında bir
+  metin kataloğu ister; istenirse ayrı kart (*Sonra*).
+- **Testler.** [G49-a] Android JVM: her `values-<dil>` İngilizcenin anahtar kümesinin alt kümesi, biçim delikleri aynı. [G49-b]
+  iOS birim: her dilde her anahtar ya onaylı çeviri ya İngilizce. [G49-c] dil başına iki platformun metin eşitliği
+  (`IosCopyTest` genişler). [G49-d] İngilizce metinler değişmedi (değişiklikten önceki ve sonraki dökümün farkı boş).
+
 ## M16-39 — App Review hazırlığı: inceleme notu, basılabilir QR, inceleyicinin aktivasyonu
 
-- **Bağımlılık:** M16-22 · **M16-23** ve **M16-20** (Q47 (a) ve yedeği (c)) · M16-33, M16-36, M16-38 · kullanıcı ön koşulları
+- **Bağımlılık:** M16-22 · **M16-23** ve **M16-20** (Q47 (a) ve yedeği (c)) · M16-33, M16-36, M16-38 · **M16-44, M16-46,
+  M16-47, M16-48** (ekler; M16-49 Q54 (5) (a) ise) · kullanıcı ön koşulları
   (*"Taptime Demo"* açık; demo plaketi kodlanmış ve atanmış)
 - **Kırmızı çizgi:** §4.3 (demo kayıtları da değişmezdir), depo PUBLIC (notta değer yok)
 - **Araç:** **yapıcı alt ajan** `mobile/README.md`'yi ve kart düzeltmesini yazar (CLAUDE.md §10); kullanıcı üretimde demo
@@ -2162,6 +2648,12 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
   *Delete my account*), NFC'nin gerçek kullanımda plaketle olduğu ve QR'ın neden verildiği (2.1(a)), Sign in with Apple'ın
   neden yok (4.8). **Ölçü:** `git grep -nE '@|https?://[^<]' mobile/README.md` yalnız `taptime.mt` ve yer tutucu satırlarını
   verir; *"Rejection risks"* tablosu 2.1(a), 4.2, 5.1.1(v), 3.1.3(c), 4.8 ve **Play'in web silme yolu** satırlarını içerir.
+  **4.2 satırı** (eklerle, 2026-11-19) uygulamanın bir web sarmalayıcısından fazlasını yaptığı yerel işlevleri sayar: Core NFC
+  okuma (iPhone 7–X'te tarayıcının yapamadığı), dışa aktarılamayan cihaz anahtarıyla imzalı istek, Saatlerim, uygulamadan talep
+  (M16-43/44), yerel hatırlatma (M16-46), kilit ekranı sayacı (M16-47), vardiyam (M16-48), dil (M16-49, yapıldıysa). ⚠️
+  **Doğrula:** 4.2'nin güncel metni (*"Minimum Functionality"*) gönderimden önce okunur; Apple'ın bu işlevleri yeterli saydığı
+  **ölçülmedi** — not bir iddia değil bir listedir. Notun adım adım yoluna *"Settings → Remind me to clock out"* ve (iOS 16.1+)
+  kilit ekranı sayacı adımı eklenir; demo işletmede vardiyam açıksa (Q52 (2) (c)) *Usual shift* satırı.
   Sonuncusu **ölçülmemiş bir mağaza riskidir**: kullanıcı Play Console'un *Data safety → account deletion* formunu gönderimden
   önce okur ve cevabı karta yazar; web yolu istenirse cevap M16-37'nin işverene iletimidir.
 - **Runbook (her inceleme döngüsü):** önce — taze davet (tek kullanımlık, en çok 30 gün: `internal/invite/manager.go:135`),
@@ -2175,7 +2667,7 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 
 ## M16-40 — Faz G kapanışı
 
-- **Bağımlılık:** M16-30 … M16-39, M16-41
+- **Bağımlılık:** M16-30 … M16-39, M16-41, **M16-42 … M16-48** (M16-49 yalnız Q54 (5) (a) ise)
 - **Araç:** yapıcı (kullanıcıyla cihaz başında) + üçüncü göz · **Mercek: iki**
 - **Commit:** `test(mobile): close the staff self-service phase`
 
@@ -2190,6 +2682,18 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
   `transactions` sayısı değişmez, tarayıcı yolundaysa bir `tap.signed_out_phone` audit satırı) · *Delete my account* (kimlik
   bilgileri kapandı, `transactions` aynen, panel satırı ve owner e-postası geldi — Q46 (b)) · deaktivasyon adımı yalnız bu tur için açılan **tek
   kullanımlık** bir test çalışanıyla (geri alınamaz — ADR 0010).
+- **Ekler turu** (aynı iki telefon, demo işletme; iOS sayaç için iOS 16.1+ bir iPhone): **talep** — girişte kal, çıkma; ertesi
+  gün uygulamada *"Missing times"* → saat gönder → `punch_claims` +1, `transactions` değişmez; panelde onay → `transactions` +1
+  (`channel='manual'`), uygulamada *Approved*; ikinci gönderim *Sent* · **hatırlatma** — vardiyalı girişte `remindAt`'te bildirim
+  gelir (Android'de Doze'daki gecikme dakikayla ölçülür ve karta yazılır); çıkış uygulamadan → bildirim silinir; çıkış
+  **tarayıcıdan** → bildirim yine düşer ve metni yanlış bir şey iddia etmez (bedel); vardiyasız girişte bildirim yok; Android'de
+  yeniden başlatma → bekleyen silinir, uygulama açılınca yeniden kurulur · **sayaç** — kilit ekranında `inSince`'ten sayar;
+  çıkışta kalkar; 8 saatten uzun bir girişte iOS'un davranışı gözlenir ve karta yazılır (M16-47'nin *doğrula*sı); Android'de
+  kaydırarak kapatma → aynı giriş boyunca geri gelmez · **vardiyam** — ayar kapalı → satır yok; açık → *Usual shift*; içerideyken
+  *Today's shift ends …* · **bekleyen** — `flag` ve talep sayısı Saatlerim satırında, karardan sonra azalır · **dil** (M16-49
+  yapıldıysa) — dili ek dile ayarlı bir telefonda tap, sonuç, talep ve bildirim metni çevrili, tarayıcı İngilizce. Her adım
+  için `bash scripts/redline-check.sh` turdan önce yeşil; bildirim ve sayaç **hiçbir** adımda konum izni istemez (iOS Ayarlar ve
+  Android uygulama bilgisi ekranında ölçülür).
 - **E-postayla giriş — iki demo çalışan** (bekleme süresi aynı kişinin ikinci self aktivasyonunu 7 gün sessizce reddeder):
   - **Çalışan 1 — uçtan uca:** bilinmeyen adresle aynı ekran ve **hiç** e-posta; çalışan 1'in adresiyle link → uygulamada
     plaket → aktive; owner uyarısı geldi; anomali listesinde satır. Aynı link akışının **tarayıcı** tamamlanması ayrı bir
@@ -2202,7 +2706,9 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
   Kayıt yazan adım DB satırıyla, yazmayan adım sayının değişmediğiyle kanıtlanır (salt okuma, kullanıcı ya da ana oturum).
 - **Demo durumunu geri yükle (denetim A2-18):** tur bitince owner Saatlerim'i **açık, 4 hafta**, e-postayla girişi **açık**
   bırakır, canlı QR ekranını eşlemeden çıkarır, test cihazlarını panelden çıkarır. **Ölçü:** salt okuma
-  `staff_hours_weeks = 4` ve `email_signin = true` demo işletmenin satırında; `/app/v1/me`'nin `hoursWeeks` = 4.
+  `staff_hours_weeks = 4` ve `email_signin = true` demo işletmenin satırında; `/app/v1/me`'nin `hoursWeeks` = 4. Q52 (2) (c)
+  seçildiyse demo işletmede `staff_shift_visible = true` ve demo lokasyonunun vardiyası gerçek bir vardiyadır (inceleyici
+  *Usual shift*'i görür).
 - **İnceleyici provası:** **kullanıcı** (ya da kullanıcının adlandırdığı, notu yazmamış biri) `mobile/README.md`'nin notunu
   sıfır kurulu bir telefonda harfiyen izler; takıldığı her adım nota düzeltme olarak döner. Prova sonunda geri yükleme adımı
   yeniden koşar.
@@ -2284,11 +2790,15 @@ kurmak.
 
 - **Çevrimdışı kuyruk** (M9-01 ile birlikte): kuyruktaki dokunuş sunucu saatini alır (ADR 0038), `base:queued-window`
   eşiği ötesi `flag`; imzalı istek + nonce kuyrukta nasıl yaşar ayrı karar (nonce süresi dolar). Ayrı ADR.
-- **Unutulan çıkış bildirimi — konumsuz:** saat ve açık giriş üzerinden yerel/push bildirim; §4.2 gereği konum
-  tetikleyicisi yok. (Kullanıcının 2026-11-18 listesindeki *"unutulan çıkış hatırlatması"* budur — ayrı madde değil.)
-- **"Çıkışı unuttum" düzeltme talebi Saatlerim'den** (2026-11-18): açık kaydın yanından ADR 0032 Faz C'nin talebi
-  (`punch_claims`; saati yalnız müdürün onayı yazar). Bugün talep yalnız sonuç ekranındaki karttır (K4: en çok iki
-  gösterim); Saatlerim'den gönderim yeni bir giriş noktasıdır — §9 ve K4 ile birlikte karar.
+- ~~**Unutulan çıkış bildirimi — konumsuz.**~~ → **Faz G'ye alındı** (M16-45, M16-46 — yalnız **yerel** bildirim, push yok;
+  kullanıcı kararı 6, 2026-11-19).
+- ~~**"Çıkışı unuttum" düzeltme talebi Saatlerim'den.**~~ → **Faz G'ye alındı** (M16-43, M16-44; K4 ile ilişkisi Q50,
+  kullanıcı kararı 6, 2026-11-19).
+- **Sonuç ekranı talep kartının uygulama eşi** (M16-07 devri (3); `mobile/android/README.md:663-668`) — §9 sonuç ekranı
+  değişikliği; M16-43'ün uçlarını yeniden kullanır.
+- Uygulamadan talebin **tarayıcı** eşi (M16-32'nin salt okuma Saatlerim'ine form) — Q50 (3) (a) seçilirse.
+- **Vardiya planı (roster)** — *"sıradaki vardiya"* ve izin günü için (Q52 (1)); yeni tablo, panel ekranı, ayrı ADR.
+- **Tarayıcı tap ekranının çevirisi** (`Accept-Language`, templ metin kataloğu, CLAUDE.md §9) — Q54 (4) (a) seçilirse.
 - ~~**"Saatlerim" ekranı** (M9-05'in uygulama yarısı).~~ → **Faz G'ye alındı** (M16-30 … M16-33, kullanıcı kararı
   2026-11-18).
 - Hesap silme talebinin **tarayıcı** eşi (M16-37 yalnız uygulamayı kapsar).

@@ -1803,12 +1803,26 @@ yazılır.
 | M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
 | M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
 | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
+| M16-42 | Faz G ekleri: ADR 0050, Q50–Q54 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ADR 0050 (öneri) |
+| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok |
+| M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | todo | §9 (M16-42) |
+| M16-45 | `/app/v1/me`: içeride durumu, vardiya bitişi ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)) |
+| M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | todo | push yok, konum yok; R2'ye `UNLocationNotificationTrigger` |
+| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
+| M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
+| M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı yoksa yayından sonraya |
 | M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı |
 | M16-40 | Faz G kapanışı | todo |  |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19 (M16, dal `plan/m16-faz-g-extras`, taban `b3c877fd`) — Faz G ekleri planlandı (yalnız belge)
+
+- **Ne:** kullanıcı kararı 6 (ürün sahibi, AskUserQuestion): personel uygulamasına altı ek. `m16-mobil.md`'ye **M16-42 … M16-49** — ADR 0050 + sorular (M16-42) → unutulan çıkış talebi sunucu/uygulama (M16-43/44) → `/me` içeride durumu + vardiya bitişi + vardiyam (M16-45) → yerel hatırlatma (M16-46) → kilit ekranı sayacı (M16-47) → vardiyam satırı (M16-48) → dil (M16-49). Özellik 5 (*onay bekleyen kayıtlarım*) yeni kart değil: M16-31'e pencere geneli `waiting` sayısı, M16-33'e bilgi satırı. Yeni açık sorular **Q50** (K4 ve giriş — öneri: K4 uygulama girişine uygulanmaz, Saatlerim'den bağımsız, 7 gün), **Q51** (hatırlatma — öneri: bitiş + 30 dk, vardiyasızda yok, işletme ayarı yok, Ayarlar'da opt-in), **Q52** (vardiyam — öneri: *"usual shift"*, ayrı owner ayarı), **Q53** (sayaç — öneri: opt-in, kilit ekranında işletme/ad yok), **Q54** (dil — öneri: pilot müdürlerinin 2–3 dili, makine + anadili onayı, telefon dili, tarayıcı yok). Rezerve: ADR **0050**, koşullu migration **00119** / **00120** (paralel M16-19 şeridi 00113'ü aldı ve sonrakileri bir kaydırdı — o kaydırma M16-19 dalında, birleştirmede ana oturum uzlaştırır; bu daldaki eski Faz G satırları değişmedi). Sıra: … M16-38 → M16-43 … M16-49 → M16-39 → M16-40; M16-42 paralel. M16-39'un 4.2 satırı, M16-40'ın turu ve bağımlılığı, M16-41'in paragrafı, *Sonra* listesi güncellendi.
+- **Ölçülen:** uygulamanın tap yanıtı talep kartını taşımaz (`apptap.go:278-287`; M16-07 devri (3) — bu ekler kapatmaz); talebin K4'ü yalnız oturuma bağlı bağlamla uygulanır (ADR 0032 `:791`); `GetLastOpenTransaction` açık girişin dondurulmuş vardiyasını zaten seçer (`transactions.sql:149-150`) → hatırlatma migration istemez; roster tablosu yok → *"sıradaki vardiya"* güvenilir değil; `claim` → `tenant` içe aktarımı (`chain.go:499-500`) `tenant`'tan `claim.SpanOf`'u yasaklar; R2 `UNLocationNotificationTrigger`'ı görmez (`redline-check.sh:511`); iOS dağıtım hedefi 15.0 (Live Activity 16.1+); Android'de `/me` `onResume`'da okunmaz; CLAUDE.md §7 kullanıcı metnini TR/EN'le sınırlar (`:528-529`).
+- **Sıradaki:** değişmedi — Faz G'nin uygulaması Faz D ve E'den sonra; M16-42'nin soruları (Q50–Q54) M16-34'ünkiler gibi önceden sorulabilir.
 
 ### 2026-11-19 (M16, dal `plan/m16-mobil`) — Faz G'nin açık soruları cevaplandı, kartlar seçilen dala daraltıldı
 
