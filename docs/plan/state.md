@@ -1810,6 +1810,11 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-19 (M16, dal `plan/m16-mobil`) — Faz G'nin açık soruları cevaplandı, kartlar seçilen dala daraltıldı
+
+- **Ne:** kullanıcı (AskUserQuestion, her soruda önerilen seçenek): **Q44** (a) 24 saat · **Q45** (b) istek yalnız uygulamada · **Q46** (b) panel + owner e-postası · **Q47** (a) müdür onayı, (c) canlı QR yedek · **Q48** (a) herkes kapalı · **Q49** (a) owner ayarı, varsayılan kapalı · **T59 tersine çevirmesi** (a) evet (yalnız listedeki ve girişi açık işletmeler, yalnız tarayıcı). `open-questions.md` Q44–Q49 *cevaplandı*; `m16-mobil.md`'de kapılar seçilen dala daraltıldı (reddedilenler tek satır); ADR 0049 *Önerildi* kalır, cevaplar karar bölümlerinde; M16-34'ün soru adımı yapıldı, kart yalnız kabul düzenlemelerini yapar.
+- **Sıradaki:** değişmedi.
+
 ### 2026-11-18 gece, son not (M16, dal `plan/m16-mobil`) — Faz G son denetimi GO (`b4471d45`), bloklamayan notlar kartlara yazıldı
 
 - **Ne:** altıncı kırmızı test (`TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`) ve `holdingDownTables`'a `employee_invites`; owner uyarı işinin boşaltması (iki evre, 3 sn, bağlam dolunca döner; başlamamış iş, kapalı kuyruk, panik dalları; audit eylem adları; `ORDER BY a.id`); `NewDeliveryRecorder(rec, actorID, channel)`; [G35-r] tip bilgisiyle; çapa düzeltmeleri.

@@ -1,8 +1,10 @@
 # ADR 0049 — Çalışanın iş e-postasıyla girişi
 
 - **Durum:** Önerildi (2026-11-18; aynı gün iki plan denetiminin bulgularıyla yeniden yazıldı) — kabul M16-34'te,
-  kullanıcının. Bu belge kullanıcının **bir** açık kararını ve ana oturumun **bir** kararını kaydeder (aşağıda); geri kalan
-  her şey **öneridir** ve Q44, Q45, Q49 cevaplanmadan kabul edilmez (M16-34).
+  kullanıcının. Bu belge kullanıcının açık kararlarını ve ana oturumun **bir** kararını kaydeder (aşağıda). **Açık sorular
+  2026-11-19'da cevaplandı** (kullanıcı, AskUserQuestion, her soruda önerilen seçenek): Q44 (a) 24 saat · Q45 (b) istek yalnız
+  uygulamada · Q49 (a) owner ayarı, varsayılan kapalı · T59 tersine çevirmesi (a) evet. Durum M16-34'ün kabul düzenlemeleriyle
+  *Kabul edildi*'ye geçer.
 - **Tarih:** 2026-11-18 · **Dal:** `plan/m16-mobil` (yalnız belge) · **Plan:** [docs/plan/m16-mobil.md](../plan/m16-mobil.md)
   → *Faz G* (M16-34, M16-35, M16-36)
 - **Karar veren:** kullanıcı (ürün sahibi), 2026-11-18, AskUserQuestion: giriş *"sign in with your work email"*dir — çalışan
@@ -62,7 +64,7 @@ Sırayla; her ret **sessizdir** (§2.2'nin tek cevabı, basım yok):
 1. Adres env listesindeki (§2.7) bir işletmenin **aktif** (`status='active'`) ve adresi dolu bir çalışanına ait (çözümleyici;
    `ORDER BY tenant_id, id LIMIT 5` — beşten fazlası sayılı sınır).
 2. Eşleşmenin kendi tenant bağlamında: işletme **askıda değil** (L4 kararı — davet yolunun bugünkü boşluğu bu yolda kapanır);
-   Q49 (a) ise işletmenin `email_signin` ayarı açık; adres aynı işletmede bir yönetici adresi değil.
+   işletmenin `email_signin` ayarı açık (Q49 (a)); adres aynı işletmede bir yönetici adresi değil.
 3. **İşverenin bastığı canlı bir davet yok** (`employee_invites.origin = 'employer'`, kullanılmamış, iptal edilmemiş, süresi
    dolmamış). Aksi hâlde basım onu emekliye ayırırdı ve bir yabancı müdürün 7 günlük davetini kısa ömürlü bir linkle
    değiştirebilirdi (denetim M2).
@@ -83,7 +85,7 @@ adreslere posta göndermek bizi bir posta bombası aracı yapardı).
 
 ### 2.3 Gönderilen: taze bir davet, çıkış kutusundan
 
-- **Ne:** `IssueAndDeliver` ile bugünkü davet; `origin = 'self'` (00116'nın yeni sütunu), **`TTL` = Q44** (öneri 24 saat;
+- **Ne:** `IssueAndDeliver` ile bugünkü davet; `origin = 'self'` (00116'nın yeni sütunu), **`TTL` = 24 saat** (Q44 (a), 2026-11-19;
   `minTTL`/`maxTTL` içinde, kod değişikliği yok). Kısa kod ve uygulamaya bağlı ayrı link Faz G dışıdır (*Sonra*): ilki yeni
   bir kimlik bilgisi türü, deneme kilidi ve kaba kuvvet analizi ister, ikincisi `/.well-known` yollarını ve Q40'ın kuralını
   değiştirir.
@@ -103,7 +105,7 @@ adreslere posta göndermek bizi bir posta bombası aracı yapardı).
   askı, Q49, işverenin canlı daveti, bekleme süresi, DB bütçeleri ve **en son** süreç alt bütçesi — `httpx.Limiter.Reserve`,
   commit'te `Keep`, geri almada `Refund` (basım sonrası bir ret alt bütçeyi yemez). Yönetici adresli çalışan çözümleyicide elenir. Kilit altında okunduğu için müdürün kapı ile basım arasında
   davet basması yarışı kapanır. `readRecipient`'tan hemen sonra adres `IssueParams.ExpectAddress`'le
-  karşılaştırılır; farklıysa (owner adresi o arada düzeltti) `invite.ErrAddressChanged` ile geri alınır. Çözümleyici askıdaki ve (Q49 (a)) kapalı işletmeleri
+  karşılaştırılır; farklıysa (owner adresi o arada düzeltti) `invite.ErrAddressChanged` ile geri alınır. Çözümleyici askıdaki ve ayarı kapalı işletmeleri
   **önceden** süzer — kimliksiz istek başına yalnız eşleşen ve açık işletmeler için transaction açılır (taban bandı).
 - API kapısı (K-22) bu yolu etkilemez: kapı **API'nin** basımını kapatır; e-postayla giriş panelin davetine benzer bir ürün
   yoludur. **Bedeller:** süreç ölümünde tampondaki link gitmez **ve o davetin audit satırı hiç yazılmaz** (davet satırı var,
@@ -128,10 +130,10 @@ alt bütçeyi tüketir.
 Giriş davetleri panelin ADR 0022 §9 sayaçlarında da sayılır (aynı `employee_invites` satırları): bir saldırgan bir işletmenin
 50/sa bütçesinin en çok 10'unu yer — adlandırılmış bedel.
 
-### 2.5 Tarayıcı — Q45
+### 2.5 Tarayıcı — Q45 (b), 2026-11-19
 
-Öneri (b): Faz G'de **isteği** yalnız uygulama yapar. (a)'nın tarifi ve canlı *"Finish setup"* teşhis loguna bağlı başlama
-kapısı Q45'te ve M16-36'dadır. **Tamamlanma her iki seçenekte tarayıcıda da olabilir:** e-postadaki link aynı telefonda
+Faz G'de **isteği** yalnız uygulama yapar (kullanıcı, 2026-11-19). Reddedildi: (a) Faz G'de tarayıcı girişi; tarayıcı isteği
+ayrı bir karttır ve kapısı canlı *"Finish setup"* teşhis logunun verisidir. **Tamamlanma tarayıcıda da olabilir:** e-postadaki link aynı telefonda
 tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve panel sinyali iki yolda aynıdır (§2.6).
 
 ### 2.6 Görünürlük: her kendi-servis aktivasyonu işverene görünür (denetim H4 (1); ikinci denetim Y2, O1)
@@ -153,24 +155,24 @@ tarayıcıyı açar ve ADR 0026'nın sihirbazı onu tamamlar; owner uyarısı ve
   deseni). Owner kimlikleri `resolve_admin_owners_by_tenant` (`00081`), adresleri `passwordnotice.go`'nun alıcı yolundan.
 - **Panel (dayanıklı):** M6-11 anomali ekranında *"Phones set up by email sign-in (last 30 days)"* ve **"Taps from a
   signed-out phone within 14 days of an email sign-in"**; çalışan kartında *"Set up by email sign-in on <date>"*.
-- **İmzası çıkmış telefonun dokunuşu — kullanıcı onaylarsa** (M16-34'ün AskUserQuestion'ı; bugün bilerek yalnız WARN —
-  ADR 0010:219-224, T59 DÜŞÜK-1): sırayla env listesi (bellekte), (Q49 (a)) ayar, sonra **ilerletmeyen SUN ön
+- **İmzası çıkmış telefonun dokunuşu — kullanıcı onayladı** (T59 (a), 2026-11-19; bugün bilerek yalnız WARN —
+  ADR 0010:219-224, T59 DÜŞÜK-1): sırayla env listesi (bellekte), işletme ayarı, sonra **ilerletmeyen SUN ön
   kontrolü** — ilk ikisi önce gelir ki listede olmayan işletmede yeni okuma ve log satırı olmasın; plaketin ve oturumun tenant'ı
   eşit olmalı — geçerse `tap.signed_out_phone` audit satırı (`target` çalışan, `detail` yalnız kanal;
   kişi başına 10 dakikada bir). *"Plaket kanıtı taşıyan sayfa açılışı"*dır, tekrara karşı kanıt değil. Listede olmayan işletme
   (KF/KM) bayt bayt bugünkü gibi. `transactions` satırı **değildir**. Anomali yüklemi `at ∈ [used_at, used_at + 14 gün]`.
   **Uygulama yolu değişmez:** iptal edilmiş cihazın kimliği imzadan önce bir iddiadır (M16-07); **uygulamadan gelen kayıp
   dokunuşlar panelde görünmez** (adlandırılmış bedel).
-- Q46 (b) aynı owner uyarı yolunu kullanır.
+- Hesap silme talebinin işverene iletimi (Q46 (b), 2026-11-19) aynı owner uyarı yolunu kullanır.
 
-### 2.7 Açılış: varsayılan kapalı (ana oturum kararı) ve işletmenin seçimi (Q49)
+### 2.7 Açılış: varsayılan kapalı (ana oturum kararı) ve işletmenin seçimi (Q49 (a), 2026-11-19)
 
 - Env **`TAPPA_EMAIL_SIGNIN_TENANTS`** — virgülle ayrılmış tenant UUID'leri; **boş = uç her host'ta 404**; bozuk değer
   açılışı reddeder. `deploy/k8s/05-config.yaml`'a boş girer, bir paketleme testi boş diye pinler. İlk dolum ayrı bir config
   PR'ıdır — yalnız *"Taptime Demo"*; kullanıcı onaylar (birleştirme = deploy). KF/KM'nin listeye girmesi ayrı kullanıcı
   kararıdır.
-- **Q49:** öneri (a) — owner'ın Account ekranındaki ayarı (`tenants.email_signin`, varsayılan **kapalı**). Uç yalnız listede
-  **ve** ayarı açık işletmede basar.
+- **Q49 (a)** (kullanıcı, 2026-11-19) — owner'ın Account ekranındaki ayarı (`tenants.email_signin`, varsayılan **kapalı**). Uç yalnız listede
+  **ve** ayarı açık işletmede basar. Reddedildi: (b) yalnız env listesi.
 
 ### 2.8 Log ve audit
 
@@ -184,7 +186,7 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
 |---|---|---|---|
 | Numaralandırma | yol yok | tek cevap + taban; eşleşmeyene e-posta yok | kaynak kovası 429'u adresten bağımsız; e-postanın gelişi yalnız kutu sahibine bilgi verir |
 | **İçeriden ele geçirme** — paylaşılan kutu, yanlış yazılmış adres, deaktive edilmemiş eski çalışan (denetim H4) | müdürün e-postayla gönderdiği davet aynı kutuya düşer; saldırgan müdürün basmasını bekler | saldırgan kendisi bastırır; işverenin **herhangi bir** aktif plaketi tamamlar (girişlerde, herkese açık) — Faz D'den sonra
-**bir canlı QR ekranı** da (M16-23; ekran mekânın içindedir, fotoğrafı ~20 sn yaşar) ve müdür onayı yolu (müdür onaylar); tamamlanma gerçek çalışanın oturum ve cihazlarını iptal eder (Q40 (a)) → çalışanın sonraki dokunuşu §5 satır 3'e düşer ve **kayıt yazmaz** | azaltmalar: varsayılan kapalı (§2.7), işletme kapatabilir (Q49), 7 günlük bekleme (§2.1.4), işveren davetinin korunması (§2.1.3, kilit altında), her tüketen yolda (tarayıcı, uygulama, canlı QR, müdür onayı) panel + `SendExempt` owner e-postası (§2.6; statik çağıran testi), kullanıcı onaylarsa imzası çıkmış tarayıcının plaket kanıtlı açılışı panelde (§2.6). Kalan: uygulamadan gelen kayıp dokunuşlar panelde görünmez; onay hayırsa **hiçbir** kayıp dokunuş panelde görünmez. **ADR 0005'e risk eki** (M16-34): *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği; tespit panel ve owner e-postasıyla"* |
+**bir canlı QR ekranı** da (M16-23; ekran mekânın içindedir, fotoğrafı ~20 sn yaşar) ve müdür onayı yolu (müdür onaylar); tamamlanma gerçek çalışanın oturum ve cihazlarını iptal eder (Q40 (a)) → çalışanın sonraki dokunuşu §5 satır 3'e düşer ve **kayıt yazmaz** | azaltmalar: varsayılan kapalı (§2.7), işletme kapatabilir (Q49), 7 günlük bekleme (§2.1.4), işveren davetinin korunması (§2.1.3, kilit altında), her tüketen yolda (tarayıcı, uygulama, canlı QR, müdür onayı) panel + `SendExempt` owner e-postası (§2.6; statik çağıran testi), imzası çıkmış tarayıcının plaket kanıtlı açılışı panelde (T59 (a)) (§2.6). Kalan: uygulamadan gelen kayıp dokunuşlar panelde görünmez. **ADR 0005'e risk eki** (M16-34): *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği; tespit panel ve owner e-postasıyla"* |
 | Posta bombası / bütçe tüketme | — | §2.4'ün dört kovası | işletmeler arası toplam, adresi tutan işletme sayısıyla (≤ 5) sınırlı |
 | Taciz (bekleyen daveti öldürmek) | — | işverenin canlı daveti varken basım yok (§2.1.3) | yalnız `self` davetler birbirinin yerini alır |
 | Tenant'lar arası okuma | çözümleyiciler sırdan çözer (oturum token'ı, plaket UID'si) | çözümleyici sır **olmayan** bir girdiden çözer | emsal `resolve_admin_by_email` (`00011`); dönen yalnız kimlikler. `tappa_resolver`'ın okuduğu: `employees (id, tenant_id, email, status)` (yeni); `tenants (id, api_enabled_at, api_code)` (var olan — `00051:155`, `00105:89`) + `suspended_at[, email_signin]` (yeni; yalnız bunlar verilir ve geri alınır — `id`'ye dokunmak `/v1` kimliğini kırardı); `admin_users (tenant_id, email, …)` (var olan, `00011`). İndeks `employees (email)` (00117) |
@@ -224,15 +226,15 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
 
 ## 6. Karar verilmedi
 
-- Q44 (TTL), Q45 (tarayıcı), Q49 (işletme ayarı) — M16-34'te cevaplanır; cevapsız kabul yok.
+- (Q44, Q45, Q49 ve T59 2026-11-19'da cevaplandı — yukarıda.)
 - KF/KM'nin env listesine girmesi (Faz G dışı kullanıcı kararı).
 - Kısa kod, uygulamaya bağlı link (*Sonra*).
 
 ## 7. Uygulama
 
-- **M16-34:** kabul; Q44, Q45, Q49; ADR 0022, ADR 0026 notları; **ADR 0005 risk eki**; canlı taban ölçümü.
+- **M16-34:** kabul düzenlemeleri (sorular 2026-11-19'da cevaplandı); ADR 0010, ADR 0022, ADR 0026 notları; **ADR 0005 risk eki**; canlı taban ölçümü.
 - **M16-35:** sunucu — uç, çözümleyici + yetkiler (00116), indeks (00117, `00091` kalıbı), `origin`, kiracı kilidi altındaki
   kapılar, bütçeler, `EmailChannel` + çıkış kutusu sink'i, `consume`'dan owner uyarısı (`SendExempt`), panel sinyalleri,
   `tap.signed_out_phone`, env kapısı; CLAUDE.md §5 *"Aktivasyon dokunuşu"* cümlesi (kodla aynı commit). Canlıya çıkış ayrı
   config PR'ı, kullanıcı onayı.
-- **M16-36:** iki uygulamanın ekranı; Q45 (a) ise tarayıcı.
+- **M16-36:** iki uygulamanın ekranı; tarayıcıya dokunulmaz (Q45 (b)).
