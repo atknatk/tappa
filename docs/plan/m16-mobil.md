@@ -1788,7 +1788,7 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   ona tek dal ekler — `errors.Is(err, ErrQueued)` ise **satır yazmaz** ve `nil` döner. İşçi gönderir ve gönderimden **sonra**
   tam bir satır yazar (`invite.code_emailed`, `detail.channel = "signin"`, `message_id`) ya da `invite.undelivered` — **aynı
   `detail` biçimiyle**: bugün `emailedDetail`, `undeliveredDetail` ve kanalın `audit`'i dışa kapalıdır (`email.go:309-365`);
-  işçi için dışa açık **`invite.DeliveryRecorder`** (`invite.NewDeliveryRecorder(rec, actorID, channel)` — panel davetinin `actor_id`'si korunur, `email.go:353-357`; yöntemleri `Emailed(ctx,
+  işçi için dışa açık **`invite.DeliveryRecorder`** (`invite.NewDeliveryRecorder(rec, actorID, channel)` — panel davetinin `actor_id`'si korunur, `email.go:345-350` — `ActorID: c.actorID` `:347`; yöntemleri `Emailed(ctx,
   Delivery, messageID)` ve `Undelivered(ctx, Delivery, *mail.SendError)`) aynı yapıları yazar, `DeliverInvite` de onu kullanır
   (tek biçim); dolu FIFO'da
   `DeliverInvite` bugünkü başarısızlık dalından senkron `invite.undelivered` yazar. Her davet **tam bir** satırla biter —
@@ -1879,7 +1879,9 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   20 sn, owner boşaltması 3 sn olduğundan bu dal gerçekten olur; kapalı bir kanala gönderim panik verdiğinden sunum **reddedilir**
   ve senkron bir `undelivered` satırı yazılır; (iii) **işçide panik** `containNotice`'ın kalıbıyla (`internal/handler/passwordnotice.go:409`):
   sabit bir cümle, değer loglanmaz, bir `undelivered` satırı; (iv) audit eylemleri `admin.password_notice.*`'in kalıbıyla
-  (`passwordnotice.go:229-230`): `employee.self_activation_notice.sent` / `.undelivered`, `target` çalışan, `actor` yok, `detail`
+  (`passwordnotice.go:229-230`): her `ownerNotices` işi bir **`kind`** alanı taşır ve konuyu, gövdeyi ve audit eylemini o seçer —
+  `self_activation` → `employee.self_activation_notice.sent` / `.undelivered`; `deletion_request` (M16-37, Q46 (b)) →
+  `employee.deletion_notice.sent` / `.undelivered`; ikisinde de `target` çalışan, `actor` yok, `detail`
   owner'ın `admin_user_id`'si (adres yok); (v) **bildirim sırası** çözümleyicinin `ORDER BY a.id`'sidir (`00081`) — süre kesince
   sıranın sonundaki owner'lar `undelivered` alır. Son süre ya da boşaltma kesince gönderilmemiş her owner için bir
   `undelivered` audit satırı (zaman kalırsa); FIFO doluysa tek bir senkron `undelivered` satırı, gönderim yok. **Pod ölümü:** kuyruktaki ve
@@ -2051,7 +2053,8 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   işverene iletim yine yapılır; yanıt 204.
 - **İşverene iletim — Q46 (b), panel + owner e-postası** (kullanıcı, 2026-11-19): audit satırı + çalışan kartında *"Asked to
   delete their account on <date>"* (audit satırından; yeni sqlc sorgusu, `action = 'employee.deletion_requested'` ve `target` =
-  çalışan, açık `tenant_id`) + M6-11 anomali ekranında son 90 günün listesi **ve** M16-35'in owner uyarı yolu (arka plan işi,
+  çalışan, açık `tenant_id`) + M6-11 anomali ekranında son 90 günün listesi **ve** M16-35'in owner uyarı yolu (arka plan işi `ownerNotices`, `kind = deletion_request` — audit eylemleri
+  `employee.deletion_notice.sent` / `.undelivered`, M16-35'in `kind` satırı;
   `Breaker.SendExempt`, owner başına günde 20 — aynı `httpx.Limiter` anahtar ailesinin kendi öneki): konu `An employee asked to
   delete their Taptime account`; gövde (anlamı): *"<Employee> asked to delete their account on <date>. Their phones are signed
   out. Their clock-in records are kept: they are legal records you control. Decide what to do with their data and reply to them
