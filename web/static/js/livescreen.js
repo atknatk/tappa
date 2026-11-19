@@ -35,6 +35,7 @@
   var wait = root.querySelector('[data-qr-wait]');
   var stale = root.querySelector('[data-qr-stale]');
   var states = root.querySelectorAll('[data-qr-state]');
+  var caption = root.querySelector('[data-qr-caption]');
   if (!url || !box || !svg || !path || !wait || !stale) return;
 
   // After a failed ask, try again this soon -- the drawn code is still shown until it runs out.
@@ -45,6 +46,10 @@
   var PATH_SHAPE = /^(M\d+ \d+h\d+v1h-\d+z)+$/;
 
   var deadline = 0;
+  // The paused word ('inactive' / 'paused') while the screen is paused, '' otherwise. A failed ask
+  // keeps it: a network error or a 5xx is no news about the pause, so a paused screen still asks
+  // only every PAUSED_MS.
+  var paused = '';
   var timer = null;
 
   function now() {
@@ -55,12 +60,14 @@
     for (var i = 0; i < states.length; i++) {
       states[i].hidden = states[i].getAttribute('data-qr-state') !== word;
     }
+    if (caption) caption.hidden = word !== '';
   }
 
   function showCode(body, sentAt) {
     svg.setAttribute('viewBox', '0 0 ' + body.side + ' ' + body.side);
     path.setAttribute('d', body.d);
     deadline = sentAt + body.expiresIn * 1000;
+    paused = '';
     box.hidden = false;
     wait.hidden = true;
     stale.hidden = true;
@@ -69,6 +76,7 @@
 
   function pause(word) {
     deadline = 0;
+    paused = word;
     box.hidden = true;
     path.setAttribute('d', '');
     wait.hidden = true;
@@ -125,7 +133,7 @@
         schedule(body.refreshIn * 1000);
       })
       .catch(function () {
-        schedule(RETRY_MS);
+        schedule(paused ? PAUSED_MS : RETRY_MS);
       });
   }
 

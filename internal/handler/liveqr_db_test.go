@@ -271,6 +271,10 @@ func TestLiveScreenDB_ASuspendedBusinessShowsPausedAndComesBack(t *testing.T) {
 	if strings.Contains(body, `data-qr-state="paused" hidden`) {
 		t.Fatal("the paused sentence is hidden on a suspended business's page")
 	}
+	// Nothing to scan while paused: the "Scan…" lines are hidden; the venue's name stays.
+	if !strings.Contains(body, `data-qr-caption hidden`) || !strings.Contains(body, "Rusty Bar") {
+		t.Fatal("the paused page shows the scan lines, or lost the venue's name")
+	}
 	if _, err := owner.Exec(ctx, `UPDATE tenants SET suspended_at = NULL, suspension_reason = NULL WHERE id = $1`, f.tenant); err != nil {
 		t.Fatal(err)
 	}

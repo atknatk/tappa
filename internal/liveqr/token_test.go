@@ -150,3 +150,32 @@ func TestToken_TheQRIsVersionSixAtLevelM(t *testing.T) {
 		t.Fatalf("URL %d characters -> version %d; measured 102 -> 6", len(u), code.Version())
 	}
 }
+
+// TestScreensToken_RefusesAScreenThatMayNotShowACode (the re-audit's DÜŞÜK, defence in depth):
+// Token itself refuses -- ErrNoCode, no token -- a suspended business's screen, a switched-off
+// venue's, a screen with no pairing instant, and one paired ScreenSessionLifetime ago or more; a
+// live screen gets a token that opens to it.
+func TestScreensToken_RefusesAScreenThatMayNotShowACode(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	s := &Screens{keys: testKeys(t, "a"), now: func() time.Time { return now }}
+	recent, old := now.Add(-time.Hour), now.Add(-ScreenSessionLifetime)
+	live := Screen{ID: uuid.New(), LocationID: uuid.New(), LocationActive: true, PairedAt: &recent}
+	for name, sc := range map[string]Screen{
+		"suspended":    {ID: live.ID, LocationID: live.LocationID, LocationActive: true, PairedAt: &recent, Suspended: true},
+		"switched off": {ID: live.ID, LocationID: live.LocationID, PairedAt: &recent},
+		"no pairing":   {ID: live.ID, LocationID: live.LocationID, LocationActive: true},
+		"run out":      {ID: live.ID, LocationID: live.LocationID, LocationActive: true, PairedAt: &old},
+	} {
+		if tok, _, err := s.Token(sc); !errors.Is(err, ErrNoCode) || tok != "" {
+			t.Errorf("%s: token %q, err %v -- want ErrNoCode and no token", name, tok, err)
+		}
+	}
+	tok, expires, err := s.Token(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.keys.Open(tok)
+	if err != nil || c.DisplayID != live.ID || !expires.Equal(now.Add(TokenLifetime)) {
+		t.Fatalf("a live screen's token: %+v %v", c, err)
+	}
+}

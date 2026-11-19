@@ -121,8 +121,12 @@ func TestLiveQRPanel_TheVenueDetailListsItsScreensAndOffersTheButton(t *testing.
 			t.Errorf("the detail does not carry %q", want)
 		}
 	}
-	if strings.Contains(body, `name="display_id" value="`+dead.String()+`"`) || strings.Contains(body, `name="display_id" value="`+lapsed.String()+`"`) {
-		t.Error("a removed or run-out screen offers Remove")
+	if strings.Contains(body, `name="display_id" value="`+dead.String()+`"`) {
+		t.Error("a removed screen offers Remove")
+	}
+	// A run-out screen is removable (the re-audit's DÜŞÜK): "Pairing ran out" must not stay for ever.
+	if !strings.Contains(body, `name="display_id" value="`+lapsed.String()+`"`) {
+		t.Error("a run-out screen offers no Remove")
 	}
 	if !strings.Contains(body, `action="`+liveQRCreateHref) || !strings.Contains(body, `action="`+liveQRRevokeHref) {
 		t.Error("the two forms do not post to the two routes")
@@ -432,7 +436,10 @@ func TestLiveScreenScript_KeepsItsPromises(t *testing.T) {
 		// DÜŞÜK 9: the display is counted from the request's SEND, so a slow answer shortens it.
 		"var sentAt = now();", "deadline = sentAt + body.expiresIn * 1000",
 		// DÜŞÜK 8: a paused screen keeps asking, every minute.
-		"res.status === 409", "schedule(PAUSED_MS)", "PAUSED_MS = 60000"} {
+		"res.status === 409", "schedule(PAUSED_MS)", "PAUSED_MS = 60000",
+		// The re-audit's DÜŞÜK: a failed ask keeps a paused screen at a minute, and the "Scan…" lines
+		// are hidden while it is paused.
+		"schedule(paused ? PAUSED_MS : RETRY_MS)", "caption.hidden = word !== ''"} {
 		if !strings.Contains(code, want) {
 			t.Errorf("livescreen.js lost %q", want)
 		}

@@ -74,8 +74,10 @@ templ LiveScreenPair(v LiveScreenPairView) {
 
 // LiveScreen is a paired screen's page. The code is not in it: the script draws each one from the
 // poll's answer into the empty drawing below, and hides it once it has run out without a newer one.
-// A switched-off venue's or a paused business's screen gets the same page with its sentence shown;
-// the script keeps asking, and the code comes back by itself when the poll answers one.
+// A switched-off venue's or a paused business's screen gets the same page with its sentence shown and
+// the "Scan…" lines hidden (there is nothing to scan; a paused screen names no business and no
+// reason -- the venue's name stays, a place's name and no person's); the script keeps asking, and the
+// code comes back by itself when the poll answers one.
 templ LiveScreen(v LiveScreenView) {
 	@layout.PageWithScript("Live QR — Taptime", "/static/js/livescreen.js", layout.Brand{}) {
 		<section aria-labelledby="screen-h" data-live-screen data-code-url={ v.CodeURL } class="flex flex-col items-center gap-5">
@@ -101,8 +103,10 @@ templ LiveScreen(v LiveScreenView) {
 					This screen is paused and shows no code. It comes back by itself.
 				</p>
 			</div>
-			<p class="text-center font-display text-lg font-bold tracking-tight">Scan with your phone to tap in or out</p>
-			<p class="text-center text-xs text-ink/70">The code changes every 20 seconds.</p>
+			<div data-qr-caption hidden?={ v.State != "" } class="flex flex-col items-center gap-5">
+				<p class="text-center font-display text-lg font-bold tracking-tight">Scan with your phone to tap in or out</p>
+				<p class="text-center text-xs text-ink/70">The code changes every 20 seconds.</p>
+			</div>
 			<noscript>
 				<p class="rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink">This screen needs JavaScript to show its code.</p>
 			</noscript>

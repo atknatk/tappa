@@ -1459,7 +1459,9 @@ göstermesi.
 > döndürmek **reddedildi** (ağ kaybında ekranı kilitler). Kalan risk M16-21'e devredildi (o kartın sonundaki not).
 > (b) **ORTA-2, askıdaki işletme:** `GetLiveQRDisplayForScreen` `tenants.suspended_at`'i okur (00063; `tappa_app`
 > okuyabilir, çözümleyiciye dokunulmadı); askıda `/screen/code` token **üretmez** (409 `paused`), ekran sabit *"This screen is
-> paused"* der (sebep yok, ad yok), askı kalkınca kendiliğinden döner. ADR 0025 istisna listesine dokunulmadı — panelden
+> paused"* der (işletme adı ve sebep yok; mekân adı görünür — yer adıdır, kişisel veri değil; *"Scan…"* satırları gizlenir),
+> askı kalkınca kendiliğinden döner. `Screens.Token`'ın kendi kapısı da askıdaki, pasif ya da ömrü dolmuş ekrana
+> `ErrNoCode` döndürür (yeniden denetimin DÜŞÜK'ü; başka bir çağıran — ör. M16-23 — da askıda kod üretemez). ADR 0025 istisna listesine dokunulmadı — panelden
 > iptal askıda hâlâ kapalı (M16-24 maddesi).
 > (c) **DÜŞÜK:** eşleme formunda `Sec-Fetch-Site` yoksa `Origin` `TAPPA_BASE_URL`'inkinden farklıysa 403; pasif / askıdaki
 > ekran 60 sn'de bir yoklar ve kendiliğinden döner; gösterim süresi isteğin gönderilme anından sayılır (ağ gecikmesi

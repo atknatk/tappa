@@ -56,6 +56,9 @@ var (
 	ErrRevoked = errors.New("liveqr: the screen was removed")
 	// ErrLapsed is a screen whose session is older than ScreenSessionLifetime: paired again or nothing.
 	ErrLapsed = errors.New("liveqr: the screen's pairing ran out")
+	// ErrNoCode is Token's refusal of a screen that may not show a code now: its business is
+	// suspended, its venue switched off, or its pairing unknown or run out.
+	ErrNoCode = errors.New("liveqr: this screen shows no code now")
 	// ErrUnknownLocation is a location that is not this business's.
 	ErrUnknownLocation = errors.New("liveqr: no such venue in this business")
 	// ErrUnknownScreen is a screen id that is not this business's.
@@ -201,6 +204,8 @@ type Screen struct {
 	// Suspended is the operator's suspension of the business (ADR 0025 §1): its screens show no code
 	// while it lasts and come back by themselves when it is lifted (the security lens's ORTA-2).
 	Suspended bool
+	// PairedAt is when the screen was paired; its session ends ScreenSessionLifetime later.
+	PairedAt *time.Time
 }
 
 // Pair consumes a pairing code: the screen it names is paired with a fresh session, in ONE
@@ -310,6 +315,7 @@ func (s *Screens) Resolve(ctx context.Context, sess ScreenSession) (Screen, erro
 			return err
 		}
 		out.LocationName, out.LocationActive, out.Suspended = row.LocationName, row.LocationActive, row.TenantSuspended
+		out.PairedAt = row.PairedAt
 		switch {
 		case row.RevokedAt != nil: // revoked between the two reads
 			verdict = ErrRevoked
@@ -337,8 +343,15 @@ func (s *Screens) Resolve(ctx context.Context, sess ScreenSession) (Screen, erro
 }
 
 // Token mints the QR's next token for a resolved screen, issued now by the server's clock.
+//
+// IT CARRIES ITS OWN GATE (defence in depth, the re-audit's DÜŞÜK): the page asks before it calls,
+// but a later caller (M16-23's activation, say) may not -- so a suspended business's screen, a
+// switched-off venue's, and one whose pairing is unknown or has run out get ErrNoCode, never a token.
 func (s *Screens) Token(sc Screen) (string, time.Time, error) {
 	at := s.now()
+	if sc.Suspended || !sc.LocationActive || sc.PairedAt == nil || !at.Before(sc.PairedAt.Add(ScreenSessionLifetime)) {
+		return "", time.Time{}, ErrNoCode
+	}
 	tok, err := s.keys.Mint(sc.ID, sc.LocationID, at, TokenLifetime)
 	if err != nil {
 		return "", time.Time{}, err

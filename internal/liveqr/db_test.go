@@ -306,7 +306,11 @@ func TestScreens_TheTrailCarriesNoSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, _, err := w.s.Token(Screen{ID: sc.ID, LocationID: sc.LocationID})
+	resolved, err := w.s.Resolve(ctx, sess)
+	if err != nil || resolved.ID != sc.ID {
+		t.Fatalf("resolve: %+v %v", resolved, err)
+	}
+	tok, _, err := w.s.Token(resolved)
 	if err != nil {
 		t.Fatal(err)
 	}

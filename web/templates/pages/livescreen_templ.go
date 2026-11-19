@@ -101,8 +101,10 @@ func LiveScreenPair(v LiveScreenPairView) templ.Component {
 
 // LiveScreen is a paired screen's page. The code is not in it: the script draws each one from the
 // poll's answer into the empty drawing below, and hides it once it has run out without a newer one.
-// A switched-off venue's or a paused business's screen gets the same page with its sentence shown;
-// the script keeps asking, and the code comes back by itself when the poll answers one.
+// A switched-off venue's or a paused business's screen gets the same page with its sentence shown and
+// the "Scan…" lines hidden (there is nothing to scan; a paused screen names no business and no
+// reason -- the venue's name stays, a place's name and no person's); the script keeps asking, and the
+// code comes back by itself when the poll answers one.
 func LiveScreen(v LiveScreenView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -143,7 +145,7 @@ func LiveScreen(v LiveScreenView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.CodeURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/livescreen.templ`, Line: 81, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/livescreen.templ`, Line: 83, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -156,7 +158,7 @@ func LiveScreen(v LiveScreenView) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.VenueName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/livescreen.templ`, Line: 84, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/livescreen.templ`, Line: 86, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -192,7 +194,17 @@ func LiveScreen(v LiveScreenView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, " role=\"status\" class=\"py-16 text-center font-display text-base text-ink\">This screen is paused and shows no code. It comes back by itself.</p></div><p class=\"text-center font-display text-lg font-bold tracking-tight\">Scan with your phone to tap in or out</p><p class=\"text-center text-xs text-ink/70\">The code changes every 20 seconds.</p><noscript><p class=\"rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink\">This screen needs JavaScript to show its code.</p></noscript></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, " role=\"status\" class=\"py-16 text-center font-display text-base text-ink\">This screen is paused and shows no code. It comes back by itself.</p></div><div data-qr-caption")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if v.State != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, " hidden")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " class=\"flex flex-col items-center gap-5\"><p class=\"text-center font-display text-lg font-bold tracking-tight\">Scan with your phone to tap in or out</p><p class=\"text-center text-xs text-ink/70\">The code changes every 20 seconds.</p></div><noscript><p class=\"rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink\">This screen needs JavaScript to show its code.</p></noscript></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

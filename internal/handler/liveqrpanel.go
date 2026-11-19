@@ -228,7 +228,9 @@ func liveQRRowView(s liveqr.Listed, zone *time.Location) components.LiveQRScreen
 			row.LastSeen = "last seen " + at(*s.LastSeenAt)
 		}
 	case liveqr.StateLapsed:
-		row.State, row.Since = "Pairing ran out", "paired "+at(*s.PairedAt)+", 180 days ago or more"
+		// Removable (the re-audit's DÜŞÜK): a run-out screen shows no code, but Remove is how it
+		// leaves the list's live states -- "Removed" is a terminal word, "Pairing ran out" is not.
+		row.State, row.Since, row.CanRemove = "Pairing ran out", "paired "+at(*s.PairedAt)+", 180 days ago or more", true
 		if s.LastSeenAt != nil {
 			row.LastSeen = "last seen " + at(*s.LastSeenAt)
 		}
