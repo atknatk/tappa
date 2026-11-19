@@ -1784,7 +1784,7 @@ yazılır.
 | M16-18 | Faz C kapanışı — gerçek cihaz turu | todo |  |
 | M16-19 | Şema: canlı QR ekranları ve `qr_live` kanal envanteri | done | dal `m16-19-liveqr-schema` (taban `b3c877fd`), `feat(db): add live QR displays and the qr_live channel`; migration 00111 (`live_qr_displays` + üç çözümleyici), 00112 (`qr_live` beş CHECK + üç tetikleyici), **00113** (VALIDATE — eklendi; M16-23…M16-35 önerileri birer kaydı); envanter kartın altında; iki mercek ONAY (üçüncü göz RED → düzeltme → dar yeniden denetim ONAY; güvenlik ONAY + ORTA kapandı) |
 | M16-20 | Canlı QR ekran sayfası ve panelden eşleme | done | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
-| M16-21 | `qr_live` karar motorunda | review | dal `m16-21-liveqr-decide` (taban `c57e8ba2`), `feat(tap): accept a live QR as a channel`; kullanıcı kararı 2026-11-19: `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, ayrı belge, `BaselineVersion` 2026-11-19); dört guardrail (11 → 15), üç bağlam anahtarı; `GET /q` (tap ekranı aynen); `/v1` `qrKind`; parite matrisi; migration yok (00115 M16-23'te kalır); iki mercek bekliyor |
+| M16-21 | `qr_live` karar motorunda | done | dal `m16-21-liveqr-decide` (taban `c57e8ba2`), `feat(tap): accept a live QR as a channel`; kullanıcı kararı 2026-11-19: `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, ayrı belge, `BaselineVersion` 2026-11-19); dört guardrail (11 → 15), üç bağlam anahtarı; `GET /q` (tap ekranı aynen); `/v1` `qrKind`; parite matrisi; migration yok (00115 M16-23'te kalır); iki mercek bekliyor |
 | M16-22 | Uygulamada QR okuma (statik + canlı) | todo |  |
 | M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | todo |  |
 | M16-24 | Faz D kapanışı | todo |  |
@@ -1837,6 +1837,11 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 - **Walk testleri:** `qr_live` satırları artık commit ediliyor → `qrLiveRowsSetAsideSQL` (`qlDown`, `aiLaterMigrations`,
   00112 Down testi).
 - **Açık:** iki mercek; `/q` hata ekranlarının plaket diyen cümleleri (§9 sorusu, M16-24); cihazda ağ payı ölçümü (M16-24).
+
+### 2026-11-19 (M16, ana oturum) — M16-21 kapandı
+
+- **Kapanış:** yapıcı `be47afc3` → üçüncü göz ONAY (9 mutantın 8'i öldü; M2b eşdeğer) + güvenlik ONAY (2 DÜŞÜK) → küçük bulgular `c651945b`. Kullanıcı kararı (2026-11-19): `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, tenant değiştirebilir). `plan/m16-mobil`'e birleşti.
+- **Sıradaki:** M16-22 (uygulamada `/q` — Q36 (c): uygulama içi tarayıcı yok; `/app/v1/tap` `qr_live`'ı bugün 400 ile reddediyor, kayıt yok — M16-21 devri).
 
 ### 2026-11-19 (M16, ana oturum) — M16-20 kapandı
 
