@@ -266,6 +266,18 @@ type LegalDocument struct {
 	PublishedBy *uuid.UUID
 }
 
+type LiveQrDisplay struct {
+	ID               uuid.UUID
+	TenantID         uuid.UUID
+	LocationID       uuid.UUID
+	PairingCodeHash  *string
+	PairingExpiresAt time.Time
+	PairedAt         *time.Time
+	SessionHash      *string
+	CreatedAt        time.Time
+	RevokedAt        *time.Time
+}
+
 type Location struct {
 	ID          uuid.UUID
 	TenantID    uuid.UUID

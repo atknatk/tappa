@@ -67,6 +67,18 @@ var poolStatementCalls = map[string]func(context.Context, *DB) error{
 		_, err := d.GetAppDeviceByID(ctx, uuid.New())
 		return err
 	},
+	"GetLiveQRDisplayByPairingCodeHash": func(ctx context.Context, d *DB) error {
+		_, err := d.GetLiveQRDisplayByPairingCodeHash(ctx, "h")
+		return err
+	},
+	"GetLiveQRDisplayBySessionHash": func(ctx context.Context, d *DB) error {
+		_, err := d.GetLiveQRDisplayBySessionHash(ctx, "h")
+		return err
+	},
+	"GetLiveQRDisplayByID": func(ctx context.Context, d *DB) error {
+		_, err := d.GetLiveQRDisplayByID(ctx, uuid.New())
+		return err
+	},
 	"GetOAuthClient": func(ctx context.Context, d *DB) error {
 		_, err := d.GetOAuthClient(ctx, uuid.New(), nil)
 		return err

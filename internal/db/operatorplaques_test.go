@@ -206,6 +206,14 @@ var opAtVersionSkips = map[int]string{
 		"other packages' tests commit carries",
 	110: "the validation of 00109's CHECK (M16-04) -- no operator object; its Down drops and adds it again NOT VALID " +
 		"under ACCESS EXCLUSIVE on transactions",
+	111: "live_qr_displays, its one-way trigger and the three live QR screen resolvers (M16-19) -- no operator object; " +
+		"its Down takes ACCESS EXCLUSIVE on the table, locations and tenants (the DROP's keys) and refuses while the " +
+		"table holds a row -- rows TestLiveQRDisplays_ConcurrentPairingExactlyOnce commits",
+	112: "qr_live in the five channel CHECKs and in punch_feed, holding_feed and holding_site_gate (M16-19) -- no " +
+		"operator object; its Down takes ACCESS EXCLUSIVE on transactions, punch_events and site_punches and refuses " +
+		"while a row carries qr_live",
+	113: "the validation of 00112's four CHECKs (M16-19) -- no operator object; its Down drops and adds them again NOT " +
+		"VALID under ACCESS EXCLUSIVE on transactions, punch_events and site_punches",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

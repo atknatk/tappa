@@ -247,7 +247,12 @@ SELECT line FROM (
 // functions (execute=-); the three resolvers
 // (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's named columns of the four tables and
 // tenants SELECT (api_code); api_idempotency's grant_id (tappa_app SELECT and INSERT); and
-// tappa_opdefiner's columns of oauth_clients and the five op_*_oauth_client* (EXECUTE tappa_operator)
+// tappa_opdefiner's columns of oauth_clients and the five op_*_oauth_client* (EXECUTE tappa_operator);
+// 00111 -- M16-19, ADR 0045 §2.5 -- added live_qr_displays (the RLS five; tappa_app's column lists,
+// session_hash not readable, no DELETE), its INVOKER one-way trigger function (execute=-), the three
+// live QR screen resolvers (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's seven columns of
+// the table and id, tenant_id, active of locations -- that role's first locations grant; 00112 and
+// 00113 change no privilege (CREATE OR REPLACE keeps the three triggers' owners and ACLs)
 // -- and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -352,9 +357,14 @@ column invite_requests tappa_app UPDATE lease_until,attempts
 column legal_documents tappa_app SELECT id,slug,body,published_at
 column legal_documents tappa_opdefiner INSERT slug,body,published_by
 column legal_documents tappa_opdefiner SELECT id,slug,body,published_at,published_by
+column live_qr_displays tappa_app INSERT tenant_id,location_id,pairing_code_hash,pairing_expires_at
+column live_qr_displays tappa_app SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at
+column live_qr_displays tappa_app UPDATE pairing_code_hash,paired_at,session_hash,revoked_at
+column live_qr_displays tappa_resolver SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at
 column locations tappa_feedwriter SELECT id,tenant_id,name,external_ref
 column locations tappa_holdingdefiner SELECT id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref
 column locations tappa_opdefiner SELECT id,tenant_id,name
+column locations tappa_resolver SELECT id,tenant_id,active
 column oauth_clients tappa_opdefiner INSERT name,redirect_uris,allowed_scopes,secret_hash,secret_hint,created_by
 column oauth_clients tappa_opdefiner SELECT id,name,redirect_uris,allowed_scopes,secret_hint,secret_rotated_at,created_at,created_by,disabled_at
 column oauth_clients tappa_opdefiner UPDATE redirect_uris,secret_hash,secret_hint,secret_rotated_at,disabled_at
@@ -489,6 +499,7 @@ function identity_switch_session(text,uuid,text) owner=tappa_identitydefiner def
 function identity_unlink_backfilled(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_verify_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_withdraw_reset(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function live_qr_displays_state_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_clients_disabling_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_codes_spending_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_grants_revocation_is_one_way() owner=tappa_owner definer=false execute=-
@@ -532,6 +543,9 @@ function resolve_identity_by_email(citext) owner=tappa_resolver definer=true exe
 function resolve_identity_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_verification_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_invite_by_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_id(uuid) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_pairing_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_session_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_client(uuid,text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_code_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_token_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -586,6 +600,7 @@ rel holding_members r owner=tappa_owner rls=enable,force
 rel holdings r owner=tappa_owner rls=enable,force
 rel invite_requests r owner=tappa_owner rls=enable,force
 rel legal_documents r owner=tappa_owner rls=enable,force
+rel live_qr_displays r owner=tappa_owner rls=enable,force
 rel locations r owner=tappa_owner rls=enable,force
 rel oauth_clients r owner=tappa_owner rls=enable,force
 rel oauth_codes r owner=tappa_owner rls=enable,force

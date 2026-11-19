@@ -3,7 +3,7 @@ package tap
 import "testing"
 
 // TestRecordedDirectionSource_NullOnADirectedTapIsTheEnginesChoice is ADR 0032 §B.4's reader rule,
-// cell by cell: on a directed nfc/qr row NULL is "before M15, the engine's choice" (auto) and a
+// cell by cell: on a directed nfc/qr/qr_live row NULL is "before M15, the engine's choice" (auto) and a
 // stored value is itself; a manual row, an undirected row and a value the CHECK refuses have no
 // source -- even when the column holds something.
 func TestRecordedDirectionSource_NullOnADirectedTapIsTheEnginesChoice(t *testing.T) {
@@ -24,6 +24,10 @@ func TestRecordedDirectionSource_NullOnADirectedTapIsTheEnginesChoice(t *testing
 		{"a recorded auto is auto", ChannelNFC, &out, &auto, DirectionAuto, true},
 		{"a recorded employee is employee", ChannelNFC, &out, &employee, DirectionEmployee, true},
 		{"a recorded employee on qr is employee", ChannelQR, &in, &employee, DirectionEmployee, true},
+		// M16-19 (00112): the live QR is a tap channel -- the feed triggers' v_dsrc names it too.
+		{"a directed qr_live row with NULL is the engine's", ChannelQRLive, &in, nil, DirectionAuto, true},
+		{"a recorded employee on qr_live is employee", ChannelQRLive, &out, &employee, DirectionEmployee, true},
+		{"an undirected qr_live row has none", ChannelQRLive, nil, &auto, "", false},
 		{"a manual row has none", ChannelManual, &in, nil, "", false},
 		{"a manual row with a value is not believed", ChannelManual, &out, &employee, "", false},
 		{"an undirected nfc row has none", ChannelNFC, nil, nil, "", false},

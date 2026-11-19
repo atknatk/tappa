@@ -182,21 +182,22 @@ oldu; tablodaki sonraki öneriler de dört kaydı. ADR'ler: `main` 0046 (timeshe
 | 00110 | M16-04 | iki CHECK'in `VALIDATE`'i (`00044` deseni; NULL'lu tarihsel satırlar geçer) | `NOT VALID` hâline döner |
 
 | 00111 | M16-19 | `live_qr_displays` (+ eşleşme kodu) + üç çözümleyici: ekran oturumu ve eşleşme kodu (`00003` deseni), dokunuş anındaki ekran → tenant/lokasyon/iptal (`00004` `resolve_tag_by_uid` deseni) | satır varsa reddeder |
-| 00112 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
-| 00113 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
-| 00114 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
-| 00115 | M16-30 | `tenants.staff_hours_weeks smallint` + `CHECK (… IS NULL OR … IN (1, 2, 4, 13))` + `GRANT UPDATE (staff_hours_weeks)`; varsayılansız (Q48 (a), 2026-11-19 — her satır NULL = kapalı) — `00064`'ün `day_cutoff` deseni | `DROP COLUMN` (yapılandırma; geçmişi `audit_log`'da — `00064:181-182`) |
-| 00116 | M16-35 | `employee_invites.origin text NOT NULL DEFAULT 'employer'` + `CHECK (origin IN ('employer','self'))`; çözümleyici `resolve_employees_for_signin(citext, uuid[])` (SECURITY DEFINER, `tappa_resolver`, `OPERATOR(public.=)` — `00011:295-313`) + **`GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`** + **`GRANT SELECT (suspended_at, email_signin) ON tenants TO tappa_resolver`** (yalnız yeni sütunlar — `tenants.id` `00051:155`'ten beri var, dokunulmaz); `tenants.email_signin boolean NOT NULL DEFAULT false` + `GRANT UPDATE (email_signin)` (Q49 (a)) | `origin='self'` satırı varsa reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar |
-| 00117 | M16-35 | `CREATE INDEX CONCURRENTLY employees_email_idx ON employees (email) WHERE email IS NOT NULL` — **ayrı dosya**, `-- +goose NO TRANSACTION`, kendi `lock_timeout`'u (CLAUDE.md §6 sıcak tablo kuralı; `00091` emsali) | `DROP INDEX CONCURRENTLY` |
+| 00112 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri (`NOT VALID`) ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
+| 00113 | M16-19 | `00112`'nin önceden geçerli dört CHECK'inin `VALIDATE`'i (`00044` deseni) — **eklendi (2026-11-19, M16-19):** sonraki öneriler birer kaydı | `NOT VALID` hâline döner |
+| 00114 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
+| 00115 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
+| 00116 | M16-30 | `tenants.staff_hours_weeks smallint` + `CHECK (… IS NULL OR … IN (1, 2, 4, 13))` + `GRANT UPDATE (staff_hours_weeks)`; varsayılansız (Q48 (a), 2026-11-19 — her satır NULL = kapalı) — `00064`'ün `day_cutoff` deseni | `DROP COLUMN` (yapılandırma; geçmişi `audit_log`'da — `00064:181-182`) |
+| 00117 | M16-35 | `employee_invites.origin text NOT NULL DEFAULT 'employer'` + `CHECK (origin IN ('employer','self'))`; çözümleyici `resolve_employees_for_signin(citext, uuid[])` (SECURITY DEFINER, `tappa_resolver`, `OPERATOR(public.=)` — `00011:295-313`) + **`GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`** + **`GRANT SELECT (suspended_at, email_signin) ON tenants TO tappa_resolver`** (yalnız yeni sütunlar — `tenants.id` `00051:155`'ten beri var, dokunulmaz); `tenants.email_signin boolean NOT NULL DEFAULT false` + `GRANT UPDATE (email_signin)` (Q49 (a)) | `origin='self'` satırı varsa reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar |
+| 00118 | M16-35 | `CREATE INDEX CONCURRENTLY employees_email_idx ON employees (email) WHERE email IS NOT NULL` — **ayrı dosya**, `-- +goose NO TRANSACTION`, kendi `lock_timeout`'u (CLAUDE.md §6 sıcak tablo kuralı; `00091` emsali) | `DROP INDEX CONCURRENTLY` |
 
 **Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00108) `main`'e M16-04'ten (00109/00110) **önce ya da onunla
 birlikte** ulaşır. 109/110'a çıkmış kalıcı bir veritabanı (`tappa-m16-04-db` dahil) 00108'i sonradan **alamaz** — depo
 goose'u `-allow-missing` ile koşmaz — ve yeniden kurulmalıdır.
 
 **Faz G numara ölçümü (2026-11-18, `origin/main` `6ab423eb`):** son migration **00110**, son ADR **0047**; bu planın
-00111–00114 ayırması yukarıda; **ADR 0048** `origin/ops/tappa-scoped-access` dalında kullanılıyor
+00111–00115 ayırması yukarıda; **ADR 0048** `origin/ops/tappa-scoped-access` dalında kullanılıyor
 (`docs/adr/0048-kapsamli-insan-erisimi.md`, `main`'de yok — state.md *"ADR 0048 `scoped-access.sql`"*) → Faz G'nin ADR'si
-**0049**, migration'ları **00115**'ten. Hesap silme talebi tablosu (eski Q46 (c)) denetim turunda Faz G'den çıkarıldı —
+**0049**, migration'ları **00116**'dan. Hesap silme talebi tablosu (eski Q46 (c)) denetim turunda Faz G'den çıkarıldı —
 numara ayrılmaz. M16-31 migration beklemez: kişinin kayıtlarını okuyacak indeks
 `transactions_tenant_employee_occurred_idx` (`00005:175`, `(tenant_id, employee_id, occurred_at DESC)`) zaten var — kart
 planı ölçer. Kural aynı: her kart açılırken `main`'in ve diğer dalların son numarası **yeniden okunur**.
@@ -1203,6 +1204,110 @@ reddeder (§4.6) ya da akıştan sessizce düşürür.
   Q38'in cevabına göre; parite testi.
 - `Down`: `qr_live` satırı varsa reddeder.
 
+### M16-19 envanteri — `qr_live` nerede girer, nerede girmez (2026-11-19)
+
+**Ref:** satır numaraları bu kartın commit'indeki ağaçtır (`feat(db): add live QR displays and the qr_live channel`).
+**Ölçüm yolu:** şema yarısı kurulu veritabanından okundu — `00111`'e yükseltilmiş özel bir veritabanında
+`pg_constraint` (tanımı `channel` geçen her CHECK) ve `pg_proc` (gövdesi `'nfc'`, `'qr'` ya da `'manual'` geçen her
+fonksiyon) taraması: **6 CHECK, 4 fonksiyon**; kanal sütunu olan üç tablo (`transactions`, `punch_events`,
+`site_punches`); kanal geçen indeks ve görünüm yok. Sorgu ve Go yarısı kartın arama desenleriyle (`channel IN`,
+`<> 'manual'`, `== Channel(NFC|QR)`, `!= ChannelManual`, `case …Channel…`, `"manual"` karşılaştırması) tarandı.
+**Bu liste yine bir başlangıçtır; eksiksizliğin kanıtı M16-21'in parite matrisidir.**
+
+**Özet:** aşağıdaki tablolarda **50 satır**. Bu kartta değişen **13** (5 CHECK; 3 tetikleyici gövdesinde 7 süzgeç, 5 satırda;
+`ChannelQRLive` sabiti; Go aynası `feedEligible`; okur kuralı `RecordedDirectionSource` — `00112` ile aynı commit). `qr_live`'ı
+girdirmesi gereken ama **M16-21'e devredilen 23** (5 sorgu, 18 Go yeri). Doğru olarak **dışarıda bırakan ya da sessizce doğru
+kabul eden 10**; tarihî / not **3**; **SEÇİM 1** (`site_punches_other_refusal_hourly`).
+
+**Şema (kurulu nesneler) — bu kart**
+
+| Yer | Biçim | `qr_live` | Neden |
+|---|---|---|---|
+| `transactions_channel_check` (`00005:114` → `00112:114-115`) | kapalı küme | **girer** | sözlük; `NOT VALID`, `00113` doğrular |
+| `transactions_site_by_channel` (`00043:139-142` → `00112:117-121`) | kanal başına site kolu | **girer — üçüncü kol** | Q43 (b): holding ret satırı `site_location_id` dolu, `site_tag_uid` NULL (manuel kolun biçimi; ekran plaket değildir). Kol politika değil biçim taşır — `verdict = 'reject'` şartı **konmadı**: kararı motor verir, CHECK'in ret yazdırmaması §4.6'yı korur |
+| `transactions_shift_snapshot_shape` (`00095:66`, `:68` → `00112:122-129`) | yönlü tap kanalı | **girer** | yönlü bir canlı QR dokunuşu vardiyaya göre yargılanır; 00095'teki gibi `NOT VALID` kalır |
+| `punch_events_channel` (`00048:171` → `00112:132-133`) | kapalı küme | **girer** | Q38 (a), **ölçüldü:** `punch_events.channel` sütunu ve kapalı CHECK'i var → **gerçek kanal saklanır**; dışarıya `channel: qr` + `qrKind: live` eşlemesi API katmanındadır (M16-21) |
+| `site_punches_channel_check` (`00046:137` → `00112:136-137`) | kapalı küme | **girer** | Q43 (b): site `refused` satırını görür |
+| `punch_feed()` ok kapısı (`00067:193` → `00112:186`) | `NOT IN ('nfc','qr')` | **girer** | Q38 (a); Go aynası `feedEligible` aynı commit'te, `TestFeedEligible_IsPunchFeedsEntryRule` |
+| `punch_feed()` onay kapısı (`00067:234` → `00112:227`) | `NOT IN` | **girer** | onaylanan `flag` akışa girer |
+| `punch_feed()` / `holding_feed()` `v_dsrc` (`00067:240`, `:434` → `00112:233`, `:430`) | `IN ('nfc','qr')` | **girer** | olay yönünün kaynağını taşır; Go okur kuralı `tap.RecordedDirectionSource` (`internal/domain/tap/directionsource.go:45`) aynı commit'te, `TestPunchDirectionSource_TheFeedsExpressionIsTheReaderRule` kanal listesinde `qr_live` |
+| `holding_feed()` ok ve onay kapıları (`00067:366`, `:408` → `00112:362`, `:404`) | `IN ('nfc','qr')` | **girer** | Q43 (b) ile bugün hiç geçmez (holding `qr_live` hep ret); tetikleyici politikanın değil sözlüğün okuru kalsın diye |
+| `holding_site_gate()` toleranslı kol (`00043:374` → `00112:588`) | `IN ('nfc','qr')` | **girer** | bir `qr_live` **reddi** üyelik bittikten sonraki 60 sn içinde de yazılır (statik QR reddi gibi; §4.6). `TestHoldingWindow_GateArms` iki yeni satır |
+| `holding_feed()` `v_outcome` (`00112:355`) | `= 'manual'` | girmez — doğru | `qr_live` el yazımı değil; ret → `refused` |
+| `site_punches_other_refusal_hourly` (`00046:171-173`) | `site_tag_uid` anahtar | **değişmedi — SEÇİM, kabul edilen fark** | aşağıda |
+| `tappa_check_punch_claim_decision()` (`00068:336`) | `<> 'manual'` | girmez — doğru | bir talep onayı yalnız müdürün yazdığı **manuel** kaydı adlandırır; `qr_live` reddedilir |
+| `transactions_manual_has_no_client` (`00109:63`, `00110:44`) | `<> 'manual'` | sessizce kabul — doğru | `qr_live` bir `client` taşır (uygulama ya da tarayıcı) |
+| `00049`'un gövdeleri (`00049:224`, `:262`, `:414`, `:421`, `:462`, `:687`) | — | değişmez | tarihî; `00067` değiştirdi, kurulu değiller |
+| `00050` geri doldurması (`00050:152`) | — | değişmez | tek seferlik ve uygulanmış; o an `qr_live` satırı yoktu |
+| `00043`/`00044`'ün Down'ları (`00044:49-52`) | eski metni geri yazar | — | yürüyüş testleri `00112`/`00113` Down'ını önce koşar (aşağıda) |
+
+**`site_punches_other_refusal_hourly` — SEÇİM: anahtar değişmedi, fark kabul edildi.** Anahtar `(tenant_id, site_tag_uid,
+employee_id, outcome, bucket_hour)` `NULLS NOT DISTINCT`; `qr_live` retinde `site_tag_uid` NULL olduğundan bir çalışanın aynı
+saatte site tenant'ının **bütün** ekranlarındaki retleri tek `refused` satırına iner. Gerekçe: (1) işverenin `transactions`'ı
+her denemeyi tutar (§4.6 bozulmaz; site tablosu bir projeksiyondur); (2) K-1h sitenin *sonucu* görmesidir — "bu kişi bu saatte
+reddedildi" bilgisi korunur; (3) plaketin karşılığı **ekrandır**, lokasyon değil — `site_location_id` eklemek bile tam karşılık
+olmazdı ve `tappa_holdingdefiner`'ın matrisini (ADR 0027 §3, `site_punches`'a yeni SELECT sütunu) kullanıcının kapattığı bir
+dokunuş için genişletirdi. Kanıt: `TestQRLive00112_HoldingRefusalReachesTheSiteOncePerHour` (iki lokasyonda iki ret → iki
+`transactions` satırı, bir site satırı; kontrol: iki plakette iki statik QR reddi → iki site satırı).
+
+**Sorgular (`db/queries`)**
+
+| Yer | Biçim | `qr_live` | Neden / sahibi |
+|---|---|---|---|
+| `transactions.sql:318` `SecondsSinceLastRecordedTap` | `channel IN ('nfc','qr')` | **girmeli — M16-21** | debounce'un sunucu saati bacağı (ADR 0006); M16-21'in DB testiyle (geriye tarihlenmiş `qr_live` öncülü). Bu kart değiştirmedi: karar motorunun parçası ve `qr_live` satırı M16-21'e kadar yazılamaz |
+| `daycutoff.sql:73` `ListDayCutoffTouchedVenues` | `<> 'manual'` | sessizce girer — doğru | canlı QR bir dokunuştur ve `location_id` ekranın lokasyonuyla doludur |
+| `transactions.sql:475` `ExistingManualRecord` | `= 'manual'` | girmez — doğru | yalnız müdür kaydı |
+| `transactions.sql:956`, `anomalies.sql:147`, `:718` | `= 'manual'` sayımı | girmez — doğru | el yazımı sayımı |
+| `transactions.sql:902-903`, `:967-968` | kanal süzgeci parametresi | M16-21 | süzgecin seçenekleri `internal/handler/transactions.go:104-106` `qr_live`'ı sunmaz |
+| `employees.sql:502-505` | son kaydın kanalı | M16-21 | okuru `internal/handler/employees.go:835` |
+| `punchfeed.sql:47`, `:117`; `webhooks.sql:143` | `pe.channel` olduğu gibi | **M16-21** | `internal/punchwire/punchwire.go:68` kanalı aynen taşır → `qr_live` → `channel: qr` + `qrKind: live` eşlemesi orada (Q38 (a)); `/v1` enum'u `internal/handler/api/openapi.yaml:1315`, `:1380` |
+| `sitepunches.sql:26`, `:31` | `channel` olduğu gibi | M16-21 | site panelinin metni |
+
+**Go — bu kart**
+
+| Yer | `qr_live` | Not |
+|---|---|---|
+| `internal/domain/tap/types.go:73` `ChannelQRLive` | sabit | yalnız `feedEligible` ve `RecordedDirectionSource` paritesi için; hiçbir yol türetmez (M16-21) |
+| `internal/domain/checkin/checkin.go:1710-1714` `feedEligible` | **girer** | `punch_feed`'in ok kapısının aynası |
+| `internal/domain/tap/directionsource.go:45` `RecordedDirectionSource` | **girer** | `v_dsrc`'nin aynası |
+
+**Go — M16-21'e devredilen (her biri `qr_live`'ı bugün dışarıda bırakır ya da reddeder)**
+
+| Yer | Biçim | Not |
+|---|---|---|
+| `internal/domain/checkin/checkin.go:1176` | `!= manual && TagUID == ""` → `ErrInvalidRequest` | plaketsiz her `qr_live` isteğini **reddeder** (kayıt kaybı, §4.6) — ekran kimliğiyle karşılanmalı |
+| `checkin.go:1776` (`BusinessDayStart`) | `== NFC \|\| == QR` | iş günü |
+| `checkin.go:1807` (`SunValid`) | `!= manual` | sessizce girer; değerin anlamı M16-21 |
+| `checkin.go:1826-1843` (plaket / site yazımı) | `!= manual` | `tagRow` varsayar; holding ret satırının site sütunları (`site_location_id` dolu, `site_tag_uid` NULL) buradan yazılmalı |
+| `checkin.go:1899` (`shiftColumns`) | `== NFC \|\| == QR` | CHECK (00112) zaten kabul eder |
+| `checkin.go:1929` (`directionSourceColumn`) | `== NFC \|\| == QR` | okur kuralı zaten okur |
+| `checkin.go:1951` (`clientColumn`) | `== NFC \|\| == QR` | `qr_live` client alır |
+| `internal/handler/tapcontext.go:435` | `!= NFC && != QR` → `errTapContextMalformed` | imzalı bağlamı **reddeder** |
+| `internal/policy/guardrails.go:396` (`sys:sun-invalid`), `:479` (`sys:tap-freshness`) | NFC-only | Q39'un iki guardrail'i ve tazelik kararı |
+| `internal/policy/guardrails.go:586` (`sys:cross-tenant-qr-site-ip`) | `== qr` | holding `qr_live` kapalı (Q43 (b)) — ayrı, ret veren guardrail |
+| `internal/policy/baseline.go:306`, `:374` (`base:qr-requires-ip`) | `== qr` | ADR 0045 §2.5: `qr_live` + (IP veya GPS) yeter — `TestDecide_` vakalarıyla ölçülür |
+| `internal/punchwire/punchwire.go:68` | kanal aynen | `qr` + `qrKind: live` eşlemesi; `tagId: null` |
+| `internal/handler/claimqueue.go:615-619` (`claimChannelWord`) | `case` | *"unknown channel"* — parite testinin ulaşamadığı, takip maddesi |
+| `internal/handler/tap.go:618`, `:645-647`; `internal/handler/apptap.go:214` | `sun.Channel` | önizleme / QR bayrağı — `qr_live` `sun`'dan türemez |
+| `internal/handler/transactions.go:104-106` | süzgeç seçenekleri | panel listesi |
+| `internal/handler/employees.go:835` | `== "manual"` | panel notu |
+| `web/templates/components/spikeview.go:80-102` | kanal başına kutucuk | *"Physical tap"* kutucuğu `default`'a düşer — takip maddesi |
+| `internal/sandbox/simulate.go:78`, `:118-120`, `:356` (`InFeed`) | `nfc`/`qr` | API sandbox'ı — takip maddesi |
+
+**Go — dışarıda bırakan, doğru**
+
+| Yer | Neden |
+|---|---|
+| `checkin.go:1204` (`advance`), `:1845` (`ctr`) | NFC-only: sayaç ve CMAC yalnız plakette |
+| `internal/sun/params.go:108` (`HasSUN`) | SUN yalnız NFC |
+| `checkin.go:1174` | manuel kaydın `entered_by` zorunluluğu |
+| `internal/domain/ledger/review.go:317`, `ledger.go:834`, `site.go:251`, `report.go:750` | `== "manual"`: `qr_live` sessizce **tap** sayılır — doğru (M16-21 raporu ölçer) |
+
+**Yürüyüş testlerine not (M16-21 ve sonrası):** `00111`'in Down'ı tabloda satır varken, `00112`'ninki bir `qr_live` satırı
+varken reddeder. Bugün hiçbir paket `qr_live` satırı commit etmez; `TestLiveQRDisplays_ConcurrentPairingExactlyOnce` ekran
+satırı commit eder ve `aiLaterMigrations` onu `liveQRSetAsideSQL` ile kenara koyar. M16-21 `qr_live` satırı commit eden ilk
+kart olduğunda `00112`'nin Down'ını yürüyen testler (`00112`'ninki dahil) o satırları kenara koyan bir adım ister.
+
 ## M16-20 — Canlı QR ekran sayfası ve panelden eşleme
 
 - **Bağımlılık:** M16-19
@@ -1232,6 +1337,16 @@ göstermesi.
   ekran oturumu çerezini ya da imza anahtarını taşımaz (CLAUDE.md §7, M16-01'de genişleyen liste).
 - `/.well-known` iki dosyasının yol listesine canlı QR yolu eklenir (M16-08'in Faz D maddesi) — uygulama kuruluysa
   canlı QR'ı da yakalar.
+
+> **M16-19 devri (2026-11-19).** (güvenlik merceği DÜŞÜK) **Kod ve oturum özeti sunucu anahtarlı HMAC-SHA256 olsun.**
+> `live_qr_displays.pairing_code_hash` / `session_hash` 64 hex özettir (`00111`); anahtarsız SHA-256 kısa bir kodda özeti
+> okuyabilen herkes için (yedek, okuma rolü) geri çevrilebilir. Eşleşme ucu **kimliksiz ve tenant'lar arasıdır**
+> (`resolve_live_qr_display_by_pairing_code_hash` her tenant'ın bekleyen ekranını arar), bu yüzden kod gücü ve oran sınırı
+> kartın yukarıdaki kriteriyle birlikte bu gerçeğe göre seçilir. Ölü kodun değeri artık serbest kalır (iptalde ve
+> `ClearExpiredLiveQRPairingCodes`'ta boşalır) ama süpürme **tenant kapsamlıdır**: başka bir tenant'ın süresi dolmuş kodları o
+> tenant bir ekran yaratana ya da iptal edene kadar global UNIQUE'te durur. 64 bitlik kodda bu çakışma olasılık dışıdır; kısa
+> kodda yaratma yolu `ClearExpiredLiveQRPairingCodes`'u kendi tenant'ında önce koşar, 23505'te yeni kod çeker (sınırlı) ve
+> tenant başına yaratma sınırı taşır.
 
 ## M16-21 — `qr_live` karar motorunda
 
@@ -1319,6 +1434,15 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 - CLAUDE.md §5 *"QR kanalı"*na canlı QR cümleleri (bu kartla). ADR 0005'e canlı QR aktarma riski (Bedel 5) —
   `TestADR0005_TheRiskCountMatchesTheTable` yeşil.
 
+> **M16-19 devri (2026-11-19).** (güvenlik merceği DÜŞÜK) **`qr_live` satırında `sun_valid` false/NULL'a sabitlenir.**
+> `holding_site_gate`'in hoşgörülü kolu (`00112:588-590`) ve site tekilleştirmesi (`holding_feed`'in iki `ON CONFLICT`
+> kolu, `00112:523-530`; `site_punches_real_refusal_once` / `_other_refusal_hourly`, `NULLS NOT DISTINCT`) bir `qr_live`
+> satırında `sun_valid IS NOT TRUE` **varsayar**; bunu zorlayan bir kısıt yoktur. M16-21 `qr_live` için `sun_valid`'i
+> false ya da NULL'a sabitler (ya da kolu `sun_valid`'den bağımsız yazan yeni bir migration getirir) ve `sunValid`
+> true/false vakalarını ekler. Aksi hâlde `sun_valid = true` taşıyan bir holding reddi (a) üyelik bitişi yarışında hoşgörülü
+> kola giremez, kapı onu 23514 ile reddeder ve kayıt kaybolur (§4.6); (b) site tarafında "gerçek ret" anahtarına
+> (`site_tag_uid` NULL, `ctr` NULL) düşer ve kişinin o sitedeki ilk reddinden sonrakiler siteye hiç ulaşmaz.
+
 ## M16-22 — Uygulamada QR okuma (statik + canlı)
 
 - **Bağımlılık:** M16-21, M16-13, M16-17 · Q36 (c)
@@ -1382,6 +1506,11 @@ kalkışı).
 ---
 
 # Faz E — Kanıt + raporlar
+
+> **M16-19 devri (2026-11-19).** (üçüncü göz DÜŞÜK-2) Deploy sonrası ADR 0048'in `scoped-access.sql`'i
+> (`ops/tappa-scoped-access` dalı, `main`'de yok) `live_qr_displays`'i kapsamalı ve `pairing_code_hash` / `session_hash`
+> sütunlarını okuma rollerine (`tappa_readonly`, `tappa_readwrite`) **vermemeli** — `tappa_app` bile `session_hash`'i okuyamaz
+> (`00111`); `locations` için `tappa_resolver`'ın yeni `(id, tenant_id, active)` yetkisi o betiğin konusu değildir.
 
 ## M16-25 — Attestation — yalnız kanıt
 
@@ -1465,7 +1594,7 @@ tek cihazı iptal edebilmek.
 
 - **Bağımlılık:** M16-10 · Q48 cevaplandı (a) (2026-11-19) · kullanıcının §9 kararı (panel kontrolü)
 - **Kırmızı çizgi:** §4.5 (owner eylemi), §6 (yeni sütun: sütun düzeyi GRANT, `Down` dolu)
-- **Araç:** yapıcı + agent `tappa-db-migrator` (00115) + skill `tappa-brand` · **Mercek: iki**
+- **Araç:** yapıcı + agent `tappa-db-migrator` (00116) + skill `tappa-brand` · **Mercek: iki**
 - **Commit:** `feat(account): let the owner choose whether staff see their hours`
 
 **Amaç.** Kullanıcı kararı 4 (2026-11-18): Saatlerim'i **işletme yönetir** — owner aç/kapa ve geriye görünürlük
@@ -1486,7 +1615,7 @@ penceresi seçer; sunucu zorlar.
   hafta eksik toplamı `complete: true` ile verirdi. Bütün hafta penceresinde en eski görünen hafta tamdır ve panelle eşitlik
   testi her görünen haftada geçerlidir. *"1 hafta"* kullanıcının örneğidir (pazartesi günü yalnız o günü gösterir —
   adlandırılmış bedel).
-- **Şema (00115) — Q48 (a), herkes kapalı** (2026-11-19): `ALTER TABLE tenants ADD COLUMN staff_hours_weeks smallint, ADD
+- **Şema (00116) — Q48 (a), herkes kapalı** (2026-11-19): `ALTER TABLE tenants ADD COLUMN staff_hours_weeks smallint, ADD
   CONSTRAINT tenants_staff_hours_weeks_is_an_option CHECK (staff_hours_weeks IS NULL OR staff_hours_weeks IN (1, 2, 4, 13));` —
   varsayılansız, var olan ve yeni her satır NULL (= kapalı); owner açar.
   - Reddedildi: (b) yeniler açık / var olanlar kapalı ve (c) herkes açık (kullanıcı, 2026-11-19).
@@ -1495,7 +1624,7 @@ penceresi seçer; sunucu zorlar.
     satırı **genişler**: `column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff` (`:414`) →
     `…,day_cutoff,staff_hours_weeks` (yeni satır eklenmez). **Kırmızıya dönecek var olan test:** `opAtVersionSkips`'in öncülü
     (`internal/db/operatorplaques_test.go:113-122` — operatör nesnesine dokunmayan, sıcak tabloya ACCESS EXCLUSIVE alan Down'lar)
-    00115'in Down'ını (`tenants`'ta `DROP COLUMN`) kapsar → **00115** haritaya eklenir (M16'nın 108–110'u orada); bekçisi
+    00116'nın Down'ını (`tenants`'ta `DROP COLUMN`) kapsar → **00116** haritaya eklenir (M16'nın 108–110'u orada); bekçisi
     `TestOpAtVersion_SkipsOnlyMigrationsWithoutAnOperatorObject` (`internal/db/operatorapi_test.go:761`) yeşil kalır. İkinci kırmızı:
     `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd` (`internal/db/m11schema_test.go:855`) — `m11Columns`'a
     `tenants.staff_hours_weeks` girdisi (roller ve harfler katalog dökümünden, `:466` satırının biçimiyle). **`Down`:** `DROP COLUMN staff_hours_weeks` (00064 emsali — yapılandırmadır, geçmişi `audit_log`'dadır;
@@ -1713,7 +1842,7 @@ işletmenin ayarı ve penceresi içinde.
 - **Bağımlılık:** M16-34 (ADR 0049 kabul) · kullanıcı: *"Taptime Demo"* açılmış (UUID'si config PR'ı için)
 - **Kırmızı çizgi:** §4.5 (tenant bilinmeden adres çözümü), §4.6 (imzası çıkmış telefonun dokunuşu görünür olur), §4.7 + §7,
   §5 (aktivasyon), §6
-- **Araç:** yapıcı + agent `tappa-db-migrator` (00116, 00117) · **Mercek: iki**
+- **Araç:** yapıcı + agent `tappa-db-migrator` (00117, 00118) · **Mercek: iki**
 - **Commit:** `feat(signin): send an employee a sign-in link to their work email`
 
 **Amaç.** ADR 0049'un tarifini kurmak: kayıtlı adresli aktif çalışan kendi isteğiyle yeni bir aktivasyon linki alır —
@@ -1741,29 +1870,29 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   (`internal/handler/adminresetoutbox.go:44-49`: medyanlar `[resetRequestFloor, resetRequestFloor+50ms]`; taban değerinin
   gerekçesi `adminresetlimits.go:316-326`). Tek istisna kaynak kovası: 429 + `Retry-After` (adresten bağımsız).
 
-*Çözümleme (00116, 00117).*
+*Çözümleme (00117, 00118).*
 - `resolve_employees_for_signin(p_email citext, p_tenants uuid[])` → `(tenant_id, employee_id)`; SECURITY DEFINER, sahibi
   `tappa_resolver`, `SET search_path = pg_catalog, pg_temp`, `citext` eşitliği `OPERATOR(public.=)` (`00011:295-313`).
   Yüklemler: `e.status = 'active' AND e.email IS NOT NULL AND e.tenant_id = ANY(p_tenants)` **ve işletme ön süzgeci**:
   `t.suspended_at IS NULL AND t.email_signin` — bant için: kimliksiz istek başına yalnız **eşleşen ve açık**
   işletmeler için bir basım transaction'ı açılır (denetim *timing*; aynı yüklemler basım transaction'ında yeniden sınanır,
   aşağıda). `ORDER BY e.tenant_id, e.id LIMIT 5`. `REVOKE ALL ON FUNCTION … FROM PUBLIC`, `EXECUTE` yalnız `tappa_app`.
-- Yetkiler (00116) — **yalnız yeni sütunlar** (`00105`'in kalıbı, `00105:89` `GRANT SELECT (api_code)`): `GRANT SELECT (id,
+- Yetkiler (00117) — **yalnız yeni sütunlar** (`00105`'in kalıbı, `00105:89` `GRANT SELECT (api_code)`): `GRANT SELECT (id,
   tenant_id, email, status) ON employees TO tappa_resolver` (bugün `employees`'te hiç yetkisi yok) ve `GRANT SELECT
   (suspended_at, email_signin) ON tenants TO tappa_resolver`. ⚠️ **`tenants.id` ne verilir ne geri alınır:** `tappa_resolver`
   onu `00051:155`'ten beri tutar (`GRANT SELECT (id, api_enabled_at)`) ve API anahtarı ile OAuth çözümleyicileri ona join
   eder (`00105:181`); sütun yetkisi tek bittir, `Down`'daki bir `REVOKE SELECT (id …)` `/v1`'in API anahtarı ve OAuth
   kimliğini **bütün işletmeler için** kırardı (Malta Calculator dahil). **`Down`** sırayla: `origin = 'self'` satırı varsa
   reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE
-  SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar. [G35-o] 00116'nın `Down`'ından sonra
-  `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür. 00116 `employee_invites`'e ve
+  SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar. [G35-o] 00117'nin `Down`'ından sonra
+  `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür. 00117 `employee_invites`'e ve
   `tenants`'a `ALTER` uyguladığı için **`SET LOCAL lock_timeout = '1s'`** ile başlar (`deploy/README.md`; `00064` emsali).
 - **`privCatalogAllowed`** (`internal/db/privcatalog_test.go:274`): **yeni** satırlar — fonksiyonun `EXECUTE`'u (`tappa_app`),
   `column employees tappa_resolver SELECT id,tenant_id,email,status` (sütun sırası `attnum`'dur); **genişleyen** satırlar —
   `column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff` (`:414`) M16-30'dan sonra
   `…,day_cutoff,staff_hours_weeks,email_signin` olur; `column tenants tappa_resolver SELECT id,api_enabled_at,api_code`
   (`:420`) → `…,api_code,suspended_at,email_signin` (yeni satır **eklenmez**). Liste katalogdan dökülür (`TAPPA_PRIVCATALOG_DUMP=1`) ve satır satır okunur.
-- İndeks (00117) **`00091`'in birebir kalıbı**: `-- +goose NO TRANSACTION`; **`lock_timeout` yok** (`00091:33-35`'in
+- İndeks (00118) **`00091`'in birebir kalıbı**: `-- +goose NO TRANSACTION`; **`lock_timeout` yok** (`00091:33-35`'in
   gerekçesi: NO TRANSACTION dosyada oturum ayarı ifadeden uzun yaşar); Up önce `DROP INDEX CONCURRENTLY IF EXISTS
   public.employees_email_idx`, sonra `CREATE INDEX CONCURRENTLY employees_email_idx ON public.employees (email) WHERE email
   IS NOT NULL` (`00091:37-47`); Down `DROP INDEX CONCURRENTLY IF EXISTS`; ve sonraki migration'ların Down'larını yürüyen
@@ -1820,7 +1949,7 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   (yeni dal): retlerin çoğu kimliksiz isteğin ürünüdür ve değişmez tabloya sınırsız satır olurdu. `ErrAddressChanged` da satır
   yazmaz. Sonuç: giriş yolunun audit izi yalnız başarılı teslim (`code_emailed`) ve teslim hatası (`undelivered`) satırlarıdır.
 - `IssueParams.Origin = "self"`, `TTL = 24 * time.Hour` (Q44 (a); reddedildi: 12 sa ve 1 sa — kullanıcı, 2026-11-19), `ExpectAddress` = çözümleyicinin eşlediği adres.
-- **`employee_invites.origin` (00116):** `ADD COLUMN origin text NOT NULL DEFAULT 'employer', ADD CONSTRAINT
+- **`employee_invites.origin` (00117):** `ADD COLUMN origin text NOT NULL DEFAULT 'employer', ADD CONSTRAINT
   employee_invites_origin_is_known CHECK (origin IN ('employer','self'))`; tablo düzeyi `INSERT` yetkisi (`00009:224`) yeni
   sütunu kapsar; `UPDATE` yetkisi yok. Aynı dosyada `tenants.email_signin boolean NOT NULL DEFAULT false` +
   `GRANT UPDATE (email_signin) ON tenants TO tappa_app`.
@@ -1980,21 +2109,21 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   (`internal/db/apikeys_test.go:183`, `id || api_enabled_at || api_code`'u sabitler) — `suspended_at, email_signin` eklenir;
   (2) `TestApiKeys00051_DownGivesBackAndUpTakesItAgain` (`:353-375`; 00105/52/51 Down'larından sonra 0 `tenants` sütunu bekler
   ve 00051'in Up bekçisi başka bir sütun yetkisinde hata verir, `00051:57-67`) — `:346-352`'nin 00105 için anlattığı kalıpla
-  **önce 00116'nın Down'ı** koşar, Up'ı en son. Test `holdingLockedSavepoint` içinde koşar (`apikeys_test.go:358`) ve sarmalayıcı,
+  **önce 00117'nin Down'ı** koşar, Up'ı en son. Test `holdingLockedSavepoint` içinde koşar (`apikeys_test.go:358`) ve sarmalayıcı,
   bir savepoint `holdingDownTables` dışındaki bir tabloda güçlü kilit tutarsa düşer (`holdingmigration_test.go:105-140`,
-  `holdingtap_test.go:2066-2077`, `:1737-1775`): 00116'nın Down'ı `employee_invites`'ta `DROP COLUMN origin` ile ACCESS EXCLUSIVE
+  `holdingtap_test.go:2066-2077`, `:1737-1775`): 00117'nin Down'ı `employee_invites`'ta `DROP COLUMN origin` ile ACCESS EXCLUSIVE
   alır → **`employee_invites` `holdingDownTables`'a eklenir** ve savepoint içinde, Down'dan önce `origin='self'` satırları kenara
   konur. **Ölç:** `REVOKE SELECT (…) ON employees` güçlü kilit alıyor mu; alıyorsa `employees` de eklenir; (3) kimlik yürüyüşleri 70'in üstündeki her transaction'lı Down'ı koşar
-  (`internal/db/adminidentity_test.go:865-888`) ve 00116'nın Down'ı `origin='self'` satırı varken reddeder — 00095/00108/00109'un
+  (`internal/db/adminidentity_test.go:865-888`) ve 00117'nin Down'ı `origin='self'` satırı varken reddeder — 00095/00108/00109'un
   kenara koyma adımının (`:872-887`) eşi eklenir; (4) `TestAILaterSkips_AreConcurrentIndexesOffTheIdentityTables` `transactions`
-  dışındaki indeksi reddeder (`:997-998`, *"widen this"*) — 00117 `employees` üstündedir, test genişletilir (kimlik testlerinin
+  dışındaki indeksi reddeder (`:997-998`, *"widen this"*) — 00118 `employees` üstündedir, test genişletilir (kimlik testlerinin
   `employees` kataloğunu sabitlemediği ölçülerek); (5) `opAtVersionSkips` (`internal/db/operatorplaques_test.go:113-122`'nin
-  öncülü: operatör nesnesine dokunmayan, sıcak tabloya ACCESS EXCLUSIVE alan Down'lar) — **00116** eklenir (M16'nın 108–110'u
-  orada). 00117 iki atlama haritasına da girer (yukarıda); (6) `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`
-  (`internal/db/m11schema_test.go:855`, matris `:911-985`) — `m11Columns`'a `tenants.staff_hours_weeks` (00115, M16-30'un işi),
-  `employee_invites.origin` ve `tenants.email_signin` (00116) girer; `:466`'nın `tenants.suspended_at` satırına `"tappa_resolver":
+  öncülü: operatör nesnesine dokunmayan, sıcak tabloya ACCESS EXCLUSIVE alan Down'lar) — **00117** eklenir (M16'nın 108–110'u
+  orada). 00118 iki atlama haritasına da girer (yukarıda); (6) `TestM11Catalog_EveryNewTableMatchesTheMatrixUnderArwd`
+  (`internal/db/m11schema_test.go:855`, matris `:911-985`) — `m11Columns`'a `tenants.staff_hours_weeks` (00116, M16-30'un işi),
+  `employee_invites.origin` ve `tenants.email_signin` (00117) girer; `:466`'nın `tenants.suspended_at` satırına `"tappa_resolver":
   "S"` eklenir; fonksiyon matrisine `resolve_employees_for_signin(citext,uuid[])` (`:627-680`'in kalıbı).
-- [G35-o] 00116'nın `Down`'ından sonra `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür (`tenants.id`
+- [G35-o] 00117'nin `Down`'ından sonra `resolve_api_key_by_hash` ve OAuth token çözümleyicisi hâlâ satır döndürür (`tenants.id`
   yetkisi dokunulmadı).
 - [G35-p] panel yolu değişmez; giriş yolunda kabul edilen gönderim senkron satır yazmaz (yukarıda).
 - [G35-q] `TAPPA_INVITE_DELIVERY=panel` iken liste dolu olsa da rota bağlı değil.

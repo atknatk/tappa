@@ -1704,10 +1704,13 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTran
 }
 
 // feedEligible is K-4's entry rule as the own-tenant feed trigger applies it to a row without a
-// site (migration 00049, punch_feed): an ok tap on nfc or qr that is not practice -- the one row
-// that trigger takes its tenant's counter lock for.
+// site (migration 00049, punch_feed; since 00112 the live QR channel too -- Q38 (a)): an ok tap on
+// nfc, qr or qr_live that is not practice -- the one row that trigger takes its tenant's counter
+// lock for. TestFeedEligible_IsPunchFeedsEntryRule holds it to the installed trigger.
 func feedEligible(p store.InsertTransactionParams) bool {
-	return p.Verdict == string(tap.VerdictOK) && (p.Channel == string(tap.ChannelNFC) || p.Channel == string(tap.ChannelQR)) && !p.Practice
+	return p.Verdict == string(tap.VerdictOK) &&
+		(p.Channel == string(tap.ChannelNFC) || p.Channel == string(tap.ChannelQR) || p.Channel == string(tap.ChannelQRLive)) &&
+		!p.Practice
 }
 
 // insertParams maps a Decision onto the record's columns.

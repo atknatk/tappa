@@ -880,6 +880,11 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			// commits both. The walk sets them aside first, inside the same rolled-back transaction.
 			down = appDevicesSetAsideSQL + "\n" + down
 		}
+		if n == liveQRMigration {
+			// M16-19: 00111's Down refuses while a screen exists, and the pairing race test commits one.
+			// The walk sets them aside first, inside the same rolled-back transaction.
+			down = liveQRSetAsideSQL + "\n" + down
+		}
 		if n == clientMigration {
 			// M16-04: 00109's Down refuses while a row carries a client, and the tap page writes one on
 			// every row other packages' tests commit -- set aside the same way (clSetAside's statements).
