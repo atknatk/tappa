@@ -182,6 +182,10 @@ func (h *liveHarness) approve(t *testing.T, tenantID uuid.UUID, txn any) {
 		t.Fatal(err)
 	}
 	admin := uuid.New()
+	// The manager is COMMITTED: written under the operator-tables lock, held shared around the
+	// write (holdPanelTablesLock; cmd/opadmin's TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
+	defer release()
 	if _, err := h.owner.Exec(context.Background(),
 		`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
 		 VALUES ($1, $2, 'm16-21 manager', $3, $4, 'manager', 'active')`,
