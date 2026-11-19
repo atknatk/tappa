@@ -225,6 +225,9 @@ object Bodies {
 
     fun tapStart(sun: String): ByteArray = JsonObjectWriter().put("sun", sun).bytes()
 
+    /** tap/start for a live QR (M16-22): exactly one field, the `<base>/q` URL's query as written. */
+    fun tapStartLive(liveQuery: String): ByteArray = JsonObjectWriter().put("liveQR", liveQuery).bytes()
+
     /**
      * POST /app/v1/tap's body. [want] is sent only when the pressed button said a direction; the
      * fix only as a pair; [mockLocation] ONLY WHEN TRUE (card M16-13: the platform's mock flag is a

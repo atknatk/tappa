@@ -1,5 +1,6 @@
 package mt.taptime.app
 
+import mt.taptime.app.activation.LiveQrRead
 import mt.taptime.app.wire.AppErrorCode
 import mt.taptime.app.wire.Bodies
 import mt.taptime.app.wire.Canonical
@@ -117,8 +118,23 @@ class ContractPinTest {
             return Regex("""json:"([^",]+)""").findAll(body).map { it.groupValues[1] }.toSet()
         }
         fun keys(b: ByteArray): Set<String> = MiniJson.decodeObject(String(b, Charsets.UTF_8)).keys
-        assertEquals(tags("appTapStartRequest"), keys(Bodies.tapStart("tag=1")))
+        // M16-22: tap/start takes ONE of two fields -- the plaque's `sun` or the live QR's `liveQR`;
+        // each body sends exactly one, and the two together are the server's whole struct.
+        assertEquals(setOf("sun"), keys(Bodies.tapStart("tag=1")))
+        assertEquals(setOf("liveQR"), keys(Bodies.tapStartLive("t=1")))
+        assertEquals(tags("appTapStartRequest"), keys(Bodies.tapStart("tag=1")) + keys(Bodies.tapStartLive("t=1")))
         assertEquals(tags("appTapRequest") - "occurredAt", keys(Bodies.tap("c", "in", 1.0, 2.0, mockLocation = true)))
         assertTrue("CONTROL: the server still has the queued field", "occurredAt" in tags("appTapRequest"))
+    }
+
+    // M16-22: the live QR URL the screens show (liveqr.TapURL: <base>/q?t=<token>) is the route the
+    // app's App Link takes; the path and the token's parameter are the server's constants, and GET /q
+    // is mounted at the same literal (handler.LiveQRPath).
+    @Test
+    fun theLiveQrRouteIsTheServersPath() {
+        val token = go("taptime.go.liveqrToken")
+        assertEquals(goStringConst(token, "LiveQRTapPath"), LiveQrRead.PATH)
+        assertEquals(goStringConst(go("taptime.go.livetap"), "LiveQRPath"), LiveQrRead.PATH)
+        assertEquals("the token's parameter", "t", goStringConst(token, "TokenParam"))
     }
 }

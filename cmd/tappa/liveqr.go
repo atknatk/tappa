@@ -28,8 +28,11 @@ import (
 // AND THE TAP PAGE THAT READS THE CODES (M16-21): GET /q, on the tap surface (tap.ServeLiveQR), from
 // the SAME keys. This is the one place TAPPA_LIVE_QR_KEY turns anything on, so a screen that shows
 // codes and a server that cannot take them cannot both exist -- a key with no /q would make every
-// scan a 404 (M16-20's hand-off; TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre).
-func openLiveQR(cfg *config.Config, data liveQRData, trail liveqr.Trail, tap *handler.Tap, log *slog.Logger) ([]handler.AdminAuthOption, httpx.Mounter, error) {
+// scan a 404 (M16-20's hand-off; TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre). The
+// native app's read of the same codes (POST /app/v1/tap/start's liveQR, M16-22) is turned on here
+// too (app.ServeLiveQR), for the same reason: a key the browser reads and the app does not would
+// make every app scan a bad_request.
+func openLiveQR(cfg *config.Config, data liveQRData, trail liveqr.Trail, tap *handler.Tap, app *handler.App, log *slog.Logger) ([]handler.AdminAuthOption, httpx.Mounter, error) {
 	if !cfg.LiveQRConfigured() {
 		return nil, nil, nil
 	}
@@ -38,6 +41,10 @@ func openLiveQR(cfg *config.Config, data liveQRData, trail liveqr.Trail, tap *ha
 		return nil, nil, err
 	}
 	if err := tap.ServeLiveQR(keys, data); err != nil {
+		return nil, nil, err
+	}
+	// The app reads the same codes (M16-22): POST /app/v1/tap/start's liveQR, GET /q's twin.
+	if err := app.ServeLiveQR(keys, data); err != nil {
 		return nil, nil, err
 	}
 	screens, err := liveqr.NewScreens(keys, data, trail)

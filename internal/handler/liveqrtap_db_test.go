@@ -712,12 +712,12 @@ func TestLiveQRDB_ParityWithTheStaticQR(t *testing.T) {
 	t.Run("holding_flag_then_approval", func(t *testing.T) { holdingCell(t, offSiteAddr, venueFix(), "flag", "approved") })
 }
 
-// TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything is M16-21's measurement for M16-22 (which
-// decides whether /app/v1/tap accepts qr_live): today the app hands tap/start the URL's query, and a
-// live QR URL's query (t=<token>) is not a plaque's -- sun.Parse wants tag -- so tap/start answers
-// 400 bad_request, writes no record and moves no counter. No record is LOST in the §4.6 sense:
-// tap/start never writes one, and no press can follow without the context it did not mint. What is
-// lost is the scan itself -- the person gets the app's error -- which is M16-22's to open.
+// TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything was M16-21's measurement for M16-22: a
+// live QR URL's query (t=<token>) sent as a PLAQUE's (`sun`) is not one -- sun.Parse wants tag -- so
+// tap/start answers 400 bad_request, writes no record and moves no counter. M16-22 opened the app's
+// live QR read on its own field (`liveQR`, applive_db_test.go); this holds that the `sun` field
+// still never reads a token -- the channel comes from the field the token is opened from, never
+// from what a value looks like.
 func TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything(t *testing.T) {
 	h := newAppHarness(t)
 	p := newAppPhone(t)

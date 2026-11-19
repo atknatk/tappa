@@ -2,7 +2,9 @@ package mt.taptime.app
 
 import mt.taptime.app.activation.AccentFill
 import mt.taptime.app.activation.InviteCode
+import mt.taptime.app.activation.LiveQrRead
 import mt.taptime.app.activation.PlaqueRead
+import mt.taptime.app.activation.TapLink
 import mt.taptime.app.ui.endSentence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -101,6 +103,44 @@ class InputsTest {
         for (other in listOf("https://evil.example/t?$q", "https://taptime.mt/t?$q#x", "https://taptime.mt/t", "")) {
             assertNull(other, PlaqueRead.browserUrl(other, base))
         }
+    }
+
+    // M16-22: a venue screen's live QR, <base>/q?t=<token>. The same origin rule as the plaque's;
+    // the query is passed on as written (the server opens the token, the app judges nothing).
+    @Test
+    fun onlyThisServersLiveQrRouteYieldsALiveQuery() {
+        val q = "t=AQ0011223344556677-_abc"
+        assertEquals(q, LiveQrRead.query("https://taptime.mt/q?$q", base))
+        assertEquals("host case and an explicit default port are the same server", q, LiveQrRead.query("https://TAPTIME.mt:443/q?$q", base))
+        for (other in listOf(
+            "http://taptime.mt/q?$q", "https://taptime.mt.evil.example/q?$q", "https://evil.example/q?$q",
+            "https://taptime.mt:8443/q?$q", "https://taptime.mt/q/?$q", "https://taptime.mt/qr?$q", "https://taptime.mt/Q?$q",
+            "https://taptime.mt/q", "https://taptime.mt/q?$q#x", "https://user@taptime.mt/q?$q", "/q?$q", "",
+            "https://taptime.mt/t?$q", "https://taptime.mt/screen?$q",
+        )) {
+            assertNull(other, LiveQrRead.query(other, base))
+        }
+        assertEquals("a plaque URL is not a live QR", null, LiveQrRead.query("https://taptime.mt/t?tag=04A1B2C3D4E5F6", base))
+    }
+
+    @Test
+    fun aTapLinkIsThePlaqueOrTheLiveQrAndNothingElse() {
+        val sun = "tag=04A1B2C3D4E5F6&ctr=000011&cmac=0011223344556677"
+        val plaque = TapLink.of("https://taptime.mt/t?$sun", base)
+        assertTrue(plaque is TapLink.Plaque)
+        assertEquals(sun, plaque!!.query)
+        // The plaque's printed static QR is the plaque route itself: sun.PlaqueQRURL's <base>/t?tag=<UID>.
+        val printed = TapLink.of("https://taptime.mt/t?tag=04A1B2C3D4E5F6", base)
+        assertTrue(printed is TapLink.Plaque)
+        val live = TapLink.of("https://taptime.mt/q?t=abc", base)
+        assertTrue(live is TapLink.LiveQr)
+        assertEquals("t=abc", live!!.query)
+        for (other in listOf("https://evil.example/q?t=abc", "https://taptime.mt/activate?code=$code", "https://taptime.mt/q")) {
+            assertNull(other, TapLink.of(other, base))
+        }
+        assertEquals("https://taptime.mt/q?t=abc", TapLink.browserUrl("https://TAPTIME.mt:443/q?t=abc", base))
+        assertEquals("https://taptime.mt/t?$sun", TapLink.browserUrl("https://taptime.mt/t?$sun", base))
+        assertNull(TapLink.browserUrl("https://evil.example/q?t=abc", base))
     }
 
     // M16-12 hand-over (2): InviteCode compares the port, as PlaqueRead always did.

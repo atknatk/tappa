@@ -6,7 +6,8 @@ import SwiftUI
 //
 //   launch        the Keychain record is read first; a plaque URL that arrives before that (a
 //                 Universal Link that LAUNCHED the app) waits for it and is then routed
-//   plaque URL    activated phone   → the tap screen of THIS read (TapModel.plaque)
+//   plaque URL    (or a venue screen's live QR URL, /q -- M16-22: the same routes)
+//                 activated phone   → the tap screen of THIS read (TapModel.plaque)
 //                 wizard in progress → the activation (its tap step completes it)
 //                 anything else     → "This app isn't set up yet", with Safari (M16-16 hand-off 2)
 //   back in front a result, a problem, "Activation complete" -- none of them has a way forward on

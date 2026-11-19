@@ -116,6 +116,9 @@ func TestAppContract_RequestShapes(t *testing.T) {
 				return complete.Code == "c" && complete.PublicKey == "k" && complete.Platform == "ios" && complete.SUN == "tag=1"
 			}},
 		"tap/start": {`{"sun":"tag=1"}`, `{"url":"tag=1"}`, &start, func() bool { return start.SUN == "tag=1" }},
+		// M16-22: a venue screen's live QR URL's query, the field's own spelling (encoding/json would
+		// also take "liveqr"; the apps write this one).
+		"tap/start (live QR)": {`{"liveQR":"t=x"}`, `{"live":"t=x"}`, &start, func() bool { return start.LiveQR == "t=x" }},
 		"tap": {`{"context":"x","want":"in","lat":1.5,"lng":2.5,"mockLocation":true,"occurredAt":"2026-11-14T12:00:00Z"}`, `{"context":"x","mock":true}`, &tapIn,
 			func() bool {
 				return tapIn.Context == "x" && tapIn.Want == "in" && *tapIn.Lat == 1.5 && *tapIn.Lng == 2.5 && *tapIn.MockLocation && tapIn.OccurredAt != ""

@@ -10,7 +10,11 @@ import UIKit
 //   from a plaque   iPhone XS and later read the plaque in the background; the notification opens
 //                   the plaque URL as a Universal Link and the app shows tap/start's screen (GET
 //                   /t's twin: the TAPPED venue, nothing recorded, no counter spent). The button
-//                   is the press.
+//                   is the press. The plaque's printed QR is the same /t link (the camera opens it).
+//   from a screen   a venue screen's LIVE QR (M16-22): the camera reads https://<host>/q?t=<token>
+//                   and the Universal Link opens the app; tap/start gets the query as `liveQR`
+//                   (GET /q's twin: the SCREEN's venue, nothing recorded) and the button is the
+//                   press -- the same screen, the same press, the same result. No NFC reader needed.
 //   from the app    iPhone 7-X read a plaque only inside an app, in iOS's own scan sheet. The app
 //                   opens on GET /app/v1/me's screen (the predicted direction without a plaque,
 //                   M16-07's Q41 measurement); the button opens the sheet, and the read goes to
@@ -186,8 +190,9 @@ final class TapModel: ObservableObject {
     enum Source: Equatable {
         /// GET /app/v1/me's screen: the button opens the scan sheet.
         case home
-        /// tap/start's screen: the button is the press. `sun` is the plaque URL's checked query.
-        case plaque(sun: String, context: String)
+        /// tap/start's screen: the button is the press. `link` is what opened it -- the plaque URL's
+        /// checked query, or a venue screen's live QR (M16-22).
+        case plaque(link: TapLink, context: String)
     }
 
     struct View: Equatable {
@@ -307,8 +312,10 @@ final class TapModel: ObservableObject {
         }
     }
 
-    /// A plaque URL opened as a Universal Link (or handed over at launch). Ignored while a press
-    /// is on the wire -- its answer must not be hidden.
+    /// A plaque URL -- or a venue screen's live QR URL (M16-22) -- opened as a Universal Link (or
+    /// handed over at launch). Ignored while a press is on the wire -- its answer must not be
+    /// hidden. A live QR needs no NFC reader: the camera read it, so an iPhone without one gets the
+    /// same tap screen.
     func plaque(_ url: URL) async {
         guard let d = device, !sending else {
             return
@@ -316,19 +323,19 @@ final class TapModel: ObservableObject {
         generation += 1
         let gen = generation
         pressing = false
-        guard let host = client.baseURL.host, let sun = PlaqueURL.sunQuery(of: url, host: host) else {
+        guard let host = client.baseURL.host, let link = TapLink.of(url, host: host) else {
             screen = .problem(Problem(copy: TapCopy.Problems.badURL))
             return
         }
         screen = .loading
         do {
-            let s = try await client.tapStart(d.identity, sun: sun)
+            let s = try await client.tapStart(d.identity, link: link)
             guard gen == generation else { return }
             screen = .tap(View(employeeName: s.employeeName, locationName: s.locationName, brand: s.brand,
-                               direction: s.direction, source: .plaque(sun: sun, context: s.context)), problem: nil)
+                               direction: s.direction, source: .plaque(link: link, context: s.context)), problem: nil)
         } catch {
             guard gen == generation else { return }
-            screen = .problem(problem(for: error, sun: sun, sent: false))
+            screen = .problem(problem(for: error, link: link, sent: false))
         }
     }
 
@@ -347,11 +354,11 @@ final class TapModel: ObservableObject {
         location.readOnce(pressedAt: pressedAt, timeout: TapModel.fixTimeout) { fix.arrive($0) }
 
         let context: String
-        let plaqueSun: String
+        let opened: TapLink
         switch view.source {
-        case .plaque(let sun, let ctx):
+        case .plaque(let link, let ctx):
             context = ctx
-            plaqueSun = sun
+            opened = link
         case .home:
             // M16-15 hand-off 1: the reader is asked BEFORE a session is opened (iPhone 6s/SE run
             // iOS 15 and have none).
@@ -385,11 +392,11 @@ final class TapModel: ObservableObject {
             } catch {
                 guard gen == generation else { return }
                 pressing = false
-                screen = .problem(problem(for: error, sun: sun, sent: false))
+                screen = .problem(problem(for: error, link: .plaque(sun: sun), sent: false))
                 return
             }
             guard gen == generation else { return }
-            plaqueSun = sun
+            opened = .plaque(sun: sun)
         }
 
         let report = await fix.value()
@@ -410,7 +417,7 @@ final class TapModel: ObservableObject {
             screen = .result(Result(verdict: r.verdict, direction: r.direction, venue: r.venue, at: r.at,
                                     businessType: r.businessType, practice: r.practice ?? false))
         } catch {
-            screen = .problem(problem(for: error, sun: plaqueSun, sent: true))
+            screen = .problem(problem(for: error, link: opened, sent: true))
         }
     }
 
@@ -449,10 +456,10 @@ final class TapModel: ObservableObject {
 
     /// Which screen a failure is. `sent` is true once the press itself went out: from then on the
     /// plaque URL may be spent, so Safari is not offered for it.
-    private func problem(for error: Error, sun: String, sent: Bool) -> Problem {
-        // "Open in browser" opens the plaque URL REBUILT from this server's origin and the checked
-        // query -- never the URL as it arrived (M16-17 review).
-        let plaqueURL = PlaqueURL.url(base: client.baseURL, sun: sun)
+    private func problem(for error: Error, link: TapLink, sent: Bool) -> Problem {
+        // "Open in browser" opens the URL REBUILT from this server's origin and the checked query
+        // -- never the URL as it arrived (M16-17 review); a live QR's is its /q URL (M16-22).
+        let plaqueURL = link.browserURL(base: client.baseURL)
         switch error as? AppAPIError {
         case .unauthenticated?:
             if client.clock.lastAnswerWasFarOff {

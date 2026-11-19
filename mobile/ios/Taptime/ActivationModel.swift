@@ -276,10 +276,10 @@ final class ActivationModel: ObservableObject {
             screen = .problem(Copy.Problems.notReady, retry: .toWelcome)
             return
         default:
-            // Only a plaque URL of this server, rebuilt from its checked query, is kept -- it is
-            // the URL "Open in browser" will hand to Safari.
-            guard let host = client.baseURL.host, let sun = PlaqueURL.sunQuery(of: url, host: host),
-                  let safe = PlaqueURL.url(base: client.baseURL, sun: sun) else {
+            // Only a plaque or live QR URL of this server (M16-22), rebuilt from its checked query,
+            // is kept -- it is the URL "Open in browser" will hand to Safari.
+            guard let host = client.baseURL.host, let link = TapLink.of(url, host: host),
+                  let safe = link.browserURL(base: client.baseURL) else {
                 return
             }
             screen = .notSetUp(safe)

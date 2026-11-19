@@ -760,14 +760,15 @@ ADR 0045 Bedel 10). Uygulamasız tenant'ta sonuç değişmediği ölçülmeli: `
 > | `POST /app/v1/activate/bind` | imzasız | `{"code","consent":true,"publicKey"}` | `{"activationId","challenge"}` |
 > | `POST /app/v1/activate/complete` | `App-Device-Id` = `activationId`, `App-Nonce` = `challenge`, `App-Signature` (bağlı anahtar) | `{"code","publicKey","platform":"ios"\|"android","sun"}` | `{"deviceId","employeeName"}` |
 > | `POST /app/v1/nonce` | imzalı okuma | boş ya da `{}` | `{"nonce","expiresAt"}` (RFC 3339, UTC) |
-> | `POST /app/v1/tap/start` | imzalı okuma | `{"sun"}` | `{"employeeName","locationName","brand","direction","qr","context"}` |
+> | `POST /app/v1/tap/start` | imzalı okuma | `{"sun"}` **ya da** `{"liveQR"}` (M16-22; ikisi birden 400) | `{"employeeName","locationName","brand","direction","qr","context"}` |
 > | `POST /app/v1/tap` | nonce'lu imza | `{"context","want"?: "in"\|"out","lat"?,"lng"?,"mockLocation"?,"occurredAt"?}` | `{"outcome":"recorded","verdict":"ok"\|"flag"\|"reject"\|"ignored","direction":"in"\|"out"\|"","venue","at":"HH:MM","businessType","practice"?}` |
 > | `GET /app/v1/me` | imzalı okuma | boş | `{"employeeName","brand","direction":"in"\|"out"\|""}` |
 > | `POST /app/v1/revoke` | nonce'lu imza | boş ya da `{}` | 204, gövde yok |
 >
 > - `brand` = `{"name"?,"logo"?:{"sha256","width","height"},"accent"?}` (accent `#`'sız 6 hex, ör. `1F5C41`); `{}` =
 >   Taptime'ın kendi görünümü. `publicKey` = 65 baytlık ham P-256 noktasının dolgusuz base64url'i. `sun` = plaket
->   URL'sinin **sorgusu** (`tag=…&ctr=…&cmac=…`). `direction` `""` = yönsüz *"Tap"* düğmesi.
+>   URL'sinin **sorgusu** (`tag=…&ctr=…&cmac=…`). `liveQR` = mekân ekranının canlı QR URL'sinin **sorgusu** (`t=<token>`,
+>   M16-22). `direction` `""` = yönsüz *"Tap"* düğmesi.
 > - **İmza başlıkları:** okuma `App-Device-Id` + `App-Timestamp` (ondalık Unix saniyesi) + `App-Signature`; nonce'lu
 >   istek `App-Device-Id` + `App-Nonce` + `App-Signature`; ikisi birlikte → 401. Kanonik metinler
 >   `test/fixtures/appdevice_vectors.json`.
@@ -1676,7 +1677,8 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 > set `allow via base:gps-only-allow`); (d) tazelik `TAPPA_FRESHNESS_SECONDS`'a bağlı — M16-24 maddesi ve ADR 0005 risk 10;
 > (e) v2 bağlamı tek kullanımlık değil — ADR 0045 §2.5 notu (8), kabul edilen bedel.
 
-> **M16-22'ye devir (uygulama yolu, ölçüldü):** `/app/v1/tap/start` bugün bir canlı QR URL'inin sorgusunu (`t=<token>`)
+> **M16-22'ye devir — KAPANDI (2026-11-19, M16-22: tap/start'ın `liveQR` alanı; aşağıdaki kart düzeltmesi).** Devrin metni:
+> **(uygulama yolu, ölçüldü):** `/app/v1/tap/start` bugün bir canlı QR URL'inin sorgusunu (`t=<token>`)
 > `sun.Parse`'tan geçirir; `tag` olmadığı için **400 `bad_request`**, kayıt yok, sayaç yok
 > (`TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`). §4.6 anlamında **kayıt kaybı yok** (tap/start hiç yazmaz ve
 > bağlamsız basış olmaz), kaybolan taramanın kendisidir — kişi uygulamanın hata ekranını görür. iOS bugün `/q`'yu
@@ -1704,6 +1706,40 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
   açar. Q36 başka seçenek seçerse: iOS AVFoundation (platform), Android yalnız onaylanan kütüphane.
 - NFC'siz telefonda tap ekranı aynı; giriş noktası QR.
 - Kamera izni yalnız uygulama içi tarayıcı seçilirse istenir.
+
+> **Kart düzeltmesi (2026-11-19, M16-22 uygulaması).** Uygulandığı biçim:
+> (1) **Statik QR — ölçüldü, değişiklik gerekmedi:** basılı kod `sun.PlaqueQRURL`'ün `<base>/t?tag=<UID>`'sidir (`ctr`/`cmac`
+> yok) — plaket rotasının kendisi. İki uygulama onu zaten açıyordu (Android `/t` VIEW filtresi, iOS AASA `/t`) ve sorguyu
+> `sun` olarak gönderiyordu; sunucu `channel=qr` türetir. Uygulama yolunda ilk kez DB testiyle ölçüldü:
+> `TestAppDB_AStaticQRReadIsTheBrowsersQR` (IP → `ok`, GPS-only → `flag` `base:qr-requires-ip`, `client=app`, sayaç oynamaz).
+> (2) **Canlı QR — SEÇİM: mevcut uç genişletildi, yeni uç yok.** `POST /app/v1/tap/start` gövdesi `{"sun"}` **ya da**
+> `{"liveQR": "<…/q URL'sinin sorgusu>"}` (ikisi birden → 400 `bad_request`, kayıt yok). Sorgu `GET /q`'nun okuduğu gibi okunur
+> (`url.ParseQuery(...).Get("t")`; ayrışmayan sorgu = token yok = `malformed` → Q39 (a) kayıtlı ret). Token'ı **`GET /q`'nun aynı
+> okuyucusu** açar — `livetap.go`'daki tek `liveQRTap.open` (Open → `resolve_live_qr_display_by_id` → lokasyon eşitliği), iki
+> çağıranı var (`Tap.openLiveQR`, `App.tapStartLive`); sonuç cihaza bağlı v2 bağlam (`mintForDevice`, `TokenExpiresAt` dolu).
+> `POST /app/v1/tap` değişmedi; aynı `checkin.Service.Record`, ikinci yazma yolu yok. Kanal alandan değil token'ın açıldığı
+> alandan türer: `sun` alanındaki bir `/q` sorgusu yine 400 (`TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`).
+> (3) **Açma tek yerde:** `cmd/tappa`'nın `openLiveQR`'ı `App.ServeLiveQR`'ı `Tap.ServeLiveQR`'ın yanında çağırır; anahtar
+> yokken uygulamanın canlı QR okuması 400 `bad_request` (tarayıcıda `/q` 404) — `TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre`
+> ikisinin birlikte açıldığını tutar (`App.ServesLiveQR`).
+> (4) **Testler (DB, uygulama yolu, tarayıcınınkilerle paralel):** `TestAppLiveQRDB_AScanOnTheVenuesNetworkIsOk` · `_GPSAloneIsFlagged`
+> · `_AForgedCodeIsARecordedRejectAndNothingLeaks` (log testi dahil) · `_AnExpiredCodeIsAFlagWithItsNote` ·
+> `_ACodeNamingAnotherVenueIsARecordedReject` · `_ARemovedScreenIsARecordedReject` · `_AHoldingScanIsRefusedAndRecorded` ·
+> `_RefusedBeforeAnything`; sözleşme `TestAppContract_RequestShapes` (`liveQR`). Mutasyonlar (ölçüldü): bağlam `TokenVerified`
+> olmadan → ilk test kırmızı; `TokenExpiresAt` düşürülünce → basış 400 `stale_context`; `open`'da lokasyon karşılaştırması
+> kaldırılınca → lokasyon testi kırmızı.
+> (5) **Uygulamalar:** Android manifeste ayrı bir `/q` VIEW + BROWSABLE `autoVerify` filtresi (NDEF değil); iOS'ta AASA zaten `/q`
+> taşıyordu. İkisinde `TapLink` (plaket `/t` | canlı QR `/q`, aynı köken kuralı), `tap/start`'a `liveQR`, aynı tap / sonuç / sorun
+> ekranları — **yeni metin yok**; *"Open in browser"* `/q` URL'sini tabandan yeniden kurar. Kamera izni yok, testle sabit
+> (`MergedManifestTest.noCameraIsAskedForOrDeclared`, `InfoPlistTests.testNoCameraUsageDescription`). Aktivasyon adımındaki
+> bir `/q` okuması hiçbir şey tamamlamaz (M16-23). Mutasyonlar (ölçüldü): Android `/q` filtresinin yolu `/t` → `MergedManifestTest`
+> kırmızı; canlı QR `sun` olarak gönderilince → `TapFlowTest` kırmızı; iOS `TapLink.of`'un canlı QR kolu silinince → dört test kırmızı.
+> (6) **NFC'siz telefon — ölçüldü, DUR (§9):** Android NFC'siz telefonu aktivasyonda açılışta reddeder (*"This phone can't read the
+> plaque"* / *"…setup without a plaque tap isn't available yet."*); iOS'ta okuyucusuz iPhone ana ekranda (`TapModel.home`)
+> `noReader` sorununu gösterir: *"This iPhone can't read the plaque"* / *"This iPhone has no NFC reader, so the app can't record
+> a tap from here."* / *"Ask your manager."* Bugün ulaşılamaz (NFC'siz telefon aktive olamaz — M16-23), ama M16-23'ten sonra bu
+> cümle canlı QR varken yanlıştır. Değiştirilmedi; metin kararı ana oturuma / M16-23'e. Canlı QR linkinin kendisi okuyucu
+> sormaz (`testALiveQRNeedsNoReader`).
 
 ## M16-23 — NFC'siz aktivasyon: canlı QR ve müdür onayı
 

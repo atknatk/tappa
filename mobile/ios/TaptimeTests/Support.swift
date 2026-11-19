@@ -214,6 +214,8 @@ final class FakeAppServer {
     var tapScript: [(Int, String?)] = []
     /// The sun queries tap/start was sent, and the bodies tap was sent (as JSON objects).
     private(set) var tapStarts: [String] = []
+    /// The live QR queries tap/start was sent as `liveQR` (M16-22).
+    private(set) var liveQRStarts: [String] = []
     private(set) var taps: [[String: Any]] = []
     /// Answer 401 to the next n signed reads, whatever they carry.
     var refuseReads = 0
@@ -295,10 +297,14 @@ final class FakeAppServer {
             guard readVerifies(method, path, body, headers) else {
                 return reply(401)
             }
-            guard method == "POST", fields(body) == ["sun"], let sun = json(body)["sun"] as? String else {
+            // Exactly one of the two fields (apptap.go's tapStart / tapStartLive, M16-22).
+            if method == "POST", fields(body) == ["liveQR"], let q = json(body)["liveQR"] as? String {
+                liveQRStarts.append(q)
+            } else if method == "POST", fields(body) == ["sun"], let sun = json(body)["sun"] as? String {
+                tapStarts.append(sun)
+            } else {
                 return reply(400, error: "bad_request")
             }
-            tapStarts.append(sun)
             if !tapStartScript.isEmpty {
                 let (status, code) = tapStartScript.removeFirst()
                 return reply(status, error: code)

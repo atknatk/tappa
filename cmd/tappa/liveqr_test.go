@@ -13,7 +13,8 @@ import (
 // codes is a URL to GET /q -- so a router with the screen page and without /q would answer every
 // scan 404. Both are turned on by ONE function (openLiveQR) from ONE key; this walks the router
 // run() composes, off and on, and holds the two together. CONTROL: the walk does see /t and
-// /screen, so a missing /q is the router's and not the walk's.
+// /screen, so a missing /q is the router's and not the walk's. M16-22: the app's live QR read is
+// on exactly when /q is.
 func TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre(t *testing.T) {
 	t.Parallel()
 	q := "GET " + liveqr.LiveQRTapPath
@@ -23,7 +24,8 @@ func TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre(t *testing.T) {
 		if cfg.LiveQRConfigured() != on {
 			t.Fatalf("on=%v: the walk's configuration says LiveQRConfigured=%v", on, cfg.LiveQRConfigured())
 		}
-		routes := walkOf(t, buildAppFeatures(t, cfg, on).router(cfg))
+		f := buildAppFeatures(t, cfg, on)
+		routes := walkOf(t, f.router(cfg))
 		if !slices.Contains(routes, "GET "+handler.TapPath) {
 			t.Fatalf("CONTROL: the walk does not see GET %s", handler.TapPath)
 		}
@@ -33,6 +35,10 @@ func TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre(t *testing.T) {
 		}
 		if hasQ != cfg.LiveQRConfigured() {
 			t.Fatalf("LiveQRConfigured=%v but %s mounted=%v: the screens show codes nothing can read", cfg.LiveQRConfigured(), q, hasQ)
+		}
+		// M16-22: the app's tap/start reads the same codes, turned on by the same call.
+		if got := f.app.ServesLiveQR(); got != cfg.LiveQRConfigured() {
+			t.Fatalf("LiveQRConfigured=%v but the app reads live QR codes=%v: the browser and the app disagree", cfg.LiveQRConfigured(), got)
 		}
 	}
 }
