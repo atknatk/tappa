@@ -45,16 +45,40 @@ var qrLiveDownTables = []string{"transactions", "punch_events", "site_punches"}
 
 // qlDown runs 00113's and 00112's Downs inside sp: the step an older migration's walk (00043's,
 // 00048's, 00067's, 00095's -- each Down re-adds a set or a body 00112 replaced) takes first, in
-// goose's own order, before clDown. No committed row holds qr_live today (M16-21 writes the first
-// ones; from then on a set-aside belongs here). The caller holds transactions, punch_events and
-// site_punches (lockForDowns / holdingLockedSavepoint).
+// goose's own order, before clDown. Since M16-21 the tap path commits qr_live rows (other packages'
+// tests write them), so the rows are set aside first (qrLiveRowsSetAsideSQL), inside the same
+// rolled-back savepoint. The caller holds transactions, punch_events and site_punches
+// (lockForDowns / holdingLockedSavepoint).
 func qlDown(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	_, down13 := opMigrationSections(t, op00113File)
 	_, down12 := opMigrationSections(t, op00112File)
 	opRunSection(t, ctx, sp, down13, "00113 Down")
+	opRunSection(t, ctx, sp, qrLiveRowsSetAsideSQL, "set the live QR rows aside")
 	opRunSection(t, ctx, sp, down12, "00112 Down")
 }
+
+// qrLiveChannelMigration is 00112's number.
+const qrLiveChannelMigration = 112
+
+// qrLiveRowsSetAsideSQL relabels every committed live QR row inside a walk's transaction so 00112's
+// Down -- which refuses while transactions, punch_events or site_punches holds one -- can run; the
+// rollback brings them back (each table's append-only trigger off for its UPDATE only). M16-21 is the
+// first card whose tap path commits such rows (the M16-19 card's walk note). The labels chosen are the
+// ones the OLD sets admit for that row's shape: a holding refusal names a site and no plaque, which
+// before 00112 only the manual arm of transactions_site_by_channel allowed -- and a manual row carries
+// no client (00109) -- so it becomes manual without a client; every other live QR row becomes qr
+// (no plaque is required of qr by any set). The feed's two tables have no shape rule on the channel.
+const qrLiveRowsSetAsideSQL = `ALTER TABLE transactions DISABLE TRIGGER transactions_no_mutation;
+UPDATE transactions SET channel = 'manual', client = NULL WHERE channel = 'qr_live' AND site_tenant_id IS NOT NULL;
+UPDATE transactions SET channel = 'qr' WHERE channel = 'qr_live';
+ALTER TABLE transactions ENABLE TRIGGER transactions_no_mutation;
+ALTER TABLE punch_events DISABLE TRIGGER punch_events_no_mutation;
+UPDATE punch_events SET channel = 'qr' WHERE channel = 'qr_live';
+ALTER TABLE punch_events ENABLE TRIGGER punch_events_no_mutation;
+ALTER TABLE site_punches DISABLE TRIGGER site_punches_no_mutation;
+UPDATE site_punches SET channel = 'qr' WHERE channel = 'qr_live';
+ALTER TABLE site_punches ENABLE TRIGGER site_punches_no_mutation;`
 
 // qlUp runs 00112's and 00113's Ups inside sp: the step such a walk takes last, after clUp.
 func qlUp(t *testing.T, ctx context.Context, sp pgx.Tx) {
@@ -241,6 +265,9 @@ func TestQRLive00112And00113_DownsRefuseALiveQRRowAndOtherwiseGiveBack(t *testin
 	up13, down13 := opMigrationSections(t, op00113File)
 	tables := qrLiveDownTables
 	lockForDowns(t, ctx, tx, tables)
+	// Since M16-21 other packages' tests COMMIT live QR rows; they are set aside for this test's
+	// transaction (rolled back with it), so each case below holds exactly the one row it seeds.
+	opRunSection(t, ctx, tx, qrLiveRowsSetAsideSQL, "set the committed live QR rows aside")
 	head := qrLiveSurface(t, ctx, tx)
 
 	// One case per table the Down reads, each with qr_live in THAT table alone: the transactions row

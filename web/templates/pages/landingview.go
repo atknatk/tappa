@@ -663,7 +663,7 @@ func LandingFreeMonthsLine(n int) Line {
 // digits.
 func countWord(n int) string {
 	words := []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
-		"nine", "ten", "eleven", "twelve"}
+		"nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"}
 	if n >= 0 && n < len(words) {
 		return words[n]
 	}

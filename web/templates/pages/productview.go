@@ -587,7 +587,7 @@ type ProductRuleRow struct {
 var ProductGuardRows = []ProductRuleRow{
 	{Sid: "sys:sun-invalid", No: "03", Words: "The NFC signature is wrong, or the plaque's counter did not move", Effect: "Reject"},
 	{Sid: "sys:employee-deactivated", No: "05", Words: "The person has been deactivated", Effect: "Reject"},
-	{Sid: "sys:person-debounce", No: "08", Words: "The same person taps again inside the repeat window", Effect: "Ignore — recorded, counts nothing"},
+	{Sid: "sys:person-debounce", No: "10", Words: "The same person taps again inside the repeat window", Effect: "Ignore — recorded, counts nothing"},
 }
 
 // ProductBaselineRows are three of the baseline rules as the Rules screen lists them.

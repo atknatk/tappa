@@ -917,7 +917,7 @@ func run() error {
 	panelOptions = append(panelOptions, handler.AdminMemberships(memberships))
 	// THE LIVE QR SCREENS (M16-20, ADR 0045 §2.5): only while TAPPA_LIVE_QR_KEY is set -- the panel's
 	// screens block and its two writes, and the screen page (liveScreen, a nil Mounter when off).
-	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, slog.Default())
+	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, tap, slog.Default())
 	if err != nil {
 		return err
 	}

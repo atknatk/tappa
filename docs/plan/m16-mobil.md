@@ -1527,14 +1527,16 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
     M16-19'un üçüncü koluyla uyumlu. *İleride açmak kullanıcı onayı + ADR 0027 §2 değişikliği ister.*
   - **`/v1` `tagId`:** `qr_live` olayında `null` (şema zaten `["string", "null"]`, `openapi.yaml:1130-1133`; açıklaması
     *"also for a QR punch"* der) — anlamı açıklamaya yazılır (Q38).
-- `TestDecide_` önekli vakalar: `qr_live` + IP → `ok` · `qr_live` + GPS-only → `ok` (`base:gps-only-allow`) ·
+- `TestDecide_` önekli vakalar: `qr_live` + IP → `ok` · `qr_live` + GPS-only → **`flag`** (`base:live-qr-requires-ip` —
+  kullanıcı kararı 2026-11-19, aşağıda; ilk metin *"`ok` (`base:gps-only-allow`)"* idi) ·
   `qr_live` + hiçbiri → `flag` · aynı kişi 60 sn içinde → `ignored` · **kanallar arası:** `nfc` dokunuşundan 60 sn
   içinde `qr_live` → `ignored` (ve tersi) · **geriye tarihlenmiş** `occurred_at`'li `qr_live` öncülü 60 sn içinde
   yazılmışsa → `ignored` (sunucu saati bacağı, `SecondsSinceLastRecordedTap` — DB testi) · farklı iki kişi aynı
   token'la art arda → ikisi de kayıt · **holding** `qr_live` (Q43 kapalı) → `reject` + kartın adlandırdığı guardrail · statik QR'ın sonuçları **aynen**.
 - **Log testi:** token, imza ve doğrulama hatasının metni log'a ve hata gövdesine girmez (CLAUDE.md §7).
 - Yeni baseline belgesi gerekip gerekmediği bu vakalarla ölçülür (ADR 0045 §2.5: büyük olasılıkla gerekmez); gerekirse
-  `BaselineVersion` + duyuru.
+  `BaselineVersion` + duyuru. **Ölçüldü (2026-11-19): gerekti** — kullanıcı kararıyla `base:live-qr-requires-ip`,
+  `BaselineVersion` 2026-11-19 + duyuru (aşağıdaki kart düzeltmesi (1)).
 - Rapor, liste, anomali ekranı ve `/v1` `qr_live`'ı tap kanalı olarak sayar (M16-19 envanterinin Go yarısı).
 - **Eksiksizliğin kanıtı — parite matrisi (mekanizma, desen değil).** Gerçek yoldan uçtan uca DB testleri: her
   hücrede bir `qr` ve bir `qr_live` dokunuşu imzalı tap bağlamı → `checkin` → satır yolundan geçirilir.
@@ -1582,10 +1584,101 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 > **M16-20 devri (2026-11-19, düzeltme turu).** (güvenlik ORTA-1'in kalanı) **Çalınmış ekran çerezi + sahte GPS →
 > `qr_live` yalnız GPS ile `ok` verir** (`base:gps-only-allow`; canlı QR'ın `base:qr-requires-ip` eşi yok). M16-20 bunu
 > sınırlar ama kapatmaz: ekran oturumu en çok 180 gün yaşar, panel *"last seen"* gösterir, ekran tek tıkla kaldırılır.
-> **`qr_live` + yalnız GPS sonucu bu kartta yeniden tartılır ve ana oturum kullanıcıya sorar** (AskUserQuestion; seçenekler
-> ör. statik QR gibi IP zorunlu → `flag`, ya da bugünkü `ok`). Ayrıca: **router testi** — `cfg.LiveQRConfigured()` ise
+> **`qr_live` + yalnız GPS sonucu bu kartta yeniden tartılır ve ana oturum kullanıcıya sorar** — **soruldu (2026-11-19,
+> AskUserQuestion) → `flag`** (statik QR gibi IP zorunlu; aşağıdaki *"Kullanıcı kararı (2026-11-19)"*). Ayrıca: **router testi** — `cfg.LiveQRConfigured()` ise
 > `/q` mount edilmiş olmalı (anahtar dolu ama `/q` yoksa her canlı QR taraması 404 olur; `cmd/tappa`'nın yürüyüşünde).
 > Sözleşme notu: askıdaki işletmenin ekranı token üretmez (M16-20); dokunuş yolunun askı kuralı bu kartındır.
+
+> **Kullanıcı kararı (2026-11-19, AskUserQuestion).** **`qr_live` + yalnız GPS (IP eşleşmesi yok) → `flag`** (müdür
+> onayı) — statik QR'daki `base:qr-requires-ip` ile aynı, aynı biçimde tenant'ın değiştirebildiği bir baseline politikası.
+> Gerekçe: M16-20 güvenlik denetimi ORTA-1 (kopyalanmış ekran çerezi + sahte GPS evden `ok` alırdı). `qr_live` + IP → `ok`
+> kalır. Test listesindeki GPS-only satırı bu yüzden `flag`'dir.
+
+> **Kart düzeltmesi (2026-11-19, M16-21 uygulaması).** Uygulandığı biçim; her iki yollu noktada ölçülen ve seçilen:
+> (1) **Baseline kimliği — SEÇİM: ayrı belge `base:live-qr-requires-ip`.** Ölçüldü (`checkin.assembleBaseline` belgeleri
+> **ada göre** eşler; değişmiş bir belge mevcut işletmeye ulaşmaz, eklenen bir belge bir sonraki dokunuşta materialise
+> olur — ADR 0045 Bedel 10): `base:qr-requires-ip`'i `StringIn {qr, qr_live}` ile genişletmek bugün kurulu **her** işletmede
+> saklı sürüm 1'i (`channel == qr`) bırakır ve kararı oralarda açık tutardı. Ayrı belge herkese ulaşır. `BaselineVersion`
+> **2026-11-19**, `BaselineChange{Added: true}` duyurusu, özet pinli (`TestBaseline_ContentIsPinnedToItsStamp`,
+> `TestBaseline_TheLiveQRRuleIsAnnouncedAsAnAddition`). Gevşetme yolu statik kuralınkiyle aynı: belgeyi kapat ya da tek mekânda
+> ez (`TestBaseline_TheTenantCanSwitchTheLiveQRRuleOff`).
+> (2) **Dört guardrail (11 → 15)**, hepsi alarm veren guardrail'lerin arkasında (yerleşim kuralı yeni istisna istemedi):
+> `sys:live-qr-unverified` (6, deny; Q39 a — biçim dışı, imzası tutmayan, ya da imzası tutup ekranı/lokasyonu bu veritabanında
+> olmayan token; anahtar yoksa da reddeder) · `sys:screen-not-active` (7, deny; §5 satır 1'in eşi — iptal ya da pasif lokasyon;
+> izin listesi) · `sys:cross-tenant-live-qr` (12, deny; Q43 b — **retin sid'i**) · `sys:live-qr-expired` (13, review; Q39 b).
+> Sahte token `#5`'in arkasında: devre dışı çalışanın alarmı kaybolmaz, ve statik QR zaten `#5`'e kanıtsız ulaşıyor; debounce'un
+> önünde: pencere içindeki sahte kod `ignored` değil `reject`.
+> (3) **Üç bağlam anahtarı (26 → 29):** `tap:tokenVerified`, `tap:tokenOverdueSeconds`, `screen:status` — yalnız `qr_live`'da.
+> **Ekran karşılıkları kuralı** (parite matrisinin kuralı): canlı QR bağlamında `tag:status` ve `tag:locationId` **yok**,
+> `screen:status` var, `location:id` ekranın lokasyonu, policy kaynağı `location/<ekranın lokasyonu>`
+> (`TestDecide_LiveQRContextNamesTheScreenNotAPlaque`).
+> (4) **Q39 ağ payı — SEÇİM: 10 sn** (`policy.LiveQRNetworkGraceSeconds`, gerekçe kodda). Kodda ölçülen: ekran bir sonrakini
+> bitişten 3 sn önce ister (`liveScreenRefreshLead`) ve süresi geçmiş kodu isteğin **gönderilme** anından sayarak gizler —
+> sunucu saatinde bitişten sonra gösterilmez; pay kamera + kişinin bildirime basması + mobil ağ içindir. **Cihaz ölçümü
+> yok** (M16-24). Ölçüm anı **sayfanın imzalı basım damgası** (`GET /q`), basış değil.
+> (5) **`sys:tap-freshness` — SEÇİM: `qr_live`'a uygulanır.** Kayıt basışta zamanlanır (`checkin`'in `now`'ı); tazelik
+> olmadan 09:00'da okunan kod 15 dk'lık bağlam TTL'i boyunca başka yerden basılabilirdi. Statik QR muaf kalır.
+> (6) **Retin sid'i: `sys:cross-tenant-live-qr`.** Ret satırı: `site_tenant_id` = ekranın tenant'ı, `site_location_id` =
+> ekranın lokasyonu, `site_tag_uid` / `location_id` / `tag_uid` NULL, `sun_valid` false; site `site_punches`'ta `refused`
+> görür. Peer sorusu `holding_site_locations` ile (ekranın lokasyonu bir peer'in mekânı mı) — `holding_tap_site` plaket ister;
+> ADR 0027 §2'nin kapalı listesi değişmedi (fonksiyon zaten listede, yeni çağıran).
+> (7) **Askı kuralı:** dokunuş yolunda askı kapısı yok (NFC ve statik QR gibi, ADR 0025 §3); askıdaki işletmenin ekranı yeni
+> token üretmediği için (M16-20) artık en çok son token'ın ömrü + pay kadardır.
+> (8) **`/q` (tarayıcı):** `GET /q?t=` tap ekranını **aynen** çizer (`pages.Tap`, yeni metin yok — §9); token yalnız orada
+> açılır, imzalı bağlamın **ikinci düzeni** (`version 2`: ekran, doğrulama sonucu, token bitişi) taşınır, token taşınmaz.
+> `QR` bayrağı false (bfcache'ten dönen sayfa aynı, süresi geçmiş token'ı yeniden açmasın). `/q` `cmd/tappa`'nın
+> `openLiveQR`'ında ekran sayfasıyla birlikte açılır (`TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre`). Hata
+> ekranları mevcut cümleleri kullanır (*"Hold your phone to the plaque again"* gibi plaket diyen metinler dahil) — metin
+> farkı **zorunlu değil**, ama bir §9 sorusu olarak M16-24'e devredildi; `/q`'nun 500'leri *"Try again"* bağlantısı
+> **taşımaz** (bağlantı token'ı hata gövdesine koyardı).
+> (9) **`/v1` — SEÇİM: `qrKind` NFC olayında yok (`omitempty`).** Statik QR → `channel: qr` + `qrKind: static` + `tagId`;
+> canlı QR → `channel: qr` + `qrKind: live` + `tagId: null`; NFC → alan yok, yani NFC gövdesinin baytları ve imzaları (rehberin
+> test vektörü dahil) değişmedi. OpenAPI'de iki şemada (`Punch`, `PunchDelivery`) açıklamalı, zorunlu değil.
+>
+> **M16-19 envanterinin M16-21'e devredilen 23 maddesinin akıbeti.** Sorgular: `SecondsSinceLastRecordedTap` — **girer**
+> (`qr_live` eklendi; `TestLiveQRDB_ABackdatedLiveQRPredecessorStillDebounces`, mutantla kırmızı) · `transactions.sql`
+> kanal süzgeci — sorgu değişmedi (parametre olduğu gibi); panel süzgecine `qr_live` seçeneği **eklenmedi** (ölçüldü: The
+> Pass *"live"* kelimesini reddeder — `pass_test`, D1 / §4.2; etiket bir §9 sorusu, takip maddesi; satırlar *"Any channel"*
+> altında listelenir) · `employees.sql` son kanal — **girmez, doğru** (okuru `employees.go` yalnız `manual`'a not düşer;
+> canlı QR bir dokunuştur) · `punchfeed.sql` / `webhooks.sql` `pe.channel` — SQL değişmedi, eşleme `punchwire`'da (**girer**,
+> Q38 a) · `sitepunches.sql` — **girmez, doğru** (`ledger/site.go` yalnız `manual`'ı ayırır). Go: `checkin.go` istek doğrulaması
+> — **değişti** (kanal başına kural; plaketsiz `qr_live` kabul) · `BusinessDayStart`, `shiftColumns`, `directionSourceColumn`,
+> `clientColumn` — **değişti** (tek `tapChannel`: nfc|qr|qr_live; parite matrisi mutantla kırmızı) · `SunValid` — **false'a
+> sabitlendi** (M16-19 devri; `TestDecide_LiveQRNeverCarriesAValidSUN` true/false) · plaket/site yazımı — **değişti** (`liveWall`)
+> · `tapcontext.go` kanal reddi — **değişti** (v1 nfc|qr kalır, v2 yalnız qr_live) · `guardrails.go` `sys:sun-invalid` —
+> **girmez** (NFC-only; eşi `sys:live-qr-unverified`) · `sys:tap-freshness` — **girer** · `sys:cross-tenant-qr-site-ip` —
+> **girmez** (eşi `sys:cross-tenant-live-qr`) · `baseline.go` `base:qr-requires-ip` — **girmez** (eşi ayrı belge) ·
+> `punchwire.go` — **değişti** · `claimqueue.go` `claimChannelWord` — **değişti** (*"live QR code"*) · `tap.go` önizleme / QR
+> bayrağı, `apptap.go:214` — **girmez** (`sun.Parse` `qr_live` üretmez; canlı QR `GET /q`'da, uygulama M16-22) ·
+> `transactions.go` süzgeç — **girmez, takip maddesi** (yukarıda) · `employees.go:835` — **girmez, doğru** · `spikeview.go` — **değişti** (*"Live QR
+> scan"* kutucuğu) · `sandbox/simulate.go` — **girmez, takip maddesi** (sandbox yalnız nfc/qr simüle eder; `onRunner` canlı QR
+> çözümleyicisini hata ile reddeder).
+>
+> **Takip maddeleri (parite testinin ulaşamadığı, kayıt yazmayan yerler):** sandbox simülatörü (`qr_live` simülasyonu yok) ·
+> panel kanal süzgecinde `qr_live` seçeneği (etiket §9 — The Pass *"live"* demez) ·
+> `/q` hata ekranlarının plaket diyen cümleleri (§9) · API rehberinde (`docs/api` guide) `qrKind`'ın anlatımı (OpenAPI'de var).
+>
+> **Bilinen yapısal farklar (parite matrisi, `TestLiveQRDB_ParityWithTheStaticQR`):** `transactions`: `id`, `created_at`,
+> `occurred_at`, `employee_id` (klon), `channel`, `tag_uid`, `site_tag_uid`, `policy_context` (kendi kuralıyla); flag hücresinde
+> ayrıca `matched_sid` / `policy_version_id` / `note` (iki ayrı belge, aynı etki). `policy_context`: `tap:channel`,
+> `tap:pageAgeSeconds`, `tag:*`, `screen:status`, `tap:tokenVerified`, `tap:tokenOverdueSeconds`. `punch_events`: `seq`,
+> `punch_id`, `punch_time`, `recorded_at`, `created_at`, `employee_id`, `employee_ref`, `employee_code`, `channel`, `tag_uid`.
+> `business_day_start`, `shift_*`, `client`, `direction_source`, `sun_valid`, `trust`, `ip_match`, `gps_match` **eşit**
+> beklenir ve eşittir.
+>
+> **M16-22'ye devir (uygulama yolu, ölçüldü):** `/app/v1/tap/start` bugün bir canlı QR URL'inin sorgusunu (`t=<token>`)
+> `sun.Parse`'tan geçirir; `tag` olmadığı için **400 `bad_request`**, kayıt yok, sayaç yok
+> (`TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`). §4.6 anlamında **kayıt kaybı yok** (tap/start hiç yazmaz ve
+> bağlamsız basış olmaz), kaybolan taramanın kendisidir — kişi uygulamanın hata ekranını görür. iOS bugün `/q`'yu
+> `PlaqueURL.sunQuery`'de zaten *"bad URL"* diye reddeder (M16-20). Açmak için: tap/start'a ayrı bir `liveQR` alanı ya da
+> ikinci uç (öneri: alan), sunucu tarafında `openLiveQR`'ın aynısı + `mintForDevice` ile v2 bağlam; `POST /app/v1/tap`
+> değişmez (alanları zaten geçiriyor). `TAPPA_LIVE_QR_KEY` canlıda M16-22 birleşmeden doldurulmaz (M16-20 kuralı).
+>
+> **M16-23'e devir:** canlı QR aktivasyonu `GET /q`'nun oturumsuz dalındadır (bugün `/activate`'e yönlendirir, kayıt yok);
+> `openLiveQR` (token + ekran satırı + lokasyon eşitliği) aynen kullanılabilir, `sun.Verify`'ın yerine `TokenVerified` +
+> `sys:screen-not-active`'in koşulu (iptal yok, lokasyon aktif) ve **aynı tenant** kapısı. Token'ın tazeliği: aktivasyonda
+> damga basımın kendisidir (sayfa yok) — `tap.Input.PageIssuedAt` sıfırken `Now` kullanılır, aynı kural. Migration numarası
+> **00115** (M16-21 migration eklemedi).
 
 ## M16-22 — Uygulamada QR okuma (statik + canlı)
 

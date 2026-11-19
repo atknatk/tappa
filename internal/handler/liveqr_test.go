@@ -445,3 +445,15 @@ func TestLiveScreenScript_KeepsItsPromises(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveQRPath_IsThePathTheCodesEncode: the route GET /q is mounted at (LiveQRPath, a literal for the
+// route inventory) is the path every screen's code encodes (liveqr.TapURL). Two strings that must be
+// one -- a code naming a route the server does not serve is a 404 on every scan.
+func TestLiveQRPath_IsThePathTheCodesEncode(t *testing.T) {
+	if LiveQRPath != liveqr.LiveQRTapPath {
+		t.Fatalf("the route is %q and the codes encode %q", LiveQRPath, liveqr.LiveQRTapPath)
+	}
+	if u := liveqr.TapURL("https://taptime.mt", "x"); !strings.HasPrefix(u, "https://taptime.mt"+LiveQRPath+"?") {
+		t.Fatalf("a code's URL is %q, not under the route %q", u, LiveQRPath)
+	}
+}

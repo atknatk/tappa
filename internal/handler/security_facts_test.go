@@ -1711,7 +1711,7 @@ func TestSecurityLadder_EveryRungIsTheEngines(t *testing.T) {
 // pagesCountWord spells a count as the page does (pages.countWord is unexported).
 func pagesCountWord(n int) string {
 	return []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-		"eleven", "twelve"}[n]
+		"eleven", "twelve", "thirteen", "fourteen", "fifteen"}[n]
 }
 
 // --- the page as rendered ------------------------------------------------------------
@@ -1768,7 +1768,7 @@ func TestSecurityFigures_AreTheProductsAndThePagePrintsThem(t *testing.T) {
 		}
 	}
 	for _, real := range []string{"16-character", "256-bit", "a /7 holds", "150 m by default", "within 60 seconds",
-		"of the eleven guardrails", "limit /7", "16 hex"} {
+		"of the fifteen guardrails", "limit /7", "16 hex"} {
 		if strings.Contains(otherText, asRendered(real)) {
 			t.Errorf("CONTROL: the page rendered with other figures still prints %q", real)
 		}

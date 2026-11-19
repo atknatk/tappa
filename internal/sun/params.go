@@ -52,6 +52,11 @@ const (
 	// ChannelManual is a manager-entered record; it never flows through Parse.
 	// Declared here so the channel vocabulary has one home (CLAUDE.md §5).
 	ChannelManual Channel = "manual"
+	// ChannelQRLive is a tap on a venue's live QR screen (ADR 0045 §2.5, M16-21). It never
+	// flows through Parse either -- it has no plaque, no ctr and no CMAC: GET /q derives it
+	// from the screen's signed token (internal/liveqr). Declared here for the same reason
+	// as ChannelManual.
+	ChannelQRLive Channel = "qr_live"
 )
 
 // Params is a parsed, well-formed SUN URL. Every field is already validated, so

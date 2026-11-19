@@ -67,9 +67,10 @@ const (
 	ChannelQR     Channel = "qr"     // SUN-less fallback: no proof of moment (§5, base:qr-requires-ip)
 	ChannelManual Channel = "manual" // manager-entered: entered_by set, SUN not sought
 	// ChannelQRLive is a tap on a venue's LIVE QR screen (migration 00111/00112, ADR 0045 §2.5): a
-	// rotating server-signed token, no plaque. The schema and the feed triggers know it from M16-19;
-	// it is named here for feedEligible's and RecordedDirectionSource's parity with them. Nothing
-	// derives it yet -- the engine and the request path accept it in M16-21.
+	// rotating server-signed token, no plaque. It is derived from the TOKEN, never from a request
+	// field: GET /q is the only page that mints a context with it, and only after reading the token
+	// it was opened with (internal/handler, M16-21). The engine reads Input.Screen and Input.Token
+	// for it instead of Input.Tag and Input.SUN.
 	ChannelQRLive Channel = "qr_live"
 )
 
@@ -172,6 +173,20 @@ const (
 // TagActive. A fifth status is therefore refused on the day the migration adds it,
 // with or without this constant being updated.
 
+// ScreenStatus is a live QR screen's state as the tap path reads it from the screen's
+// ROW (resolve_live_qr_display_by_id, 00111) -- sys:screen-not-active's input, §5 line
+// 1's twin for a channel with no plaque. Only ScreenActive proceeds; the guardrail asks
+// for it rather than listing the others (sys:tag-not-active's discipline).
+type ScreenStatus string
+
+const (
+	ScreenActive ScreenStatus = "active"
+	// ScreenRevoked: removed from the panel (live_qr_displays.revoked_at, one way).
+	ScreenRevoked ScreenStatus = "revoked"
+	// ScreenLocationInactive: the screen's venue has been switched off (locations.active).
+	ScreenLocationInactive ScreenStatus = "location_inactive"
+)
+
 // EmployeeStatus is the tapping employee's lifecycle state (employees.status
 // CHECK, migration 0003). deactivated is the §5 line-4 reject-with-alert. NOTE the
 // value "active": an "invited" (not-yet-activated) employee is not a valid tapping
@@ -217,6 +232,30 @@ type SUNResult struct {
 type Tag struct {
 	Status   TagStatus
 	Location uuid.UUID
+}
+
+// Screen is the live QR screen a qr_live tap was made at, reduced to what the decision
+// reads: its state (sys:screen-not-active) and the venue it is paired to -- the TAPPED
+// location, whose IP / GPS / shift the tap is matched against, exactly as Tag.Location is
+// for a plaque. The venue comes from the screen's row, and the caller holds the row to
+// the token's own signed location (a screen's location never changes, 00111).
+type Screen struct {
+	Status   ScreenStatus
+	Location uuid.UUID
+}
+
+// LiveQRToken is what the server learned from a live QR tap's signed token (internal/liveqr's
+// Open), as PURE facts -- tap's own type for SUNResult's reason: liveqr is not imported here.
+type LiveQRToken struct {
+	// Verified is true only when the token opened (shape and signature, compared in constant
+	// time) AND the screen it names exists at the location it names. Anything else -- not a
+	// token, a forged tag, a screen we do not hold -- is false: Q39 (a), sys:live-qr-unverified.
+	Verified bool
+	// ExpiresAt is the end of the window the token was minted with (Claims.ExpiresAt, the
+	// SERVER's issue stamp plus its lifetime). Meaningful only when Verified. Decide measures
+	// it against Input.PageIssuedAt -- when the server first saw the token -- for
+	// sys:live-qr-expired (Q39 (b)).
+	ExpiresAt time.Time
 }
 
 // Employee is the tapping session's employee, or nil.
@@ -512,12 +551,24 @@ type Input struct {
 	MockLocation *bool
 
 	// SUN is the proof-of-moment fact (see SUNResult). For a QR/manual tap it is the
-	// zero value (Valid=false); §5 line 2 reads it only for the nfc channel.
+	// zero value (Valid=false); §5 line 2 reads it only for the nfc channel. On a qr_live
+	// tap it is IGNORED: tap:sunValid is false there whatever is passed (M16-19's
+	// hand-off -- the holding gate's tolerant arm and the site's refusal keys assume a
+	// live QR row's sun_valid is not true, and the record copies it from the context).
 	SUN SUNResult
 
-	// Tag is the tapped plaque (status + location). Always present for a resolved
-	// tap; an unknown UID never reaches Decide (sun.ErrUnknownTag is rejected at M5).
+	// Tag is the tapped plaque (status + location). Present for every resolved PLAQUE
+	// tap (nfc, qr); an unknown UID never reaches Decide (sun.ErrUnknownTag is rejected
+	// at M5). nil on a qr_live tap, which has no plaque -- Screen stands in for it.
 	Tag *Tag
+
+	// Screen is the live QR screen (qr_live only), resolved from its row at the press;
+	// nil when the token did not verify, so there is no screen to believe. Token is the
+	// token's verification (qr_live only). Both are read ONLY on the qr_live channel --
+	// on every other channel they are ignored and put no key in the policy context, so
+	// no NFC, QR or manual outcome can move because of them.
+	Screen *Screen
+	Token  *LiveQRToken
 
 	// Employee is the tapping session's employee, or nil for NO session (§5 line 3).
 	// nil and Status==deactivated are different decisions — see Employee.

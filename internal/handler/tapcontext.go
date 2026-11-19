@@ -232,7 +232,36 @@ type tapContext struct {
 	// IssuedAt is when GET /t minted this, from the SERVER clock — never a
 	// client value (M5-10's trap says the same).
 	IssuedAt time.Time
+
+	// THE LIVE QR FIELDS (M16-21; Channel == sun.ChannelQRLive only, the version-2
+	// layout). GET /q opens the screen's token ONCE, on the server, and what crosses to
+	// the browser is the outcome -- never the token (§7: it is a ~20 s credential, kept
+	// out of the page as the CMAC is). UID, Ctr and CMACVerified are empty there: a
+	// screen is not a plaque.
+	//
+	// DisplayID is the screen the token names (live_qr_displays.id), uuid.Nil when the
+	// token did not verify -- the POST re-resolves the row by it (a removal between the
+	// page and the press is §5 row 1's twin, decided on the state of NOW).
+	DisplayID uuid.UUID
+	// TokenVerified is the server's answer at page-build time to "did this token open
+	// (shape and signature, constant time) and does the screen it names exist at the
+	// location it names". false is Q39 (a), sys:live-qr-unverified's recorded reject.
+	TokenVerified bool
+	// TokenExpiresAt is the end of the token's own window (its server-stamped issue time
+	// plus its lifetime), the zero value when it did not verify. With IssuedAt -- the
+	// moment the server first saw the token -- it is sys:live-qr-expired's input.
+	TokenExpiresAt time.Time
 }
+
+// tapContextLiveVersion prefixes a LIVE QR context's payload (M16-21). A second layout
+// rather than new fields in the first: the version-1 payload is the plaque's eight
+// fields exactly and a deployed page carrying one must keep verifying, and a plaque's
+// fields mean nothing for a screen. parse knows both and refuses anything else; a
+// version-1 payload naming qr_live, or a version-2 one naming any other channel, is
+// malformed -- the layout and the channel travel together inside the one MAC.
+//
+//	payload  2|<screen id>|<token verified>|qr_live|<token expires, unix>|<screen tenant>|<location>|<issued at>
+const tapContextLiveVersion = "2"
 
 // tapContexts mints and parses signed contexts.
 //
@@ -275,6 +304,9 @@ func (c tapContexts) clock() time.Time {
 // decimal, the channel is one of two fixed words, the flag is one character and
 // the ids are UUIDs. So splitting back is unambiguous with no escaping.
 func (c tapContexts) payload(t tapContext) string {
+	if t.Channel == sun.ChannelQRLive {
+		return livePayload(t)
+	}
 	verified := "0"
 	if t.CMACVerified {
 		verified = "1"
@@ -285,6 +317,28 @@ func (c tapContexts) payload(t tapContext) string {
 		strconv.FormatUint(uint64(t.Ctr), 10),
 		string(t.Channel),
 		verified,
+		t.TagTenantID.String(),
+		t.LocationID.String(),
+		strconv.FormatInt(t.IssuedAt.Unix(), 10),
+	}, "|")
+}
+
+// livePayload renders a live QR context (tapContextLiveVersion's layout). The same '|'
+// discipline: a UUID, one character, a fixed word, two decimals, two UUIDs.
+func livePayload(t tapContext) string {
+	verified, expires := "0", "0"
+	if t.TokenVerified {
+		verified = "1"
+		if !t.TokenExpiresAt.IsZero() {
+			expires = strconv.FormatInt(t.TokenExpiresAt.Unix(), 10)
+		}
+	}
+	return strings.Join([]string{
+		tapContextLiveVersion,
+		t.DisplayID.String(),
+		verified,
+		string(sun.ChannelQRLive),
+		expires,
 		t.TagTenantID.String(),
 		t.LocationID.String(),
 		strconv.FormatInt(t.IssuedAt.Unix(), 10),
@@ -404,7 +458,7 @@ func (c tapContexts) parseHeld(v, holder string) (tapContext, error) {
 	}
 
 	parts := strings.Split(string(raw), "|")
-	if len(parts) != 8 || parts[0] != tapContextVersion {
+	if len(parts) != 8 || (parts[0] != tapContextVersion && parts[0] != tapContextLiveVersion) {
 		// Authenticated but unreadable: minted by this deployment under a
 		// different layout. Treated as malformed, never repaired.
 		return tapContext{}, errTapContextMalformed
@@ -419,6 +473,9 @@ func (c tapContexts) parseHeld(v, holder string) (tapContext, error) {
 		return tapContext{}, errTapContextExpired
 	}
 
+	if parts[0] == tapContextLiveVersion {
+		return parseLive(parts, issuedAt)
+	}
 	ctr, err := strconv.ParseUint(parts[2], 10, 32)
 	if err != nil {
 		return tapContext{}, errTapContextMalformed
@@ -447,4 +504,48 @@ func (c tapContexts) parseHeld(v, holder string) (tapContext, error) {
 		LocationID:   location,
 		IssuedAt:     issuedAt,
 	}, nil
+}
+
+// parseLive decodes an AUTHENTICATED, unexpired version-2 payload (parseHeld has checked
+// the MAC and the TTL). The channel must be qr_live, the flag one character, and a token
+// that did not verify carries no expiry -- a payload that says otherwise was not written by
+// livePayload and is refused rather than read.
+func parseLive(parts []string, issuedAt time.Time) (tapContext, error) {
+	if sun.Channel(parts[3]) != sun.ChannelQRLive || (parts[2] != "0" && parts[2] != "1") {
+		return tapContext{}, errTapContextMalformed
+	}
+	display, err := uuid.Parse(parts[1])
+	if err != nil {
+		return tapContext{}, errTapContextMalformed
+	}
+	expires, err := strconv.ParseInt(parts[4], 10, 64)
+	if err != nil || expires < 0 {
+		return tapContext{}, errTapContextMalformed
+	}
+	tenantID, err := uuid.Parse(parts[5])
+	if err != nil {
+		return tapContext{}, errTapContextMalformed
+	}
+	location, err := uuid.Parse(parts[6])
+	if err != nil {
+		return tapContext{}, errTapContextMalformed
+	}
+	t := tapContext{
+		Channel:       sun.ChannelQRLive,
+		DisplayID:     display,
+		TokenVerified: parts[2] == "1",
+		TagTenantID:   tenantID,
+		LocationID:    location,
+		IssuedAt:      issuedAt,
+	}
+	if !t.TokenVerified && (expires != 0 || display != uuid.Nil) {
+		return tapContext{}, errTapContextMalformed
+	}
+	if t.TokenVerified {
+		if expires == 0 || display == uuid.Nil {
+			return tapContext{}, errTapContextMalformed
+		}
+		t.TokenExpiresAt = time.Unix(expires, 0).UTC()
+	}
+	return t, nil
 }

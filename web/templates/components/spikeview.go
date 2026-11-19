@@ -79,6 +79,9 @@ func physicalTapTile(d DocketView) EvidenceTile {
 	switch {
 	case d.Channel == "qr":
 		t.Value, t.Sub, t.Tone = "QR scan", "no chip signature on a QR scan", toneNone
+	case d.Channel == "qr_live":
+		// M16-21: a venue screen's rotating code -- a moment, but no chip and no plaque.
+		t.Value, t.Sub, t.Tone = "Live QR scan", "no chip signature on a live QR scan", toneNone
 	case d.Channel == "manual":
 		t.Value, t.Sub, t.Tone = "n/a", "entered by a manager", toneNone
 	case d.Channel == "nfc" && d.PartnerVenue:

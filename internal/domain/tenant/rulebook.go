@@ -873,6 +873,14 @@ var guardrailRules = map[string]string{
 		"clock, whichever is closer; no business can change it.",
 	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 — a QR scan at another business of your group counts only " +
 		"from that venue's own network; anything else waits for your approval. Neither you nor they can change it.",
+	"sys:live-qr-unverified": "§5 row 2's twin for a live QR screen — a code Taptime did not sign, or one " +
+		"naming a screen that is not where it says, proves nothing. The attempt is recorded as refused.",
+	"sys:screen-not-active": "§5 row 1's twin — a live QR screen you removed, or one at a venue you switched " +
+		"off, cannot stand as attendance. The attempt is recorded as refused.",
+	"sys:cross-tenant-live-qr": "ADR 0045 §2.5 — a live QR screen counts only for its own business. A scan by " +
+		"someone of another business of your group is recorded at theirs as refused, and you see that it was.",
+	"sys:live-qr-expired": "ADR 0045 §2.5 — a live QR code is good for about twenty seconds; one read after " +
+		"that is what a photograph of the screen looks like, so it waits for approval. No business can switch it off.",
 	"sys:policy-edit-owner-only": "ADR 0004 K2 — only the owner may change the rules. A manager who could " +
 		"widen a rule could widen their own pay.",
 	"sys:no-self-review": "Not enforced yet. Taptime does not yet know which manager login belongs to " +
@@ -900,7 +908,7 @@ var guardrailStage = map[string]string{
 // order, so it cannot contradict the engine's), and
 // TestGuardrailWhen_CoverTheShippedSlice holds it to the shipped set in both
 // directions. Each phrase describes what the guardrail's Match reads, and nothing
-// wider: sys:sun-invalid and sys:tap-freshness are NFC-only, sys:occurred-at-bound
+// wider: sys:sun-invalid is NFC-only, sys:tap-freshness NFC and live QR, sys:occurred-at-bound
 // refuses a time in the future as well as one too far back.
 var guardrailWhen = map[string]string{
 	"sys:tenant-mismatch":         "The plaque belongs to another business, outside your group",
@@ -908,7 +916,11 @@ var guardrailWhen = map[string]string{
 	"sys:sun-invalid":             "The NFC signature is wrong, or the plaque's counter did not move",
 	"sys:no-session":              "The phone has no active Taptime session",
 	"sys:employee-deactivated":    "The person has been deactivated",
-	"sys:tap-freshness":           "The NFC tap page was opened too long ago",
+	"sys:tap-freshness":           "The NFC or live QR tap page was opened too long ago",
+	"sys:live-qr-unverified":      "The live QR code was not signed by Taptime, or names another screen",
+	"sys:screen-not-active":       "The live QR screen was removed, or its venue is switched off",
+	"sys:cross-tenant-live-qr":    "A live QR scan at another business of your group",
+	"sys:live-qr-expired":         "The live QR code had already run out when it was scanned",
 	"sys:occurred-at-bound":       "The time the phone declares is too far back, or in the future",
 	"sys:person-debounce":         "The same person taps again inside the repeat window",
 	"sys:cross-tenant-qr-site-ip": "A QR scan at another business of your group, off that venue's own network",

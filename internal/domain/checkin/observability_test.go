@@ -318,6 +318,10 @@ func (s *scriptedData) GetTagByUID(context.Context, string) (db.ResolvedTag, err
 	return db.ResolvedTag{}, errors.New("scriptedData: the policy set never resolves a tag")
 }
 
+func (s *scriptedData) GetLiveQRDisplayByID(context.Context, uuid.UUID) (db.ResolvedLiveQRDisplay, error) {
+	return db.ResolvedLiveQRDisplay{}, errors.New("scriptedData: the policy set never resolves a screen")
+}
+
 // logRecords decodes a JSON handler's output, one record per line.
 func logRecords(t *testing.T, out []byte) []map[string]any {
 	t.Helper()

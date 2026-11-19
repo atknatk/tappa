@@ -67,6 +67,8 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 // The QR channel needs no code here: sys:sun-invalid is NFC-only, so a SUN-less QR
 // tap is not denied, and base:qr-requires-ip (Q15) sends a QR tap without an IP
 // match to review — both resolved by the policy Set, proven end to end in the tests.
+// The LIVE QR channel (M16-21) needs only the keys liveQRKeys writes: its four
+// guardrails and base:live-qr-requires-ip decide it, as the policy Set says.
 //
 // The signature is fixed (M4-02): Decide takes ONE Input value, so the per-tenant
 // policy Set travels IN the Input (in.PolicySet), assembled by the M5 caller
@@ -91,7 +93,7 @@ func Decide(in Input) Decision {
 	skewSeconds, queued := occurredAtFacts(in)
 	keys := map[policy.ContextKey]any{
 		policy.CtxTapChannel:               string(in.Channel),
-		policy.CtxTapSunValid:              in.SUN.Valid,
+		policy.CtxTapSunValid:              in.SUN.Valid && in.Channel != ChannelQRLive,
 		policy.CtxTapCtrGap:                in.SUN.CtrGap, // base:ctr-gap-review (Q21); toFloat handles int
 		policy.CtxTapIPMatch:               ipMatch,
 		policy.CtxTapGPSMatch:              gpsMatch,
@@ -125,11 +127,21 @@ func Decide(in Input) Decision {
 		// what makes policy_context (migration 0008) a safe frozen snapshot.
 		keys[policy.CtxTapGPSDistanceM] = gpsDistanceM
 	}
-	if in.Tag != nil {
+	if in.Channel == ChannelQRLive {
+		// THE LIVE QR RULE FOR THE PLAQUE'S KEYS (M16-21), stated once: a screen is not a
+		// plaque, so tag:status and tag:locationId are ABSENT -- a tenant rule written on
+		// a plaque's status must not match a screen -- and the screen's own twins are set:
+		// screen:status (sys:screen-not-active) and location:id = the screen's venue, the
+		// TAPPED location a branch override and the report key on. The token's two facts
+		// go in on every live QR tap, so sys:live-qr-unverified and sys:live-qr-expired
+		// always have their input.
+		liveQRKeys(in, keys)
+	} else if in.Tag != nil {
 		keys[policy.CtxTagStatus] = string(in.Tag.Status) // sys:tag-not-active (§5 row 1)
 		keys[policy.CtxTagLocationID] = in.Tag.Location.String()
 		keys[policy.CtxLocationID] = in.Tag.Location.String() // the TAPPED location (§5/M4-05)
 	}
+	tapped, haveTapped := tappedLocation(in)
 	var crossLocation bool
 	if in.Employee != nil {
 		keys[policy.CtxEmployeeStatus] = string(in.Employee.Status) // sys:employee-deactivated (§5 row 4)
@@ -143,13 +155,14 @@ func Decide(in Input) Decision {
 		// sees it: a tap at a location OTHER than the employee's home location is
 		// normal chain movement, NOTED by base:cross-location-note (a note, which
 		// decides nothing -- ADR 0029) and RECORDED for the report, never penalised. It needs BOTH the home location
-		// (Employee.Location) and the tapped location (Tag.Location); with either
+		// (Employee.Location) and the tapped location (Tag.Location, or a live QR
+		// screen's venue); with either
 		// absent there is no "other" location to be away from, so it is not cross-
 		// location (false). The verdict is unaffected — the tap is judged on the
 		// TAPPED location's evidence and shift (Input.Shift), so a cross-location
 		// worker is never spuriously "late" for being away from home.
-		crossLocation = in.Employee.Location != nil && in.Tag != nil &&
-			*in.Employee.Location != in.Tag.Location
+		crossLocation = in.Employee.Location != nil && haveTapped &&
+			*in.Employee.Location != tapped
 		keys[policy.CtxEmployeeCrossLocation] = crossLocation
 	}
 
@@ -158,7 +171,7 @@ func Decide(in Input) Decision {
 		// tenant can override policy at one branch (location/<id> beats the baseline
 		// location/*, ADR 0004 §7 — the Rusty Bar exception).
 		Action:    policy.ActionTapRecord,
-		Resources: tapResources(in.Tag),
+		Resources: tapResources(tapped, haveTapped),
 		Keys:      keys,
 	}
 	// Session presence for sys:no-session (§5 line 3) AND the tenant pair for
@@ -1150,14 +1163,54 @@ func gpsFacts(gps, locGPS *geo.Point, radiusM float64) (match, conflict bool, di
 }
 
 // tapResources is the concrete resource a tap targets: the TAPPED location
-// (Tag.Location), as "location/<id>". A nil Tag (a caller contract violation —
-// types.go says Tag is always present) yields no resource, so no baseline matches
-// and the request falls to the fail-to-review default rather than panicking.
-func tapResources(tag *Tag) []string {
-	if tag == nil {
+// (tappedLocation), as "location/<id>". No tapped location (a nil Tag -- a caller
+// contract violation, types.go says Tag is always present for a plaque tap -- or a live
+// QR tap whose token did not verify, so no screen is believed) yields no resource, so no
+// baseline matches and the request falls to a guardrail or the fail-to-review default
+// rather than panicking.
+func tapResources(loc uuid.UUID, ok bool) []string {
+	if !ok {
 		return nil
 	}
-	return []string{"location/" + tag.Location.String()}
+	return []string{"location/" + loc.String()}
+}
+
+// tappedLocation is the venue the tap is judged at: the plaque's wall, or on the live QR
+// channel the screen's venue. The channel decides which one is read, so a caller that
+// set both cannot make a plaque speak for a screen or the other way round.
+func tappedLocation(in Input) (uuid.UUID, bool) {
+	if in.Channel == ChannelQRLive {
+		if in.Screen == nil {
+			return uuid.Nil, false
+		}
+		return in.Screen.Location, true
+	}
+	if in.Tag == nil {
+		return uuid.Nil, false
+	}
+	return in.Tag.Location, true
+}
+
+// liveQRKeys puts a live QR tap's own facts into the policy context (see the rule at the
+// call site). tap:tokenOverdueSeconds is how long after the token's own expiry the server
+// FIRST SAW it: the page's mint (PageIssuedAt -- authenticated, server-stamped, the GET
+// that read the token), or Now when there is no page (a caller that verifies the token at
+// the press itself). Negative while the token was still inside its window. It is set only
+// for a verified token: a forged one's stamps are not facts.
+func liveQRKeys(in Input, keys map[policy.ContextKey]any) {
+	verified := in.Token != nil && in.Token.Verified
+	keys[policy.CtxTapTokenVerified] = verified
+	if verified && !in.Token.ExpiresAt.IsZero() {
+		seen := in.PageIssuedAt
+		if seen.IsZero() {
+			seen = in.Now
+		}
+		keys[policy.CtxTapTokenOverdueSeconds] = seen.Sub(in.Token.ExpiresAt).Seconds()
+	}
+	if in.Screen != nil {
+		keys[policy.CtxScreenStatus] = string(in.Screen.Status)
+		keys[policy.CtxLocationID] = in.Screen.Location.String()
+	}
 }
 
 // knownClient reports whether c is one of Clients -- the values transactions.client
