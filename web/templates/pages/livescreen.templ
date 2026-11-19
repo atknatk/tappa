@@ -1,0 +1,111 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+
+// THE LIVE QR SCREEN (M16-20, ADR 0045 §2.5) -- a venue's tablet, TV or old phone. It is a new
+// surface, not the tap screen: nobody taps here, people scan it. So it keeps to the brand's plain
+// shape -- porcelain ground, the wordmark, one docket card -- and carries no business's brand
+// (the accent and the logo have their counted slots, ADR 0023 §2, and this is not one of them).
+//
+// 🔴 NO PERSONAL DATA: the venue's name, the code and one line of instruction. No name of a person,
+// no list, no count.
+//
+// THE COMMENTS IN THIS FILE NAME NO CLASS: Tailwind reads them as source (skill tappa-brand).
+
+// LiveScreenPair is the pairing form: the code the panel showed, typed once.
+templ LiveScreenPair(v LiveScreenPairView) {
+	@layout.Page("Pair this screen — Taptime") {
+		<section aria-labelledby="pair-h" class="flex flex-col gap-4">
+			<div class="flex flex-col gap-1">
+				<p class="lbl">Live QR screen</p>
+				<h1 id="pair-h" class="font-display text-2xl font-bold tracking-tight">Pair this screen</h1>
+			</div>
+			switch v.Problem {
+				case LiveScreenProblemRefused:
+					<p role="alert" class="rounded-r-xl border-l-4 border-tomato bg-tomato/10 px-3.5 py-2.5 text-sm text-ink">
+						That code did not work. A code works once, for 10 minutes — make a new one in the panel and try again.
+					</p>
+				case LiveScreenProblemRemoved:
+					<p role="status" class="rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink">
+						This screen was removed in the panel. To use it again, add a live QR screen there and type its code below.
+					</p>
+				case LiveScreenProblemLapsed:
+					<p role="status" class="rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink">
+						This screen was paired 180 days ago, so its pairing has run out. Add a live QR screen in the panel and type its code below.
+					</p>
+				case LiveScreenProblemBusy:
+					<p role="alert" class="rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink">
+						Too many tries from this network. Wait a few minutes, then try again.
+					</p>
+				case LiveScreenProblemUnavailable:
+					<p role="alert" class="rounded-r-xl border-l-4 border-tomato bg-tomato/10 px-3.5 py-2.5 text-sm text-ink">
+						Something went wrong on our side. Try again in a moment.
+					</p>
+			}
+			<p class="text-sm leading-snug text-ink">
+				In the panel, open the venue and press “Add a live QR screen”. Type the code it shows here.
+			</p>
+			<form method="post" action="/screen/pair" class="flex flex-col gap-4">
+				<div class="field-stack">
+					<label for="pair-code" class="lbl">Pairing code</label>
+					<input
+						id="pair-code"
+						name="code"
+						type="text"
+						inputmode="text"
+						autocomplete="off"
+						autocapitalize="characters"
+						spellcheck="false"
+						maxlength="20"
+						required
+						autofocus
+						placeholder="XXXX-XXXX-XXXXX"
+						class="field-input field-input--mono min-h-14 text-xl uppercase tracking-widest"
+					/>
+				</div>
+				<button type="submit" class="btn btn--primary min-h-[52px] w-full rounded-xl">Pair this screen</button>
+			</form>
+			<p class="text-xs leading-snug text-ink/70">
+				The screen keeps no secret of your business. It shows a code that changes every 20 seconds, and you can remove it from the panel at any time.
+			</p>
+		</section>
+	}
+}
+
+// LiveScreen is a paired screen's page. The code is not in it: the script draws each one from the
+// poll's answer into the empty drawing below, and hides it once it has run out without a newer one.
+// A switched-off venue's or a paused business's screen gets the same page with its sentence shown;
+// the script keeps asking, and the code comes back by itself when the poll answers one.
+templ LiveScreen(v LiveScreenView) {
+	@layout.PageWithScript("Live QR — Taptime", "/static/js/livescreen.js", layout.Brand{}) {
+		<section aria-labelledby="screen-h" data-live-screen data-code-url={ v.CodeURL } class="flex flex-col items-center gap-5">
+			<div class="flex flex-col items-center gap-1 text-center">
+				<p class="lbl">Live QR</p>
+				<h1 id="screen-h" class="break-words font-display text-3xl font-bold tracking-tight">{ v.VenueName }</h1>
+			</div>
+			<div class="docket flex w-full flex-col items-center gap-3 py-5">
+				<div data-qr hidden class="w-full">
+					<svg viewBox="0 0 1 1" role="img" aria-label="QR code to tap in or out" shape-rendering="crispEdges" class="h-auto w-full">
+						<rect class="fill-paper" width="100%" height="100%"></rect>
+						<path class="fill-ink" d=""></path>
+					</svg>
+				</div>
+				<p data-qr-wait hidden?={ v.State != "" } class="py-16 text-center font-display text-base text-ink">Getting the code…</p>
+				<p data-qr-stale hidden class="py-16 text-center font-display text-base text-ink">
+					Reconnecting. The code is hidden until this screen is back online.
+				</p>
+				<p data-qr-state="inactive" hidden?={ v.State != LiveScreenStateInactive } role="status" class="py-16 text-center font-display text-base text-ink">
+					This venue is switched off in the panel, so this screen shows no code. It comes back by itself when the venue is switched on.
+				</p>
+				<p data-qr-state="paused" hidden?={ v.State != LiveScreenStatePaused } role="status" class="py-16 text-center font-display text-base text-ink">
+					This screen is paused and shows no code. It comes back by itself.
+				</p>
+			</div>
+			<p class="text-center font-display text-lg font-bold tracking-tight">Scan with your phone to tap in or out</p>
+			<p class="text-center text-xs text-ink/70">The code changes every 20 seconds.</p>
+			<noscript>
+				<p class="rounded-r-xl border-l-4 border-saffron bg-saffron/10 px-3.5 py-2.5 text-sm text-ink">This screen needs JavaScript to show its code.</p>
+			</noscript>
+		</section>
+	}
+}

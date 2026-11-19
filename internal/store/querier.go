@@ -2873,6 +2873,14 @@ type Querier interface {
 	// same_email compares the address on file with the PUT's BYTE FOR BYTE (ErrSameEmail's rule: a
 	// change of capitals is a change) without the address ever reaching Go.
 	GetLiveEmployeeByExternalRef(ctx context.Context, arg GetLiveEmployeeByExternalRefParams) (GetLiveEmployeeByExternalRefRow, error)
+	// The screen page's own read (M16-20): after resolve_live_qr_display_by_session_hash named the
+	// screen and its tenant, this reads -- under that tenant -- whether it is revoked, when it was paired
+	// (a screen session ends ScreenSessionLifetime after it, internal/liveqr), the venue's name the page
+	// prints (a venue's name, no person's: the screen shows no personal data), whether the venue is
+	// active and whether the operator has suspended the business (ADR 0025 §1, 00063's suspended_at):
+	// an inactive venue's or a suspended business's screen shows no code. The composite key makes the
+	// join one row and the tenants join is by primary key; no digest is returned.
+	GetLiveQRDisplayForScreen(ctx context.Context, arg GetLiveQRDisplayForScreenParams) (GetLiveQRDisplayForScreenRow, error)
 	// locations.sql -- tenant-scoped location reads for proof-of-place, plus the one
 	// read the activation page needs. EVERY query here carries an explicit tenant_id
 	// filter (CLAUDE.md section 4.5, belt + braces on RLS).
@@ -4458,8 +4466,8 @@ type Querier interface {
 	// either, because the WHERE pins both to NULL for every returned row.
 	ListLivePasswordResetsForAdmin(ctx context.Context, arg ListLivePasswordResetsForAdminParams) ([]ListLivePasswordResetsForAdminRow, error)
 	// The screens of one location, newest first (the panel's list, M16-20): when each was created,
-	// whether it is waiting for its code (paired_at NULL, until pairing_expires_at), paired, or revoked.
-	// No digest is returned.
+	// whether it is waiting for its code (paired_at NULL, until pairing_expires_at), paired, or revoked,
+	// and -- since 00114 -- when a paired one last asked for a code. No digest is returned.
 	ListLiveQRDisplaysForLocation(ctx context.Context, arg ListLiveQRDisplaysForLocationParams) ([]ListLiveQRDisplaysForLocationRow, error)
 	// §11.3 step 2, the invitation queue's gate when neither K-22 column is set: the apps holding a live
 	// grant with employees:write in this business -- a grant that still has a live refresh token (a dead
@@ -6031,6 +6039,11 @@ type Querier interface {
 	// row: the grant is revoked (invalid_grant). scopes are the grant's: a refresh may narrow the access
 	// token below them, never widen it (§5.3).
 	LockLiveOAuthGrant(ctx context.Context, arg LockLiveOAuthGrantParams) (LockLiveOAuthGrantRow, error)
+	// The panel's revocation reads the screen FOR UPDATE first (M16-20), so a repeat press -- or two
+	// managers at once -- is answered "already removed" and writes ONE audit row: the second waits for
+	// the first's lock and reads the committed revoked_at. pgx.ErrNoRows: no such screen in this tenant.
+	// No digest is returned.
+	LockLiveQRDisplay(ctx context.Context, arg LockLiveQRDisplayParams) (LockLiveQRDisplayRow, error)
 	// ---------------------------------------------------------------------------
 	// THE INTEGRATION API'S VENUE WRITE (M11 API-5, ADR 0028 §9: PUT /v1/locations/{ref}).
 	// internal/domain/tenant/venueapi.go is the one caller; it runs inside the API's write
@@ -7149,6 +7162,10 @@ type Querier interface {
 	// Refreshes last_used_at on use. revoked_at IS NULL makes it fail CLOSED: a device revoked between
 	// resolution and this write updates 0 rows (pgx.ErrNoRows) instead of being stamped as fresh.
 	TouchAppDevice(ctx context.Context, arg TouchAppDeviceParams) (TouchAppDeviceRow, error)
+	// Stamps when a paired, unrevoked screen last asked for a code (00114), at most once every ten
+	// minutes: ONE conditional UPDATE, so a poll every ~17 s writes a row at most six times an hour.
+	// 0 rows is the ordinary answer (stamped recently), never an error.
+	TouchLiveQRDisplay(ctx context.Context, arg TouchLiveQRDisplayParams) (int64, error)
 	// §8.1 step 6: last_used_at at most once a minute per grant (TouchAPIKey's rule), the "Connected
 	// apps" list's last use. A revoked grant is not touched.
 	TouchOAuthGrant(ctx context.Context, arg TouchOAuthGrantParams) (int64, error)

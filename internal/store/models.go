@@ -276,6 +276,7 @@ type LiveQrDisplay struct {
 	SessionHash      *string
 	CreatedAt        time.Time
 	RevokedAt        *time.Time
+	LastSeenAt       *time.Time
 }
 
 type Location struct {

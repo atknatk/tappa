@@ -85,7 +85,7 @@ adreslere posta göndermek bizi bir posta bombası aracı yapardı).
 
 ### 2.3 Gönderilen: taze bir davet, çıkış kutusundan
 
-- **Ne:** `IssueAndDeliver` ile bugünkü davet; `origin = 'self'` (00117'nin yeni sütunu), **`TTL` = 24 saat** (Q44 (a), 2026-11-19;
+- **Ne:** `IssueAndDeliver` ile bugünkü davet; `origin = 'self'` (00118'nin yeni sütunu), **`TTL` = 24 saat** (Q44 (a), 2026-11-19;
   `minTTL`/`maxTTL` içinde, kod değişikliği yok). Kısa kod ve uygulamaya bağlı ayrı link Faz G dışıdır (*Sonra*): ilki yeni
   bir kimlik bilgisi türü, deneme kilidi ve kaba kuvvet analizi ister, ikincisi `/.well-known` yollarını ve Q40'ın kuralını
   değiştirir.
@@ -189,7 +189,7 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
 **bir canlı QR ekranı** da (M16-23; ekran mekânın içindedir, fotoğrafı ~20 sn yaşar) ve müdür onayı yolu (müdür onaylar); tamamlanma gerçek çalışanın oturum ve cihazlarını iptal eder (Q40 (a)) → çalışanın sonraki dokunuşu §5 satır 3'e düşer ve **kayıt yazmaz** | azaltmalar: varsayılan kapalı (§2.7), işletme kapatabilir (Q49), 7 günlük bekleme (§2.1.4), işveren davetinin korunması (§2.1.3, kilit altında), her tüketen yolda (tarayıcı, uygulama, canlı QR, müdür onayı) panel + `SendExempt` owner e-postası (§2.6; statik çağıran testi), imzası çıkmış tarayıcının plaket kanıtlı açılışı panelde (T59 (a)) (§2.6). Kalan: uygulamadan gelen kayıp dokunuşlar panelde görünmez. **ADR 0005'e risk eki** (M16-34): *"posta kutusu + işverenin herhangi bir aktif plaketi = başka birinin kimliği; tespit panel ve owner e-postasıyla"* |
 | Posta bombası / bütçe tüketme | — | §2.4'ün dört kovası | işletmeler arası toplam, adresi tutan işletme sayısıyla (≤ 5) sınırlı |
 | Taciz (bekleyen daveti öldürmek) | — | işverenin canlı daveti varken basım yok (§2.1.3) | yalnız `self` davetler birbirinin yerini alır |
-| Tenant'lar arası okuma | çözümleyiciler sırdan çözer (oturum token'ı, plaket UID'si) | çözümleyici sır **olmayan** bir girdiden çözer | emsal `resolve_admin_by_email` (`00011`); dönen yalnız kimlikler. `tappa_resolver`'ın okuduğu: `employees (id, tenant_id, email, status)` (yeni); `tenants (id, api_enabled_at, api_code)` (var olan — `00051:155`, `00105:89`) + `suspended_at, email_signin` (yeni; yalnız bunlar verilir ve geri alınır — `id`'ye dokunmak `/v1` kimliğini kırardı); `admin_users (tenant_id, email, …)` (var olan, `00011`). İndeks `employees (email)` (00118) |
+| Tenant'lar arası okuma | çözümleyiciler sırdan çözer (oturum token'ı, plaket UID'si) | çözümleyici sır **olmayan** bir girdiden çözer | emsal `resolve_admin_by_email` (`00011`); dönen yalnız kimlikler. `tappa_resolver`'ın okuduğu: `employees (id, tenant_id, email, status)` (yeni); `tenants (id, api_enabled_at, api_code)` (var olan — `00051:155`, `00105:89`) + `suspended_at, email_signin` (yeni; yalnız bunlar verilir ve geri alınır — `id`'ye dokunmak `/v1` kimliğini kırardı); `admin_users (tenant_id, email, …)` (var olan, `00011`). İndeks `employees (email)` (00119) |
 | Askıdaki işletme | davet basabilir (§1.3) | giriş daveti basılmaz | panelin davet boşluğu ayrı kalır (bu ADR'nin kapsamı değil) |
 
 ## 4. Bedeller
@@ -233,7 +233,7 @@ anahtar kümesi). Eşleşen işletmenin `audit_log`'unda `invite.code_emailed` (
 ## 7. Uygulama
 
 - **M16-34:** kabul düzenlemeleri (sorular 2026-11-19'da cevaplandı); ADR 0010, ADR 0022, ADR 0026 notları; **ADR 0005 risk eki**; canlı taban ölçümü.
-- **M16-35:** sunucu — uç, çözümleyici + yetkiler (00117), indeks (00118, `00091` kalıbı), `origin`, kiracı kilidi altındaki
+- **M16-35:** sunucu — uç, çözümleyici + yetkiler (00118), indeks (00119, `00091` kalıbı), `origin`, kiracı kilidi altındaki
   kapılar, bütçeler, `EmailChannel` + çıkış kutusu sink'i, `consume`'dan owner uyarısı (`SendExempt`), panel sinyalleri,
   `tap.signed_out_phone`, env kapısı; CLAUDE.md §5 *"Aktivasyon dokunuşu"* cümlesi (kodla aynı commit). Canlıya çıkış ayrı
   config PR'ı, kullanıcı onayı.

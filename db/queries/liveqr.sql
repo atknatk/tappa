@@ -63,9 +63,9 @@ RETURNING id, revoked_at;
 
 -- name: ListLiveQRDisplaysForLocation :many
 -- The screens of one location, newest first (the panel's list, M16-20): when each was created,
--- whether it is waiting for its code (paired_at NULL, until pairing_expires_at), paired, or revoked.
--- No digest is returned.
-SELECT id, location_id, created_at, pairing_expires_at, paired_at, revoked_at
+-- whether it is waiting for its code (paired_at NULL, until pairing_expires_at), paired, or revoked,
+-- and -- since 00114 -- when a paired one last asked for a code. No digest is returned.
+SELECT id, location_id, created_at, pairing_expires_at, paired_at, revoked_at, last_seen_at
 FROM live_qr_displays
 WHERE tenant_id = @tenant_id
   AND location_id = @location_id
@@ -84,3 +84,45 @@ WHERE tenant_id = @tenant_id
   AND paired_at IS NULL
   AND pairing_code_hash IS NOT NULL
   AND pairing_expires_at <= now();
+
+-- name: GetLiveQRDisplayForScreen :one
+-- The screen page's own read (M16-20): after resolve_live_qr_display_by_session_hash named the
+-- screen and its tenant, this reads -- under that tenant -- whether it is revoked, when it was paired
+-- (a screen session ends ScreenSessionLifetime after it, internal/liveqr), the venue's name the page
+-- prints (a venue's name, no person's: the screen shows no personal data), whether the venue is
+-- active and whether the operator has suspended the business (ADR 0025 §1, 00063's suspended_at):
+-- an inactive venue's or a suspended business's screen shows no code. The composite key makes the
+-- join one row and the tenants join is by primary key; no digest is returned.
+SELECT d.id, d.location_id, d.paired_at, d.revoked_at, l.name AS location_name, l.active AS location_active,
+       (t.suspended_at IS NOT NULL)::boolean AS tenant_suspended
+FROM live_qr_displays d
+JOIN locations l
+  ON l.id = d.location_id
+ AND l.tenant_id = d.tenant_id
+JOIN tenants t
+  ON t.id = d.tenant_id
+WHERE d.tenant_id = @tenant_id
+  AND d.id = @id;
+
+-- name: TouchLiveQRDisplay :execrows
+-- Stamps when a paired, unrevoked screen last asked for a code (00114), at most once every ten
+-- minutes: ONE conditional UPDATE, so a poll every ~17 s writes a row at most six times an hour.
+-- 0 rows is the ordinary answer (stamped recently), never an error.
+UPDATE live_qr_displays
+SET last_seen_at = now()
+WHERE tenant_id = @tenant_id
+  AND id = @id
+  AND paired_at IS NOT NULL
+  AND revoked_at IS NULL
+  AND (last_seen_at IS NULL OR last_seen_at < now() - interval '10 minutes');
+
+-- name: LockLiveQRDisplay :one
+-- The panel's revocation reads the screen FOR UPDATE first (M16-20), so a repeat press -- or two
+-- managers at once -- is answered "already removed" and writes ONE audit row: the second waits for
+-- the first's lock and reads the committed revoked_at. pgx.ErrNoRows: no such screen in this tenant.
+-- No digest is returned.
+SELECT id, location_id, paired_at, revoked_at
+FROM live_qr_displays
+WHERE tenant_id = @tenant_id
+  AND id = @id
+FOR UPDATE;

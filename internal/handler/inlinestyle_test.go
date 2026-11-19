@@ -106,6 +106,8 @@ func TestTemplates_CarryNoInlineStyle(t *testing.T) {
 		"marketingCSP": marketingCSP, "landingCSP": landingCSP, "signupCSP": signupCSP,
 		"adminCSP": adminCSP, "adminScriptedCSP": adminScriptedCSP, "adminLoginCSP": adminLoginCSP,
 		"tapCSP": tapCSP, "activationCSP": activationCSP,
+		// M16-20: the live QR screen's page.
+		"liveScreenCSP": liveScreenCSP,
 	}
 	policies := map[string]string{
 		// The policies the pages are really sent under, computed from the constants above.

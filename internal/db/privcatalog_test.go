@@ -252,7 +252,8 @@ SELECT line FROM (
 // session_hash not readable, no DELETE), its INVOKER one-way trigger function (execute=-), the three
 // live QR screen resolvers (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's seven columns of
 // the table and id, tenant_id, active of locations -- that role's first locations grant; 00112 and
-// 00113 change no privilege (CREATE OR REPLACE keeps the three triggers' owners and ACLs)
+// 00113 change no privilege (CREATE OR REPLACE keeps the three triggers' owners and ACLs); 00114
+// (M16-20) gives tappa_app SELECT and UPDATE on live_qr_displays.last_seen_at
 // -- and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -358,8 +359,8 @@ column legal_documents tappa_app SELECT id,slug,body,published_at
 column legal_documents tappa_opdefiner INSERT slug,body,published_by
 column legal_documents tappa_opdefiner SELECT id,slug,body,published_at,published_by
 column live_qr_displays tappa_app INSERT tenant_id,location_id,pairing_code_hash,pairing_expires_at
-column live_qr_displays tappa_app SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at
-column live_qr_displays tappa_app UPDATE pairing_code_hash,paired_at,session_hash,revoked_at
+column live_qr_displays tappa_app SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at,last_seen_at
+column live_qr_displays tappa_app UPDATE pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at
 column live_qr_displays tappa_resolver SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at
 column locations tappa_feedwriter SELECT id,tenant_id,name,external_ref
 column locations tappa_holdingdefiner SELECT id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref

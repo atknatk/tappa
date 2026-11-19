@@ -230,6 +230,13 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(plaqueMountHref, a.mountPlaque)
 		r.Post(plaqueReplaceHref, a.replacePlaque)
 		r.Post(plaqueUnmountHref, a.unmountPlaque)
+		// THE LIVE QR SCREENS' TWO WRITES (M16-20, liveqrpanel.go): adding a screen and removing one,
+		// both roles, mounted only while the live QR is configured. Here, in the group a suspension
+		// stops: ADR 0025 §3's exception list names no screen (liveqrpanel.go's header).
+		if a.liveQR != nil {
+			r.Post(liveQRCreateHref, a.liveQRCreate)
+			r.Post(liveQRRevokeHref, a.liveQRRevoke)
+		}
 		// (The manual record's two steps are in the sibling group at the end of this
 		// function: a suspension does not stop them — ADR 0025 §3.)
 		// 🔴 THE TWO POLICY POSTs (M6-09 phase B), AND THE FIRST OF THEM WRITES NO
