@@ -1470,7 +1470,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}{
 		{"/v1 is not routed", apiWritesViolation, apiPkg, "r.Route(Prefix,", "r.Group("},
 		{"APIPrefix is not /v1", apiFeedViolation, apiHost, `APIPrefix = "/v1"`, `APIPrefix = "/v2"`},
-		{"cmd does not hand the surface to the router", apiGateViolation, cmd, "integrationAPI, oauthTokens, devTools, appLinks)", "oauthTokens, devTools, appLinks)"},
+		{"cmd does not hand the surface to the router", apiGateViolation, cmd, "integrationAPI, oauthTokens, devTools, appLinks, liveScreen)", "oauthTokens, devTools, appLinks, liveScreen)"},
 		{"no PUT locations", apiWritesViolation, apiPkg, "r.Put(locationPath,", "r.Get(locationPath,"},
 		{"no PUT employees", apiWritesViolation, apiPkg, "r.Put(employeePath,", "r.Get(employeePath,"},
 		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},

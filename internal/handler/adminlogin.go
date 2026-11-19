@@ -283,6 +283,12 @@ type AdminAuth struct {
 	// PunchClaims option. Nil draws no "Time claims" link and answers the section's routes with 503.
 	claimQueue panelClaimQueue
 	claims     panelClaims
+	// liveQR is the venues' live QR screens (M16-20, liveqrpanel.go), given by the LiveQRScreens
+	// option with the address a screen opens. Nil (no TAPPA_LIVE_QR_KEY) draws no screens block and
+	// mounts neither of its routes. liveQRCreates is the per-business budget on adding one.
+	liveQR          panelLiveQR
+	liveQRScreenURL string
+	liveQRCreates   *httpx.Limiter
 
 	// brands reads the business's brand for the chrome of every panel section (M10
 	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,
@@ -627,6 +633,12 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// K-26 keeps open. Refused here at start-up rather than discovered on an incident.
 	// TestNewAdminAuth_TheKeysServiceMatchesTheConfiguration; cmd/tappa's wiring is pinned by
 	// TestAPIKeyWiring_TheKeysServiceReachesThePanel.
+	// 🔴 THE SAME FOR THE LIVE QR SCREENS (M16-20): a configuration that holds TAPPA_LIVE_QR_KEY serves
+	// the screen page, and a panel built without the screens service could neither add a screen nor
+	// REMOVE one -- a paired screen nobody can revoke. Refused at start-up.
+	if cfg.LiveQRConfigured() && a.liveQR == nil {
+		return nil, errors.New("handler: the configuration holds the live QR key and the panel was given no screens service (LiveQRScreens)")
+	}
 	if cfg.APIKeyHMACKey.Len() > 0 && a.apiKeys == nil {
 		return nil, errors.New("handler: the configuration holds the API key's HMAC key and the panel was given no keys service (IntegrationKeys)")
 	}

@@ -181,9 +181,10 @@ func TestLiveQRDisplaysCatalog(t *testing.T) {
 
 	// tappa_app's reach, column by column (ADR 0028 §1).
 	for _, c := range []struct{ priv, want string }{
-		{"SELECT", "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at"},
+		// last_seen_at since 00114 (M16-20): read and updated, never inserted.
+		{"SELECT", "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at,last_seen_at"},
 		{"INSERT", "tenant_id,location_id,pairing_code_hash,pairing_expires_at"},
-		{"UPDATE", "pairing_code_hash,paired_at,session_hash,revoked_at"},
+		{"UPDATE", "pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at"},
 		{"REFERENCES", ""},
 	} {
 		if got := opColumns(t, ctx, tx, "tappa_app", "live_qr_displays", c.priv); got != c.want {
@@ -858,4 +859,92 @@ func TestLiveQRDisplays_ADeadCodeFreesItsValue(t *testing.T) {
 	opWant(t, opTry(t, ctx, tx, `INSERT INTO live_qr_displays (tenant_id, location_id, pairing_expires_at, revoked_at)
 	                              VALUES ($1, $2, now() + interval '5 minutes', now())`, a.tenant, a.venue), sqlstateRestrictViolation,
 		"the owner inserting a screen born dead")
+}
+
+const op00114File = "00114_add_live_qr_last_seen.sql"
+
+// TestLiveQRDisplays00114_LastSeenIsStampedSparinglyAndRoundTrips (M16-20, the security lens's
+// ORTA-1): through the product's queries, as tappa_app -- a waiting screen is never stamped
+// (TouchLiveQRDisplay: 0 rows), a paired one is stamped once and not again inside ten minutes, a
+// revoked one is not stamped; the CHECK refuses a stamp on an unpaired row or before the pairing
+// (23514). Then the Down takes the column and its grants away -- with rows in the table, it is no
+// evidence -- and the Up gives them back.
+func TestLiveQRDisplays00114_LastSeenIsStampedSparinglyAndRoundTrips(t *testing.T) {
+	ctx, tx := opTx(t)
+	up, down := opMigrationSections(t, op00114File)
+	lockForDowns(t, ctx, tx, []string{"live_qr_displays"})
+	w := newAppDeviceWorld(t, ctx, tx)
+	touch := func(id uuid.UUID) int64 {
+		t.Helper()
+		var n int64
+		if err := w.asApp(t, ctx, tx, w.tenant, func(sp pgx.Tx) error {
+			var err error
+			n, err = store.New(sp).TouchLiveQRDisplay(ctx, store.TouchLiveQRDisplayParams{TenantID: w.tenant, ID: id})
+			return err
+		}); err != nil {
+			t.Fatalf("touch: %v", err)
+		}
+		return n
+	}
+	waiting, _ := w.addScreen(t, ctx, tx)
+	if n := touch(waiting); n != 0 {
+		t.Fatalf("a waiting screen was stamped (%d)", n)
+	}
+	paired, code := w.addScreen(t, ctx, tx)
+	if _, err := w.pairScreen(t, ctx, tx, paired, code); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if n := touch(paired); n != 1 {
+		t.Fatalf("the first poll stamped %d row(s), want 1", n)
+	}
+	if n := touch(paired); n != 0 {
+		t.Fatalf("a second poll inside ten minutes stamped %d row(s), want 0", n)
+	}
+	// (The ten-minute re-stamp is not walked here: inside one transaction now() is the pairing's own
+	// instant, so a stamp eleven minutes old would be before the pairing and the CHECK refuses it.)
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sp.Exec(ctx, `UPDATE live_qr_displays SET last_seen_at = now() WHERE id = $1`, waiting)
+	opWant(t, err, sqlstateCheckViolation, "a stamp on an unpaired screen")
+	_ = sp.Rollback(ctx)
+	sp, err = tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sp.Exec(ctx, `UPDATE live_qr_displays SET last_seen_at = paired_at - interval '1 second' WHERE id = $1`, paired)
+	opWant(t, err, sqlstateCheckViolation, "a stamp before the pairing")
+	_ = sp.Rollback(ctx)
+	if err := w.asApp(t, ctx, tx, w.tenant, func(sp pgx.Tx) error {
+		_, err := store.New(sp).RevokeLiveQRDisplay(ctx, store.RevokeLiveQRDisplayParams{TenantID: w.tenant, ID: paired})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE live_qr_displays SET last_seen_at = NULL WHERE id = $1`, paired); err != nil {
+		t.Fatal(err)
+	}
+	if n := touch(paired); n != 0 {
+		t.Fatalf("a revoked screen was stamped (%d)", n)
+	}
+
+	column := `SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.live_qr_displays'::regclass AND attname = 'last_seen_at' AND NOT attisdropped`
+	opRunSection(t, ctx, tx, down, "00114 Down")
+	if n := opInt(t, ctx, tx, column); n != 0 {
+		t.Fatal("the Down left last_seen_at")
+	}
+	if got := opColumns(t, ctx, tx, "tappa_app", "live_qr_displays", "UPDATE"); got != "pairing_code_hash,paired_at,session_hash,revoked_at" {
+		t.Fatalf("after the Down tappa_app updates %q", got)
+	}
+	if extra := strongTableLocksOutside(t, ctx, tx, []string{"live_qr_displays"}); len(extra) > 0 {
+		t.Errorf("00114's Down took a strong lock on %v", extra)
+	}
+	opRunSection(t, ctx, tx, up, "00114 Up again")
+	if got := opColumns(t, ctx, tx, "tappa_app", "live_qr_displays", "UPDATE"); got != "pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at" {
+		t.Fatalf("after the Up tappa_app updates %q", got)
+	}
+	if got := opColumns(t, ctx, tx, "tappa_resolver", "live_qr_displays", "SELECT"); strings.Contains(got, "last_seen_at") {
+		t.Fatalf("tappa_resolver reads %q", got)
+	}
 }

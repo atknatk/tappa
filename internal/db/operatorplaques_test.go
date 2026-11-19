@@ -212,6 +212,8 @@ var opAtVersionSkips = map[int]string{
 	112: "qr_live in the five channel CHECKs and in punch_feed, holding_feed and holding_site_gate (M16-19) -- no " +
 		"operator object; its Down takes ACCESS EXCLUSIVE on transactions, punch_events and site_punches and refuses " +
 		"while a row carries qr_live",
+	114: "live_qr_displays.last_seen_at and its CHECK (M16-20) -- no operator object; its Down takes ACCESS " +
+		"EXCLUSIVE on live_qr_displays (DROP COLUMN)",
 	113: "the validation of 00112's four CHECKs (M16-19) -- no operator object; its Down drops and adds them again NOT " +
 		"VALID under ACCESS EXCLUSIVE on transactions, punch_events and site_punches",
 }

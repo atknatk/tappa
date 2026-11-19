@@ -212,6 +212,8 @@ var nonPanelPostActions = map[string]bool{
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
 	// M15-15: the employee's claim card on the tap result -- the tap side's own form, no panel session.
 	`"/api/claim"`: true,
+	// M16-20: the live QR screen's pairing -- the screen's own page, no panel session (livescreen.go).
+	`"/screen/pair"`: true,
 }
 
 // boundAction is how a bound form writes its action (components.Bound on the render ctx).

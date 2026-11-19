@@ -310,9 +310,10 @@ var m11Tables = map[string]map[string]m11TableACL{
 	// resolutions' seven columns (and id, tenant_id, active of locations -- m11Columns).
 	"live_qr_displays": {
 		"tappa_app": {
-			Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at",
+			// last_seen_at since 00114 (M16-20): the poll's stamp, read and updated, never inserted.
+			Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at,last_seen_at",
 			Insert: "tenant_id,location_id,pairing_code_hash,pairing_expires_at",
-			Update: "pairing_code_hash,paired_at,session_hash,revoked_at",
+			Update: "pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at",
 		},
 		"tappa_resolver": {Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at"},
 	},

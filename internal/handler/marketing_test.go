@@ -27,6 +27,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/liveqr"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/layout"
@@ -2673,6 +2674,8 @@ var cookieWriters = map[string]cookieWriter{
 	// them, silently.
 	"tappa_admin_reset":      {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_reset_link": {[]string{"internal", "handler", "logincontext.go"}, "setResetLink"},
+	// M16-20: the live QR screen's session, its own writer (its own Path, the screen page).
+	"tappa_screen": {[]string{"internal", "liveqr", "session.go"}, "Set"},
 }
 
 var (
@@ -2776,6 +2779,8 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			"adminInvitePath": adminInvitePath,
 			// T173. The address change's UNDO link cookie, scoped to its own page.
 			"emailUndoPath": emailUndoPath,
+			// M16-20. The live QR screen's session: the screen page alone.
+			"ScreenCookiePath": liveqr.ScreenCookiePath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+

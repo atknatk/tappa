@@ -84,6 +84,9 @@ internal/appdevice/   native uygulama isteğinin "kim"i (ADR 0045 §2.3): cihaz 
                       (ham P-256 noktası, eğri üstünde doğrulanır), sunucu nonce'u ver/tüket,
                       ECDSA P-256 imza doğrulaması. Plaket kriptografisi DEĞİL. Karar vermez,
                       log yazmaz. Kanonik metin vektörleri: test/fixtures/appdevice_vectors.json
+internal/liveqr/      canlı QR ekranı (ADR 0045 §2.5, M16-20): eşleşme kodu (65 bit), ekran oturumu
+                      çerezi ve dönen QR token'ı; üçü tek `TAPPA_LIVE_QR_KEY`'den etiketle türeyen
+                      anahtarlarla (HMAC-SHA256). Plaket kriptografisi DEĞİL. Karar vermez, log yazmaz.
 internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
                       yalnız `identity_*` / `resolve_identity_*` ile gider
 internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,

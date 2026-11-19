@@ -36,6 +36,7 @@ var loadErrorVariables = map[string]bool{
 	"TAPPA_API_KEY_HMAC_KEY":          true,
 	"TAPPA_OAUTH_HMAC_KEY":            true,
 	"TAPPA_WEBHOOK_KEK":               true,
+	"TAPPA_LIVE_QR_KEY":               true,
 	"TAPPA_WEBHOOK_BLOCKED_ADDRESSES": true,
 	"TAPPA_OPERATOR_DATABASE_URL":     false,
 	"TAPPA_OPERATOR_TOTP_KEK":         true,

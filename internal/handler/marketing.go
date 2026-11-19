@@ -21,6 +21,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/liveqr"
 	"github.com/atknatk/tappa/internal/oauth"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
@@ -1213,6 +1214,16 @@ func cookieNotice() []pages.CookieRow {
 				"Cleared when you answer.",
 			Lifetime: humanSeconds(int(oauth.RequestMaxAge / time.Second)),
 			Scope:    oauth.RequestCookiePath,
+			Flags:    flags,
+		},
+		// M16-20: a venue's live QR screen -- the tablet or TV, not a person's phone -- scoped to its page.
+		{
+			Name: liveqr.SessionCookieName,
+			Purpose: "Set on a venue's screen (a tablet or TV, not a person's phone) once it is paired from " +
+				"the dashboard, so the screen can keep showing the venue's changing QR code. It names the " +
+				"screen and nobody else, and it stops working when the screen is removed in the dashboard.",
+			Lifetime: humanSeconds(liveqr.SessionMaxAge),
+			Scope:    liveqr.ScreenCookiePath,
 			Flags:    flags,
 		},
 		// M14-15: the manager invitation's acceptance page, scoped to the dashboard.

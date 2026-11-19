@@ -192,6 +192,7 @@ var panelMeasuredTemplates = map[string]int{
 	"pages/policychange.templ":   2, // a rule change and a rule version
 	"pages/employees.templ":      2, // the invitation, shown and e-mailed
 	"pages/daycutoff.templ":      1, // reviewing a business day change
+	"pages/liveqrcode.templ":     1, // a live QR screen's pairing code (M16-20)
 }
 
 // readPanelMeasureMarkers counts the marker in every template against the list above.

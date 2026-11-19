@@ -28,11 +28,12 @@ import (
 // product has to be added here (run() reaches httpx.NewRouter through nothing else —
 // TestAppRouter_IsTheOnlyComposition holds that), which makes the walk's own call
 // stop compiling until the feature is built there too; with a variadic list, run()
-// could pass one more argument and the walk would never see it. Two are typed as
+// could pass one more argument and the walk would never see it. Three are typed as
 // httpx.Mounter rather than as their concrete type, because each is either a feature
 // or NOTHING and NewRouter skips a nil interface (a nil *T inside one is not nil): the
-// integration API (M11 API-4 -- openAPISurface answers nil without TAPPA_API_HOST) and
-// the dev-only tap simulator (ADR 0026 -- nil unless TAPPA_DEV_TOOLS passes its gate).
+// integration API (M11 API-4 -- openAPISurface answers nil without TAPPA_API_HOST), the
+// dev-only tap simulator (ADR 0026 -- nil unless TAPPA_DEV_TOOLS passes its gate) and the
+// live QR screen page (M16-20 -- nil unless TAPPA_LIVE_QR_KEY is set).
 // They are still positional and named, so a third feature is still a compile error in
 // the walk.
 //
@@ -55,6 +56,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	oauthTokens *oauthapi.Surface,
 	devTools httpx.Mounter,
 	appLinks *handler.AppLinks,
+	liveScreen httpx.Mounter,
 ) http.Handler {
 	// invite is the manager invitation's page (M14-15, the panel's InviteAcceptance), mounted beside the
 	// panel like the recovery flow: it is reached without a session of the inviting business, so it is
@@ -66,5 +68,7 @@ func appRouter(cfg *config.Config, log *slog.Logger,
 	// outside the panel's chains. Always on (TAPPA_OAUTH_HMAC_KEY is required).
 	// appLinks is the native app's two association files (M16-08): it mounts only the files whose
 	// platform is configured, so with neither it mounts nothing.
-	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, oauthTokens, devTools, appLinks)
+	// liveScreen is the live QR screen page (M16-20): a nil Mounter unless TAPPA_LIVE_QR_KEY is set
+	// (openLiveQR), which NewRouter skips.
+	return httpx.NewRouter(cfg, log, activation, tap, app, panel, invite, undo, logos, marketing, signupFlow, resetFlow, ready, theme, operatorSurface, integrationAPI, oauthTokens, devTools, appLinks, liveScreen)
 }

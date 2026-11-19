@@ -348,6 +348,13 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// THE OPEN VENUE'S LIVE QR SCREENS (M16-20), read last: the venue is decided by now.
+	if err := a.fillLiveQR(r, &v, plaques.Zone); err != nil {
+		a.log.Error("panel: could not read the venue's live QR screens", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
+
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
@@ -574,6 +581,7 @@ func (a *AdminAuth) openVenue(v *pages.LocationsView, screen tenant.VenueScreen,
 	}
 	d := &components.VenueDetailView{
 		Venue:             venueRowView(ven, names, venueOnWall(plaques)[ven.ID]),
+		ID:                ven.ID.String(),
 		Departments:       departmentRowViews(screen, ven.ID),
 		AddDepartmentHref: v.AddDepartmentHref,
 		Radius:            gpsRadiusText(a.gpsRadiusM),

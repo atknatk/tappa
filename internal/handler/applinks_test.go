@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/liveqr"
 )
 
 // The fake values every test here uses. Both are the platforms' own documentation samples (Apple's
@@ -24,12 +25,12 @@ const (
 
 // The two bodies, byte for byte, for fakeTeamID and [fakeCertA, fakeCertB].
 const (
-	goldenAppleAssociation = `{"applinks":{"details":[{"appIDs":["ABCDE12345.mt.taptime.app"],"components":[{"/":"/t"}]}]}}`
+	goldenAppleAssociation = `{"applinks":{"details":[{"appIDs":["ABCDE12345.mt.taptime.app"],"components":[{"/":"/t"},{"/":"/q"}]}]}}`
 	goldenAssetLinks       = `[{"relation":["delegate_permission/common.handle_all_urls"],` +
 		`"target":{"namespace":"android_app","package_name":"mt.taptime.app","sha256_cert_fingerprints":[` +
 		`"14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5",` +
 		`"00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF"]},` +
-		`"relation_extensions":{"delegate_permission/common.handle_all_urls":{"dynamic_app_link_components":[{"/":"/t"}]}}}]`
+		`"relation_extensions":{"delegate_permission/common.handle_all_urls":{"dynamic_app_link_components":[{"/":"/t"},{"/":"/q"}]}}}]`
 )
 
 func appLinksRouter(t *testing.T, baseURL, teamID string, prints []string) http.Handler {
@@ -106,8 +107,9 @@ func TestAppLinks_ConfiguredServesTheExactFiles(t *testing.T) {
 }
 
 // TestAppLinks_LinksOnlyThePlaqueTapPath reads both files as JSON (not as golden text): one app ID,
-// TeamID.mt.taptime.app; one package, mt.taptime.app; and the path list is exactly [/t] on both
-// platforms -- /activate is not linked (Q40).
+// TeamID.mt.taptime.app; one package, mt.taptime.app; and the path list is exactly [/t, /q] on both
+// platforms -- the plaque tap and, since M16-20 (M16-08's Phase D item), the live QR's -- and
+// /activate is not linked (Q40). The name predates /q and is kept (docs name it).
 func TestAppLinks_LinksOnlyThePlaqueTapPath(t *testing.T) {
 	h := appLinksRouter(t, "https://taptime.mt", fakeTeamID, []string{fakeCertA})
 
@@ -142,8 +144,11 @@ func TestAppLinks_LinksOnlyThePlaqueTapPath(t *testing.T) {
 	}
 
 	for name, paths := range map[string][]string{"apple": applePaths, "android": androidPaths} {
-		if !slices.Equal(paths, []string{TapPath}) || TapPath != "/t" {
-			t.Errorf("%s links %v, want exactly [/t]", name, paths)
+		if !slices.Equal(paths, []string{TapPath, liveqr.LiveQRTapPath}) || TapPath != "/t" || liveqr.LiveQRTapPath != "/q" {
+			t.Errorf("%s links %v, want exactly [/t /q]", name, paths)
+		}
+		if slices.Contains(paths, LiveScreenPath) {
+			t.Errorf("%s links the live QR SCREEN page; only the code it shows (/q) is the app's", name)
 		}
 		if slices.Contains(paths, ActivationStatusPath) || slices.Contains(paths, "/activate") {
 			t.Errorf("%s links the activation path (Q40)", name)

@@ -631,8 +631,14 @@ var storeSurface = map[string]string{
 	"CreateLiveQRDisplay":            "(context.Context, CreateLiveQRDisplayParams{TenantID uuid.UUID; LocationID uuid.UUID; PairingCodeHash string; TtlSeconds int32}) (CreateLiveQRDisplayRow{ID uuid.UUID; LocationID uuid.UUID; PairingExpiresAt time.Time; CreatedAt time.Time}, error)",
 	"ConsumeLiveQRDisplayPairing":    "(context.Context, ConsumeLiveQRDisplayPairingParams{SessionHash string; TenantID uuid.UUID; ID uuid.UUID; PairingCodeHash string}) (ConsumeLiveQRDisplayPairingRow{ID uuid.UUID; LocationID uuid.UUID; PairedAt *time.Time}, error)",
 	"RevokeLiveQRDisplay":            "(context.Context, RevokeLiveQRDisplayParams{TenantID uuid.UUID; ID uuid.UUID}) (RevokeLiveQRDisplayRow{ID uuid.UUID; RevokedAt *time.Time}, error)",
-	"ListLiveQRDisplaysForLocation":  "(context.Context, ListLiveQRDisplaysForLocationParams{TenantID uuid.UUID; LocationID uuid.UUID}) ([]ListLiveQRDisplaysForLocationRow{ID uuid.UUID; LocationID uuid.UUID; CreatedAt time.Time; PairingExpiresAt time.Time; PairedAt *time.Time; RevokedAt *time.Time}, error)",
+	"ListLiveQRDisplaysForLocation":  "(context.Context, ListLiveQRDisplaysForLocationParams{TenantID uuid.UUID; LocationID uuid.UUID}) ([]ListLiveQRDisplaysForLocationRow{ID uuid.UUID; LocationID uuid.UUID; CreatedAt time.Time; PairingExpiresAt time.Time; PairedAt *time.Time; RevokedAt *time.Time; LastSeenAt *time.Time}, error)",
 	"ClearExpiredLiveQRPairingCodes": "(context.Context, uuid.UUID) (int64, error)",
+	// M16-20: the screen page's read of its own screen (its pairing instant, the venue's name and
+	// state, the business's suspension; no digest), the revocation's row lock (ids and instants) and
+	// the last-seen stamp (00114, a row count).
+	"GetLiveQRDisplayForScreen": "(context.Context, GetLiveQRDisplayForScreenParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLiveQRDisplayForScreenRow{ID uuid.UUID; LocationID uuid.UUID; PairedAt *time.Time; RevokedAt *time.Time; LocationName string; LocationActive bool; TenantSuspended bool}, error)",
+	"TouchLiveQRDisplay":        "(context.Context, TouchLiveQRDisplayParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
+	"LockLiveQRDisplay":         "(context.Context, LockLiveQRDisplayParams{TenantID uuid.UUID; ID uuid.UUID}) (LockLiveQRDisplayRow{ID uuid.UUID; LocationID uuid.UUID; PairedAt *time.Time; RevokedAt *time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1330,14 +1336,16 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 296 -> 301 on 2026-11-19 (M16-19, migration 00111): liveqr.sql's five (CreateLiveQRDisplay,
 	// ConsumeLiveQRDisplayPairing, RevokeLiveQRDisplay, ListLiveQRDisplaysForLocation,
 	// ClearExpiredLiveQRPairingCodes), each over the caller's own business's rows; none calls a definer.
-	if named != 301 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND ONE were "+
+	// 301 -> 304 on 2026-11-19 (M16-20): liveqr.sql's GetLiveQRDisplayForScreen, LockLiveQRDisplay and
+	// TouchLiveQRDisplay, each over the caller's own business's rows; none calls a definer.
+	if named != 304 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND FOUR were "+
 			"there when this was pinned (2026-11-19: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads, + M16-03's eight device and nonce queries, + M16-07's two nonce-cap statements, + M16-19's five live QR screen queries). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads, + M16-03's eight device and nonce queries, + M16-07's two nonce-cap statements, + M16-19's five live QR screen queries, + M16-20's screen read, revocation lock and last-seen stamp). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
