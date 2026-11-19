@@ -30,7 +30,10 @@ import (
 // catalog. M16-03 (migration 00108) adds the device resolver, GetAppDeviceByID: its
 // key is a device id rather than a secret hash -- the device id is not a credential,
 // the signature over the nonce is (ADR 0045 §2.3) -- and TestAppDevicesCatalog
-// measures the five for it.
+// measures the five for it. M16-19 (migration 00111) adds the three live QR screen
+// resolvers -- the pairing code's digest, the screen session's digest, and the screen id
+// a tap's signed token names (the cross-tenant one, resolve_tag_by_uid's twin) -- and
+// TestLiveQRDisplaysCatalog measures the five for each.
 //
 // ONE OF THE FIVE CONSTRAINTS CHANGES SHAPE FOR GetAdminByEmail, and it is called
 // out rather than glossed: constraint (ii) is "at most ONE row", which holds for
@@ -57,7 +60,8 @@ import (
 // column-level SELECT on exactly these seven tables, and on tenants (id, api_enabled_at)
 // alone since 00051) -- NEVER public.tags / public.sessions / public.employee_invites /
 // public.admin_users / public.admin_sessions / public.password_resets /
-// public.api_keys / public.app_devices (00108) directly. tappa_app holds EXECUTE on
+// public.api_keys / public.app_devices (00108) / public.live_qr_displays and
+// public.locations (00111) directly. tappa_app holds EXECUTE on
 // the functions but no
 // cross-tenant SELECT on the tables, so the blast radius is those functions, not
 // the whole DB. These accessors deliberately DO NOT call set_config: they establish
@@ -294,6 +298,46 @@ type ResolvedAppDevice struct {
 	RevokedAt  *time.Time
 }
 
+// ResolvedLiveQRPairing is the fixed column set returned by
+// resolve_live_qr_display_by_pairing_code_hash (migration 00111, M16-19, ADR 0045 §2.5): which screen
+// is waiting for this pairing code, at which location of which tenant, until when, and whether it was
+// revoked. A screen page's pairing request carries a code and no tenant, so the tenant is the RESULT.
+//
+// CARRIED, NOT APPLIED: an expired or revoked screen resolves; the pairing itself is ONE statement
+// under the resolved tenant (store.ConsumeLiveQRDisplayPairing), whose WHERE refuses both.
+type ResolvedLiveQRPairing struct {
+	ID               uuid.UUID
+	TenantID         uuid.UUID
+	LocationID       uuid.UUID
+	PairingExpiresAt time.Time
+	RevokedAt        *time.Time
+}
+
+// ResolvedLiveQRSession is the fixed column set returned by resolve_live_qr_display_by_session_hash
+// (migration 00111): the paired screen behind a screen page's session cookie. RevokedAt non-nil is a
+// revoked screen -- its page stops showing a code (M16-20 decides).
+type ResolvedLiveQRSession struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	LocationID uuid.UUID
+	RevokedAt  *time.Time
+}
+
+// ResolvedLiveQRDisplay is the fixed column set returned by resolve_live_qr_display_by_id (migration
+// 00111): the screen a live QR tap's signed token names -- its tenant, its location, its revocation and
+// whether the location is active. It is resolve_tag_by_uid's twin for a tap without a plaque, and like
+// it it reads another tenant's row: in a holding (ADR 0027) the session's tenant is not the screen's.
+//
+// CARRIED, NOT APPLIED: a revoked screen or an inactive location is §5 row 1's twin, decided -- and
+// recorded (§4.6) -- by M16-21's guardrail, not here.
+type ResolvedLiveQRDisplay struct {
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	LocationID     uuid.UUID
+	RevokedAt      *time.Time
+	LocationActive bool
+}
+
 // ResolvedAdminSession is the fixed column set returned by
 // resolve_admin_session_by_token_hash (migration 00011): the twin of
 // ResolvedSession over the SEPARATE admin table. An employee cookie can never
@@ -362,6 +406,15 @@ FROM resolve_api_key_by_hash($1)`
 
 const getAppDeviceByIDSQL = `SELECT id, tenant_id, employee_id, public_key, revoked_at
 FROM resolve_app_device_by_id($1)`
+
+const getLiveQRDisplayByPairingCodeHashSQL = `SELECT id, tenant_id, location_id, pairing_expires_at, revoked_at
+FROM resolve_live_qr_display_by_pairing_code_hash($1)`
+
+const getLiveQRDisplayBySessionHashSQL = `SELECT id, tenant_id, location_id, revoked_at
+FROM resolve_live_qr_display_by_session_hash($1)`
+
+const getLiveQRDisplayByIDSQL = `SELECT id, tenant_id, location_id, revoked_at, location_active
+FROM resolve_live_qr_display_by_id($1)`
 
 // GetTagByUID resolves a wall-plaque uid to its tag WITHOUT a tenant context.
 // Returns pgx.ErrNoRows when the uid is unknown (the caller rejects the tap).
@@ -652,4 +705,51 @@ func (d *DB) GetAppDeviceByID(ctx context.Context, deviceID uuid.UUID) (Resolved
 		return ResolvedAppDevice{}, fmt.Errorf("db: resolve app device: %w", err)
 	}
 	return a, nil
+}
+
+// GetLiveQRDisplayByPairingCodeHash resolves a live QR screen's pairing-code digest to the screen
+// waiting for it, WITHOUT a tenant context. Returns pgx.ErrNoRows when no screen waits for it (an
+// unknown or already consumed code -- the caller refuses the code and writes nothing that names it).
+func (d *DB) GetLiveQRDisplayByPairingCodeHash(ctx context.Context, codeHash string) (ResolvedLiveQRPairing, error) {
+	var p ResolvedLiveQRPairing
+	err := d.quiet().QueryRow(ctx, getLiveQRDisplayByPairingCodeHashSQL, codeHash).Scan(
+		&p.ID, &p.TenantID, &p.LocationID, &p.PairingExpiresAt, &p.RevokedAt,
+	)
+	if err != nil {
+		// The argument is not interpolated and %w wraps only the DB error (§7).
+		return ResolvedLiveQRPairing{}, fmt.Errorf("db: resolve live QR screen pairing: %w", err)
+	}
+	return p, nil
+}
+
+// GetLiveQRDisplayBySessionHash resolves a screen page's session digest to its paired screen,
+// WITHOUT a tenant context. Returns pgx.ErrNoRows when the digest is unknown.
+func (d *DB) GetLiveQRDisplayBySessionHash(ctx context.Context, sessionHash string) (ResolvedLiveQRSession, error) {
+	var s ResolvedLiveQRSession
+	err := d.quiet().QueryRow(ctx, getLiveQRDisplayBySessionHashSQL, sessionHash).Scan(
+		&s.ID, &s.TenantID, &s.LocationID, &s.RevokedAt,
+	)
+	if err != nil {
+		// The argument is not interpolated and %w wraps only the DB error (§7).
+		return ResolvedLiveQRSession{}, fmt.Errorf("db: resolve live QR screen: %w", err)
+	}
+	return s, nil
+}
+
+// GetLiveQRDisplayByID resolves the screen a live QR tap's signed token names, WITHOUT a tenant
+// context and across tenants (a holding peer's employee at this screen -- ADR 0027). Returns
+// pgx.ErrNoRows when the id is unknown.
+//
+// It answers "whose screen, where, revoked or not, at an active location or not", NOT "may this tap
+// be counted": M16-21's engine decides from the result and the token's own check.
+func (d *DB) GetLiveQRDisplayByID(ctx context.Context, displayID uuid.UUID) (ResolvedLiveQRDisplay, error) {
+	var r ResolvedLiveQRDisplay
+	err := d.quiet().QueryRow(ctx, getLiveQRDisplayByIDSQL, displayID).Scan(
+		&r.ID, &r.TenantID, &r.LocationID, &r.RevokedAt, &r.LocationActive,
+	)
+	if err != nil {
+		// The argument is not interpolated and %w wraps only the DB error.
+		return ResolvedLiveQRDisplay{}, fmt.Errorf("db: resolve live QR screen by id: %w", err)
+	}
+	return r, nil
 }

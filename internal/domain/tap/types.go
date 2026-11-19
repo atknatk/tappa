@@ -66,6 +66,11 @@ const (
 	ChannelNFC    Channel = "nfc"    // physical NTAG 424 DNA tap: ctr + cmac present
 	ChannelQR     Channel = "qr"     // SUN-less fallback: no proof of moment (§5, base:qr-requires-ip)
 	ChannelManual Channel = "manual" // manager-entered: entered_by set, SUN not sought
+	// ChannelQRLive is a tap on a venue's LIVE QR screen (migration 00111/00112, ADR 0045 §2.5): a
+	// rotating server-signed token, no plaque. The schema and the feed triggers know it from M16-19;
+	// it is named here for feedEligible's and RecordedDirectionSource's parity with them. Nothing
+	// derives it yet -- the engine and the request path accept it in M16-21.
+	ChannelQRLive Channel = "qr_live"
 )
 
 // Client is WHICH CLIENT wrote a tap — the value of transactions.client (migration

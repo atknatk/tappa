@@ -63,7 +63,7 @@ func pdsParityFindings(t *testing.T, ctx context.Context, q opQuerier, expr stri
 	}
 	sql = "SELECT (" + sql + ")::text FROM (SELECT $1::text AS c, $2::text AS d, $3::text AS s) AS r"
 	str := func(s string) *string { return &s }
-	channels := []*string{str("nfc"), str("qr"), str("manual"), str(""), str("NFC"), nil}
+	channels := []*string{str("nfc"), str("qr"), str("qr_live"), str("manual"), str(""), str("NFC"), str("QR_LIVE"), nil}
 	directions := []*string{str("in"), str("out"), nil}
 	// Every value the Go vocabulary names (a constant added there is evaluated here too), and the
 	// near misses the CHECK refuses.
@@ -106,7 +106,7 @@ func pdsParityFindings(t *testing.T, ctx context.Context, q opQuerier, expr stri
 // reader rule is spelled again in SQL, and this binds the SQL to tap.RecordedDirectionSource.
 //   - punch_feed and holding_feed each assign v_dsrc exactly once, and by the SAME text (one rule,
 //     two copies -- a change to one is red);
-//   - that text, evaluated for every channel (nfc, qr, manual, the empty string, a capital, NULL) x
+//   - that text, evaluated for every channel (nfc, qr, qr_live, manual, the empty string, two capitals, NULL) x
 //     direction (in, out, NULL) x stored value (NULL, every tap.DirectionSources value, 'manager',
 //     the empty string, a capital), answers what the Go helper answers: a directed nfc/qr row's NULL
 //     is 'auto'; a manual row's value is never believed; an undirected row has no source; a value
@@ -128,7 +128,9 @@ func TestPunchDirectionSource_TheFeedsExpressionIsTheReaderRule(t *testing.T) {
 		t.Error(f)
 	}
 	for _, c := range []struct{ what, old, new string }{
-		{"trusts a manual row", "WHEN v_channel IN ('nfc', 'qr') AND v_type IS NOT NULL", "WHEN v_type IS NOT NULL"},
+		{"trusts a manual row", "WHEN v_channel IN ('nfc', 'qr', 'qr_live') AND v_type IS NOT NULL", "WHEN v_type IS NOT NULL"},
+		// M16-19 (00112): the live QR channel dropped from the rule -- Go reads it, so SQL must too.
+		{"forgets the live QR", "WHEN v_channel IN ('nfc', 'qr', 'qr_live') AND", "WHEN v_channel IN ('nfc', 'qr') AND"},
 		{"leaves a directed row's NULL empty", "WHEN v_stored IS NULL THEN 'auto' ", ""},
 		{"passes any stored value", "WHEN v_stored IN ('auto', 'employee') THEN v_stored", "ELSE v_stored"},
 	} {
@@ -282,7 +284,10 @@ func TestPunchDirectionSource00067_DownRefusesAChoiceAndOtherwiseGivesBack(t *te
 	if strings.Join(tables, ",") != "punch_events" {
 		t.Fatalf("PREMISE: 00067's Down names %v, want punch_events alone", tables)
 	}
-	lockForDowns(t, ctx, tx, tables)
+	// Since M16-19 the walk starts with 00113's and 00112's Downs (qlDown: 00112 replaced both bodies
+	// again) and ends with their Ups -- goose's own order -- so their three tables are locked too.
+	walked := append(slices.Clone(tables), qrLiveDownTables...)
+	lockForDowns(t, ctx, tx, walked)
 	head := pdsRead(t, ctx, tx)
 	const known = "punch_events_direction_source_is_known validated=false CHECK ((direction_source = ANY (ARRAY['auto'::text, 'employee'::text]))) NOT VALID"
 	if head.column != "text notnull=false default=- missing=false" || head.constraint != known ||
@@ -324,14 +329,15 @@ func TestPunchDirectionSource00067_DownRefusesAChoiceAndOtherwiseGivesBack(t *te
 	t.Run("no source: the Down gives 00049's bodies back and the Up takes HEAD again", func(t *testing.T) {
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			feedSetAsideDirectionSources(t, ctx, sp)
+			qlDown(t, ctx, sp)
 			opRunSection(t, ctx, sp, down, "00067 Down")
 			at66 := pdsRead(t, ctx, sp)
 			want := pdsSurface{bodies: pdsPunchFeed49MD5 + "/" + pdsHoldingFeed49MD5}
 			if at66.column != "" || at66.constraint != "" || at66.bodies != want.bodies || strings.Contains(at66.grants, "direction_source") {
 				t.Errorf("after 00067's Down: %+v\nwant no column, no CHECK, 00049's bodies (%s) and no direction_source grant", at66, want.bodies)
 			}
-			if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
-				t.Errorf("the Down took a strong lock on %v, outside the table it names", extra)
+			if extra := strongTableLocksOutside(t, ctx, sp, walked); len(extra) > 0 {
+				t.Errorf("the Downs took a strong lock on %v, outside the tables they name", extra)
 			}
 			dsSavepoint(t, ctx, sp, func(tsp pgx.Tx) {
 				w := feedWorldTx(t, ctx, tsp, "")
@@ -341,6 +347,7 @@ func TestPunchDirectionSource00067_DownRefusesAChoiceAndOtherwiseGivesBack(t *te
 				}
 			})
 			opRunSection(t, ctx, sp, up, "00067 Up again")
+			qlUp(t, ctx, sp)
 			if again := pdsRead(t, ctx, sp); again != head {
 				t.Errorf("after 00067's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
 			}

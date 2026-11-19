@@ -408,7 +408,8 @@ func TestShiftSnapshot00095_TheAlterScansNothing(t *testing.T) {
 func TestShiftSnapshot00095_TheDownRefusesASnapshotAndOtherwiseGivesBack(t *testing.T) {
 	ctx, tx := opTx(t)
 	up, down := opMigrationSections(t, shiftSnapshotFile)
-	lockForDowns(t, ctx, tx, []string{"transactions"})
+	// qrLiveDownTables since M16-19: the walk below starts with 00113's and 00112's Downs (qlDown).
+	lockForDowns(t, ctx, tx, qrLiveDownTables)
 	head := ssRead(t, ctx, tx)
 
 	t.Run("a snapshot refuses the Down", func(t *testing.T) {
@@ -461,7 +462,9 @@ func TestShiftSnapshot00095_TheDownRefusesASnapshotAndOtherwiseGivesBack(t *test
 		dsSavepoint(t, ctx, tx, func(sp pgx.Tx) {
 			// goose's own order since M16-04: 00110's and 00109's Downs first, their Ups last -- a
 			// column 00095's Up adds again lands after transactions.client in attnum order otherwise,
-			// and the catalogue HEAD has is the one goose builds.
+			// and the catalogue HEAD has is the one goose builds. Since M16-19 00113's and 00112's Downs
+			// come before them (qlDown: 00112 replaced the CHECK with its qr_live text) and their Ups last.
+			qlDown(t, ctx, sp)
 			clDown(t, ctx, sp)
 			ssSetAside(t, ctx, sp)
 			opRunSection(t, ctx, sp, down, "00095 Down")
@@ -472,11 +475,12 @@ func TestShiftSnapshot00095_TheDownRefusesASnapshotAndOtherwiseGivesBack(t *test
 			if want := cgString(t, sp, cgAllColumnsBut); at94.appInsert != want {
 				t.Errorf("after 00095's Down tappa_app INSERTs\n %s\nwant every column but id and created_at\n %s", at94.appInsert, want)
 			}
-			if extra := strongTableLocksOutside(t, ctx, sp, []string{"transactions"}); len(extra) > 0 {
-				t.Errorf("00095's Down took a strong lock on %v, outside transactions", extra)
+			if extra := strongTableLocksOutside(t, ctx, sp, qrLiveDownTables); len(extra) > 0 {
+				t.Errorf("the Downs took a strong lock on %v, outside the three 00112's names", extra)
 			}
 			opRunSection(t, ctx, sp, up, "00095 Up again")
 			clUp(t, ctx, sp)
+			qlUp(t, ctx, sp)
 			if again := ssRead(t, ctx, sp); again != head {
 				t.Errorf("after 00095's Up again:\n %+v\nwant HEAD's\n %+v", again, head)
 			}

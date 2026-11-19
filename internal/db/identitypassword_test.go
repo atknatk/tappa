@@ -2143,7 +2143,7 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"admin_users":           "00077's Down: admin_invites' composite FK to admin_users",
 		"tenants":               "00077's Down: admin_invites' FK to tenants",
 		"tags":                  "00089's Down puts the key-envelope CHECK back NOT VALID, 00090's sets status's DEFAULT (ALTER TABLE tags) and 00100's drops tags_is_born_in_stock (DROP TRIGGER ON tags)",
-		"transactions":          "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152)",
+		"transactions":          "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152); 00113's and 00112's Downs lock it and put the channel CHECKs back (M16-19)",
 		"tenant_plan_history":   "00098's Down drops its key to platform_admins and 00097's drops the table",
 		"platform_admins":       "00098's Down: tenant_plan_history's key to platform_admins; 00107's Down: oauth_clients' key to platform_admins (issue #37)",
 		"sessions":              "00099's Down drops sessions_revocation_one_way (DROP TRIGGER ON sessions)",
@@ -2153,6 +2153,10 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"app_devices":           "00108's Down locks and drops its own table (M16-03)",
 		"app_request_nonces":    "00108's Down locks and drops its own table (M16-03)",
 		"employees":             "00108's Down: app_devices' composite FK to employees (it LOCKs it first)",
+		"live_qr_displays":      "00111's Down locks and drops its own table (M16-19)",
+		"locations":             "00111's Down: live_qr_displays' composite FK to locations (it LOCKs it first)",
+		"punch_events":          "00113's and 00112's Downs LOCK it first and put 00048's channel CHECK back (M16-19)",
+		"site_punches":          "00113's and 00112's Downs LOCK it first and put 00046's channel CHECK back (M16-19)",
 	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	for _, w := range walked {
