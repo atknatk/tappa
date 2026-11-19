@@ -1821,6 +1821,7 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 ### 2026-11-19, üçüncü not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ikinci denetim turu kapatıldı (yalnız belge)
 
 - **Ne:** `b3b3f812`'ye dar yeniden denetim NO-GO. **N1** hatırlatma ve sayaç iş günü kesimini bilmiyordu (`staleAt` = 18 sa; motor girişi iş günü bitince kapatmayı bırakır — `decide.go:681-700`) → yeni `tap.OpenUntil` = `min(iş günü sonu, inSince + 18 sa)`, `remindAt` 30 dk önceye kırpılır (1 sa'ten erken ise yok — Q51 (2) (d) önerisi), `showUntil` ≤ `staleAt`; testler [G45-k]/[G45-l]/[G45-m]; Q51/Q53 denetimin iş günü sayımlarıyla. **N2** Android yol pini Faz G ortak kural (7) — M16-31, M16-35, M16-37, M16-43'te madde. **N3** ölçüm SQL'i `audit_log.at`; her sütun şemaya karşı okundu, iş günü sayımı eklendi. **N4** M16-42 (3) (d) panel kontrolleri. **N5** `still_open`'ın gerçek yolu kesim/dilim değişikliği. **N6** ADR 0050'nin bölüm bölüm tarifi M16-42'de (dosya o kartta yazılır).
+- **Son (dar denetim GO, `94508736`):** N8 ölçüm SQL'inin parantezi (denetçinin canlıda koşan hâline eşitlendi), N7 kırpmanın bedeli Q51'de, N9 ADR biçim cümlesi, `employees.sql:252` çıpası.
 - **Sıradaki:** değişmedi.
 
 ### 2026-11-19, ikinci not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ilk denetim turu kapatıldı (yalnız belge)

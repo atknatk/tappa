@@ -2230,12 +2230,12 @@ dil.
    SELECT count(*) AS submitted_30d FROM audit_log WHERE action = 'claim.submitted' AND at >= now() - interval '30 days';
    -- N1: a check-in's business day ends T hours later when (wall clock - cutoff) mod 24 h >= 24 h - T
    -- (DST days are 23/25 h: an approximation of +-1 h, named). The cutoff is the K1 cascade of
-   -- GetEmployeeForTap (db/queries/employees.sql:240-249), the zone tenants.timezone.
+   -- GetEmployeeForTap (db/queries/employees.sql:252), the zone tenants.timezone.
    WITH ins AS (
      SELECT tr.occurred_at,
             coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff) AS cutoff,
             mod((extract(epoch FROM (tr.occurred_at AT TIME ZONE t.timezone)::time
-                 - coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff))::numeric + 86400, 86400)
+                 - coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)))::numeric + 86400, 86400)
               AS since_cutoff_s
      FROM transactions tr
      JOIN employees e ON e.tenant_id = tr.tenant_id AND e.id = tr.employee_id
@@ -2250,7 +2250,8 @@ dil.
    FROM ins GROUP BY cutoff ORDER BY cutoff;
    ROLLBACK;
    ```
-   Her sütun bu dalın şemasına karşı okundu: `audit_log`'un zaman sütunu `at`'tir, `created_at` değil
+   **Sözdizimi denetimde canlıda koşularak doğrulandı (2026-11-19)** — ilk sürümde `mod(`'un kapanış parantezi eksikti (N8);
+   yukarıdaki metin denetçinin düzelttiği hâlle karşılaştırıldı ve ona eşitlendi. Her sütun bu dalın şemasına karşı okundu: `audit_log`'un zaman sütunu `at`'tir, `created_at` değil
    (`db/migrations/00005_create_transactions_audit_reviews.sql`, `CREATE TABLE audit_log`; denetimde `created_at` hata verip
    transaction'ı düşürmüştü — N3); `day_cutoff` dört tabloda (`00064:4-6`, `:68`, `:73`), `tenants.timezone` (`00001:34`),
    `transactions.shift_source` (00095), `punch_claims.created_at` (00068).
@@ -2273,10 +2274,11 @@ dil.
    mockup — M16-33 eki); her dilin tap/sonuç metni **M16-49'un** ilk adımıdır (onaycı ve çeviri o zaman vardır). Cevaplar kart
    düzeltmesine; cevapsız bir şey kurulmaz.
 4. **[ADR 0050](../adr/0050-personel-uygulamasinin-yerel-yuzeyleri.md)** (öneri ad; numara kart açılırken `main` ve dallar yeniden
-   okunarak kesinleşir; dosya **bu kartta** yazılır — bugün yok) yazılır, *Önerildi* → kullanıcıya kabul ettirilir. Biçim ADR
-   0049'unkidir (`docs/adr/0049-calisanin-e-postayla-girisi.md`: başlık satırları *Durum / Tarih / Karar sahibi / İlgili*, sonra
-   *Bağlam*, *Karar*, *Kırmızı çizgi analizi*, *Değerlendirilen alternatifler*, *Bedeller*, *Ölçülmeyenler*). Bölümler ve her
-   birinin içeriği:
+   okunarak kesinleşir; dosya **bu kartta** yazılır — bugün yok) yazılır, *Önerildi* → kullanıcıya kabul ettirilir. Biçim **aşağıdaki listedir** (ADR
+   0049'dan uyarlanmış — `docs/adr/0049-calisanin-e-postayla-girisi.md`'nin başlık satırları *Durum* `:3`, *Karar veren* `:10`,
+   *İlgili* `:15`; bölümleri *Bağlam* `:23`, *Karar* `:58`, *Güvenlik değerlendirmesi* `:183`, *Bedeller* `:195`, *Kırmızı
+   çizgiler* `:218`, *Karar verilmedi* `:227`, *Uygulama* `:233`). Başlık satırları *Durum / Karar veren / İlgili*; bölümler ve
+   her birinin içeriği:
    - **Bağlam:** kullanıcı kararı 6'nın altı eki; madde 1'in sayıları (tarihli); bugünkü talep yolu (M16-43'ün *Bugün*'ü); `/me`'nin
      bugünkü alanları ve `predictTap` (M16-45'in *Bugün*'ü); vardiya modeli ve roster yokluğu; i18n yokluğu ve iki CLAUDE.md cümlesi.
    - **Karar (i) — uygulamadan talep:** ADR 0032 Faz C'nin **ikinci giriş noktası**; aynı `claim.Service.Submit`, kişi kilidi, pencere,
@@ -2521,7 +2523,7 @@ saat dilimi ya da vardiya hesaplamaz; sunucunun verdiği anları ve biçimlediğ
   başından (`BusinessDayStart(now)`, `:804`) önceyse `LeftOpenPreviousBusinessDay`, 18 saatten eskiyse (`now − open >
   StaleOpenIn`) `LeftOpenStale` sayar. Yani bir sonraki dokunuşun **çıkış** yazacağı son an `min(NextBusinessDayStart(
   BusinessDayStart(inSince)), inSince + 18 sa)`'tir (`NextBusinessDayStart` `:817`) — yalnız 18 sa değil. Kesim K1 kademesidir
-  (`coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)`, `db/queries/employees.sql:240-249`), dilim
+  (`coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)`, `db/queries/employees.sql:252`), dilim
   `tenants.timezone`; `predictTap` bu kesimi zaten taşır (`tapprediction.go:47-60`). Denetimde ölçüldü: 18 saat 75 girişin 69'unda
   iş günü sonunu aşıyor (M16-42 (1)).
 
