@@ -1512,7 +1512,15 @@ tek cihazı iptal edebilmek.
 > kuralı:** yeni testler `[G<kart>-<harf>]` kimliğiyle **tarif edilir**; Go adını yapıcı koyar ve kimliği testin
 > yorumuna yazar (`TestEveryNamedTestExists` var olmayan `Test…` adını reddeder). Denetçi kimliği `git grep`'le bulur.
 > (6) **Ortam:** Faz G'nin hiçbir adımı KF/KM'de **yazmaz**; gerçek cihaz ve e-posta ölçümleri yalnız üretimdeki
-> *"Taptime Demo"* işletmesinde (M16-34'ün kullanıcı adımı) ya da yerel/şerit veritabanında yapılır.
+> *"Taptime Demo"* işletmesinde (M16-34'ün kullanıcı adımı) ya da yerel/şerit veritabanında yapılır. (7) **Android yol pini**
+> (düzeltme turu 2, N2): Android `ContractPinTest.theRoutesAreTheServersPaths` sunucunun `internal/handler/app.go`'daki **bütün**
+> `App*Path` sabitlerini kapalı küme olarak Kotlin `Paths`'e eşler (`mobile/android/app/src/test/kotlin/mt/taptime/app/ContractPinTest.kt:34-49`;
+> dosyayı `build.gradle.kts:114`'ün `serverFiles` haritası verir; sabitler bugün `app.go:155-162`); CI bu paketi her push'ta koşar
+> (`.github/workflows/ci.yml:365-367`). Bu yüzden **yeni bir `App*Path` sabiti açan her kart**, Android `Wire.kt` `Paths`'e sabiti
+> ve `ContractPinTest`'in eşlemesine çifti **aynı commit'te** ekler ve testin *"exactly these N"* yorumunu bir önceki sayı + eklenen
+> sabit sayısıyla günceller (sabit sayı yazılmaz — kartlar sırayla sevk edilir). Yol açan kartlar: M16-31, M16-35, M16-37, M16-43.
+> iOS'ta sunucu yollarını pinleyen bir test **yoktur** (`AppClient.Path`, `mobile/ios/Taptime/AppClient.swift:177-186` — ölçüldü);
+> iOS yolu, onu çağıran uygulama kartında eklenir.
 > **Atıf kuralı:** `file:line` atıfları `origin/main` `6ab423eb`'ye göredir; yapıcı kendi turunda yeniden okur.
 
 ## M16-30 — Saatlerim ayarı: işletmenin aç/kapa ve görünürlük penceresi (şema + panel)
@@ -1644,6 +1652,8 @@ işletmenin ayarı ve penceresi içinde.
     kuralı). Bütün hafta penceresinde pencere hiçbir haftayı kesmez.
 - **`GET /app/v1/me` eki:** bugün `{"employeeName","brand","direction"}` (`internal/handler/apptap.go:76-81`). Eklenir:
   `"hoursWeeks": 0|1|2|4|13` (`0` = kapalı). [G31-h] sözleşme şekli.
+- **Android yol pini** (Faz G ortak kural (7)): `AppHoursPath` (öneri ad) → Kotlin `Paths.HOURS` + `ContractPinTest` eşlemesine bir
+  çift, aynı commit'te — aksi hâlde bu kart CI'ın Android adımını kırar (yol açan ilk Faz G kartı budur).
 - **Testler** (DB, gerçek Postgres). [G31-a] Eşitlik: tam bir hafta için `totals.workedMinutes` = aynı hafta ve kişi için
   `Reader.Hours`'un `PersonHours.Worked`'ünün dakikaya tabanı (birebir); yalnız tam haftalarda. [G31-b] RLS izolasyonu — açık
   süzgeçsiz sorguyla A bağlamı B'nin satırını görmez. [G31-c] Aynı tenant'ta X'in cihazı Y'nin satırını almaz; `employee_id`
@@ -2047,6 +2057,9 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   `TestTapDB_ASignedOutPhoneGoesToActivationAndWritesNothing` (`internal/handler/employeesignout_db_test.go:200`) bugün yalnız
   çıkış audit eylemini sayar; bu kart onu **genişletir** — listede olmayan işletmede **bütün** `audit_log` satırlarını sayar
   (adı o durumda doğru kalır). 
+- **Android yol pini** (Faz G ortak kural (7)): `/app/v1/signin/request`'in sabiti → Kotlin `Paths` + `ContractPinTest` eşlemesine
+  bir çift, aynı commit'te. Rota yalnız e-posta modunda **bağlanır** ama sabit `app.go`'da her zaman **bildirilir** — pin bildirimi
+  sayar, bağlamayı değil.
 - **Kırmızıya dönecek var olan altı test — bu kartta güncellenir** (dördüncü tur N1 + son denetim): (1) `TestApiKeysCatalog`
   (`internal/db/apikeys_test.go:183`, `id || api_enabled_at || api_code`'u sabitler) — `suspended_at, email_signin` eklenir;
   (2) `TestApiKeys00051_DownGivesBackAndUpTakesItAgain` (`:353-375`; 00105/52/51 Down'larından sonra 0 `tenants` sütunu bekler
@@ -2134,6 +2147,8 @@ kehanetsiz, ayrı bütçeli, **varsayılan kapalı**; tamamlanma (tarayıcıda y
   (`apptap.go:76-81`); `"businessName": string` her zaman dolu. [G37-e] sözleşme şekli.
 - *"Remove this phone"* ayrı kalır: `POST /app/v1/revoke` (`apptap.go:427`) yalnız **bu** cihazı kapatır, işverene bir şey
   iletmez.
+- **Android yol pini** (Faz G ortak kural (7)): `/app/v1/account/delete`'in sabiti → Kotlin `Paths` + `ContractPinTest` eşlemesine
+  bir çift, aynı commit'te.
 - **Testler.** [G37-a] aktif kişi: oturumlar + cihazlar iptal, `transactions` sayısı aynı, tam bir audit satırı. [G37-b]
   deaktive kişi: hiçbir şey iptal edilmez (`revoked_at IS NULL`), audit satırı var. [G37-c] başka tenant'ın cihazıyla imzalı
   istek kendi tenant'ında kalır. [G37-d] owner e-postası sahte kesici reddederken de gider, adres gövdede yok.
@@ -2212,12 +2227,39 @@ dil.
    SELECT coalesce(shift_source, 'NULL') AS source, count(*) FROM transactions
     WHERE type = 'in' AND NOT practice AND occurred_at >= now() - interval '30 days' GROUP BY 1 ORDER BY 1;
    SELECT count(*) AS claims_30d FROM punch_claims WHERE created_at >= now() - interval '30 days';
-   SELECT count(*) AS submitted_30d FROM audit_log WHERE action = 'claim.submitted' AND created_at >= now() - interval '30 days';
+   SELECT count(*) AS submitted_30d FROM audit_log WHERE action = 'claim.submitted' AND at >= now() - interval '30 days';
+   -- N1: a check-in's business day ends T hours later when (wall clock - cutoff) mod 24 h >= 24 h - T
+   -- (DST days are 23/25 h: an approximation of +-1 h, named). The cutoff is the K1 cascade of
+   -- GetEmployeeForTap (db/queries/employees.sql:240-249), the zone tenants.timezone.
+   WITH ins AS (
+     SELECT tr.occurred_at,
+            coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff) AS cutoff,
+            mod((extract(epoch FROM (tr.occurred_at AT TIME ZONE t.timezone)::time
+                 - coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff))::numeric + 86400, 86400)
+              AS since_cutoff_s
+     FROM transactions tr
+     JOIN employees e ON e.tenant_id = tr.tenant_id AND e.id = tr.employee_id
+     JOIN tenants t ON t.id = tr.tenant_id
+     LEFT JOIN departments d ON d.tenant_id = e.tenant_id AND d.id = e.department_id
+     LEFT JOIN locations l ON l.tenant_id = e.tenant_id AND l.id = e.location_id
+     WHERE tr.type = 'in' AND NOT tr.practice AND tr.occurred_at >= now() - interval '30 days')
+   SELECT cutoff, count(*) AS ins,
+          count(*) FILTER (WHERE since_cutoff_s >= 14 * 3600) AS day_ends_within_10h,
+          count(*) FILTER (WHERE since_cutoff_s >= 12 * 3600) AS day_ends_within_12h,
+          count(*) FILTER (WHERE since_cutoff_s >=  6 * 3600) AS day_ends_within_18h
+   FROM ins GROUP BY cutoff ORDER BY cutoff;
    ROLLBACK;
    ```
+   Her sütun bu dalın şemasına karşı okundu: `audit_log`'un zaman sütunu `at`'tir, `created_at` değil
+   (`db/migrations/00005_create_transactions_audit_reviews.sql`, `CREATE TABLE audit_log`; denetimde `created_at` hata verip
+   transaction'ı düşürmüştü — N3); `day_cutoff` dört tabloda (`00064:4-6`, `:68`, `:73`), `tenants.timezone` (`00001:34`),
+   `transactions.shift_source` (00095), `punch_claims.created_at` (00068).
    **Denetimde ölçüldü** (denetçi B, 2026-11-19, aynı biçimde, yalnız sayım; bu belgeyi yazan doğrulamadı): 13 lokasyonun ve 6
    departmanın **hiçbirinde** vardiya yok; son 30 günde 75 girişin 59'u `shift_source='none'`, 16'sı NULL (00095 öncesi), vardiyalı
-   **0**; 30 günde 12 talep. Demo işletmede de vardiya yok. Bu kart sayıları **yeniden** ölçer ve tarihli yazar.
+   **0**; 30 günde 12 talep (`audit_log` sayımı da 12). **İş günü sınırı** (N1, tenant kesimiyle — çalışan ve departman kesimi 0
+   satır): girişten sonraki 10 saat iş günü sonunu 05:00 kesimli işletmelerde 31 girişin 13'ünde, 23:00 kesimli işletmede 44
+   girişin 7'sinde aşar; 12 saat 23 girişte, 18 saat 75 girişin 69'unda aşar. Kapalı çiftlerin süresi: < 6 sa 19 · 6–8 sa 7 · 8–10
+   sa 18 · 10–12 sa 0 · 12–18 sa 1. Demo işletmede de vardiya yok. Bu kart sayıları **yeniden** ölçer ve tarihli yazar.
 2. **Soru adımı:** [Q50](open-questions.md), Q51, Q52, Q53, Q54 kullanıcıya AskUserQuestion ile sorulur (her soruda önerilen
    seçenek ilk sırada; 1'in sayıları sorunun metnindedir). Q54 ayrıca CLAUDE.md'nin **iki** metin değişikliğinin sözcüklerini
    onaylatır (aşağıda; uygulaması M16-49'da). Cevaplar `open-questions.md`'de *cevaplandı* olur; bu dosyada M16-43 … M16-49
@@ -2225,32 +2267,47 @@ dil.
    Kartlar önerilen seçenekle yazılmıştır; cevap öneriden farklıysa kart düzeltmesi **bu kartta** yapılır.
 3. **§9 adımı** (AskUserQuestion + iki platformun mockup'ları, skill `tappa-brand`): (a) Ayarlar'daki iki aç/kapa (*"Remind me to
    clock out"*, *"Show a timer on the lock screen"*) ve izin isteme anı (Q51 (4), Q53 (1)); (b) bildirimin ve kilit ekranının metni —
-   vardiyalı ve vardiyasız iki biçim, kilit ekranının bayat hâli (M16-46, M16-47); (c) vardiyam satırı ve iki yeri (Q52; M16-48).
-   **Bu turda sorulmayan iki şey:** *"Missing times"* girişinin yeri **M16-33'ün** §9 turunda sorulur (ana ekran yerleşimiyle aynı
+   vardiyalı ve vardiyasız iki biçim, kilit ekranının bayat hâli (M16-46, M16-47); (c) vardiyam satırı ve iki yeri (Q52; M16-48); (d) **panel kontrolleri** — Account ekranında `staff_shift_visible`
+   aç/kapası ve metni (M16-45), Q51 (3) (b) seçildiyse `staff_reminders` aç/kapası ve metni, ve o kapalıyken uygulamanın Ayarlar
+   satırı *"Your workplace has turned reminders off."*. **Bu turda sorulmayan iki şey:** *"Missing times"* girişinin yeri **M16-33'ün** §9 turunda sorulur (ana ekran yerleşimiyle aynı
    mockup — M16-33 eki); her dilin tap/sonuç metni **M16-49'un** ilk adımıdır (onaycı ve çeviri o zaman vardır). Cevaplar kart
    düzeltmesine; cevapsız bir şey kurulmaz.
 4. **[ADR 0050](../adr/0050-personel-uygulamasinin-yerel-yuzeyleri.md)** (öneri ad; numara kart açılırken `main` ve dallar yeniden
-   okunarak kesinleşir) yazılır, *Önerildi* → kullanıcıya kabul ettirilir. İçerik:
-   - (i) **Uygulamadan talep** ADR 0032 Faz C'nin **ikinci giriş noktasıdır** — aynı `claim.Service.Submit`, kişi kilidi, pencere,
-     ön dolgu, `MaxBackdate`, tek talep kuralı ve müdür kuyruğu. K4 bu girişe uygulanmaz (Q50 (2) (a)) **ama K4'ün tarayıcıda
-     dolaylı yaptığı koruma açıkça kurulur:** motorun bir sonraki dokunuşla hâlâ kapatacağı açık giriş (bugünün açık girişi)
-     talep **kabul etmez** — `Open` listelemez, `Submit` kilit altında reddeder (M16-43; denetim Y1: 09:00 girişine 12:00'de
-     onaylanan talep kişi işteyken bir manuel `out` yazar ve 18:00 dokunuşu yeni bir `in` olur — M15'in kapattığı zincir
-     tersinmesi).
-   - (ii) **Yerel hatırlatma ve kilit ekranı sayacı:** sunucu push'u (APNs/FCM) **yok** ve bu mekanik olarak tutulur ([G46-e]);
-     arka plan modu yok, konum yok, konum tetikleyicili bildirim yok (`UNLocationNotificationTrigger` R2'ye girer — M16-46),
-     Android'de foreground service ve açılışta uyanma (`RECEIVE_BOOT_COMPLETED`) yok; anlar yalnız sunucunun `/me`'sinden. Vardiya
-     yalnız owner onu *"gerçek vardiya"* diye işaretlediyse kullanılır (Q52 (2) (c)) — hatırlatmanın anı, bildirimin ve kilit
-     ekranının saati dahil; değilse girişten sabit süre (Q51 (2) (b)). Bedeller: tarayıcıdan çıkıştan sonra kilit ekranı ve
-     bildirim (M16-46, M16-47 — süre sınırı `showUntil` ve bayat görünüm); Android'de bir saate kadar gecikme (M16-46).
-     **Sunucudan kapatma yolu** (Q51 (3) (a) ile işletme anahtarı yokken): `remindAt`'i null döndüren bir sunucu sürümü — kurulu
-     bildirim telefonun bir sonraki senkronunda silinir, senkronlanmayan telefonda bir kez daha düşer.
-   - (iii) `presence.inSince` **Saatlerim ayarından bağımsızdır**: kişinin **şu anki** durumudur ve `/me`'nin `direction`'ı (Q41)
-     onu zaten söyler; kayıt listesi değildir (Q48'in kapsamına girmez).
-   - (iv) **Vardiyam'ın** kaynağı (departman, yoksa profil lokasyonu), kapsamı (*"usual"*, tarih yok — roster yok) ve owner
-     anahtarı (Q52); (v) **dil** (Q54).
-   - Kırmızı çizgi analizi tablosu (§4.1–§4.7) ve *"Değerlendirilen alternatifler"* (sunucu push'u, foreground service,
-     `NotificationCompat`/WorkManager bağımlılığı, kesin alarm izinleri, *"next shift"*, K4'ü aynen uygulamak).
+   okunarak kesinleşir; dosya **bu kartta** yazılır — bugün yok) yazılır, *Önerildi* → kullanıcıya kabul ettirilir. Biçim ADR
+   0049'unkidir (`docs/adr/0049-calisanin-e-postayla-girisi.md`: başlık satırları *Durum / Tarih / Karar sahibi / İlgili*, sonra
+   *Bağlam*, *Karar*, *Kırmızı çizgi analizi*, *Değerlendirilen alternatifler*, *Bedeller*, *Ölçülmeyenler*). Bölümler ve her
+   birinin içeriği:
+   - **Bağlam:** kullanıcı kararı 6'nın altı eki; madde 1'in sayıları (tarihli); bugünkü talep yolu (M16-43'ün *Bugün*'ü); `/me`'nin
+     bugünkü alanları ve `predictTap` (M16-45'in *Bugün*'ü); vardiya modeli ve roster yokluğu; i18n yokluğu ve iki CLAUDE.md cümlesi.
+   - **Karar (i) — uygulamadan talep:** ADR 0032 Faz C'nin **ikinci giriş noktası**; aynı `claim.Service.Submit`, kişi kilidi, pencere,
+     ön dolgu, `MaxBackdate`, tek talep kuralı ve müdür kuyruğu; bağlam cihaza bağlı (`app-device:<id>`, 15 dk); iki uç ve sonuç
+     sözlüğü (M16-43); K4 bu girişe uygulanmaz (Q50 (2) (a)) **ama** K4'ün dolaylı koruması açıkça kurulur: motorun bir sonraki
+     dokunuşla hâlâ kapatacağı açık giriş talep **kabul etmez** — `Open` listelemez, `Submit` kilit altında `ErrStillOpen` (denetim
+     Y1'in vakası: 09:00 girişine 12:00'de onaylanan talep kişi işteyken manuel `out` yazar, 18:00 dokunuşu yeni bir `in` olur);
+     Saatlerim kapalıyken karar görünür, onaylanan saat görünmez (Q50 (5) (b)); tarayıcı eşi yok (Q50 (3)); `via:"app"` audit alanı.
+   - **Karar (ii) — yerel hatırlatma ve kilit ekranı:** sunucu push'u (APNs/FCM) **yok** ve mekanik olarak tutulur ([G46-e]); arka
+     plan modu, konum ve konum tetikleyicili bildirim yok (`UNLocationNotificationTrigger` R2'ye girer); Android'de foreground service
+     ve `RECEIVE_BOOT_COMPLETED` yok; anlar yalnız `/me`'den. **Açık girişin sınırı tek bir `tap` yardımcısıdır** (`tap.OpenUntil`,
+     M16-45): `min(inSince + 18 sa, iş gününün sonu)` — `PredictDirection`'ın `LeftOpen` vermeye başladığı an (N1). Hatırlatma bu
+     sınırdan önce kırpılır, sayaç bu sınırda biter. Vardiya yalnız owner işaretlediyse kullanılır (Q52 (2) (c)); değilse
+     `inSince + 10 sa` (Q51 (2) (b)). Tarayıcıdan çıkış, Android'in bir saate kadar gecikmesi, iOS 16.2 ve 8 + 4 saat sınırı
+     **Bedeller**'dedir. Sunucudan kapatma yolu: `remindAt`'i null döndüren bir sürüm.
+   - **Karar (iii) — presence ve Saatlerim:** `presence` Saatlerim ayarından bağımsızdır; kişinin **şu anki** durumudur ve `/me`'nin
+     `direction`'ı (Q41) onu zaten söyler; kayıt listesi değildir (Q48'in kapsamına girmez).
+   - **Karar (iv) — vardiyam:** kaynak departman, yoksa profil lokasyonu; *"usual"*, tarih yok (roster yok); owner anahtarı
+     `staff_shift_visible` ve anlamı (*"gerçek vardiya"*); vardiya girmenin geç kalma, K3 ön dolgusu ve onay bandıyla bağı.
+   - **Karar (v) — dil:** Q54'ün cevapları; iki CLAUDE.md cümlesinin onaylanan sözcükleri (uygulaması M16-49); çeviri hattı ve onay
+     kaydı; hukuki metin çevrilmez.
+   - **Kırmızı çizgi analizi** — §4.1 (biyometri yok; bildirim ve Live Activity kullanıcı varlığı bayrağı istemez), §4.2 (konum yok,
+     arka plan yok, push yok), §4.3 (talep kayıt değildir; saat yalnız onayla, manuel satır), §4.4 (değmez), §4.5 (her yeni okuma
+     açık `tenant_id` + `employee_id`; bağlam cihaza bağlı), §4.6 (talep ve kayıt kaybolmaz; `still_open` bir red değil bir
+     *"henüz değil"*dir), §4.7 (kilit ekranında ad, işletme, mekân yok; log'da saat yok).
+   - **Değerlendirilen alternatifler:** sunucu push'u · foreground service · `NotificationCompat`/WorkManager bağımlılığı · kesin
+     alarm izinleri · *"next shift"* · K4'ü aynen uygulamak · hatırlatmayı yalnız vardiyalı girişte kurmak (üretimde vardiya yok).
+   - **Bedeller:** tarayıcıdan çıkıştan sonra kilit ekranı ve bildirim (`showUntil` ve bayat görünüm); Android'de bir saate kadar
+     gecikme (M16-40 eşiği); iOS 15–16.1'de sayaç yok; Live Activity'nin 8 + 4 saat sınırı; tarayıcı kullanıcısı ile uygulama
+     kullanıcısı arasındaki talep girişi farkı; İngilizce tarayıcı.
+   - **Ölçülmeyenler:** kartların *doğrula* listesi (Apple ve Android belge okumaları, onaycılar, KF/KM dilleri).
 5. **ADR 0032'ye append notu** (satır silinmez): *"Uygulama girişi (ADR 0050, TARİH): K4 sonuç ekranının sorma sınırıdır ve
    uygulamanın kendi açılan ekranına uygulanmaz; K4'ün ilk gösterimin bir sonraki kayıt olmasıyla dolaylı sağladığı koruma —
    hâlâ açık girişe talep yok — `Open` ve `Submit`'te açıkça kurulur."* `TestClaimDB_TheCardIsShownOnTwoTapsOnly`'nin ölçtüğü
@@ -2352,10 +2409,9 @@ pencere ve ön dolgu, aynı müdür kuyruğu. Kullanıcının örneği: dün ç�
 - **M16-31'in yanıtına ek — `records[].claimable: bool`** (A6): satırın `id`'si `Open`'ın çapa kümesindeyse true (aynı 7 gün);
   Saatlerim'in açık kayıt satırı *"Missing times"* ekranına bu alanla bağlanır (M16-44). M16-31 bu karttan önce sevk edilir; alan
   eski uygulamada yok sayılır (Faz G ortak kural (3)).
-- **Android yolları aynı commit'te:** `mobile/android/.../wire/Wire.kt`'nin `Paths` nesnesine `CLAIMS`, `CLAIMS_SEND` (`:12-19`'un
-  yanına) ve `ContractPinTest`'in eşlemesine iki çift; *"exactly these eight"* yorumu *"ten"* olur. Aksi hâlde sunucunun iki yeni
-  sabiti `theRoutesAreTheServersPaths`'i kırar ve CI'ın Android adımı (`ci.yml:365-367`) kırmızıya döner. iOS'un `AppClient.Path`'i
-  M16-44'te genişler (iOS'ta kırılacak pin yok — ölçüldü).
+- **Android yol pini** (Faz G ortak kural (7)): `Wire.kt` `Paths`'e `CLAIMS`, `CLAIMS_SEND` ve `ContractPinTest`'in eşlemesine iki
+  çift, aynı commit'te; *"exactly these N"* yorumu **bir önceki sayı + 2** olur (M16-31, M16-35, M16-37 kendi sabitlerini önceden
+  eklemiştir). iOS'un `AppClient.Path`'i M16-44'te genişler.
 - **Audit izi:** `claim.submitted`'in `detail`'ine isteğe bağlı `"via":"app"` (`submitDetail`, `submit.go:39-49`; `claim.Claim`'e
   bir `Via` alanı). Tarayıcı yolu alanı yazmaz. Gerekçe: M16-29 pilotunun *"uygulamadan gönderilen talep"* sayısı audit'ten okunur.
 - **Askı** (ADR 0025): `POST /api/claim` gibi askıyı bilmez; karar panelde olduğu için askıda durur.
@@ -2411,8 +2467,10 @@ pencere ve ön dolgu, aynı müdür kuyruğu. Kullanıcının örneği: dün ç�
     manager if that looks wrong."*
   - `not_active` → *"Your account can't send this"* / *"Only an active employee can send a time to their manager. Nothing was
     sent."* / *"Tell your manager what time it was."*
-  - `still_open` `[app]` → (öneri) *"You're still clocked in"* / *"Nothing was sent. Tap the plaque when you leave."* — listede
-    görünmez, yalnız bir yarışta (liste okunduktan sonra iş günü değişmez ama başka bir yoldan kayıt eklendiyse) gelir.
+  - `still_open` `[app]` → (öneri) *"You're still clocked in"* / *"Nothing was sent. Tap the plaque when you leave."* — listelenmiş
+    bir çapada gelmesinin gerçek yolu, liste okunduktan sonra **kesimin ya da işletmenin saat diliminin değişmesidir**: `S(now)`
+    geri kayar ve açık giriş yeniden bugünün girişi olur (`PredictDirection` onu yine kapatır). Arada eklenen yeni bir kayıt bunu
+    **yapmaz** — koşul (1)'i sağlar ve talebi kabul edilebilir kılar. Ekran listeyi yeniler.
   - `stale_context` → liste sessizce yenilenir, kişinin yazdığı saat alanda kalır; 401 → M16-07'nin oturum kapalı ekranı.
 - **Gönderilenler (`sent`)** aynı ekranın altında: kelimeler M16-32'nin §9 cevabıyla aynı aile (öneri (b): *"Waiting for your
   manager"* / *"Approved"* / *"Not approved"*); `approvedAt` doluysa *"Approved at 18:00"* (müdürün *Edit*'i yüzünden talep
@@ -2421,7 +2479,7 @@ pencere ve ön dolgu, aynı müdür kuyruğu. Kullanıcının örneği: dün ç�
   `[adapted]` işaretleri — `TapCopy.swift:10-16`), Android `res/values/strings.xml`. `IosCopyTest` iki yerde genişler: Gradle'ın
   Swift dosya haritası (`mobile/android/app/build.gradle.kts:160`, `taptime.ios.claimCopy` → `Taptime/ClaimCopy.swift`) ve testin
   `shared` listesi (`IosCopyTest.kt:41-60`) — yalnız birincisi eklenirse yeni satırlar sessizce eşleşmez.
-- iOS `AppClient.Path`'e (`AppClient.swift:177-186`) `claims`, `claimsSend`; Android'in yolları M16-43'te geldi.
+- iOS `AppClient.Path`'e `claims`, `claimsSend` (Faz G ortak kural (7): iOS'ta yol pini yok); Android'in yolları M16-43'te geldi.
 - Talepler ve saatler cihazda saklanmaz; log yok. [G44-a] Android JVM, [G44-b] iOS birim: sahte logger ile cevap işleyen kod
   yolunun log çağrısı yapmadığı. R7M'ye `claimedAt|anchorAt` tetikleyicisi (gürültü önce ölçülür — değişiklikten önce ve sonra
   `bash scripts/redline-check.sh` çıktısı karta) ve pini `TestRedline_M16_MobileLogCalls` genişler.
@@ -2459,6 +2517,13 @@ saat dilimi ya da vardiya hesaplamaz; sunucunun verdiği anları ve biçimlediğ
   `decide.go:467-519`).
 - Tap yanıtının yerel saati sunucuda biçimlenir: `At: localClock(res.OccurredAt, res.Timezone)` (`internal/handler/checkin.go:452`,
   `localClock` `:465`).
+- **Açık giriş iki yoldan kapanmaz hâle gelir** (N1, okundu): `tap.PredictDirection` (`decide.go:681-700`) girişi şimdiki iş gününün
+  başından (`BusinessDayStart(now)`, `:804`) önceyse `LeftOpenPreviousBusinessDay`, 18 saatten eskiyse (`now − open >
+  StaleOpenIn`) `LeftOpenStale` sayar. Yani bir sonraki dokunuşun **çıkış** yazacağı son an `min(NextBusinessDayStart(
+  BusinessDayStart(inSince)), inSince + 18 sa)`'tir (`NextBusinessDayStart` `:817`) — yalnız 18 sa değil. Kesim K1 kademesidir
+  (`coalesce(e.day_cutoff, d.day_cutoff, l.day_cutoff, t.day_cutoff)`, `db/queries/employees.sql:240-249`), dilim
+  `tenants.timezone`; `predictTap` bu kesimi zaten taşır (`tapprediction.go:47-60`). Denetimde ölçüldü: 18 saat 75 girişin 69'unda
+  iş günü sonunu aşıyor (M16-42 (1)).
 
 **Kabul kriterleri.**
 - `AppHomeFacts`'e (`apphome.go:21-34`) `OpenIn *OpenIn` (öneri ad: `At time.Time`, `Shift *tap.Shift` — satırın `shift_*`
@@ -2470,15 +2535,21 @@ saat dilimi ya da vardiya hesaplamaz; sunucunun verdiği anları ve biçimlediğ
   `"remindAt": RFC3339|null, "showUntil": RFC3339, "staleAt": RFC3339} | null`
   - `*Local` alanları `localClock`'la, işletmenin diliminde, **sunucuda** (O7): uygulama metinleri yalnız bunları kullanır, kendi
     saat dilimi hesabını yapmaz.
-  - `staleAt` = `inSince + tap.StaleOpenIn` (18 sa, `decide.go:558`).
+  - `staleAt` = **`tap.OpenUntil(inSince, cutoff)`** (yeni, öneri ad; `internal/domain/tap/decide.go`'da `PredictDirection`'ın
+    yanında): `min(NextBusinessDayStart(BusinessDayStart(inSince, c), c), inSince + StaleOpenIn)` — `PredictDirection`'ın
+    `LeftOpen` vermeye başladığı an. **Tek** hesap budur; çağrı yeri `tenant.Directory.predictTap`'in kesimiyle `AppHome`
+    (`apphome.go:84`) — `presence`'ın her an alanı onunla sınırlanır. Kesim çözülemezse `presence` null (tahminin kuralı).
   - `shiftEndsAt` **yalnız** owner vardiyayı gerçek diye işaretlediyse (`staff_shift_visible`, Q52 (2) (c)) **ve** `inSince <
     shiftEndsAt ≤ staleAt` ise dolu — `tap.ShiftSpanAt(inSince, shift)`'in sonu; aksi hâlde null (sıkıştırma kuralı: talebin ön
     dolgusu da pencere dışı ucu kullanmaz — `Prefill`, `chain.go:481-494`). Owner işaretlemediyse vardiya saati uygulamanın hiçbir
     metnine girmez (O1).
-  - `remindAt` (Q51): `shiftEndsAt` doluysa `shiftEndsAt + 30 dk`; değilse **`inSince + 10 sa`** (Q51 (2) (b)); sonuç `staleAt`'ten
-    önce değilse null. Q51 (3) (b) seçildiyse işletmenin anahtarı kapalıyken null.
-  - `showUntil` = `min(hatırlatma anı + 2 sa, staleAt)` — hatırlatma anı `remindAt`'in kuralıyla, işletme anahtarından bağımsız
-    hesaplanır (kilit ekranı sayacının ve bildirimin ömrü — M16-46, M16-47; O3).
+  - `remindAt` (Q51): taban = `shiftEndsAt` doluysa `shiftEndsAt + 30 dk`, değilse **`inSince + 10 sa`** (Q51 (2) (b)); **iş günü
+    kırpması** (Q51 (2) (d), N1): `remindAt = min(taban, staleAt − 30 dk)`; sonuç `inSince + 1 sa`'ten önceyse null (girişten
+    hemen sonra hatırlatma yok — ör. 22:45 girişi, 23:00 kesim). Gerekçe: iş gününün sonu bir dokunuşun girişi **kapatabileceği**
+    son andır; ondan sonra *"clock out"* hatırlatması kişiyi yeni bir **giriş** yazmaya gönderirdi. Q51 (3) (b) seçildiyse işletmenin
+    anahtarı kapalıyken null.
+  - `showUntil` = `min(hatırlatma anı + 2 sa, staleAt)` (hatırlatma anı null ise `staleAt`) — hatırlatma anı `remindAt`'in kuralıyla,
+    işletme anahtarından bağımsız; **her zaman ≤ `staleAt`** (kilit ekranı sayacının ve bildirimin ömrü — M16-46, M16-47; O3).
   - Deaktive kişide, iş günü anahtarı kapalıyken ve tahmin okunamadığında `presence` null (bugünkü `direction`'ın kuralı).
   - `presence` Saatlerim ayarından bağımsızdır (ADR 0050 (iii)).
 - **Vardiyam** (Q52 (1) (a), (2) (c)): `"shift": {"start":"HH:MM","end":"HH:MM","overnight":bool,"venue":string} | null` — kişinin
@@ -2492,7 +2563,7 @@ saat dilimi ya da vardiya hesaplamaz; sunucunun verdiği anları ve biçimlediğ
     (`{"before":bool,"after":bool}`) tek transaction'da; yalnız owner (`brandEditorRole`, `internal/domain/tenant/brand.go:125`).
     Panel metni (anlamı): *"These are my staff's real shift times. Staff see their usual shift, and reminders and the lock-screen
     timer use the shift's end. Turning this on does not change late minutes or time claims: those already use any shift you
-    set."* Görünüm §9 sorusudur (M16-42 (3) (c)).
+    set."* Görünüm §9 sorusudur (M16-42 (3) (d)).
   - **Bağlantı adlandırılır** (Y2): hatırlatmayı vardiyaya bağlamak için owner'ın vardiya **girmesi** gerekir; vardiya girmek ayrıca
     geç kalma raporunu, talep ön dolgusunu (K3) ve müdür onayının bandını (ADR 0032 §C.4) da açar — bu kartın değil, bugünkü
     vardiya alanlarının etkisidir. Panel metni bunu söyler; vardiyasız işletme hatırlatmayı yine alır (`inSince + 10 sa`).
@@ -2508,20 +2579,25 @@ saat dilimi ya da vardiya hesaplamaz; sunucunun verdiği anları ve biçimlediğ
   kapatma işletmenin seçimidir), aynı desen (GRANT, audit `tenant.staff_reminders_updated`, owner kontrolü, aynı kırmızı testler,
   `scoped-access.sql`); panel metni (anlamı) *"Let the Taptime app remind staff who may have forgotten to clock out. Reminders stay
   on the phone; Taptime sends nothing."*; `/me`'ye `"remindersAllowed": bool`; kapalıyken `remindAt` null (M16-46 bekleyeni siler,
-  Ayarlar satırı *"Your workplace has turned reminders off."* der — §9 sorusu).
+  Ayarlar satırı *"Your workplace has turned reminders off."* der — §9 sorusu M16-42 (3) (d)).
 - **Tap yanıtı değişmez** (`appTapResponse`, `apptap.go:278-287`): uygulama bir dokunuş sonucundan sonra `/me`'yi yeniden okur
   (M16-46). Tarayıcıya dokunulmaz.
-- **Testler** (DB). [G45-a] Açık giriş 09:00, gerçek vardiya 09:00–17:00 → `inSince` 09:00, `shiftEndsAt` 17:00, `remindAt` 17:30,
-  `showUntil` 19:30, `staleAt` ertesi 03:00 (UTC karşılıkları), `*Local` alanları işletmenin saatiyle; çıkıştan sonra `presence`
-  null. [G45-b] `shiftEndsAt` = aynı çapa için `claim.Prefill(claim.KindOut, …)`'in değeri (pencere içindeyken). [G45-c] Gece
+- **Testler** (DB). [G45-a] **Kesim 05:00**, açık giriş 09:00, gerçek vardiya 09:00–17:00 → `inSince` 09:00, `shiftEndsAt` 17:00,
+  `remindAt` 17:30, `showUntil` 19:30, `staleAt` ertesi 03:00 (18 sa — iş günü ertesi 05:00'te biter, ondan önce) (UTC
+  karşılıkları), `*Local` alanları işletmenin saatiyle; çıkıştan sonra `presence` null. [G45-b] `shiftEndsAt` = aynı çapa için `claim.Prefill(claim.KindOut, …)`'in değeri (pencere içindeyken). [G45-c] Gece
   vardiyası (18:00–02:00) → bitiş ertesi 02:00; Malta'nın Mart ve Ekim saat değişimi günlerinde doğru UTC. [G45-d] Önceki iş
-  gününden kalmış açık giriş → `presence` null. [G45-e] Vardiyasız giriş (`shift_source='none'`) → `shiftEndsAt` null, `remindAt` =
-  `inSince + 10 sa`, `showUntil` = `inSince + 12 sa`. [G45-f] Deaktive kişi → null. [G45-g] `staff_shift_visible` kapalı ve vardiya
+  gününden kalmış açık giriş → `presence` null. [G45-e] **Kesim 05:00**, vardiyasız giriş 09:00 (`shift_source='none'`) → `shiftEndsAt`
+  null, `remindAt` 19:00 (`inSince + 10 sa`), `showUntil` 21:00, `staleAt` ertesi 03:00. [G45-f] Deaktive kişi → null. [G45-g] `staff_shift_visible` kapalı ve vardiya
   dolu → `shiftEndsAt` null, `remindAt` = `inSince + 10 sa`, `shift` null; açık + departman vardiyası → departmanınki; departmansız
   → profil lokasyonununki. [G45-h] Sözleşme şekli (`TestAppContract_ResponseShapes` genişler). [G45-i] owner değiştirir → sütun +
   audit aynı transaction; manager ve başka işletmenin owner'ı reddedilir; RLS. **[G45-j] sıkıştırma:** gece vardiyasına 02:30
-  girişi ve gündüz vardiyasına 23:00 girişi → `shiftEndsAt` null (`inSince < end ≤ staleAt` değil), `remindAt` = `inSince + 10
-  sa`. Komut: `GOTOOLCHAIN=go1.26.11 go test -run '<G45 testlerinin adları>' ./internal/domain/tenant/ ./internal/handler/
+  girişi ve gündüz vardiyasına 23:00 girişi (kesim 05:00) → `shiftEndsAt` null (`inSince < end ≤ staleAt` değil); `staleAt` 05:00
+  ve `remindAt` 04:30 (kırpma). **[G45-k] (N1)** kesim 05:00, vardiyasız giriş 19:30 → `staleAt` ertesi 05:00 (iş günü sonu, 18
+  saatten önce), taban 05:30 ≥ `staleAt` → `remindAt` 04:30, `showUntil` 05:00. **[G45-l] (N1)** kesim 23:00, vardiyasız giriş
+  18:00 → `staleAt` 23:00, `remindAt` 22:30, `showUntil` 23:00; kesim 23:00, giriş 22:45 → `remindAt` null (`inSince + 1 sa`'ten
+  önce), `showUntil` 23:00. **[G45-m]** `tap.OpenUntil` özellik testi (`internal/domain/tap`, tablo + Malta DST günleri): `[inSince,
+  staleAt)` içindeki her an için `PredictDirection` `out` döner, `staleAt`'ten sonraki her an için `LeftOpen` (sınır anı dahil
+  hangi tarafta olduğu testte yazılı — `>` ve `Before` karşılaştırmaları). Komut: `GOTOOLCHAIN=go1.26.11 go test -run '<G45 testlerinin adları>' ./internal/domain/tenant/ ./internal/handler/
   ./internal/db/`.
 
 ## M16-46 — "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android)
@@ -2589,7 +2665,7 @@ altyapısı (APNs/FCM) yok, sunucu telefonu uyandırmaz, konum okunmaz, sistem h
   Koşullu dil: kişi tarayıcıdan çıkmış ya da hâlâ çalışıyor olabilir; bildirim çalışmayı bitirmeye çağırmaz. İşletme adı, mekân ve
   kişinin adı **yok** (kilit ekranında görünür). Bildirime dokunmak uygulamanın ana ekranını açar (plaket okumaz).
 - **Bedel — tarayıcıdan çıkış:** sunucu telefona haber veremez (push yok); kurulu bildirim yine düşer. Hafifletme: koşullu metin;
-  her ön plana geliş ve dokunuş yeniden senkronlar; `staleAt`'ten sonra kurulmaz.
+  her ön plana geliş ve dokunuş yeniden senkronlar; `staleAt`'ten (iş günü sonu ya da 18 sa — `tap.OpenUntil`) sonra kurulmaz.
 - **Sunucudan kapatma yolu** (ADR 0050 (ii)): `remindAt`'i null döndüren sürüm — bekleyen bir sonraki senkronda silinir.
 - **R2 genişler:** `UNLocationNotificationTrigger` `R2_LINE`'a (`scripts/redline-check.sh:511`) — bölge girişiyle tetiklenen
   bildirim bir geofence'tir (§4.2); pin `TestRedline_M16_MobileBackgroundLocation` (`cmd/tappa/scripttest/redline_m16_test.go:150`)
@@ -2645,9 +2721,11 @@ Activity en çok **8 saat** etkin kalır, sonra kilit ekranında en çok **4 saa
 - **Kilit ekranı içeriği** (§9 (3) (b), Q53 (2) (a)): *"Clocked in"* + sayaç (+ yalnız `shiftEndsAtLocal` doluysa *"Shift ends
   17:00"* — O1); işletme adı, mekân ve kişinin adı **yok**. Dokunmak uygulamanın ana ekranını açar.
 - **Bedel — tarayıcıdan çıkış (O3):** sunucu haber veremez; kilit ekranı *"Clocked in"* demeyi `showUntil`'e kadar sürdürür
-  (`min(hatırlatma anı + 2 sa, staleAt)` — vardiyasız girişte `inSince + 12 sa`), iOS'ta sonra bayat görünüm (*"Open Taptime to
-  check"*) sistem sınırına kadar; Android'de bildirim `showUntil`'de kalkar. Hafifletme: uygulamanın her ön plana gelişi senkronlar;
-  süre `staleAt` (18 sa) yerine `showUntil`'le kısaltıldı. Bu bedel Q53'te adlandırıldı.
+  (`min(hatırlatma anı + 2 sa, staleAt)` — vardiyasız girişte en çok `inSince + 12 sa`, **ve hiçbir zaman iş gününün sonundan
+  sonra değil**: `staleAt` `tap.OpenUntil`'dir, M16-45), iOS'ta sonra bayat görünüm (*"Open Taptime to check"*) sistem sınırına
+  kadar; Android'de bildirim `showUntil`'de kalkar. Hafifletme: uygulamanın her ön plana gelişi senkronlar; süre `showUntil`'le
+  kısaltıldı ve iş günü sınırını aşmaz (denetimde ölçüldü: sınırsız 12 saat 23 girişte iş günü sonunu aşıyordu — M16-42 (1)). Bu
+  bedel Q53'te adlandırıldı.
 - **Metinler** iOS'ta uzantının dosyası dahil `ClaimCopy` / `TapCopy` desenindeki bir metin dosyasında (öneri ad
   `mobile/ios/TaptimeTimer/TimerCopy.swift`) — `IosCopyTest`'in Gradle dosya haritasına (`build.gradle.kts:160`) ve `shared` listesine
   girer, M16-49 çevirir.
@@ -2819,7 +2897,7 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 - **Ekler turu** (aynı iki telefon, demo işletme; iOS sayaç için iOS **16.2+** bir iPhone): **talep** — 09:00'da girişte kal;
   12:00'de *"Missing times"* girişi **yok** ([G43-k]); iş günü bitince ertesi gün listede → saat gönder → `punch_claims` +1,
   `transactions` değişmez; panelde onay → `transactions` +1 (`channel='manual'`), uygulamada *Approved* (Saatlerim kapalıysa
-  saatsiz); ikinci gönderim *Sent* · **hatırlatma** — vardiyasız girişte `inSince + 10 sa`'te, demo lokasyonuna gerçek vardiya
+  saatsiz); ikinci gönderim *Sent* · **hatırlatma** — vardiyasız girişte `inSince + 10 sa`'te (akşam girişinde iş günü bitmeden 30 dk önceye kırpılmış hâliyle de — [G45-k]), demo lokasyonuna gerçek vardiya
   girilmiş ve `staff_shift_visible` açıkken bitiş + 30 dk'da bildirim; çıkış uygulamadan → bildirim silinir; çıkış **tarayıcıdan**
   → bildirim yine düşer ve metni yanlış bir şey iddia etmez (bedel); Android'de yeniden başlatma → bekleyen silinir, uygulama
   açılınca yeniden kurulur · **Android gecikme eşiği (O4):** telefon ekranı kapalı ve şarjdan çıkarılmış (Doze'a girmiş) hâlde üç

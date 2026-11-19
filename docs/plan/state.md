@@ -1806,7 +1806,7 @@ yazılır.
 | M16-42 | Faz G ekleri: canlı taban ölçümü, Q50–Q54, ADR 0050 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ölçüm sorulardan önce, soru adımı M16-33'ün §9'undan önce; ADR 0050 (öneri) |
 | M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok; hâlâ açık girişe talep yok (`still_open`); Android `ContractPinTest` aynı commit'te |
 | M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | todo | §9 (M16-42) |
-| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)); vardiyasız yol birincil (üretimde vardiya yok — denetim) |
+| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)); vardiyasız yol birincil (üretimde vardiya yok — denetim); açık giriş sınırı `tap.OpenUntil` (iş günü sonu ya da 18 sa) |
 | M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | todo | push yok, konum yok; R2'ye `UNLocationNotificationTrigger` |
 | M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; iOS 16.2+; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
 | M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
@@ -1817,6 +1817,11 @@ yazılır.
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19, üçüncü not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ikinci denetim turu kapatıldı (yalnız belge)
+
+- **Ne:** `b3b3f812`'ye dar yeniden denetim NO-GO. **N1** hatırlatma ve sayaç iş günü kesimini bilmiyordu (`staleAt` = 18 sa; motor girişi iş günü bitince kapatmayı bırakır — `decide.go:681-700`) → yeni `tap.OpenUntil` = `min(iş günü sonu, inSince + 18 sa)`, `remindAt` 30 dk önceye kırpılır (1 sa'ten erken ise yok — Q51 (2) (d) önerisi), `showUntil` ≤ `staleAt`; testler [G45-k]/[G45-l]/[G45-m]; Q51/Q53 denetimin iş günü sayımlarıyla. **N2** Android yol pini Faz G ortak kural (7) — M16-31, M16-35, M16-37, M16-43'te madde. **N3** ölçüm SQL'i `audit_log.at`; her sütun şemaya karşı okundu, iş günü sayımı eklendi. **N4** M16-42 (3) (d) panel kontrolleri. **N5** `still_open`'ın gerçek yolu kesim/dilim değişikliği. **N6** ADR 0050'nin bölüm bölüm tarifi M16-42'de (dosya o kartta yazılır).
+- **Sıradaki:** değişmedi.
 
 ### 2026-11-19, ikinci not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ilk denetim turu kapatıldı (yalnız belge)
 
