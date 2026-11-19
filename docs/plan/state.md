@@ -1803,12 +1803,37 @@ yazılır.
 | M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
 | M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
 | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
+| M16-42 | Faz G ekleri: canlı taban ölçümü, Q50–Q54, ADR 0050 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ölçüm sorulardan önce, soru adımı M16-33'ün §9'undan önce; ADR 0050 (öneri) |
+| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok; hâlâ açık girişe talep yok (`still_open`); Android `ContractPinTest` aynı commit'te |
+| M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | todo | §9 (M16-42) |
+| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)); vardiyasız yol birincil (üretimde vardiya yok — denetim); açık giriş sınırı `tap.OpenUntil` (iş günü sonu ya da 18 sa) |
+| M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | todo | push yok, konum yok; R2'ye `UNLocationNotificationTrigger` |
+| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; iOS 16.2+; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
+| M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
+| M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı ve dil listesi ön koşul; CLAUDE.md §7 + §9 değişikliği; koşullu 00121; onaycı yoksa yayından sonraya |
 | M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı |
 | M16-40 | Faz G kapanışı | todo |  |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19, üçüncü not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ikinci denetim turu kapatıldı (yalnız belge)
+
+- **Ne:** `b3b3f812`'ye dar yeniden denetim NO-GO. **N1** hatırlatma ve sayaç iş günü kesimini bilmiyordu (`staleAt` = 18 sa; motor girişi iş günü bitince kapatmayı bırakır — `decide.go:681-700`) → yeni `tap.OpenUntil` = `min(iş günü sonu, inSince + 18 sa)`, `remindAt` 30 dk önceye kırpılır (1 sa'ten erken ise yok — Q51 (2) (d) önerisi), `showUntil` ≤ `staleAt`; testler [G45-k]/[G45-l]/[G45-m]; Q51/Q53 denetimin iş günü sayımlarıyla. **N2** Android yol pini Faz G ortak kural (7) — M16-31, M16-35, M16-37, M16-43'te madde. **N3** ölçüm SQL'i `audit_log.at`; her sütun şemaya karşı okundu, iş günü sayımı eklendi. **N4** M16-42 (3) (d) panel kontrolleri. **N5** `still_open`'ın gerçek yolu kesim/dilim değişikliği. **N6** ADR 0050'nin bölüm bölüm tarifi M16-42'de (dosya o kartta yazılır).
+- **Son (dar denetim GO, `94508736`):** N8 ölçüm SQL'inin parantezi (denetçinin canlıda koşan hâline eşitlendi), N7 kırpmanın bedeli Q51'de, N9 ADR biçim cümlesi, `employees.sql:252` çıpası.
+- **Sıradaki:** değişmedi.
+
+### 2026-11-19, ikinci not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ilk denetim turu kapatıldı (yalnız belge)
+
+- **Ne:** `2791e5df`'e iki plan denetimi NO-GO. Düzeltmeler: **Y1** bugünün hâlâ açık girişi talep kabul ediyordu (K4'ün dolaylı koruması uygulama girişinde yoktu) → `Open` listelemez, `Submit` kilit altında `still_open` reddeder, tarayıcı yolu değişmez; **Y2** üretimde vardiya yok (denetim sayımı: 13 lokasyon / 6 departman, 75 girişin 0'ı vardiyalı) → canlı ölçüm M16-42'de sorulardan önce (SQL kartta), hatırlatmanın vardiyasız yolu birincil (`inSince + 10 sa`, Q51 önerisi değişti), vardiya yalnız owner işaretlediyse; iOS sayaç 16.2+, bayat görünüm ve `showUntil`; Android gecikmesi bir saate kadar + M16-40 eşiği (30 dk); sunucu biçimli `*Local` saatler; `approvedAt` Saatlerim'e bağlı (Q50 (5)); `/me` `missingTimes`, `records[].claimable`; Android `ContractPinTest` M16-43'te; CLAUDE.md §9 `:571` ikinci değişiklik; dil §9 adımı ve onaycı M16-49'a; koşullu migration **00121** (Q54 (3) (c)).
+- **Sıradaki:** değişmedi.
+
+### 2026-11-19 (M16, dal `plan/m16-faz-g-extras`, taban `b3c877fd`) — Faz G ekleri planlandı (yalnız belge)
+
+- **Ne:** kullanıcı kararı 6 (ürün sahibi, AskUserQuestion): personel uygulamasına altı ek. `m16-mobil.md`'ye **M16-42 … M16-49** — ADR 0050 + sorular (M16-42) → unutulan çıkış talebi sunucu/uygulama (M16-43/44) → `/me` içeride durumu + vardiya bitişi + vardiyam (M16-45) → yerel hatırlatma (M16-46) → kilit ekranı sayacı (M16-47) → vardiyam satırı (M16-48) → dil (M16-49). Özellik 5 (*onay bekleyen kayıtlarım*) yeni kart değil: M16-31'e pencere geneli `waiting` sayısı, M16-33'e bilgi satırı. Yeni açık sorular **Q50** (K4 ve giriş — öneri: K4 uygulama girişine uygulanmaz, Saatlerim'den bağımsız, 7 gün), **Q51** (hatırlatma — öneri: bitiş + 30 dk, vardiyasızda yok, işletme ayarı yok, Ayarlar'da opt-in), **Q52** (vardiyam — öneri: *"usual shift"*, ayrı owner ayarı), **Q53** (sayaç — öneri: opt-in, kilit ekranında işletme/ad yok), **Q54** (dil — öneri: pilot müdürlerinin 2–3 dili, makine + anadili onayı, telefon dili, tarayıcı yok). Rezerve: ADR **0050**, koşullu migration **00119** / **00120** (paralel M16-19 şeridi 00113'ü aldı ve sonrakileri bir kaydırdı — o kaydırma M16-19 dalında, birleştirmede ana oturum uzlaştırır; bu daldaki eski Faz G satırları değişmedi). Sıra: … M16-38 → M16-43 … M16-49 → M16-39 → M16-40; M16-42 paralel. M16-39'un 4.2 satırı, M16-40'ın turu ve bağımlılığı, M16-41'in paragrafı, *Sonra* listesi güncellendi.
+- **Ölçülen:** uygulamanın tap yanıtı talep kartını taşımaz (`apptap.go:278-287`; M16-07 devri (3) — bu ekler kapatmaz); talebin K4'ü yalnız oturuma bağlı bağlamla uygulanır (ADR 0032 `:791`); `GetLastOpenTransaction` açık girişin dondurulmuş vardiyasını zaten seçer (`transactions.sql:149-150`) → hatırlatma migration istemez; roster tablosu yok → *"sıradaki vardiya"* güvenilir değil; `claim` → `tenant` içe aktarımı (`chain.go:499-500`) `tenant`'tan `claim.SpanOf`'u yasaklar; R2 `UNLocationNotificationTrigger`'ı görmez (`redline-check.sh:511`); iOS dağıtım hedefi 15.0 (Live Activity 16.1+); Android'de `/me` `onResume`'da okunmaz; CLAUDE.md §7 kullanıcı metnini TR/EN'le sınırlar (`:528-529`).
+- **Sıradaki:** değişmedi — Faz G'nin uygulaması Faz D ve E'den sonra; M16-42'nin soruları (Q50–Q54) M16-34'ünkiler gibi önceden sorulabilir.
 
 ### 2026-11-19 (M16, dal `plan/m16-mobil`) — Faz G'nin açık soruları cevaplandı, kartlar seçilen dala daraltıldı
 
