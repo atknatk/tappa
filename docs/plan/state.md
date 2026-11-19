@@ -1803,20 +1803,25 @@ yazılır.
 | M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
 | M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
 | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
-| M16-42 | Faz G ekleri: ADR 0050, Q50–Q54 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ADR 0050 (öneri) |
-| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok |
+| M16-42 | Faz G ekleri: canlı taban ölçümü, Q50–Q54, ADR 0050 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ölçüm sorulardan önce, soru adımı M16-33'ün §9'undan önce; ADR 0050 (öneri) |
+| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok; hâlâ açık girişe talep yok (`still_open`); Android `ContractPinTest` aynı commit'te |
 | M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | todo | §9 (M16-42) |
-| M16-45 | `/app/v1/me`: içeride durumu, vardiya bitişi ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)) |
+| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00119 (Q52 (2) (c)) / 00120 (Q51 (3) (b)); vardiyasız yol birincil (üretimde vardiya yok — denetim) |
 | M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | todo | push yok, konum yok; R2'ye `UNLocationNotificationTrigger` |
-| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
+| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; iOS 16.2+; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
 | M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
-| M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı yoksa yayından sonraya |
+| M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı ve dil listesi ön koşul; CLAUDE.md §7 + §9 değişikliği; koşullu 00121; onaycı yoksa yayından sonraya |
 | M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı |
 | M16-40 | Faz G kapanışı | todo |  |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19, ikinci not (M16, dal `plan/m16-faz-g-extras`) — Faz G eklerinin ilk denetim turu kapatıldı (yalnız belge)
+
+- **Ne:** `2791e5df`'e iki plan denetimi NO-GO. Düzeltmeler: **Y1** bugünün hâlâ açık girişi talep kabul ediyordu (K4'ün dolaylı koruması uygulama girişinde yoktu) → `Open` listelemez, `Submit` kilit altında `still_open` reddeder, tarayıcı yolu değişmez; **Y2** üretimde vardiya yok (denetim sayımı: 13 lokasyon / 6 departman, 75 girişin 0'ı vardiyalı) → canlı ölçüm M16-42'de sorulardan önce (SQL kartta), hatırlatmanın vardiyasız yolu birincil (`inSince + 10 sa`, Q51 önerisi değişti), vardiya yalnız owner işaretlediyse; iOS sayaç 16.2+, bayat görünüm ve `showUntil`; Android gecikmesi bir saate kadar + M16-40 eşiği (30 dk); sunucu biçimli `*Local` saatler; `approvedAt` Saatlerim'e bağlı (Q50 (5)); `/me` `missingTimes`, `records[].claimable`; Android `ContractPinTest` M16-43'te; CLAUDE.md §9 `:571` ikinci değişiklik; dil §9 adımı ve onaycı M16-49'a; koşullu migration **00121** (Q54 (3) (c)).
+- **Sıradaki:** değişmedi.
 
 ### 2026-11-19 (M16, dal `plan/m16-faz-g-extras`, taban `b3c877fd`) — Faz G ekleri planlandı (yalnız belge)
 
