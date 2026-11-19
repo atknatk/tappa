@@ -98,7 +98,12 @@ type Tap struct {
 	// claimWait bounds the result screen's claim-card read: resultClaimWait (claim.go), a
 	// field so a test can shorten it.
 	claimWait time.Duration
-	log       *slog.Logger
+	// live is GET /q, the live QR tap page (M16-21, ADR 0045 §2.5): the screens' token keys
+	// and the context-less screen resolver. nil while TAPPA_LIVE_QR_KEY is unset -- /q is
+	// then not mounted (404) -- set by ServeLiveQR (cmd/tappa's openLiveQR, the one place
+	// that reads the key, so the screen page and the tap page are on or off together).
+	live *liveQRTap
+	log  *slog.Logger
 }
 
 // ⚠️ THE AUDIT RECORDER IS NOT A FIELD ON Tap, and that is not an oversight:
@@ -295,6 +300,12 @@ func (t *Tap) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(t.chain()...)
 		r.Get(TapPath, t.Page)
+		// GET /q, the live QR tap page (M16-21): the same chain and limiter instance as GET /t
+		// -- a live QR scan is a tap and its button is the same POST /api/checkin -- mounted
+		// only while the live QR screens are on (ServeLiveQR).
+		if t.live != nil {
+			r.Get(LiveQRPath, t.LivePage)
+		}
 		r.Post("/api/checkin", t.Checkin)
 		// The claim card's answer (M15-17): the same chain, the same limiter instance -- a
 		// claim is the tail of a tap, metered with it -- and, like the tap, no suspension

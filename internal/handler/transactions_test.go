@@ -555,7 +555,8 @@ func TestTransactionFilters_EveryOfferedOptionIsAccepted(t *testing.T) {
 	}
 	total += len(panelVerdicts)
 	// The vocabularies are migration 0005's CHECK lists: four verdicts, three
-	// channels. A shrunken list would make this pass over less than it should.
+	// channels. A shrunken list would make this pass over less than it should. (00112's
+	// qr_live is not offered -- transactions.go says why, M16-21.)
 	if total != 7 {
 		t.Errorf("walked %d options; migration 0005 fixes four verdicts and three "+
 			"channels, so this should be 7. If the schema changed, the chips, the dropdown and "+

@@ -46,7 +46,7 @@ satış ve gelecekteki tasarım tek yere baksın. Kabul edilmiş bir risk çöz�
 
 ## Karar
 
-Aşağıdaki **dokuz risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
+Aşağıdaki **on risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
 gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığı ve
 (buddy punching için ayrıca) satış cevabı.
 
@@ -69,6 +69,12 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 > kabulün sebebi bir §4 kırmızı çizgisi değil, bir **kullanıcı kararıdır** — yapısal çare,
 > CLAUDE.md §9'un sorusuna verilen **D-C** cevabını geri almak olurdu.
 
+> ⚠️ **10, 2026-11-19'da eklendi (M16-21; kaynak [ADR 0045](0045-istege-bagli-native-uygulama.md)
+> Bedel 5).** *"Append kuralı"* gereği yeni ADR açılmadı; sayı **dokuz**'dan **on**'a bu ekle
+> çıktı (`TestADR0005_TheRiskCountMatchesTheTable`). Bu satır Bedel 5'in **aktarma** yarısıdır;
+> aynı ailenin iki **kalıcı** biçimi (kopyalanan ekran oturumu çerezi, yanlış eşlenmiş ekran) ve
+> NFC'siz aktivasyonun uzaktan tamamlatılması M16-29'da (ve M16-23'te) eklenir.
+
 | # | Risk | Neden çözemiyoruz (hangi kırmızı çizgi) | Tespit sinyali | Uygulandığı görev |
 |---|---|---|---|---|
 | 1 | **Buddy punching** (A4/Q19) | Tek çözümü biyometri (§4.1) **veya** uygulama kurulumu — ikisi de ürünün varlık sebebine aykırı | Eş-zamanlı tap çiftleri raporu | [M6-11](../plan/m6-dashboard.md) |
@@ -80,6 +86,7 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2). 🔴 **KAPSAM 2026-08-21'DE BÜYÜDÜ:** ADR 0017 §6 md. 13 `FileAR.Write`/`ReadWrite`/`Change`'i **aynı `0x01` anahtarına** bağladı, yani sızan şey artık yalnız SUN imzalama yetkisi değil, **dosya YAZMA ve YENİDEN YAPILANDIRMA yetkisi**dir | 🔴 **Doğrudan sinyal YOK, ve sonuç iki dallı:** *(a)* **sahte SUN** — burada §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir · *(b)* 🔴 **NDEF'i repointleme (oltalama)** — md. 13'ten sonra mümkün, ve burada **üç kanıt HİÇ devreye girmez**: repointlenen plaketin tap'i **bize hiç ulaşmaz** (risk 8'in ölçümü) | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
 | 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — ⚠️ **2026-08-21'de DARALDI: oltalama yarısı kapandı, hizmet reddi yarısı duruyor** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. ⚠️ ADR 0017 §6 md. 13 (FAZ B2b) `FileAR.Write`/`ReadWrite`/`Change`'i **anahtar `0x01`**'e kilitledi → **elinde YALNIZ halka açık fabrika anahtarı 0 olan** tarafa karşı **NDEF yazılamaz ve SDM kapatılamaz**. 🔴 **Risk 7'nin kümesine karşı DEĞİL:** `0x01` her encode ve her kurtarma oturumunda o dökümü görene sızar ve md. 13'ten sonra **aynı zamanda yazma yetkisidir**. **Kalan:** aynı kişi anahtar 0'ı (ve 2–4'ü) üzerine yazabilir → **hizmet reddi** ve gelecekteki anahtar-0 kişiselleştirmemizin **önden alınması** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
 | 9 | **Marka taklidi** ([ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) *"Sayılı sınırlar"* 1 ve WL-9 eki) — *2026-10-06'da eklendi, M10 WL-12* | Logo sahibin yüklediği **serbest piksellerdir**, kırık görselde görünen `alt`'ı **serbest metin** işletme adıdır; ürün logonun **ne çizdiğini okumaz** — yeniden kodlama meta veriyi düşürür, pikseli taşır ([ADR 0024](0024-kullanici-yukledigi-gorsel.md) §3, sınır 8). Yapısal tek çare tenant piksellerini tap ve sonuç ekranından kaldırmaktır: **§4 kırmızı çizgisi değil**, kullanıcının §9 kararı **D-C**'nin (2026-09-24) tersi | 🔴 **Doğrudan sinyal YOK.** Başka işletmenin markasıyla: taklitçinin çalışanı gerçek plakete dokunursa `sys:tenant-mismatch` yönlendirir — **iki tenant'ta da satır yok**, ekran markasız ve *"That plaque isn't yours"* der; sunucu log'unda **iki pinsiz WARN** (GET + POST). Dolaylı iz: NFC okuması çipin sayacını tüketir, gerçek işletmenin o plakette bir sonraki kayıtlı dokunuşu `tap:ctrGap ≥ 1` taşır ve **gerçek işletmenin kendi** onay kuyruğuna düşer — ama yalnız bir sayaç boşluğu olarak, sebebini söylemeden; QR'da yok. Piksel taklidinde: basılmayan düğme **kayıt üretmez**; dolaylı tek iz (sonraki dokunuşun `tap:ctrGap`'i) sahibin kendi onay kuyruğuna düşer. İki dolaylı iz de türetildi, ölçülmedi | Kapsama, tespit değil: 24 px yuva + uyuşmazlık kuralı (WL-9, ADR 0023 §2) · yazma yalnız aktif sahibin (WL-4, WL-7) · logo yalnız oturumun kendi işletmesine (WL-6, ADR 0024 İddia D) |
+| 10 | **Canlı QR aktarma** ([ADR 0045](0045-istege-bagli-native-uygulama.md) Bedel 5) — *2026-11-19'da eklendi, M16-21* | Canlı QR ekranındaki kod bir **görüntüdür**: ~20 sn içinde fotoğrafı ya da görüntülü arama ekranı uzaktaki birine taşınır, ve imza onu yakalayamaz — imzalı olan kodun **ne zaman** gösterildiğidir, **kimin önünde** gösterildiği değil. Kapatmanın yolu ekranı kişiye bağlamaktır (biyometri §4.1, ya da her dokunuşta yeni bir cihaz bağı) ya da kodun yerini plaket almaktır — canlı QR'ın varlık sebebi tam olarak plaketsiz bir yol olmasıdır | **Kapsama + dolaylı sinyal.** Aktarılan kod mekânın **ağını** taşımaz: IP'siz canlı QR `base:live-qr-requires-ip` ile `flag` (kullanıcı kararı 2026-11-19 — sahte GPS + kopyalanmış kod evden `ok` alamaz); süresi `LiveQRNetworkGraceSeconds` (10 sn) payıyla dolmuş kod `sys:live-qr-expired` ile `flag` + not; sayfa ile basış arası `sys:tap-freshness` (canlıda `TAPPA_FRESHNESS_SECONDS` ≤180 olmalı — M16-24 ölçer). Kalan: mekânın ağına **bağlı** birinin aktardığı kod (Wi-Fi'ı paylaşan bir arkadaş, mekânda bırakılmış proxy — risk 4'ün aynısı) `ok` olur; sinyali risk 4'ünkü (`base:gps-conflict-review`) ve canlı QR oranı (M16-26) | guardrail'ler + baseline [M16-21](../plan/m16-mobil.md) · oran raporu [M16-26](../plan/m16-mobil.md) · kalıcı biçimler [M16-29](../plan/m16-mobil.md) |
 
 Referanslanan `sid`'ler kodda gerçektir ve bu ADR'yle **birebir** eşleşir:
 `base:ctr-gap-review` ve `base:gps-conflict-review` `internal/policy/baseline.go`'da
@@ -950,6 +957,48 @@ kod incelemesinin konusu — tamlık iddiası yok.
 
 **İptal koşulu.** Tenant pikselleri tap ve sonuç ekranından kalkarsa (D-C geri alınırsa) bu
 risk *"Append kuralı"* gereği **iptal edilir ama silinmez**.
+
+### 10. Canlı QR aktarma (ADR 0045 Bedel 5)
+
+> 📍 **YETKİLİ METİN: [ADR 0045](0045-istege-bagli-native-uygulama.md) §2.5 ve Bedel 5; uygulandığı
+> biçim [m16-mobil.md](../plan/m16-mobil.md) M16-21.** Aşağısı sicil için bir özettir.
+
+**Risk.** Canlı QR ekranının kodu (`internal/liveqr`, ~20 sn'de bir döner, sunucu imzalı) bir
+**görüntüdür**. Mekândaki biri onu fotoğraflayıp ya da görüntülü aramada göstererek uzaktaki bir
+çalışana ~20 sn içinde iletebilir; uzaktaki kişi kendi oturumuyla okur ve kod **gerçektir**: imza,
+ekran ve pencere doğrulanır.
+
+**Neden çözemiyoruz.** İmza kodun *ne zaman* ve *hangi ekranda* gösterildiğini kanıtlar, *kimin
+önünde* okunduğunu değil. Okuyanı ekrana bağlamanın yolu ya kişinin bedenidir (§4.1 — biyometri
+asla) ya da okuyan cihazla ekran arasında fiziksel bir bağdır — ki o NFC'nin kendisidir ve canlı
+QR tam da NFC'si olmayan telefon için vardır (ADR 0045 §2.5).
+
+**Kapsama (M16-21, ölçülerek).**
+1. **Ağ.** IP eşleşmesi olmayan canlı QR dokunuşu `base:live-qr-requires-ip` ile `flag` — kayıt
+   yazılır, onay kuyruğuna düşer (kullanıcı kararı 2026-11-19; `TestDecide_LiveQREvidence/gps_only`,
+   `TestLiveQRDB_GPSAloneIsFlagged`). Uzaktaki kişi sahte GPS üretebilir (risk 2), mekânın ağını
+   taşıyamaz. Tenant bu belgeyi kapatabilir; kapatırsa bu kapsama o işletmede yoktur.
+2. **Pencere.** Token'ın kendi ömrü + 10 sn ağ payından (`policy.LiveQRNetworkGraceSeconds`) sonra
+   ilk görülen kod `sys:live-qr-expired` ile `flag` + not (Q39 (b); `TestDecide_LiveQRExpiredTokenIsFlagged`,
+   `TestLiveQRDB_AnExpiredTokenIsAFlagWithItsNote`). Guardrail'dir, tenant kapatamaz.
+3. **Basış.** Kodu okuyan sayfanın yaşı `sys:tap-freshness`'e girer (NFC'nin 180 sn'si): kod 09:00'da
+   okunup 09:14'te başka yerden basılamaz (`TestDecide_LiveQRStalePageIsRejected`). ⚠️ **Bu koruma
+   `TAPPA_FRESHNESS_SECONDS`'a bağlıdır:** aralık 60–900 sn'dir ve 900'de pencere imzalı bağlamın 15 dk'lık
+   ömrüne eşitlenir — koruma fiilen kalkar. **Canlıdaki `TAPPA_FRESHNESS_SECONDS` değeri ölçülür; canlı QR
+   açılmadan önce ≤180 olmalı** (M16-24'ün maddesi).
+
+**Kalan risk.** Mekânın ağına bağlı biri — Wi-Fi'ı paylaşan bir arkadaş ya da mekânda bırakılmış
+bir proxy (risk 4) — kodu aktarırsa dokunuş IP ile `ok` olur. Pencere içindeki bir aktarma da
+imza açısından ayırt edilemez.
+
+**Tespit sinyali.** Dolaylı: risk 4'ün `base:gps-conflict-review`'u (GPS okunduysa ve mekânın
+dışındaysa) ve canlı QR dokunuşlarının oranı, çalışan kırılımında (M16-26). Doğrudan sinyal yok.
+
+**Sınırı.** Aynı ailenin iki kalıcı biçimi — kopyalanan ekran oturumu çerezi (ekran her yerde
+açılabilir) ve yanlış eşlenmiş ekran — bu satırın konusu değildir; M16-29'da eklenir. M16-20 onları
+180 günlük oturum ömrü, panelde *"last seen"* ve tek tıkla kaldırmayla sınırlar.
+
+**İptal koşulu.** Canlı QR kanalı kaldırılırsa *"Append kuralı"* gereği **iptal edilir ama silinmez**.
 
 ---
 

@@ -203,6 +203,43 @@ politika, kanal adı) ve aşağıdaki retler **plan önerisidir** *(Plan öneris
     açmak kullanıcı onayı + ADR 0027 §2 değişikliği ister (CLAUDE.md §4.5'in holding definer kuralı). Ayrıntı M16-21.
   - **Süre dolmuş / imzası bozuk token'ın sonucu** açık soru (Q39).
   - `/v1` punch akışındaki karşılığı açık soru (Q38).
+
+  > **Kullanıcı kararı (2026-11-19, M16-21) — yukarıdaki "IP **veya** GPS → `ok`" cümlesinin GPS yarısı
+  > geçersizdir.** M16-20 güvenlik denetiminin ORTA-1'i: kopyalanmış bir ekran çerezi (ya da aktarılan
+  > bir kod) + sahte GPS evden `ok` alırdı. Karar: **canlı QR + yalnız GPS → `flag`**, statik QR'ın
+  > `base:qr-requires-ip` kuralıyla aynı ve aynı biçimde tenant'ın değiştirebildiği bir baseline.
+  >
+  > **M16-21 uygulama notu (2026-11-19).** Ölçülen ve seçilen:
+  > (1) **Baseline: ayrı belge `base:live-qr-requires-ip` (SEÇİM).** `base:qr-requires-ip`'i iki kanala
+  > genişletmek **değişiklik** olurdu ve değişiklik mevcut bir işletmeye ulaşmaz (saklı sürüm 1 durur,
+  > kabul adımı yok — `BaselineVersion`'ın 2026-10-18 paragrafı); yani karar bugün kurulu her işletmede
+  > açık kalırdı. **Ekleme** bir sonraki dokunuşta materialise olur (Bedel 10). `BaselineVersion`
+  > 2026-11-19, `BaselineChange{Added}`, özet pinli. Tenant kapatabilir ya da tek mekânda ezebilir.
+  > (2) **Dört guardrail** (11 → 15), hepsi alarm veren guardrail'lerin **arkasında** (ADR 0007'nin
+  > yerleşim kuralı yeni istisna istemedi): `sys:live-qr-unverified` (6, deny — Q39 a; anahtar yoksa da
+  > reddeder), `sys:screen-not-active` (7, deny — satır 1'in eşi; yalnız `active` geçer),
+  > `sys:cross-tenant-live-qr` (12, deny — Q43 b; site sütunları dolu yazılır), `sys:live-qr-expired`
+  > (13, review — Q39 b; ADR 0027'nin review guardrail'inden sonra ikinci adlı istisna).
+  > (3) **Üç bağlam anahtarı** (26 → 29; ADR 0004 §8'in kapalı sözlüğü): `tap:tokenVerified`,
+  > `tap:tokenOverdueSeconds` (token'ın kendi bitişinden sonra sunucunun onu **ilk gördüğü** an — sayfanın
+  > imzalı basım damgası), `screen:status`. Hepsi sunucu türevli; yalnız `qr_live`'da bulunur. Plaket
+  > anahtarları (`tag:status`, `tag:locationId`) canlı QR'da **yoktur**; `location:id` ekranın lokasyonudur
+  > (mekân bazlı tenant kuralları canlı QR'a da uygulanır).
+  > (4) **Ağ payı 10 sn (SEÇİM, kodda ölçülerek):** ekran bir sonraki kodu bitişten 3 sn önce ister ve süresi
+  > geçmiş kodu gizler, yani en geç bitişte kaybolur; geri kalan pay kameranın tanıması + kişinin bildirime
+  > basması + mobil ağdır. Gerçek cihaz değeri M16-24'ün turu. (5) **`sys:tap-freshness` canlı QR'a
+  > uygulanır (SEÇİM):** kayıt basışta zamanlanır, token okuma anını kanıtlar; tazelik olmadan 09:00'da
+  > okunan kod 15 dk'lık bağlam ömrü boyunca başka yerden basılabilirdi. Statik QR muaf kalır (anı yok).
+  > (6) **Kanıt sözleşmesi:** token yalnız `GET /q`'da açılır; imzalı tap bağlamının ikinci düzeni
+  > (`version 2`) ekran kimliğini, doğrulama sonucunu ve token bitişini taşır — token'ın kendisini değil.
+  > (7) **`/v1`:** `channel: qr` + `qrKind: static|live` (statik QR olayına da eklenir; NFC olayında alan
+  > **yoktur** — NFC gövdesinin baytları ve imzaları değişmedi), canlı QR'da `tagId: null`.
+  > (8) **Kabul edilen bedel — v2 bağlamı tek kullanımlık değildir (M16-21 güvenlik denetimi R4/R6).** `GET /q`'nun
+  > bastığı imzalı bağlam, statik QR'ınki gibi, oturuma bağlıdır ama harcanmaz: tazelik penceresi
+  > (`TAPPA_FRESHNESS_SECONDS`, gönderilen 180 sn) içinde aynı sayfadan 60 sn'lik debounce aralıklarıyla **birden çok
+  > kayıt** yazılabilir — her biri kayıtlıdır (§4.6), kişinin kendi adınadır ve aynı kanıtla karar verilir. NFC'yi
+  > bundan sayaç korur; QR kanallarında sayaç yoktur ve tek fren kişi başına debounce'tur (CLAUDE.md §5). Bağlamı tek
+  > kullanımlık yapmak sunucuda bir harcama tablosu ister; statik QR ile aynı davranış olduğu için kabul edildi.
 - **Reddedilenler (plan önerisi):** BLE beacon (donanım ister ve arka plan izleme ayartması §4.2'ye değer) · Wi-Fi SSID/BSSID
   (konum izni ister, IP kanıtı zaten aynı şeyi söyler) · paylaşılan kiosk + PIN (buddy punching'i kolaylaştırır —
   telefon artık kişinin değil mekânındır).

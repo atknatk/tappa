@@ -103,6 +103,10 @@ var (
 	panelChannels = []components.OptionView{
 		{Value: "nfc", Label: "Plaque tap (NFC)"},
 		{Value: "qr", Label: "QR scan"},
+		// NO qr_live OPTION (M16-21, measured): the ledger lists live QR rows under "Any channel",
+		// and an option needs a label, and The Pass refuses the word "live" (pass_test, D1 / §4.2 --
+		// "live" reads as live tracking). The label is a §9 question; until it is answered the
+		// dropdown offers the three channels it always did (TestTransactionFilters_ counts them).
 		{Value: "manual", Label: "Entered by a manager"},
 	}
 )

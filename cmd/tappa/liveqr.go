@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"strings"
+
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/db"
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/handler"
@@ -19,12 +24,20 @@ import (
 //
 // The screen's cookie takes the employee session's Secure rule (session.NewCookies), so a plain-http
 // development server is the only place it is sent without Secure.
-func openLiveQR(cfg *config.Config, data liveqr.Database, trail liveqr.Trail, log *slog.Logger) ([]handler.AdminAuthOption, httpx.Mounter, error) {
+//
+// AND THE TAP PAGE THAT READS THE CODES (M16-21): GET /q, on the tap surface (tap.ServeLiveQR), from
+// the SAME keys. This is the one place TAPPA_LIVE_QR_KEY turns anything on, so a screen that shows
+// codes and a server that cannot take them cannot both exist -- a key with no /q would make every
+// scan a 404 (M16-20's hand-off; TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre).
+func openLiveQR(cfg *config.Config, data liveQRData, trail liveqr.Trail, tap *handler.Tap, log *slog.Logger) ([]handler.AdminAuthOption, httpx.Mounter, error) {
 	if !cfg.LiveQRConfigured() {
 		return nil, nil, nil
 	}
 	keys, err := liveqr.NewKeys(cfg.LiveQRKey.Reveal())
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := tap.ServeLiveQR(keys, data); err != nil {
 		return nil, nil, err
 	}
 	screens, err := liveqr.NewScreens(keys, data, trail)
@@ -37,4 +50,11 @@ func openLiveQR(cfg *config.Config, data liveqr.Database, trail liveqr.Trail, lo
 	}
 	screenURL := strings.TrimRight(cfg.BaseURL, "/") + handler.LiveScreenPath
 	return []handler.AdminAuthOption{handler.LiveQRScreens(screens, screenURL)}, page, nil
+}
+
+// liveQRData is what the live QR surfaces read: the screens' own resolvers (liveqr.Database) and the
+// tap path's context-less screen resolver (resolve_live_qr_display_by_id, M16-21).
+type liveQRData interface {
+	liveqr.Database
+	GetLiveQRDisplayByID(ctx context.Context, displayID uuid.UUID) (db.ResolvedLiveQRDisplay, error)
 }

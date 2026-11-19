@@ -359,6 +359,12 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 		Channel:         tap.Channel(tctx.Channel),
 		CMACVerified:    tctx.CMACVerified,
 		TagTenantID:     tctx.TagTenantID,
+		// The live QR half of the context (M16-21). tap/start mints none today -- it reads a
+		// plaque's SUN query only, and a /q URL is refused there as unusable (M16-22 decides the
+		// app's live QR path) -- so these are zero; passed so the two presses cannot drift.
+		DisplayID:      tctx.DisplayID,
+		TokenVerified:  tctx.TokenVerified,
+		TokenExpiresAt: tctx.TokenExpiresAt,
 		// SERVER-DERIVED (ADR 0045 §2.4): this handler is the app's endpoint, so the client is the
 		// app by construction -- nothing in the request is read for it.
 		Client:       tap.ClientApp,

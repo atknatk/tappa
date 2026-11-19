@@ -1784,7 +1784,7 @@ yazılır.
 | M16-18 | Faz C kapanışı — gerçek cihaz turu | todo |  |
 | M16-19 | Şema: canlı QR ekranları ve `qr_live` kanal envanteri | done | dal `m16-19-liveqr-schema` (taban `b3c877fd`), `feat(db): add live QR displays and the qr_live channel`; migration 00111 (`live_qr_displays` + üç çözümleyici), 00112 (`qr_live` beş CHECK + üç tetikleyici), **00113** (VALIDATE — eklendi; M16-23…M16-35 önerileri birer kaydı); envanter kartın altında; iki mercek ONAY (üçüncü göz RED → düzeltme → dar yeniden denetim ONAY; güvenlik ONAY + ORTA kapandı) |
 | M16-20 | Canlı QR ekran sayfası ve panelden eşleme | done | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
-| M16-21 | `qr_live` karar motorunda | todo |  |
+| M16-21 | `qr_live` karar motorunda | review | dal `m16-21-liveqr-decide` (taban `c57e8ba2`), `feat(tap): accept a live QR as a channel`; kullanıcı kararı 2026-11-19: `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, ayrı belge, `BaselineVersion` 2026-11-19); dört guardrail (11 → 15), üç bağlam anahtarı; `GET /q` (tap ekranı aynen); `/v1` `qrKind`; parite matrisi; migration yok (00115 M16-23'te kalır); iki mercek bekliyor |
 | M16-22 | Uygulamada QR okuma (statik + canlı) | todo |  |
 | M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | todo |  |
 | M16-24 | Faz D kapanışı | todo |  |
@@ -1817,6 +1817,26 @@ yazılır.
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19 (M16, dal `m16-21-liveqr-decide`, taban `c57e8ba2`) — M16-21 yapıldı, `review`
+
+- **Ne:** canlı QR (`qr_live`) karar motorunda ve tarayıcı yolunda. `GET /q?t=` (`handler/livetap.go`) token'ı bir kez
+  açar, ekranı `resolve_live_qr_display_by_id` ile çözer, imzalı bağlamın **v2** düzenini basar; `POST /api/checkin` →
+  `checkin.recordLive` (ekran yeniden çözülür, `holding_site_locations` ile peer sorusu, `liveWall`). Tap ekranı aynen.
+- **Policy:** kullanıcı kararı (2026-11-19) → `base:live-qr-requires-ip` **ayrı belge** (genişletilmiş `base:qr-requires-ip`
+  mevcut işletmelere ulaşmazdı — ölçüldü), `BaselineVersion` 2026-11-19 + `Added` duyurusu. Guardrail 11 → 15:
+  `sys:live-qr-unverified` (Q39 a), `sys:screen-not-active` (satır 1 eşi), `sys:cross-tenant-live-qr` (Q43 b, retin sid'i),
+  `sys:live-qr-expired` (Q39 b, ağ payı **10 sn**); `sys:tap-freshness` `qr_live`'a uygulanır. Bağlam anahtarı 26 → 29.
+- **Kanıt:** `internal/domain/tap/liveqr_test.go` (`TestDecide_LiveQREvidence` ve kardeşleri), `internal/policy`
+  `liveqr_test.go`, `internal/handler/liveqrtap_db_test.go` (yerel, holding, GPS-only,
+  geriye tarihli öncül, kanallar arası, iki kişi tek token, sahte token + log, süresi dolmuş, iptal/pasif, **parite matrisi**,
+  uygulama yolu ölçümü), `TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre`. Mutantlar (debounce sorgusu, `tapChannel`,
+  istek doğrulaması) kırmızı.
+- **Belgeler:** CLAUDE.md §5 *"QR kanalı"*, ADR 0005 risk 10 (*Canlı QR aktarma*), ADR 0045 §2.5 kullanıcı kararı + uygulama
+  notu, kart düzeltmesi + 23 maddenin akıbeti + M16-22/M16-23 devirleri kartta.
+- **Walk testleri:** `qr_live` satırları artık commit ediliyor → `qrLiveRowsSetAsideSQL` (`qlDown`, `aiLaterMigrations`,
+  00112 Down testi).
+- **Açık:** iki mercek; `/q` hata ekranlarının plaket diyen cümleleri (§9 sorusu, M16-24); cihazda ağ payı ölçümü (M16-24).
 
 ### 2026-11-19 (M16, ana oturum) — M16-20 kapandı
 

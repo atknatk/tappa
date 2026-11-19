@@ -120,7 +120,7 @@ func TestAppRouter_EveryNonPublicRouteIsUnderAPlainRoot(t *testing.T) {
 		}
 		want := []string{"activate", "admin", "api", "app", "brand", "healthz", "oauth", "operator", "readyz", "static", "t"}
 		if on {
-			want = append(want, "dev", "v1")
+			want = append(want, "dev", "v1", "q", "screen")
 		}
 		for _, s := range want {
 			if !plainSegs[s] {

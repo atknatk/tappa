@@ -39,3 +39,43 @@ func TestOf_DirectionSourceIsCopiedAndNullWhenUnknown(t *testing.T) {
 		})
 	}
 }
+
+// TestOf_ALiveQRPunchIsAQRPunchWithItsKind is Q38 (a), the user's answer of 2026-11-19 (M16-21):
+// punch_events stores qr_live (00112), the wire says `channel: qr` + `qrKind: live` and `tagId:
+// null` -- a client whose channel enum is [nfc, qr] keeps reading it. A static QR punch gains
+// `qrKind: static` and keeps its tagId; an NFC punch carries no qrKind at all (the field is
+// optional), so its bytes -- and every signature over them -- are exactly what they were.
+func TestOf_ALiveQRPunchIsAQRPunchWithItsKind(t *testing.T) {
+	uid := "04A1B2C3D4E5F6"
+	for _, c := range []struct {
+		name, stored string
+		tag          *string
+		want, absent []string
+	}{
+		{"a live QR punch", "qr_live", nil,
+			[]string{`"channel":"qr","qrKind":"live","direction"`, `"tagId":null`}, []string{"qr_live"}},
+		{"a static QR punch", "qr", &uid,
+			[]string{`"channel":"qr","qrKind":"static","direction"`, `"tagId":"tag_04A1B2C3D4E5F6"`}, nil},
+		{"an NFC punch", "nfc", &uid,
+			[]string{`"channel":"nfc","direction"`, `"tagId":"tag_04A1B2C3D4E5F6"`}, []string{"qrKind"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := tenant.PunchEvent{PunchID: uuid.New(), Version: 1, Status: "valid", PunchTime: time.Now(), RecordedAt: time.Now(),
+				Channel: c.stored, Direction: "in", EmployeeID: uuid.New(), TagUID: c.tag}
+			b, err := json.Marshal(Of(e))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(string(b), w) {
+					t.Errorf("the wire is %s, want it to carry %s", b, w)
+				}
+			}
+			for _, a := range c.absent {
+				if strings.Contains(string(b), a) {
+					t.Errorf("the wire is %s, it must not carry %s", b, a)
+				}
+			}
+		})
+	}
+}

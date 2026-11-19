@@ -439,6 +439,13 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 	// path never asks the engine, so describing it would describe nothing that happens
 	// (see FactReviewIsOnceAndFinal).
 	unnamed := []SecurityNamed{{Sid: "sys:no-self-review", Phrase: "not described: the review path does not run it"}}
+	// M16-21 (ADR 0045 §2.5): the four live QR guardrails are in the engine, and the page does not
+	// describe them yet -- no deployment shows a live QR code until TAPPA_LIVE_QR_KEY is set (the
+	// M16-24 deploy rule), and what the public pages say about the venue screen is a decision of its
+	// own. They are counted in the note's total like every guardrail.
+	for _, sid := range []string{"sys:live-qr-unverified", "sys:screen-not-active", "sys:cross-tenant-live-qr", "sys:live-qr-expired"} {
+		unnamed = append(unnamed, SecurityNamed{Sid: sid, Phrase: "not described yet: live QR screens are not switched on"})
+	}
 	otherBase := []SecurityNamed{
 		{Sid: "base:queued-window", Phrase: "a tap whose declared time is well in the past"},
 		{Sid: "base:ctr-gap-review", Phrase: "a tap after reads of the plaque the server never saw"},
@@ -469,7 +476,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Text: l("Venue network matched, or GPS inside the radius", FactBaselineCanBeChanged, FactGPSAloneApprovesATap)},
 		{Sids: []string{"base:gps-conflict-review"}, Verdict: securityFlag,
 			Text: l("GPS read, but outside the radius", FactBaselineCanBeChanged, FactFarPositionIsReviewed)},
-		{Sids: []string{"base:qr-requires-ip"}, Verdict: securityFlag,
+		// M16-21: the live QR rule (the user's decision of 2026-11-19) is the same sentence -- a QR
+		// code, printed or on a screen, without the venue network -- so it is this rung's second sid.
+		{Sids: []string{"base:qr-requires-ip", "base:live-qr-requires-ip"}, Verdict: securityFlag,
 			Text: l("QR code without the venue network", FactBaselineCanBeChanged, FactCodelessTapNeedsAddress)},
 		{Sids: []string{"base:no-evidence-review"}, Verdict: securityFlag,
 			Text: l("Neither network nor GPS", FactBaselineCanBeChanged, FactFlaggedQueueDecidedByAManager)},

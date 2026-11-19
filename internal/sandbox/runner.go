@@ -94,6 +94,17 @@ func (o onRunner) GetTagByUID(ctx context.Context, uid string) (db.ResolvedTag, 
 	return o.data.GetTagByUIDOn(ctx, rt.tx, uid)
 }
 
+// GetLiveQRDisplayByID refuses: the sandbox simulates plaque taps only (its API names a channel of
+// nfc or qr -- simulate.go), and a live QR screen is a row of the key's business that the simulator
+// never reaches. A call here is the simulator's tap path doing something it was not built to do,
+// answered like every call off the runner: an error, so the simulated tap fails loudly.
+func (o onRunner) GetLiveQRDisplayByID(context.Context, uuid.UUID) (db.ResolvedLiveQRDisplay, error) {
+	return db.ResolvedLiveQRDisplay{}, errNoLiveQRInTheSandbox
+}
+
+// errNoLiveQRInTheSandbox: the simulated tap path asked for a live QR screen (M16-21).
+var errNoLiveQRInTheSandbox = errors.New("sandbox: a simulated tap does not reach a live QR screen")
+
 // WithTenant runs fn in a savepoint of the runner's transaction, which is in the key's business's
 // context; tenantID must be that business.
 func (o onRunner) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {

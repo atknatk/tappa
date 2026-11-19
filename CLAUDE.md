@@ -410,6 +410,19 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.
   Baseline politikası `base:qr-requires-ip`, tenant değiştirebilir.
+  **Canlı QR** (`channel='qr_live'`, ADR 0045 §2.5, M16-21): mekândaki ekranın ~20 sn'de bir
+  dönen, sunucu imzalı kodu; plaket yok, sayaç yok. Kanal **token'dan** türer (`GET /q`
+  token'ı açar; istek alanından değil). Statik QR'ın kuralı aynen: **IP zorunlu**, GPS tek
+  başına → `flag` (`base:live-qr-requires-ip` — kullanıcı kararı 2026-11-19, ayrı belge ki
+  mevcut işletmelere de ulaşsın; tenant değiştirebilir). Dört guardrail, hepsi kayıt yazar:
+  imza/biçim tutmuyor ya da ekran o lokasyonda yok → `reject` (`sys:live-qr-unverified`,
+  Q39 a) · ekran kaldırılmış ya da lokasyon pasif → `reject` (`sys:screen-not-active`,
+  satır 1'in eşi) · holding ekranı → `reject`, site sütunları dolu (`sys:cross-tenant-live-qr`,
+  Q43 b) · token ömrü + 10 sn ağ payı geçmiş → `flag` + not (`sys:live-qr-expired`, Q39 b).
+  `sys:tap-freshness` canlı QR'a da uygulanır (kod bir anı kanıtlar, kayıt basışta zamanlanır).
+  Debounce kişi başına ve kanallar arasıdır — sayaç olmadığı için tek fren; aynı token'ı
+  okuyan iki kişi ikisi de kayıt. Satırda `tag_uid`/`ctr` NULL, `location_id` ekranın
+  lokasyonu, `sun_valid` false. `/v1`'de `channel: qr` + `qrKind: live`, `tagId: null` (Q38 a).
 - **Aktivasyon dokunuşu** (practice tap'in yerini aldı — ADR 0026): davet linki bir
   sihirbaz açar; onay POST'u yalnız onayı kaydeder ve bu tarayıcıya bağlar (daveti
   tüketmez, oturum vermez). Aktivasyon, o tarayıcıdan gelen ilk **gerçek NFC**

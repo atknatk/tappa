@@ -131,7 +131,27 @@ import "github.com/google/uuid"
 //   - The announcement is a BaselineChange with Added set; tenant.Rulebook shows it
 //     on the rule to a business that was set up before it shipped, both before the
 //     next tap (the rule reads "Not set up yet") and after.
-const BaselineVersion = "2026-11-14"
+//
+// 🟢 2026-11-19 IS THE THIRD BUMP, AND THE SECOND ADDITION (M16-21, ADR 0045 §2.5; the
+// user's decision of 2026-11-19): base:live-qr-requires-ip. A live QR tap with no IP
+// match goes to review -- GPS alone is not enough, as for a static QR -- because a
+// copied screen cookie plus a faked GPS fix would otherwise be an `ok` from home (the
+// M16-20 security review's ORTA-1).
+//
+//   - WHY A NEW DOCUMENT AND NOT base:qr-requires-ip WIDENED TO BOTH CHANNELS, and the
+//     reason is the paragraph above this one, measured on this code: a CHANGED document
+//     never reaches an existing tenant -- their stored version 1 stands and there is no
+//     accept step -- so a widened base:qr-requires-ip would have kept every business set
+//     up before today on `channel == qr` alone, and a GPS-only live QR tap would be `ok`
+//     there: the very hole the decision closes, open for every existing customer. An
+//     ADDED document is materialised on the next tap (checkin.assembleBaseline pairs by
+//     name). So the rule is its own document, and it reaches everybody.
+//   - IT CHANGES NOTHING ELSE. It reads tap:channel == qr_live, which nothing produced
+//     before M16-21, so every NFC, QR and manual outcome stays as it was.
+//   - THE TENANT'S LEVER IS THE SAME AS FOR THE STATIC RULE: switch it off (or override
+//     it at one venue), and a GPS-only live QR tap is let through by
+//     base:gps-only-allow again.
+const BaselineVersion = "2026-11-19"
 
 // BaselineChange is one shipped change to one managed document: the announcement a
 // tenant whose stored copy predates Version reads on the policies screen.
@@ -185,6 +205,18 @@ func BaselineChanges() []BaselineChange {
 				"your next tap, or the next time an owner opens these rules, if it is not already. " +
 				"Switch it off and such a tap is judged by your other rules alone; the report is " +
 				"still kept on the record.",
+		},
+		{
+			Version:  "2026-11-19",
+			Document: liveQRDocName,
+			Added:    true,
+			Summary: "A new rule: a tap made by scanning a live QR screen at your venue needs your " +
+				"venue's network to be let through on its own. With GPS alone it is still recorded, " +
+				"and it is sent to The Spike for approval, the same as a scan of a plaque's printed " +
+				"code. Taps on plaques do not change. The rule was added to your business's rules " +
+				"without a step for you to accept it: it is set up on your next tap, or the next " +
+				"time an owner opens these rules, if it is not already. Switch it off and a live QR " +
+				"scan with GPS inside the radius is let through again.",
 		},
 	}
 }
@@ -258,6 +290,10 @@ const crossLocationDocName = "Taptime baseline — cross-location note"
 // document and the change entry that announces it.
 const mockLocationDocName = "Taptime baseline — mock location review"
 
+// liveQRDocName is base:live-qr-requires-ip's document name, shared by the document and
+// the change entry that announces it.
+const liveQRDocName = "Taptime baseline — live QR requires IP"
+
 // Baseline statement sids (base: namespace, reserved from tenant documents in
 // validate.go). Exported so the panel (M6-09) can render "managed by Tappa"
 // controls and M7-03 can reference them by name. Their effects and conditions are
@@ -280,6 +316,12 @@ const (
 	// name base:mock-location-flag would have named a verdict (flag), which a baseline
 	// statement never produces -- it produces an effect the tap engine maps.
 	SidMockLocationReview = "base:mock-location-review"
+
+	// SidLiveQRRequiresIP is the user's decision of 2026-11-19 (M16-21, ADR 0045 §2.5):
+	// a live QR tap without an IP match goes to review, GPS alone is not enough -- the
+	// static rule's twin, in a document of its own so that it reaches the businesses
+	// set up before it (BaselineVersion's 2026-11-19 paragraph).
+	SidLiveQRRequiresIP = "base:live-qr-requires-ip"
 )
 
 // BaselineQueuedSkewSeconds is base:queued-window's review threshold: a tap whose
@@ -300,9 +342,10 @@ const BaselineQueuedSkewSeconds = 120
 // authorization baseline here.
 const roleManager = "manager"
 
-// channelQR mirrors the channel vocabulary (nfc|qr|manual) — see guardrails.go's
-// channelNFC and internal/sun.Channel / db/migrations/00005. base:qr-requires-ip
-// keys on it; the value is server-derived (ADR 0004 §8), never a client flag.
+// channelQR mirrors the channel vocabulary (nfc|qr|qr_live|manual) — see guardrails.go's
+// channelNFC and channelQRLive, and internal/sun.Channel / db/migrations/00005, 00112.
+// base:qr-requires-ip keys on it (base:live-qr-requires-ip on channelQRLive); the value
+// is server-derived (ADR 0004 §8), never a client flag.
 const channelQR = "qr"
 
 // tapScope is the resource pattern every tap-evidence baseline statement carries.
@@ -338,9 +381,9 @@ type BaselineDoc struct {
 	Attachments []string
 }
 
-// Baseline returns the complete Tappa-managed baseline: the nine tap-evidence
-// documents (the M3-06 card table's eight, then M16-06's mock-location review)
-// followed by the authorization document. This is the
+// Baseline returns the complete Tappa-managed baseline: the ten tap-evidence
+// documents (the M3-06 card table's eight, then M16-06's mock-location review and
+// M16-21's live QR rule) followed by the authorization document. This is the
 // SOURCE OF TRUTH and the exact input M7-03 provisioning consumes — one
 // policies/policy_versions(/policy_attachments) set per BaselineDoc, per tenant.
 // It is pure and deterministic (stable order, no DB, no time), so the returned
@@ -490,6 +533,19 @@ func Baseline() []BaselineDoc {
 		tapDoc(mockLocationDocName, SidMockLocationReview, EffectReview,
 			Condition{OpBool: {CtxTapMockLocation: true}},
 			"the phone reported that its position came from a mock-location setting"),
+
+		// --- M16-21 (ADR 0045 §2.5; the user's decision of 2026-11-19): a LIVE QR tap
+		// with no IP match goes to review; GPS alone is not enough. base:qr-requires-ip's
+		// twin, and it composes the same way: a live QR + GPS-only tap matches this AND
+		// base:gps-only-allow, and review out-restricts allow at equal specificity. The
+		// threat is a copied screen cookie (or a screen paired in the wrong place) plus a
+		// faked GPS fix: the code is genuine and current, the person is not at the venue
+		// (M16-20's security review ORTA-1; ADR 0045 Bedel 5). The venue's network is the
+		// one evidence that cannot be carried away. Its own document, not a widened
+		// base:qr-requires-ip, for BaselineVersion's 2026-11-19 reason.
+		tapDoc(liveQRDocName, SidLiveQRRequiresIP, EffectReview,
+			Condition{OpStringEquals: {CtxTapChannel: channelQRLive}, OpBool: {CtxTapIPMatch: false}},
+			"live QR tap without an IP match: GPS alone is not sufficient proof of place"),
 
 		// --- Authorization: role-based panel allows. ONE document (two statements)
 		// because it is a single unit — the fail-closed-lockout preventer. Owner

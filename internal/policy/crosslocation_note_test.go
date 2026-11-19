@@ -432,13 +432,14 @@ func TestBaseline_TheMockLocationRuleIsAnnouncedAsAnAddition(t *testing.T) {
 	for _, d := range Baseline() {
 		if _, ok := BaselineAddition(d.Name); ok {
 			added++
-			if d.Name != mockDoc {
+			if d.Name != mockDoc && d.Name != liveQRDocName {
 				t.Fatalf("%q is announced as added but shipped at the first stamp", d.Name)
 			}
 		}
 	}
-	if added != 1 {
-		t.Fatalf("%d shipped documents carry an addition, want 1", added)
+	// 2026-11-14's mock-location rule and 2026-11-19's live QR rule (M16-21).
+	if added != 2 {
+		t.Fatalf("%d shipped documents carry an addition, want 2", added)
 	}
 	if _, ok := BaselineAddition("no such document"); ok {
 		t.Fatal("an unknown document has an addition")
@@ -454,6 +455,40 @@ func TestBaseline_TheMockLocationRuleIsAnnouncedAsAnAddition(t *testing.T) {
 var shippedDigests = map[string]string{
 	"2026-10-18": "4fbc6395db2cb3829f934883d180f84a4981a0d25ef7e75955d15e2aba4758d9",
 	"2026-11-14": "f717a10390cebbcfe1200acecbbea07a49ca6fe149bab3be7d4eb0e3d597ebb4",
+	"2026-11-19": "b0138b38786bb2af718e1af02e32edfb10fddae39cc4b4b58742c6410bc00fb3",
+}
+
+// TestBaseline_TheLiveQRRuleIsAnnouncedAsAnAddition: 2026-11-19 ships ONE new document
+// (M16-21, the user's decision of that day) and announces it as an addition -- the
+// reason it is a document of its own rather than a widened base:qr-requires-ip is that
+// an addition reaches a business set up before it and a change does not (BaselineVersion).
+func TestBaseline_TheLiveQRRuleIsAnnouncedAsAnAddition(t *testing.T) {
+	add, ok := BaselineAddition(liveQRDocName)
+	if !ok || add.Version != "2026-11-19" || !add.Added {
+		t.Fatalf("BaselineAddition(%q) = %+v, %v; want the 2026-11-19 addition", liveQRDocName, add, ok)
+	}
+	for _, word := range []string{"live QR", "network", "GPS alone", "Switch it off"} {
+		if !strings.Contains(add.Summary, word) {
+			t.Fatalf("the announcement does not say %q: %s", word, add.Summary)
+		}
+	}
+	if regexp.MustCompile(`(?i)\bapp\b|\bapplication\b`).MatchString(add.Summary) {
+		t.Fatalf("the announcement names the app: %s", add.Summary)
+	}
+	if got := BaselineChangesSince(liveQRDocName, "2026-11-14"); len(got) != 0 {
+		t.Fatalf("an addition is reported as a change to a stored copy: %+v", got)
+	}
+	// The static rule's document is UNCHANGED: widening it would reach no existing
+	// business, which is the decision's whole reason.
+	if got := BaselineChangesSince("Taptime baseline — QR requires IP", "2026-07-26"); len(got) != 0 {
+		t.Fatalf("base:qr-requires-ip is announced as changed: %+v", got)
+	}
+	for _, d := range Baseline() {
+		st := d.Document.Statements[0]
+		if st.Sid == SidQRRequiresIP && st.Condition[OpStringEquals][CtxTapChannel] != channelQR {
+			t.Fatalf("base:qr-requires-ip's channel changed: %v", st.Condition)
+		}
+	}
 }
 
 func TestBaseline_ContentIsPinnedToItsStamp(t *testing.T) {
