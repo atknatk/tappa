@@ -1783,7 +1783,7 @@ yazılır.
 | M16-17 | iOS tap ekranı: Universal Link + Core NFC ön plan okuma | done | `543e1acd` + düzeltme `032f6be1`…`b601d080`, merge `8bbc109f` |
 | M16-18 | Faz C kapanışı — gerçek cihaz turu | todo |  |
 | M16-19 | Şema: canlı QR ekranları ve `qr_live` kanal envanteri | done | dal `m16-19-liveqr-schema` (taban `b3c877fd`), `feat(db): add live QR displays and the qr_live channel`; migration 00111 (`live_qr_displays` + üç çözümleyici), 00112 (`qr_live` beş CHECK + üç tetikleyici), **00113** (VALIDATE — eklendi; M16-23…M16-35 önerileri birer kaydı); envanter kartın altında; iki mercek ONAY (üçüncü göz RED → düzeltme → dar yeniden denetim ONAY; güvenlik ONAY + ORTA kapandı) |
-| M16-20 | Canlı QR ekran sayfası ve panelden eşleme | review | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
+| M16-20 | Canlı QR ekran sayfası ve panelden eşleme | done | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
 | M16-21 | `qr_live` karar motorunda | todo |  |
 | M16-22 | Uygulamada QR okuma (statik + canlı) | todo |  |
 | M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | todo |  |
@@ -1817,6 +1817,11 @@ yazılır.
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19 (M16, ana oturum) — M16-20 kapandı
+
+- **Kapanış:** yapıcı `a3518b51` → üçüncü göz RED (iki §7 test boşluğu) + güvenlik ONAY (ORTA-1 ekran oturumu ömrü, ORTA-2 askıda kod) → düzeltme `ebcc2660` (00114 `last_seen_at`, 180 gün mutlak ömür, askıda `paused`, CSRF Origin, pasif mekân yoklaması) → dar yeniden denetim ONAY → dört DÜŞÜK `e82017ce`. Kullanıcı ekranları onayladı (AskUserQuestion, 2026-11-19). `plan/m16-mobil`'e birleşti.
+- **Sıradaki:** M16-21. Önce kullanıcıya: `qr_live` + yalnız GPS sonucu (çalınmış ekran çerezi + sahte GPS riski — M16-21 devir notu).
 
 ### 2026-11-19 (M16, dal `m16-20-liveqr-screen`, taban `41d6fcfa`) — M16-20 yapıldı, `review`
 
