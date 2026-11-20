@@ -23,8 +23,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/liveqr"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -455,5 +457,45 @@ func TestLiveQRPath_IsThePathTheCodesEncode(t *testing.T) {
 	}
 	if u := liveqr.TapURL("https://taptime.mt", "x"); !strings.HasPrefix(u, "https://taptime.mt"+LiveQRPath+"?") {
 		t.Fatalf("a code's URL is %q, not under the route %q", u, LiveQRPath)
+	}
+}
+
+// TestLiveTapOf_IsTheOneDerivationOfBothReaders pins liveTapOf, the one function GET /q and the
+// app's tap/start derive their context and prediction gate from (M16-22 audit DÜŞÜK-2): a verified
+// screen of the person's own business carries the screen, its venue, its tenant and the token's
+// expiry, and predicts; a removed screen, a switched-off venue and another business's screen carry
+// the same facts and do not predict; a token that did not verify carries nothing and does not
+// predict, whatever row came with it.
+func TestLiveTapOf_IsTheOneDerivationOfBothReaders(t *testing.T) {
+	own, other := uuid.New(), uuid.New()
+	issued := time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+	removed := issued.Add(-time.Hour)
+	screen := db.ResolvedLiveQRDisplay{ID: uuid.New(), TenantID: own, LocationID: uuid.New(), LocationActive: true}
+	claims := liveqr.Claims{DisplayID: screen.ID, LocationID: screen.LocationID, IssuedAt: issued, Lifetime: liveqr.TokenLifetime}
+	with := func(f func(*db.ResolvedLiveQRDisplay)) db.ResolvedLiveQRDisplay { s := screen; f(&s); return s }
+	for name, tc := range map[string]struct {
+		o       liveQROpening
+		facts   bool
+		predict bool
+	}{
+		"own, in service":    {liveQROpening{Screen: screen, Claims: claims, Verified: true}, true, true},
+		"removed":            {liveQROpening{Screen: with(func(s *db.ResolvedLiveQRDisplay) { s.RevokedAt = &removed }), Claims: claims, Verified: true}, true, false},
+		"venue switched off": {liveQROpening{Screen: with(func(s *db.ResolvedLiveQRDisplay) { s.LocationActive = false }), Claims: claims, Verified: true}, true, false},
+		"another business":   {liveQROpening{Screen: with(func(s *db.ResolvedLiveQRDisplay) { s.TenantID = other }), Claims: claims, Verified: true}, true, false},
+		"did not verify":     {liveQROpening{Screen: screen, Claims: claims, Refusal: liveRefusalVenueMismatch}, false, false},
+	} {
+		got := liveTapOf(tc.o, own)
+		c := got.Context
+		if c.Channel != sun.ChannelQRLive || c.TokenVerified != tc.o.Verified || got.Predict != tc.predict {
+			t.Errorf("%s: channel %s verified %v predict %v, want qr_live %v %v", name, c.Channel, c.TokenVerified, got.Predict, tc.o.Verified, tc.predict)
+		}
+		s := tc.o.Screen
+		if tc.facts {
+			if c.DisplayID != s.ID || c.LocationID != s.LocationID || c.TagTenantID != s.TenantID || !c.TokenExpiresAt.Equal(claims.ExpiresAt()) {
+				t.Errorf("%s: context %+v, want the screen's facts and the token's expiry", name, c)
+			}
+		} else if c.DisplayID != uuid.Nil || c.LocationID != uuid.Nil || c.TagTenantID != uuid.Nil || !c.TokenExpiresAt.IsZero() {
+			t.Errorf("%s: an unverified token's context carries %+v, want nothing", name, c)
+		}
 	}
 }

@@ -429,6 +429,33 @@ func TestAppLiveQRDB_RefusedBeforeAnything(t *testing.T) {
 	}
 }
 
+// TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn holds the card's field rule with the
+// live QR read ON (M16-22 audit ORTA-1): the channel comes from the FIELD the token is opened from,
+// never from what a value looks like. A genuine /q query sent as a plaque's `sun` is 400
+// bad_request, writes nothing and moves no counter; the same query as `liveQR` draws the tap screen
+// (CONTROL). MUTANT (measured): tap/start reading a `t=` value in `sun` as a live QR code -- this
+// test answers 200.
+func TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn(t *testing.T) {
+	h := newAppLiveHarness(t)
+	sc := h.live.screenAt(t, h.tenantID, h.locationID)
+	tok := h.live.token(t, sc)
+	id, p := h.phoneFor(t)
+	before, ctr := h.countFor(t, id), h.lastCtr(t, h.tagUID)
+	w := h.readFrom(t, p, AppTapStartPath, jsonBody(t, appTapStartRequest{SUN: liveQuery(tok)}), onSiteAddr)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), string(appErrBadRequest)) {
+		t.Fatalf("a live QR query as sun, live QR on = %d %s, want 400 %s", w.Code, w.Body.String(), appErrBadRequest)
+	}
+	if strings.Contains(w.Body.String(), tok[5:40]) {
+		t.Fatal("the error body carries the token")
+	}
+	if h.countFor(t, id) != before || h.lastCtr(t, h.tagUID) != ctr {
+		t.Fatal("a live QR query as sun wrote a record or moved a counter")
+	}
+	if start, w := h.liveStart(t, p, liveQuery(tok), onSiteAddr); w.Code != http.StatusOK || start.LocationName != "St Julians" {
+		t.Fatalf("CONTROL: the same query as liveQR = %d %+v, want the tap screen", w.Code, start)
+	}
+}
+
 // TestAppDB_AStaticQRReadIsTheBrowsersQR measures the card's STATIC half on the app path: the
 // plaque's printed QR is sun.PlaqueQRURL's "<base>/t?tag=<UID>" -- the plaque route itself, path
 // /t, no ctr and no cmac -- so the app's existing /t link (Android's VIEW filter, iOS's AASA) opens

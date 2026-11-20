@@ -1839,6 +1839,10 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
   açılışta reddeder (*"…setup without a plaque tap isn't available yet."*) — M16-23'ün metni. Değiştirilmedi.
 - **Açık:** tek mercek; gerçek cihazda kamera → App Link / Universal Link `/q` (M16-24); `TAPPA_LIVE_QR_KEY` sırası (M16-24).
 - **Sıradaki:** M16-22'nin tek merceği → M16-23 (NFC'siz aktivasyon; `liveQRTap.open` hazır).
+- **Düzeltme turu (aynı gün, ayrı commit `test(mobile): pin the live QR app path's field rule and the browser's venue check`):**
+  denetim RED (test boşlukları) → alan kuralı canlı QR açıkken (`TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn`),
+  tarayıcı lokasyon uyuşmazlığı (`TestLiveQRDB_ACodeNamingAnotherVenueIsARecordedReject`), ortak `liveTapOf` + birim testi,
+  M16-23'e §9 maddesi (`/q` sorun ekranlarının plaket diyen metni + `noReader`). Üç mutant kırmızı.
 
 ### 2026-11-19 (M16, dal `m16-21-liveqr-decide`, taban `c57e8ba2`) — M16-21 yapıldı, `review`
 

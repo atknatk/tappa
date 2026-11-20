@@ -322,14 +322,9 @@ func (a *App) tapStartLive(w http.ResponseWriter, r *http.Request, dev appdevice
 			"display_id", o.Claims.DisplayID, "employee_id", dev.EmployeeID)
 	}
 
-	var wall, screenTenant uuid.UUID
-	if o.Verified {
-		wall, screenTenant = o.Screen.LocationID, o.Screen.TenantID
-	}
-	// GET /q's gate, word for word: the prediction only on a screen that can record an `ok` --
-	// verified, in service, this person's own business.
-	predict := o.Verified && o.Screen.RevokedAt == nil && o.Screen.LocationActive && o.Screen.TenantID == dev.TenantID
-	facts, err := a.directory.TapPage(ctx, dev.TenantID, dev.EmployeeID, wall, predict)
+	// GET /q's derivation, the same function: the context's live half and the prediction gate.
+	live := liveTapOf(o, dev.TenantID)
+	facts, err := a.directory.TapPage(ctx, dev.TenantID, dev.EmployeeID, live.Context.LocationID, live.Predict)
 	// QR stays false, as GET /q draws pages.Tap with QR false: the flag is the static QR's wording
 	// and the browser's bfcache reload, neither of which a live QR has.
 	var out appTapStartResponse
@@ -339,7 +334,7 @@ func (a *App) tapStartLive(w http.ResponseWriter, r *http.Request, dev appdevice
 		// the holding -- foreign_tenant at the press), or no screen believed: no venue, no brand.
 		a.log.WarnContext(ctx, "app tap start: no venue of this business to show for the live QR code",
 			"employee_id", dev.EmployeeID, "session_tenant_id", dev.TenantID,
-			"display_id", o.Screen.ID, "screen_tenant_id", screenTenant, "verified", o.Verified)
+			"display_id", o.Screen.ID, "screen_tenant_id", live.Context.TagTenantID, "verified", o.Verified)
 		out.EmployeeName = facts.EmployeeName
 	case errors.Is(err, tenant.ErrBrandUnread):
 		a.log.ErrorContext(ctx, "app tap start: reading the business's brand failed; answering Taptime's",
@@ -362,16 +357,7 @@ func (a *App) tapStartLive(w http.ResponseWriter, r *http.Request, dev appdevice
 		out.Brand = appBrandOf(facts.Brand)
 		out.Direction = appDirectionOf(facts.Prediction)
 	}
-	c := tapContext{
-		Channel:       sun.ChannelQRLive,
-		TokenVerified: o.Verified,
-		TagTenantID:   screenTenant,
-		LocationID:    wall,
-	}
-	if o.Verified {
-		c.DisplayID, c.TokenExpiresAt = o.Screen.ID, o.Claims.ExpiresAt()
-	}
-	signed, err := a.contexts.mintForDevice(c, dev.ID)
+	signed, err := a.contexts.mintForDevice(live.Context, dev.ID)
 	if err != nil {
 		a.log.ErrorContext(ctx, "app tap start: minting the live QR tap context failed", "employee_id", dev.EmployeeID, "err", err)
 		writeAppError(w, appErrServer)

@@ -1718,7 +1718,9 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 > okuyucusu** açar — `livetap.go`'daki tek `liveQRTap.open` (Open → `resolve_live_qr_display_by_id` → lokasyon eşitliği), iki
 > çağıranı var (`Tap.openLiveQR`, `App.tapStartLive`); sonuç cihaza bağlı v2 bağlam (`mintForDevice`, `TokenExpiresAt` dolu).
 > `POST /app/v1/tap` değişmedi; aynı `checkin.Service.Record`, ikinci yazma yolu yok. Kanal alandan değil token'ın açıldığı
-> alandan türer: `sun` alanındaki bir `/q` sorgusu yine 400 (`TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`).
+> alandan türer: `sun` alanındaki bir `/q` sorgusu canlı QR **açıkken** de 400, kayıt yok
+> (`TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn`; düzeltme turu — `TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything`
+> canlı QR kapalıyken koşar ve bu kuralı tutmaz).
 > (3) **Açma tek yerde:** `cmd/tappa`'nın `openLiveQR`'ı `App.ServeLiveQR`'ı `Tap.ServeLiveQR`'ın yanında çağırır; anahtar
 > yokken uygulamanın canlı QR okuması 400 `bad_request` (tarayıcıda `/q` 404) — `TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre`
 > ikisinin birlikte açıldığını tutar (`App.ServesLiveQR`).
@@ -1734,6 +1736,13 @@ tenant çözümü, holding, debounce, `/v1`) açık bir kuralla karşılamak.
 > (`MergedManifestTest.noCameraIsAskedForOrDeclared`, `InfoPlistTests.testNoCameraUsageDescription`). Aktivasyon adımındaki
 > bir `/q` okuması hiçbir şey tamamlamaz (M16-23). Mutasyonlar (ölçüldü): Android `/q` filtresinin yolu `/t` → `MergedManifestTest`
 > kırmızı; canlı QR `sun` olarak gönderilince → `TapFlowTest` kırmızı; iOS `TapLink.of`'un canlı QR kolu silinince → dört test kırmızı.
+> (7) **Düzeltme turu (2026-11-19; denetim RED — ürün kodu doğru, test boşlukları):** (ORTA-1) alan kuralı canlı QR açıkken
+> sabitlendi (yukarıda (2)); mutant *"`sun`'daki `t=` değeri canlı QR sayılır"* → yeni test kırmızı (eski test o mutantla yeşil
+> kalıyordu). (DÜŞÜK-1) tarayıcı `GET /q`'nun lokasyon uyuşmazlığı: `TestLiveQRDB_ACodeNamingAnotherVenueIsARecordedReject`
+> (doğrulanmamış → kayıtlı ret, lokasyonsuz); `open`'ın lokasyon karşılaştırması kaldırılınca kırmızı. (DÜŞÜK-2) tahmin kapısı
+> ve canlı QR bağlamı tek yardımcıda: `liveTapOf` (`livetap.go`), iki okuyucu da onu çağırır; `TestLiveTapOf_IsTheOneDerivationOfBothReaders`
+> (tenant koşulu düşürülünce kırmızı), DB testleri aynen yeşil. (DÜŞÜK-3) `/q` sorun ekranlarının plaket diyen metni M16-23'e
+> §9 maddesi olarak yazıldı.
 > (6) **NFC'siz telefon — ölçüldü, DUR (§9):** Android NFC'siz telefonu aktivasyonda açılışta reddeder (*"This phone can't read the
 > plaque"* / *"…setup without a plaque tap isn't available yet."*); iOS'ta okuyucusuz iPhone ana ekranda (`TapModel.home`)
 > `noReader` sorununu gösterir: *"This iPhone can't read the plaque"* / *"This iPhone has no NFC reader, so the app can't record
@@ -1765,6 +1774,11 @@ kalkışı).
   yazılmaz) → telefon bir sonraki durum sorgusunda oturumu/cihazı alır. Onay süreli; süresi dolan istek düşer.
 - Kendi kendine onay: müdür kendi telefonunu onaylayamaz (ADR 0037'nin ruhu — ölç, uygulanabiliyorsa).
 - Sihirbaz metinleri §9 aktivasyon ailesi kararı ister — kullanıcıya gösterilir.
+- **§9 — M16-22'den devredilen iki metin sorusu (kullanıcıya gösterilir, kod değişikliği yalnız onayla):** (a) iOS'ta okuyucusuz
+  iPhone'un ana ekranı `noReader` (*"This iPhone has no NFC reader, so the app can't record a tap from here."*) canlı QR varken
+  yanlıştır; Android'in açılış reddi (*"…setup without a plaque tap isn't available yet."*) bu kartla yanlışlaşır. (b) `/q`
+  taramasında sorun ekranlarının plaket diyen metni (*"…tap the plaque again"*; `internal/handler/tap.go:338-363`, tarayıcıda ve
+  iki uygulamada aynı) — M16-21'in *"`/q` hata ekranlarının plaket diyen cümleleri"* takip maddesiyle birlikte.
 - ADR 0026'ya not: Bedel 3 iptal edildi (silinmez). CLAUDE.md §5 *"Aktivasyon dokunuşu"*na NFC'siz yollar.
   **§5 sıra notu:** CLAUDE.md §5 *"Aktivasyon dokunuşu"* bugün sırayı *"`sun.Verify` → aktif plaket → tüketim"*
   diye yazar (`CLAUDE.md:391`); ADR 0026 md. 3 ve plan ise *"ilerletmeyen ön kontrol (aynı tenant, aktif) → `sun.Verify`
