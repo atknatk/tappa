@@ -445,8 +445,10 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   payı, ölçü anı *şimdi*) → tüketim; basılı QR yine aktive edemez — ya da (2) **müdür onayı**:
   yalnız çalışanın profil şubesinde (yoksa işletmenin hiçbir yerinde) çalışan canlı QR ekranı
   **yoksa** (sunucu reddeder), 6 haneli kodlu, 15 dk ömürlü istek (`activation_requests`) →
-  panelde onay/ret (tek yön, `audit_log`; kendi telefonuna onay yok) → telefonun sonraki durum
-  okumasında tüketim + onayın toplanması tek transaction. İkisi de **`transactions` yazmaz**.
+  panelde onay/ret (tek yön, `audit_log`; kendi telefonuna onay yok) → tüketim + onayın toplanması
+  tek transaction: tarayıcıda `POST /activate/approval/collect`'te (*Check now* ya da onayı gören
+  sayfa betiği), uygulamada onaylı isteği okuyan `approval/status` çağrısında. İkisi de
+  **`transactions` yazmaz**.
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 - **API'nin açtığı lokasyon** (`PUT /v1/locations`, M11) kanıtsız doğar: panelden IP/GPS tanımlanana
   kadar dokunuşları satır 7'ye (`flag`) düşer, kayıt yine yazılır. Lokasyonun `active` etiketi karar

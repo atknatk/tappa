@@ -453,7 +453,7 @@ final class ActivationModelTests: XCTestCase {
     /// The poll runs while the waiting screen waits and stops when it goes (Back).
     func testThePollRunsWhileWaitingAndStopsWhenTheScreenGoes() async throws {
         await walkToWaiting()
-        model.pollInterval = 10_000_000
+        model.pollTimeScale = 0.002 // 5 s -> 10 ms
         let polling = Task { await model.pollWhileWaiting() }
         for _ in 0..<300 where server.polls < 2 {
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -465,6 +465,42 @@ final class ActivationModelTests: XCTestCase {
         let after = server.polls
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(server.polls, after, "no poll after the screen went")
+    }
+
+    /// Review ORTA-1: 5 s at the base, doubled on each 429 in a row up to 60 s; an answer, or no
+    /// answer at all, is the base again.
+    func testThePollBacksOffOnEach429AndAnAnswerOrNoAnswerIsTheBase() {
+        var chain = [ApprovalPoll.base]
+        for _ in 0..<5 {
+            chain.append(ApprovalPoll.nextDelay(chain.last!, .rateLimited))
+        }
+        XCTAssertEqual(chain, [5, 10, 20, 40, 60, 60])
+        for from in chain {
+            XCTAssertEqual(ApprovalPoll.nextDelay(from, .answered), 5, "an answer, from \(from)")
+            XCTAssertEqual(ApprovalPoll.nextDelay(from, .failed), 5, "no answer, from \(from)")
+        }
+        XCTAssertEqual(ApprovalPoll.outcome(of: AppAPIError.refused(.rateLimited, retryAfter: nil)), .rateLimited)
+        XCTAssertEqual(ApprovalPoll.outcome(of: AppAPIError.transport), .failed)
+        XCTAssertEqual(ApprovalPoll.outcome(of: AppAPIError.refused(.serverError, retryAfter: nil)), .answered)
+    }
+
+    /// The model carries the delay: 429s in a row double it, the next answer resets it, and a new
+    /// request starts at the base.
+    func testTheModelsPollDelayFollowsTheAnswers() async {
+        await walkToWaiting()
+        XCTAssertEqual(model.pollDelay, 5)
+        server.statusScript = ["429:rate_limited", "429:rate_limited", "waiting", "429:rate_limited"]
+        await model.pollApproval()
+        XCTAssertEqual(model.pollDelay, 10)
+        await model.pollApproval()
+        XCTAssertEqual(model.pollDelay, 20)
+        await model.pollApproval()
+        XCTAssertEqual(model.pollDelay, 5, "an answer is the base again")
+        await model.pollApproval()
+        XCTAssertEqual(model.pollDelay, 10)
+        MockURLProtocol.handler = { _, _ in throw URLError(.notConnectedToInternet) }
+        await model.pollApproval()
+        XCTAssertEqual(model.pollDelay, 5, "no answer is the base")
     }
 
     /// While waiting the bind is still pending: a venue screen's code finishes the activation.

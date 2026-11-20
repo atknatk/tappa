@@ -10,7 +10,7 @@ import Foundation
 //   tap      "Now tap the plaque": the first genuine NFC read               → complete
 //            or (M16-23, a phone that cannot tap) a venue screen's live QR   → complete (liveQR)
 //            or "My phone can't tap"                                         → approval
-//   waiting  the pairing code for the manager, polled every 3 s              → approval/status
+//   waiting  the pairing code for the manager, polled every 5 s (ApprovalPoll) → approval/status
 //   done     "Activation complete"
 //
 // After it, the phone is ACTIVATED and the tap screens (TapFlow.swift, M16-17) take over: the
@@ -70,8 +70,10 @@ final class ActivationModel: ObservableObject {
     @Published private(set) var approvalOffered = false
     /// M16-23: the open approval request the waiting screen shows. nil when there is none.
     @Published private(set) var approval: PendingApproval?
-    /// The waiting screen's poll interval (the contract's 3 seconds); tests shorten it.
-    var pollInterval: UInt64 = 3_000_000_000
+    /// The next poll's delay in seconds: ApprovalPoll's base, doubled on each 429 in a row.
+    private(set) var pollDelay: TimeInterval = ApprovalPoll.base
+    /// Multiplies every poll's sleep; 1 in the app, tests shorten it.
+    var pollTimeScale: Double = 1
     /// The activated device: restored at launch, or made by a successful activation. nil until
     /// then. Only a new successful activation replaces it.
     @Published private(set) var device: ActivatedDevice?
@@ -354,6 +356,7 @@ final class ActivationModel: ObservableObject {
         }
         busy = true
         defer { endBusy() }
+        pollDelay = ApprovalPoll.base // a new request starts at the base
         do {
             approvalAnswered(try await client.approval(code: c, signer: key, binding: b), key: key)
         } catch AppAPIError.refused(.screenAvailable, _) {
@@ -377,12 +380,12 @@ final class ActivationModel: ObservableObject {
         return false
     }
 
-    /// The waiting screen's poll, every `pollInterval`, for as long as the CALLER's task runs: the
+    /// The waiting screen's poll, every `pollDelay`, for as long as the CALLER's task runs: the
     /// view's `.task` starts it when the screen appears and cancels it when it goes. One sleep, one
     /// status request, again -- never a repeating timer.
     func pollWhileWaiting() async {
         while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: pollInterval)
+            try? await Task.sleep(nanoseconds: UInt64(pollDelay * pollTimeScale * 1_000_000_000))
             guard !Task.isCancelled, awaitingApproval else {
                 return
             }
@@ -399,12 +402,14 @@ final class ActivationModel: ObservableObject {
         }
         do {
             let state = try await client.approvalStatus(code: c, signer: key, binding: b)
+            pollDelay = ApprovalPoll.nextDelay(pollDelay, .answered)
             if case .approved = state {
                 approvalAnswered(state, key: key)
             } else if awaitingApproval {
                 approvalAnswered(state, key: key)
             }
         } catch {
+            pollDelay = ApprovalPoll.nextDelay(pollDelay, ApprovalPoll.outcome(of: error))
             guard awaitingApproval else {
                 return
             }
@@ -579,6 +584,46 @@ final class ActivationModel: ObservableObject {
             return Copy.Problems.offline
         default:
             return Copy.Problems.server
+        }
+    }
+}
+
+/// THE WAITING SCREEN'S POLL INTERVAL (M16-23 review, ORTA-1). approval/status spends the
+/// address's status budget, shared with the browser's polling: ~20 phones waiting behind one venue
+/// NAT must fit it, so the base is 5 s (15 minutes = 180 polls a phone). A 429 doubles the interval
+/// -- 5, 10, 20, 40, then 60 s at most -- and any answered poll goes back to the base. No answer at
+/// all (the phone's network) keeps the base: it spent nothing of the budget. Pure, so the chain is a
+/// unit test; the Android twin is ApprovalPoll.kt.
+enum ApprovalPoll {
+    static let base: TimeInterval = 5
+    static let max: TimeInterval = 60
+
+    enum Outcome: Equatable {
+        /// The server answered (200, or any refusal but 429).
+        case answered
+        /// 429 rate_limited.
+        case rateLimited
+        /// No answer at all.
+        case failed
+    }
+
+    static func nextDelay(_ previous: TimeInterval, _ outcome: Outcome) -> TimeInterval {
+        switch outcome {
+        case .rateLimited:
+            return Swift.min(Swift.max(previous, base) * 2, max)
+        case .answered, .failed:
+            return base
+        }
+    }
+
+    static func outcome(of error: Error) -> Outcome {
+        switch error as? AppAPIError {
+        case .refused(.rateLimited, _)?:
+            return .rateLimited
+        case .transport?:
+            return .failed
+        default:
+            return .answered
         }
     }
 }

@@ -875,6 +875,10 @@ templ approvalsCard(v EmployeesView) {
 								}
 								{ row.Client } · asked { row.Asked } · open until { row.Deadline }
 							</p>
+							if row.Replaces {
+								// Q40 (a): the approval's activation signs their live session or app out.
+								<p class="mt-1 text-xs font-bold text-ink">replaces their current phone</p>
+							}
 						</div>
 						<p class="font-mono text-2xl font-bold tracking-[0.15em] text-ink" aria-label={ "Code " + row.Code }>{ row.Code }</p>
 						<div class="flex items-center gap-2">

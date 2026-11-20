@@ -31,6 +31,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/liveqr"
+	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/test/fixtures"
 )
@@ -285,7 +286,7 @@ func TestNFCLessDB_ManagerApprovalActivatesTheBrowserThatAsked(t *testing.T) {
 	}
 
 	pending, err := h.staff.PendingApprovals(context.Background(), h.tenantID)
-	if err != nil || len(pending) != 1 || pending[0].ID != reqID || pending[0].PairingCode != pairing {
+	if err != nil || len(pending) != 1 || pending[0].ID != reqID || pending[0].PairingCode.Digits() != pairing {
 		t.Fatalf("the panel lists %+v (%v), want the one request with its code", pending, err)
 	}
 	admin := h.manager(t, h.tenantID, "m1623-"+uuid.NewString()+"@iso.example")
@@ -603,4 +604,108 @@ func TestAppNFCLessDB_ManagerApprovalCreatesTheDeviceOnTheNextStatusRead(t *test
 			t.Fatalf("%d requests opened where a screen runs", n)
 		}
 	})
+}
+
+// TestAppNFCLessDB_StatusPollsLeaveTheFloodCeilingAlone (audit ORTA-1): a phone polling its
+// approval's status is metered on the status budget, never on the activation flood ceiling -- so
+// a colleague's lookup from the same address still answers 200 after more polls than the ceiling
+// holds: after the bind and the request, the address's flood window is filled to one short of
+// floodLimit (in memory, as 598 other activation requests would), then the phone polls. MUTANT
+// (measured): floodSpent back in front of the status route -> the second poll is already a 429.
+func TestAppNFCLessDB_StatusPollsLeaveTheFloodCeilingAlone(t *testing.T) {
+	h := newAppLiveHarness(t)
+	_, code := h.invitedEmployee(t, "invited")
+	p := newAppPhone(t)
+	b := h.bind(t, p, code)
+	if w := h.serve(h.approvalSigned(t, p, b, code, AppActivateApprovalPath)); w.Code != http.StatusOK {
+		t.Fatalf("approval = %d %s", w.Code, w.Body.String())
+	}
+	probe := httptest.NewRequest(http.MethodPost, AppActivateLookupPath, nil)
+	probe.RemoteAddr = "203.0.113.5:41234" // serve's address
+	key := clientIP(probe)
+	for h.app.activation.floodLimiter.Charge(key) < floodLimit-1 {
+	}
+	for i := range 6 {
+		if w := h.serve(h.approvalSigned(t, p, b, code, AppActivateApprovalStatusPath)); w.Code != http.StatusOK {
+			t.Fatalf("poll %d = %d %s", i, w.Code, w.Body.String())
+		}
+	}
+	_, code2 := h.invitedEmployee(t, "invited")
+	if w := h.unsigned(t, AppActivateLookupPath, jsonBody(t, appLookupRequest{Code: code2})); w.Code != http.StatusOK {
+		t.Fatalf("a colleague's lookup after the polls = %d %s, want 200", w.Code, w.Body.String())
+	}
+}
+
+// TestNFCLessDB_AnApprovedBrowserActivationSignsTheAppOut (audit DÜŞÜK-3): Q40 (a) holds on the
+// manager's road too -- the browser activation an approval completes revokes the person's live app
+// device in the consuming transaction, and activation.completed counts it. MUTANT (measured): the
+// revocation dropped from activateBrowser -> the device stays live and this test is red.
+func TestNFCLessDB_AnApprovedBrowserActivationSignsTheAppOut(t *testing.T) {
+	h := newNFCLessHarness(t)
+	label := "Android"
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).CreateAppDevice(ctx, store.CreateAppDeviceParams{
+			TenantID: h.tenantID, EmployeeID: h.employeeID, Platform: "android",
+			PublicKey: newAppPhone(t).public(t), DeviceLabel: &label,
+		})
+		return e
+	}); err != nil {
+		t.Fatalf("an app device: %v", err)
+	}
+	c, _ := h.consented(t)
+	h.ask(t, c)
+	reqID, _ := h.request(t)
+	admin := h.manager(t, h.tenantID, "m1623-"+uuid.NewString()+"@iso.example")
+	if _, err := h.staff.DecideApproval(context.Background(), tenant.DecideApprovalCommand{
+		TenantID: h.tenantID, RequestID: reqID, ActorID: admin, Approve: true,
+	}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if resp, page := h.collect(t, c); !strings.Contains(page, "Activation complete") {
+		t.Fatalf("collect = %d", resp.StatusCode)
+	}
+	h.assertCount(t, `SELECT count(*) FROM app_devices WHERE tenant_id = $1 AND employee_id = $2 AND revoked_at IS NULL`, 0, "live app devices")
+	h.assertAuditMentions(t, ActionActivationCompleted, `"app_devices_revoked": 1`)
+}
+
+// TestNFCLessDB_ADeactivatedPersonsRequestIsClosed (security review DÜŞÜK): a request whose person
+// was deactivated since it was opened cannot be approved -- nothing could collect it -- and the panel
+// no longer lists it. MUTANT (measured): employee_deactivated dropped from DecideApproval's check ->
+// the approval is written.
+func TestNFCLessDB_ADeactivatedPersonsRequestIsClosed(t *testing.T) {
+	h := newNFCLessHarness(t)
+	c, _ := h.consented(t)
+	h.ask(t, c)
+	reqID, _ := h.request(t)
+	owner := holdingOwner(t)
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE employees SET status = 'deactivated', deactivated_at = now() WHERE id = $1`, h.employeeID); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	admin := h.manager(t, h.tenantID, "m1623-"+uuid.NewString()+"@iso.example")
+	if _, err := h.staff.DecideApproval(context.Background(), tenant.DecideApprovalCommand{
+		TenantID: h.tenantID, RequestID: reqID, ActorID: admin, Approve: true,
+	}); !errors.Is(err, tenant.ErrApprovalClosed) {
+		t.Fatalf("approving a deactivated person's request = %v, want ErrApprovalClosed", err)
+	}
+	h.assertCount(t, `SELECT count(*) FROM activation_requests WHERE tenant_id = $1 AND employee_id = $2 AND decision IS NOT NULL`, 0, "decided requests")
+}
+
+// TestNFCLessDB_ThePanelSaysWhenAnApprovalReplacesAPhone (security review DÜŞÜK, Q40 (a)): the
+// listed request carries ReplacesPhone exactly when the person holds a live session or app device.
+func TestNFCLessDB_ThePanelSaysWhenAnApprovalReplacesAPhone(t *testing.T) {
+	h := newNFCLessHarness(t)
+	c, _ := h.consented(t)
+	h.ask(t, c)
+	pending, err := h.staff.PendingApprovals(context.Background(), h.tenantID)
+	if err != nil || len(pending) != 1 || pending[0].ReplacesPhone {
+		t.Fatalf("a person with no phone: %+v (%v), want one row without ReplacesPhone", pending, err)
+	}
+	if _, err := h.sessions.Issue(context.Background(), session.IssueParams{TenantID: h.tenantID, EmployeeID: h.employeeID}); err != nil {
+		t.Fatalf("a live session: %v", err)
+	}
+	pending, err = h.staff.PendingApprovals(context.Background(), h.tenantID)
+	if err != nil || len(pending) != 1 || !pending[0].ReplacesPhone {
+		t.Fatalf("a person with a live session: %+v (%v), want ReplacesPhone", pending, err)
+	}
 }

@@ -106,14 +106,12 @@ type approvalCaller struct {
 	ictx    invite.Context
 }
 
-// boundCaller is complete's front half for the approval routes: the flood ceiling, the body, the
-// proof of possession (BEFORE the invitation is read -- a caller who cannot sign learns nothing),
-// the invitation and its budget. ok=false: answered.
+// boundCaller is complete's front half for the approval routes: the body, the proof of possession
+// (BEFORE the invitation is read -- a caller who cannot sign learns nothing), the invitation and its
+// budget. ok=false: answered. The address meter is the CALLER's (approvalFront / statusFront): the
+// request is charged to the flood ceiling, the status poll to the status budget and never to the
+// flood ceiling (M16-23 audit ORTA-1).
 func (a *App) boundCaller(w http.ResponseWriter, r *http.Request, ip, where string) (approvalCaller, bool) {
-	if a.activation.floodSpent(ip, where) {
-		writeAppError(w, appErrTooMany)
-		return approvalCaller{}, false
-	}
 	body, ok := readAppBody(w, r)
 	if !ok {
 		return approvalCaller{}, false
@@ -162,6 +160,10 @@ func (a *App) ActivateApproval(w http.ResponseWriter, r *http.Request) {
 	defer settle()
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	ip := clientIP(r)
+	if a.activation.floodSpent(ip, "app_activate_approval") {
+		writeAppError(w, appErrTooMany)
+		return
+	}
 	c, ok := a.boundCaller(w, r, ip, "app_activate_approval")
 	if !ok {
 		return
@@ -209,8 +211,11 @@ func (a *App) ActivateApproval(w http.ResponseWriter, r *http.Request) {
 
 // ActivateApprovalStatus serves POST /app/v1/activate/approval/status: the request's state, and on
 // an approval the device -- collected here, in ActivateDeviceApproved's one transaction. It is
-// metered on the wizard's status budget per address, not the flood ceiling, so a phone waiting
-// fifteen minutes cannot spend what a colleague's activation on the same network needs.
+// metered on the wizard's status budget per address (ApprovalStatus's, the browser twin's) and
+// NEVER on the flood ceiling, so a phone waiting fifteen minutes cannot spend what a colleague's
+// activation on the same network needs (audit ORTA-1: before this, the 598th poll of one phone
+// left a colleague's lookup on the same address a 429 --
+// TestAppNFCLessDB_StatusPollsLeaveTheFloodCeilingAlone).
 func (a *App) ActivateApprovalStatus(w http.ResponseWriter, r *http.Request) {
 	r, settle := holdInviteBudget(r)
 	defer settle()

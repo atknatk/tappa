@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import mt.taptime.app.activation.ActivationFlow
+import mt.taptime.app.activation.ApprovalPoll
 import mt.taptime.app.activation.InviteCode
 import mt.taptime.app.activation.PendingActivation
 import mt.taptime.app.activation.TapLink
@@ -86,11 +87,6 @@ import mt.taptime.app.wire.TapReply
 // activity is in the foreground; reader mode turns the NFC dispatch off, so the activation's read
 // goes to activate/complete and nowhere else.
 class MainActivity : ComponentActivity() {
-    private companion object {
-        /** The waiting screen's poll interval (M16-23's contract: every 3 seconds). */
-        const val POLL_MS = 3_000L
-    }
-
     private sealed interface Screen {
         data object Loading : Screen
         data class Code(val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false) : Screen
@@ -107,7 +103,7 @@ class MainActivity : ComponentActivity() {
          * M16-23: waiting for the manager's approval. [approval] carries the pairing code (its own
          * toString redacts it); [ended] is the request's end that is not "approved" (rejected,
          * expired) -- the screen then offers a new request; [notice] is the last poll's passing
-         * trouble. Polled every [POLL_MS] while shown and the activity is in front.
+         * trouble. Polled every [pollDelay] (ApprovalPoll) while shown and the activity is in front.
          */
         data class Waiting(
             val pending: PendingActivation, val approval: ApprovalReply.Waiting?,
@@ -150,6 +146,8 @@ class MainActivity : ComponentActivity() {
     // front (taken back in onPause / onDestroy, and a tick that finds another screen does nothing).
     private val main = Handler(Looper.getMainLooper())
     private val pollTick = Runnable { poll() }
+    /** The next tick's delay: ApprovalPoll's base, doubled on each 429 in a row (up to its cap). */
+    private var pollDelay = ApprovalPoll.BASE_MS
 
     // The location permission is asked AT THE PRESS, never at start (CLAUDE.md §4.2, the manifest's
     // note): the browser's prompt comes with getCurrentPosition at the press too. Whatever the
@@ -380,6 +378,7 @@ class MainActivity : ComponentActivity() {
     // a new request; an earlier open one of this invitation is withdrawn by the server.
     private fun askApproval(p: PendingActivation, markBusy: () -> Unit) {
         markBusy()
+        pollDelay = ApprovalPoll.BASE_MS // a new request starts at the base
         work({ flow.requestApproval(p) }) { r -> showApproval(r, p) }
     }
 
@@ -400,7 +399,7 @@ class MainActivity : ComponentActivity() {
     private fun schedulePoll() {
         main.removeCallbacks(pollTick)
         val s = screen as? Screen.Waiting ?: return
-        if (s.approval != null && s.ended == null && resumed) main.postDelayed(pollTick, POLL_MS)
+        if (s.approval != null && s.ended == null && resumed) main.postDelayed(pollTick, pollDelay)
     }
 
     private fun poll() {
@@ -410,7 +409,10 @@ class MainActivity : ComponentActivity() {
         work({ flow.pollApproval(s.pending, last) }, failed = { if (screen === s) s.copy(notice = Problem.SERVER) else screen }) { r ->
             // An approved answer stands whatever is on screen: the device exists now (and is saved).
             // Anything else belongs to the waiting screen the poll left from.
-            if (r is ActivationFlow.ApprovalResult.Activated || screen === s) showApproval(r, s.pending)
+            if (r is ActivationFlow.ApprovalResult.Activated || screen === s) {
+                pollDelay = ApprovalPoll.nextDelay(pollDelay, ApprovalPoll.outcomeOf(r))
+                showApproval(r, s.pending)
+            }
         }
     }
 

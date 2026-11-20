@@ -38,10 +38,7 @@ var approvalWords = []string{"approved", "rejected", "self", "closed", "unknown"
 func approvalViews(rows []tenant.PendingApproval, zone *time.Location, now time.Time) []pages.ApprovalRowView {
 	out := make([]pages.ApprovalRowView, 0, len(rows))
 	for _, p := range rows {
-		code := p.PairingCode
-		if len(code) == 6 {
-			code = code[:3] + " " + code[3:]
-		}
+		code := groupedPairingCode(p.PairingCode)
 		client := "Browser"
 		if p.Client == "app" {
 			client = "App"
@@ -54,6 +51,7 @@ func approvalViews(rows []tenant.PendingApproval, zone *time.Location, now time.
 			Code:     code,
 			Asked:    askedWords(p.CreatedAt, now, zone),
 			Deadline: p.ExpiresAt.In(zone).Format("15:04"),
+			Replaces: p.ReplacesPhone,
 		})
 	}
 	return out

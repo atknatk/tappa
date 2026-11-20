@@ -3,10 +3,8 @@ package invite
 import (
 	"context"
 	"crypto/rand"
-	"encoding"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/atknatk/tappa/internal/invite/pairing"
 	"github.com/atknatk/tappa/internal/liveqr"
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -63,38 +62,12 @@ var (
 	ErrApprovalNotGranted = errors.New("invite: no approval to collect")
 )
 
-// PairingCode is the six digits the phone shows and the panel lists. It is NOT a credential -- the
-// approval is the manager's press -- but the card keeps it out of every log line and audit detail,
-// so it prints redacted on every path and Digits is its one egress (the phone's screen, the panel's
-// row).
-type PairingCode struct{ v *string }
-
-var (
-	_ fmt.Formatter          = PairingCode{}
-	_ fmt.Stringer           = PairingCode{}
-	_ fmt.GoStringer         = PairingCode{}
-	_ slog.LogValuer         = PairingCode{}
-	_ encoding.TextMarshaler = PairingCode{}
-)
-
-const pairingRedacted = "invite.PairingCode(redacted)"
+// PairingCode is the six digits the phone shows and the panel lists (internal/invite/pairing: a
+// leaf type both halves carry). It prints redacted on every path but Digits.
+type PairingCode = pairing.Code
 
 // ParsePairingCode wraps six digits read from the database.
-func ParsePairingCode(v string) PairingCode { return PairingCode{v: &v} }
-
-func (PairingCode) Format(f fmt.State, _ rune)   { _, _ = f.Write([]byte(pairingRedacted)) }
-func (PairingCode) String() string               { return pairingRedacted }
-func (PairingCode) GoString() string             { return pairingRedacted }
-func (PairingCode) LogValue() slog.Value         { return slog.StringValue(pairingRedacted) }
-func (PairingCode) MarshalText() ([]byte, error) { return []byte(pairingRedacted), nil }
-
-// Digits is the code's one egress: the screen that shows it.
-func (p PairingCode) Digits() string {
-	if p.v == nil {
-		return ""
-	}
-	return *p.v
-}
+func ParsePairingCode(v string) PairingCode { return pairing.Parse(v) }
 
 // newPairingCode draws six uniform digits from crypto/rand. A crypto/rand failure is returned, never
 // ignored (§7).
@@ -309,9 +282,10 @@ type ApprovedActivation struct {
 	ApprovedBy uuid.UUID
 }
 
-// ActivateApproved is Activate on a manager's approval (the browser): the SAME consumption and the
-// same Q40 (a) app-device revocation, and -- in the same transaction, right after the consuming
-// statement and before anything is revoked -- the collection of the approved request b opened
+// ActivateApproved is Activate on a manager's approval (the browser): Activate's own body
+// (activateBrowser -- the SAME consumption and the same Q40 (a) app-device revocation), and -- in
+// the same transaction, right after the consuming statement and before anything is revoked -- the
+// collection of the approved request b opened
 // (CollectActivationApproval). No approval to collect rolls everything back: ErrApprovalNotGranted,
 // nothing consumed.
 func (m *Manager) ActivateApproved(ctx context.Context, c Code, b Binding) (ApprovedActivation, error) {
@@ -320,19 +294,7 @@ func (m *Manager) ActivateApproved(ctx context.Context, c Code, b Binding) (Appr
 	if err != nil {
 		return ApprovedActivation{}, err
 	}
-	act, err := m.consume(ctx, c, b, func(ctx context.Context, q *store.Queries, out *Activation) error {
-		if e := collect(ctx, q, out); e != nil {
-			return e
-		}
-		ids, e := q.RevokeAppDevicesForEmployee(ctx, store.RevokeAppDevicesForEmployeeParams{
-			TenantID: out.TenantID, EmployeeID: out.EmployeeID,
-		})
-		if e != nil {
-			return fmt.Errorf("invite: revoke the app devices: %w", e)
-		}
-		out.AppDevicesRevoked = len(ids)
-		return nil
-	})
+	act, err := m.activateBrowser(ctx, c, b, collect)
 	out := ApprovedActivation{Activation: act, RequestID: req.ID}
 	if req.DecidedBy != nil {
 		out.ApprovedBy = *req.DecidedBy

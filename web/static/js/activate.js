@@ -125,7 +125,12 @@
   var collect = root.querySelector('[data-approval-collect]');
   if (!url || !collect) return;
 
-  var INTERVAL_MS = 3000;
+  // Five seconds, doubling on every 429 up to a minute and back to five on an answer: the poll is
+  // metered per address on the status budget the apps share (M16-23 audit ORTA-1), so a venue's
+  // NAT with many phones waiting must slow down rather than spend it.
+  var INTERVAL_MS = 5000;
+  var MAX_INTERVAL_MS = 60000;
+  var delay = INTERVAL_MS;
   // Fifteen minutes is the request's own life (invite.ApprovalTTL); past it the answer is
   // "expired" anyway.
   var MAX_WAIT_MS = 16 * 60 * 1000;
@@ -141,10 +146,12 @@
     window
       .fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(function (res) {
+        if (res.status === 429) return { state: 'slow_down' };
         return res.json();
       })
       .then(function (body) {
         var state = body && body.state;
+        delay = state === 'slow_down' ? Math.min(delay * 2, MAX_INTERVAL_MS) : INTERVAL_MS;
         if (state === 'approved') {
           finished = true;
           collect.submit();
@@ -154,13 +161,13 @@
         } else if (state === 'none') {
           finished = true;
         } else {
-          window.setTimeout(check, INTERVAL_MS);
+          window.setTimeout(check, delay);
         }
       })
       .catch(function () {
-        window.setTimeout(check, INTERVAL_MS);
+        window.setTimeout(check, delay);
       });
   }
 
-  window.setTimeout(check, INTERVAL_MS);
+  window.setTimeout(check, delay);
 })();

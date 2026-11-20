@@ -1391,7 +1391,7 @@ var LandingFAQ = []Question{
 			"flagged and queued for review. Setting a phone up still needs proof it is at work: a real tap on a " +
 			"plaque, a scan of a venue's live QR screen, or a manager's approval in person.",
 		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-			FactActivationEndsOnARealTap, FactSetupNeedsPresence},
+			FactActivationEndsOnPresence, FactSetupNeedsPresence},
 	},
 	{
 		Q: "Can someone clock in from home?",

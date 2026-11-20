@@ -348,7 +348,7 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 					"phone up still needs proof it is at work: a real tap on a plaque, a scan of a venue's live QR "+
 					"screen, or a manager's approval in person.",
 					FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-					FactActivationEndsOnARealTap, FactSetupNeedsPresence),
+					FactActivationEndsOnPresence, FactSetupNeedsPresence),
 			},
 		},
 	}

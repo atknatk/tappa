@@ -7,6 +7,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -263,7 +264,7 @@ func TestPanelApprovals_TheCardAndThePress(t *testing.T) {
 	reqID := uuid.New()
 	staff := signedInStaff(0)
 	staff.approvals = []tenant.PendingApproval{{ID: reqID, EmployeeName: "Rita Vella", LocationName: "St Julians",
-		Client: "app", PairingCode: "482913", CreatedAt: time.Now().Add(-3 * time.Minute), ExpiresAt: time.Now().Add(12 * time.Minute)}}
+		Client: "app", PairingCode: invite.ParsePairingCode("482913"), CreatedAt: time.Now().Add(-3 * time.Minute), ExpiresAt: time.Now().Add(12 * time.Minute)}}
 	b := panelBrowserWithActions(t, staff, &fakeInviter{})
 	page := htmlOf(t, b.do(http.MethodGet, employeesHref, nil))
 	for _, want := range []string{"Phones waiting for approval", "Rita Vella", "482 913", "3 min ago", "St Julians · App",
@@ -352,5 +353,57 @@ func TestLiveShaped_ChoosesOnlyTheWords(t *testing.T) {
 	if !strings.Contains(liveOr(true, tapProblemStale, tapProblemLiveStale).Hint, "Scan the code on the screen") ||
 		liveOr(false, tapProblemStale, tapProblemLiveStale) != tapProblemStale {
 		t.Error("liveOr picks the wrong words")
+	}
+}
+
+// TestRequestApproval_TheInvitationsHourlyBudget (audit DÜŞÜK-4): one invitation opens at most
+// approvalOpenLimit requests an hour (a request row is never deleted); the next is the too-many
+// screen and opens nothing, and the crossing is recorded once (approval_requests_limited). MUTANT
+// (measured): the budget check removed -> the eleventh request opens.
+func TestRequestApproval_TheInvitationsHourlyBudget(t *testing.T) {
+	rec := &fakeAudit{}
+	inv := &fakeInvites{}
+	h := newHandler(t, inv, &fakeSessions{}, rec)
+	for i := range approvalOpenLimit {
+		if w := postTo(t, h, ActivationApprovalPath, url.Values{"csrf": {fakeCSRF}}); w.Code != http.StatusSeeOther {
+			t.Fatalf("request %d = %d, want 303", i+1, w.Code)
+		}
+	}
+	for range 2 {
+		if w := postTo(t, h, ActivationApprovalPath, url.Values{"csrf": {fakeCSRF}}); w.Code != http.StatusTooManyRequests {
+			t.Fatalf("a request past the budget = %d, want 429", w.Code)
+		}
+	}
+	if inv.openCalls != approvalOpenLimit {
+		t.Errorf("%d requests opened, want %d", inv.openCalls, approvalOpenLimit)
+	}
+	n := 0
+	for _, e := range rec.events {
+		if d, ok := e.Detail.(activationDetail); ok && d.Reason == "approval_requests_limited" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d approval_requests_limited rows, want 1", n)
+	}
+}
+
+// TestPendingApproval_PrintsNoCode (security review DÜŞÜK): the panel's row carries the pairing code
+// as invite.PairingCode, so a log line or %+v of the row never prints the digits; the card draws
+// them through Digits and nothing else. The label for a replaced phone is drawn only when set.
+func TestPendingApproval_PrintsNoCode(t *testing.T) {
+	row := tenant.PendingApproval{ID: uuid.New(), EmployeeName: "Rita Vella", PairingCode: invite.ParsePairingCode("482913")}
+	if s := fmt.Sprintf("%v %+v %#v", row, row, row); strings.Contains(s, "482913") {
+		t.Fatalf("the row prints the code: %s", s)
+	}
+	for _, replaces := range []bool{false, true} {
+		staff := signedInStaff(0)
+		staff.approvals = []tenant.PendingApproval{{ID: uuid.New(), EmployeeName: "Rita Vella", Client: "browser",
+			PairingCode: invite.ParsePairingCode("482913"), CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute), ReplacesPhone: replaces}}
+		page := htmlOf(t, panelBrowserWithActions(t, staff, &fakeInviter{}).do(http.MethodGet, employeesHref, nil))
+		if !strings.Contains(page, "482 913") || strings.Contains(page, "replaces their current phone") != replaces {
+			t.Errorf("replaces=%v: code drawn %v, label drawn %v", replaces, strings.Contains(page, "482 913"),
+				strings.Contains(page, "replaces their current phone"))
+		}
 	}
 }

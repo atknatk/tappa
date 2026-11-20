@@ -1836,6 +1836,11 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 - **Ek bulgu (kullanıcıya):** public sayfaların *"Setting a phone up still takes one real tap on a plaque."* cümlesi
   yanlışlaştı — taslak yazıldı, fact `FactSetupNeedsPresence`.
 - **Açık:** §9 metinleri ve public cümle kullanıcı kararı; iki mercek; M16-24 devirleri kartta.
+- **Düzeltme turu (aynı gün, ayrı commit `fix(activate): close the NFC-less activation audits`):** kullanıcı A/B/C ve
+  public cümleyi onayladı. ORTA-1 (durum yoklaması flood tavanını harcamıyor; 5 sn + 429 katlaması, iki uygulama ve
+  tarayıcı), ORTA-2 (`/security` cümlesi + `FactActivationEndsOnPresence`), DÜŞÜK 3–9 ve 11 kapandı (kartta). **DÜŞÜK-10
+  DUR:** daveti verenin onay yasağı — issuer `audit_log`'dan ölçülebilir, ama onaylı metin ona uymuyor ve tek sahipli
+  işletmede müdür onayını kapatır; kullanıcıya.
 
 ### 2026-11-19 (M16, dal `m16-22-app-qr`, taban `ab5a380a`) — M16-22 yapıldı, `review`
 

@@ -715,7 +715,21 @@ var ErrDeviceKeyTaken = errors.New("invite: this device key is already registere
 // Deactivation still revokes nothing (2026-08-07): this runs only on a consumption,
 // and the consuming statement refuses a deactivated person.
 func (m *Manager) Activate(ctx context.Context, c Code, b Binding) (Activation, error) {
+	return m.activateBrowser(ctx, c, b, nil)
+}
+
+// activateBrowser is Activate's body. first, when set, runs inside the transaction right after the
+// consuming statement and before the app devices are revoked (ActivateApproved's collection,
+// M16-23); its error rolls everything back. ONE body for both browser consumptions, so Q40 (a)'s
+// revocation cannot be dropped from one of them alone (M16-23 audit DÜŞÜK-3).
+func (m *Manager) activateBrowser(ctx context.Context, c Code, b Binding,
+	first func(context.Context, *store.Queries, *Activation) error) (Activation, error) {
 	return m.consume(ctx, c, b, func(ctx context.Context, q *store.Queries, out *Activation) error {
+		if first != nil {
+			if e := first(ctx, q, out); e != nil {
+				return e
+			}
+		}
 		ids, e := q.RevokeAppDevicesForEmployee(ctx, store.RevokeAppDevicesForEmployeeParams{
 			TenantID: out.TenantID, EmployeeID: out.EmployeeID,
 		})

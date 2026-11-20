@@ -334,7 +334,9 @@ plaque drawing's place. Two ways finish it, on any phone:
   line *"Phone can't tap? Open your camera and scan the code on the Taptime screen at your
   workplace."* It calls `POST /app/v1/activate/approval` (signed like complete, over its own path)
   and shows the waiting screen with the pairing code grouped by three (*"482 913"*).
-  `POST /app/v1/activate/approval/status` is polled every 3 s while that screen is shown and the
+  `POST /app/v1/activate/approval/status` is polled every 5 s (`ApprovalPoll`: each 429 in a row
+  doubles it -- 5, 10, 20, 40, then 60 s at most; an answer, or no answer, is 5 s again; ~20 phones
+  behind one venue NAT fit the address's status budget) while that screen is shown and the
   activity is in front (one `Handler.postDelayed` tick at a time, re-posted after each answer —
   no repeating timer). `approved` **is** the activation (the server created the device in that
   call): saved exactly as complete's success. `rejected` / `expired` end the wait with *"Ask

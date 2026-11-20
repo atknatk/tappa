@@ -290,4 +290,6 @@ type ApprovalRowView struct {
 	Code     string
 	Asked    string
 	Deadline string
+	// Replaces: the person's current phone is signed out by this approval (Q40 (a)).
+	Replaces bool
 }

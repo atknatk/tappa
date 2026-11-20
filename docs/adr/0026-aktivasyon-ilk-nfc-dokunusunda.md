@@ -105,11 +105,17 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
   > hiçbir yerinde) **çalışan** bir canlı QR ekranı yoksa sihirbaz *"My phone can't tap"* sunar;
   > istek bu tarayıcının/anahtarın onay bağına bağlı, 6 haneli eşleşme kodlu, 15 dk ömürlü bir
   > `activation_requests` satırıdır (00115); müdür panelde onaylar ya da reddeder (tek yön,
-  > `audit_log`'da aktörüyle; kod hiçbir log'a ve `detail`'e girmez); telefon sonraki durum
-  > okumasında tüketimi ve onayın toplanmasını **tek transaction'da** yapar
-  > (`invite.ActivateApproved` / `ActivateDeviceApproved`). Ekranlı lokasyonda istek **sunucuda**
-  > reddedilir (`ErrScreenAvailable`). Yönetici kendi telefonunu onaylayamaz (adres eşitliği,
-  > ADR 0037'nin ruhu; sahip muafiyeti yok — telefonun başka yolu var).
+  > `audit_log`'da aktörüyle; kod hiçbir log'a ve `detail`'e girmez); tüketim ve onayın toplanması
+  > **tek transaction'dır** (`invite.ActivateApproved` / `ActivateDeviceApproved`) — tarayıcıda
+  > `POST /activate/approval/collect`'te, uygulamada onaylı isteği okuyan `approval/status`
+  > çağrısında. Ekranlı lokasyonda istek **sunucuda** reddedilir (`ErrScreenAvailable`). "Çalışan
+  > ekran" son 20 dk'da kod istemiş ekrandır; `last_seen_at` en fazla 10 dk'da bir damgalandığından
+  > **kapatılan bir tablet kapıyı ancak son damgasından 10–20 dk sonra açar** (o arada istek
+  > `screen_available` alır). Yönetici kendi telefonunu onaylayamaz (adres eşitliği, ADR 0037'nin
+  > ruhu; sahip muafiyeti yok — telefonun başka yolu var). **Sınırı:** kural yalnız yazılı adresleri
+  > karşılaştırır — yöneticinin hesabında adres yoksa, çalışanın adresi boşsa ya da ikisi farklıysa
+  > (aynı kişi iki adresle) yakalamaz (ADR 0037 §3 seçenek C'nin adlandırılmış zayıflığı;
+  > `employees.admin_user_id` bağı — A′ — gelince güçlenir).
   > İkisi de `transactions` satırı yazmaz; her red `activation.failed` satırıdır (§4.6). Bedeli: canlı
   > QR'ın ~20 sn'lik penceresinde fotoğrafı anında iletilen kod, onay vermiş başka bir telefonu
   > o pencerede aktive edebilir (ADR 0045 §2.5'in check-in için kabul ettiği maruziyet; davet tek

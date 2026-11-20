@@ -372,7 +372,7 @@ func restaurantsCopy() RestaurantsText {
 				"Setting a phone up still needs proof it is at work: a real tap on a plaque, a scan of a venue's live QR screen, "+
 				"or a manager's approval in person.",
 				FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-				FactActivationEndsOnARealTap, FactSetupNeedsPresence),
+				FactActivationEndsOnPresence, FactSetupNeedsPresence),
 		},
 		VenuesChip: LandingPricingIncludes[0],
 
@@ -408,7 +408,7 @@ func restaurantsCopy() RestaurantsText {
 			FactGPSAloneApprovesATap),
 		Cases: []RestaurantsCase{
 			{Label: "New-hire setup", Text: l("Invite link, activated on their own phone",
-				FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnARealTap)},
+				FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnPresence)},
 			{Label: "When someone leaves", Text: l("Switch off in the dashboard — the next tap is refused",
 				FactDeactivatedPersonIsRefused)},
 			{Label: "If it breaks", Text: l("Stick a spare plaque and swap it in the dashboard",

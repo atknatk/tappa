@@ -4522,6 +4522,9 @@ type Querier interface {
 	// invitation can still be spent by the binding that asked (a request whose person has since
 	// activated another way, or whose consent moved to another phone, is not shown -- approving it would
 	// complete nothing). Oldest first. The venue is the person's home venue, NULL for none (K-14).
+	// replaces_phone: the person holds a live browser session or a live app device right now, which
+	// the approval's activation signs out (Q40 (a)) -- the panel row says so (M16-23 security DÜŞÜK).
+	// "Live" is the panel card's own definition (GetPanelEmployeeSummary: revoked_at IS NULL).
 	ListOpenActivationRequests(ctx context.Context, tenantID uuid.UUID) ([]ListOpenActivationRequestsRow, error)
 	// Check-ins in the window that no checkout closes.
 	//
@@ -5943,7 +5946,9 @@ type Querier interface {
 	// address is the person's address. admin_users.email is the account's address (an identity-linked
 	// account's mirror, 00102), employees.email the person's; both citext, so the comparison ignores
 	// case. A person without an address is never "self" -- the check can only see what is written.
-	// pgx.ErrNoRows: no such request in this business.
+	// employee_deactivated: a deactivated person's request is closed to a decision (the consumption would
+	// refuse it anyway; the panel must not record an approval nothing can collect -- M16-23 security
+	// review DÜŞÜK). pgx.ErrNoRows: no such request in this business.
 	LockActivationRequestForDecision(ctx context.Context, arg LockActivationRequestForDecisionParams) (LockActivationRequestForDecisionRow, error)
 	// adminmembers.sql -- the owner's side of a business's memberships (M14-16, ADR 0031 §5.12): the
 	// people who run this business in the panel, disabling and enabling one, and moving a membership

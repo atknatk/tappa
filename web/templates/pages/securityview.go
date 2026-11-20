@@ -148,10 +148,12 @@ const (
 	// counter advanced by AdvanceTagCounter. Delegates to SourceSignatureIsVerified and
 	// SourceCounterAdvanceIsGuarded.
 	FactChecksRunOnTheServer Fact = "fact:checks-run-on-the-server"
-	// A phone's session comes from activation, which ends on a real NFC tap at an
-	// active plaque of the same business, checked by sun.Verify, and writes no
-	// attendance record (ADR 0026). Derived from Activation.CompleteByTap.
-	FactActivationEndsOnARealTap Fact = "handler:Activation.CompleteByTap"
+	// A phone's session comes from activation, which ends on proof the phone is at work and
+	// writes no attendance record (ADR 0026; M16-23): a real NFC tap at an active plaque of the
+	// same business, checked by sun.Verify (CompleteByTap); a verified live QR code of the same
+	// business's screen in service, inside its window (CompleteByLiveQR); or a manager's
+	// approval, collected by the phone that asked (CollectApproval). Derived from the three.
+	FactActivationEndsOnPresence Fact = "handler:Activation.CompleteByTap+CompleteByLiveQR+CollectApproval"
 	// The session token is TokenBits of crypto/rand and the database keeps only an
 	// HMAC-SHA256 of it (sessions.token_hash). Derived from internal/session and
 	// migration 00003.
@@ -463,8 +465,8 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		{Sids: []string{"sys:sun-invalid"}, Verdict: securityReject,
 			Text: l("Signature fails, or the counter did not move", FactGuardrailsAreTheList, FactCopiedLinkIsRefused)},
 		{Sids: []string{"sys:no-session"},
-			Text:  l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnARealTap),
-			Notes: []Line{l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnARealTap)}},
+			Text:  l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnPresence),
+			Notes: []Line{l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnPresence)}},
 		{Sids: []string{"sys:employee-deactivated"}, Verdict: securityReject,
 			Text:  l("Account switched off", FactGuardrailsAreTheList, FactDeactivatedPersonIsRefused),
 			Notes: []Line{l("security event", FactDeactivatedTapIsASecurityEvent)}},
@@ -497,7 +499,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		PersonTitle:     l("One phone, one person", FactNewPhoneSignsOutTheOld, FactSessionTokenIsStoredHashed),
 		PlaceTitle:      l("A network list too wide to mean anything is ignored", FactWideAddressListIsNoEvidence),
 		BackupTitle:     l("One position, only at the tap", FactPositionReadOnlyOnPress),
-		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnARealTap),
+		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnPresence),
 		DebounceTitle:   l("Debounce is per person", FactDebounceIsPerPersonOnTheServerClock),
 		// 🔴 THE DENIAL IS ON THE SAME LINE AS THE WORD (scripts/redline-check.sh R1).
 		FingerTitle:   l("No fingerprints, no face scans", FactNoAuthenticatorAPI),
@@ -544,8 +546,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 
 		PersonActivation: Line{
 			Text: "A phone gets its session through activation: the employee opens their invite link, agrees, and " +
-				"makes a first real NFC tap at one of your plaques. That tap writes no record; the next one clocks in.",
-			Facts: []Fact{FactActivationEndsOnARealTap, FactPeopleAreInvitedFromTheDashboard},
+				"proves the phone is at work — a first real NFC tap at one of your plaques, a scan of a venue's live QR " +
+				"screen, or a manager's approval in person. None of these writes a record; the next tap clocks in.",
+			Facts: []Fact{FactActivationEndsOnPresence, FactPeopleAreInvitedFromTheDashboard},
 		},
 		PersonToken: Line{
 			Text: "The phone keeps a random " + n(f.TokenBits) + "-bit token. The database keeps only a keyed hash " +
@@ -567,7 +570,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 
 		PersonNoRecord: Line{
 			Text:  "Session on this phone — no record written",
-			Facts: []Fact{FactActivationEndsOnARealTap},
+			Facts: []Fact{FactActivationEndsOnPresence},
 		},
 
 		PlaceAddress: Line{

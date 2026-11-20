@@ -91,8 +91,16 @@ RETURNING id, decided_by;
 -- invitation can still be spent by the binding that asked (a request whose person has since
 -- activated another way, or whose consent moved to another phone, is not shown -- approving it would
 -- complete nothing). Oldest first. The venue is the person's home venue, NULL for none (K-14).
+-- replaces_phone: the person holds a live browser session or a live app device right now, which
+-- the approval's activation signs out (Q40 (a)) -- the panel row says so (M16-23 security DÜŞÜK).
+-- "Live" is the panel card's own definition (GetPanelEmployeeSummary: revoked_at IS NULL).
 SELECT r.id, r.employee_id, e.full_name, l.name AS location_name, r.client, r.pairing_code,
-       r.created_at, r.expires_at
+       r.created_at, r.expires_at,
+       (EXISTS (SELECT 1 FROM sessions s
+                 WHERE s.tenant_id = r.tenant_id AND s.employee_id = r.employee_id AND s.revoked_at IS NULL)
+        OR EXISTS (SELECT 1 FROM app_devices d
+                    WHERE d.tenant_id = r.tenant_id AND d.employee_id = r.employee_id AND d.revoked_at IS NULL)
+       )::boolean AS replaces_phone
 FROM activation_requests r
 JOIN employees e
   ON e.id = r.employee_id
@@ -121,9 +129,12 @@ ORDER BY r.created_at, r.id;
 -- address is the person's address. admin_users.email is the account's address (an identity-linked
 -- account's mirror, 00102), employees.email the person's; both citext, so the comparison ignores
 -- case. A person without an address is never "self" -- the check can only see what is written.
--- pgx.ErrNoRows: no such request in this business.
+-- employee_deactivated: a deactivated person's request is closed to a decision (the consumption would
+-- refuse it anyway; the panel must not record an approval nothing can collect -- M16-23 security
+-- review DÜŞÜK). pgx.ErrNoRows: no such request in this business.
 SELECT r.id, r.employee_id, r.client, r.decision, r.withdrawn_at,
        (r.expires_at <= now())::boolean AS expired,
+       (e.status = 'deactivated')::boolean AS employee_deactivated,
        (i.used_at IS NULL AND i.cancelled_at IS NULL AND i.expires_at > now()
         AND i.consent_binding_hash = r.binding_hash)::boolean AS invite_usable,
        (e.email IS NOT NULL AND a.email IS NOT NULL AND e.email = a.email)::boolean AS self

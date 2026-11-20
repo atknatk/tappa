@@ -1807,8 +1807,8 @@ kalkışı).
 > form bağı). Karar `tenant.Staff.DecideApproval`: satır `FOR UPDATE`, tek yön (tetikleyici), `activation.approved` /
 > `activation.rejected` aktörüyle; kod ve davet kodu hiçbir `detail`'de ve log'da yok. **Kapı SEÇİMİ:** çalışanın **profil
 > şubesi** (profil şubesi yoksa — K-14 — işletmenin tamamı); "çalışan ekran" = eşlenmiş, iptal yok, oturumu 180 gün içinde,
-> lokasyon aktif **ve son 20 dk içinde kod istemiş** (`last_seen_at` en fazla 10 dk'da bir damgalanır; kapalı tablet kapıyı
-> kapatmaz). Gerekçe: zincirde merkezdeki bir ekran dokuz şubenin müdür onayını kapatmamalı; sunucu ekranlı şubede isteği
+> lokasyon aktif **ve son 20 dk içinde kod istemiş** (`last_seen_at` en fazla 10 dk'da bir damgalanır; kapatılan bir tablet
+> kapıyı **ancak son damgasından 10–20 dk sonra** açar — o arada istek `screen_available` alır). Gerekçe: zincirde merkezdeki bir ekran dokuz şubenin müdür onayını kapatmamalı; sunucu ekranlı şubede isteği
 > `ErrScreenAvailable` ile reddeder (yalnız gizlemez). **Kendi kendine onay SEÇİMİ:** ölçüldü — `employees.admin_user_id`
 > (ADR 0037 A′) yazılmadı; uygulanan, planın Q47 notundaki karşılaştırma: onaylayan hesabın adresi (`admin_users.email`,
 > bağlı hesapta kimliğin aynası) çalışanın adresine eşitse (citext) onay **ve** ret reddedilir, `activation.approval_refused`
@@ -1836,6 +1836,25 @@ kalkışı).
 > (6) **M16-24'e devir:** gerçek tablet + NFC'siz telefonla iki yol (tarayıcı + uygulama); askıdaki işletmede onay;
 > M16-35'in *"bütün tüketen yollar"* statik testi `ActivateApproved` / `ActivateDeviceApproved`'ı da saymalı (ikisi
 > `consume`'dan geçer); Q47 (a) için manager girişiyle panel onayı ölçümü.
+
+> **Düzeltme turu (2026-11-20; kullanıcı A/B/C metinlerini ve public SSS cümlesini onayladı; güvenlik ONAY + 1 ORTA,
+> üçüncü göz RED + 2 ORTA).** (ORTA-1) uygulamanın `approval/status` yoklaması artık flood tavanını harcamaz, yalnız
+> adres başına status bütçesini (`TestAppNFCLessDB_StatusPollsLeaveTheFloodCeilingAlone`; mutant: tavan geri → 2. yoklama
+> 429); yoklama 3 → 5 sn, her ardışık 429'da katlanır (5→10→20→40→60), cevapta 5'e döner — tarayıcı `activate.js`,
+> Android `ApprovalPoll.kt`, iOS `ApprovalPoll` aynı (iki platformda katlama mutantı kırmızı). (ORTA-2) `/security`
+> *PersonActivation* cümlesi üç yolu sayar; fact `FactActivationEndsOnPresence` (`CompleteByTap` + `CompleteByLiveQR` +
+> `CollectApproval`), iki yeni mutant satırı. (DÜŞÜK) `ActivateApproved` Activate'in gövdesini (`activateBrowser`)
+> çağırır — Q40 (a) tek yerde (`TestNFCLessDB_AnApprovedBrowserActivationSignsTheAppOut`); saatlik 10 istek sınırı
+> (`TestRequestApproval_TheInvitationsHourlyBudget`); deaktive kişinin isteği karara kapalı
+> (`TestNFCLessDB_ADeactivatedPersonsRequestIsClosed`); panel kodu `invite.PairingCode` taşır; panel satırı kişinin canlı
+> oturumu/cihazı varsa *"replaces their current phone"* der (`TestNFCLessDB_ThePanelSaysWhenAnApprovalReplacesAPhone`,
+> `TestPendingApproval_PrintsNoCode`); kapalı tablet sınırı ve öz-onay sınırı ADR 0026'ya, CLAUDE.md §5 toplama cümlesi.
+> **DUR — daveti verenin onayı (güvenlik DÜŞÜK-10):** ölçüldü, issuer `audit_log`'dan okunabilir (`invite.code_shown_to_manager`
+> / `invite.code_emailed` / `invite.undelivered`, `actor_id` + `detail.invite_id`, `audit_log_invite_delivery_idx` kapsar;
+> `tappa_app` okuyabilir) — migration gerekmez. Uygulanmadı: (1) onaylı *"You can't approve your own phone"* başlığı daveti
+> verene yanlış olur (yeni metin gerekir); (2) canlıdaki dört işletmenin dördü tek sahiplidir ve bütün davetleri sahip verir —
+> kural, ekransız tek sahipli işletmede müdür onayını tümden kapatır (çıkış: sahip bir canlı QR ekranı eşler). Karar
+> kullanıcıya.
 
 ## M16-24 — Faz D kapanışı
 

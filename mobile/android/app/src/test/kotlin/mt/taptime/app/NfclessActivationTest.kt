@@ -4,6 +4,7 @@ import java.io.File
 import mt.taptime.app.activation.ActivationFlow
 import mt.taptime.app.activation.ActivationFlow.ApprovalResult
 import mt.taptime.app.activation.ActivationFlow.CompleteResult
+import mt.taptime.app.activation.ApprovalPoll
 import mt.taptime.app.activation.PairingCode
 import mt.taptime.app.activation.PendingActivation
 import mt.taptime.app.activation.Problem
@@ -227,6 +228,31 @@ class NfclessActivationTest {
         val w = waiting(p)
         server.statusScript += "400:invalid_invite"
         assertEquals(ApprovalResult.Restart(Problem.BAD_LINK), flow.pollApproval(p, w.approval))
+    }
+
+    // --- the poll's interval (review ORTA-1) ---------------------------------------------------
+
+    @Test
+    fun thePollBacksOffOnEach429AndAnAnswerOrNoAnswerIsTheBase() {
+        val rl = ApprovalPoll.Outcome.RATE_LIMITED
+        val chain = generateSequence(ApprovalPoll.BASE_MS) { ApprovalPoll.nextDelay(it, rl) }.take(6).toList()
+        assertEquals(listOf(5_000L, 10_000L, 20_000L, 40_000L, 60_000L, 60_000L), chain)
+        for (from in chain) {
+            assertEquals("an answer is the base, from $from", 5_000L, ApprovalPoll.nextDelay(from, ApprovalPoll.Outcome.ANSWERED))
+            assertEquals("no answer is the base, from $from", 5_000L, ApprovalPoll.nextDelay(from, ApprovalPoll.Outcome.FAILED))
+        }
+    }
+
+    @Test
+    fun aPollsResultNamesItsBudgetOutcome() {
+        val p = bound()
+        val w = waiting(p)
+        server.statusScript += listOf("429:rate_limited", "500:server_error", "waiting")
+        assertEquals(ApprovalPoll.Outcome.RATE_LIMITED, ApprovalPoll.outcomeOf(flow.pollApproval(p, w.approval)))
+        assertEquals(ApprovalPoll.Outcome.ANSWERED, ApprovalPoll.outcomeOf(flow.pollApproval(p, w.approval)))
+        assertEquals(ApprovalPoll.Outcome.ANSWERED, ApprovalPoll.outcomeOf(flow.pollApproval(p, w.approval)))
+        server.close()
+        assertEquals(ApprovalPoll.Outcome.FAILED, ApprovalPoll.outcomeOf(flow.pollApproval(p, w.approval)))
     }
 
     // --- the wire ------------------------------------------------------------------------------

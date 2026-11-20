@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/invite/pairing"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -49,14 +50,16 @@ const (
 var (
 	// ErrUnknownApproval: no request with that id in this business.
 	ErrUnknownApproval = errors.New("tenant: no such activation request")
-	// ErrApprovalClosed: the request was decided, withdrawn by a newer one, ran out of time, or its
-	// invitation can no longer be spent by the phone that asked (used, cancelled, consent moved).
+	// ErrApprovalClosed: the request was decided, withdrawn by a newer one, ran out of time, its
+	// invitation can no longer be spent by the phone that asked (used, cancelled, consent moved), or
+	// its person was deactivated since.
 	ErrApprovalClosed = errors.New("tenant: the activation request is no longer open")
 	// ErrSelfApproval: the deciding account is the person's own (the address rule above).
 	ErrSelfApproval = errors.New("tenant: an administrator cannot decide their own phone")
 )
 
-// PendingApproval is one open request as the panel lists it. PairingCode is shown and only shown.
+// PendingApproval is one open request as the panel lists it. PairingCode is shown and only shown:
+// it is pairing.Code (invite.PairingCode), which prints redacted on every path but Digits (M16-23 security DÜŞÜK).
 type PendingApproval struct {
 	ID           uuid.UUID
 	EmployeeID   uuid.UUID
@@ -65,9 +68,12 @@ type PendingApproval struct {
 	LocationName string
 	// Client is "browser" or "app".
 	Client      string
-	PairingCode string
+	PairingCode pairing.Code
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
+	// ReplacesPhone: the person holds a live session or app device that the approval's
+	// activation signs out (Q40 (a)).
+	ReplacesPhone bool
 }
 
 // PendingApprovals lists the business's open requests, oldest first.
@@ -88,7 +94,8 @@ func (s *Staff) PendingApprovals(ctx context.Context, tenantID uuid.UUID) ([]Pen
 	for _, r := range rows {
 		p := PendingApproval{
 			ID: r.ID, EmployeeID: r.EmployeeID, EmployeeName: r.FullName, Client: r.Client,
-			PairingCode: r.PairingCode, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
+			PairingCode: pairing.Parse(r.PairingCode), CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
+			ReplacesPhone: r.ReplacesPhone,
 		}
 		if r.LocationName != nil {
 			p.LocationName = *r.LocationName
@@ -166,7 +173,7 @@ func (s *Staff) DecideApproval(ctx context.Context, c DecideApprovalCommand) (De
 			})
 			return e
 		}
-		if row.Decision != nil || row.WithdrawnAt != nil || row.Expired || !row.InviteUsable {
+		if row.Decision != nil || row.WithdrawnAt != nil || row.Expired || !row.InviteUsable || row.EmployeeDeactivated {
 			return ErrApprovalClosed
 		}
 		done, e := q.DecideActivationRequest(ctx, store.DecideActivationRequestParams{
