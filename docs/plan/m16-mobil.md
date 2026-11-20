@@ -1849,12 +1849,14 @@ kalkışı).
 > (`TestNFCLessDB_ADeactivatedPersonsRequestIsClosed`); panel kodu `invite.PairingCode` taşır; panel satırı kişinin canlı
 > oturumu/cihazı varsa *"replaces their current phone"* der (`TestNFCLessDB_ThePanelSaysWhenAnApprovalReplacesAPhone`,
 > `TestPendingApproval_PrintsNoCode`); kapalı tablet sınırı ve öz-onay sınırı ADR 0026'ya, CLAUDE.md §5 toplama cümlesi.
-> **DUR — daveti verenin onayı (güvenlik DÜŞÜK-10):** ölçüldü, issuer `audit_log`'dan okunabilir (`invite.code_shown_to_manager`
+> **Daveti verenin onayı (güvenlik DÜŞÜK-10) — karar verildi: kabul edilen risk (kullanıcı, 2026-11-20; ADR 0026 Bedel 3
+> notu, ADR 0037'ye bağlı).** Ölçüm: issuer `audit_log`'dan okunabilir (`invite.code_shown_to_manager`
 > / `invite.code_emailed` / `invite.undelivered`, `actor_id` + `detail.invite_id`, `audit_log_invite_delivery_idx` kapsar;
 > `tappa_app` okuyabilir) — migration gerekmez. Uygulanmadı: (1) onaylı *"You can't approve your own phone"* başlığı daveti
 > verene yanlış olur (yeni metin gerekir); (2) canlıdaki dört işletmenin dördü tek sahiplidir ve bütün davetleri sahip verir —
-> kural, ekransız tek sahipli işletmede müdür onayını tümden kapatır (çıkış: sahip bir canlı QR ekranı eşler). Karar
-> kullanıcıya.
+> kural, ekransız tek sahipli işletmede müdür onayını tümden kapatır (çıkış: sahip bir canlı QR ekranı eşler). Kod kuralı
+> eklenmedi. Aynı gün onaylanan iki yeni metin: `/security` *PersonActivation* cümlesi ve panel etiketi *"replaces their
+> current phone"*.
 
 ## M16-24 — Faz D kapanışı
 

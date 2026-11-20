@@ -116,6 +116,16 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
   > karşılaştırır — yöneticinin hesabında adres yoksa, çalışanın adresi boşsa ya da ikisi farklıysa
   > (aynı kişi iki adresle) yakalamaz (ADR 0037 §3 seçenek C'nin adlandırılmış zayıflığı;
   > `employees.admin_user_id` bağı — A′ — gelince güçlenir).
+  > **Kabul edilen bedel — daveti verenin onayı (kullanıcı kararı, 2026-11-20; ADR 0037'ye bağlı).**
+  > Daveti veren yönetici linki kendi telefonunda açıp *"My phone can't tap"* diyebilir ve açılan isteği
+  > kendisi onaylayabilir: o telefon plakete gitmeden aktive olur. Kazandığı yalnız aktivasyondur —
+  > sonraki her check-in yine kanıt ister (§5 satır 6–7: IP ya da GPS; ikisi de yoksa `flag`, onay
+  > kuyruğu). İz kalır: davet ve onay `audit_log`'da **aynı aktörle** görünür (`invite.code_shown_to_manager`
+  > / `invite.code_emailed` satırının ve `activation.approved` satırının `actor_id`'si), yani ADR 0037'nin
+  > denetim sinyali bu yolda da okunabilir. Kural eklenmedi, çünkü canlıdaki dört işletmenin dördü tek
+  > sahiplidir ve bütün davetleri sahip verir: *"daveti veren onaylayamaz"* kuralı ekransız bir işletmede
+  > müdür onayı yolunu tümden kapatırdı. (Ölçüm, M16-23 düzeltme turu: daveti vereni okumak için
+  > migration gerekmiyordu — `audit_log_invite_delivery_idx` kapsar; engel ürün kararıdır, teknik değil.)
   > İkisi de `transactions` satırı yazmaz; her red `activation.failed` satırıdır (§4.6). Bedeli: canlı
   > QR'ın ~20 sn'lik penceresinde fotoğrafı anında iletilen kod, onay vermiş başka bir telefonu
   > o pencerede aktive edebilir (ADR 0045 §2.5'in check-in için kabul ettiği maruziyet; davet tek
