@@ -33,6 +33,13 @@ final class InfoPlistTests: XCTestCase {
         }
     }
 
+    // M16-22 (Q36 (c)): a venue screen's live QR is read by the SYSTEM camera and opens the app as a
+    // Universal Link; the app has no QR reader, so it asks for no camera. The allow-list above already
+    // refuses the key; this names it.
+    func testNoCameraUsageDescription() {
+        XCTAssertNil(info["NSCameraUsageDescription"])
+    }
+
     // CLAUDE.md 4.2: location only at the moment of the tap. No background mode at all (the
     // app has no reason to run in the background), and no key of the Always family.
     func testNoBackgroundModeAndNoAlwaysLocation() {

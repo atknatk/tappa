@@ -343,7 +343,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, log)
 	must(err)
-	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, tap, log)
+	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, tap, app, log)
 	must(err)
 	panelOptions := append([]handler.AdminAuthOption{handler.IntegrationKeys(apiKeys), handler.OAuthConsent(oauthServer)}, liveQROptions...)
 	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, panelOptions...)

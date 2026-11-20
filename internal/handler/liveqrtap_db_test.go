@@ -527,6 +527,49 @@ func TestLiveQRDB_ARemovedScreenOrAClosedVenueIsARecordedReject(t *testing.T) {
 	}
 }
 
+// TestLiveQRDB_ACodeNamingAnotherVenueIsARecordedReject is the browser's twin of the app path's
+// venue check (M16-22 audit DÜŞÜK-1; M16-20's token contract (d)): a GENUINE token -- this
+// deployment's key -- naming a real screen and claiming another venue of the same business is
+// unverified: GET /q draws the tap page with no venue, and the press RECORDS a reject via
+// sys:live-qr-unverified with no venue (Q39 (a), §4.6). CONTROL: the screen's true token records ok
+// at its venue. MUTANT (measured): liveQRTap.open without the venue comparison -- the forged
+// venue's tap is recorded ok there.
+func TestLiveQRDB_ACodeNamingAnotherVenueIsARecordedReject(t *testing.T) {
+	h := newLiveHarness(t)
+	sc := h.screenAt(t, h.tenantID, h.locationID)
+	elsewhere := uuid.New()
+	if err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO locations (id, tenant_id, name, static_ips) VALUES ($1, $2, 'Gzira', '{203.0.113.0/24}')`, elsewhere, h.tenantID)
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lying, err := h.keys.Mint(sc.ID, elsewhere, time.Now(), liveqr.TokenLifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, cookie := h.clone(t)
+	page := h.get(t, liveURL(lying), cookie)
+	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), "Gzira") || strings.Contains(page.Body.String(), "St Julians") {
+		t.Fatalf("GET /q with another venue's claim = %d, want the tap page with no venue", page.Code)
+	}
+	if w := h.postSigned(t, contextFieldOf(t, page.Body.String()), cookie, onSiteAddr, nil); w.Code != http.StatusOK {
+		t.Fatalf("the press = %d", w.Code)
+	}
+	if r := h.lastRow(t, id); str(r["verdict"]) != "reject" || str(r["matched_sid"]) != "sys:live-qr-unverified" || r["location_id"] != nil || str(r["channel"]) != "qr_live" {
+		t.Fatalf("another venue: %s via %s at %s, want a recorded reject via sys:live-qr-unverified with no venue",
+			str(r["verdict"]), str(r["matched_sid"]), str(r["location_id"]))
+	}
+	other, oc := h.clone(t)
+	if p := h.get(t, liveURL(h.token(t, sc)), oc); !strings.Contains(p.Body.String(), "St Julians") {
+		t.Fatal("CONTROL: the true code's page does not name its venue -- the no-venue check above would be vacuous")
+	}
+	h.scan(t, h.token(t, sc), oc, onSiteAddr, nil)
+	if r := h.lastRow(t, other); str(r["verdict"]) != "ok" || str(r["location_id"]) != h.locationID.String() {
+		t.Fatalf("CONTROL: the screen's true code: %s at %s, want ok at its venue", str(r["verdict"]), str(r["location_id"]))
+	}
+}
+
 // --- the parity matrix ----------------------------------------------------------------------
 
 // parityExcluded are the known structural differences between a static QR row and a live QR row of
@@ -712,12 +755,12 @@ func TestLiveQRDB_ParityWithTheStaticQR(t *testing.T) {
 	t.Run("holding_flag_then_approval", func(t *testing.T) { holdingCell(t, offSiteAddr, venueFix(), "flag", "approved") })
 }
 
-// TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything is M16-21's measurement for M16-22 (which
-// decides whether /app/v1/tap accepts qr_live): today the app hands tap/start the URL's query, and a
-// live QR URL's query (t=<token>) is not a plaque's -- sun.Parse wants tag -- so tap/start answers
-// 400 bad_request, writes no record and moves no counter. No record is LOST in the §4.6 sense:
-// tap/start never writes one, and no press can follow without the context it did not mint. What is
-// lost is the scan itself -- the person gets the app's error -- which is M16-22's to open.
+// TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything is M16-21's measurement for M16-22, kept
+// as it was: on a server whose live QR read is OFF (newAppHarness never calls App.ServeLiveQR), a
+// live QR URL's query (t=<token>) sent as a PLAQUE's (`sun`) is not one -- sun.Parse wants tag --
+// so tap/start answers 400 bad_request, writes no record and moves no counter. It does NOT hold the
+// field rule with the read ON; that is TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn
+// (applive_db_test.go, M16-22 audit ORTA-1).
 func TestLiveQRDB_TheAppPathRefusesALiveQRURLBeforeAnything(t *testing.T) {
 	h := newAppHarness(t)
 	p := newAppPhone(t)

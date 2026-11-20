@@ -85,14 +85,28 @@
                 <data android:scheme="https" android:host="${plaqueHost}" android:path="/t" />
             </intent-filter>
             <!--
-              The same URL opened as a link (a QR scanned by the camera, a link in a message): an
-              App Link, verified against /.well-known/assetlinks.json (M16-08), which links /t only.
+              The same URL opened as a link (the plaque's printed QR, <host>/t?tag=<UID>, scanned by
+              the camera; a link in a message): an App Link, verified against
+              /.well-known/assetlinks.json (M16-08).
             -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${plaqueHost}" android:path="/t" />
+            </intent-filter>
+            <!--
+              A VENUE SCREEN'S LIVE QR (M16-22, ADR 0045 §2.5; Q36 (c)): the system camera reads the
+              screen's rotating code, https://<host>/q?t=<token>, and this App Link opens the app with
+              it. There is no QR reader in the app and no camera permission. Verified against the
+              same /.well-known/assetlinks.json (Android verifies the host; the path is this filter's).
+              A filter of its own, VIEW only: a QR is never an NFC read.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${plaqueHost}" android:path="/q" />
             </intent-filter>
         </activity>
 

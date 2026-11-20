@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/liveqr"
 )
 
 // /app/v1 -- THE NATIVE APP'S ONE SURFACE (ADR 0045 §2.3, §2.4; M16-07). It is the browser flow's
@@ -40,7 +41,8 @@ import (
 //	POST /app/v1/nonce              read-signed  one single-use nonce (the cap drops the oldest)
 //	POST /app/v1/tap/start          read-signed  the SUN query -> name, venue, brand, predicted
 //	                                             direction, signed tap context (GET /t's twin;
-//	                                             the counter does NOT advance)
+//	                                             the counter does NOT advance) -- or a live QR
+//	                                             URL's query -> the same (GET /q's twin, M16-22)
 //	POST /app/v1/tap                nonce-signed the context + want + fix + mock flag -> the
 //	                                             record (POST /api/checkin's twin)
 //	GET  /app/v1/me                 read-signed  name, brand, predicted direction (Q41)
@@ -112,7 +114,26 @@ type App struct {
 	// traffic and the browser's are metered by two buckets of the same size.
 	limiter *httpx.TapLimiter
 	log     *slog.Logger
+	// live reads a venue screen's live QR code at tap/start (M16-22): GET /q's reader, nil while
+	// TAPPA_LIVE_QR_KEY is unset (ServeLiveQR).
+	live *liveQRTap
 }
+
+// ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the
+// SAME reader GET /q uses (newLiveQRTap, liveQRTap.open). cmd/tappa's openLiveQR calls it next to
+// Tap.ServeLiveQR, so the browser and the app read the screens' codes together or not at all. Off,
+// a live QR read is answered bad_request and nothing is written -- GET /q's 404.
+func (a *App) ServeLiveQR(keys *liveqr.Keys, screens liveQRDisplays) error {
+	live, err := newLiveQRTap(keys, screens)
+	if err != nil {
+		return err
+	}
+	a.live = live
+	return nil
+}
+
+// ServesLiveQR says whether ServeLiveQR turned the live QR read on (cmd/tappa's wiring test).
+func (a *App) ServesLiveQR() bool { return a.live != nil }
 
 // NewApp wires the surface. Every dependency is required.
 func NewApp(devices appDevices, invites appInvites, verifier activationVerifier, dir appDirectory, checkins checkinRecorder, activation *Activation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*App, error) {

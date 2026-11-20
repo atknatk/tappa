@@ -110,8 +110,11 @@ private struct CompleteRequest: Encodable {
     let sun: String
 }
 
+/// tap/start's body: exactly ONE of the two (M16-22). The synthesised Encodable omits a nil
+/// optional (encodeIfPresent), so a plaque read sends {"sun"} and a live QR {"liveQR"}.
 private struct TapStartRequest: Encodable {
-    let sun: String
+    var sun: String?
+    var liveQR: String?
 }
 
 /// The press: the signed context, the direction pressed, and at most one fix with its mock report.
@@ -283,7 +286,27 @@ final class AppClient {
     /// The plaque read's screen: a signed read (nothing recorded, no counter spent), retried once on
     /// a 401 like every signed read.
     func tapStart(_ device: DeviceIdentity, sun: String) async throws -> TapStartResponse {
-        let body = try encode(TapStartRequest(sun: sun))
+        try await tapStart(device, body: TapStartRequest(sun: sun))
+    }
+
+    /// A venue screen's live QR read (M16-22): the /q URL's query as `liveQR` -- GET /q's twin, the
+    /// same signed read, nothing recorded.
+    func tapStart(_ device: DeviceIdentity, liveQR: String) async throws -> TapStartResponse {
+        try await tapStart(device, body: TapStartRequest(liveQR: liveQR))
+    }
+
+    /// One of the two reads opened by a link: plaque or live QR.
+    func tapStart(_ device: DeviceIdentity, link: TapLink) async throws -> TapStartResponse {
+        switch link {
+        case .plaque(let sun):
+            return try await tapStart(device, sun: sun)
+        case .liveQR(let q):
+            return try await tapStart(device, liveQR: q)
+        }
+    }
+
+    private func tapStart(_ device: DeviceIdentity, body request: TapStartRequest) async throws -> TapStartResponse {
+        let body = try encode(request)
         let (data, resp) = try await signedRead("POST", Path.tapStart, body: body, device: device)
         let r: TapStartResponse = try decode(data, resp)
         guard !r.context.isEmpty else {

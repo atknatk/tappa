@@ -66,13 +66,11 @@ type liveQRTap struct {
 // shows codes and no /q to read them would be a 404 for every scan (M16-20's hand-off;
 // cmd/tappa's TestLiveQR_TheTapPageIsMountedExactlyWhenTheScreensAre).
 func (t *Tap) ServeLiveQR(keys *liveqr.Keys, screens liveQRDisplays) error {
-	switch {
-	case keys == nil:
-		return errors.New("handler: nil live QR keys")
-	case isNil(screens):
-		return errors.New("handler: nil live QR screen resolver")
+	live, err := newLiveQRTap(keys, screens)
+	if err != nil {
+		return err
 	}
-	t.live = &liveQRTap{keys: keys, screens: screens}
+	t.live = live
 	return nil
 }
 
@@ -106,20 +104,12 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	screen, claims, verified, ok := t.openLiveQR(ctx, w, r, id)
+	o, ok := t.openLiveQR(ctx, w, r, id)
 	if !ok {
 		return
 	}
-
-	var wall, screenTenant uuid.UUID
-	if verified {
-		wall, screenTenant = screen.LocationID, screen.TenantID
-	}
-	// The prediction says whether this person is at work right now, so it is shown only on a
-	// screen that can record an `ok`: verified, in service, the person's own business
-	// (predictionAllowed's rule for a plaque). The directory answers the rest of the gate.
-	predict := verified && screen.RevokedAt == nil && screen.LocationActive && screen.TenantID == id.Session.TenantID
-	facts, err := t.directory.TapPage(ctx, id.Session.TenantID, id.Session.EmployeeID, wall, predict)
+	live := liveTapOf(o, id.Session.TenantID)
+	facts, err := t.directory.TapPage(ctx, id.Session.TenantID, id.Session.EmployeeID, live.Context.LocationID, live.Predict)
 	var (
 		look      layout.Brand
 		direction pages.TapDirection
@@ -131,7 +121,7 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 		// §2's mismatch rule), and the decision is the POST's.
 		t.log.WarnContext(ctx, "live QR page: no venue of this business to show",
 			"employee_id", id.EmployeeID(), "session_tenant_id", id.TenantID(),
-			"display_id", screen.ID, "screen_tenant_id", screenTenant, "verified", verified)
+			"display_id", o.Screen.ID, "screen_tenant_id", live.Context.TagTenantID, "verified", o.Verified)
 	case errors.Is(err, tenant.ErrBrandUnread):
 		t.log.ErrorContext(ctx, "live QR page: reading the business's brand failed; drawing Taptime's",
 			"tenant_id", id.TenantID(), "employee_id", id.EmployeeID(), "err", err)
@@ -152,16 +142,7 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 		direction = tapDirectionOf(facts.Prediction)
 	}
 
-	c := tapContext{
-		Channel:       sun.ChannelQRLive,
-		TokenVerified: verified,
-		TagTenantID:   screenTenant,
-		LocationID:    wall,
-	}
-	if verified {
-		c.DisplayID, c.TokenExpiresAt = screen.ID, claims.ExpiresAt()
-	}
-	signed, err := t.contexts.mint(c, id.Session.ID)
+	signed, err := t.contexts.mint(live.Context, id.Session.ID)
 	if err != nil {
 		t.log.ErrorContext(ctx, "live QR page: minting the tap context failed", "err", err)
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
@@ -180,37 +161,111 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // openLiveQR opens the request's token and resolves the screen it names. ok=false means the
-// response is already written (an infrastructure failure). verified is the outcome the context
+// response is already written (an infrastructure failure). o.Verified is the outcome the context
 // carries: the token opened AND the screen exists AND its venue is the token's.
 //
 // What is logged is a KIND, never the token and never Open's error text (§7, the card's log
 // rule): "malformed" or "signature", and the screen id once the token is genuine.
-func (t *Tap) openLiveQR(ctx context.Context, w http.ResponseWriter, r *http.Request, id httpx.Identity) (db.ResolvedLiveQRDisplay, liveqr.Claims, bool, bool) {
-	claims, err := t.live.keys.Open(r.URL.Query().Get(liveqr.TokenParam))
+func (t *Tap) openLiveQR(ctx context.Context, w http.ResponseWriter, r *http.Request, id httpx.Identity) (liveQROpening, bool) {
+	o, err := t.live.open(ctx, r.URL.Query().Get(liveqr.TokenParam))
 	if err != nil {
-		kind := "malformed"
-		if errors.Is(err, liveqr.ErrSignature) {
-			kind = "signature"
-		}
-		t.log.WarnContext(ctx, "live QR page: the code did not verify; the press records a reject",
-			"kind", kind, "employee_id", id.EmployeeID(), "tenant_id", id.TenantID())
-		return db.ResolvedLiveQRDisplay{}, liveqr.Claims{}, false, true
+		t.log.ErrorContext(ctx, "live QR page: resolving the screen failed", "display_id", o.Claims.DisplayID, "err", err)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		return liveQROpening{}, false
 	}
-	screen, err := t.live.screens.GetLiveQRDisplayByID(ctx, claims.DisplayID)
+	switch o.Refusal {
+	case liveRefusalMalformed, liveRefusalSignature:
+		t.log.WarnContext(ctx, "live QR page: the code did not verify; the press records a reject",
+			"kind", o.Refusal, "employee_id", id.EmployeeID(), "tenant_id", id.TenantID())
+	case liveRefusalUnknownScreen:
+		t.log.WarnContext(ctx, "live QR page: a genuine code names a screen we do not hold; the press records a reject",
+			"display_id", o.Claims.DisplayID, "employee_id", id.EmployeeID())
+	case liveRefusalVenueMismatch:
+		t.log.ErrorContext(ctx, "live QR page: a genuine code names a venue its screen is not at; the press records a reject",
+			"display_id", o.Claims.DisplayID, "employee_id", id.EmployeeID())
+	}
+	return o, true
+}
+
+// liveTap is what both readers (GET /q and the app's tap/start) derive from one opening: the
+// signed context's live half and the prediction gate. One function, so the two screens cannot
+// disagree about what a press may record (M16-22 audit DÜŞÜK-2).
+type liveTap struct {
+	// Context is the version-2 tap context to mint: the screen, "verified", the token's own
+	// expiry, the screen's tenant and venue -- all zero unless the token verified. IssuedAt is the
+	// mint's.
+	Context tapContext
+	// Predict says whether the predicted direction may be shown: only on a screen that can record
+	// an `ok` -- verified, in service, the person's own business (predictionAllowed's rule for a
+	// plaque). The directory answers the rest of the gate.
+	Predict bool
+}
+
+func liveTapOf(o liveQROpening, sessionTenant uuid.UUID) liveTap {
+	c := tapContext{Channel: sun.ChannelQRLive, TokenVerified: o.Verified}
+	if o.Verified {
+		c.DisplayID, c.TokenExpiresAt = o.Screen.ID, o.Claims.ExpiresAt()
+		c.TagTenantID, c.LocationID = o.Screen.TenantID, o.Screen.LocationID
+	}
+	return liveTap{
+		Context: c,
+		Predict: o.Verified && o.Screen.RevokedAt == nil && o.Screen.LocationActive && o.Screen.TenantID == sessionTenant,
+	}
+}
+
+// Why a live QR token did not verify: the log's KIND (never the token, never Open's error text).
+const (
+	liveRefusalMalformed     = "malformed"
+	liveRefusalSignature     = "signature"
+	liveRefusalUnknownScreen = "unknown_screen"
+	liveRefusalVenueMismatch = "venue_mismatch"
+)
+
+// liveQROpening is what opening one live QR token established: the screen's row and the token's
+// claims when Verified, else Refusal names the kind (Claims still carries a GENUINE token's screen
+// id for the log -- an id, never the token).
+type liveQROpening struct {
+	Screen   db.ResolvedLiveQRDisplay
+	Claims   liveqr.Claims
+	Verified bool
+	Refusal  string
+}
+
+// newLiveQRTap is the one constructor of the live QR reader GET /q (Tap.ServeLiveQR) and the app's
+// tap/start (App.ServeLiveQR) share: the same keys, the same context-less screen resolver.
+func newLiveQRTap(keys *liveqr.Keys, screens liveQRDisplays) (*liveQRTap, error) {
+	switch {
+	case keys == nil:
+		return nil, errors.New("handler: nil live QR keys")
+	case isNil(screens):
+		return nil, errors.New("handler: nil live QR screen resolver")
+	}
+	return &liveQRTap{keys: keys, screens: screens}, nil
+}
+
+// open is THE token check of both readers (GET /q and POST /app/v1/tap/start, M16-22): Open (shape,
+// then the tag in constant time, before any field is believed), the screen resolved from its ROW
+// (resolve_live_qr_display_by_id, context-less: in a holding the screen is another tenant's), and
+// the row's venue equal to the token's signed one. A token that does not verify is NOT an error:
+// it is Q39 (a)'s recorded reject, decided by the press. err is an infrastructure failure only.
+func (l *liveQRTap) open(ctx context.Context, token string) (liveQROpening, error) {
+	claims, err := l.keys.Open(token)
+	if err != nil {
+		kind := liveRefusalMalformed
+		if errors.Is(err, liveqr.ErrSignature) {
+			kind = liveRefusalSignature
+		}
+		return liveQROpening{Refusal: kind}, nil
+	}
+	screen, err := l.screens.GetLiveQRDisplayByID(ctx, claims.DisplayID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		t.log.WarnContext(ctx, "live QR page: a genuine code names a screen we do not hold; the press records a reject",
-			"display_id", claims.DisplayID, "employee_id", id.EmployeeID())
-		return db.ResolvedLiveQRDisplay{}, liveqr.Claims{}, false, true
+		return liveQROpening{Claims: claims, Refusal: liveRefusalUnknownScreen}, nil
 	case err != nil:
-		t.log.ErrorContext(ctx, "live QR page: resolving the screen failed", "display_id", claims.DisplayID, "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
-		return db.ResolvedLiveQRDisplay{}, liveqr.Claims{}, false, false
+		return liveQROpening{Claims: claims}, err
 	}
 	if screen.LocationID != claims.LocationID {
-		t.log.ErrorContext(ctx, "live QR page: a genuine code names a venue its screen is not at; the press records a reject",
-			"display_id", claims.DisplayID, "employee_id", id.EmployeeID())
-		return db.ResolvedLiveQRDisplay{}, liveqr.Claims{}, false, true
+		return liveQROpening{Claims: claims, Refusal: liveRefusalVenueMismatch}, nil
 	}
-	return screen, claims, true, true
+	return liveQROpening{Screen: screen, Claims: claims, Verified: true}, nil
 }

@@ -29,9 +29,9 @@ import (
 //
 // ⚠️ ANDROID'S LIST IS ALSO THE MANIFEST (M16-08's card note 4): the Dynamic App Links extension
 // below can narrow the manifest's intent filter, never widen it, and Android 14 and earlier read the
-// manifest alone. mobile/android's filter names /t only until the app can handle a live QR (M16-22);
-// until then a scanned /q URL opens the browser on Android, which is the M16-08 order rule ("a
-// platform's list grows only once its app handles the path") applied to the manifest side.
+// manifest alone. mobile/android's filters name /t and, since the app handles a live QR (M16-22),
+// /q -- the M16-08 order rule ("a platform's list grows only once its app handles the path")
+// applied to the manifest side: the /q filter came with the app's live QR read, not before it.
 //
 // EACH FILE IS SERVED ONLY WHILE ITS PLATFORM IS CONFIGURED (internal/config: Config.AppAppleTeamID,
 // Config.AppAndroidSignerSHA256, each optional on its own). Unconfigured, the route is not mounted and

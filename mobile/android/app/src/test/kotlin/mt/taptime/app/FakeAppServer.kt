@@ -194,7 +194,8 @@ class FakeAppServer(
             return error(ex, status, code)
         }
         val m = MiniJson.decodeObject(String(body))
-        if (m.keys != setOf("sun")) return error(ex, 400, "bad_request")
+        // Exactly one of the two fields (apptap.go's tapStart / tapStartLive, M16-22).
+        if (m.keys != setOf("sun") && m.keys != setOf("liveQR")) return error(ex, 400, "bad_request")
         val loc = locationName?.let { ""","locationName":"$it"""" } ?: ""
         json(ex, """{"employeeName":"Maria Borg"$loc,"brand":$tapStartBrand,"direction":"$direction","qr":false,"context":"ctx-for-$id"}""")
     }

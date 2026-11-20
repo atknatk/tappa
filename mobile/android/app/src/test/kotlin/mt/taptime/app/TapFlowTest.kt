@@ -146,6 +146,44 @@ class TapFlowTest {
         assertTrue(server.seen.isEmpty())
     }
 
+    // M16-22: a venue screen's live QR, read by the system camera and opened as an App Link. The
+    // same signed read, the URL's query as `liveQR` (never as `sun`), the same tap screen and the same
+    // press; nothing about the token is judged here (the server opens it).
+    @Test
+    fun aLiveQrIsASignedReadOfItsQueryAndTheSamePress() {
+        activated()
+        val live = "t=AQ0000000000000000000000000000000000000000000000000000000000000000000000000000x"
+        val r = flow.start("${server.base}/q?$live") as Start.Ready
+        assertEquals("Maria Borg", r.facts.employeeName)
+        assertEquals("St Julians", r.facts.locationName)
+        assertEquals("the live QR's query, verbatim, as liveQR", listOf("""{"liveQR":"$live"}"""), server.tapStartBodies)
+        assertEquals("a signed read: no nonce is fetched for the screen", listOf("POST /app/v1/tap/start"), server.seen)
+        assertEquals("tap/start writes nothing", 0, server.recorded)
+        flow.press(r, "in", null) as Press.Recorded
+        assertEquals("the press is the plaque's press", """{"context":"${r.facts.context}","want":"in"}""", server.tapBodies.last())
+        assertEquals(listOf("POST /app/v1/tap/start", "POST /app/v1/nonce", "POST /app/v1/tap"), server.seen)
+    }
+
+    @Test
+    fun aLiveQrOfAnotherHostOrPathIsABadLinkAndIsSentNowhere() {
+        activated()
+        val live = "t=abc"
+        for (other in listOf(
+            "https://evil.example/q?$live", "${server.base}/q", "${server.base}/q/?$live", "${server.base}/qr?$live",
+            "${server.base}/q?$live#x", "${server.base}/screen?$live",
+        )) {
+            assertEquals(other, Start.Problem(TapProblem.BAD_LINK, Retry.NONE), flow.start(other))
+        }
+        assertTrue(server.seen.isEmpty())
+    }
+
+    @Test
+    fun aLiveQrOnAPhoneWithNoDeviceIsNotSetUpWithTheBrowserExit() {
+        assertEquals(Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE), flow.start("${server.base}/q?t=abc"))
+        assertTrue(server.seen.isEmpty())
+        assertTrue("not set up offers the browser", Buttons.of(TapProblem.NOT_SET_UP, Retry.NONE).browser)
+    }
+
     @Test
     fun aSignedOutPhoneIsToldSoAfterOneRetryAndKeepsItsRecord() {
         val d = activated()

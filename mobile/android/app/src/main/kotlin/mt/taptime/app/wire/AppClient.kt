@@ -64,6 +64,10 @@ class AppClient(
     fun tapStart(deviceId: String, key: Signer, sun: String): Outcome<TapStartReply> =
         signedRead("POST", Paths.TAP_START, Bodies.tapStart(sun), deviceId, key, Replies::tapStart)
 
+    /** tap/start for a venue screen's live QR (M16-22): the `<base>/q` URL's query as `liveQR`. */
+    fun tapStartLive(deviceId: String, key: Signer, liveQuery: String): Outcome<TapStartReply> =
+        signedRead("POST", Paths.TAP_START, Bodies.tapStartLive(liveQuery), deviceId, key, Replies::tapStart)
+
     /**
      * POST /api/checkin's twin, nonce-signed. An empty 2xx is an answer this app cannot read: the
      * record may exist, so it is [Outcome.Failed], never Ok.

@@ -23,6 +23,7 @@ import mt.taptime.app.activation.ActivationFlow
 import mt.taptime.app.activation.InviteCode
 import mt.taptime.app.activation.PendingActivation
 import mt.taptime.app.activation.PlaqueRead
+import mt.taptime.app.activation.TapLink
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.device.KeystoreKeys
 import mt.taptime.app.device.PrefsDeviceState
@@ -59,9 +60,12 @@ import mt.taptime.app.wire.TapReply
 // (M16-13).
 //
 // HOW A PLAQUE OPENS IT (manifest): an NFC read of <base>/t (NDEF_DISCOVERED) or an App Link to the
-// same URL (a QR scanned by the camera, a link). Either lands here with the URL as the intent's data,
-// at launch or -- the activity is singleTop -- in onNewIntent. The URL goes to TapFlow.start and
-// nowhere else; a URL that is not this server's <base>/t is "That link didn't work".
+// same URL (the plaque's printed QR scanned by the camera, a link). Either lands here with the URL as
+// the intent's data, at launch or -- the activity is singleTop -- in onNewIntent. A VENUE SCREEN'S
+// LIVE QR (M16-22) is an App Link to <base>/q: the system camera reads it (no reader in the app, Q36
+// (c)), and it lands here the same way. The URL goes to TapFlow.start and nowhere else; a URL that is
+// not this server's <base>/t or <base>/q is "That link didn't work". During activation a live QR
+// read finishes nothing (M16-23's): the plaque reader is the only activating read.
 //
 // STATE IS HELD HERE, IN MEMORY, AND NOWHERE ELSE. The manifest keeps this activity across
 // configuration changes (android:configChanges), so a rotation does not rebuild it and the
@@ -146,7 +150,9 @@ class MainActivity : ComponentActivity() {
         // system rebuilt the activity, the same intent comes back with the same, already spent,
         // counter: a press on it could only record a sun-invalid reject, and that reject would start
         // the person's 60-second debounce over their real next tap (tap.js keeps a restored NFC page
-        // as it was for the same reason). Such a launch is the launcher's.
+        // as it was for the same reason). Such a launch is the launcher's. A live QR URL likewise
+        // (M16-22): reopened, its token is long past its window, and a press could only record
+        // sys:live-qr-expired's flag -- a fresh code comes from the screen.
         val replayed = savedInstanceState != null || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
         val plaque = if (replayed) null else plaqueUrlOf(intent)
         if (plaque != null) startTap(plaque) else home()
@@ -233,7 +239,7 @@ class MainActivity : ComponentActivity() {
                 s.problem,
                 Buttons.of(s.problem, s.retry),
                 onRetry = { if (s.retry == Retry.HOME) home() else startTap(s.url) },
-                onBrowser = { PlaqueRead.browserUrl(s.url, BuildConfig.BASE_URL)?.let(::openInBrowser) },
+                onBrowser = { TapLink.browserUrl(s.url, BuildConfig.BASE_URL)?.let(::openInBrowser) },
                 onActivate = { screen = activationEntry(null) },
             )
         }

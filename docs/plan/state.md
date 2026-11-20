@@ -1785,7 +1785,7 @@ yazılır.
 | M16-19 | Şema: canlı QR ekranları ve `qr_live` kanal envanteri | done | dal `m16-19-liveqr-schema` (taban `b3c877fd`), `feat(db): add live QR displays and the qr_live channel`; migration 00111 (`live_qr_displays` + üç çözümleyici), 00112 (`qr_live` beş CHECK + üç tetikleyici), **00113** (VALIDATE — eklendi; M16-23…M16-35 önerileri birer kaydı); envanter kartın altında; iki mercek ONAY (üçüncü göz RED → düzeltme → dar yeniden denetim ONAY; güvenlik ONAY + ORTA kapandı) |
 | M16-20 | Canlı QR ekran sayfası ve panelden eşleme | done | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
 | M16-21 | `qr_live` karar motorunda | done | dal `m16-21-liveqr-decide` (taban `c57e8ba2`), `feat(tap): accept a live QR as a channel`; kullanıcı kararı 2026-11-19: `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, ayrı belge, `BaselineVersion` 2026-11-19); dört guardrail (11 → 15), üç bağlam anahtarı; `GET /q` (tap ekranı aynen); `/v1` `qrKind`; parite matrisi; migration yok (00115 M16-23'te kalır); iki mercek bekliyor |
-| M16-22 | Uygulamada QR okuma (statik + canlı) | todo |  |
+| M16-22 | Uygulamada QR okuma (statik + canlı) | review | dal `m16-22-app-qr` (taban `ab5a380a`), `feat(mobile): read plaque and live QR codes`; önce ayrı `f6a07f5b` (`test(tap): hold the panel tables lock…`, CI düzeltmesi); `tap/start`'a `liveQR` alanı (yeni uç yok), `GET /q`'nun okuyucusu ortak (`liveQRTap.open`); Android `/q` App Link filtresi; iOS `TapLink`; yeni metin yok; tek mercek bekliyor |
 | M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | todo |  |
 | M16-24 | Faz D kapanışı | todo |  |
 | M16-25 | Attestation — yalnız kanıt | todo |  |
@@ -1817,6 +1817,32 @@ yazılır.
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-19 (M16, dal `m16-22-app-qr`, taban `ab5a380a`) — M16-22 yapıldı, `review`
+
+- **Önce (ayrı commit, ana oturumun acil işi):** `f6a07f5b` — `liveHarness.approve` `admin_users` yazımını
+  `holdPanelTablesLock` altına aldı (plan dalı CI'ı `cmd/opadmin` `TestTablesLock_AdminRowsAreWrittenUnderTheHolder` kırmızıydı).
+- **Statik QR — ölçüldü, değişiklik yok:** basılı kod `<base>/t?tag=<UID>` (plaket rotası); iki uygulama zaten açıyor.
+  Uygulama yolunda ilk DB testi `TestAppDB_AStaticQRReadIsTheBrowsersQR`.
+- **Canlı QR:** `POST /app/v1/tap/start` `{"liveQR": "<…/q sorgusu>"}` (SEÇİM: mevcut uç genişledi; ikisi birden 400).
+  Token'ı `GET /q`'nun okuyucusu açar (`livetap.go` `liveQRTap.open`, iki çağıran); cihaza bağlı v2 bağlam; basış aynı
+  `POST /app/v1/tap` → aynı `checkin`. `openLiveQR` `App.ServeLiveQR`'ı da açar (anahtar yoksa 400, tarayıcıda 404).
+  Sekiz DB testi (`TestAppLiveQRDB_AScanOnTheVenuesNetworkIsOk` ve yedi kardeşi: IP ok, GPS-only flag, sahte → kayıtlı ret + log, süresi dolmuş flag, başka lokasyon
+  ret, kaldırılmış ekran ret, holding ret + site satırı / holding dışı 403 kayıtsız, ikisi birden / kapalıyken 400).
+- **Uygulamalar:** Android ayrı `/q` VIEW `autoVerify` filtresi (NDEF değil), `TapLink` (`PlaqueRead` | `LiveQrRead`),
+  `Bodies.tapStartLive`, `ContractPinTest` `/q` + `t` + `sun ∪ liveQR`; iOS `LiveQRURL` + `TapLink`, `AppClient.tapStart(link:)`,
+  `NotSetUp`'ta `/q` de Safari'ye yeniden kurulur. Kamera izni yok (iki platformda testle). **Yeni metin yok.**
+- **Testler:** Android `testDebugUnitTest` 122/122 (IosCopyTest koştu); iOS `xcodebuild test` iPhone 16 simülatörü 125/125
+  (ad-hoc imzayla; `CODE_SIGNING_ALLOWED=NO` ile `KeychainActivationStoreTests` -34018 — ortam, değişiklikle ilgisiz).
+- **DUR (§9) — ana oturuma:** iOS'ta okuyucusuz iPhone'un ana ekranı `noReader` (*"…so the app can't record a tap from
+  here."*) — canlı QR varken yanlış; bugün ulaşılamaz (NFC'siz aktivasyon M16-23). Android NFC'siz telefonu aktivasyonda
+  açılışta reddeder (*"…setup without a plaque tap isn't available yet."*) — M16-23'ün metni. Değiştirilmedi.
+- **Açık:** tek mercek; gerçek cihazda kamera → App Link / Universal Link `/q` (M16-24); `TAPPA_LIVE_QR_KEY` sırası (M16-24).
+- **Sıradaki:** M16-22'nin tek merceği → M16-23 (NFC'siz aktivasyon; `liveQRTap.open` hazır).
+- **Düzeltme turu (aynı gün, ayrı commit `test(mobile): pin the live QR app path's field rule and the browser's venue check`):**
+  denetim RED (test boşlukları) → alan kuralı canlı QR açıkken (`TestAppLiveQRDB_ALiveQueryInTheSunFieldIsRefusedWithLiveOn`),
+  tarayıcı lokasyon uyuşmazlığı (`TestLiveQRDB_ACodeNamingAnotherVenueIsARecordedReject`), ortak `liveTapOf` + birim testi,
+  M16-23'e §9 maddesi (`/q` sorun ekranlarının plaket diyen metni + `noReader`). Üç mutant kırmızı.
 
 ### 2026-11-19 (M16, dal `m16-21-liveqr-decide`, taban `c57e8ba2`) — M16-21 yapıldı, `review`
 

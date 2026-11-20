@@ -78,26 +78,86 @@ enum PlaqueURL {
     /// chip writes https://<host>/t?<query> and nothing else, so a port, a user, a password or a
     /// fragment makes it not a plaque URL (M16-17 review).
     static func sunQuery(of url: URL, host: String) -> String? {
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              comps.scheme?.lowercased() == "https",
-              comps.host?.lowercased() == host.lowercased(),
-              comps.port == nil, comps.user == nil, comps.password == nil, comps.fragment == nil,
-              comps.percentEncodedPath == path,
-              let query = comps.percentEncodedQuery, !query.isEmpty else {
-            return nil
-        }
-        return query
+        routeQuery(of: url, host: host, path: path)
     }
 
     /// The plaque URL rebuilt from THIS server's origin and a query sunQuery let through -- what
     /// "Open in browser" opens. The URL that arrived is never handed to the system as it came.
     static func url(base: URL, sun: String) -> URL? {
-        guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
-            return nil
-        }
-        comps.percentEncodedPath = path
-        comps.percentEncodedQuery = sun
-        comps.fragment = nil
-        return comps.url
+        routeURL(base: base, path: path, query: sun)
     }
+}
+
+/// A VENUE SCREEN'S LIVE QR (M16-22, ADR 0045 §2.5; Q36 (c)): the system camera reads the screen's
+/// rotating code, https://<host>/q?t=<token>, and the Universal Link opens the app with it (the
+/// AASA lists /q, M16-20). The app has no QR reader and asks for no camera. The query goes to
+/// tap/start as `liveQR`, exactly as written -- the server opens the token (GET /q's reader); the app
+/// judges nothing about it. The token is a ~20-second credential: kept in memory, never logged.
+enum LiveQRURL {
+    /// The live QR path the server serves (internal/liveqr LiveQRTapPath, handler LiveQRPath).
+    static let path = "/q"
+
+    /// The query of a live QR URL on this server -- the plaque URL's rule (https, this host, no
+    /// port, no user, no password, no fragment, the exact path) -- or nil: another host's code is
+    /// never sent anywhere.
+    static func query(of url: URL, host: String) -> String? {
+        routeQuery(of: url, host: host, path: path)
+    }
+
+    /// The live QR URL rebuilt from this server's origin: what "Open in browser" opens for it.
+    static func url(base: URL, query: String) -> URL? {
+        routeURL(base: base, path: path, query: query)
+    }
+}
+
+/// What opened the tap screen: a plaque (an NFC read, or its printed static QR -- the same /t
+/// route, https://<host>/t?tag=<UID>; the server tells them apart) or a venue screen's live QR.
+enum TapLink: Equatable {
+    case plaque(sun: String)
+    case liveQR(query: String)
+
+    /// This server's plaque or live QR URL, or nil for anything else.
+    static func of(_ url: URL, host: String) -> TapLink? {
+        if let sun = PlaqueURL.sunQuery(of: url, host: host) {
+            return .plaque(sun: sun)
+        }
+        if let q = LiveQRURL.query(of: url, host: host) {
+            return .liveQR(query: q)
+        }
+        return nil
+    }
+
+    /// The URL "Open in browser" hands Safari, rebuilt from the server's origin.
+    func browserURL(base: URL) -> URL? {
+        switch self {
+        case .plaque(let sun):
+            return PlaqueURL.url(base: base, sun: sun)
+        case .liveQR(let q):
+            return LiveQRURL.url(base: base, query: q)
+        }
+    }
+}
+
+/// The one origin check of the two links: https, this host, no port, no user, no password, no
+/// fragment, the path exactly `path`, a non-empty query (percent-encoding untouched).
+private func routeQuery(of url: URL, host: String, path: String) -> String? {
+    guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          comps.scheme?.lowercased() == "https",
+          comps.host?.lowercased() == host.lowercased(),
+          comps.port == nil, comps.user == nil, comps.password == nil, comps.fragment == nil,
+          comps.percentEncodedPath == path,
+          let query = comps.percentEncodedQuery, !query.isEmpty else {
+        return nil
+    }
+    return query
+}
+
+private func routeURL(base: URL, path: String, query: String) -> URL? {
+    guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+        return nil
+    }
+    comps.percentEncodedPath = path
+    comps.percentEncodedQuery = query
+    comps.fragment = nil
+    return comps.url
 }

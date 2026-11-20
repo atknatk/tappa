@@ -495,8 +495,9 @@ placeholder from `BASE_URL`, so a debug build pointed elsewhere takes that host'
 - **`NDEF_DISCOVERED`** — the NFC read of the plaque's URI record. Whether Android's tag
   dispatch picks the app before the browser is **to be measured on a real phone** (M16-14).
 - **`VIEW` + `BROWSABLE`, `autoVerify="true"`** — the same URL as a link: a QR scanned by the
-  camera, a link in a message. Verified against `/.well-known/assetlinks.json` (M16-08), which
-  links `/t` only. `/activate` is not the app's (Q40).
+  camera, a link in a message. Verified against `/.well-known/assetlinks.json` (M16-08).
+  `/activate` is not the app's (Q40). M16-22 adds a third filter, VIEW only, for a venue screen's
+  live QR (`/q`) — see *QR codes* below.
 
 The URL reaches `TapFlow.start` (or, during activation step 2/3, the activation's complete — the
 browser's consented activation takes `GET /t` the same way). `PlaqueRead` re-checks scheme, host,
@@ -703,3 +704,40 @@ again* offered after a lost press → `TapFlowTest` red · `InviteCode`'s port c
 never asking fresh → `FixRulesTest` red · GPS **or** network instead of both → `FixRulesTest` red ·
 `TapStartReply`'s `toString` override dropped → `RedactionTest` red · the browser URL passed on as it
 arrived → `InputsTest` red.
+
+## QR codes (M16-22)
+
+No QR reader in the app and **no camera permission** (Q36 (c), 2026-11-14): the phone's own camera
+reads the code and the App Link opens the app. Two kinds of code, one tap screen.
+
+| Code | URL (measured on the server) | Filter | tap/start body |
+|---|---|---|---|
+| **Static** — printed on the plaque | `sun.PlaqueQRURL`: `https://<host>/t?tag=<UID>` (no `ctr`, no `cmac`) — the plaque route itself | the existing `/t` VIEW filter (M16-13); nothing new | `{"sun":"tag=<UID>"}` — the server derives `channel=qr` |
+| **Live** — a venue screen's rotating code (M16-20) | `liveqr.TapURL`: `https://<host>/q?t=<token>` (~20 s) | a **new** VIEW + BROWSABLE filter, `autoVerify="true"`, path exactly `/q` (no NDEF: a QR is never an NFC read) | `{"liveQR":"t=<token>"}` — the URL's query as written |
+
+- **`TapLink`** (`activation/Inputs.kt`) is what opened the tap screen: `PlaqueRead` (`/t`) or
+  `LiveQrRead` (`/q`), the same origin rule (scheme, host, port, exact path, no user, no
+  fragment). Anything else is *"That link didn't work"* and is sent nowhere. The query is never
+  printed (`toString` = `<redacted>`).
+- **The server opens the token** (`apptap.go` `tapStartLive`, GET /q's own reader
+  `liveQRTap.open`): shape and tag in constant time, the screen from its row, the row's venue equal to
+  the token's. The app judges nothing. A code that does not verify still draws the tap screen and the
+  press records a reject (Q39 (a)); an expired one a flag (Q39 (b)); GPS alone a flag
+  (`base:live-qr-requires-ip`). The press is the ordinary `POST /app/v1/tap`.
+- **The screens are the plaque's** — the same tap screen (name, venue, one button, *"Not right? …"*),
+  the same result and problem screens, **no new text**. *"Open in browser"* rebuilds the `/q` URL
+  from the base, under the same rule as the plaque's (only while nothing was pressed).
+- **Acted on once**: a live QR intent reopened from Recents is the launcher's, as a plaque's.
+- **During activation** a live QR finishes nothing (the plaque reader is the activating read);
+  NFC-less activation is M16-23.
+- **Phone without NFC**: activation refuses it at launch (*"This phone can't read the plaque"*) —
+  unchanged here; a live QR's tap/start needs no NFC.
+
+Tests: `TapFlowTest` (`aLiveQrIsASignedReadOfItsQueryAndTheSamePress`, `…OfAnotherHostOrPath…`,
+`…OnAPhoneWithNoDevice…`), `InputsTest` (`onlyThisServersLiveQrRouteYieldsALiveQuery`,
+`aTapLinkIsThePlaqueOrTheLiveQrAndNothingElse`), `ContractPinTest`
+(`theLiveQrRouteIsTheServersPath` — `/q` and `t` read from `internal/liveqr/token.go` and
+`internal/handler/livetap.go`; `theTapBodiesUseTheServersFieldNames` — `sun` ∪ `liveQR`),
+`WireTest` (the `liveQR` body), `MergedManifestTest` (three URL filters, `/q` VIEW only;
+`noCameraIsAskedForOrDeclared`), `RedactionTest` (the live query). Mutations (2026-11-19): the `/q`
+filter's path set to `/t` → `MergedManifestTest` red; a live QR sent as `sun` → `TapFlowTest` red.

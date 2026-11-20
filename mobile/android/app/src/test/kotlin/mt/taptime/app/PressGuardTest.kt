@@ -2,6 +2,7 @@ package mt.taptime.app
 
 import mt.taptime.app.activation.ActiveDevice
 import mt.taptime.app.activation.KeyBacking
+import mt.taptime.app.activation.TapLink
 import mt.taptime.app.tap.PressGuard
 import mt.taptime.app.tap.TapFlow
 import mt.taptime.app.wire.Brand
@@ -20,7 +21,7 @@ import org.junit.Test
 class PressGuardTest {
     private fun ready() = TapFlow.Start.Ready(
         ActiveDevice("00000000-0000-4000-8000-000000000001", "alias", KeyBacking.TEE, "Maria Borg"),
-        JdkSigner(), "tag=04A1&ctr=000011&cmac=0011223344556677",
+        JdkSigner(), TapLink.Plaque("tag=04A1&ctr=000011&cmac=0011223344556677"),
         TapStartReply("Maria Borg", "St Julians", Brand.TAPTIME, "in", false, "ctx"),
     )
 

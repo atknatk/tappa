@@ -129,7 +129,8 @@ class MergedManifestTest {
     }
 
     // M16-13: the plaque opens the app -- an NFC read (NDEF_DISCOVERED) and an App Link (VIEW,
-    // autoVerify) -- for this build's BASE_URL host and the path /t, and for nothing else: the
+    // autoVerify) -- for this build's BASE_URL host and the path /t. M16-22: a venue screen's live QR
+    // opens it too -- an App Link (VIEW, autoVerify) to /q, and never an NFC read. Nothing else: the
     // activation link (/activate) stays the browser's (Q40).
     @Test
     fun thePlaqueRouteOpensTheAppAndNothingElseDoes() {
@@ -138,23 +139,38 @@ class MergedManifestTest {
         val filters = activity.getElementsByTagName("intent-filter").let { n -> (0 until n.length).map { n.item(it) as Element } }
         fun Element.children(tag: String) = getElementsByTagName(tag).let { n -> (0 until n.length).map { n.item(it) as Element } }
         fun actions(f: Element) = f.children("action").map { it.getAttributeNS(androidNs, "name") }.toSet()
+        fun path(f: Element) = f.children("data").single().getAttributeNS(androidNs, "path")
         val withData = filters.filter { it.children("data").isNotEmpty() }
-        assertEquals("two filters carry a URL", 2, withData.size)
+        assertEquals("three filters carry a URL", 3, withData.size)
         for (f in withData) {
             val data = f.children("data").single()
             assertEquals("https", data.getAttributeNS(androidNs, "scheme"))
             assertEquals(host, data.getAttributeNS(androidNs, "host"))
-            assertEquals("/t", data.getAttributeNS(androidNs, "path"))
-            assertEquals("no prefix or pattern can widen /t", "", data.getAttributeNS(androidNs, "pathPrefix") + data.getAttributeNS(androidNs, "pathPattern"))
+            assertTrue(path(f), path(f) == "/t" || path(f) == "/q")
+            assertEquals("no prefix or pattern can widen the path", "", data.getAttributeNS(androidNs, "pathPrefix") + data.getAttributeNS(androidNs, "pathPattern"))
         }
         val nfc = withData.single { actions(it) == setOf("android.nfc.action.NDEF_DISCOVERED") }
+        assertEquals("an NFC read is the plaque's only", "/t", path(nfc))
         assertTrue("android.intent.category.DEFAULT" in nfc.children("category").map { it.getAttributeNS(androidNs, "name") })
-        val link = withData.single { actions(it) == setOf("android.intent.action.VIEW") }
-        assertEquals("true", link.getAttributeNS(androidNs, "autoVerify"))
-        assertEquals(setOf("android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"),
-            link.children("category").map { it.getAttributeNS(androidNs, "name") }.toSet())
+        val links = withData.filter { actions(it) == setOf("android.intent.action.VIEW") }
+        assertEquals("the App Links: the plaque and the live QR", setOf("/t", "/q"), links.map(::path).toSet())
+        for (link in links) {
+            assertEquals("true", link.getAttributeNS(androidNs, "autoVerify"))
+            assertEquals(setOf("android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"),
+                link.children("category").map { it.getAttributeNS(androidNs, "name") }.toSet())
+        }
         // No other component of the merged manifest takes a URL.
-        assertEquals("data elements in the merged manifest", 2, merged.elements("data").size)
+        assertEquals("data elements in the merged manifest", 3, merged.elements("data").size)
+    }
+
+    // M16-22 (Q36 (c)): the live QR is read by the SYSTEM camera; the app has no QR reader, so it
+    // asks for no camera and needs none. The closed permission list above already refuses CAMERA;
+    // this names it, and the camera features too (a required one would hide the app from a phone).
+    @Test
+    fun noCameraIsAskedForOrDeclared() {
+        assertTrue("CAMERA asked for", merged.names("uses-permission").none { it.contains("CAMERA") })
+        assertEquals("camera features declared", emptyList<String>(),
+            merged.names("uses-feature").filter { it.startsWith("android.hardware.camera") })
     }
 
     // M16-11 review B-3, decided by M16-13: location hardware is optional (a fix is backup evidence,
