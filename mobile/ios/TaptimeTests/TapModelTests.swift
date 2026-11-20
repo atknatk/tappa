@@ -239,6 +239,53 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(server.liveQRStarts, ["t=abc"])
     }
 
+    /// M16-23 (§9, handed over by M16-22): a live QR's problem screens name the screen's code, not
+    /// the plaque -- server, too many, stale, foreign; the plaque's path keeps its words.
+    func testALiveQRsProblemsAreTheScreensVariantsAndThePlaquesStayThePlaques() async {
+        let live = URL(string: "https://taptime.mt/q?t=abc")!
+        await app.launch()
+        server.tapStartScript = [(500, "server_error"), (429, "rate_limited")]
+        await app.open(live)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.serverLive)))
+        await app.open(live)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.tooManyLive)))
+        await app.open(live)
+        server.tapScript = [(400, "stale_context")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.staleLive)))
+        await app.open(live)
+        server.tapScript = [(403, "foreign_tenant")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.foreignTenantLive)))
+        // The plaque's path: unchanged.
+        server.tapStartScript = [(500, "server_error")]
+        await app.open(plaque)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.server)))
+        await app.open(plaque)
+        server.tapScript = [(403, "foreign_tenant")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.foreignTenant)))
+        // The variants keep the plaque's titles and messages (foreign's excepted) and change the hint.
+        for (live, plaque) in [(TapCopy.Problems.serverLive, TapCopy.Problems.server),
+                               (TapCopy.Problems.tooManyLive, TapCopy.Problems.tooMany),
+                               (TapCopy.Problems.staleLive, TapCopy.Problems.stale)] {
+            XCTAssertEqual(live.title, plaque.title)
+            XCTAssertEqual(live.message, plaque.message)
+            XCTAssertNotEqual(live.hint, plaque.hint)
+            XCTAssertFalse(live.hint.contains("plaque"), live.hint)
+        }
+    }
+
+    /// M16-23: the activated iPhone without a reader is told to use the venue screen's code.
+    func testTheNoReaderScreenSendsThePersonToTheVenueScreen() async {
+        reader.isAvailable = false
+        await app.launch()
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.noReader, retry: false)))
+        XCTAssertEqual(TapCopy.Problems.noReader.message,
+                       "This iPhone has no NFC reader. To record a tap, open your camera and scan the code on the Taptime screen at your workplace.")
+        XCTAssertEqual(TapCopy.Problems.noReader.hint, "No screen there? Ask your manager.")
+    }
+
     /// A live QR URL of another host, port or path is "That link didn't work", sent nowhere.
     func testALiveQRLinkOfAnotherHostIsSentNowhere() async {
         await app.launch()

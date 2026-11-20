@@ -2140,8 +2140,8 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 	// would hide behind 00077's).
 	laterDownLocks := map[string]string{
 		"admin_invites":         "00077's Down drops its own table",
-		"admin_users":           "00077's Down: admin_invites' composite FK to admin_users",
-		"tenants":               "00077's Down: admin_invites' FK to tenants",
+		"admin_users":           "00077's Down: admin_invites' composite FK to admin_users; 00115's Down: activation_requests' decided_by key (M16-23)",
+		"tenants":               "00077's Down: admin_invites' FK to tenants; 00115's Down: activation_requests' key (M16-23)",
 		"tags":                  "00089's Down puts the key-envelope CHECK back NOT VALID, 00090's sets status's DEFAULT (ALTER TABLE tags) and 00100's drops tags_is_born_in_stock (DROP TRIGGER ON tags)",
 		"transactions":          "00095's Down locks the table, then drops the five shift_* columns and their CHECK (T152); 00113's and 00112's Downs lock it and put the channel CHECKs back (M16-19)",
 		"tenant_plan_history":   "00098's Down drops its key to platform_admins and 00097's drops the table",
@@ -2152,11 +2152,13 @@ func TestIdentity00072_DownRefusesWhileItHoldsSomethingAndOtherwiseWalksBackAndU
 		"api_idempotency":       "00106's Down deletes the grant rows and ALTERs the table (drops grant_id, its key and CHECK, gives 00052's primary key back -- issue #37)",
 		"app_devices":           "00108's Down locks and drops its own table (M16-03)",
 		"app_request_nonces":    "00108's Down locks and drops its own table (M16-03)",
-		"employees":             "00108's Down: app_devices' composite FK to employees (it LOCKs it first)",
+		"employees":             "00108's Down: app_devices' composite FK to employees (it LOCKs it first); 00115's Down: activation_requests' key (M16-23)",
 		"live_qr_displays":      "00111's Down locks and drops its own table (M16-19)",
 		"locations":             "00111's Down: live_qr_displays' composite FK to locations (it LOCKs it first)",
 		"punch_events":          "00113's and 00112's Downs LOCK it first and put 00048's channel CHECK back (M16-19)",
 		"site_punches":          "00113's and 00112's Downs LOCK it first and put 00046's channel CHECK back (M16-19)",
+		"activation_requests":   "00115's Down locks and drops its own table (M16-23)",
+		"employee_invites":      "00115's Down: activation_requests' key to employee_invites (it LOCKs it first)",
 	}
 	walked := strongTableLocksOutside(t, ctx, tx, tables)
 	for _, w := range walked {

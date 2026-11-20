@@ -7,6 +7,7 @@ import mt.taptime.app.activation.KeyBacking
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.activation.TapLink
 import mt.taptime.app.tap.TapFlow
+import mt.taptime.app.wire.ApprovalReply
 import mt.taptime.app.wire.BindReply
 import mt.taptime.app.wire.Brand
 import mt.taptime.app.wire.NonceReply
@@ -27,7 +28,8 @@ import org.junit.Test
  *  * over the values: the overrides print none of it.
  */
 class RedactionTest {
-    private val secretField = Regex("""\b(url|sun|query|context|nonce|challenge|code|signature)\s*:\s*String\b""")
+    // M16-23: a pairing code and a live QR query are credentials too.
+    private val secretField = Regex("""\b(url|sun|query|context|nonce|challenge|code|signature|pairingCode|liveQR|liveQuery)\s*:\s*String\b""")
 
     @Test
     fun everyDataClassCarryingASecretOverridesToString() {
@@ -73,13 +75,17 @@ class RedactionTest {
         val live = "t=LIVE-TOKEN-abcdefghijklmnopqrstuvwxyz"
         val liveReady = TapFlow.Start.Ready(ActiveDevice("00000000-0000-4000-8000-000000000001", "a", KeyBacking.TEE, "Maria Borg"),
             JdkSigner(), TapLink.LiveQr(live), facts)
+        val pairing = ApprovalReply.Waiting("482913", "2026-11-20T10:15:00Z")
         val printed = listOf(
             ready.toString(), facts.toString(), liveReady.toString(), TapLink.LiveQr(live).toString(), TapLink.Plaque(sun).toString(),
             BindReply("00000000-0000-4000-8000-000000000002", "CHALLENGE-abc").toString(),
             NonceReply("NONCE-abc", "2026-11-18T12:00:00Z").toString(),
             ActivationFlow.CompleteResult.Rebind("INVITE-CODE-abc", Problem.SERVER).toString(),
+            // M16-23: the pairing code the manager matches, in every value that carries it.
+            pairing.toString(),
+            ActivationFlow.ApprovalResult.Rebind("INVITE-CODE-abc", Problem.SERVER).toString(),
         ).joinToString("\n")
-        for (secret in listOf("0011223344556677", "cmac", "ctr=", "signed-context-XYZ", "CHALLENGE-abc", "NONCE-abc", "INVITE-CODE-abc", "LIVE-TOKEN")) {
+        for (secret in listOf("0011223344556677", "cmac", "ctr=", "signed-context-XYZ", "CHALLENGE-abc", "NONCE-abc", "INVITE-CODE-abc", "LIVE-TOKEN", "482913")) {
             assertFalse("printed: $secret", printed.contains(secret))
         }
         assertTrue("CONTROL: the redaction marker is there", printed.contains("<redacted>"))

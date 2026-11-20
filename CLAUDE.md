@@ -438,6 +438,15 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   tarayıcı oturumlarının ve eski uygulama cihazlarının iptali + cihazın doğuşu. İki
   yolda da bu dokunuş **`transactions` satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
+  **NFC'siz yollar** (M16-23, ADR 0026 Bedel 3 iptal): aynı onay bağından sonra kanıt
+  (1) **canlı QR** olabilir — `GET /q` (tarayıcı) ya da `activate/complete`'in `liveQR` alanı
+  (uygulama), aynı sıra, `sun.Verify`'ın yerinde token doğrulaması: imza → ekran satırı →
+  davetle **aynı tenant**, hizmette (iptal yok, lokasyon aktif) → pencere (`TokenLifetime` + ağ
+  payı, ölçü anı *şimdi*) → tüketim; basılı QR yine aktive edemez — ya da (2) **müdür onayı**:
+  yalnız çalışanın profil şubesinde (yoksa işletmenin hiçbir yerinde) çalışan canlı QR ekranı
+  **yoksa** (sunucu reddeder), 6 haneli kodlu, 15 dk ömürlü istek (`activation_requests`) →
+  panelde onay/ret (tek yön, `audit_log`; kendi telefonuna onay yok) → telefonun sonraki durum
+  okumasında tüketim + onayın toplanması tek transaction. İkisi de **`transactions` yazmaz**.
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 - **API'nin açtığı lokasyon** (`PUT /v1/locations`, M11) kanıtsız doğar: panelden IP/GPS tanımlanana
   kadar dokunuşları satır 7'ye (`flag`) düşer, kayıt yine yazılır. Lokasyonun `active` etiketi karar

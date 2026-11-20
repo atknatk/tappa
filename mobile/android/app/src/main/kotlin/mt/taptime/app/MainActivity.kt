@@ -9,6 +9,8 @@ import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -22,7 +24,6 @@ import java.util.concurrent.Executors
 import mt.taptime.app.activation.ActivationFlow
 import mt.taptime.app.activation.InviteCode
 import mt.taptime.app.activation.PendingActivation
-import mt.taptime.app.activation.PlaqueRead
 import mt.taptime.app.activation.TapLink
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.device.KeystoreKeys
@@ -47,8 +48,10 @@ import mt.taptime.app.ui.SetUpScreen
 import mt.taptime.app.ui.TapProblemScreen
 import mt.taptime.app.ui.TapScreen
 import mt.taptime.app.ui.TermsSheet
+import mt.taptime.app.ui.WaitingScreen
 import mt.taptime.app.ui.WelcomeScreen
 import mt.taptime.app.wire.AppClient
+import mt.taptime.app.wire.ApprovalReply
 import mt.taptime.app.wire.Brand
 import mt.taptime.app.wire.HttpUrlTransport
 import mt.taptime.app.wire.LookupReply
@@ -64,8 +67,10 @@ import mt.taptime.app.wire.TapReply
 // the intent's data, at launch or -- the activity is singleTop -- in onNewIntent. A VENUE SCREEN'S
 // LIVE QR (M16-22) is an App Link to <base>/q: the system camera reads it (no reader in the app, Q36
 // (c)), and it lands here the same way. The URL goes to TapFlow.start and nowhere else; a URL that is
-// not this server's <base>/t or <base>/q is "That link didn't work". During activation a live QR
-// read finishes nothing (M16-23's): the plaque reader is the only activating read.
+// not this server's <base>/t or <base>/q is "That link didn't work". During activation (step 3, a
+// consent bound) a live QR read FINISHES the activation (M16-23): its query goes to
+// activate/complete as `liveQR` -- the way a phone without an NFC reader activates. A static
+// plaque QR (`<base>/t?tag=` without SUN) still needs a touch, as today.
 //
 // STATE IS HELD HERE, IN MEMORY, AND NOWHERE ELSE. The manifest keeps this activity across
 // configuration changes (android:configChanges), so a rotation does not rebuild it and the
@@ -81,6 +86,11 @@ import mt.taptime.app.wire.TapReply
 // activity is in the foreground; reader mode turns the NFC dispatch off, so the activation's read
 // goes to activate/complete and nowhere else.
 class MainActivity : ComponentActivity() {
+    private companion object {
+        /** The waiting screen's poll interval (M16-23's contract: every 3 seconds). */
+        const val POLL_MS = 3_000L
+    }
+
     private sealed interface Screen {
         data object Loading : Screen
         data class Code(val problem: Problem?, val busy: Boolean = false, val notALink: Boolean = false) : Screen
@@ -93,9 +103,19 @@ class MainActivity : ComponentActivity() {
         }
         data class Ready(val pending: PendingActivation) : Screen
         data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
+        /**
+         * M16-23: waiting for the manager's approval. [approval] carries the pairing code (its own
+         * toString redacts it); [ended] is the request's end that is not "approved" (rejected,
+         * expired) -- the screen then offers a new request; [notice] is the last poll's passing
+         * trouble. Polled every [POLL_MS] while shown and the activity is in front.
+         */
+        data class Waiting(
+            val pending: PendingActivation, val approval: ApprovalReply.Waiting?,
+            val ended: Problem? = null, val notice: Problem? = null, val busy: Boolean = false,
+        ) : Screen
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
         data class SetUp(val name: String) : Screen
-        /** This phone cannot activate (KeyGate, or no NFC reader). */
+        /** This phone cannot activate (KeyGate). A missing NFC reader no longer stops it (M16-23). */
         data class Blocked(val problem: Problem) : Screen
         /**
          * The launch check could not open the key (M16-12 hand-over (3)) or the clock is a day off
@@ -125,6 +145,11 @@ class MainActivity : ComponentActivity() {
     private var nfc: NfcAdapter? = null
     private var readerOn = false
     private var resumed = false
+    // The waiting screen's poll (M16-23): ONE delayed tick at a time, re-posted after each answer --
+    // never a repeating timer -- and only while the waiting screen is shown and the activity is in
+    // front (taken back in onPause / onDestroy, and a tick that finds another screen does nothing).
+    private val main = Handler(Looper.getMainLooper())
+    private val pollTick = Runnable { poll() }
 
     // The location permission is asked AT THE PRESS, never at start (CLAUDE.md §4.2, the manifest's
     // note): the browser's prompt comes with getCurrentPosition at the press too. Whatever the
@@ -174,6 +199,13 @@ class MainActivity : ComponentActivity() {
                 onPlaque(url)
             }
             is Screen.Tap -> if (!s.busy) onPlaque(url)
+            // Waiting for the manager, the bind is still pending: a read (a venue screen's code,
+            // a touch) finishes the activation instead -- back to the tap step, which takes it.
+            is Screen.Waiting -> if (!s.busy) {
+                main.removeCallbacks(pollTick)
+                screen = Screen.Tap(s.pending)
+                onPlaque(url)
+            }
             // Mid-consent: the person is in the middle of setting up; their screen stays.
             is Screen.Welcome -> Unit
             is Screen.Code -> if (!s.busy) startTap(url)
@@ -185,10 +217,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         resumed = true
         updateReader()
+        schedulePoll()
     }
 
     override fun onPause() {
         resumed = false
+        main.removeCallbacks(pollTick)
         stopReader()
         super.onPause()
     }
@@ -198,6 +232,7 @@ class MainActivity : ComponentActivity() {
         // an ask left out keeps the location provider on for nothing), then the worker is shut;
         // anything that still arrives is dropped by LateWork.
         location.cancel()
+        main.removeCallbacks(pollTick)
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -225,10 +260,20 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Tap -> {
                 BackHandler(enabled = !s.busy) { screen = Screen.Ready(s.pending); updateReader() }
-                TapScreen(s.pending.facts, nfcState, s.problem, s.busy) { screen = Screen.Ready(s.pending); updateReader() }
+                TapScreen(
+                    s.pending.facts, nfcState, s.problem, s.busy,
+                    onCantTap = { askApproval(s.pending) { screen = s.copy(busy = true, problem = null) } },
+                    onBack = { screen = Screen.Ready(s.pending); updateReader() },
+                )
+            }
+            is Screen.Waiting -> {
+                val leave = { main.removeCallbacks(pollTick); screen = Screen.Tap(s.pending); updateReader() }
+                BackHandler(enabled = !s.busy) { leave() }
+                WaitingScreen(s.pending.facts.brand, s.approval?.pairingCode, s.ended, s.notice, s.busy,
+                    onAskAgain = { askApproval(s.pending) { screen = s.copy(busy = true) } }, onBack = leave)
             }
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
-            is Screen.SetUp -> SetUpScreen(s.name, null)
+            is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
             is Screen.Blocked -> BlockedScreen(s.problem)
             is Screen.Retryable -> RetryScreen(s.problem) { home() }
             is Screen.Plaque -> PlaqueTapScreen(s.ready.facts, s.busy) { want -> press(s.ready, want) }
@@ -260,9 +305,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // The code screen, unless this phone cannot activate at all (ActivationFlow.refusedAtLaunch).
-    private fun activationEntry(notice: Problem?): Screen =
-        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it) } ?: Screen.Code(notice)
+    // The code screen. A phone without an NFC reader is no longer refused here (M16-23): it
+    // activates by a venue screen's live QR or the manager's approval, offered on step 3.
+    private fun activationEntry(notice: Problem?): Screen = Screen.Code(notice)
 
     private fun submitCode(pasted: String) {
         val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
@@ -308,13 +353,15 @@ class MainActivity : ComponentActivity() {
     private fun onPlaque(url: String) {
         val s = screen as? Screen.Tap ?: return
         if (s.busy) return
-        val sun = PlaqueRead.sunQuery(url, BuildConfig.BASE_URL)
-        if (sun == null) {
+        // A plaque's SUN query, or (M16-23) a venue screen's live QR as `liveQR`. Anything else --
+        // another host's tag or link -- is sent nowhere.
+        val link = TapLink.of(url, BuildConfig.BASE_URL)
+        if (link == null) {
             screen = s.copy(problem = Problem.TAP_FAILED)
             return
         }
         screen = s.copy(busy = true, problem = null)
-        work({ flow.complete(s.pending, sun) }) { r ->
+        work({ flow.complete(s.pending, link) }) { r ->
             screen = when (r) {
                 is ActivationFlow.CompleteResult.Activated ->
                     Screen.Activated(r.device.employeeName, r.secondDevice, s.pending.facts.brand)
@@ -324,6 +371,46 @@ class MainActivity : ComponentActivity() {
                     if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
             }
             updateReader()
+        }
+    }
+
+    // --- the manager's approval (M16-23) --------------------------------------------------------
+
+    // "My phone can't tap" (step 3), or "Ask again" / "Get a new code" (the waiting screen's end):
+    // a new request; an earlier open one of this invitation is withdrawn by the server.
+    private fun askApproval(p: PendingActivation, markBusy: () -> Unit) {
+        markBusy()
+        work({ flow.requestApproval(p) }) { r -> showApproval(r, p) }
+    }
+
+    private fun showApproval(r: ActivationFlow.ApprovalResult, p: PendingActivation) {
+        screen = when (r) {
+            is ActivationFlow.ApprovalResult.Waiting -> Screen.Waiting(r.pending, r.approval, notice = r.notice)
+            is ActivationFlow.ApprovalResult.Activated -> Screen.Activated(r.device.employeeName, r.secondDevice, p.facts.brand)
+            is ActivationFlow.ApprovalResult.Ended -> Screen.Waiting(r.pending, null, ended = r.problem)
+            is ActivationFlow.ApprovalResult.TapStep -> Screen.Tap(r.pending, r.problem)
+            is ActivationFlow.ApprovalResult.Rebind -> Screen.Welcome(r.code, p.facts, problem = r.problem)
+            is ActivationFlow.ApprovalResult.Restart ->
+                if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
+        }
+        updateReader()
+        schedulePoll()
+    }
+
+    private fun schedulePoll() {
+        main.removeCallbacks(pollTick)
+        val s = screen as? Screen.Waiting ?: return
+        if (s.approval != null && s.ended == null && resumed) main.postDelayed(pollTick, POLL_MS)
+    }
+
+    private fun poll() {
+        val s = screen as? Screen.Waiting ?: return
+        val last = s.approval ?: return
+        if (s.ended != null || s.busy || !resumed) return
+        work({ flow.pollApproval(s.pending, last) }, failed = { if (screen === s) s.copy(notice = Problem.SERVER) else screen }) { r ->
+            // An approved answer stands whatever is on screen: the device exists now (and is saved).
+            // Anything else belongs to the waiting screen the poll left from.
+            if (r is ActivationFlow.ApprovalResult.Activated || screen === s) showApproval(r, s.pending)
         }
     }
 

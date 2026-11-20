@@ -108,3 +108,59 @@
 
   schedule();
 })();
+
+// THE MANAGER-APPROVAL SCREEN (M16-23), the same file because it is the same flow and the same
+// page family. It does ONE thing too: notice that a manager approved this phone and press the
+// screen's own "Check now" form for the person -- the POST that finishes the setup, the same
+// one the button sends without the script. It writes no markup and no text; on "rejected" or
+// "expired" it reloads the page, which the server then draws in that state. It stops at the
+// first answer that is not "waiting", and after MAX_WAIT_MS.
+(function () {
+  'use strict';
+
+  var root = document.querySelector('[data-approval-wait]');
+  if (!root || !window.fetch) return;
+
+  var url = root.getAttribute('data-status-url');
+  var collect = root.querySelector('[data-approval-collect]');
+  if (!url || !collect) return;
+
+  var INTERVAL_MS = 3000;
+  // Fifteen minutes is the request's own life (invite.ApprovalTTL); past it the answer is
+  // "expired" anyway.
+  var MAX_WAIT_MS = 16 * 60 * 1000;
+  var started = Date.now();
+  var finished = false;
+
+  function check() {
+    if (finished) return;
+    if (Date.now() - started > MAX_WAIT_MS) {
+      finished = true;
+      return;
+    }
+    window
+      .fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (body) {
+        var state = body && body.state;
+        if (state === 'approved') {
+          finished = true;
+          collect.submit();
+        } else if (state === 'rejected' || state === 'expired') {
+          finished = true;
+          if (root.getAttribute('data-shown') !== state) window.location.reload();
+        } else if (state === 'none') {
+          finished = true;
+        } else {
+          window.setTimeout(check, INTERVAL_MS);
+        }
+      })
+      .catch(function () {
+        window.setTimeout(check, INTERVAL_MS);
+      });
+  }
+
+  window.setTimeout(check, INTERVAL_MS);
+})();

@@ -316,6 +316,13 @@ type Querier interface {
 	// RETURNING carries no tenant name (a RETURNING clause cannot join); the caller
 	// already knows which tenant it just closed a period for.
 	CloseBillingPeriod(ctx context.Context, arg CloseBillingPeriodParams) (CloseBillingPeriodRow, error)
+	// THE COLLECTION, ONE STATEMENT: the approved, uncollected, unexpired request of this invitation and
+	// binding is stamped collected. It runs inside the consuming transaction (internal/invite
+	// ActivateApproved / ActivateDeviceApproved), so "the invitation was consumed on a manager's
+	// approval" implies "that approval was collected, once": a second collection matches nothing, and a
+	// rolled-back consumption un-collects nothing because nothing committed. pgx.ErrNoRows: no approval
+	// to collect.
+	CollectActivationApproval(ctx context.Context, arg CollectActivationApprovalParams) (CollectActivationApprovalRow, error)
 	// Did THIS admin, in THIS business, remove THIS row, JUST NOW?
 	//
 	// 🔴 IT EXISTS SO THE PANEL CAN ACKNOWLEDGE A DELETION WITHOUT LYING (user decision,
@@ -807,6 +814,23 @@ type Querier interface {
 	// landed. The cap needs the device row locked in a PREVIOUS statement of the same transaction
 	// (SELECT ... FOR NO KEY UPDATE) or a per-device advisory lock, before the count (M16-07's card).
 	CountLiveAppRequestNonces(ctx context.Context, arg CountLiveAppRequestNoncesParams) (int32, error)
+	// activationrequests.sql -- the manager-approved activation (M16-23; migration 00115): a phone that
+	// cannot tap a plaque asks, a manager approves or rejects in the panel, and the phone collects.
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The phone's tenant is its invitation's (resolve_invite_by_code_hash), the
+	// panel's its session's -- no statement here is context-less.
+	//
+	// KIRMIZI CIZGI (§7): binding_hash is matched, never RETURNED; the pairing code is returned to the
+	// two places that show it (the phone that asked, the panel) and to nothing else -- no log line and no
+	// audit detail carries it (internal/invite, internal/handler).
+	// THE GATE (the card's user decision): the manager approval is offered only where no live QR screen
+	// runs. A screen RUNS when it is paired, not revoked, its session younger than
+	// liveqr.ScreenSessionLifetime (session_lifetime_seconds), its venue active, and it has asked for a
+	// code within seen_within_seconds (last_seen_at, 00114 -- stamped at most every ten minutes while the
+	// screen polls). A screen that stopped polling shows nothing to scan, so it does not close the door.
+	// location_id NULL counts the whole business (a person with no home venue, K-14).
+	CountLiveQRScreensForApproval(ctx context.Context, arg CountLiveQRScreensForApprovalParams) (int32, error)
 	// What still points at this venue, so the screen can say WHY it cannot be deleted.
 	//
 	// 🔴 IT IS ONE ROW AT A TIME, ON PURPOSE, AND THE COST IS WHY. Measured 2026-08-08 on
@@ -1301,6 +1325,12 @@ type Querier interface {
 	// number a sentence calls "ready" is this one. Same predicate as the bind, so the
 	// count and the refusal cannot disagree.
 	CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error)
+	// Opens a request for the invitation's CURRENT consent: the row is written only while the invitation
+	// is unused, uncancelled and unexpired and its consent binding is the caller's -- the INSERT selects
+	// from the invitation, so a request is born only for the browser or key that consented last. 0 rows
+	// (pgx.ErrNoRows): the invitation is not usable for this binding; the caller re-reads why. ttl_seconds
+	// is the caller's; 00115's CHECK caps it at one hour.
+	CreateActivationRequest(ctx context.Context, arg CreateActivationRequestParams) (CreateActivationRequestRow, error)
 	// Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
 	// IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
 	// task as one of the three that open the write path, and states the rule it must
@@ -1903,6 +1933,11 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
 	// foreign id matches nothing, so this cannot end another tenant's employment.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (DeactivateEmployeeRow, error)
+	// THE DECISION, ONE STATEMENT, ONE WAY: an open, unexpired request is approved or rejected by one
+	// panel account, stamped now. The one-way trigger refuses any later change. pgx.ErrNoRows: the
+	// request is no longer open (decided, withdrawn or expired) -- the caller read it locked, so that is
+	// the expiry crossing between the read and this statement.
+	DecideActivationRequest(ctx context.Context, arg DecideActivationRequestParams) (DecideActivationRequestRow, error)
 	// Not now: a limit is reached (ADR 0022 §9 -- the limit delays the send, never refuses the
 	// request) or the send failed (back-off). The request stays, due again at @due. Only under this
 	// worker's lease.
@@ -2258,6 +2293,9 @@ type Querier interface {
 	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
 	// already (a timestamp)? Read in the same transaction, for the panel's sentence only.
 	GetAPIKeyRevokedAt(ctx context.Context, arg GetAPIKeyRevokedAtParams) (*time.Time, error)
+	// The phone's read of its own latest request: the invitation's request opened by THIS binding,
+	// newest first. expired is the DATABASE clock's answer. pgx.ErrNoRows: this binding never asked.
+	GetActivationRequestForBinding(ctx context.Context, arg GetActivationRequestForBindingParams) (GetActivationRequestForBindingRow, error)
 	// The in-context identity read: who am I, what may I do, am I still enabled.
 	// This is where `role` comes from -- authorization is decided with a tenant
 	// context established, never from the pre-authentication resolver (00011).
@@ -4480,6 +4518,11 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// The panel's "Phones waiting for approval": the business's open, unexpired requests whose
+	// invitation can still be spent by the binding that asked (a request whose person has since
+	// activated another way, or whose consent moved to another phone, is not shown -- approving it would
+	// complete nothing). Oldest first. The venue is the person's home venue, NULL for none (K-14).
+	ListOpenActivationRequests(ctx context.Context, tenantID uuid.UUID) ([]ListOpenActivationRequestsRow, error)
 	// Check-ins in the window that no checkout closes.
 	//
 	// 🔴 "OPEN" IS ADR 0032 §A.6's DEFINITION, THE ONE THE REPORTS SECTION USES TOO (M15-05).
@@ -5894,6 +5937,14 @@ type Querier interface {
 	// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
 	// lock, which the caller treats as a failure, never as "locked".
 	LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error)
+	// The panel's decision reads the request FOR UPDATE first, so two managers pressing at once queue on
+	// the row: the second reads the committed decision and is answered "no longer open" (one audit row).
+	// self is THE SELF-APPROVAL CHECK (ADR 0037's spirit, the card): the deciding panel account's
+	// address is the person's address. admin_users.email is the account's address (an identity-linked
+	// account's mirror, 00102), employees.email the person's; both citext, so the comparison ignores
+	// case. A person without an address is never "self" -- the check can only see what is written.
+	// pgx.ErrNoRows: no such request in this business.
+	LockActivationRequestForDecision(ctx context.Context, arg LockActivationRequestForDecisionParams) (LockActivationRequestForDecisionRow, error)
 	// adminmembers.sql -- the owner's side of a business's memberships (M14-16, ADR 0031 §5.12): the
 	// people who run this business in the panel, disabling and enabling one, and moving a membership
 	// between owner and manager (the two steps of an ownership transfer).
@@ -7292,6 +7343,9 @@ type Querier interface {
 	// what was stored rather than from what was posted -- so a value the database
 	// normalised, or a column somebody else changed in between, is what the customer sees.
 	UpdateTenantAccount(ctx context.Context, arg UpdateTenantAccountParams) (UpdateTenantAccountRow, error)
+	// Opening a new request withdraws the invitation's open one first, in the same transaction
+	// (00115's one-open UNIQUE): the newest request is the one the panel shows.
+	WithdrawOpenActivationRequests(ctx context.Context, arg WithdrawOpenActivationRequestsParams) (int64, error)
 	// RETIRE ONE LINK THAT WAS NEVER HANDED TO ANYBODY (M10 EM-7C round 3).
 	//
 	// 🔴 WHY IT EXISTS: since EM-7C a recovery request mints nothing while the account

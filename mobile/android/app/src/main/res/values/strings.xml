@@ -83,6 +83,20 @@
     <!-- APP-ONLY (Android): the browser cannot see the phone's NFC switch; the app reads the
          plaque itself. iOS has no switch to name. -->
     <string name="nfc_off">Turn on NFC in your phone\'s settings, then tap the plaque.</string>
+    <!-- M16-23, the phone that cannot tap (the browser wizard says the same): the secondary button
+         when lookup's managerApproval is true, the line in its place when it is false. -->
+    <string name="cant_tap">My phone can\'t tap</string>
+    <string name="scan_screen_line">Phone can\'t tap? Open your camera and scan the code on the Taptime screen at your workplace.</string>
+
+    <!-- M16-23: waiting for the manager's approval (the browser wizard says the same). The pairing
+         code is drawn between body and status, grouped by three ("482 913"). -->
+    <string name="approval_label">Last step</string>
+    <string name="approval_title">Ask your manager to approve this phone</string>
+    <string name="approval_body">Show this code to your manager. They approve it in Taptime, under People.</string>
+    <string name="approval_status">Waiting for your manager…</string>
+    <string name="approval_footnote">The code works for 15 minutes.</string>
+    <string name="approval_ask_again">Ask again</string>
+    <string name="approval_new_code">Get a new code</string>
 
     <!-- Activation complete, and already set up. -->
     <string name="setup_label">Setup</string>
@@ -117,6 +131,20 @@
     <string name="p_tap_failed_title">That tap didn\'t finish setup</string>
     <string name="p_tap_failed_message">Your phone isn\'t activated yet, and nothing was recorded.</string>
     <string name="p_tap_failed_hint">Hold the top of your phone against a Taptime plaque at your workplace and try again.</string>
+    <!-- M16-23: a venue screen's live QR did not finish setup (every refusal is one code). -->
+    <string name="p_live_failed_title">That scan didn\'t finish setup</string>
+    <string name="p_live_failed_message">Your phone isn\'t activated yet, and nothing was recorded.</string>
+    <string name="p_live_failed_hint">Scan the code on the Taptime screen at your workplace again — it changes every few seconds.</string>
+    <!-- M16-23: the manager-approval path's three ends that are not "approved". -->
+    <string name="p_rejected_title">Your manager didn\'t approve this phone</string>
+    <string name="p_rejected_message">Nothing was set up and nothing was recorded.</string>
+    <string name="p_rejected_hint">Talk to your manager. If they ask you to, try again.</string>
+    <string name="p_expired_title">That code ran out of time</string>
+    <string name="p_expired_message">Your manager didn\'t approve it in time, so nothing was set up.</string>
+    <string name="p_expired_hint">Get a new code and show it to your manager.</string>
+    <string name="p_screen_available_title">Scan the screen\'s code instead</string>
+    <string name="p_screen_available_message">There\'s a Taptime screen at your workplace, so your manager can\'t approve this phone.</string>
+    <string name="p_screen_available_hint">Open your camera and scan the code on the screen to finish setup.</string>
     <string name="p_needs_touch_title">Hold your phone against the plaque</string>
     <string name="p_needs_touch_message">Activation needs a real tap on the plaque, so this didn\'t finish it.</string>
     <string name="p_needs_touch_hint">Touch the top of your phone to the plaque to finish.</string>
@@ -126,10 +154,13 @@
     <string name="p_signed_out_title">This phone was signed out</string>
     <string name="p_signed_out_message">This phone is no longer signed in to Taptime, so it can\'t record time.</string>
     <string name="p_signed_out_hint">Ask your manager for a new activation link.</string>
-    <!-- APP-ONLY: no NFC reader at all, refused at launch. The iOS twin says "This iPhone ...". -->
+    <!-- APP-ONLY (M16-23): no NFC reader at all. No longer a refusal at launch: a notice on step 3
+         in place of the plaque, which sends the person to the venue screen's code. The hint is shown
+         only when the manager can approve (lookup's managerApproval). The iOS twin says "This
+         iPhone ..." (ActivationCopy.swift, Copy.Problems.noReader). -->
     <string name="p_no_reader_title">This phone can\'t read the plaque</string>
-    <string name="p_no_reader_message">Setting up the app needs a tap on the plaque, and this phone has no NFC reader.</string>
-    <string name="p_no_reader_hint">Ask your manager — setup without a plaque tap isn\'t available yet.</string>
+    <string name="p_no_reader_message">Finish setup by scanning the code on the Taptime screen at your workplace with your camera.</string>
+    <string name="p_no_reader_hint">Or ask your manager to approve this phone.</string>
     <!-- APP-ONLY: the Keystore is software only (KeyGate). The iOS twin says "This iPhone ...". -->
     <string name="p_no_key_title">This phone can\'t be set up</string>
     <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
@@ -141,6 +172,11 @@
     <string name="p_not_set_up_title">This app isn\'t set up yet</string>
     <string name="p_not_set_up_message">This app hasn\'t been set up for Taptime yet, so it can\'t record this tap.</string>
     <string name="p_not_set_up_hint">Open the tap in your browser instead, or set up the app with the link your workplace sent you.</string>
+    <!-- APP-ONLY (M16-23): an activated phone without an NFC reader ("already set up" screen); the
+         iOS twin's TapCopy.Problems.noReader, "This iPhone ...". -->
+    <string name="p_no_nfc_title">This phone can\'t read the plaque</string>
+    <string name="p_no_nfc_message">This phone has no NFC reader. To record a tap, open your camera and scan the code on the Taptime screen at your workplace.</string>
+    <string name="p_no_nfc_hint">No screen there? Ask your manager.</string>
     <!-- APP-ONLY (M16-12 hand-over (3)): the Keystore did not hand out the device key. The iOS app's
          keyUnreadable text, word for word; its screen carries "Try again". -->
     <string name="p_key_unreadable_title">Taptime couldn\'t open this phone\'s key</string>
@@ -217,6 +253,15 @@
     <string name="tp_foreign_title">That plaque isn\'t yours</string>
     <string name="tp_foreign_message">This plaque belongs to a different employer, so nothing was recorded.</string>
     <string name="tp_foreign_hint">Use your own workplace\'s plaque, or tell your manager.</string>
+    <!-- M16-23: the same problems when the tap came from a venue screen's LIVE QR (/q): the
+         plaque's titles and messages, with the hints (and the foreign screen's words) naming the
+         screen's code. TapCopyTest pins them; the iOS twin's TapCopy.Problems.*Live. -->
+    <string name="tp_live_server_hint">Scan the code on the screen again in a moment.</string>
+    <string name="tp_live_too_many_hint">Wait a moment and scan the screen\'s code again. Tell your manager if it keeps happening.</string>
+    <string name="tp_live_stale_hint">Scan the code on the screen again.</string>
+    <string name="tp_live_foreign_title">That screen isn\'t yours</string>
+    <string name="tp_live_foreign_message">This screen belongs to a different employer, so nothing was recorded.</string>
+    <string name="tp_live_foreign_hint">Use your own workplace\'s screen, or tell your manager.</string>
     <!-- APP-ONLY: no answer to tap/start (the browser shows its own offline page). tap/start writes
          nothing, so "nothing was recorded" is true and "Try again" is safe. Title as activation's. -->
     <string name="tp_unreachable_title">Can\'t reach Taptime</string>

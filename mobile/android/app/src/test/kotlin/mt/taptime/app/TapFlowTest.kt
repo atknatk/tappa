@@ -164,6 +164,36 @@ class TapFlowTest {
         assertEquals(listOf("POST /app/v1/tap/start", "POST /app/v1/nonce", "POST /app/v1/tap"), server.seen)
     }
 
+    // M16-23 (§9, handed over by M16-22): a live QR's problem screens say "the screen's code", not
+    // "the plaque" -- server, too many, stale and foreign; the plaque's path keeps its words.
+    @Test
+    fun aLiveQrsProblemsAreTheScreensVariantsAndThePlaquesStayThePlaques() {
+        activated()
+        val liveUrl = "${server.base}/q?t=abc"
+        server.tapStartFailsOnce = 500 to "server_error"
+        assertEquals(Start.Problem(TapProblem.LIVE_SERVER, Retry.RESTART), flow.start(liveUrl))
+        server.tapStartFailsOnce = 429 to "rate_limited"
+        assertEquals(Start.Problem(TapProblem.LIVE_TOO_MANY, Retry.NONE), flow.start(liveUrl))
+        val r = flow.start(liveUrl) as Start.Ready
+        server.tapFailsOnce = 400 to "stale_context"
+        assertEquals(Press.Problem(TapProblem.LIVE_STALE, Retry.NONE), flow.press(r, "in", null))
+        server.tapFailsOnce = 403 to "foreign_tenant"
+        assertEquals(Press.Problem(TapProblem.LIVE_FOREIGN, Retry.NONE), flow.press(flow.start(liveUrl) as Start.Ready, "in", null))
+        // The plaque's path: unchanged.
+        server.tapStartFailsOnce = 500 to "server_error"
+        assertEquals(Start.Problem(TapProblem.SERVER, Retry.RESTART), flow.start(url))
+        server.tapFailsOnce = 403 to "foreign_tenant"
+        assertEquals(Press.Problem(TapProblem.FOREIGN, Retry.NONE), flow.press(ready(), "in", null))
+        // Every other problem is the same for both.
+        val q = mt.taptime.app.activation.TapLink.LiveQr("t=abc")
+        for (p in TapProblem.entries) {
+            val v = p.forLink(q)
+            val changes = p in setOf(TapProblem.SERVER, TapProblem.TOO_MANY, TapProblem.STALE, TapProblem.FOREIGN)
+            assertEquals(p.name, changes, v != p)
+            assertEquals(p.name, p, p.forLink(mt.taptime.app.activation.TapLink.Plaque("tag=1")))
+        }
+    }
+
     @Test
     fun aLiveQrOfAnotherHostOrPathIsABadLinkAndIsSentNowhere() {
         activated()

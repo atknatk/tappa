@@ -59,9 +59,11 @@ import (
 // tenant_branding (00028) holds one row per tenant, so the write list's "own" control
 // would collide on its primary key -- the reason tenants has its own test below; its
 // isolation tests are in branding_test.go. app_devices and app_request_nonces (00108, M16-03)
-// have theirs in appdevices_test.go (TestRLS_AppDevices_TenantIsolation), and live_qr_displays
-// (00111, M16-19) in liveqrdisplays_test.go (TestRLS_LiveQRDisplays_TenantIsolation), in the same
-// filterless shape with a positive control and an RLS-off control.
+// have theirs in appdevices_test.go (TestRLS_AppDevices_TenantIsolation), live_qr_displays
+// (00111, M16-19) in liveqrdisplays_test.go (TestRLS_LiveQRDisplays_TenantIsolation), and
+// activation_requests (00115, M16-23) in activationrequests_test.go
+// (TestRLS_ActivationRequests_TenantIsolation), in the same filterless shape with a positive control
+// and an RLS-off control.
 
 // ---------------------------------------------------------------- pools -----
 

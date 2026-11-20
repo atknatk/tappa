@@ -845,9 +845,22 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		}
 	}
 
+	// THE LIVE QR SCREEN'S ONE SENTENCE (M16-23, DRAFT for the user's §9 decision): the waiting screen
+	// of a venue where a live QR screen runs sends a phone that cannot tap to it. It is about the
+	// venue's ROTATING SCREEN, not the printed code this tripwire watches -- the printed code still
+	// cannot activate (CompleteByTap's needs-touch refusal) -- so it is pinned here word for word and
+	// only it is lifted out before the check; any other sentence about scanning still trips.
+	const liveScreenLine = "phone can't tap? open your camera and scan the code on the taptime screen at your workplace."
 	check := func(name, body string) {
 		t.Helper()
-		if m := forbidden.FindString(strings.ToLower(screenText(t, body))); m != "" {
+		text := strings.ToLower(screenText(t, body))
+		if name == "pages.Activate step 3" {
+			if !strings.Contains(text, liveScreenLine) {
+				t.Errorf("%s no longer says the pinned live QR screen sentence %q", name, liveScreenLine)
+			}
+			text = strings.Replace(text, liveScreenLine, "", 1)
+		}
+		if m := forbidden.FindString(text); m != "" {
 			t.Errorf("%s now says %q. Nothing mentioned the printed code before, so this is new copy on a §9 screen: "+
 				"get the wording approved and make sure it never reads as a lesser route (M5-08 card), then pin it here.", name, m)
 		}

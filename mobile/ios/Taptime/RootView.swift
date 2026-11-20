@@ -50,6 +50,8 @@ private struct RootContent: View {
             if let invite = activation.invite {
                 TapStepScreen(model: activation, invite: invite, look: look, buttonLook: button, problem: problem)
             }
+        case .waiting(let ended, let notice):
+            WaitingScreen(model: activation, look: look, buttonLook: button, ended: ended, notice: notice)
         case .done(let name, let second):
             DoneScreen(name: name, secondDevice: second, look: look)
         case .problem(let p, let retry):

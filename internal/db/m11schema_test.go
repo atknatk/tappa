@@ -317,6 +317,19 @@ var m11Tables = map[string]map[string]m11TableACL{
 		},
 		"tappa_resolver": {Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at"},
 	},
+	// 00115 (M16-23, ADR 0026 Bedel 3, ADR 0045 §2.5): the manager-approved activation's requests.
+	// tappa_app reads every column (binding_hash because the phone's read and the collection's WHERE
+	// name it -- no query returns it), inserts a request by naming its tenant, employee, invitation,
+	// client, binding, code and expiry (id and created_at are the database's), and updates the five
+	// state columns alone -- the one-way trigger holds their history; never deletes. No resolver reads
+	// it (every request is reached from a tenant already known).
+	"activation_requests": {
+		"tappa_app": {
+			Select: "id,tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,created_at,expires_at,decision,decided_at,decided_by,withdrawn_at,collected_at",
+			Insert: "tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,expires_at",
+			Update: "decision,decided_at,decided_by,withdrawn_at,collected_at",
+		},
+	},
 	// 00052 (M11 API-4, ADR 0028 §1, §8): the Idempotency-Key ledger. tappa_app reads it, claims a
 	// key by naming the tenant, the API key, the idempotency key and the request hash, writes the
 	// result into status and result_ref alone, and deletes the expired rows (the lazy delete).
@@ -653,6 +666,9 @@ var m11Functions = map[string]m11FunctionACL{
 	"resolve_live_qr_display_by_session_hash(text)":      {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"resolve_live_qr_display_by_id(uuid)":                {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"live_qr_displays_state_is_one_way()":                {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00115 (M16-23): the activation request's one-way trigger function, EXECUTE in its owner alone,
+	// body asserting TG_RELID.
+	"activation_requests_state_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose

@@ -143,6 +143,8 @@ type (
 	tapActivation interface {
 		Pending(r *http.Request) bool
 		CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params)
+		// CompleteByLiveQR is the activating SCAN (M16-23): GET /q's twin of CompleteByTap.
+		CompleteByLiveQR(w http.ResponseWriter, r *http.Request, open liveQROpener)
 		HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error)
 		// PendingTenant is the business of the pending invitation (K-35): the tap page
 		// asks it only for a live session in front of another business's plaque.
@@ -372,7 +374,40 @@ var (
 		Message: "This plaque belongs to a different employer, so nothing was recorded.",
 		Hint:    "Use your own workplace's plaque, or tell your manager.",
 	}
+
+	// THE LIVE QR VARIANTS (M16-23 §9 (b), M16-21's follow-up): the same refusals on GET /q and on
+	// the press of a page GET /q drew, in words that fit a screen's code -- the person scanned, they
+	// did not tap. Titles and messages stay the plaque versions' where they say nothing about the
+	// plaque; only what to DO changes. The two apps carry the same sentences (TapCopy, strings.xml).
+	tapProblemLiveServer = pages.ProblemView{
+		Title:   tapProblemServer.Title,
+		Message: tapProblemServer.Message,
+		Hint:    "Scan the code on the screen again in a moment.",
+	}
+	tapProblemLiveTooMany = pages.ProblemView{
+		Title:   tapProblemTooMany.Title,
+		Message: tapProblemTooMany.Message,
+		Hint:    "Wait a moment and scan the screen's code again. Tell your manager if it keeps happening.",
+	}
+	tapProblemLiveStale = pages.ProblemView{
+		Title:   tapProblemStale.Title,
+		Message: tapProblemStale.Message,
+		Hint:    "Scan the code on the screen again.",
+	}
+	tapProblemLiveForeignTenant = pages.ProblemView{
+		Title:   "That screen isn't yours",
+		Message: "This screen belongs to a different employer, so nothing was recorded.",
+		Hint:    "Use your own workplace's screen, or tell your manager.",
+	}
 )
+
+// liveOr picks the live QR variant of a refusal when the tap came from a venue screen's code.
+func liveOr(live bool, plaque, screen pages.ProblemView) pages.ProblemView {
+	if live {
+		return screen
+	}
+	return plaque
+}
 
 // Page serves GET /t.
 func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
@@ -867,7 +902,8 @@ const (
 // construction. The limiter has already set Retry-After, Cache-Control and
 // X-Content-Type-Options; this writes the status and the page.
 func (t *Tap) renderTooManyRequests(w http.ResponseWriter, r *http.Request) {
-	t.renderProblem(w, r, http.StatusTooManyRequests, tapProblemTooMany)
+	// GET /q shares the tap surface's limiter (Mount): its refusal says "scan", not "tap".
+	t.renderProblem(w, r, http.StatusTooManyRequests, liveOr(r.URL.Path == LiveQRPath, tapProblemTooMany, tapProblemLiveTooMany))
 }
 
 // renderProblem draws a failure screen. Taptime's own look on every one of them: no

@@ -220,6 +220,8 @@ var keyFieldExemptions = map[string]string{
 	// CreateAppDevice. Public, like the rows below; kept out of logs and bodies by §7's list, not for secrecy.
 	"handler.appBindRequest.PublicKey":     "the device's P-256 PUBLIC key in a bind body (base64url); it verifies, it opens nothing",
 	"handler.appCompleteRequest.PublicKey": "the device's P-256 PUBLIC key in a complete body (base64url); it verifies, it opens nothing",
+	// M16-23: the manager-approval routes' body names the same bound key.
+	"handler.appApprovalRequest.PublicKey": "the device's P-256 PUBLIC key in an approval body (base64url); it verifies, it opens nothing",
 	"invite.DeviceParams.PublicKey":        "the device's P-256 PUBLIC key going into CreateAppDevice; it verifies, it opens nothing",
 	// The signed READ's body digest (M16-07), signedRequest.bodyDigest's twin: line 4 of the canonical text.
 	"appdevice.signedRead.bodyDigest": "SHA-256 of the signed app read's raw body, part of the canonical text the signature covers; " +

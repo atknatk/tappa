@@ -92,6 +92,10 @@ type panelStaff interface {
 	// The integration identity (M11 API-1, employeeexternalref.go): the card shows it
 	// (Person.ExternalRef), the owner's form changes it.
 	ChangeExternalRef(ctx context.Context, c tenant.ExternalRefCommand) (tenant.ExternalRefChange, error)
+	// The manager-approved activation (M16-23, employeeapproval.go): the open requests the people
+	// section lists, and one press of Approve or Reject.
+	PendingApprovals(ctx context.Context, tenantID uuid.UUID) ([]tenant.PendingApproval, error)
+	DecideApproval(ctx context.Context, c tenant.DecideApprovalCommand) (tenant.DecidedApproval, error)
 }
 
 // panelInviter is the slice of internal/invite the panel needs: ONE method, and it

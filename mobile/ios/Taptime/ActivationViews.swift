@@ -5,7 +5,9 @@ import SwiftUI
 // panels and the palette of skill tappa-brand. Which look each screen's primary button takes is
 // ONE rule, ActivationModel.Screen.primaryLook (CLAUDE.md §9) -- the views only draw it. The waiting step has no primary button in the
 // browser; iOS reads a plaque only while its own sheet is open, so the tap step opens the sheet by
-// itself and offers "Scan the plaque" again only when the sheet has closed.
+// itself and offers "Scan the plaque" again only when the sheet has closed. On an iPhone without a
+// reader (M16-23) the step has no scan button: a notice sends the person to the venue screen's code,
+// and "My phone can't tap" opens the manager's approval (WaitingScreen) when it is offered.
 //
 // Fonts: Space Grotesk and IBM Plex Mono (Typeface.swift, M16-17), as on every browser screen.
 
@@ -394,10 +396,103 @@ struct TapStepScreen: View {
                 .foregroundColor(Palette.ink.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-            if !model.scanning && !model.busy {
+            if !model.canRead {
+                // M16-23: no reader -- the notice in the scan button's place; its "ask your manager"
+                // hint only when the manager can approve.
+                let n = Copy.Problems.noReader
+                Notice(tone: .warn, title: n.title, text: n.message, hint: model.approvalOffered ? n.hint : nil)
+            } else if !model.scanning && !model.busy {
                 PrimaryButton(title: Copy.Tap.scan, look: buttonLook) { model.scan() }
             }
+            // The phone that cannot tap (M16-23): a secondary button -- never the accent's slot --
+            // or, when the manager cannot approve, the line that sends the person to the screen.
+            if model.approvalOffered {
+                SecondaryButton(title: Copy.Tap.cantTap) { Task { await model.askApproval() } }
+                    .disabled(model.busy)
+            } else {
+                Text(Copy.Tap.scanScreen)
+                    .font(Typeface.display(15))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
             BackButton(title: Copy.Tap.back) { model.back() }
+        }
+    }
+}
+
+/// An underlined ink button under the step (M16-23's "My phone can't tap"): no fill, so never the
+/// accent's slot (ADR 0023 §2), at least 44 pt tall.
+struct SecondaryButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Typeface.display(17, .bold))
+                .underline()
+                .foregroundColor(Palette.ink)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+    }
+}
+
+/// M16-23: waiting for the manager's approval. The code to show them while the request is open (the
+/// screen's `.task` polls the status every few seconds and stops when the screen goes); the request's
+/// end when it came -- rejected or expired -- with the way to a new request. The button takes
+/// primaryLook's Taptime green: not one of the accent's counted slots (§9).
+struct WaitingScreen: View {
+    @ObservedObject var model: ActivationModel
+    let look: BrandLook
+    let buttonLook: BrandLook
+    let ended: Copy.Problem?
+    let notice: Copy.Problem?
+
+    var body: some View {
+        ScreenFrame(look: look) {
+            VStack(alignment: .leading, spacing: 8) {
+                DocketLabel(text: Copy.Approval.label)
+                Heading(lines: [Copy.Approval.title])
+                if ended == nil {
+                    Text(Copy.Approval.body).font(Typeface.display(17))
+                }
+            }
+            if let e = ended {
+                Notice(tone: .alert, title: e.title, text: e.message, hint: e.hint)
+                PrimaryButton(title: e == Copy.Problems.approvalExpired ? Copy.Approval.newCode : Copy.Approval.askAgain,
+                              look: buttonLook, busy: model.busy) {
+                    Task { await model.askApproval() }
+                }
+            } else {
+                if let n = notice {
+                    Notice(tone: .alert, title: n.title, text: n.message, hint: n.hint)
+                }
+                if let a = model.approval {
+                    Text(a.grouped)
+                        .font(Typeface.mono(40, bold: true))
+                        .kerning(4)
+                        .frame(maxWidth: .infinity, minHeight: 72)
+                        .background(Palette.paper)
+                        .overlay(Rectangle().stroke(Palette.line, lineWidth: 1))
+                        .accessibilityLabel(a.pairingCode.map(String.init).joined(separator: " "))
+                }
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(Copy.Approval.status).font(Typeface.mono(15))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+                Text(Copy.Approval.footnote)
+                    .font(Typeface.display(15))
+                    .foregroundColor(Palette.ink.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+            }
+            BackButton(title: Copy.Approval.back) { model.back() }
+        }
+        .task(id: ended == nil) {
+            if ended == nil {
+                await model.pollWhileWaiting()
+            }
         }
     }
 }

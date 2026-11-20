@@ -49,6 +49,8 @@ import "github.com/atknatk/tappa/web/templates/components"
 templ AdminEmployees(v EmployeesView) {
 	@PanelActions(peopleActions(v)) {
 		@PanelShell(v.PanelChrome) {
+			@approvalNotice(v.ApprovalDone)
+			@approvalsCard(v)
 			if v.Done != "" {
 				@components.PanelNotice(components.ToneOK, doneRosterHeading(v.Done)) {
 					switch v.Done {
@@ -807,5 +809,89 @@ templ AdminInviteEmailed(v InviteEmailedView) {
 				@inviteNextSteps(v.Name, true)
 			}
 		</div>
+	}
+}
+
+// approvalNotice says what the last Approve / Reject did (M16-23). The word is a member of a closed
+// vocabulary read off the query string, so a hand-made URL can pick one of these sentences and
+// put nothing in it; "approved" and "rejected" are about the press, not about a person, so a
+// replayed URL claims nothing about anybody.
+templ approvalNotice(word string) {
+	switch word {
+		case "approved":
+			@components.PanelNotice(components.ToneOK, "Phone approved") {
+				<p>The phone finishes setting up on its own in a moment. Nothing else is needed from you.</p>
+			}
+		case "rejected":
+			@components.PanelNotice(components.ToneOK, "Phone rejected") {
+				<p>Nothing was set up. If it was the right person after all, they can ask again from their phone.</p>
+			}
+		case "self":
+			@components.PanelNotice(components.ToneWarn, "You can't approve your own phone") {
+				<p>Nothing was changed. Ask another manager or the owner to approve it.</p>
+			}
+		case "closed":
+			@components.PanelNotice(components.ToneWarn, "That request is no longer open") {
+				<p>It was answered, replaced by a newer one, or ran out of time. Nothing was changed.</p>
+			}
+		case "unknown":
+			@components.PanelNotice(components.ToneWarn, "We could not find that request") {
+				<p>Nothing was changed. Open People again to see the phones waiting now.</p>
+			}
+		case "unreadable":
+			@components.PanelNotice(components.ToneWarn, "We could not read that submission") {
+				<p>Nothing was changed.</p>
+			}
+	}
+}
+
+// approvalsCard is "Phones waiting for approval" (M16-23): drawn only when a phone is waiting, or
+// when reading them failed (§4.6: a failed read is said, not shown as nobody waiting). Each row
+// names the person, their venue and the pairing code their phone shows; Approve and Reject are
+// plain POSTs with the form binding. The sentence above the rows is the whole of the safety rule
+// the code exists for: approve only the phone in front of you whose screen shows the same code.
+templ approvalsCard(v EmployeesView) {
+	if v.ApprovalsUnread {
+		@components.PanelNotice(components.ToneWarn, "Phones waiting for approval") {
+			<p>We could not read the phones waiting for approval. Reload the page to try again.</p>
+		}
+	} else if len(v.Approvals) > 0 {
+		<section class="docket flex flex-col gap-4" aria-label="Phones waiting for approval">
+			<div>
+				<h2 class="font-display text-lg font-bold tracking-tight text-ink">Phones waiting for approval</h2>
+				<p class="mt-1 text-sm text-ink/80">
+					These phones can't tap a plaque. Approve a phone only when its owner is with you and
+					their screen shows the same code.
+				</p>
+			</div>
+			<ul class="flex flex-col divide-y divide-dashed divide-line">
+				for _, row := range v.Approvals {
+					<li class="flex flex-wrap items-center justify-between gap-3 py-3">
+						<div class="min-w-0">
+							<p class="font-display text-base font-bold text-ink">{ row.Name }</p>
+							<p class="text-xs text-ink/70">
+								if row.Venue != "" {
+									{ row.Venue } ·
+								}
+								{ row.Client } · asked { row.Asked } · open until { row.Deadline }
+							</p>
+						</div>
+						<p class="font-mono text-2xl font-bold tracking-[0.15em] text-ink" aria-label={ "Code " + row.Code }>{ row.Code }</p>
+						<div class="flex items-center gap-2">
+							<form method="post" action={ templ.URL(components.Bound(ctx, v.ApprovalAction)) }>
+								<input type="hidden" name="id" value={ row.ID }/>
+								<input type="hidden" name="decision" value="approve"/>
+								<button type="submit" class="btn btn--ink">Approve</button>
+							</form>
+							<form method="post" action={ templ.URL(components.Bound(ctx, v.ApprovalAction)) }>
+								<input type="hidden" name="id" value={ row.ID }/>
+								<input type="hidden" name="decision" value="reject"/>
+								<button type="submit" class="btn btn--line">Reject</button>
+							</form>
+						</div>
+					</li>
+				}
+			</ul>
+		</section>
 	}
 }

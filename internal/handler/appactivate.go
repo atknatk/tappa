@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -53,6 +54,9 @@ type appLookupResponse struct {
 	// (the browser wizard's warning).
 	SecondDevice bool     `json:"secondDevice"`
 	Brand        appBrand `json:"brand"`
+	// ManagerApproval (M16-23): the tap step offers "My phone can't tap" -- no live QR screen runs
+	// at the person's venue (the gate; the approval route refuses elsewhere too).
+	ManagerApproval bool `json:"managerApproval"`
 }
 
 // ActivateLookup serves POST /app/v1/activate/lookup -- GET /activate's twin for the app: the
@@ -94,12 +98,13 @@ func (a *App) ActivateLookup(w http.ResponseWriter, r *http.Request) {
 			"tenant_id", ictx.TenantID, "err", err)
 	}
 	a.writeAppJSON(w, r, http.StatusOK, appLookupResponse{
-		EmployeeName: ictx.FullName,
-		BusinessName: ictx.TenantName,
-		LocationName: ictx.LocationName,
-		WiFiSSID:     ictx.WiFiSSID,
-		SecondDevice: ictx.SecondDevice(),
-		Brand:        appBrandOf(pb),
+		EmployeeName:    ictx.FullName,
+		BusinessName:    ictx.TenantName,
+		LocationName:    ictx.LocationName,
+		WiFiSSID:        ictx.WiFiSSID,
+		SecondDevice:    ictx.SecondDevice(),
+		Brand:           appBrandOf(pb),
+		ManagerApproval: a.activation.approvalOffered(ctx, ictx),
 	})
 }
 
@@ -220,6 +225,9 @@ type appCompleteRequest struct {
 	Platform  string `json:"platform"`
 	// SUN is the first genuine NFC read's query (tag=..&ctr=..&cmac=..).
 	SUN string `json:"sun"`
+	// LiveQR is a venue screen's live QR URL's query (<base>/q?t=<token>, M16-23) -- tap/start's
+	// field, read the same way. Exactly one of SUN and LiveQR is sent.
+	LiveQR string `json:"liveQR,omitempty"`
 }
 
 type appCompleteResponse struct {
@@ -269,7 +277,8 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in appCompleteRequest
-	if !decodeAppJSON(body, &in) || in.Code == "" {
+	if !decodeAppJSON(body, &in) || in.Code == "" || (in.SUN != "" && in.LiveQR != "") {
+		// Both proofs at once is a body this surface cannot read: which one completes?
 		a.activation.anonFail(ip, "app_activate_complete", "malformed body")
 		writeAppError(w, appErrBadRequest)
 		return
@@ -298,6 +307,11 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		a.rejectAppCode(w, r, ip, ictx, err, "app_activate_complete")
+		return
+	}
+
+	if in.LiveQR != "" {
+		a.completeByLiveQR(w, r, ip, ictx, in, label, pub, binding)
 		return
 	}
 
@@ -375,21 +389,41 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 		Platform: in.Platform, PublicKey: pub, Label: &label,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, invite.ErrConsentMissing):
-			// The binding moved -- another bind, or a browser consent, since this key's.
-			a.activation.failTap(ctx, ip, act.Context, "consent_missing", res.Tag.UID)
-			writeAppError(w, appErrActivationNotReady)
-		case errors.Is(err, invite.ErrDeviceKeyTaken):
-			// NOTHING was consumed (one transaction). The app generates a new key and binds again.
-			a.activation.failTap(ctx, ip, act.Context, "device_key_taken", res.Tag.UID)
-			writeAppError(w, appErrNewKeyRequired)
-		default:
-			a.rejectAppCode(w, r, ip, act.Context, err, "app_activate_complete")
-		}
+		a.refuseDeviceActivation(w, r, ip, act.Context, err, res.Tag.UID, "app_activate_complete")
 		return
 	}
+	a.deviceActivated(w, r, act, label, activationTap{UID: res.Tag.UID, LocationID: *res.Location})
+}
 
+// refuseDeviceActivation answers a refused device consumption -- ActivateDevice's, or on a live QR
+// or a manager's approval its twins' -- with the same words: the binding moved, the key is taken
+// (NOTHING was consumed: one transaction), or the invitation's own refusal.
+func (a *App) refuseDeviceActivation(w http.ResponseWriter, r *http.Request, ip string, ictx invite.Context, err error, tagUID, where string) {
+	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
+	switch {
+	case errors.Is(err, invite.ErrConsentMissing):
+		// The binding moved -- another bind, or a browser consent, since this key's.
+		a.activation.failTap(ctx, ip, ictx, "consent_missing", tagUID)
+		writeAppError(w, appErrActivationNotReady)
+	case errors.Is(err, invite.ErrDeviceKeyTaken):
+		// NOTHING was consumed (one transaction). The app generates a new key and binds again.
+		a.activation.failTap(ctx, ip, ictx, "device_key_taken", tagUID)
+		writeAppError(w, appErrNewKeyRequired)
+	default:
+		a.rejectAppCode(w, r, ip, ictx, err, where)
+	}
+}
+
+// deviceActivated writes a completed app activation's trail and answers complete's body.
+func (a *App) deviceActivated(w http.ResponseWriter, r *http.Request, act invite.DeviceActivation, label string, tap activationTap) {
+	a.recordDeviceActivation(r.Context(), act, label, tap)
+	a.writeAppJSON(w, r, http.StatusOK, appCompleteResponse{DeviceID: act.DeviceID.String(), EmployeeName: act.FullName})
+}
+
+// recordDeviceActivation is a completed app activation's trail: the replaced credentials, then
+// activation.completed with what completed it (tap: a plaque, a live QR screen or a manager's
+// approval).
+func (a *App) recordDeviceActivation(ctx context.Context, act invite.DeviceActivation, label string, tap activationTap) {
 	if act.SessionsRevoked > 0 || act.AppDevicesRevoked > 0 {
 		a.activation.record(ctx, audit.Event{
 			TenantID: act.TenantID,
@@ -413,15 +447,18 @@ func (a *App) ActivateComplete(w http.ResponseWriter, r *http.Request) {
 			Outcome:           "ok",
 			SecondDevice:      act.SecondDeviceReplaced,
 			Device:            label,
-			TagUID:            res.Tag.UID,
-			LocationID:        res.Location.String(),
+			TagUID:            tap.UID,
+			LocationID:        nonNil(tap.LocationID),
 			Client:            clientApp,
 			AppDeviceID:       act.DeviceID.String(),
 			SessionsRevoked:   act.SessionsRevoked,
 			AppDevicesRevoked: act.AppDevicesRevoked,
+			Proof:             tap.Proof,
+			DisplayID:         nonNil(tap.DisplayID),
+			RequestID:         nonNil(tap.RequestID),
+			ApprovedBy:        nonNil(tap.ApprovedBy),
 		},
 	})
-	a.writeAppJSON(w, r, http.StatusOK, appCompleteResponse{DeviceID: act.DeviceID.String(), EmployeeName: act.FullName})
 }
 
 // rejectAppCode is rejectCode for the app: the same trail and the same charges, and ONE answer

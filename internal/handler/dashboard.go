@@ -205,6 +205,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (Adding a person and re-inviting one are in the sibling group at the end of
 		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
+		// THE PHONE APPROVAL (M16-23, employeeapproval.go): both roles, one way, and stopped by a
+		// suspension -- ADR 0025 §3's exception list names no approval.
+		r.Post(employeeApprovalHref, a.employeeApproval)
 		// (Signing a person's phones out, T59, is in the sibling group at the end of this
 		// function: a suspension does not stop it -- ADR 0025 §3, user decision 2026-11-09.)
 		r.Post(employeeMoveHref, a.employeeMove)

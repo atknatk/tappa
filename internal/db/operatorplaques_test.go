@@ -216,6 +216,9 @@ var opAtVersionSkips = map[int]string{
 		"EXCLUSIVE on live_qr_displays (DROP COLUMN)",
 	113: "the validation of 00112's four CHECKs (M16-19) -- no operator object; its Down drops and adds them again NOT " +
 		"VALID under ACCESS EXCLUSIVE on transactions, punch_events and site_punches",
+	115: "activation_requests and its one-way trigger (M16-23) -- no operator object; its Down takes ACCESS EXCLUSIVE " +
+		"on the table, admin_users, employee_invites, employees and tenants (the DROP's keys) and refuses while the " +
+		"table holds a row -- rows TestActivationRequests_ConcurrentCollectionExactlyOnce commits",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

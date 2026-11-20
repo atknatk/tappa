@@ -460,6 +460,11 @@ final class TapModel: ObservableObject {
         // "Open in browser" opens the URL REBUILT from this server's origin and the checked query
         // -- never the URL as it arrived (M16-17 review); a live QR's is its /q URL (M16-22).
         let plaqueURL = link.browserURL(base: client.baseURL)
+        // M16-23: a live QR's screens name the screen's code where the plaque's name the plaque.
+        var live = false
+        if case .liveQR = link {
+            live = true
+        }
         switch error as? AppAPIError {
         case .unauthenticated?:
             if client.clock.lastAnswerWasFarOff {
@@ -468,13 +473,13 @@ final class TapModel: ObservableObject {
             // A refused signature records nothing, so the URL is unspent even after the press.
             return Problem(copy: TapCopy.Problems.signedOut, retry: false, browserURL: plaqueURL, startAgain: true)
         case .refused(.staleContext, _)?:
-            return Problem(copy: TapCopy.Problems.stale)
+            return Problem(copy: live ? TapCopy.Problems.staleLive : TapCopy.Problems.stale)
         case .refused(.foreignTenant, _)?:
-            return Problem(copy: TapCopy.Problems.foreignTenant)
+            return Problem(copy: live ? TapCopy.Problems.foreignTenantLive : TapCopy.Problems.foreignTenant)
         case .refused(.unknownPlaque, _)?:
             return Problem(copy: TapCopy.Problems.unknownPlaque)
         case .refused(.rateLimited, _)?:
-            return Problem(copy: TapCopy.Problems.tooMany)
+            return Problem(copy: live ? TapCopy.Problems.tooManyLive : TapCopy.Problems.tooMany)
         case .refused(.badRequest, _)? where !sent:
             return Problem(copy: TapCopy.Problems.badURL)
         case .transport?:
@@ -487,7 +492,7 @@ final class TapModel: ObservableObject {
             // surface's OWN answers that nothing was written: they keep the server screen.)
             return Problem(copy: TapCopy.Problems.offlineUnknown)
         default:
-            return Problem(copy: TapCopy.Problems.server)
+            return Problem(copy: live ? TapCopy.Problems.serverLive : TapCopy.Problems.server)
         }
     }
 }

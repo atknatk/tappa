@@ -223,6 +223,23 @@ final class FakeAppServer {
     var refuseNonced = 0
     var devicesSignedOut = Set<String>()
 
+    // M16-23: the phone that cannot tap.
+    /// The live QR queries complete accepted as `liveQR`, and the one it refuses (one code, §4.7).
+    private(set) var completedLiveQR: [String] = []
+    var liveQRRefused: String?
+    /// Every complete body's field names, in order.
+    private(set) var completeFields: [[String]] = []
+    /// Scripted answers for approval, consumed in order before the normal path ("waiting").
+    var approvalScript: [(Int, String?)] = []
+    /// approval/status answers, consumed in order: "waiting", "approved", "rejected", "expired", or
+    /// "409:new_key_required"; empty is "waiting".
+    var statusScript: [String] = []
+    private(set) var approvals = 0
+    private(set) var polls = 0
+    /// The paths whose activation signature verified (each route signs its own path).
+    private(set) var approvalPaths: [String] = []
+    static let pairingCode = "482913"
+
     private(set) var seen: [Seen] = []
     private(set) var boundKeys: [Data] = []
     private(set) var completedSUN: [String] = []
@@ -266,7 +283,10 @@ final class FakeAppServer {
             return reply(200, object: ["activationId": id, "challenge": value])
         case AppClient.Path.complete:
             let j = json(body)
-            guard fields(body) == ["code", "platform", "publicKey", "sun"], j["platform"] as? String == "ios",
+            completeFields.append(fields(body))
+            // EXACTLY ONE of `sun` and `liveQR` (M16-23); both, or neither, is 400.
+            guard fields(body) == ["code", "platform", "publicKey", "sun"] || fields(body) == ["code", "liveQR", "platform", "publicKey"],
+                  j["platform"] as? String == "ios",
                   let pk = Base64URL.decode(j["publicKey"] as? String ?? "") else {
                 return reply(400, error: "bad_request")
             }
@@ -288,11 +308,65 @@ final class FakeAppServer {
             guard let ch = challenge, ch.id == id, ch.value == n, ch.key == pk else {
                 return reply(409, error: "activation_not_ready")
             }
+            if let live = j["liveQR"] as? String {
+                if live == liveQRRefused {
+                    return reply(400, error: "activation_tap_failed")
+                }
+                completedLiveQR.append(live)
+            } else {
+                completedSUN.append(j["sun"] as? String ?? "")
+            }
             let device = UUID().uuidString.lowercased()
             devices[device] = pk
             challenge = nil
-            completedSUN.append(j["sun"] as? String ?? "")
             return reply(200, object: ["deviceId": device, "employeeName": "Maria Borg"])
+        case AppClient.Path.approval, AppClient.Path.approvalStatus:
+            let j = json(body)
+            guard fields(body) == ["code", "platform", "publicKey"], j["platform"] as? String == "ios",
+                  let pk = Base64URL.decode(j["publicKey"] as? String ?? "") else {
+                return reply(400, error: "bad_request")
+            }
+            // Signed like complete, over THIS route's path.
+            guard let id = headers[AppClient.Header.deviceID], let n = headers[AppClient.Header.nonce],
+                  headers[AppClient.Header.timestamp] == nil,
+                  let text = try? CanonicalText.request(method: method, path: path, body: body, nonce: n, deviceID: id),
+                  verify(pk, headers[AppClient.Header.signature], text) else {
+                return reply(401)
+            }
+            guard (j["code"] as? String) == FakeAppServer.code else {
+                return reply(400, error: "invalid_invite")
+            }
+            guard let ch = challenge, ch.id == id, ch.value == n, ch.key == pk else {
+                return reply(409, error: "activation_not_ready")
+            }
+            approvalPaths.append(path)
+            let waiting: [String: Any] = ["state": "waiting", "pairingCode": FakeAppServer.pairingCode,
+                                          "expiresAt": "2026-11-20T10:15:00Z"]
+            if path == AppClient.Path.approval {
+                if !approvalScript.isEmpty {
+                    let (status, code) = approvalScript.removeFirst()
+                    return reply(status, error: code)
+                }
+                approvals += 1
+                return reply(200, object: waiting)
+            }
+            polls += 1
+            let next = statusScript.isEmpty ? "waiting" : statusScript.removeFirst()
+            switch next {
+            case "waiting":
+                return reply(200, object: waiting)
+            case "approved":
+                // The device is born in this call, exactly as a successful complete.
+                let device = UUID().uuidString.lowercased()
+                devices[device] = pk
+                challenge = nil
+                return reply(200, object: ["state": "approved", "deviceId": device, "employeeName": "Maria Borg"])
+            case "rejected", "expired":
+                return reply(200, object: ["state": next])
+            default:
+                let parts = next.split(separator: ":")
+                return reply(Int(parts[0]) ?? 500, error: String(parts[1]))
+            }
         case AppClient.Path.tapStart:
             guard readVerifies(method, path, body, headers) else {
                 return reply(401)
@@ -370,6 +444,11 @@ final class FakeAppServer {
             return false
         }
         return verify(key, h[AppClient.Header.signature], text)
+    }
+
+    /// Another client's bind (the browser's consent, a second phone): the binding moves.
+    func bindElsewhere() {
+        challenge = (UUID().uuidString.lowercased(), Base64URL.encode(Data(repeating: 7, count: 32)), Data([4]))
     }
 
     /// Registers a device directly, as if activated earlier.

@@ -195,7 +195,7 @@ oldu; tablodaki sonraki öneriler de dört kaydı. ADR'ler: `main` 0046 (timeshe
 | 00112 | M16-19 | `qr_live` kanal değeri — bütün kanal CHECK'leri (`NOT VALID`) ve akış tetikleyicisi (envanter M16-19'da) | `qr_live` satırı varsa reddeder |
 | 00113 | M16-19 | `00112`'nin önceden geçerli dört CHECK'inin `VALIDATE`'i (`00044` deseni) — **eklendi (2026-11-19, M16-19):** sonraki öneriler birer kaydı | `NOT VALID` hâline döner |
 | 00114 | M16-20 | `live_qr_displays.last_seen_at timestamptz` + `CHECK (last_seen_at IS NULL OR (paired_at IS NOT NULL AND last_seen_at >= paired_at))` + `GRANT SELECT, UPDATE (last_seen_at)` — **eklendi (2026-11-19, M16-20 düzeltme turu, güvenlik ORTA-1):** sonraki öneriler birer kaydı | `DROP COLUMN` (yoklama zamanı, kanıt değil) |
-| 00115 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) | satır varsa reddeder |
+| 00115 | M16-23 | müdür onaylı aktivasyon: bekleyen cihaz isteği (§6 beşlisi, GRANT) — **eklendi (2026-11-20, M16-23):** `activation_requests` + tek yönlü durum tetikleyicisi; tek migration, sonraki ayırmalar **kaymadı** (ölçüldü: hiçbir dalda 00115+ ya da ADR 0050+ yok) | satır varsa reddeder |
 | 00116 | M16-25 | attestation sonucu (sütun ya da tablo — kart seçer; tabloysa §6 beşlisi, GRANT) | dolu değer varsa reddeder |
 | 00117 | M16-30 | `tenants.staff_hours_weeks smallint` + `CHECK (… IS NULL OR … IN (1, 2, 4, 13))` + `GRANT UPDATE (staff_hours_weeks)`; varsayılansız (Q48 (a), 2026-11-19 — her satır NULL = kapalı) — `00064`'ün `day_cutoff` deseni | `DROP COLUMN` (yapılandırma; geçmişi `audit_log`'da — `00064:181-182`) |
 | 00118 | M16-35 | `employee_invites.origin text NOT NULL DEFAULT 'employer'` + `CHECK (origin IN ('employer','self'))`; çözümleyici `resolve_employees_for_signin(citext, uuid[])` (SECURITY DEFINER, `tappa_resolver`, `OPERATOR(public.=)` — `00011:295-313`) + **`GRANT SELECT (id, tenant_id, email, status) ON employees TO tappa_resolver`** + **`GRANT SELECT (suspended_at, email_signin) ON tenants TO tappa_resolver`** (yalnız yeni sütunlar — `tenants.id` `00051:155`'ten beri var, dokunulmaz); `tenants.email_signin boolean NOT NULL DEFAULT false` + `GRANT UPDATE (email_signin)` (Q49 (a)) | `origin='self'` satırı varsa reddeder; yoksa `DROP FUNCTION`, `REVOKE SELECT (id, tenant_id, email, status) ON employees FROM tappa_resolver`, `REVOKE SELECT (suspended_at, email_signin) ON tenants FROM tappa_resolver`, `DROP COLUMN`'lar |
@@ -1785,6 +1785,57 @@ kalkışı).
   → tüketim"* der, ve `internal/handler/activate.go:852-862`'nin ORDER yorumu eski sırayı (`sun.Verify` → plaket
   denetimleri) taşır. Cümleyi yazan kart sırayı kodun **ölçülen** sırasına eşitler; yorum ile metin çelişiyorsa
   ikisi aynı commit'te düzeltilir.
+
+> **Kart düzeltmesi (2026-11-20, M16-23 uygulaması; dal `m16-23-nfcless-activation`, taban `b580cb9d`).**
+> (1) **Canlı QR yolu.** Tarayıcı: `GET /q` onaylı (bağlı) aktivasyonu olan tarayıcıda taramayı `Activation.CompleteByLiveQR`'a
+> verir (canlı oturum varsa yalnız sahibi deaktive değilse — `GET /t`'nin kuralı). Sıra `CompleteByTap`'inkidir, `sun.Verify`'ın
+> yerinde `GET /q`'nun okuyucusu (`liveQRTap.open`) ve `liveQRActivationRefusal`: doğrulanmamış token (`live_qr_<kind>`) →
+> başka işletmenin ekranı (`foreign_tenant_screen`, ekran id'si bu tenant'ın izine yazılmaz) → iptal/pasif lokasyon
+> (`screen_not_active`) → pencere: `ExpiresAt` + `policy.LiveQRNetworkGraceSeconds`, ölçü anı *şimdi* (`live_qr_expired`).
+> Uygulama: `POST /app/v1/activate/complete`'e `liveQR` alanı (ikisi birden → 400 `bad_request`), aynı kural, ret
+> `activation_tap_failed`. **Q39'un etkisi (SEÇİM, gerekçe):** Q39 (a)+(b)'nin *kaydı* bir oturumun dokunuşu içindir
+> (`transactions`); aktivasyonda oturum yoktur (§5 satır 3) ve aktivasyon kayıt yazmaz (ADR 0026) — Q39'un gerekçesi
+> (*"kimliği bilinen kişinin denemesi kayıtsız kalmasın"*) davetle bilinen kişiye `audit_log` `activation.failed` satırıyla
+> uygulanır; süresi dolmuş token `flag` değil **red**dir (fotoğraf statik QR kadar kanıttır, statik QR aktive edemez).
+> (2) **Müdür onayı.** Sihirbazın 3. adımı *"My phone can't tap"* (POST `/activate/approval`, CSRF) → `activation_requests`
+> satırı (bu tarayıcının/anahtarın onay bağına bağlı, 6 hane, 15 dk) → `GET /activate/approval` kodu gösterir, `activate.js`
+> `GET /activate/approval/status`'u yoklar, *approved*'da `POST /activate/approval/collect`'i basar → `finishActivation`
+> (`invite.ActivateApproved`: tüketim + onayın toplanması **tek transaction**). Uygulama: `POST /app/v1/activate/approval`
+> ve `…/approval/status` (bağlı anahtarla imzalı; onaylı istek bu çağrıda `ActivateDeviceApproved` ile cihaza döner); lookup
+> yanıtına `managerApproval`; yeni hata kodu `screen_available` (409). Panel: *People* bölümünün başında *"Phones waiting for
+> approval"* (kişi, şube, istemci, kod, ne zaman; Approve / Reject — `POST /admin/employees/approval`, ana yazma zinciri,
+> form bağı). Karar `tenant.Staff.DecideApproval`: satır `FOR UPDATE`, tek yön (tetikleyici), `activation.approved` /
+> `activation.rejected` aktörüyle; kod ve davet kodu hiçbir `detail`'de ve log'da yok. **Kapı SEÇİMİ:** çalışanın **profil
+> şubesi** (profil şubesi yoksa — K-14 — işletmenin tamamı); "çalışan ekran" = eşlenmiş, iptal yok, oturumu 180 gün içinde,
+> lokasyon aktif **ve son 20 dk içinde kod istemiş** (`last_seen_at` en fazla 10 dk'da bir damgalanır; kapalı tablet kapıyı
+> kapatmaz). Gerekçe: zincirde merkezdeki bir ekran dokuz şubenin müdür onayını kapatmamalı; sunucu ekranlı şubede isteği
+> `ErrScreenAvailable` ile reddeder (yalnız gizlemez). **Kendi kendine onay SEÇİMİ:** ölçüldü — `employees.admin_user_id`
+> (ADR 0037 A′) yazılmadı; uygulanan, planın Q47 notundaki karşılaştırma: onaylayan hesabın adresi (`admin_users.email`,
+> bağlı hesapta kimliğin aynası) çalışanın adresine eşitse (citext) onay **ve** ret reddedilir, `activation.approval_refused`
+> yazılır. **Sahip muafiyeti yok** (ADR 0037'nin muafiyet gerekçesi — kararı verecek ikinci kişi yok — telefonda geçmez:
+> plaket ya da canlı QR yolu var). Sınırı: adresi boş ya da farklı kişi yakalanmaz. **Yetki:** owner ve manager (davet
+> göndermenin yetkisi; `base:authz-manager` devrede değil). **Askı:** onay ana yazma zincirinde — askıdaki işletme onay
+> veremez (ADR 0025 §3 listesi genişletilmedi; M16-24'e açık madde). **Onay süresi SEÇİMİ:** 15 dk, karar **ve** toplama
+> aynı pencerede (00115 tavanı 1 sa); süresi dolan istek panelde görünmez, telefon *expired* görür, yeniden ister
+> (davet başına saatte 10 istek).
+> (3) **Şema:** 00115 `activation_requests` (§6 beşlisi, `ENABLE`+`FORCE` RLS, kolon GRANT'ları — DELETE yok, tetikleyici
+> EXECUTE yok), tek açık istek/davet kısmi UNIQUE'i, tek yönlü durum tetikleyicisi; `Down` satır varsa reddeder. DB testleri
+> `internal/db/activationrequests_test.go` (RLS izolasyonu açık tenant filtresi **taşımadan**, katalog, tetikleyici, CHECK'ler,
+> sorgular, 32 goroutine → tek toplama, Down/Up); pinler `privcatalog`, `m11schema`, `opAtVersionSkips[115]`,
+> `identitypassword` kilit listesi, `aiLaterMigrations` (`activationRequestsSetAsideSQL`), `storekeyshape` (8 sorgu),
+> `cmd/opadmin` kilit envanteri. **Numara:** tek migration; kaydırma gerekmedi (00115 bu karta ayrılmıştı).
+> (4) **§9 metinleri TASLAK** (kullanıcıya): sihirbaz ve onay ekranı, panel kartı ve bildirimleri, iki uygulamanın
+> `noReader` / açılış reddi (artık ret değil, tap adımında yönlendirme), `/q` sorun ekranlarının canlı QR varyantları
+> (`tapProblemLive*`; `GET /q`, `/q`'nun 429'u ve `/q` sayfasının basışı — süresi dolmuş bağlam `liveShaped` ile).
+> **Ek bulgu:** public sayfaların *"Setting a phone up still takes one real tap on a plaque."* cümlesi (landing SSS,
+> `/for/restaurants`, `/for/production`) bu kartla yanlışlaştı (fact testleri kırmızıydı); taslak cümle yazıldı, fact
+> `FactSetupNeedsPresence` olarak yeniden türetildi — kullanıcı onayı bekler.
+> (5) **§5 sıra notu — ölçüldü:** `CLAUDE.md` §5 cümlesi bu dalda zaten kodun sırasındaydı (ilerletmeyen ön kontrol →
+> `sun.Verify` → kemer → tüketim); `CompleteByTap`'in ORDER yorumu da. Eski sırayı taşıyan tek yer `Activation` tipinin
+> rota yorumuydu (*"sun.Verify (atomic ctr), same-tenant active plaque…"*) — düzeltildi; §5'e NFC'siz yollar eklendi.
+> (6) **M16-24'e devir:** gerçek tablet + NFC'siz telefonla iki yol (tarayıcı + uygulama); askıdaki işletmede onay;
+> M16-35'in *"bütün tüketen yollar"* statik testi `ActivateApproved` / `ActivateDeviceApproved`'ı da saymalı (ikisi
+> `consume`'dan geçer); Q47 (a) için manager girişiyle panel onayı ölçümü.
 
 ## M16-24 — Faz D kapanışı
 

@@ -207,9 +207,11 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		default:
 			t.log.WarnContext(ctx, "checkin: unusable tap context", "employee_id", id.EmployeeID(), "err", err)
 		}
-		t.renderProblem(w, r, http.StatusBadRequest, tapProblemStale)
+		t.renderProblem(w, r, http.StatusBadRequest,
+			liveOr(t.contexts.liveShaped(r.PostFormValue("ctx"), id.Session.ID), tapProblemStale, tapProblemLiveStale))
 		return
 	}
+	live := tap.Channel(tctx.Channel) == tap.ChannelQRLive
 
 	occurredAt, ok := parseOccurredAt(r.PostFormValue(occurredAtField))
 	if !ok {
@@ -262,7 +264,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		RequestedDirection: want,
 	})
 	if err != nil {
-		t.renderCheckinFailure(w, r, id, err)
+		t.renderCheckinFailure(w, r, id, err, live)
 		return
 	}
 
@@ -273,7 +275,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// plaque, and sending them to activate would be a nonsense instruction.
 		// (tap.Decide maps both redirects to RedirectActivation; the domain tells
 		// them apart by the deciding sid — the note M4-03 left for M5-05.)
-		t.renderProblem(w, r, http.StatusForbidden, tapProblemForeignTenant)
+		t.renderProblem(w, r, http.StatusForbidden, liveOr(live, tapProblemForeignTenant, tapProblemLiveForeignTenant))
 	case checkin.OutcomeActivation:
 		t.redirectToActivation(w, r)
 	default:
@@ -399,8 +401,10 @@ func (t *Tap) resultLogo(ctx context.Context, id httpx.Identity, tctx tapContext
 // implies a record exists when it does not, and §7 does not permit a swallowed
 // error — so the two halves of every branch here are a truthful page and a log
 // line. The person is never blamed and never told about our internals.
-func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id httpx.Identity, err error) {
+func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id httpx.Identity, err error, live bool) {
 	ctx := r.Context() // see Checkin: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
+	// A press from a page GET /q drew is told to scan again, not to tap (M16-23 §9 (b)).
+	server := liveOr(live, tapProblemServer, tapProblemLiveServer)
 	switch {
 	case errors.Is(err, checkin.ErrSiteMembershipEnded):
 		// ADR 0027 §6's named race: decided while the two businesses were peers, the
@@ -409,7 +413,7 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 		// instruction (the retry is decided as another business's plaque).
 		t.log.WarnContext(ctx, "checkin: the plaque's business left the group before the record was written; nothing was written",
 			"employee_id", id.EmployeeID())
-		t.renderProblem(w, r, http.StatusConflict, tapProblemServer)
+		t.renderProblem(w, r, http.StatusConflict, server)
 	case errors.Is(err, checkin.ErrUnknownTag):
 		// The signed context named a plaque that no longer resolves. The domain has
 		// already logged it and left an audit row; there is no tag and no location,
@@ -418,14 +422,14 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 	case errors.Is(err, checkin.ErrInvalidRequest), errors.Is(err, checkin.ErrEnteredByRequired):
 		// A request this handler built wrong — our bug, not the caller's.
 		t.log.ErrorContext(ctx, "checkin: refused an invalid request", "employee_id", id.EmployeeID(), "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, server)
 	default:
 		// The database was unreachable, the insert failed, the counter could not be
 		// advanced. NOT recorded, said plainly, and loud in the log — this is the
 		// case where an hour goes missing if we are quiet about it.
 		t.log.ErrorContext(ctx, "checkin: recording the tap failed; NOTHING was written",
 			"employee_id", id.EmployeeID(), "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, server)
 	}
 }
 

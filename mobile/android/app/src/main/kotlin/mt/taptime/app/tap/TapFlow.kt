@@ -49,6 +49,25 @@ enum class TapProblem {
      * signed-out device.
      */
     CLOCK,
+    /**
+     * M16-23: SERVER, TOO_MANY, STALE and FOREIGN when the tap came from a venue screen's LIVE QR
+     * (`/q`): the same titles and messages, with the hints (and FOREIGN's words) saying "the screen's
+     * code" where the plaque's say "the plaque". [forLink] chooses; nothing else differs.
+     */
+    LIVE_SERVER,
+    LIVE_TOO_MANY,
+    LIVE_STALE,
+    LIVE_FOREIGN,
+    ;
+
+    /** This problem in the words of what opened the tap: a live QR's variant, or itself. */
+    fun forLink(link: TapLink): TapProblem = if (link !is TapLink.LiveQr) this else when (this) {
+        SERVER -> LIVE_SERVER
+        TOO_MANY -> LIVE_TOO_MANY
+        STALE -> LIVE_STALE
+        FOREIGN -> LIVE_FOREIGN
+        else -> this
+    }
 }
 
 /** What a problem screen's "Try again" does. */
@@ -154,6 +173,13 @@ class TapFlow(
         } catch (_: KeyUnreadable) {
             return Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
+        return when (val started = startAnswer(device, signer, link, r)) {
+            is Start.Problem -> started.copy(problem = started.problem.forLink(link))
+            is Start.Ready -> started
+        }
+    }
+
+    private fun startAnswer(device: ActiveDevice, signer: Signer, link: TapLink, r: Outcome<TapStartReply>): Start {
         return when (r) {
             is Outcome.Ok -> {
                 val name = r.value.employeeName
@@ -186,6 +212,13 @@ class TapFlow(
             // Signing failed before POST /app/v1/tap went out: nothing reached the record.
             return Press.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
+        return when (val pressed = pressAnswer(r)) {
+            is Press.Problem -> pressed.copy(problem = pressed.problem.forLink(ready.link))
+            is Press.Recorded -> pressed
+        }
+    }
+
+    private fun pressAnswer(r: Outcome<TapReply>): Press {
         return when (r) {
             is Outcome.Ok -> Press.Recorded(r.value)
             // A refused signature records nothing: the URL is unspent (signed out keeps its exits).

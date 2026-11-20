@@ -253,7 +253,10 @@ SELECT line FROM (
 // live QR screen resolvers (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's seven columns of
 // the table and id, tenant_id, active of locations -- that role's first locations grant; 00112 and
 // 00113 change no privilege (CREATE OR REPLACE keeps the three triggers' owners and ACLs); 00114
-// (M16-20) gives tappa_app SELECT and UPDATE on live_qr_displays.last_seen_at
+// (M16-20) gives tappa_app SELECT and UPDATE on live_qr_displays.last_seen_at; 00115 -- M16-23, ADR
+// 0026 Bedel 3 -- added activation_requests (the RLS five; tappa_app's column lists: SELECT every
+// column, INSERT seven, UPDATE the five state columns, no DELETE) and its INVOKER one-way trigger
+// function (execute=-); no resolver, no other role
 // -- and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -278,6 +281,9 @@ SELECT line FROM (
 // A line is added here only together with the migration that makes it true, and with the reason
 // in that migration (or, for an M11 object, in m11schema_test.go's matrix).
 const privCatalogAllowed = `
+column activation_requests tappa_app INSERT tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,expires_at
+column activation_requests tappa_app SELECT id,tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,created_at,expires_at,decision,decided_at,decided_by,withdrawn_at,collected_at
+column activation_requests tappa_app UPDATE decision,decided_at,decided_by,withdrawn_at,collected_at
 column admin_identities tappa_identitydefiner INSERT email,password_hash
 column admin_identities tappa_identitydefiner SELECT id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant
 column admin_identities tappa_identitydefiner UPDATE email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at
@@ -452,6 +458,7 @@ database tappa_resolver CONNECT,TEMPORARY
 extension citext schema=public
 extension pgcrypto schema=public
 extension plpgsql schema=pg_catalog
+function activation_requests_state_is_one_way() owner=tappa_owner definer=false execute=-
 function admin_users_guard_identity_credentials() owner=tappa_owner definer=false execute=-
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function app_devices_revocation_is_one_way() owner=tappa_owner definer=false execute=-
@@ -578,6 +585,7 @@ function tappa_plan_in_force(uuid,timestamp with time zone,text) owner=tappa_own
 function tappa_record_plan_change() owner=tappa_owner definer=false execute=-
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
 namespace public owner=pg_database_owner
+rel activation_requests r owner=tappa_owner rls=enable,force
 rel admin_identities r owner=tappa_owner rls=enable,force
 rel admin_identity_events r owner=tappa_owner rls=enable,force
 rel admin_identity_resets r owner=tappa_owner rls=enable,force

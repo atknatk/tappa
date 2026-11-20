@@ -164,12 +164,6 @@ class ActivationFlowTest {
     }
 
     @Test
-    fun aPhoneWithoutAReaderIsRefusedBeforeTheCodeScreen() {
-        assertEquals(Problem.NO_READER, ActivationFlow.refusedAtLaunch(hasNfcReader = false))
-        assertNull(ActivationFlow.refusedAtLaunch(hasNfcReader = true))
-    }
-
-    @Test
     fun anUnknownCodeIsOneAnswer() {
         val r = flow.lookup("A".repeat(43)) as ActivationFlow.LookupResult.Refused
         assertEquals(Problem.BAD_LINK, r.problem)

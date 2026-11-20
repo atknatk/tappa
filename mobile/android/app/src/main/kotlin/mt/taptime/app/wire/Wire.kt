@@ -12,6 +12,10 @@ object Paths {
     const val ACTIVATE_LOOKUP = "/app/v1/activate/lookup"
     const val ACTIVATE_BIND = "/app/v1/activate/bind"
     const val ACTIVATE_COMPLETE = "/app/v1/activate/complete"
+    /** M16-23: a manager-approval request for a phone that cannot tap (signed like complete). */
+    const val ACTIVATE_APPROVAL = "/app/v1/activate/approval"
+    /** M16-23: the request's state; an approved one is collected here (the device is born in this call). */
+    const val ACTIVATE_APPROVAL_STATUS = "/app/v1/activate/approval/status"
     const val NONCE = "/app/v1/nonce"
     const val TAP_START = "/app/v1/tap/start"
     const val TAP = "/app/v1/tap"
@@ -41,6 +45,8 @@ enum class AppErrorCode(val wire: String, val status: Int) {
     METHOD_NOT_ALLOWED("method_not_allowed", 405),
     NEW_KEY_REQUIRED("new_key_required", 409),
     ACTIVATION_NOT_READY("activation_not_ready", 409),
+    /** M16-23: a live QR screen runs at the workplace -- scan it; the manager cannot approve this phone. */
+    SCREEN_AVAILABLE("screen_available", 409),
     TRY_AGAIN("try_again", 409),
     RATE_LIMITED("rate_limited", 429),
     SERVER_ERROR("server_error", 500),
@@ -78,6 +84,11 @@ data class LookupReply(
     val wifiSsid: String?,
     val secondDevice: Boolean,
     val brand: Brand,
+    /**
+     * M16-23: the manager-approval path is offered -- no live QR screen runs at the person's
+     * workplace. Absent is false (an older server offers nothing).
+     */
+    val managerApproval: Boolean = false,
 )
 
 data class BindReply(val activationId: String, val challenge: String) {
@@ -86,6 +97,22 @@ data class BindReply(val activationId: String, val challenge: String) {
 }
 
 data class CompleteReply(val deviceId: String, val employeeName: String)
+
+/**
+ * M16-23: POST /app/v1/activate/approval and approval/status. [Approved] is a finished activation:
+ * the server created the device in that very call, exactly as a successful complete.
+ */
+sealed interface ApprovalReply {
+    /** [pairingCode] is six ASCII digits the manager matches in the panel: never printed (§7). */
+    class Waiting(val pairingCode: String, val expiresAt: String) : ApprovalReply {
+        override fun toString() = "Waiting(pairingCode=<redacted>, expiresAt=$expiresAt)"
+        override fun equals(other: Any?) = other is Waiting && other.pairingCode == pairingCode && other.expiresAt == expiresAt
+        override fun hashCode() = pairingCode.hashCode() * 31 + expiresAt.hashCode()
+    }
+    data class Approved(val deviceId: String, val employeeName: String) : ApprovalReply
+    data object Rejected : ApprovalReply
+    data object Expired : ApprovalReply
+}
 
 data class MeReply(val employeeName: String, val brand: Brand, val direction: String)
 
@@ -154,6 +181,7 @@ object Replies {
             wifiSsid = optString("wifiSsid")?.takeIf { it.isNotEmpty() },
             secondDevice = bool("secondDevice"),
             brand = brand(optObject("brand")),
+            managerApproval = optBool("managerApproval"),
         )
     }
 
@@ -170,6 +198,27 @@ object Replies {
         val id = string("deviceId")
         if (!Canonical.validDeviceId(id)) throw JsonException("complete reply: malformed device id")
         CompleteReply(id, string("employeeName"))
+    }
+
+    /** The six digits the panel shows: anything else is a reply this app cannot show. */
+    private val pairing = Regex("^[0-9]{6}$")
+
+    fun approval(m: Map<String, Any?>): ApprovalReply = Fields(m).run {
+        when (string("state")) {
+            "waiting" -> {
+                val c = string("pairingCode")
+                if (!pairing.matches(c)) throw JsonException("approval reply: malformed pairing code")
+                ApprovalReply.Waiting(c, optString("expiresAt").orEmpty())
+            }
+            "approved" -> {
+                val id = string("deviceId")
+                if (!Canonical.validDeviceId(id)) throw JsonException("approval reply: malformed device id")
+                ApprovalReply.Approved(id, string("employeeName"))
+            }
+            "rejected" -> ApprovalReply.Rejected
+            "expired" -> ApprovalReply.Expired
+            else -> throw JsonException("approval reply: unknown state")
+        }
     }
 
     fun me(m: Map<String, Any?>): MeReply = Fields(m).run {
@@ -222,6 +271,18 @@ object Bodies {
     fun complete(code: String, publicPoint: ByteArray, sun: String): ByteArray =
         JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint))
             .put("platform", PLATFORM).put("sun", sun).bytes()
+
+    /**
+     * activate/complete with a venue screen's LIVE QR (M16-23): the `<base>/q` URL's query as
+     * `liveQR` in place of `sun` -- exactly one of the two, as on tap/start.
+     */
+    fun completeLive(code: String, publicPoint: ByteArray, liveQuery: String): ByteArray =
+        JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint))
+            .put("platform", PLATFORM).put("liveQR", liveQuery).bytes()
+
+    /** activate/approval and approval/status (M16-23): the same three fields. */
+    fun approval(code: String, publicPoint: ByteArray): ByteArray =
+        JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint)).put("platform", PLATFORM).bytes()
 
     fun tapStart(sun: String): ByteArray = JsonObjectWriter().put("sun", sun).bytes()
 

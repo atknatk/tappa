@@ -38,10 +38,10 @@ import (
 // the press (§4.6). A removed screen, a switched-off venue, an expired token and a peer's screen
 // render too, for the same reason: the decision, and its record, are the POST's.
 //
-// WHAT THIS PAGE DOES NOT DO: complete an activation. A live QR activation is M16-23's; until
-// then a phone without a session goes to the activation page (§5 row 3, nothing recorded), and a
-// pending activation with a live session is an ordinary tap -- GET /t's rule for a static QR,
-// which cannot activate either.
+// A BROWSER HOLDING A CONSENTED ACTIVATION completes it here (M16-23, Activation.CompleteByLiveQR):
+// the scan is the activating proof, as an NFC tap is on GET /t, and it writes no `transactions`
+// row. A phone with no session and nothing pending goes to the activation page (§5 row 3, nothing
+// recorded).
 
 // LiveQRPath is the route the live QR tap page is served at. It is a LITERAL, not liveqr.LiveQRTapPath,
 // because the route inventory (admincookiepath_test.go) resolves route names from this package's own
@@ -86,11 +86,43 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 		t.log.ErrorContext(ctx, "live QR page: no resolved identity on the request",
 			"hint", "mount httpx.Identify in front of GET /q", "err", id.Err)
 		// NO retry link: its URL would put the token into the error page (§7).
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
 		return
+	case httpx.SessionAbsent, httpx.SessionRevoked, httpx.SessionLive:
+	default:
+		t.log.ErrorContext(ctx, "live QR page: unknown session state", "state", int(id.State))
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
+		return
+	}
+
+	// A CONSENTED ACTIVATION TAKES THE SCAN (M16-23): GET /t's rule for the activating tap, and its
+	// exception -- not over a DEACTIVATED employee's live session, which must reach §5 row 4 and be
+	// recorded (audit round 2, security LOW 2). Unlike a static QR, a live QR CAN activate: the
+	// screen's rotating code is the proof of presence the plaque's counter is (CompleteByLiveQR).
+	// No `transactions` row is written on this path; the next scan is an ordinary check-in.
+	if t.activation.Pending(r) {
+		deactivated := false
+		if id.State == httpx.SessionLive {
+			var err error
+			deactivated, err = t.activation.HolderDeactivated(ctx, id.Session.TenantID, id.Session.EmployeeID)
+			if err != nil {
+				t.log.ErrorContext(ctx, "live QR page: reading the session holder's status failed", "err", err)
+				t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
+				return
+			}
+		}
+		if !deactivated {
+			token := r.URL.Query().Get(liveqr.TokenParam)
+			t.activation.CompleteByLiveQR(w, r, func(ctx context.Context) (liveQROpening, error) {
+				return t.live.open(ctx, token)
+			})
+			return
+		}
+	}
+
+	switch id.State {
 	case httpx.SessionAbsent, httpx.SessionRevoked:
-		// §5 ROW 3: no session -> the activation page, NO record. A pending activation is
-		// not completed here (M16-23).
+		// §5 ROW 3: no session -> the activation page, NO record.
 		if id.State == httpx.SessionRevoked {
 			t.log.WarnContext(ctx, "live QR page: a signed-out phone scanned",
 				"tenant_id", id.Session.TenantID, "employee_id", id.Session.EmployeeID, "channel", string(sun.ChannelQRLive))
@@ -100,7 +132,7 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 	case httpx.SessionLive:
 	default:
 		t.log.ErrorContext(ctx, "live QR page: unknown session state", "state", int(id.State))
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
 		return
 	}
 
@@ -127,7 +159,7 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 			"tenant_id", id.TenantID(), "employee_id", id.EmployeeID(), "err", err)
 	case err != nil:
 		t.log.ErrorContext(ctx, "live QR page: loading the employee failed", "employee_id", id.EmployeeID(), "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
 		return
 	default:
 		if facts.Brand.AccentRefused {
@@ -145,7 +177,7 @@ func (t *Tap) LivePage(w http.ResponseWriter, r *http.Request) {
 	signed, err := t.contexts.mint(live.Context, id.Session.ID)
 	if err != nil {
 		t.log.ErrorContext(ctx, "live QR page: minting the tap context failed", "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
 		return
 	}
 	// QR is false on purpose: it is the form's data-tap-channel="qr", which lets tap.js reload a
@@ -170,7 +202,7 @@ func (t *Tap) openLiveQR(ctx context.Context, w http.ResponseWriter, r *http.Req
 	o, err := t.live.open(ctx, r.URL.Query().Get(liveqr.TokenParam))
 	if err != nil {
 		t.log.ErrorContext(ctx, "live QR page: resolving the screen failed", "display_id", o.Claims.DisplayID, "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemLiveServer)
 		return liveQROpening{}, false
 	}
 	switch o.Refusal {

@@ -70,6 +70,29 @@ type ActivateView struct {
 	// StatusURL is what the waiting screen's script polls. A same-origin path,
 	// handed in rather than typed into the template so route and page agree.
 	StatusURL string
+	// ApprovalOffered draws "My phone can't tap" on the waiting screen (M16-23): true only
+	// where no live QR screen runs at the person's venue (the handler asks; the server
+	// refuses the request elsewhere too). False draws the "scan the screen" line instead.
+	ApprovalOffered bool
+}
+
+// ApprovalView is the manager-approval screen (M16-23): the pairing code the person shows
+// their manager, and where the request stands. Its forms carry the synchronizer token; the
+// invite code and the consent binding have no field here at all.
+type ApprovalView struct {
+	EmployerName string
+	// State is "waiting", "approved", "rejected" or "expired" (internal/invite).
+	State string
+	// Code is the six digits as shown, grouped ("482 913"), on a waiting request only.
+	Code string
+	// Minutes is how long a request lives (invite.ApprovalTTL), for the footnote.
+	Minutes   int
+	CSRFToken string
+	// StatusURL is what the screen's script polls; BackURL returns to the waiting screen. The
+	// two forms post to the literal routes (internal/handler ActivationApprovalPath and
+	// ActivationApprovalCollectPath; TestApproval_FormsPostToTheRoutes holds them together).
+	StatusURL string
+	BackURL   string
 }
 
 // ActivateSteps is how many wizard steps precede the waiting screen, and

@@ -16,6 +16,14 @@ import "github.com/atknatk/tappa/web/templates/components"
 type EmployeesView struct {
 	PanelChrome
 
+	// The phones waiting for approval (M16-23): the open requests, whether reading them failed,
+	// where Approve / Reject post, and what the last press did (a word of a closed vocabulary --
+	// internal/handler approvalWords).
+	Approvals       []ApprovalRowView
+	ApprovalsUnread bool
+	ApprovalAction  string
+	ApprovalDone    string
+
 	// Queried is set ONLY after the database has answered, and it gates the empty
 	// state.
 	//
@@ -270,4 +278,16 @@ func inviteEmailedHeading(v InviteEmailedView) string {
 	default:
 		return "Only the owner can do that"
 	}
+}
+
+// ApprovalRowView is one open manager-approval request on the people section (M16-23). Code is the
+// six digits grouped as the phone shows them; it is shown and only shown.
+type ApprovalRowView struct {
+	ID       string
+	Name     string
+	Venue    string
+	Client   string
+	Code     string
+	Asked    string
+	Deadline string
 }

@@ -482,8 +482,10 @@ func rollOtherViolation(s restaurantsFactSources) string {
 		"a.Daily[3] != worked || a.Worked != h.Worked || h.Marks[3].Other")
 }
 
-// setupViolation is FactSetupTakesARealTap: the only way to a session is activation, and
-// activation ends only on a tap that carries the plaque's signature (NFC).
+// setupViolation is FactSetupNeedsPresence: the only way to a session is activation, and
+// activation ends only on proof of presence -- a tap that carries the plaque's signature (NFC),
+// a verified live QR scan of the business's own running screen, or a collected manager's approval
+// (M16-23).
 func setupViolation(s restaurantsFactSources) string {
 	if !strings.Contains(goFuncBody(s.SunParams, "func (p Params) HasSUN("), "return p.Channel == ChannelNFC") {
 		return "sun.Params.HasSUN no longer means an NFC read"
@@ -511,9 +513,29 @@ func setupViolation(s restaurantsFactSources) string {
 			}
 			return path + " issues a session outside activation (" + src[at[0]:at[1]] + ")"
 		}
-		if n := strings.Count(src, "a.finishActivation("); n > 0 && (path != "internal/handler/activate.go" || n != 1) {
-			return path + " calls finishActivation outside CompleteByTap"
+		switch n := strings.Count(src, "a.finishActivation("); {
+		case n == 0:
+		case path == "internal/handler/activate.go" && n == 1:
+		case path == "internal/handler/activateapproval.go" && n == 2:
+		default:
+			return path + " calls finishActivation outside CompleteByTap, CompleteByLiveQR and CollectApproval"
 		}
+	}
+	approval := s.GoFiles["internal/handler/activateapproval.go"]
+	scan := goFuncBody(approval, "func (a *Activation) CompleteByLiveQR(")
+	if judge, finish := strings.Index(scan, "liveQRActivationRefusal("), strings.Index(scan, "a.finishActivation("); judge < 0 || finish < 0 || judge > finish ||
+		!strings.Contains(scan[judge:finish], `if reason != "" {`) {
+		return "Activation.CompleteByLiveQR no longer judges the live QR code before it finishes"
+	}
+	rule := goFuncBody(approval, "func liveQRActivationRefusal(")
+	for _, want := range []string{"!o.Verified", "o.Screen.TenantID != tenantID", "o.Screen.RevokedAt != nil", "LiveQRNetworkGraceSeconds"} {
+		if !strings.Contains(rule, want) {
+			return "liveQRActivationRefusal no longer carries " + want + ", so a scan that proves no presence could activate"
+		}
+	}
+	collect := goFuncBody(approval, "func (a *Activation) CollectApproval(")
+	if gate, finish := strings.Index(collect, "ap.State != invite.ApprovalApproved"), strings.Index(collect, "a.finishActivation("); gate < 0 || finish < 0 || gate > finish {
+		return "Activation.CollectApproval no longer finishes only an approved request"
 	}
 	if !strings.Contains(s.GoFiles["internal/session/manager.go"], ".CreateSession(") {
 		return "internal/session no longer creates the session; this scan reads the wrong place"
@@ -626,7 +648,7 @@ var restaurantsDerivationFuncs = map[pages.Fact]func(restaurantsFactSources) str
 	pages.FactTapIsJudgedAtTheTappedVenue:         tappedVenueViolation,
 	pages.FactCrossLocationTapIsNotedNotPenalised: crossLocationViolation,
 	pages.FactRollMarksWorkAtAnotherVenue:         rollOtherViolation,
-	pages.FactSetupTakesARealTap:                  setupViolation,
+	pages.FactSetupNeedsPresence:                  setupViolation,
 	pages.FactForgottenCheckOutIsNotPaid:          forgotViolation,
 	pages.FactCheckoutWithoutCheckInIsListed:      checkoutWithoutInViolation,
 	pages.FactDirectionPairsWithinTheBusinessDay:  businessDayViolation,
@@ -718,11 +740,21 @@ func TestRestaurantsFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			"func TestAccumulate_TheRestaurantsPagesWeek(", "func renamedCase(")},
 		{pages.FactTapIsJudgedAtTheTappedVenue, "the DB test stops checking the home network's tap", replace(func(s *restaurantsFactSources) *string { return &s.CheckinDBTest },
 			`home.Verdict != "flag"`, `home.Verdict == ""`)},
-		{pages.FactSetupTakesARealTap, "a QR read counts as the plaque's signature", replace(func(s *restaurantsFactSources) *string { return &s.SunParams },
+		{pages.FactSetupNeedsPresence, "a QR read counts as the plaque's signature", replace(func(s *restaurantsFactSources) *string { return &s.SunParams },
 			"return p.Channel == ChannelNFC", "return p.Channel != \"\"")},
-		{pages.FactSetupTakesARealTap, "activation stops refusing a tap without the signature", replace(func(s *restaurantsFactSources) *string { return &s.Activate },
+		{pages.FactSetupNeedsPresence, "activation stops refusing a tap without the signature", replace(func(s *restaurantsFactSources) *string { return &s.Activate },
 			"if !p.HasSUN() {", "if false {")},
-		{pages.FactSetupTakesARealTap, "another file issues a session", func(s *restaurantsFactSources) {
+		{pages.FactSetupNeedsPresence, "a live QR of another business activates", func(s *restaurantsFactSources) {
+			m := maps.Clone(s.GoFiles)
+			m["internal/handler/activateapproval.go"] = strings.Replace(m["internal/handler/activateapproval.go"], "o.Screen.TenantID != tenantID", "false", 1)
+			s.GoFiles = m
+		}},
+		{pages.FactSetupNeedsPresence, "an unapproved request finishes the setup", func(s *restaurantsFactSources) {
+			m := maps.Clone(s.GoFiles)
+			m["internal/handler/activateapproval.go"] = strings.Replace(m["internal/handler/activateapproval.go"], "ap.State != invite.ApprovalApproved", "false", 1)
+			s.GoFiles = m
+		}},
+		{pages.FactSetupNeedsPresence, "another file issues a session", func(s *restaurantsFactSources) {
 			m := maps.Clone(s.GoFiles)
 			m["internal/handler/qr.go"] += "\nfunc qrSetup() { _, _ = a.sessions.Issue(ctx, session.IssueParams{}) }\n"
 			s.GoFiles = m

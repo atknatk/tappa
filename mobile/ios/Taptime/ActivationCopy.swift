@@ -9,6 +9,7 @@ import Foundation
 //             to open its reader; the iPhone-specific refusals; "can't reach Taptime")
 //   [adapted] the wizard's sentence names a browser thing the app does not have (a link to open
 //             again, a cookie, a page to close) and says the app's equivalent instead
+//   [M16-23]  the phone that cannot tap: the browser wizard takes the same sentences (the same card)
 //   [R1]      the wizard's "no ..., no face, no voice" opens with a word the red-line scan
 //             (scripts/redline-check.sh R1) refuses anywhere in the apps' tree, comments and tests
 //             included, with no waiver, by design (M16-02). "No finger scans" says the same thing.
@@ -83,6 +84,22 @@ enum Copy {
         static let scan = "Scan the plaque" // [app: iOS reads only while its own sheet is open]
         static let sheet = "Hold the top of your phone against the plaque." // [app: iOS's scan sheet]
         static let back = "Back"
+        /// The secondary way when the manager can approve (lookup's managerApproval). Never the accent's slot.
+        static let cantTap = "My phone can't tap" // [M16-23]
+        /// In its place when the manager cannot (a screen runs there, or the server offers nothing).
+        static let scanScreen = "Phone can't tap? Open your camera and scan the code on the Taptime screen at your workplace." // [M16-23]
+    }
+
+    /// Waiting for the manager's approval (M16-23). The pairing code sits between body and status.
+    enum Approval {
+        static let label = "Last step" // [M16-23]
+        static let title = "Ask your manager to approve this phone" // [M16-23]
+        static let body = "Show this code to your manager. They approve it in Taptime, under People." // [M16-23]
+        static let status = "Waiting for your manager…" // [M16-23]
+        static let footnote = "The code works for 15 minutes." // [M16-23]
+        static let back = "Back"
+        static let askAgain = "Ask again" // [M16-23] -- after a rejection
+        static let newCode = "Get a new code" // [M16-23] -- after the code ran out
     }
 
     enum Done {
@@ -139,10 +156,28 @@ enum Copy {
             title: "Taptime couldn't open this phone's key",
             message: "Nothing was changed on this phone.",
             hint: "Try again in a moment. If it keeps happening, you can set this phone up again.")
-        static let noReader = Problem( // [app]
+        /// [app] M16-23: no longer a refusal -- the notice on the tap step in place of the scan button.
+        /// The hint is shown only when the manager can approve (TapStepScreen).
+        static let noReader = Problem(
             title: "This iPhone can't read the plaque",
-            message: "Setting up the app needs a tap on the plaque, and this iPhone has no NFC reader.",
-            hint: "Ask your manager — setup without a plaque tap isn't available yet.")
+            message: "Finish setup by scanning the code on the Taptime screen at your workplace with your camera.",
+            hint: "Or ask your manager to approve this phone.")
+        static let liveQRFailed = Problem( // [M16-23] -- every refusal of a live QR read is one code
+            title: "That scan didn't finish setup",
+            message: "Your phone isn't activated yet, and nothing was recorded.",
+            hint: "Scan the code on the Taptime screen at your workplace again — it changes every few seconds.")
+        static let approvalRejected = Problem( // [M16-23]
+            title: "Your manager didn't approve this phone",
+            message: "Nothing was set up and nothing was recorded.",
+            hint: "Talk to your manager. If they ask you to, try again.")
+        static let approvalExpired = Problem( // [M16-23]
+            title: "That code ran out of time",
+            message: "Your manager didn't approve it in time, so nothing was set up.",
+            hint: "Get a new code and show it to your manager.")
+        static let screenAvailable = Problem( // [M16-23] -- screen_available
+            title: "Scan the screen's code instead",
+            message: "There's a Taptime screen at your workplace, so your manager can't approve this phone.",
+            hint: "Open your camera and scan the code on the screen to finish setup.")
         static let noSecureChip = Problem( // [app]
             title: "This iPhone can't be set up",
             message: "The app keeps its key in this iPhone's secure chip, and the chip isn't available.",

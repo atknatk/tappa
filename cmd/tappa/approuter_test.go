@@ -480,22 +480,29 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 	outsidePanel := map[string]string{
 		"POST /activate":     "activation",
 		"POST /api/activate": "activation",
-		"POST /api/checkin":  "tap",
-		"POST /api/claim":    "tap",
+		// M16-23: "My phone can't tap" and the approval's collection -- the wizard's own POSTs (the
+		// activation cookie's synchronizer token), like /api/activate.
+		"POST " + handler.ActivationApprovalPath:        "activation",
+		"POST " + handler.ActivationApprovalCollectPath: "activation",
+		"POST /api/checkin":                             "tap",
+		"POST /api/claim":                               "tap",
 		// M16-07: the native app's signed surface -- the tap's and the activation's twin, outside
 		// the panel and, like the tap, without a suspension gate (ADR 0025, ADR 0045 §2.3).
 		"POST " + handler.AppActivateLookupPath:   "app",
 		"POST " + handler.AppActivateBindPath:     "app",
 		"POST " + handler.AppActivateCompletePath: "app",
-		"POST " + handler.AppNoncePath:            "app",
-		"POST " + handler.AppTapStartPath:         "app",
-		"POST " + handler.AppTapPath:              "app",
-		"POST " + handler.AppRevokePath:           "app",
-		"POST /admin/reset":                       "reset",
-		"POST /admin/reset/new":                   "reset",
-		"POST /signup":                            "signup",
-		"POST /signup/places":                     "signup",
-		"POST /signup/account":                    "signup",
+		// M16-23: the app's manager-approval request and its status read (signed by the bound key).
+		"POST " + handler.AppActivateApprovalPath:       "app",
+		"POST " + handler.AppActivateApprovalStatusPath: "app",
+		"POST " + handler.AppNoncePath:                  "app",
+		"POST " + handler.AppTapStartPath:               "app",
+		"POST " + handler.AppTapPath:                    "app",
+		"POST " + handler.AppRevokePath:                 "app",
+		"POST /admin/reset":                             "reset",
+		"POST /admin/reset/new":                         "reset",
+		"POST /signup":                                  "signup",
+		"POST /signup/places":                           "signup",
+		"POST /signup/account":                          "signup",
 		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.

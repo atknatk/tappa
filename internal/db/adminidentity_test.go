@@ -885,6 +885,11 @@ func aiLaterMigrations(t *testing.T) []aiLaterMigration {
 			// The walk sets them aside first, inside the same rolled-back transaction.
 			down = liveQRSetAsideSQL + "\n" + down
 		}
+		if n == activationRequestsMigration {
+			// M16-23: 00115's Down refuses while a request exists, and the collection race test commits
+			// one. The walk sets them aside first, inside the same rolled-back transaction.
+			down = activationRequestsSetAsideSQL + "\n" + down
+		}
 		if n == qrLiveChannelMigration {
 			// M16-21: 00112's Down refuses while a live QR row exists, and the tap path's tests commit
 			// them. The walk sets them aside first, inside the same rolled-back transaction.

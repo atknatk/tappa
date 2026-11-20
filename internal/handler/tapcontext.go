@@ -434,6 +434,33 @@ func (c tapContexts) parse(v string, sessionID uuid.UUID) (tapContext, error) {
 	return c.parseHeld(v, sessionID.String())
 }
 
+// liveShaped reports whether v is a version-2 (live QR) context THIS deployment signed for
+// sessionID, whatever its age. It decides nothing but which words a refusal uses (M16-23 §9 (b):
+// "scan the screen again" rather than "tap the plaque again" on an expired live QR page): the
+// signature is checked first, in constant time, so a forged value never chooses the text.
+func (c tapContexts) liveShaped(v string, sessionID uuid.UUID) bool {
+	if c.key.Len() == 0 || sessionID == uuid.Nil {
+		return false
+	}
+	encoded, sig, ok := strings.Cut(v, ".")
+	if !ok || encoded == "" || sig == "" {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return false
+	}
+	got, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		return false
+	}
+	if subtle.ConstantTimeCompare(got, c.signFor(string(raw), sessionID.String())) != 1 {
+		return false
+	}
+	version, _, _ := strings.Cut(string(raw), "|")
+	return version == tapContextLiveVersion
+}
+
 // parseHeld is parse's body over a holder string (signFor).
 func (c tapContexts) parseHeld(v, holder string) (tapContext, error) {
 	if c.key.Len() == 0 {

@@ -76,6 +76,8 @@ class FakeAppServer(
             "POST /app/v1/activate/lookup" -> lookup(ex, body)
             "POST /app/v1/activate/bind" -> bind(ex, body)
             "POST /app/v1/activate/complete" -> complete(ex, body)
+            "POST /app/v1/activate/approval" -> approval(ex, body)
+            "POST /app/v1/activate/approval/status" -> approvalStatus(ex, body)
             "GET /app/v1/me" -> me(ex, body)
             "POST /app/v1/nonce" -> nonce(ex, body)
             "POST /app/v1/tap/start" -> tapStart(ex, body)
@@ -89,7 +91,8 @@ class FakeAppServer(
         if (m.keys != setOf("code")) return error(ex, 400, "bad_request")
         if (m["code"] != code) return error(ex, 400, "invalid_invite")
         val brand = if (accent != null) """{"accent":"$accent"}""" else "{}"
-        json(ex, """{"employeeName":"Maria Borg","businessName":"KF St Julians","locationName":"St Julians","wifiSsid":"KF-Staff","secondDevice":$secondDevice,"brand":$brand}""")
+        val approval = managerApproval?.let { ""","managerApproval":$it""" } ?: ""
+        json(ex, """{"employeeName":"Maria Borg","businessName":"KF St Julians","locationName":"St Julians","wifiSsid":"KF-Staff","secondDevice":$secondDevice,"brand":$brand$approval}""")
     }
 
     private fun bind(ex: HttpExchange, body: ByteArray) {
@@ -114,13 +117,17 @@ class FakeAppServer(
         val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)
         if (id == null || nonce == null || sig == null || ex.requestHeaders.getFirst("App-Timestamp") != null) return unauthenticated(ex)
         val m = MiniJson.decodeObject(String(body))
-        if (m.keys != setOf("code", "publicKey", "platform", "sun") || m["platform"] != "android") return error(ex, 400, "bad_request")
+        completeBodies += String(body)
+        // EXACTLY ONE of the plaque's `sun` and the screen's `liveQR` (M16-23); both is 400.
+        val base = setOf("code", "publicKey", "platform")
+        if ((m.keys != base + "sun" && m.keys != base + "liveQR") || m["platform"] != "android") return error(ex, 400, "bad_request")
         val point = unb64(m["publicKey"] as String) ?: return error(ex, 400, "bad_request")
         // Proof of possession: the key the body names signed THIS request over the challenge.
         if (!verifies(point, text("tappa-app-request-v1", "POST", "/app/v1/activate/complete", body, nonce, id), sig)) {
             return unauthenticated(ex)
         }
         if (m["code"] != code) return error(ex, 400, "invalid_invite")
+        if (m.containsKey("liveQR")) return completeLive(ex, id, nonce, point, m["liveQR"] as String)
         val sun = m["sun"] as String
         val params = sun.split('&').associate { it.substringBefore('=') to it.substringAfter('=', "") }
         val ctr = params["ctr"]?.toIntOrNull(16) ?: return error(ex, 400, "activation_needs_touch")
@@ -140,6 +147,109 @@ class FakeAppServer(
         bound = null
         completed++
         json(ex, """{"deviceId":"$deviceId","employeeName":"Maria Borg"}""")
+    }
+
+    // --- M16-23: the phone that cannot tap ------------------------------------------------------
+
+    /** What lookup says about the approval path; null leaves the field out (an older server). */
+    var managerApproval: Boolean? = null
+    /** Every complete body, raw, in order. */
+    val completeBodies = mutableListOf<String>()
+    /** The live QR queries a complete accepted, and the one it refuses (every refusal one code). */
+    val liveCompleted = mutableListOf<String>()
+    var liveRefused: String? = null
+    /** When set, the next approval request answers this status and error code, once. */
+    var approvalFailsOnce: Pair<Int, String>? = null
+    /** approval/status answers, consumed in order: "waiting", "approved", "rejected", "expired", or "409:new_key_required". */
+    val statusScript = ArrayDeque<String>()
+    val approvalBodies = mutableListOf<String>()
+    var approvals = 0
+        private set
+    var polls = 0
+        private set
+    val pairingCode = "482913"
+
+    private fun completeLive(ex: HttpExchange, id: String, nonce: String, point: ByteArray, live: String) {
+        val b = bound
+        if (b == null || b.activationId != id || b.challenge != nonce || !b.point.contentEquals(point)) {
+            return error(ex, 409, "activation_not_ready")
+        }
+        if (live == liveRefused) return error(ex, 400, "activation_tap_failed")
+        liveCompleted += live
+        created(ex, point)
+    }
+
+    private fun created(ex: HttpExchange, point: ByteArray) {
+        val deviceId = UUID.randomUUID().toString()
+        devices.clear() // Q40 (a): the person's other app devices are revoked in the same transaction
+        devices[deviceId] = point
+        bound = null
+        completed++
+        json(ex, """{"deviceId":"$deviceId","employeeName":"Maria Borg"}""")
+    }
+
+    /**
+     * The activation signature over [path] (each route its own text), the strict three-field body,
+     * the invitation, the binding: the bound point, or null after the refusal was answered.
+     */
+    private fun activationSigned(ex: HttpExchange, path: String, body: ByteArray): ByteArray? {
+        val id = ex.requestHeaders.getFirst("App-Device-Id")
+        val nonce = ex.requestHeaders.getFirst("App-Nonce")
+        val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)
+        if (id == null || nonce == null || sig == null || ex.requestHeaders.getFirst("App-Timestamp") != null) {
+            unauthenticated(ex)
+            return null
+        }
+        val m = MiniJson.decodeObject(String(body))
+        approvalBodies += String(body)
+        if (m.keys != setOf("code", "publicKey", "platform") || m["platform"] != "android") {
+            error(ex, 400, "bad_request")
+            return null
+        }
+        val point = unb64(m["publicKey"] as String)
+        if (point == null || !verifies(point, text("tappa-app-request-v1", "POST", path, body, nonce, id), sig)) {
+            unauthenticated(ex)
+            return null
+        }
+        if (m["code"] != code) {
+            error(ex, 400, "invalid_invite")
+            return null
+        }
+        val b = bound
+        if (b == null || b.activationId != id || b.challenge != nonce || !b.point.contentEquals(point)) {
+            error(ex, 409, "activation_not_ready")
+            return null
+        }
+        return point
+    }
+
+    private fun approval(ex: HttpExchange, body: ByteArray) {
+        activationSigned(ex, "/app/v1/activate/approval", body) ?: return
+        approvalFailsOnce?.let { (status, code) ->
+            approvalFailsOnce = null
+            return error(ex, status, code)
+        }
+        approvals++
+        json(ex, """{"state":"waiting","pairingCode":"$pairingCode","expiresAt":"2026-11-20T10:15:00Z"}""")
+    }
+
+    private fun approvalStatus(ex: HttpExchange, body: ByteArray) {
+        val point = activationSigned(ex, "/app/v1/activate/approval/status", body) ?: return
+        polls++
+        when (val next = statusScript.removeFirstOrNull() ?: "waiting") {
+            "waiting" -> json(ex, """{"state":"waiting","pairingCode":"$pairingCode","expiresAt":"2026-11-20T10:15:00Z"}""")
+            "approved" -> {
+                // The device is born in this call, exactly as a successful complete.
+                val deviceId = UUID.randomUUID().toString()
+                devices.clear()
+                devices[deviceId] = point
+                bound = null
+                completed++
+                json(ex, """{"state":"approved","deviceId":"$deviceId","employeeName":"Maria Borg"}""")
+            }
+            "rejected", "expired" -> json(ex, """{"state":"$next"}""")
+            else -> error(ex, next.substringBefore(':').toInt(), next.substringAfter(':'))
+        }
     }
 
     private fun me(ex: HttpExchange, body: ByteArray) {

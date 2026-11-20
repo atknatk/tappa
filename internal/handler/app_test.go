@@ -36,7 +36,7 @@ func TestAppErrors_TheVocabularyIsClosedAndEchoesNothing(t *testing.T) {
 			t.Errorf("headers for %q: %v", c, w.Header())
 		}
 	}
-	if len(seen) != 16 || len(appErrorStatus) != len(seen) {
+	if len(seen) != 17 || len(appErrorStatus) != len(seen) {
 		t.Errorf("%d codes, %d statuses; the vocabulary changed -- update this count and the card's contract", len(seen), len(appErrorStatus))
 	}
 }
@@ -50,6 +50,8 @@ func TestAppContract_ErrorStatuses(t *testing.T) {
 		"activation_needs_touch": 400, "activation_tap_failed": 400, "stale_context": 400,
 		"unknown_plaque": 404, "foreign_tenant": 403, "try_again": 409, "not_found": 404,
 		"method_not_allowed": 405,
+		// M16-23: a live QR screen runs at the workplace -- the manager approval is not offered.
+		"screen_available": 409,
 	}
 	if len(want) != len(appErrorStatus) {
 		t.Fatalf("%d statuses in the code, %d in the contract", len(appErrorStatus), len(want))
@@ -74,10 +76,16 @@ func TestAppContract_ResponseShapes(t *testing.T) {
 		want string
 	}{
 		"activate/lookup": {appLookupResponse{EmployeeName: "E", BusinessName: "B", LocationName: "L", WiFiSSID: "W", SecondDevice: true, Brand: brand},
-			`{"employeeName":"E","businessName":"B","locationName":"L","wifiSsid":"W","secondDevice":true,"brand":{"name":"N","logo":{"sha256":"ab","width":1,"height":2},"accent":"1F5C41"}}`},
-		"activate/bind":     {appBindResponse{ActivationID: "I", Challenge: "C"}, `{"activationId":"I","challenge":"C"}`},
-		"activate/complete": {appCompleteResponse{DeviceID: "D", EmployeeName: "E"}, `{"deviceId":"D","employeeName":"E"}`},
-		"nonce":             {appNonceResponse{Nonce: "N", ExpiresAt: at}, `{"nonce":"N","expiresAt":"2026-11-14T12:00:00Z"}`},
+			`{"employeeName":"E","businessName":"B","locationName":"L","wifiSsid":"W","secondDevice":true,"brand":{"name":"N","logo":{"sha256":"ab","width":1,"height":2},"accent":"1F5C41"},"managerApproval":false}`},
+		// M16-23: the approval routes' one answer shape, waiting and collected.
+		"activate/approval (waiting)": {appApprovalResponse{State: "waiting", PairingCode: "482913", ExpiresAt: "2026-11-14T12:15:00Z"},
+			`{"state":"waiting","pairingCode":"482913","expiresAt":"2026-11-14T12:15:00Z"}`},
+		"activate/approval (approved)": {appApprovalResponse{State: "approved", DeviceID: "D", EmployeeName: "E"},
+			`{"state":"approved","deviceId":"D","employeeName":"E"}`},
+		"activate/approval (rejected)": {appApprovalResponse{State: "rejected"}, `{"state":"rejected"}`},
+		"activate/bind":                {appBindResponse{ActivationID: "I", Challenge: "C"}, `{"activationId":"I","challenge":"C"}`},
+		"activate/complete":            {appCompleteResponse{DeviceID: "D", EmployeeName: "E"}, `{"deviceId":"D","employeeName":"E"}`},
+		"nonce":                        {appNonceResponse{Nonce: "N", ExpiresAt: at}, `{"nonce":"N","expiresAt":"2026-11-14T12:00:00Z"}`},
 		"tap/start": {appTapStartResponse{EmployeeName: "E", LocationName: "L", Brand: appBrand{}, Direction: "in", QR: false, Context: "X"},
 			`{"employeeName":"E","locationName":"L","brand":{},"direction":"in","qr":false,"context":"X"}`},
 		"tap": {appTapResponse{Outcome: "recorded", Verdict: "ok", Direction: "out", Venue: "V", At: "09:00", BusinessType: "bar"},
@@ -101,6 +109,7 @@ func TestAppContract_RequestShapes(t *testing.T) {
 	var lookup appLookupRequest
 	var bind appBindRequest
 	var complete appCompleteRequest
+	var approval appApprovalRequest
 	var start appTapStartRequest
 	var tapIn appTapRequest
 	for name, tc := range map[string]struct {
@@ -114,6 +123,13 @@ func TestAppContract_RequestShapes(t *testing.T) {
 		"activate/complete": {`{"code":"c","publicKey":"k","platform":"ios","sun":"tag=1"}`, `{"code":"c","publicKey":"k","platform":"ios","sun":"tag=1","label":"x"}`, &complete,
 			func() bool {
 				return complete.Code == "c" && complete.PublicKey == "k" && complete.Platform == "ios" && complete.SUN == "tag=1"
+			}},
+		// M16-23: complete's live QR proof, and the approval routes' body.
+		"activate/complete (live QR)": {`{"code":"c","publicKey":"k","platform":"ios","liveQR":"t=x"}`, `{"code":"c","publicKey":"k","platform":"ios","qr":"t=x"}`, &complete,
+			func() bool { return complete.Code == "c" && complete.LiveQR == "t=x" }},
+		"activate/approval": {`{"code":"c","publicKey":"k","platform":"android"}`, `{"code":"c","publicKey":"k","platform":"android","pairingCode":"1"}`, &approval,
+			func() bool {
+				return approval.Code == "c" && approval.PublicKey == "k" && approval.Platform == "android"
 			}},
 		"tap/start": {`{"sun":"tag=1"}`, `{"url":"tag=1"}`, &start, func() bool { return start.SUN == "tag=1" }},
 		// M16-22: a venue screen's live QR URL's query, the field's own spelling (encoding/json would

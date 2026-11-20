@@ -8,10 +8,18 @@ import Foundation
 //   welcome  who this is for, what is recorded, "Agree and continue"        → a NEW key, bind
 //   ready    the venue Wi-Fi
 //   tap      "Now tap the plaque": the first genuine NFC read               → complete
+//            or (M16-23, a phone that cannot tap) a venue screen's live QR   → complete (liveQR)
+//            or "My phone can't tap"                                         → approval
+//   waiting  the pairing code for the manager, polled every 3 s              → approval/status
 //   done     "Activation complete"
 //
 // After it, the phone is ACTIVATED and the tap screens (TapFlow.swift, M16-17) take over: the
 // launch hands the restored key to them instead of greeting the person here.
+//
+// A PHONE WITHOUT AN NFC READER IS NOT REFUSED (M16-23). It walks the same steps; on the tap step
+// the scan button gives way to a notice, and it finishes with the camera on the venue screen's live
+// QR (the Universal Link brings the /q URL here) or with the manager's approval -- whose "approved"
+// answer IS the activation: the server created the device in that call.
 //
 // NOTHING BEFORE THE TAP ACTIVATES ANYTHING. bind records consent bound to this key and spends
 // nothing; the device is born on the server only when complete passes CompleteByTap's order --
@@ -37,6 +45,10 @@ final class ActivationModel: ObservableObject {
         case welcome
         case ready
         case tap(problem: Copy.Problem?)
+        /// M16-23: waiting for the manager's approval. The pairing code is `approval` (never in the
+        /// screen's value); `ended` is the request's end that is not "approved" (rejected, expired),
+        /// with a button for a new request; `notice` the last poll's passing trouble.
+        case waiting(ended: Copy.Problem?, notice: Copy.Problem?)
         case done(name: String, secondDevice: Bool)
         /// The phone is activated: the tap screens are showing (RootView).
         case activated
@@ -53,6 +65,13 @@ final class ActivationModel: ObservableObject {
     @Published private(set) var scanning = false
     @Published private(set) var invite: LookupResponse?
     @Published private(set) var brand: AppBrand = .taptime
+    /// M16-23: the manager-approval path is offered for this invitation (lookup's managerApproval;
+    /// a screen_available answer turns it off). Drives the tap step's "My phone can't tap".
+    @Published private(set) var approvalOffered = false
+    /// M16-23: the open approval request the waiting screen shows. nil when there is none.
+    @Published private(set) var approval: PendingApproval?
+    /// The waiting screen's poll interval (the contract's 3 seconds); tests shorten it.
+    var pollInterval: UInt64 = 3_000_000_000
     /// The activated device: restored at launch, or made by a successful activation. nil until
     /// then. Only a new successful activation replaces it.
     @Published private(set) var device: ActivatedDevice?
@@ -145,21 +164,21 @@ final class ActivationModel: ObservableObject {
     /// belongs to the activation, whatever device this phone already has.
     var inWizard: Bool {
         switch screen {
-        case .welcome, .ready, .tap:
+        case .welcome, .ready, .tap, .waiting:
             return true
         default:
             return false
         }
     }
 
-    /// The code screen, unless this phone cannot activate at all.
+    /// Whether this iPhone reads a plaque at all (the tap step's scan button, or its notice).
+    var canRead: Bool { reader.isAvailable }
+
+    /// The code screen, unless this phone cannot activate at all (no secure chip). A missing NFC
+    /// reader no longer stops it (M16-23): the tap step offers the venue screen's code instead.
     private func enterActivation(notice: Copy.Problem?) {
         guard keys.isAvailable else {
             screen = .problem(Copy.Problems.noSecureChip, retry: .none)
-            return
-        }
-        guard reader.isAvailable else {
-            screen = .problem(Copy.Problems.noReader, retry: .none)
             return
         }
         screen = .code(notice: notice)
@@ -180,6 +199,7 @@ final class ActivationModel: ObservableObject {
             code = c
             invite = found
             brand = found.brand
+            approvalOffered = found.managerApproval ?? false
             screen = .welcome
         } catch {
             screen = .problem(problem(for: error), retry: .toCode)
@@ -197,7 +217,9 @@ final class ActivationModel: ObservableObject {
 
     func ready() {
         screen = .tap(problem: nil)
-        scan()
+        if reader.isAvailable {
+            scan()
+        }
     }
 
     func back() {
@@ -208,6 +230,10 @@ final class ActivationModel: ObservableObject {
             screen = .welcome
         case .tap:
             screen = .ready
+        case .waiting:
+            // Back to the tap step; the waiting screen's .task stops polling as it goes.
+            approval = nil
+            screen = .tap(problem: nil)
         default:
             break
         }
@@ -236,7 +262,7 @@ final class ActivationModel: ObservableObject {
 
     /// Opens iOS's scan sheet. The read goes to the same place a plaque link does.
     func scan() {
-        guard case .tap = screen, !scanning, !busy else {
+        guard case .tap = screen, !scanning, !busy, reader.isAvailable else {
             return
         }
         scanning = true
@@ -259,7 +285,9 @@ final class ActivationModel: ObservableObject {
     /// A plaque URL -- read by the sheet, or opened as a link -- on a phone that is NOT activated
     /// (an activated one's go to the tap screens, AppModel). Where it lands (M16-16 hand-off 2):
     ///   tap step, or "I'm ready" with the consent bound   completes the activation (the browser's
-    ///                                                      pending activation does the same)
+    ///   (or waiting for the manager -- M16-23)             pending activation does the same); a
+    ///                                                      plaque's SUN query as `sun`, a venue
+    ///                                                      screen's live QR as `liveQR`
     ///   welcome (no consent yet)                           "Finish the setup steps first"
     ///   anywhere else                                      "This app isn't set up yet", with Safari
     func plaqueURLOpened(_ url: URL) async {
@@ -270,7 +298,8 @@ final class ActivationModel: ObservableObject {
         switch screen {
         case .tap:
             break
-        case .ready where binding != nil:
+        case .ready where binding != nil, .waiting where binding != nil:
+            approval = nil
             screen = .tap(problem: nil)
         case .welcome:
             screen = .problem(Copy.Problems.notReady, retry: .toWelcome)
@@ -288,36 +317,174 @@ final class ActivationModel: ObservableObject {
         guard let c = code, let b = binding, let key = pendingKey else {
             return
         }
-        guard let host = client.baseURL.host, let sun = PlaqueURL.sunQuery(of: url, host: host) else {
+        // A plaque's SUN query, or (M16-23) a venue screen's live QR. Anything else is sent nowhere.
+        guard let host = client.baseURL.host, let link = TapLink.of(url, host: host) else {
             screen = .tap(problem: Copy.Problems.tapFailed)
             return
         }
+        var live = false
         busy = true
         defer { endBusy() }
         do {
-            let done = try await client.complete(code: c, signer: key, binding: b, sun: sun)
-            do {
-                try store.save(ActivationRecord(deviceId: done.deviceId, employeeName: done.employeeName,
-                                                keyHandle: key.persistentHandle))
-            } catch {
-                // The server holds an active device whose key this phone could not keep: the
-                // activation is spent, so only a new link helps.
-                reset()
-                screen = .problem(Copy.Problems.server, retry: .toCode)
-                return
+            let done: CompleteResponse
+            switch link {
+            case .plaque(let sun):
+                done = try await client.complete(code: c, signer: key, binding: b, sun: sun)
+            case .liveQR(let q):
+                live = true
+                done = try await client.complete(code: c, signer: key, binding: b, liveQR: q)
             }
-            let second = invite?.secondDevice ?? false
-            reset()
-            device = ActivatedDevice(identity: DeviceIdentity(deviceID: done.deviceId, signer: key),
-                                     storedName: done.employeeName)
-            screen = .done(name: done.employeeName, secondDevice: second)
+            finishActivation(done, key: key)
         } catch AppAPIError.refused(let code, _) {
-            await completeRefused(code)
+            await completeRefused(code, live: live)
         } catch AppAPIError.transport {
             screen = .problem(Copy.Problems.offline, retry: .toTap)
         } catch {
             screen = .problem(Copy.Problems.server, retry: .toWelcome)
         }
+    }
+
+    // MARK: The manager's approval (M16-23)
+
+    /// "My phone can't tap" on the tap step, or "Ask again" / "Get a new code" on the waiting
+    /// screen's end: a new request (the server withdraws an earlier open one of the invitation).
+    func askApproval() async {
+        guard let c = code, let b = binding, let key = pendingKey, !busy else {
+            return
+        }
+        busy = true
+        defer { endBusy() }
+        do {
+            approvalAnswered(try await client.approval(code: c, signer: key, binding: b), key: key)
+        } catch AppAPIError.refused(.screenAvailable, _) {
+            screenAvailable()
+        } catch AppAPIError.refused(.rateLimited, _) {
+            screen = .problem(Copy.Problems.tooMany, retry: .toTap)
+        } catch AppAPIError.refused(let code, _) {
+            await approvalRefused(code)
+        } catch AppAPIError.transport {
+            screen = .problem(Copy.Problems.offline, retry: .toTap)
+        } catch {
+            screen = .problem(Copy.Problems.server, retry: .toWelcome)
+        }
+    }
+
+    /// True while the waiting screen waits (a request is open and has not ended).
+    var awaitingApproval: Bool {
+        if case .waiting(nil, _) = screen, approval != nil {
+            return true
+        }
+        return false
+    }
+
+    /// The waiting screen's poll, every `pollInterval`, for as long as the CALLER's task runs: the
+    /// view's `.task` starts it when the screen appears and cancels it when it goes. One sleep, one
+    /// status request, again -- never a repeating timer.
+    func pollWhileWaiting() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: pollInterval)
+            guard !Task.isCancelled, awaitingApproval else {
+                return
+            }
+            await pollApproval()
+        }
+    }
+
+    /// One status request. A passing trouble (no answer, too many, the server's own failure) keeps
+    /// the code on screen with a notice; the request's end, or a bind that no longer holds, leaves.
+    /// An APPROVED answer stands whatever is on screen: the device exists now.
+    func pollApproval() async {
+        guard awaitingApproval, !busy, let c = code, let b = binding, let key = pendingKey else {
+            return
+        }
+        do {
+            let state = try await client.approvalStatus(code: c, signer: key, binding: b)
+            if case .approved = state {
+                approvalAnswered(state, key: key)
+            } else if awaitingApproval {
+                approvalAnswered(state, key: key)
+            }
+        } catch {
+            guard awaitingApproval else {
+                return
+            }
+            switch error as? AppAPIError {
+            case .transport?:
+                screen = .waiting(ended: nil, notice: Copy.Problems.offline)
+            case .refused(.rateLimited, _)?:
+                screen = .waiting(ended: nil, notice: Copy.Problems.tooMany)
+            case .refused(.serverError, _)?, .unexpected?:
+                screen = .waiting(ended: nil, notice: Copy.Problems.server)
+            case .refused(.screenAvailable, _)?:
+                screenAvailable()
+            case .refused(let code, _)?:
+                await approvalRefused(code)
+            default:
+                screen = .problem(Copy.Problems.server, retry: .toWelcome)
+            }
+        }
+    }
+
+    private func approvalAnswered(_ state: ApprovalState, key: DeviceSigner) {
+        switch state {
+        case .waiting(let p):
+            approval = p
+            screen = .waiting(ended: nil, notice: nil)
+        case .approved(let done):
+            approval = nil
+            finishActivation(done, key: key)
+        case .rejected:
+            approval = nil
+            screen = .waiting(ended: Copy.Problems.approvalRejected, notice: nil)
+        case .expired:
+            approval = nil
+            screen = .waiting(ended: Copy.Problems.approvalExpired, notice: nil)
+        }
+    }
+
+    /// screen_available: a live QR screen runs at the workplace -- the tap step, its button gone.
+    private func screenAvailable() {
+        approval = nil
+        approvalOffered = false
+        screen = .tap(problem: Copy.Problems.screenAvailable)
+    }
+
+    /// The answers the approval routes share with complete's.
+    private func approvalRefused(_ code: AppErrorCode) async {
+        approval = nil
+        switch code {
+        case .newKeyRequired:
+            // The request belonged to the taken key: a fresh key, a fresh bind, ask again.
+            if await bindNewKey() {
+                screen = .tap(problem: Copy.Problems.server)
+            }
+        case .activationNotReady:
+            screen = .problem(Copy.Problems.notReady, retry: .toWelcome)
+        case .invalidInvite:
+            screen = .problem(Copy.Problems.badLink, retry: .toCode)
+        default:
+            screen = .problem(Copy.Problems.server, retry: .toWelcome)
+        }
+    }
+
+    /// A finished activation -- complete's answer, or an approved request's: the record is kept and
+    /// the device made; "Activation complete".
+    private func finishActivation(_ done: CompleteResponse, key: DeviceSigner) {
+        do {
+            try store.save(ActivationRecord(deviceId: done.deviceId, employeeName: done.employeeName,
+                                            keyHandle: key.persistentHandle))
+        } catch {
+            // The server holds an active device whose key this phone could not keep: the
+            // activation is spent, so only a new link helps.
+            reset()
+            screen = .problem(Copy.Problems.server, retry: .toCode)
+            return
+        }
+        let second = invite?.secondDevice ?? false
+        reset()
+        device = ActivatedDevice(identity: DeviceIdentity(deviceID: done.deviceId, signer: key),
+                                 storedName: done.employeeName)
+        screen = .done(name: done.employeeName, secondDevice: second)
     }
 
     // MARK: Internals
@@ -340,16 +507,20 @@ final class ActivationModel: ObservableObject {
         }
     }
 
-    private func completeRefused(_ code: AppErrorCode) async {
+    /// `live`: the read was a venue screen's live QR (M16-23). Every refusal of one is
+    /// activation_tap_failed (one code, §4.7); the app knows what it sent, so the text says to scan
+    /// the screen again, not to tap the plaque.
+    private func completeRefused(_ code: AppErrorCode, live: Bool) async {
+        let readFailed = live ? Copy.Problems.liveQRFailed : Copy.Problems.tapFailed
         switch code {
         case .activationNeedsTouch:
-            screen = .tap(problem: Copy.Problems.needsTouch)
+            screen = .tap(problem: live ? readFailed : Copy.Problems.needsTouch)
         case .activationTapFailed, .unknownPlaque, .foreignTenant, .staleContext:
-            screen = .tap(problem: Copy.Problems.tapFailed)
+            screen = .tap(problem: readFailed)
         case .newKeyRequired:
             // Nothing was consumed; the read was. A fresh key, a fresh bind, one more tap.
             if await bindNewKey() {
-                screen = .tap(problem: Copy.Problems.tapFailed)
+                screen = .tap(problem: readFailed)
             }
         case .activationNotReady:
             screen = .problem(Copy.Problems.notReady, retry: .toWelcome)
@@ -394,6 +565,7 @@ final class ActivationModel: ObservableObject {
         code = nil
         binding = nil
         pendingKey = nil
+        approval = nil
         codeInput = ""
     }
 
@@ -414,7 +586,7 @@ final class ActivationModel: ObservableObject {
 extension ActivationModel.Screen {
     /// The look of this screen's primary button (CLAUDE.md §9; ADR 0023 §2, WL-13): the business's
     /// accent on the wizard's steps 1 and 2 -- "Agree and continue" and "I'm ready" -- and Taptime's
-    /// green everywhere else. Step 3 has no primary button in the browser; the app's "Scan the
+    /// green everywhere else (the waiting screen's "Ask again" included, M16-23). Step 3 has no primary button in the browser; the app's "Scan the
     /// plaque" is an app-only button, so it is not one of §9's counted slots and stays green (its
     /// screen's marks still go ink beside an accent). The code screen comes before any invitation
     /// is known, and a problem screen must not tell a live invitation from a dead one by its
@@ -423,7 +595,7 @@ extension ActivationModel.Screen {
         switch self {
         case .welcome, .ready:
             return BrandLook(brand)
-        case .checking, .code, .tap, .done, .activated, .notSetUp, .problem:
+        case .checking, .code, .tap, .waiting, .done, .activated, .notSetUp, .problem:
             return BrandLook(.taptime)
         }
     }

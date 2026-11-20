@@ -639,6 +639,19 @@ var storeSurface = map[string]string{
 	"GetLiveQRDisplayForScreen": "(context.Context, GetLiveQRDisplayForScreenParams{TenantID uuid.UUID; ID uuid.UUID}) (GetLiveQRDisplayForScreenRow{ID uuid.UUID; LocationID uuid.UUID; PairedAt *time.Time; RevokedAt *time.Time; LocationName string; LocationActive bool; TenantSuspended bool}, error)",
 	"TouchLiveQRDisplay":        "(context.Context, TouchLiveQRDisplayParams{TenantID uuid.UUID; ID uuid.UUID}) (int64, error)",
 	"LockLiveQRDisplay":         "(context.Context, LockLiveQRDisplayParams{TenantID uuid.UUID; ID uuid.UUID}) (LockLiveQRDisplayRow{ID uuid.UUID; LocationID uuid.UUID; PairedAt *time.Time; RevokedAt *time.Time}, error)",
+	// M16-23 (migration 00115): the manager-approved activation (activationrequests.sql). The consent
+	// binding's digest goes IN (CreateActivationRequestParams.BindingHash, the phone's read and the
+	// collection) and is never handed back; the six-digit pairing code comes back to the two places
+	// that show it (the phone that asked, the panel's list) -- ids, a name, a venue name, a client, a
+	// decision, instants, booleans and counts.
+	"CountLiveQRScreensForApproval":    "(context.Context, CountLiveQRScreensForApprovalParams{TenantID uuid.UUID; LocationID *uuid.UUID; SessionLifetimeSeconds int32; SeenWithinSeconds int32}) (int32, error)",
+	"WithdrawOpenActivationRequests":   "(context.Context, WithdrawOpenActivationRequestsParams{TenantID uuid.UUID; InviteID uuid.UUID}) (int64, error)",
+	"CreateActivationRequest":          "(context.Context, CreateActivationRequestParams{Client string; BindingHash string; PairingCode string; TtlSeconds int32; TenantID uuid.UUID; InviteID uuid.UUID}) (CreateActivationRequestRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time}, error)",
+	"GetActivationRequestForBinding":   "(context.Context, GetActivationRequestForBindingParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (GetActivationRequestForBindingRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time; Decision *string; DecidedBy *uuid.UUID; WithdrawnAt *time.Time; CollectedAt *time.Time; Expired bool}, error)",
+	"CollectActivationApproval":        "(context.Context, CollectActivationApprovalParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (CollectActivationApprovalRow{ID uuid.UUID; DecidedBy *uuid.UUID}, error)",
+	"ListOpenActivationRequests":       "(context.Context, uuid.UUID) ([]ListOpenActivationRequestsRow{ID uuid.UUID; EmployeeID uuid.UUID; FullName string; LocationName *string; Client string; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time}, error)",
+	"LockActivationRequestForDecision": "(context.Context, LockActivationRequestForDecisionParams{AdminUserID uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (LockActivationRequestForDecisionRow{ID uuid.UUID; EmployeeID uuid.UUID; Client string; Decision *string; WithdrawnAt *time.Time; Expired bool; InviteUsable bool; Self bool}, error)",
+	"DecideActivationRequest":          "(context.Context, DecideActivationRequestParams{Decision string; DecidedBy *uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (DecideActivationRequestRow{ID uuid.UUID; EmployeeID uuid.UUID; Decision *string; DecidedAt *time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1180,11 +1193,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 32 -> 33 on 2026-11-19 (M16-19, migration 00111): db/queries/liveqr.sql, five named queries over
 	// live_qr_displays; none calls a definer (the three screen resolvers are called by hand from
 	// internal/db/resolve.go).
-	if files != 33 {
-		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-THREE were there when this was "+
-			"pinned (2026-11-19; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
+	// 33 -> 34 on 2026-11-20 (M16-23, migration 00115): db/queries/activationrequests.sql, eight named
+	// queries over activation_requests (and the live QR screens' count); none calls a definer.
+	if files != 34 {
+		t.Fatalf("read %d .sql file(s) under db/queries; THIRTY-FOUR were there when this was "+
+			"pinned (2026-11-20; seventeen on 2026-08-24, plus operator.sql, branding.sql, sitepunches.sql, apikeys.sql, "+
 			"apiidempotency.sql, invitequeue.sql, punchfeed.sql, directory.sql, webhooks.sql, daycutoff.sql, "+
-			"punchclaims.sql, admininvites.sql, adminmembers.sql, oauth.sql, appdevices.sql and liveqr.sql)", files)
+			"punchclaims.sql, admininvites.sql, adminmembers.sql, oauth.sql, appdevices.sql, liveqr.sql and activationrequests.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot
@@ -1338,14 +1353,19 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// ClearExpiredLiveQRPairingCodes), each over the caller's own business's rows; none calls a definer.
 	// 301 -> 304 on 2026-11-19 (M16-20): liveqr.sql's GetLiveQRDisplayForScreen, LockLiveQRDisplay and
 	// TouchLiveQRDisplay, each over the caller's own business's rows; none calls a definer.
-	if named != 304 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND FOUR were "+
-			"there when this was pinned (2026-11-19: 111 on 2026-08-24, + T73's three "+
+	// 304 -> 312 on 2026-11-20 (M16-23, migration 00115): activationrequests.sql's eight
+	// (CountLiveQRScreensForApproval, WithdrawOpenActivationRequests, CreateActivationRequest,
+	// GetActivationRequestForBinding, CollectActivationApproval, ListOpenActivationRequests,
+	// LockActivationRequestForDecision, DecideActivationRequest), each over the caller's own business's
+	// rows; none calls a definer.
+	if named != 312 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND TWELVE were "+
+			"there when this was pinned (2026-11-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
 			"+ EM-7B's three invitation e-mail queries, + EM-7C's two recovery queries, "+
 			"+ the activation tap's two consent queries, + WL-13's two activation brand queries, "+
-			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads, + M16-03's eight device and nonce queries, + M16-07's two nonce-cap statements, + M16-19's five live QR screen queries, + M16-20's screen read, revocation lock and last-seen stamp). "+
+			"+ API-1's four external-ref queries, + API-1c's five site queries, + API-3's seven key queries, + API-4's five ledger queries, + API-5's four venue queries, + API-6's twenty-seven employee, budget and queue queries, + API-7's two feed reads, + API-7b's three history reads, + API-8's two directory reads, + API-9's eight webhook queries, + API-10's eight delivery and approval queries, + API-11's one tap outcome read and its fix round's plaque lock, + T130's retention sweep, + GRP-1's partner-venue count, + API-4b's suspension read, + M12-13's floor count, + M12-16's verdict count, + M12-21's roll homes, + M12-25's decision count, + M12-24's plaque counters, + M12-17..19's four People reads, + M15-02's four cutoff writes, + M15-05's race check, + M15-07's six settings reads, + M15-06's check-in missing list, + M15-15's claim INSERT, + M15-16's five claim queries and its manual record at the anchor's venue, + M15-18's claim queue, its pending mark and its count, + M14-15's five invitation queries, + M14-16's five membership queries, + T183's seconds-left read, less T187's removed CreateAdminSession, + T197's write-once audit insert and its visibility read, + T258's same-manual-record read, + API-14's two timesheet reads, + issue #37's nineteen OAuth queries and four idempotency grant twins, + its phase 3's three reads, + M16-03's eight device and nonce queries, + M16-07's two nonce-cap statements, + M16-19's five live QR screen queries, + M16-20's screen read, revocation lock and last-seen stamp, + M16-23's eight activation request queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
@@ -1559,9 +1579,13 @@ func parseStore(t *testing.T) (map[string]*ast.File, *token.FileSet) {
 	// 33 -> 34 (2026-11-19, M16-19, migration 00111): db/queries/liveqr.sql adds liveqr.sql.go -- the
 	// live QR screens (five methods, in storeSurface). No result carries bytes or a digest (the two
 	// digests go IN as strings and are never returned); none reads tags.
-	if len(out) != 34 {
-		t.Fatalf("parsed %d file(s) under %s; THIRTY-FOUR were generated when this floor was last set "+
-			"(2026-11-19). If sqlc genuinely emits a different number now, change this number "+
+	// 34 -> 35 (2026-11-20, M16-23, migration 00115): db/queries/activationrequests.sql adds
+	// activationrequests.sql.go -- the manager-approved activation (eight methods, in storeSurface). No
+	// result carries bytes or a digest (the consent binding's digest goes IN as a string and is never
+	// returned); none reads tags.
+	if len(out) != 35 {
+		t.Fatalf("parsed %d file(s) under %s; THIRTY-FIVE were generated when this floor was last set "+
+			"(2026-11-20). If sqlc genuinely emits a different number now, change this number "+
 			"in the same edit and say why -- do not widen it", len(out), storeDir)
 	}
 	return out, fset

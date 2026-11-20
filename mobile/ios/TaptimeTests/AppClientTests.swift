@@ -207,6 +207,13 @@ final class AppClientTests: XCTestCase {
         XCTAssertNotEqual(revokes[0].headers["App-Nonce"], revokes[1].headers["App-Nonce"])
     }
 
+    /// M16-23's contract: the two approval routes and screen_available are in the closed vocabulary.
+    func testTheApprovalRoutesAndScreenAvailableAreTheContracts() {
+        XCTAssertEqual(AppClient.Path.approval, "/app/v1/activate/approval")
+        XCTAssertEqual(AppClient.Path.approvalStatus, "/app/v1/activate/approval/status")
+        XCTAssertEqual(AppErrorCode(rawValue: "screen_available"), .screenAvailable)
+    }
+
     func testTheErrorVocabularyIsReadAndUnknownCodesAreUnexpected() async throws {
         let l = local
         for code in AppErrorCode.allCases {
