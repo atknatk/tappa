@@ -648,7 +648,7 @@ var storeSurface = map[string]string{
 	// clocks, a venue name and booleans; no key, no token.
 	// M16-43: the person's own claims for the app -- kinds, instants, an outcome; no note, no decider.
 	"ListOwnPunchClaims":                  "(context.Context, ListOwnPunchClaimsParams{TenantID uuid.UUID; EmployeeID uuid.UUID; Since time.Time}) ([]ListOwnPunchClaimsRow{Kind string; ClaimedAt time.Time; CreatedAt time.Time; AnchorAt time.Time; Outcome *string; ApprovedAt *time.Time}, error)",
-	"GetEmployeeUsualShift":               "(context.Context, GetEmployeeUsualShiftParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeUsualShiftRow{StaffShiftVisible bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight bool; LocationName string}, error)",
+	"GetEmployeeUsualShift":               "(context.Context, GetEmployeeUsualShiftParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeUsualShiftRow{StaffShiftVisible bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; LocationName *string}, error)",
 	"GetTenantStaffShiftVisibleForUpdate": "(context.Context, uuid.UUID) (bool, error)",
 	"SetTenantStaffShiftVisible":          "(context.Context, SetTenantStaffShiftVisibleParams{StaffShiftVisible bool; TenantID uuid.UUID}) (int64, error)",
 	"CountLiveQRScreensForApproval":       "(context.Context, CountLiveQRScreensForApprovalParams{TenantID uuid.UUID; LocationID *uuid.UUID; SessionLifetimeSeconds int32; SeenWithinSeconds int32}) (int32, error)",

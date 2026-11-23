@@ -1448,6 +1448,10 @@ var employeeLocationReaders = []string{
 	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
 	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListDayCutoffPeople", "ListPanelEmployees",
 	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
+	// M16-23: the panel's approval list names the home venue, NULL for none (LEFT JOIN). M16-45: the
+	// usual shift reads the home venue's shift and name, NULL for none (LEFT JOIN; a department's
+	// shift can still apply).
+	"ListOpenActivationRequests", "GetEmployeeUsualShift",
 }
 
 // employeeLocationNonReaders are the statements the wide net below catches -- they name employees

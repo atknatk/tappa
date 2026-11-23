@@ -97,9 +97,11 @@ RETURNING id, decided_by;
 SELECT r.id, r.employee_id, e.full_name, l.name AS location_name, r.client, r.pairing_code,
        r.created_at, r.expires_at,
        (EXISTS (SELECT 1 FROM sessions s
-                 WHERE s.tenant_id = r.tenant_id AND s.employee_id = r.employee_id AND s.revoked_at IS NULL)
+                 WHERE s.tenant_id = @tenant_id AND s.tenant_id = r.tenant_id AND s.employee_id = r.employee_id
+                   AND s.revoked_at IS NULL)
         OR EXISTS (SELECT 1 FROM app_devices d
-                    WHERE d.tenant_id = r.tenant_id AND d.employee_id = r.employee_id AND d.revoked_at IS NULL)
+                    WHERE d.tenant_id = @tenant_id AND d.tenant_id = r.tenant_id AND d.employee_id = r.employee_id
+                      AND d.revoked_at IS NULL)
        )::boolean AS replaces_phone
 FROM activation_requests r
 JOIN employees e

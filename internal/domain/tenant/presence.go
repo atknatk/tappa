@@ -120,20 +120,24 @@ func usualShiftOf(row store.GetEmployeeUsualShiftRow) *UsualShift {
 	if !row.StaffShiftVisible {
 		return nil
 	}
+	venue := ""
+	if row.LocationName != nil { // no home venue (K-14): the line names none
+		venue = *row.LocationName
+	}
 	if row.DepartmentShiftStart.Valid && row.DepartmentShiftEnd.Valid {
 		return &UsualShift{
 			Start:     time.Duration(row.DepartmentShiftStart.Microseconds) * time.Microsecond,
 			End:       time.Duration(row.DepartmentShiftEnd.Microseconds) * time.Microsecond,
 			Overnight: row.DepartmentOvernight != nil && *row.DepartmentOvernight,
-			Venue:     row.LocationName,
+			Venue:     venue,
 		}
 	}
 	if row.LocationShiftStart.Valid && row.LocationShiftEnd.Valid {
 		return &UsualShift{
 			Start:     time.Duration(row.LocationShiftStart.Microseconds) * time.Microsecond,
 			End:       time.Duration(row.LocationShiftEnd.Microseconds) * time.Microsecond,
-			Overnight: row.LocationOvernight,
-			Venue:     row.LocationName,
+			Overnight: row.LocationOvernight != nil && *row.LocationOvernight,
+			Venue:     venue,
 		}
 	}
 	return nil

@@ -803,8 +803,8 @@ templ accountBrandAccent(e BrandEditor) {
 templ accountStaffShift(c AccountStaffShift) {
 	<form method="post" action={ templ.URL(components.Bound(ctx, c.PostHref)) } class="panel-card min-w-0" aria-labelledby="account-staffshift-heading">
 		@accountCardHeading("account-staffshift-heading", "Shifts in the staff app")
-		<label class="flex items-start gap-2.5 text-[14px] leading-normal text-ink">
-			<input type="checkbox" name="staff_shift_visible" value="on" class="mt-1" checked?={ c.On }/>
+		<label class="flex items-center gap-2.5 text-[14px] leading-normal text-ink">
+			<input type="checkbox" name="staff_shift_visible" value="on" class="min-h-11 w-11 accent-tappa-green" checked?={ c.On }/>
 			<span>These are my staff's real shift times.</span>
 		</label>
 		<p class="text-[13px] leading-normal text-ink/70">

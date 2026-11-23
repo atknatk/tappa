@@ -73,7 +73,8 @@ func TestPresenceOf_NightShiftAcrossMidnight(t *testing.T) {
 func TestUsualShiftOf_DepartmentThenProfileLocation(t *testing.T) {
 	tm := func(h int) pgtype.Time { return pgtype.Time{Microseconds: int64(h) * 3600e6, Valid: true} }
 	yes := true
-	row := store.GetEmployeeUsualShiftRow{StaffShiftVisible: true, LocationShiftStart: tm(10), LocationShiftEnd: tm(22), LocationName: "Sliema"}
+	venue := "Sliema"
+	row := store.GetEmployeeUsualShiftRow{StaffShiftVisible: true, LocationShiftStart: tm(10), LocationShiftEnd: tm(22), LocationName: &venue}
 	if s := usualShiftOf(row); s == nil || s.Start != 10*time.Hour || s.Venue != "Sliema" {
 		t.Fatalf("profile location: %+v", s)
 	}

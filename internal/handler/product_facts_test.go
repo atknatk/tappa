@@ -896,7 +896,7 @@ func TestProductFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		{pages.FactRecordedTapEndsOnADocket, "the handler renders something else", replace(func(s *productFactSources) *string { return &s.TapHandler }, "pages.Result(view, logo)", "pages.Other(view, logo)")},
 		{pages.FactRecordedTapEndsOnADocket, "Result stops being the docket body", replace(result, "@result(v, logo, nil)", "@other(v, logo)")},
 		{pages.FactResultScreenRecordsNoOtherTap, "the card posts somewhere else", replace(func(s *productFactSources) *string { return &s.ClaimCard }, `action="/api/claim"`, `action="/api/checkin"`)},
-		{pages.FactResultScreenRecordsNoOtherTap, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "t.claims.Submit(", "t.checkins.Record(")},
+		{pages.FactResultScreenRecordsNoOtherTap, "the claim endpoint records a tap", replace(func(s *productFactSources) *string { return &s.ClaimHandler }, "claimSend(ctx, t.claims,", "t.checkins.Record(ctx, t.claims,")}, // M16-43: the card sends through claimSend
 		{pages.FactResultScreenRecordsNoOtherTap, "the screen with a card gains a link", func(s *productFactSources) {
 			r := maps.Clone(s.AskingRenders)
 			r["ok"] = strings.Replace(r["ok"], "</form>", `</form><a href="/again">Tap again</a>`, 1)

@@ -498,11 +498,15 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		"POST " + handler.AppTapStartPath:               "app",
 		"POST " + handler.AppTapPath:                    "app",
 		"POST " + handler.AppRevokePath:                 "app",
-		"POST /admin/reset":                             "reset",
-		"POST /admin/reset/new":                         "reset",
-		"POST /signup":                                  "signup",
-		"POST /signup/places":                           "signup",
-		"POST /signup/account":                          "signup",
+		// M16-43: "Missing times" -- POST /api/claim's twin, outside the panel and, like it, without a
+		// suspension gate (a claim writes no record; the manager's decision is the panel's, behind it).
+		"POST " + handler.AppClaimsPath:     "app",
+		"POST " + handler.AppClaimsSendPath: "app",
+		"POST /admin/reset":                 "reset",
+		"POST /admin/reset/new":             "reset",
+		"POST /signup":                      "signup",
+		"POST /signup/places":               "signup",
+		"POST /signup/account":              "signup",
 		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.

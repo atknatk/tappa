@@ -93,7 +93,8 @@ const (
 
 	// tappa_app's lists on tenants, which 00063 does not touch: 00024's UPDATE (and, since 00064 --
 	// M15-02 -- the business-day cutoff, the one column it added to that list), 00016/00017's INSERT.
-	opAppTenantsUpd = "name,business_type,timezone,day_cutoff"
+	// 00116 (M16-45) adds the owner's staff_shift_visible switch, a later migration's.
+	opAppTenantsUpd = "name,business_type,timezone,day_cutoff,staff_shift_visible"
 	opAppTenantsIns = "id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at"
 
 	// The two reads' results: the list at 00029 (and after 00063's Down) and at HEAD; the overview
@@ -770,7 +771,7 @@ func TestOperator00063_TheAppCannotWriteASuspensionAndTheDefinerWritesOnlyItsCol
 	}
 	// The two suspension columns are 00063's, the last it added; what follows them is a later
 	// migration's and none of the definer's (00064's day_cutoff -- tappa_app's setting, M15-02).
-	if !strings.HasSuffix(opAllColumns(t, ctx, tx, "tenants"), ",suspended_at,suspension_reason,day_cutoff") {
+	if !strings.HasSuffix(opAllColumns(t, ctx, tx, "tenants"), ",suspended_at,suspension_reason,day_cutoff,staff_shift_visible") {
 		t.Error("PREMISE: the two suspension columns are not tenants' last columns before 00064's day_cutoff")
 	}
 	if reach := opTenantWriteReach(t, ctx, tx); len(reach) != 0 {

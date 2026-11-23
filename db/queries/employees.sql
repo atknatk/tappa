@@ -1394,6 +1394,8 @@ RETURNING id, day_cutoff;
 --
 -- staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
 -- off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+-- A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
+-- only a department's shift can apply, and the line names no venue.
 SELECT t.staff_shift_visible,
        d.shift_start AS department_shift_start,
        d.shift_end   AS department_shift_end,
@@ -1405,7 +1407,7 @@ SELECT t.staff_shift_visible,
 FROM employees e
 JOIN tenants t
   ON t.id = e.tenant_id AND t.id = @tenant_id
-JOIN locations l
+LEFT JOIN locations l
   ON l.tenant_id = e.tenant_id AND l.id = e.location_id AND l.tenant_id = @tenant_id
 LEFT JOIN departments d
   ON d.tenant_id = e.tenant_id AND d.id = e.department_id AND d.tenant_id = @tenant_id

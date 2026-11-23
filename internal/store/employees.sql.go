@@ -893,7 +893,7 @@ SELECT t.staff_shift_visible,
 FROM employees e
 JOIN tenants t
   ON t.id = e.tenant_id AND t.id = $1
-JOIN locations l
+LEFT JOIN locations l
   ON l.tenant_id = e.tenant_id AND l.id = e.location_id AND l.tenant_id = $1
 LEFT JOIN departments d
   ON d.tenant_id = e.tenant_id AND d.id = e.department_id AND d.tenant_id = $1
@@ -913,8 +913,8 @@ type GetEmployeeUsualShiftRow struct {
 	DepartmentOvernight  *bool
 	LocationShiftStart   pgtype.Time
 	LocationShiftEnd     pgtype.Time
-	LocationOvernight    bool
-	LocationName         string
+	LocationOvernight    *bool
+	LocationName         *string
 }
 
 // The staff app's "Usual shift" line and the switch that allows it (M16-45, ADR 0050 (iv); Q52
@@ -925,6 +925,8 @@ type GetEmployeeUsualShiftRow struct {
 //
 // staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
 // off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+// A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
+// only a department's shift can apply, and the line names no venue.
 func (q *Queries) GetEmployeeUsualShift(ctx context.Context, arg GetEmployeeUsualShiftParams) (GetEmployeeUsualShiftRow, error) {
 	row := q.db.QueryRow(ctx, getEmployeeUsualShift, arg.TenantID, arg.EmployeeID)
 	var i GetEmployeeUsualShiftRow

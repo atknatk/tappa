@@ -2709,6 +2709,8 @@ type Querier interface {
 	//
 	// staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
 	// off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+	// A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
+	// only a department's shift can apply, and the line names no venue.
 	GetEmployeeUsualShift(ctx context.Context, arg GetEmployeeUsualShiftParams) (GetEmployeeUsualShiftRow, error)
 	// The recorded request after a claim found a row.
 	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)

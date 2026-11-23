@@ -2166,7 +2166,7 @@ func accountStaffShift(c AccountStaffShift) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<label class=\"flex items-start gap-2.5 text-[14px] leading-normal text-ink\"><input type=\"checkbox\" name=\"staff_shift_visible\" value=\"on\" class=\"mt-1\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<label class=\"flex items-center gap-2.5 text-[14px] leading-normal text-ink\"><input type=\"checkbox\" name=\"staff_shift_visible\" value=\"on\" class=\"min-h-11 w-11 accent-tappa-green\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

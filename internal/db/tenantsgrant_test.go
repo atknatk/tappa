@@ -84,7 +84,9 @@ func TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing(t *testing.T) 
 	}
 	// 00064 (M15-02) adds the fourth: day_cutoff, the business level of the business-day cutoff,
 	// which the owner sets on the Account screen (SetTenantDayCutoff) -- named, not table-wide.
-	if got, want := columns("UPDATE"), "name,business_type,timezone,day_cutoff"; got != want {
+	// 00116 (M16-45) adds the fifth: staff_shift_visible, the owner's "these are my staff's real
+	// shifts" switch on the Account screen (SetTenantStaffShiftVisible) -- named, not table-wide.
+	if got, want := columns("UPDATE"), "name,business_type,timezone,day_cutoff,staff_shift_visible"; got != want {
 		t.Fatalf("tappa_app may UPDATE tenants (%s)\nwant                       (%s)\n"+
 			"00024 closed the list to the three columns UpdateTenantAccount writes (00064 added day_cutoff). "+
 			"vat_number is globally UNIQUE (writing it refuses another business its "+
@@ -138,7 +140,7 @@ func TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing(t *testing.T) 
 		`SELECT coalesce(array_agg(a.attname::text ORDER BY a.attnum), '{}')
 		   FROM pg_attribute a
 		  WHERE a.attrelid = 'tenants'::regclass AND a.attnum > 0 AND NOT a.attisdropped
-		    AND a.attname NOT IN ('name', 'business_type', 'timezone', 'day_cutoff')`).Scan(&closed); err != nil {
+		    AND a.attname NOT IN ('name', 'business_type', 'timezone', 'day_cutoff', 'staff_shift_visible')`).Scan(&closed); err != nil {
 		t.Fatalf("derive the closed columns of tenants: %v", err)
 	}
 	for _, must := range []string{"id", "vat_number", "structure", "suspended_at", "suspension_reason"} {

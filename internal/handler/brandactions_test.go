@@ -608,7 +608,8 @@ func TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit(t *testing.T) 
 				t.Errorf("%s: the preview's button is inside %d form(s)", where, d)
 			}
 			for _, f := range regexp.MustCompile(`<form method="post" action="([^"]*)"`).FindAllStringSubmatch(page, -1) {
-				if f[1] != "/admin/logout" && f[1] != accountHref && f[1] != accountPasswordHref &&
+				// M16-45: the owner's "real shifts" switch is the account page's own form, not the preview's.
+				if f[1] != "/admin/logout" && f[1] != accountHref && f[1] != accountPasswordHref && f[1] != accountStaffShiftHref &&
 					!slices.Contains([]string{brandLogoHref, brandAccentHref, brandResetHref}, f[1]) {
 					t.Errorf("%s: a form posts to %q", where, f[1])
 				}
