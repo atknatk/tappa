@@ -83,7 +83,7 @@ fun PlaqueTapScreen(facts: TapStartReply, busy: Boolean, onPress: (String) -> Un
 fun ResultScreen(r: TapReply) {
     Page({ tapHeader(null) }) {
         Panel(docket = true) {
-            if (r.venue.isNotEmpty()) DocketLabel(r.venue)
+            if (r.venue.isNotEmpty()) DocketLabel(r.venue, name = true)
             Heading(line(ResultCopy.headline(r.verdict, r.direction)))
             if (r.at.isNotEmpty()) MonoTime(r.at)
             if (r.practice) Body(line(ResultCopy.Line.PRACTICE), muted = true)

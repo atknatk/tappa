@@ -88,8 +88,11 @@ fun Wordmark(word: String, tagline: String, inkWord: Boolean) {
 }
 
 @Composable
-fun DocketLabel(text: String) {
-    BasicText(text.uppercase(LocalConfiguration.current.locales[0]), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold,
+fun DocketLabel(text: String, name: Boolean = false) {
+    // Our words follow the screen's language (Turkish GİRİŞ); a NAME -- a venue, a business -- is
+    // uppercased by the root rules, so "Paceville" never becomes "PACEVİLLE".
+    val locale = if (name) java.util.Locale.ROOT else LocalConfiguration.current.locales[0]
+    BasicText(text.uppercase(locale), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold,
         color = Palette.Ink.copy(alpha = 0.7f), letterSpacing = 1.5.sp))
 }
 

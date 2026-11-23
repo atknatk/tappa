@@ -109,7 +109,7 @@ fun WelcomeScreen(
     Page({ header(facts.brand) }) {
         Progress(stringResource(R.string.step_progress, 1, STEPS, stringResource(R.string.step_welcome)), 1, STEPS, accent != null)
         Panel {
-            DocketLabel(facts.businessName)
+            DocketLabel(facts.businessName, name = true)
             Heading(stringResource(R.string.welcome_hi, facts.employeeName))
             Heading(stringResource(R.string.welcome_sub), muted = true)
         }
