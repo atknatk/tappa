@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The staff app's languages (M16-49, Q54 (3) (a)): the phone's language, or Android 13+'s
+     per-app language in the system Settings. No picker in the app. English is the source. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="tr" />
+</locale-config>

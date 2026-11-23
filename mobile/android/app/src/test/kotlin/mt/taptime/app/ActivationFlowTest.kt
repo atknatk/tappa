@@ -243,7 +243,7 @@ class ActivationFlowTest {
         assertTrue(keys.deleted.isEmpty())
         assertTrue("nothing was asked", server.seen.isEmpty())
         failures = 1
-        assertEquals(ActivationFlow.HomeResult.SetUp(device), f.home())
+        assertEquals(device, (f.home() as ActivationFlow.HomeResult.SetUp).device)
     }
 
     // M16-12 hand-over (1): API 31+'s unknown level passes only when the key reports itself inside
@@ -279,6 +279,6 @@ class ActivationFlowTest {
         assertEquals(ActivationFlow.HomeResult.Clock, flow.home())
         assertEquals(device, state.device)
         phoneOffsetMillis = 0
-        assertEquals(ActivationFlow.HomeResult.SetUp(device), flow.home())
+        assertEquals(device, (flow.home() as ActivationFlow.HomeResult.SetUp).device)
     }
 }

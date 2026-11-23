@@ -324,7 +324,8 @@ class ActivationFlow(
 
     sealed interface HomeResult {
         data object NotActivated : HomeResult
-        data class SetUp(val device: ActiveDevice) : HomeResult
+        /** [me] is /me's answer when the server gave one (M16-45: the home screen's facts); null offline. */
+        data class SetUp(val device: ActiveDevice, val me: mt.taptime.app.wire.MeReply? = null) : HomeResult
         data object SignedOut : HomeResult
         /**
          * The Keystore refused to load or sign with the key (M16-12 hand-over (3), iOS's
@@ -383,7 +384,7 @@ class ActivationFlow(
             is Outcome.Ok -> {
                 val fresh = device.copy(employeeName = r.value.employeeName)
                 if (fresh != device) state.save(fresh)
-                HomeResult.SetUp(fresh)
+                HomeResult.SetUp(fresh, r.value)
             }
             Outcome.Unauthenticated -> if (client.clock.lastAnswerWasFarOff) HomeResult.Clock else HomeResult.SignedOut
             else -> HomeResult.SetUp(device)

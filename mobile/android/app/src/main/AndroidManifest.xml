@@ -15,6 +15,10 @@
     <!-- Runtime permissions, asked for at the tap only (M16-13), never at start. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- M16-46/47: the "Still at work?" reminder and the lock-screen timer are LOCAL notifications.
+         Android 13+ asks for this when a switch is turned on in Settings, never at the tap. No exact
+         alarm, no boot receiver, no foreground service. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
       M16-11 review B-3, decided by M16-13: the location permissions make Google Play treat
@@ -29,10 +33,10 @@
     <!--
       androidx.core declares and requests an app-private signature permission
       (<applicationId>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) for ContextCompat's
-      not-exported receivers on API < 33. This app registers no broadcast receiver, so the
-      pair is removed by name (measured in the merged manifest, README.md). Should a receiver
-      ever be needed, it is registered with the platform's own flag on 33+ and this removal
-      is revisited, not silently widened.
+      not-exported receivers on API < 33. This app registers no receiver AT RUNTIME, so the
+      pair is removed by name (measured in the merged manifest, README.md). Its one receiver
+      (StaffReceiver, M16-46) is declared in this manifest, not exported; a manifest receiver is
+      not registered through ContextCompat, so the removal stands.
     -->
     <permission
         android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -55,6 +59,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.Taptime"
         tools:targetApi="31">
 
@@ -109,6 +114,14 @@
                 <data android:scheme="https" android:host="${plaqueHost}" android:path="/q" />
             </intent-filter>
         </activity>
+
+        <!--
+          M16-46/47: the reminder's alarm and the timer's swipe, reached only by this app's own
+          immutable PendingIntents.
+        -->
+        <receiver
+            android:name=".staff.StaffReceiver"
+            android:exported="false" />
 
         <!--
           emoji2's EmojiCompatInitializer (through Compose ui) asks the system font provider,

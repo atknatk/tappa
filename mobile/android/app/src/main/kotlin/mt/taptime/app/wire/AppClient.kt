@@ -100,6 +100,17 @@ class AppClient(
             Outcome.Unauthenticated -> Outcome.Unauthenticated
         }
 
+    fun claims(deviceId: String, key: Signer): Outcome<ClaimsReply> =
+        signedRead("POST", Paths.CLAIMS, Bodies.claims(), deviceId, key, Replies::claims)
+
+    fun claimSend(deviceId: String, key: Signer, context: String, at: String): Outcome<String> =
+        when (val r = signedRequest("POST", Paths.CLAIMS_SEND, Bodies.claimSend(context, at), deviceId, key, Replies::claimSend)) {
+            is Outcome.Ok -> r.value?.let { Outcome.Ok(it) } ?: Outcome.Failed("empty reply")
+            is Outcome.Refused -> r
+            is Outcome.Failed -> r
+            Outcome.Unauthenticated -> Outcome.Unauthenticated
+        }
+
     fun nonce(deviceId: String, key: Signer): Outcome<NonceReply> =
         signedRead("POST", Paths.NONCE, ByteArray(0), deviceId, key, Replies::nonce)
 

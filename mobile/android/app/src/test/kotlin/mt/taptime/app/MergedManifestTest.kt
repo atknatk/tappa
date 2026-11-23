@@ -49,6 +49,8 @@ class MergedManifestTest {
             "android.permission.INTERNET",
             "android.permission.ACCESS_FINE_LOCATION",
             "android.permission.ACCESS_COARSE_LOCATION",
+            // M16-46/47: the local reminder and the lock-screen timer (asked from Settings only).
+            "android.permission.POST_NOTIFICATIONS",
         )
         val asked = merged.names("uses-permission")
         assertEquals("a permission is asked for twice: $asked", asked.size, asked.toSet().size)
@@ -182,5 +184,23 @@ class MergedManifestTest {
         assertEquals("false", location.getAttributeNS(androidNs, "required"))
         val required = features.filter { it.getAttributeNS(androidNs, "required") != "false" }.map { it.getAttributeNS(androidNs, "name") }
         assertEquals("features declared required", emptyList<String>(), required)
+    }
+
+    // M16-46 [G46-d] and [G46-e]: the one receiver is not exported; nothing that would run in the
+    // background or receive a push is declared -- no boot receiver, no foreground service, no exact
+    // alarm, no Firebase or C2DM.
+    @Test
+    fun theStaffReceiverIsPrivateAndNothingRunsInTheBackground() {
+        val receivers = merged.elements("receiver")
+        val staff = receivers.single { it.getAttributeNS(androidNs, "name") == "mt.taptime.app.staff.StaffReceiver" }
+        assertEquals("false", staff.getAttributeNS(androidNs, "exported"))
+        val asked = merged.names("uses-permission")
+        for (p in listOf("android.permission.RECEIVE_BOOT_COMPLETED", "android.permission.SCHEDULE_EXACT_ALARM",
+            "android.permission.USE_EXACT_ALARM", "com.google.android.c2dm.permission.RECEIVE")) {
+            assertTrue("$p asked for", p !in asked)
+        }
+        assertTrue("a foreground service permission", asked.none { it.startsWith("android.permission.FOREGROUND_SERVICE") })
+        assertEquals("services declared", emptyList<String>(), merged.names("service").filter { !it.startsWith("androidx.") })
+        assertTrue("Firebase in the merged manifest", file("taptime.mergedManifest").readText().contains("com.google.firebase").not())
     }
 }
