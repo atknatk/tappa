@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -88,7 +89,7 @@ fun Wordmark(word: String, tagline: String, inkWord: Boolean) {
 
 @Composable
 fun DocketLabel(text: String) {
-    BasicText(text.uppercase(), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold,
+    BasicText(text.uppercase(LocalConfiguration.current.locales[0]), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold,
         color = Palette.Ink.copy(alpha = 0.7f), letterSpacing = 1.5.sp))
 }
 
@@ -208,7 +209,7 @@ fun Progress(label: String, step: Int, of: Int, accented: Boolean) {
 fun Stamp(word: String, tone: Tone) {
     Box(Modifier.rotate(-8f).background(tone.color.copy(alpha = 0.1f)).border(2.dp, tone.color).padding(2.dp)
         .border(1.dp, tone.color).padding(horizontal = 8.dp, vertical = 4.dp)) {
-        BasicText(word.uppercase(), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp))
+        BasicText(word.uppercase(LocalConfiguration.current.locales[0]), style = Mono.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp))
     }
 }
 
@@ -225,7 +226,7 @@ fun Plaque(word: String, hold: String) {
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 BasicText(word, style = Display.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.TappaGreen))
                 Spacer(Modifier.height(4.dp))
-                BasicText(hold.uppercase(), style = Mono.copy(fontSize = 9.sp, color = Palette.Ink.copy(alpha = 0.7f), letterSpacing = 1.sp))
+                BasicText(hold.uppercase(LocalConfiguration.current.locales[0]), style = Mono.copy(fontSize = 9.sp, color = Palette.Ink.copy(alpha = 0.7f), letterSpacing = 1.sp))
             }
         }
     }
