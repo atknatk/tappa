@@ -39,6 +39,12 @@ type (
 		RecordConsent(ctx context.Context, c invite.Code, b invite.Binding) (invite.Context, error)
 		Activate(ctx context.Context, c invite.Code, b invite.Binding) (invite.Activation, error)
 		ActivationContext(ctx context.Context, tenantID, employeeID uuid.UUID) (invite.Context, error)
+		// The manager-approved activation (M16-23, internal/invite approval.go): the gate, the
+		// request, its state, and the consumption that collects an approval.
+		ApprovalOffered(ctx context.Context, tenantID, locationID uuid.UUID) (bool, error)
+		OpenApproval(ctx context.Context, c invite.Code, b invite.Binding, client string) (invite.Approval, error)
+		ApprovalState(ctx context.Context, c invite.Code, b invite.Binding) (invite.Approval, error)
+		ActivateApproved(ctx context.Context, c invite.Code, b invite.Binding) (invite.ApprovedActivation, error)
 	}
 	// activationVerifier is the ADVANCING half of internal/sun (ADR 0026). The
 	// activating tap is a GET with no button after it, so the replay guard runs
@@ -80,6 +86,16 @@ const (
 	ActionActivationLimited   = "activation.rate_limited"
 	ActionActivationBlocked   = "activation.blocked"
 	ActionDeviceReplaced      = "activation.device_replaced"
+	// ActionApprovalRequested is "My phone can't tap" (M16-23): a request opened for a manager to
+	// approve. Like the consent it activates nothing.
+	ActionApprovalRequested = "activation.approval_requested"
+)
+
+// The proofs an activation can complete on (activationDetail.Proof). Empty is the NFC plaque
+// tap -- every row written before M16-23 reads the same.
+const (
+	proofLiveQR          = "live_qr"
+	proofManagerApproval = "manager_approval"
 )
 
 // Activation serves the invite flow: a short wizard, a consent, and the first NFC
@@ -95,8 +111,14 @@ const (
 //	                        nothing and issues no session.
 //	GET  /activate/status   the waiting screen's poll: waiting / done / none.
 //	GET  /t (via Tap)       a browser holding a consented activation completes it
-//	                        on its first genuine NFC tap: sun.Verify (atomic ctr),
-//	                        same-tenant active plaque, consume, issue (CompleteByTap).
+//	                        on its first genuine NFC tap: a NON-advancing plaque
+//	                        pre-check (same tenant, active, mounted), sun.Verify
+//	                        (CMAC, then the atomic ctr), the plaque belt, consume,
+//	                        issue (CompleteByTap -- its ORDER comment is the detail).
+//	GET  /q (via Tap)       M16-23: the same, with a venue screen's live QR token
+//	                        where sun.Verify stands (CompleteByLiveQR).
+//	/activate/approval      M16-23: "My phone can't tap" -- a manager's approval
+//	                        instead of a proof of presence (activateapproval.go).
 //
 // WHY THE SESSION IS BORN ON THE TAP AND NOT ON THE FORM. The form proves somebody
 // opened a link; the tap proves this phone stood at one of the employer's plaques.
@@ -139,6 +161,10 @@ type Activation struct {
 	// so a tab left polling can never spend the flood ceiling that a real
 	// activation on the same venue network needs.
 	statusLimiter *limiter
+	// approvalLimiter bounds how many manager-approval requests one invitation may open per
+	// window (M16-23): a request row is never deleted (00115), so a stuck button or a script must
+	// not grow the table without bound.
+	approvalLimiter *limiter
 
 	// now is injectable for tests; production leaves it nil and reads the wall
 	// clock (tapContexts' pattern). It dates the cookie-check marker.
@@ -172,19 +198,20 @@ func NewActivation(inv inviteManager, sess sessionManager, verifier activationVe
 		log = slog.Default()
 	}
 	return &Activation{
-		invites:        inv,
-		sessions:       sess,
-		sun:            verifier,
-		audit:          rec,
-		brands:         brands,
-		cookies:        session.NewCookies(cfg),
-		codes:          newCodeCookies(cfg),
-		baseURL:        originOf(cfg.BaseURL),
-		floodLimiter:   newLimiter(floodLimit, floodPeriod),
-		unknownLimiter: newLimiter(unknownLimit, unknownPeriod),
-		inviteLimiter:  newLimiter(inviteFailureLimit, inviteFailurePeriod),
-		statusLimiter:  newLimiter(statusLimit, statusPeriod),
-		log:            log,
+		invites:         inv,
+		sessions:        sess,
+		sun:             verifier,
+		audit:           rec,
+		brands:          brands,
+		cookies:         session.NewCookies(cfg),
+		codes:           newCodeCookies(cfg),
+		baseURL:         originOf(cfg.BaseURL),
+		floodLimiter:    newLimiter(floodLimit, floodPeriod),
+		unknownLimiter:  newLimiter(unknownLimit, unknownPeriod),
+		inviteLimiter:   newLimiter(inviteFailureLimit, inviteFailurePeriod),
+		statusLimiter:   newLimiter(statusLimit, statusPeriod),
+		approvalLimiter: newLimiter(approvalOpenLimit, approvalOpenPeriod),
+		log:             log,
 	}, nil
 }
 
@@ -205,6 +232,11 @@ func (a *Activation) Mount(r chi.Router) {
 	r.Get(ActivationCompletePath, a.Complete)
 	r.Get(activationLogoRoute, a.Logo)
 	r.Post("/api/activate", a.Submit)
+	// The manager-approved activation (M16-23, activateapproval.go).
+	r.Get(ActivationApprovalPath, a.ApprovalPage)
+	r.Post(ActivationApprovalPath, a.RequestApproval)
+	r.Post(ActivationApprovalCollectPath, a.CollectApproval)
+	r.Get(ActivationApprovalStatusPath, a.ApprovalStatus)
 }
 
 // ActivationStatusPath is what the waiting screen's script polls. A constant
@@ -285,6 +317,22 @@ var (
 		Title:   "Finish the setup steps first",
 		Message: "This phone hasn't agreed to the privacy notice yet, so the tap didn't activate it.",
 		Hint:    "Open your activation link again, go through the steps, then tap the plaque.",
+	}
+	// problemActivationScanFailed is the live QR twin of problemActivationTapFailed (M16-23):
+	// ONE screen for a code that did not verify, a screen of another employer, a screen out of
+	// service and a code that ran out of time (§4.7: telling them apart would be an oracle;
+	// audit_log keeps the distinction). It says what to do: scan again, the code changes.
+	problemActivationScanFailed = pages.ProblemView{
+		Title:   "That scan didn't finish setup",
+		Message: "Your phone isn't activated yet, and nothing was recorded.",
+		Hint:    "Scan the code on the Taptime screen at your workplace again — it changes every few seconds.",
+	}
+	// problemApprovalScreenAvailable answers "My phone can't tap" where a live QR screen runs
+	// (the card's gate, refused by the server): the stronger proof is a few steps away.
+	problemApprovalScreenAvailable = pages.ProblemView{
+		Title:   "Scan the screen's code instead",
+		Message: "There's a Taptime screen at your workplace, so your manager can't approve this phone.",
+		Hint:    "Open your camera and scan the code on the screen to finish setup.",
 	}
 
 	// problemCookieLost answers the cookie check (cookieCheckURL): a VALID
@@ -1044,10 +1092,17 @@ func (a *Activation) HolderDeactivated(ctx context.Context, tenantID, employeeID
 // before serving.
 func (a *Activation) EnableDevTools(cfg *config.Config) { a.devTools = DevToolsEnabled(cfg) }
 
-// activationTap is the plaque that completed an activation, for the audit row.
+// activationTap is what completed an activation, for the audit row: the plaque (UID and its
+// venue), or -- M16-23 -- a live QR screen (Proof live_qr, DisplayID and its venue) or a manager's
+// approval (Proof manager_approval; RequestID and ApprovedBy are filled by finishActivation from
+// the collection).
 type activationTap struct {
 	UID        string
 	LocationID uuid.UUID
+	Proof      string
+	DisplayID  uuid.UUID
+	RequestID  uuid.UUID
+	ApprovedBy uuid.UUID
 }
 
 // failTap records one refused activating tap. It is failAttempt plus the plaque's
@@ -1083,7 +1138,15 @@ func (a *Activation) failTap(ctx context.Context, ip string, ictx invite.Context
 // activation onto the tap; it is one function so there is exactly one place where
 // a session is born from an invitation.
 func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip string, st activationState, tap activationTap) {
-	act, err := a.invites.Activate(r.Context(), st.code, st.binding)
+	act, err := a.consumeFor(r.Context(), st, &tap)
+	if errors.Is(err, invite.ErrApprovalNotGranted) {
+		// The status read said "approved" a moment ago and the collection found nothing: it ran
+		// out between the two. NOTHING was consumed (one transaction); the approval page says
+		// where the request stands now.
+		a.failTap(r.Context(), ip, act.Context, "approval_not_granted", "")
+		a.redirect(w, r, ActivationApprovalPath)
+		return
+	}
 	if err != nil {
 		if errors.Is(err, invite.ErrConsentMissing) {
 			// Another browser consented since, or the row never recorded this
@@ -1205,9 +1268,13 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 			SessionID:    issued.Session.ID.String(),
 			Device:       issued.Session.DeviceInfo,
 			TagUID:       tap.UID,
-			LocationID:   tap.LocationID.String(),
+			LocationID:   nonNil(tap.LocationID),
 			// Q40 (a): the consuming transaction signed the person's app out (invite.Activate).
 			AppDevicesRevoked: act.AppDevicesRevoked,
+			Proof:             tap.Proof,
+			DisplayID:         nonNil(tap.DisplayID),
+			RequestID:         nonNil(tap.RequestID),
+			ApprovedBy:        nonNil(tap.ApprovedBy),
 		},
 	})
 
@@ -1222,6 +1289,18 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 		dest += "?replaced=1"
 	}
 	a.redirect(w, r, dest)
+}
+
+// consumeFor spends the invitation for the proof tap names: Activate for a plaque or a live QR
+// screen, ActivateApproved -- the same consumption plus the approval's collection, one
+// transaction -- for a manager's approval, which also fills tap's request and approver.
+func (a *Activation) consumeFor(ctx context.Context, st activationState, tap *activationTap) (invite.Activation, error) {
+	if tap.Proof != proofManagerApproval {
+		return a.invites.Activate(ctx, st.code, st.binding)
+	}
+	aa, err := a.invites.ActivateApproved(ctx, st.code, st.binding)
+	tap.RequestID, tap.ApprovedBy = aa.RequestID, aa.ApprovedBy
+	return aa.Activation, err
 }
 
 // ActivationCompletePath is where a completed activation lands.
@@ -1382,6 +1461,14 @@ type activationDetail struct {
 	// created.
 	AppDevicesRevoked int    `json:"app_devices_revoked,omitempty"`
 	AppDeviceID       string `json:"app_device_id,omitempty"`
+	// Proof is what completed the activation when it was not an NFC plaque tap (M16-23):
+	// "live_qr" (a venue screen's code; DisplayID names the screen, LocationID its venue) or
+	// "manager_approval" (RequestID names the request, ApprovedBy the panel account). Empty for
+	// the plaque, so every row written before M16-23 reads the same.
+	Proof      string `json:"proof,omitempty"`
+	DisplayID  string `json:"display_id,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	ApprovedBy string `json:"approved_by,omitempty"`
 }
 
 // rejectCode is the single exit for every unusable-code outcome: it records the
@@ -1454,6 +1541,11 @@ var inviteFailureReasons = map[error]string{
 	invite.ErrConsentMissing: "consent_missing",
 	// M16-07: the app activation's key is already registered; nothing was consumed.
 	invite.ErrDeviceKeyTaken: "device_key_taken",
+	// M16-23, the manager-approved activation: a screen runs where the person works (the gate);
+	// the binding never asked; the approval was gone when the phone collected it.
+	invite.ErrScreenAvailable:    "screen_available",
+	invite.ErrNoApproval:         "no_approval_request",
+	invite.ErrApprovalNotGranted: "approval_not_granted",
 }
 
 // inviteFailureReason resolves err against the table with errors.Is, so a wrapped
@@ -1727,6 +1819,9 @@ func (a *Activation) renderForm(w http.ResponseWriter, r *http.Request, status i
 	// The brand is the INVITATION's business -- the one this wizard sets the phone up
 	// for -- never the business of a session already on the phone (M10 WL-13). Its logo
 	// comes through the wizard's own route: there is no session yet.
+	if v.Step == pages.ActivateStepTap && st.pending() {
+		v.ApprovalOffered = a.approvalOffered(r.Context(), ictx)
+	}
 	look := a.lookFor(r.Context(), ictx.TenantID, wizardLogo)
 	a.render(w, r, status, pages.Activate(v, look), look.Logo().Drawn())
 }

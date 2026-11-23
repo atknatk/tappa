@@ -28,8 +28,10 @@ var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/
 // tablesLockStatements are the functions that send the lock statement themselves, per
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
-	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "bfTxOpen", "opLiveFixture", "opTx"},
+	".": {"sharedTablesLock"},
+	// M16-23: arHoldTablesLock takes it EXCLUSIVE, as opTx does, for the one internal/db test that
+	// COMMITS an admin row (TestActivationRequests_ConcurrentCollectionExactlyOnce's decider).
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "arHoldTablesLock", "bfTxOpen", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 	// M14-07: the identity worlds commit identities; M14-09's audit: every committed admin row too

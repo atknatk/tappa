@@ -125,6 +125,10 @@ var (
 	// ErrAlreadySent: this record already carries a claim (23505 punch_claims_one_per_anchor). The
 	// handler answers it with the "Sent" screen, never a 500 (§C.5).
 	ErrAlreadySent = errors.New("claim: a claim for this record was already sent")
+	// ErrStillOpen: the check-in is still the person's open one and the next tap would close it
+	// (M16-43, ADR 0050 (i), Y1) -- "not yet", never a refusal of the record. Only the app's list
+	// can reach it: the browser's card shows only after a later record.
+	ErrStillOpen = errors.New("claim: that check-in is still open; the next tap closes it")
 	// ErrAlreadyDecided: the claim already carries a decision (ADR 0009: final).
 	ErrAlreadyDecided = errors.New("claim: already decided")
 	// ErrSelfDecision: the decider is the claimant -- unreachable today (the package doc, G-O1).

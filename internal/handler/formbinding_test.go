@@ -212,6 +212,11 @@ var nonPanelPostActions = map[string]bool{
 	`{ templ.SafeURL(DevSimulateTapPath) }`: true,
 	// M15-15: the employee's claim card on the tap result -- the tap side's own form, no panel session.
 	`"/api/claim"`: true,
+	// M16-20: the live QR screen's pairing -- the screen's own page, no panel session (livescreen.go).
+	`"/screen/pair"`: true,
+	// M16-23: the activation wizard's manager-approval forms -- the phone's own, no panel session
+	// (activateapproval.go; the synchronizer token in the activation cookie is their guard).
+	`"/activate/approval"`: true, `"/activate/approval/collect"`: true,
 }
 
 // boundAction is how a bound form writes its action (components.Bound on the render ctx).
@@ -422,6 +427,11 @@ func everyWritingRouteRefuses(t *testing.T, identity bool) []string {
 		}
 		bound++
 		boundRoutes = append(boundRoutes, route)
+		// A FRESH TRIPWIRE PER ROUTE (M16-23): the five refusals are one session's requests, and
+		// one panel's session budget (adminSessionLimit, 300) is what 60 routes x 5 spent exactly --
+		// the 61st route's refusals were the budget's 429, not the binding's 409. Each route now
+		// starts with a whole budget, the same trail and the same stores that panic.
+		perRoute := tripwirePanelUnder(t, identity, owner, trail, discardLogger())
 		for _, c := range cases {
 			var rec *httptest.ResponseRecorder
 			func() {
@@ -430,7 +440,7 @@ func everyWritingRouteRefuses(t *testing.T, identity bool) []string {
 						t.Errorf("%s with %s reached a store: %v", mr, c.name, p)
 					}
 				}()
-				rec = panelPost(tripwire, route+c.query, formBindingCookie, strings.NewReader("name=x"))
+				rec = panelPost(perRoute, route+c.query, formBindingCookie, strings.NewReader("name=x"))
 			}()
 			if rec != nil && rec.Code != http.StatusConflict {
 				t.Errorf("%s with %s answered %d, want 409", mr, c.name, rec.Code)

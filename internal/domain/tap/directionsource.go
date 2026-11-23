@@ -32,7 +32,7 @@ var DirectionSources = []DirectionSource{DirectionAuto, DirectionEmployee}
 //	undirected (type NULL) reject / ignored: no direction, so nobody chose one
 //	an unknown value      one the CHECK refuses; not guessed at
 //
-// On a DIRECTED nfc or qr row a NULL means "before M15, the engine's choice" -- every such row
+// On a DIRECTED nfc, qr or qr_live row a NULL means "before M15, the engine's choice" -- every such row
 // written before the column existed, or by a binary older than M15-11's -- and reads as
 // DirectionAuto. The column is never back-filled (CLAUDE.md §4.3), so this reading is made here,
 // at the reader, every time.
@@ -40,7 +40,9 @@ var DirectionSources = []DirectionSource{DirectionAuto, DirectionEmployee}
 // The arguments are the row's own columns: channel, type and direction_source, as the store
 // model carries them ((*Type)(row.Type) and (*DirectionSource)(row.DirectionSource) convert).
 func RecordedDirectionSource(channel Channel, direction *Type, stored *DirectionSource) (DirectionSource, bool) {
-	if channel != ChannelNFC && channel != ChannelQR {
+	// The tap channels: punch_feed's and holding_feed's v_dsrc (00112) names the same three, and
+	// TestPunchDirectionSource_TheFeedsExpressionIsTheReaderRule holds the two copies to one answer.
+	if channel != ChannelNFC && channel != ChannelQR && channel != ChannelQRLive {
 		return "", false
 	}
 	if direction == nil {

@@ -105,6 +105,13 @@ spec:
                   name: tappa-secrets
                   key: TAPPA_TAG_KEK_PREVIOUS
                   optional: true
+            # The live QR screens' key (M16-20): optional, off when absent (deploy/k8s/20-app.yaml).
+            - name: TAPPA_LIVE_QR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_LIVE_QR_KEY
+                  optional: true
             - name: TAPPA_API_KEY_HMAC_KEY
               valueFrom:
                 secretKeyRef:

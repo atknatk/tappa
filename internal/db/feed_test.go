@@ -255,7 +255,7 @@ func feedSetAsideRows(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	}
 }
 
-// feedBelow48 takes the savepoint's database below 00048 -- 00067's Down (M15-13), 00062's Down (GRP-1), 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
+// feedBelow48 takes the savepoint's database below 00048 -- 00113's and 00112's Downs (M16-19), 00067's Down (M15-13), 00062's Down (GRP-1), 00060's Down (T124), 00058's (T130), 00055's (API-8), 00049's, then
 // 00048's -- with the
 // feed rows set aside first. The caller's savepoint is a holdingLockedSavepoint; the lock is taken
 // again here, as holdingBelow46 does.
@@ -263,6 +263,11 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
 	holdingLockForDowns(t, ctx, sp)
 	feedSetAsideRows(t, ctx, sp)
+	// M16-19: 00113's and 00112's Downs before everything here -- 00112 replaced 00067's two bodies,
+	// 00043's gate and the channel sets 00043, 00046 and 00048 wrote, and those Downs would otherwise
+	// give back a body or a set over its qr_live successor. Their three tables are in
+	// holdingDownTables. feedUpAgain gives them back last.
+	qlDown(t, ctx, sp)
 	// M15-13: 00067's Down first -- it gives 00049's two trigger bodies back before 00049's Down
 	// replaces holding_feed and drops punch_feed, and drops punch_events.direction_source; the rows
 	// are set aside above, so it does not refuse. Its one table lock is punch_events, in
@@ -293,7 +298,7 @@ func feedBelow48(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	opRunSection(t, ctx, sp, down48, "00048 Down")
 }
 
-// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's, 00060's, 00062's and 00067's Ups -- after feedBelow48 and whatever the test walked
+// feedUpAgain runs 00048's, 00049's, 00055's, 00058's, 00059's, 00060's, 00062's, 00067's, 00112's and 00113's Ups -- after feedBelow48 and whatever the test walked
 // below it, to compare with HEAD.
 func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	t.Helper()
@@ -315,6 +320,8 @@ func feedUpAgain(t *testing.T, ctx context.Context, sp pgx.Tx) {
 	// gave back.
 	up67, _ := opMigrationSections(t, ds00067File)
 	opRunSection(t, ctx, sp, up67, "00067 Up again")
+	// M16-19: 00112's and 00113's Ups after it -- 00112's precondition asks for 00067's bodies.
+	qlUp(t, ctx, sp)
 }
 
 func feedStr(p *string) string {
@@ -1443,6 +1450,9 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 		// any direction source another package committed set aside inside the savepoint -- and ends with
 		// 00067's Up again, so the last comparison is with HEAD itself.
 		feedSetAsideDirectionSources(t, ctx, sp)
+		// M16-19: 00113's and 00112's Downs before it (00112 replaced 00067's bodies), their Ups after
+		// 00067's Up again.
+		qlDown(t, ctx, sp)
 		opRunSection(t, ctx, sp, down67, "00067 Down")
 		at66 := read(sp)
 		if strings.Contains(at66, "direction_source") {
@@ -1499,8 +1509,9 @@ func TestFeed00048And00049_DownGiveBackAndUpTakesItAgain(t *testing.T) {
 			t.Errorf("after the Ups again:\n %s\nwant 00066's\n %s", again, at66)
 		}
 		opRunSection(t, ctx, sp, up67, "00067 Up again")
+		qlUp(t, ctx, sp)
 		if again := read(sp); again != head {
-			t.Errorf("after 00067's Up again:\n %s\nwant HEAD's\n %s", again, head)
+			t.Errorf("after 00067's and 00112's Ups again:\n %s\nwant HEAD's\n %s", again, head)
 		}
 	})
 }

@@ -479,3 +479,122 @@ func TestTapContext_DeviceBindingRefusesEveryOtherHolder(t *testing.T) {
 		t.Error("a context was minted for no device")
 	}
 }
+
+// --- the live QR layout (M16-21) ------------------------------------------------------------
+
+// sampleLiveContext is a verified live QR context: a screen, its tenant and venue, and the
+// token's own expiry -- no plaque, no counter, no MAC flag.
+func sampleLiveContext() tapContext {
+	return tapContext{
+		Channel:        sun.ChannelQRLive,
+		DisplayID:      uuid.MustParse("6f0c1d1e-4b5a-4c3d-9e8f-7a6b5c4d3e2f"),
+		TokenVerified:  true,
+		TokenExpiresAt: time.Unix(1_800_000_012, 0).UTC(),
+		TagTenantID:    tapTagTenant,
+		LocationID:     tapLocation,
+	}
+}
+
+// TestTapContext_LiveQRRoundTrip: the live layout carries exactly the screen, the verdict on
+// the token and the token's expiry -- and the token itself is nowhere in it (it is not a field).
+func TestTapContext_LiveQRRoundTrip(t *testing.T) {
+	at := time.Unix(1_800_000_000, 0).UTC()
+	c := testContexts(t, at)
+	sid := uuid.New()
+	for _, in := range []tapContext{sampleLiveContext(), {Channel: sun.ChannelQRLive}} {
+		v, err := c.mint(in, sid)
+		if err != nil {
+			t.Fatalf("mint: %v", err)
+		}
+		got, err := c.parse(v, sid)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		want := in
+		want.IssuedAt = at
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("round trip:\n got %+v\nwant %+v", got, want)
+		}
+		raw, _ := base64.RawURLEncoding.DecodeString(strings.SplitN(v, ".", 2)[0])
+		if !strings.HasPrefix(string(raw), tapContextLiveVersion+"|") {
+			t.Fatalf("a live QR context is not the version-2 layout: %q", raw)
+		}
+	}
+}
+
+// TestTapContext_LiveQRTamperingIsRefused: every field of the live layout is under the MAC --
+// above all the verdict on the token (a forged code promoted to a verified one) and its expiry
+// (a stale code made fresh) -- and the two layouts cannot be swapped by relabelling.
+func TestTapContext_LiveQRTamperingIsRefused(t *testing.T) {
+	c := testContexts(t, time.Unix(1_800_000_000, 0).UTC())
+	sid := uuid.New()
+	forge := func(in tapContext, index int, value string) string {
+		v, err := c.mint(in, sid)
+		if err != nil {
+			t.Fatalf("mint: %v", err)
+		}
+		encoded, sig, _ := strings.Cut(v, ".")
+		raw, _ := base64.RawURLEncoding.DecodeString(encoded)
+		fields := strings.Split(string(raw), "|")
+		fields[index] = value
+		return base64.RawURLEncoding.EncodeToString([]byte(strings.Join(fields, "|"))) + "." + sig
+	}
+	cases := []struct {
+		name  string
+		in    tapContext
+		index int
+		value string
+	}{
+		{"version (relabel as a plaque layout)", sampleLiveContext(), 0, tapContextVersion},
+		{"screen", sampleLiveContext(), 1, uuid.NewString()},
+		{"a forged token promoted to verified", tapContext{Channel: sun.ChannelQRLive}, 2, "1"},
+		{"a verified token demoted", sampleLiveContext(), 2, "0"},
+		{"channel", sampleLiveContext(), 3, string(sun.ChannelQR)},
+		{"the token's expiry pushed forward", sampleLiveContext(), 4, "9999999999"},
+		{"screen tenant", sampleLiveContext(), 5, uuid.NewString()},
+		{"venue", sampleLiveContext(), 6, uuid.NewString()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := c.parse(forge(tc.in, tc.index, tc.value), sid); !errors.Is(err, errTapContextSignature) {
+				t.Fatalf("editing the %s was accepted (err = %v)", tc.name, err)
+			}
+		})
+	}
+}
+
+// TestTapContext_LiveQRShapesAreClosed: an AUTHENTICATED payload that does not have the shape
+// livePayload writes is refused, never read -- a plaque layout naming qr_live, a live layout
+// naming a plaque channel, a verified flag without a screen or an expiry, an unverified one with
+// either. (Signed here with the real key, so only the shape check can refuse them.)
+func TestTapContext_LiveQRShapesAreClosed(t *testing.T) {
+	at := time.Unix(1_800_000_000, 0).UTC()
+	c := testContexts(t, at)
+	sid := uuid.New()
+	signed := func(payload string) string {
+		return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
+			base64.RawURLEncoding.EncodeToString(c.sign(payload, sid))
+	}
+	issued := strconv.FormatInt(at.Unix(), 10)
+	disp, ten, loc := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for name, p := range map[string]string{
+		"a plaque layout naming qr_live":   strings.Join([]string{tapContextVersion, tapUID, "0", "qr_live", "0", ten, loc, issued}, "|"),
+		"a live layout naming nfc":         strings.Join([]string{tapContextLiveVersion, disp, "1", "nfc", "1800000012", ten, loc, issued}, "|"),
+		"verified with no screen":          strings.Join([]string{tapContextLiveVersion, uuid.Nil.String(), "1", "qr_live", "1800000012", ten, loc, issued}, "|"),
+		"verified with no expiry":          strings.Join([]string{tapContextLiveVersion, disp, "1", "qr_live", "0", ten, loc, issued}, "|"),
+		"unverified naming a screen":       strings.Join([]string{tapContextLiveVersion, disp, "0", "qr_live", "0", ten, loc, issued}, "|"),
+		"unverified carrying an expiry":    strings.Join([]string{tapContextLiveVersion, uuid.Nil.String(), "0", "qr_live", "1800000012", ten, loc, issued}, "|"),
+		"a flag that is not one character": strings.Join([]string{tapContextLiveVersion, disp, "yes", "qr_live", "1800000012", ten, loc, issued}, "|"),
+		"a negative expiry":                strings.Join([]string{tapContextLiveVersion, disp, "1", "qr_live", "-5", ten, loc, issued}, "|"),
+		"a screen that is not a uuid":      strings.Join([]string{tapContextLiveVersion, "screen-1", "1", "qr_live", "1800000012", ten, loc, issued}, "|"),
+	} {
+		if _, err := c.parse(signed(p), sid); !errors.Is(err, errTapContextMalformed) {
+			t.Errorf("%s: err = %v, want malformed", name, err)
+		}
+	}
+	// CONTROL: the well-formed one, signed the same way, parses.
+	good := strings.Join([]string{tapContextLiveVersion, disp, "1", "qr_live", "1800000012", ten, loc, issued}, "|")
+	if _, err := c.parse(signed(good), sid); err != nil {
+		t.Fatalf("CONTROL: a well-formed live payload was refused: %v", err)
+	}
+}

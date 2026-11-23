@@ -302,6 +302,34 @@ var m11Tables = map[string]map[string]m11TableACL{
 			Delete: true,
 		},
 	},
+	// 00111 (M16-19, ADR 0045 §2.5): the live QR screens. tappa_app reads every column but
+	// session_hash (only the session resolver matches it; pairing_code_hash is readable because the
+	// pairing's WHERE names it), inserts a screen by naming its tenant, location, code digest and
+	// expiry (id and created_at are the database's), and updates the four state columns alone -- the
+	// one-way trigger holds their history; never deletes. The three resolvers' owner reads the
+	// resolutions' seven columns (and id, tenant_id, active of locations -- m11Columns).
+	"live_qr_displays": {
+		"tappa_app": {
+			// last_seen_at since 00114 (M16-20): the poll's stamp, read and updated, never inserted.
+			Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at,last_seen_at",
+			Insert: "tenant_id,location_id,pairing_code_hash,pairing_expires_at",
+			Update: "pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at",
+		},
+		"tappa_resolver": {Select: "id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at"},
+	},
+	// 00115 (M16-23, ADR 0026 Bedel 3, ADR 0045 §2.5): the manager-approved activation's requests.
+	// tappa_app reads every column (binding_hash because the phone's read and the collection's WHERE
+	// name it -- no query returns it), inserts a request by naming its tenant, employee, invitation,
+	// client, binding, code and expiry (id and created_at are the database's), and updates the five
+	// state columns alone -- the one-way trigger holds their history; never deletes. No resolver reads
+	// it (every request is reached from a tenant already known).
+	"activation_requests": {
+		"tappa_app": {
+			Select: "id,tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,created_at,expires_at,decision,decided_at,decided_by,withdrawn_at,collected_at",
+			Insert: "tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,expires_at",
+			Update: "decision,decided_at,decided_by,withdrawn_at,collected_at",
+		},
+	},
 	// 00052 (M11 API-4, ADR 0028 §1, §8): the Idempotency-Key ledger. tappa_app reads it, claims a
 	// key by naming the tenant, the API key, the idempotency key and the request hash, writes the
 	// result into status and result_ref alone, and deletes the expired rows (the lazy delete).
@@ -443,7 +471,8 @@ var m11Columns = []m11Column{
 	// 00043 (M11 API-1b): tappa_holdingdefiner reads a peer's venue ref (holding_tap_site).
 	// 00049 (M11 API-2): and tappa_feedwriter (the event's venue snapshot).
 	{"locations", "external_ref", map[string]string{"tappa_app": "SIU", "tappa_holdingdefiner": "S", "tappa_feedwriter": "S"}},
-	{"locations", "active", map[string]string{"tappa_app": "SIU"}},
+	// 00111 (M16-19): tappa_resolver reads active (and id, tenant_id) for the live QR tap's resolver.
+	{"locations", "active", map[string]string{"tappa_app": "SIU", "tappa_resolver": "S"}},
 	// 00038/00039 (K-22): tappa_app READS the gate and cannot write it; the one writer is the
 	// operator's definer.
 	// 00049 (M11 API-2): both feed writers read the gate (a delivery row only while it is open --
@@ -488,6 +517,9 @@ var m11Columns = []m11Column{
 	{"locations", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
 	{"departments", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
 	{"tenants", "day_cutoff", map[string]string{"tappa_app": "SU"}},
+	// 00116 (M16-45, ADR 0050 (iv)): the owner's "real shifts" switch -- the same column-by-column
+	// UPDATE as day_cutoff, and no other role: only the staff app's /me reads it, as tappa_app.
+	{"tenants", "staff_shift_visible", map[string]string{"tappa_app": "SU"}},
 	// 00064 (M15-02, ADR 0032 §A.5): the frozen business day of a tap. transactions' table-level
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
@@ -630,6 +662,16 @@ var m11Functions = map[string]m11FunctionACL{
 	"resolve_app_device_by_id(uuid)":              {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
 	"app_devices_revocation_is_one_way()":         {owner: "tappa_owner", execute: "tappa_owner"},
 	"app_request_nonces_consumption_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00111 (M16-19, ADR 0045 §2.5): the three live QR screen resolvers -- ADR 0002 md.7's shape,
+	// EXECUTE to tappa_app alone (TestLiveQRDisplaysCatalog measures the five) -- and the one-way
+	// trigger function, EXECUTE in its owner alone, body asserting TG_RELID.
+	"resolve_live_qr_display_by_pairing_code_hash(text)": {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_live_qr_display_by_session_hash(text)":      {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"resolve_live_qr_display_by_id(uuid)":                {owner: "tappa_resolver", definer: true, execute: "tappa_app,tappa_resolver"},
+	"live_qr_displays_state_is_one_way()":                {owner: "tappa_owner", execute: "tappa_owner"},
+	// 00115 (M16-23): the activation request's one-way trigger function, EXECUTE in its owner alone,
+	// body asserting TG_RELID.
+	"activation_requests_state_is_one_way()": {owner: "tappa_owner", execute: "tappa_owner"},
 	// 00071 (M14-04, ADR 0031 §5.2): the identity resolver (md.7's shape, tappa_resolver's) and the
 	// first four of the closed identity_* list -- EXECUTE to tappa_app alone
 	// (identitycatalog_test.go pins the signatures; identity_reconcile, M14-06b, is the one whose
@@ -1406,6 +1448,10 @@ var employeeLocationReaders = []string{
 	"ConsumeInviteAndActivate", "CountLocationReferences", "CountPanelEmployeesByStatus", "CreateEmployee", "GetEmployeeActivationContext",
 	"GetEmployeeForTap", "GetPanelEmployeeForAction", "InsertManualTransaction", "ListDayCutoffPeople", "ListPanelEmployees",
 	"ListRollEmployees", "LockEmployeeForExternalRefChange", "MoveEmployee",
+	// M16-23: the panel's approval list names the home venue, NULL for none (LEFT JOIN). M16-45: the
+	// usual shift reads the home venue's shift and name, NULL for none (LEFT JOIN; a department's
+	// shift can still apply).
+	"ListOpenActivationRequests", "GetEmployeeUsualShift",
 }
 
 // employeeLocationNonReaders are the statements the wide net below catches -- they name employees

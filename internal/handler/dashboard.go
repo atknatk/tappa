@@ -205,6 +205,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (Adding a person and re-inviting one are in the sibling group at the end of
 		// this function: a suspension does not stop them — ADR 0025 §3.)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
+		// THE PHONE APPROVAL (M16-23, employeeapproval.go): both roles, one way, and stopped by a
+		// suspension -- ADR 0025 §3's exception list names no approval.
+		r.Post(employeeApprovalHref, a.employeeApproval)
 		// (Signing a person's phones out, T59, is in the sibling group at the end of this
 		// function: a suspension does not stop it -- ADR 0025 §3, user decision 2026-11-09.)
 		r.Post(employeeMoveHref, a.employeeMove)
@@ -230,6 +233,13 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(plaqueMountHref, a.mountPlaque)
 		r.Post(plaqueReplaceHref, a.replacePlaque)
 		r.Post(plaqueUnmountHref, a.unmountPlaque)
+		// THE LIVE QR SCREENS' TWO WRITES (M16-20, liveqrpanel.go): adding a screen and removing one,
+		// both roles, mounted only while the live QR is configured. Here, in the group a suspension
+		// stops: ADR 0025 §3's exception list names no screen (liveqrpanel.go's header).
+		if a.liveQR != nil {
+			r.Post(liveQRCreateHref, a.liveQRCreate)
+			r.Post(liveQRRevokeHref, a.liveQRRevoke)
+		}
 		// (The manual record's two steps are in the sibling group at the end of this
 		// function: a suspension does not stop them — ADR 0025 §3.)
 		// 🔴 THE TWO POLICY POSTs (M6-09 phase B), AND THE FIRST OF THEM WRITES NO
@@ -260,6 +270,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
+		// M16-45: the owner's "these are my staff's real shifts" switch -- a write to `tenants`,
+		// owner-only, stopped by a suspension like the details save beside it.
+		r.Post(accountStaffShiftHref, a.accountStaffShiftSave)
 		// 🔴 THE BUSINESS DAY'S TWO PRESSES (M15-07): the review mints a confirmation and
 		// sets its twin cookie -- state -- and the apply rewrites a cutoff that decides how
 		// every later tap of the people it reaches is paired. The business level is

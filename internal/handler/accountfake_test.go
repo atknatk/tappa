@@ -99,3 +99,11 @@ func (f *fakeAccounts) setVAT(verified *bool, checkedAt *time.Time) {
 	defer f.mu.Unlock()
 	f.settings.VAT = tenant.VATCheck{Verified: verified, CheckedAt: checkedAt}
 }
+
+// SetStaffShiftVisible stores the owner's switch on the double's row (M16-45).
+func (f *fakeAccounts) SetStaffShiftVisible(_ context.Context, _, _ uuid.UUID, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.settings.StaffShiftVisible = on
+	return nil
+}

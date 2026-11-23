@@ -142,6 +142,11 @@ fun TapProblemScreen(problem: TapProblem, buttons: Buttons, onRetry: () -> Unit,
         TapProblem.SIGNED_OUT -> Triple(R.string.p_signed_out_title, R.string.p_signed_out_message, R.string.p_signed_out_hint)
         TapProblem.NOT_SET_UP -> Triple(R.string.p_not_set_up_title, R.string.p_not_set_up_message, R.string.p_not_set_up_hint)
         TapProblem.CLOCK -> Triple(R.string.p_clock_title, R.string.p_clock_message, R.string.p_clock_hint)
+        // M16-23: a live QR's tap -- the plaque's titles and messages, the screen's hints.
+        TapProblem.LIVE_SERVER -> Triple(R.string.tp_server_title, R.string.tp_server_message, R.string.tp_live_server_hint)
+        TapProblem.LIVE_TOO_MANY -> Triple(R.string.tp_too_many_title, R.string.tp_too_many_message, R.string.tp_live_too_many_hint)
+        TapProblem.LIVE_STALE -> Triple(R.string.tp_stale_title, R.string.tp_stale_message, R.string.tp_live_stale_hint)
+        TapProblem.LIVE_FOREIGN -> Triple(R.string.tp_live_foreign_title, R.string.tp_live_foreign_message, R.string.tp_live_foreign_hint)
     }
     Page({ tapHeader(null) }) {
         Notice(Tone.ALERT, stringResource(t), stringResource(m), stringResource(h))

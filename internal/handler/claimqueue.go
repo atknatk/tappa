@@ -616,6 +616,8 @@ func claimChannelWord(c tap.Channel) string {
 		return "plaque tap"
 	case tap.ChannelQR:
 		return "QR code"
+	case tap.ChannelQRLive:
+		return "live QR code"
 	case "manual":
 		return "entered by a manager"
 	}

@@ -148,10 +148,12 @@ const (
 	// counter advanced by AdvanceTagCounter. Delegates to SourceSignatureIsVerified and
 	// SourceCounterAdvanceIsGuarded.
 	FactChecksRunOnTheServer Fact = "fact:checks-run-on-the-server"
-	// A phone's session comes from activation, which ends on a real NFC tap at an
-	// active plaque of the same business, checked by sun.Verify, and writes no
-	// attendance record (ADR 0026). Derived from Activation.CompleteByTap.
-	FactActivationEndsOnARealTap Fact = "handler:Activation.CompleteByTap"
+	// A phone's session comes from activation, which ends on proof the phone is at work and
+	// writes no attendance record (ADR 0026; M16-23): a real NFC tap at an active plaque of the
+	// same business, checked by sun.Verify (CompleteByTap); a verified live QR code of the same
+	// business's screen in service, inside its window (CompleteByLiveQR); or a manager's
+	// approval, collected by the phone that asked (CollectApproval). Derived from the three.
+	FactActivationEndsOnPresence Fact = "handler:Activation.CompleteByTap+CompleteByLiveQR+CollectApproval"
 	// The session token is TokenBits of crypto/rand and the database keeps only an
 	// HMAC-SHA256 of it (sessions.token_hash). Derived from internal/session and
 	// migration 00003.
@@ -439,6 +441,13 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 	// path never asks the engine, so describing it would describe nothing that happens
 	// (see FactReviewIsOnceAndFinal).
 	unnamed := []SecurityNamed{{Sid: "sys:no-self-review", Phrase: "not described: the review path does not run it"}}
+	// M16-21 (ADR 0045 §2.5): the four live QR guardrails are in the engine, and the page does not
+	// describe them yet -- no deployment shows a live QR code until TAPPA_LIVE_QR_KEY is set (the
+	// M16-24 deploy rule), and what the public pages say about the venue screen is a decision of its
+	// own. They are counted in the note's total like every guardrail.
+	for _, sid := range []string{"sys:live-qr-unverified", "sys:screen-not-active", "sys:cross-tenant-live-qr", "sys:live-qr-expired"} {
+		unnamed = append(unnamed, SecurityNamed{Sid: sid, Phrase: "not described yet: live QR screens are not switched on"})
+	}
 	otherBase := []SecurityNamed{
 		{Sid: "base:queued-window", Phrase: "a tap whose declared time is well in the past"},
 		{Sid: "base:ctr-gap-review", Phrase: "a tap after reads of the plaque the server never saw"},
@@ -456,8 +465,8 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		{Sids: []string{"sys:sun-invalid"}, Verdict: securityReject,
 			Text: l("Signature fails, or the counter did not move", FactGuardrailsAreTheList, FactCopiedLinkIsRefused)},
 		{Sids: []string{"sys:no-session"},
-			Text:  l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnARealTap),
-			Notes: []Line{l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnARealTap)}},
+			Text:  l("No session on this phone", FactGuardrailsAreTheList, FactActivationEndsOnPresence),
+			Notes: []Line{l("activation page · nothing recorded", FactGuardrailsAreTheList, FactActivationEndsOnPresence)}},
 		{Sids: []string{"sys:employee-deactivated"}, Verdict: securityReject,
 			Text:  l("Account switched off", FactGuardrailsAreTheList, FactDeactivatedPersonIsRefused),
 			Notes: []Line{l("security event", FactDeactivatedTapIsASecurityEvent)}},
@@ -469,7 +478,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 			Text: l("Venue network matched, or GPS inside the radius", FactBaselineCanBeChanged, FactGPSAloneApprovesATap)},
 		{Sids: []string{"base:gps-conflict-review"}, Verdict: securityFlag,
 			Text: l("GPS read, but outside the radius", FactBaselineCanBeChanged, FactFarPositionIsReviewed)},
-		{Sids: []string{"base:qr-requires-ip"}, Verdict: securityFlag,
+		// M16-21: the live QR rule (the user's decision of 2026-11-19) is the same sentence -- a QR
+		// code, printed or on a screen, without the venue network -- so it is this rung's second sid.
+		{Sids: []string{"base:qr-requires-ip", "base:live-qr-requires-ip"}, Verdict: securityFlag,
 			Text: l("QR code without the venue network", FactBaselineCanBeChanged, FactCodelessTapNeedsAddress)},
 		{Sids: []string{"base:no-evidence-review"}, Verdict: securityFlag,
 			Text: l("Neither network nor GPS", FactBaselineCanBeChanged, FactFlaggedQueueDecidedByAManager)},
@@ -488,7 +499,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 		PersonTitle:     l("One phone, one person", FactNewPhoneSignsOutTheOld, FactSessionTokenIsStoredHashed),
 		PlaceTitle:      l("A network list too wide to mean anything is ignored", FactWideAddressListIsNoEvidence),
 		BackupTitle:     l("One position, only at the tap", FactPositionReadOnlyOnPress),
-		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnARealTap),
+		ActivationLabel: l("Activation · once per phone", FactActivationEndsOnPresence),
 		DebounceTitle:   l("Debounce is per person", FactDebounceIsPerPersonOnTheServerClock),
 		// 🔴 THE DENIAL IS ON THE SAME LINE AS THE WORD (scripts/redline-check.sh R1).
 		FingerTitle:   l("No fingerprints, no face scans", FactNoAuthenticatorAPI),
@@ -535,8 +546,9 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 
 		PersonActivation: Line{
 			Text: "A phone gets its session through activation: the employee opens their invite link, agrees, and " +
-				"makes a first real NFC tap at one of your plaques. That tap writes no record; the next one clocks in.",
-			Facts: []Fact{FactActivationEndsOnARealTap, FactPeopleAreInvitedFromTheDashboard},
+				"proves the phone is at work — a first real NFC tap at one of your plaques, a scan of a venue's live QR " +
+				"screen, or a manager's approval in person. None of these writes a record; the next tap clocks in.",
+			Facts: []Fact{FactActivationEndsOnPresence, FactPeopleAreInvitedFromTheDashboard},
 		},
 		PersonToken: Line{
 			Text: "The phone keeps a random " + n(f.TokenBits) + "-bit token. The database keeps only a keyed hash " +
@@ -558,7 +570,7 @@ func SecurityCopy(f SecurityFigures) SecurityText {
 
 		PersonNoRecord: Line{
 			Text:  "Session on this phone — no record written",
-			Facts: []Fact{FactActivationEndsOnARealTap},
+			Facts: []Fact{FactActivationEndsOnPresence},
 		},
 
 		PlaceAddress: Line{

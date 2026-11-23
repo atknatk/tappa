@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/liveqr"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -86,6 +87,8 @@ var plainNotFoundRoots = []string{
 	firstPathSegment(oauthTokenPath),       // oauth: the authorization server's endpoints (issue #37)
 	firstPathSegment(AssetLinksPath),       // .well-known: the app association files (M16-08)
 	firstPathSegment(AppTapPath),           // app: the native app's signed surface (M16-07)
+	firstPathSegment(LiveScreenPath),       // screen: the live QR screen page (M16-20)
+	firstPathSegment(liveqr.LiveQRTapPath), // q: the live QR tap page (M16-21)
 }
 
 // oauthTokenPath is internal/handler/oauthapi's token endpoint (TokenPath), named here for its root:

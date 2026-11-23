@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -36,7 +37,7 @@ func TestAppErrors_TheVocabularyIsClosedAndEchoesNothing(t *testing.T) {
 			t.Errorf("headers for %q: %v", c, w.Header())
 		}
 	}
-	if len(seen) != 16 || len(appErrorStatus) != len(seen) {
+	if len(seen) != 17 || len(appErrorStatus) != len(seen) {
 		t.Errorf("%d codes, %d statuses; the vocabulary changed -- update this count and the card's contract", len(seen), len(appErrorStatus))
 	}
 }
@@ -50,6 +51,8 @@ func TestAppContract_ErrorStatuses(t *testing.T) {
 		"activation_needs_touch": 400, "activation_tap_failed": 400, "stale_context": 400,
 		"unknown_plaque": 404, "foreign_tenant": 403, "try_again": 409, "not_found": 404,
 		"method_not_allowed": 405,
+		// M16-23: a live QR screen runs at the workplace -- the manager approval is not offered.
+		"screen_available": 409,
 	}
 	if len(want) != len(appErrorStatus) {
 		t.Fatalf("%d statuses in the code, %d in the contract", len(appErrorStatus), len(want))
@@ -74,15 +77,40 @@ func TestAppContract_ResponseShapes(t *testing.T) {
 		want string
 	}{
 		"activate/lookup": {appLookupResponse{EmployeeName: "E", BusinessName: "B", LocationName: "L", WiFiSSID: "W", SecondDevice: true, Brand: brand},
-			`{"employeeName":"E","businessName":"B","locationName":"L","wifiSsid":"W","secondDevice":true,"brand":{"name":"N","logo":{"sha256":"ab","width":1,"height":2},"accent":"1F5C41"}}`},
-		"activate/bind":     {appBindResponse{ActivationID: "I", Challenge: "C"}, `{"activationId":"I","challenge":"C"}`},
-		"activate/complete": {appCompleteResponse{DeviceID: "D", EmployeeName: "E"}, `{"deviceId":"D","employeeName":"E"}`},
-		"nonce":             {appNonceResponse{Nonce: "N", ExpiresAt: at}, `{"nonce":"N","expiresAt":"2026-11-14T12:00:00Z"}`},
+			`{"employeeName":"E","businessName":"B","locationName":"L","wifiSsid":"W","secondDevice":true,"brand":{"name":"N","logo":{"sha256":"ab","width":1,"height":2},"accent":"1F5C41"},"managerApproval":false}`},
+		// M16-23: the approval routes' one answer shape, waiting and collected.
+		"activate/approval (waiting)": {appApprovalResponse{State: "waiting", PairingCode: "482913", ExpiresAt: "2026-11-14T12:15:00Z"},
+			`{"state":"waiting","pairingCode":"482913","expiresAt":"2026-11-14T12:15:00Z"}`},
+		"activate/approval (approved)": {appApprovalResponse{State: "approved", DeviceID: "D", EmployeeName: "E"},
+			`{"state":"approved","deviceId":"D","employeeName":"E"}`},
+		"activate/approval (rejected)": {appApprovalResponse{State: "rejected"}, `{"state":"rejected"}`},
+		"activate/bind":                {appBindResponse{ActivationID: "I", Challenge: "C"}, `{"activationId":"I","challenge":"C"}`},
+		"activate/complete":            {appCompleteResponse{DeviceID: "D", EmployeeName: "E"}, `{"deviceId":"D","employeeName":"E"}`},
+		"nonce":                        {appNonceResponse{Nonce: "N", ExpiresAt: at}, `{"nonce":"N","expiresAt":"2026-11-14T12:00:00Z"}`},
 		"tap/start": {appTapStartResponse{EmployeeName: "E", LocationName: "L", Brand: appBrand{}, Direction: "in", QR: false, Context: "X"},
 			`{"employeeName":"E","locationName":"L","brand":{},"direction":"in","qr":false,"context":"X"}`},
 		"tap": {appTapResponse{Outcome: "recorded", Verdict: "ok", Direction: "out", Venue: "V", At: "09:00", BusinessType: "bar"},
 			`{"outcome":"recorded","verdict":"ok","direction":"out","venue":"V","at":"09:00","businessType":"bar"}`},
-		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":""}`},
+		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":"","presence":null,"shift":null,"missingTimes":0}`},
+		// M16-45: the presence and the usual shift, every field named.
+		"me (at work)": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: "out",
+			Presence: appPresenceOf(&tenant.Presence{
+				InSince: time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC), ShiftEndsAt: ptrTime(time.Date(2026, 11, 23, 16, 0, 0, 0, time.UTC)),
+				RemindAt: ptrTime(time.Date(2026, 11, 23, 16, 30, 0, 0, time.UTC)), ShowUntil: time.Date(2026, 11, 23, 18, 30, 0, 0, time.UTC),
+				StaleAt: time.Date(2026, 11, 24, 2, 0, 0, 0, time.UTC), Timezone: "Europe/Malta"}),
+			Shift: appShiftOf(&tenant.UsualShift{Start: 9 * time.Hour, End: 17 * time.Hour, Venue: "V"})},
+			`{"employeeName":"E","brand":{},"direction":"out","presence":{"inSince":"2026-11-23T08:00:00Z","inSinceLocal":"09:00",` +
+				`"shiftEndsAt":"2026-11-23T16:00:00Z","shiftEndsAtLocal":"17:00","remindAt":"2026-11-23T16:30:00Z",` +
+				`"showUntil":"2026-11-23T18:30:00Z","staleAt":"2026-11-24T02:00:00Z"},` +
+				`"shift":{"start":"09:00","end":"17:00","overnight":false,"venue":"V"},"missingTimes":0}`},
+		// M16-43: the claims list and the send's result.
+		"claims": {appClaimsResponse{Open: []appOpenClaim{{Context: "C", Kind: "out", AnchorDate: "2026-11-22", AnchorAt: "09:12",
+			Day: "yesterday", WindowFrom: appClaimBound{At: "09:12", Inclusive: false}, WindowTo: appClaimBound{At: "05:00", Inclusive: false}}},
+			Sent: []appSentClaim{{Kind: "out", AnchorDate: "2026-11-20", AnchorAt: "10:00", ClaimedAt: "18:00", State: "pending"}}},
+			`{"open":[{"context":"C","kind":"out","anchorDate":"2026-11-22","anchorAt":"09:12","day":"yesterday",` +
+				`"windowFrom":{"at":"09:12","inclusive":false},"windowTo":{"at":"05:00","inclusive":false},"prefill":null}],` +
+				`"sent":[{"kind":"out","anchorDate":"2026-11-20","anchorAt":"10:00","claimedAt":"18:00","state":"pending","approvedAt":null}]}`},
+		"claims/send": {appClaimSendResponse{Result: "still_open"}, `{"result":"still_open"}`},
 	} {
 		got, err := json.Marshal(tc.v)
 		if err != nil {
@@ -101,6 +129,7 @@ func TestAppContract_RequestShapes(t *testing.T) {
 	var lookup appLookupRequest
 	var bind appBindRequest
 	var complete appCompleteRequest
+	var approval appApprovalRequest
 	var start appTapStartRequest
 	var tapIn appTapRequest
 	for name, tc := range map[string]struct {
@@ -115,7 +144,17 @@ func TestAppContract_RequestShapes(t *testing.T) {
 			func() bool {
 				return complete.Code == "c" && complete.PublicKey == "k" && complete.Platform == "ios" && complete.SUN == "tag=1"
 			}},
+		// M16-23: complete's live QR proof, and the approval routes' body.
+		"activate/complete (live QR)": {`{"code":"c","publicKey":"k","platform":"ios","liveQR":"t=x"}`, `{"code":"c","publicKey":"k","platform":"ios","qr":"t=x"}`, &complete,
+			func() bool { return complete.Code == "c" && complete.LiveQR == "t=x" }},
+		"activate/approval": {`{"code":"c","publicKey":"k","platform":"android"}`, `{"code":"c","publicKey":"k","platform":"android","pairingCode":"1"}`, &approval,
+			func() bool {
+				return approval.Code == "c" && approval.PublicKey == "k" && approval.Platform == "android"
+			}},
 		"tap/start": {`{"sun":"tag=1"}`, `{"url":"tag=1"}`, &start, func() bool { return start.SUN == "tag=1" }},
+		// M16-22: a venue screen's live QR URL's query, the field's own spelling (encoding/json would
+		// also take "liveqr"; the apps write this one).
+		"tap/start (live QR)": {`{"liveQR":"t=x"}`, `{"live":"t=x"}`, &start, func() bool { return start.LiveQR == "t=x" }},
 		"tap": {`{"context":"x","want":"in","lat":1.5,"lng":2.5,"mockLocation":true,"occurredAt":"2026-11-14T12:00:00Z"}`, `{"context":"x","mock":true}`, &tapIn,
 			func() bool {
 				return tapIn.Context == "x" && tapIn.Want == "in" && *tapIn.Lat == 1.5 && *tapIn.Lng == 2.5 && *tapIn.MockLocation && tapIn.OccurredAt != ""

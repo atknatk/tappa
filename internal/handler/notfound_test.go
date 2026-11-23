@@ -43,6 +43,8 @@ var plainNotFoundPaths = []string{
 	"/healthz/x", "/readyz/x", "/dev/no-such-tool", "/oauth/no-such-endpoint", "/.well-known/no-such-file",
 	"/.well-known/apple-app-site-association", "/.well-known/assetlinks.json",
 	"/app/no-such-route",
+	"/screen/no-such-page",
+	"/q/no-such-page",
 	"/admin/../no-such-page", "//admin/x", "/%61dmin/x", "/admin%2Fx", "/ADMIN/x", `/\admin/x`,
 	"/x/../brand/y", "/Brand/theme/x",
 }

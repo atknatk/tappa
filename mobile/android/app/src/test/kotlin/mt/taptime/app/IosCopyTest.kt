@@ -57,6 +57,19 @@ class IosCopyTest {
         "p_signed_out_title", "p_signed_out_message", "p_signed_out_hint",
         "p_key_unreadable_title", "p_key_unreadable_message", "p_key_unreadable_hint",
         "try_again", "start_again", "open_in_browser", "code_title",
+        // M16-23: the phone that cannot tap -- step 3, the live QR refusal, the waiting screen and its
+        // ends, the reader notices (activation and activated), the live QR tap problems.
+        "cant_tap", "scan_screen_line", "back",
+        "p_live_failed_title", "p_live_failed_message", "p_live_failed_hint",
+        "approval_label", "approval_title", "approval_body", "approval_status", "approval_footnote",
+        "approval_ask_again", "approval_new_code",
+        "p_rejected_title", "p_rejected_message", "p_rejected_hint",
+        "p_expired_title", "p_expired_message", "p_expired_hint",
+        "p_screen_available_title", "p_screen_available_message", "p_screen_available_hint",
+        "p_no_reader_title", "p_no_reader_message", "p_no_reader_hint",
+        "p_no_nfc_title", "p_no_nfc_message", "p_no_nfc_hint",
+        "tp_live_server_hint", "tp_live_too_many_hint", "tp_live_stale_hint",
+        "tp_live_foreign_title", "tp_live_foreign_message", "tp_live_foreign_hint",
     )
 
     /** Built by `+` on iOS ("Not right? " + button(o)): held by its literal parts. */

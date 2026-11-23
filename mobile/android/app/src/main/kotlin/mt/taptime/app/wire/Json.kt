@@ -89,6 +89,14 @@ internal class Fields(private val m: Map<String, Any?>) {
         if (d != Math.floor(d) || d < Int.MIN_VALUE || d > Int.MAX_VALUE) throw JsonException("field $k: want an integer")
         return d.toInt()
     }
+    fun optInt(k: String): Int = if (m[k] == null) 0 else int(k)
+    /** A list of objects; absent or null is empty (Faz G rule (3): an old server omits the field). */
+    @Suppress("UNCHECKED_CAST")
+    fun objects(k: String): List<Fields> = when (val v = m[k]) {
+        null -> emptyList()
+        is List<*> -> v.map { it as? Map<String, Any?> ?: throw JsonException("field $k: want objects") }.map(::Fields)
+        else -> throw JsonException("field $k: want a list")
+    }
     @Suppress("UNCHECKED_CAST")
     fun optObject(k: String): Fields? = when (val v = m[k]) {
         null -> null

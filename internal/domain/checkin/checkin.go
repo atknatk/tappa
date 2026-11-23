@@ -138,8 +138,14 @@ import (
 // what resolving it PRODUCES and there is no context to run it in. That is also
 // exactly why RLS cannot be the tenant-isolation defence on this path and why
 // sys:tenant-mismatch has to be fed (hand-off N5).
+//
+// GetLiveQRDisplayByID is the same exception for the live QR channel (M16-21, 00111):
+// the screen a token names is resolved WITHOUT a tenant context, because in a holding
+// the screen's tenant is not the session's (ADR 0027) and the screen's removal lives
+// on its row, not in the token.
 type Database interface {
 	GetTagByUID(ctx context.Context, uid string) (db.ResolvedTag, error)
+	GetLiveQRDisplayByID(ctx context.Context, displayID uuid.UUID) (db.ResolvedLiveQRDisplay, error)
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
 }
 
@@ -184,9 +190,16 @@ func storeAdvancer(tx pgx.Tx) counterAdvancer { return store.New(tx) }
 // Both run on the SESSION tenant's transaction -- the functions take the caller's
 // tenant from app.tenant_id -- and there is no WithTenant(site) on this path (ADR
 // 0016 §2): a peer's row is reached through these two calls and nothing else.
+//
+// SiteLocations is the live QR channel's peer question (M16-21): a screen has no
+// plaque for holding_tap_site to name, so whether its tenant is a peer of the
+// session's is asked the way the panel asks it of a venue -- holding_site_locations,
+// strict, on the session's context -- and answered by the screen's venue being one
+// of a peer's. It reads no evidence (K-39): a holding live QR tap is refused (Q43 b).
 type holdingQuerier interface {
 	HoldingAdvanceTagCounter(ctx context.Context, uid string, ctr uint32) (db.HoldingAdvance, error)
 	TapSite(ctx context.Context, uid string) (db.HoldingSite, bool, error)
+	SiteLocations(ctx context.Context) (map[uuid.UUID]db.HoldingSiteLocation, error)
 }
 
 // dbHolding is the production seam for holdingQuerier, a field for the reason
@@ -464,6 +477,16 @@ type Request struct {
 	Ctr          uint32
 	Channel      tap.Channel
 	CMACVerified bool
+
+	// DisplayID, TokenVerified and TokenExpiresAt are the LIVE QR half of the signed
+	// context (Channel == tap.ChannelQRLive only, M16-21): the screen the token named,
+	// whether the token verified when GET /q opened it, and the end of its own window.
+	// TagUID is empty on that channel -- a screen is not a plaque -- and the screen is
+	// RE-RESOLVED here from DisplayID, as the plaque is from TagUID, so a removal
+	// between the page and the press is decided on the state of now.
+	DisplayID      uuid.UUID
+	TokenVerified  bool
+	TokenExpiresAt time.Time
 
 	// Client is which client wrote this tap (transactions.client, migration 00109,
 	// ADR 0045 §2.4), SERVER-DERIVED: the HTTP handler that accepted the request
@@ -776,6 +799,13 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 	}
 
 	// --- 1. Re-resolve the tag (context-less, ADR 0002 item 7) ----------------
+	//
+	// A LIVE QR TAP RESOLVES ITS SCREEN INSTEAD (M16-21): there is no plaque, so tagRow
+	// stays the zero value -- no uid, no tenant -- and every step below that reads it
+	// takes the screen's branch on the channel (advance never runs: it is NFC-only).
+	if req.Channel == tap.ChannelQRLive {
+		return s.recordLive(ctx, req, now, occurredAt, fromClient)
+	}
 	tagRow, err := s.data.GetTagByUID(ctx, req.TagUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -977,6 +1007,32 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 
+	return s.conclude(ctx, req, concluded{
+		dec: dec, id: id, facts: facts, occurredAt: occurredAt,
+		wallTenant: tagRow.TenantID, ctrGap: adv.gap, tagUID: tagRow.UID,
+	}), nil
+}
+
+// concluded is what a decided tap hands its conclusion: the decision, the record it
+// wrote (uuid.Nil for none), the facts it was decided on, and the three plaque values the
+// trail and the log name -- the wall's tenant, the counter gap and the uid (a live QR
+// tap passes the screen's tenant, no gap and no uid).
+type concluded struct {
+	dec        tap.Decision
+	id         uuid.UUID
+	facts      tapFacts
+	occurredAt time.Time
+	wallTenant uuid.UUID
+	ctrGap     int32
+	tagUID     string
+}
+
+// conclude is everything after the record's transaction: the K-19 notice, the redirect's
+// outcome, the security alert's trail row and log line, the one decision line, and the
+// Result. It is shared by the plaque path and the live QR path (M16-21), so a live QR tap
+// is concluded by the same lines in the same order -- evidence before message.
+func (s *Service) conclude(ctx context.Context, req Request, c concluded) Result {
+	dec, id, facts, occurredAt := c.dec, c.id, c.facts, c.occurredAt
 	if id != uuid.Nil {
 		// K-19: the record (and its feed event and delivery rows, written by the triggers in the same
 		// transaction) is committed; the tenants it concerns have work.
@@ -994,10 +1050,10 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		if dec.MatchedSid == sidTenantMismatch {
 			out.Outcome = OutcomeForeignTenant
 			s.log.WarnContext(ctx, "checkin: a session tapped another organisation's plaque; no record written",
-				"tag_uid", req.TagUID, "employee_id", req.EmployeeID,
-				"session_tenant_id", req.SessionTenantID, "tag_tenant_id", tagRow.TenantID)
+				"tag_uid", req.TagUID, "display_id", req.DisplayID, "employee_id", req.EmployeeID,
+				"session_tenant_id", req.SessionTenantID, "tag_tenant_id", c.wallTenant)
 		}
-		return out, nil
+		return out
 	}
 
 	if dec.Security {
@@ -1083,7 +1139,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		LogMatchedSid, dec.MatchedSid,
 		LogPolicyLayer, string(dec.Layer),
 		LogTrust, dec.Trust,
-		LogCtrGap, int(adv.gap),
+		LogCtrGap, int(c.ctrGap),
 		LogPractice, dec.Practice,
 		LogTenantID, req.SessionTenantID.String(),
 		LogEmployeeID, req.EmployeeID.String(),
@@ -1098,8 +1154,183 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		Timezone:        facts.timezone,
 		DirectionSource: directionSourceColumn(req.Channel, dec),
 		BusinessType:    facts.businessType,
-		SiteLogo:        siteLogoOf(facts.site, tagRow.UID),
-	}, nil
+		SiteLogo:        siteLogoOf(facts.site, c.tagUID),
+	}
+}
+
+// recordLive is Record for a LIVE QR tap (M16-21, ADR 0045 §2.5): resolve the screen,
+// then the same serialised section -- lock, gather, decide, write -- and the same
+// conclusion. What differs is only what stands where the plaque stood:
+//
+//	the plaque row            the SCREEN row, re-resolved from the context's screen id
+//	                          (resolve_live_qr_display_by_id: tenant, venue, removal, the
+//	                          venue's state) -- a screen removed between the page and the
+//	                          press is §5 row 1's twin and is decided on the state of NOW;
+//	the counter advance       none: a screen has no counter. The token's window and its
+//	                          verification came in the signed context (GET /q opened it);
+//	                          the brake is the per-person debounce, which spans channels;
+//	the peer read             holding_site_locations (holdingQuerier.SiteLocations): the
+//	                          screen's venue is one of a PEER's -> SameHolding, and Q43 (b)
+//	                          refuses the tap with the site named; not a peer -> the
+//	                          tenant-mismatch redirect, nothing written;
+//	the record's wall         location_id = the screen's venue (own tenant), or the site
+//	                          columns with site_tag_uid NULL (00112's third arm); tag_uid
+//	                          and ctr NULL; sun_valid false (M16-19's hand-off).
+//
+// A token that did not verify, or whose screen this database does not hold, is decided
+// with NO screen: sys:live-qr-unverified rejects it and the record is written at the
+// session's tenant with no venue (Q39 (a): a reject, recorded for the identified person).
+func (s *Service) recordLive(ctx context.Context, req Request, now, occurredAt time.Time, fromClient bool) (Result, error) {
+	screen, verified, err := s.resolveScreen(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	var wallTenant uuid.UUID
+	if screen != nil {
+		wallTenant = screen.TenantID
+		if req.TagTenantID != uuid.Nil && req.TagTenantID != screen.TenantID {
+			// Record's own anomaly line, for the screen: a screen does not change hands.
+			s.log.ErrorContext(ctx, "checkin: the live QR screen changed tenant between the page and the tap",
+				"display_id", req.DisplayID, "context_tenant_id", req.TagTenantID, "resolved_tenant_id", screen.TenantID)
+		}
+	}
+	s.hooks.call(s.hooks.afterResolve, ctx)
+
+	set := s.policies.forTenant(ctx, req.SessionTenantID)
+	var (
+		facts tapFacts
+		dec   tap.Decision
+		id    uuid.UUID
+	)
+	err = s.data.WithTenant(ctx, req.SessionTenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if e := store.New(tx).LockEmployeeForTap(ctx, store.LockEmployeeForTapParams{
+			TenantID: req.SessionTenantID, EmployeeID: req.EmployeeID,
+		}); e != nil {
+			return fmt.Errorf("lock employee: %w", e)
+		}
+		sameHolding, err := s.livePeer(ctx, tx, req, screen)
+		if err != nil {
+			return err
+		}
+		// The screen's venue is gathered like a plaque's wall, in the SESSION's tenant: the
+		// employer's own venue resolves and its evidence decides; a peer's venue does not
+		// resolve here (no row in this tenant) and needs none -- the tap is refused.
+		wall := uuid.Nil
+		if screen != nil {
+			wall = screen.LocationID
+		}
+		facts, err = s.gatherWith(ctx, tx, req, wall, nil, occurredAt, now)
+		if err != nil {
+			return err
+		}
+		facts.sameHolding = sameHolding
+		facts.screen = screen
+
+		in := tap.Input{
+			Now:                         now,
+			OccurredAt:                  occurredAt,
+			OccurredAtFromClient:        fromClient,
+			PageIssuedAt:                req.PageIssuedAt,
+			Channel:                     tap.ChannelQRLive,
+			Client:                      inputClient(tap.ChannelQRLive, req.Client),
+			MockLocation:                req.MockLocation,
+			Token:                       &tap.LiveQRToken{Verified: verified, ExpiresAt: req.TokenExpiresAt},
+			Employee:                    facts.employee,
+			SessionTenantID:             &req.SessionTenantID,
+			SameHolding:                 facts.sameHolding,
+			SourceIP:                    req.SourceIP,
+			LocationIPs:                 facts.locationIPs,
+			GPS:                         req.GPS,
+			LocationGPS:                 facts.locationGPS,
+			GPSRadiusM:                  s.gpsRadiusM,
+			LastForPerson:               facts.lastForPerson,
+			SecondsSinceLastRecordedTap: facts.secondsSinceLastRecordedTap,
+			LastOpenIn:                  facts.lastOpenIn,
+			DayCutoff:                   facts.dayCutoff,
+			Shift:                       facts.shift,
+			Debounce:                    s.debounce,
+			PolicySet:                   set,
+		}
+		if screen != nil {
+			in.Screen = &tap.Screen{Status: screenStatus(*screen), Location: screen.LocationID}
+			in.TagTenantID = &screen.TenantID
+		}
+		if facts.dayCutoff != nil {
+			in.RequestedDirection = req.RequestedDirection
+		}
+		dec = tap.Decide(in)
+		if dec.Redirect != tap.RedirectNone {
+			return nil
+		}
+		s.hooks.call(s.hooks.beforeWrite, ctx)
+		id, err = s.write(ctx, tx, req, db.ResolvedTag{}, facts, dec, occurredAt)
+		return err
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return s.conclude(ctx, req, concluded{
+		dec: dec, id: id, facts: facts, occurredAt: occurredAt, wallTenant: wallTenant,
+	}), nil
+}
+
+// resolveScreen re-resolves the screen a verified live QR context names, context-less
+// (resolve_live_qr_display_by_id -- the plaque resolver's twin). It answers the screen
+// and whether the token stays verified: a context whose token did not verify names no
+// screen and is not looked up; a screen this database does not hold is NOT an error --
+// the tap is decided unverified and RECORDED (§4.6), where the plaque path's unknown uid
+// has no tenant to record against and this one has the session's. Only an infrastructure
+// failure is an error.
+func (s *Service) resolveScreen(ctx context.Context, req Request) (*db.ResolvedLiveQRDisplay, bool, error) {
+	if !req.TokenVerified {
+		return nil, false, nil
+	}
+	row, err := s.data.GetLiveQRDisplayByID(ctx, req.DisplayID)
+	switch {
+	case err == nil:
+		return &row, true, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		// A signed token naming a screen we do not hold: GET /q found it a moment ago, and
+		// a screen row is never deleted, so this is a restore, another deployment's key,
+		// or worse. Decided unverified -- a recorded reject -- and said.
+		s.log.WarnContext(ctx, "checkin: a verified live QR context names a screen that no longer resolves",
+			"display_id", req.DisplayID, "employee_id", req.EmployeeID, "tenant_id", req.SessionTenantID)
+		return nil, false, nil
+	default:
+		return nil, false, fmt.Errorf("checkin: resolve live QR screen: %w", err)
+	}
+}
+
+// screenStatus is a resolved screen's state for the decision: removed beats a switched-off
+// venue (both refuse; the record names the more specific one).
+func screenStatus(d db.ResolvedLiveQRDisplay) tap.ScreenStatus {
+	switch {
+	case d.RevokedAt != nil:
+		return tap.ScreenRevoked
+	case !d.LocationActive:
+		return tap.ScreenLocationInactive
+	default:
+		return tap.ScreenActive
+	}
+}
+
+// livePeer is K-29's SameHolding for a live QR screen of ANOTHER tenant, on the session's
+// locked transaction: true when the screen's venue is one holding_site_locations lists
+// for that tenant (a live, strict membership). For the session's own screen, and for no
+// screen, it asks nothing.
+func (s *Service) livePeer(ctx context.Context, tx pgx.Tx, req Request, screen *db.ResolvedLiveQRDisplay) (bool, error) {
+	if screen == nil || screen.TenantID == req.SessionTenantID {
+		return false, nil
+	}
+	if s.holding == nil {
+		return false, errors.New("checkin: no holding querier wired")
+	}
+	venues, err := s.holding(tx).SiteLocations(ctx)
+	if err != nil {
+		return false, fmt.Errorf("checkin: read a peer's venues: %w", err)
+	}
+	v, ok := venues[screen.LocationID]
+	return ok && v.SiteTenantID == screen.TenantID, nil
 }
 
 // peerSite is K-29's "SameHolding" and the site's row for a plaque of ANOTHER tenant
@@ -1173,6 +1404,28 @@ func (r Request) validate() error {
 		return fmt.Errorf("%w: employee is required", ErrInvalidRequest)
 	case r.Channel == tap.ChannelManual && (r.EnteredBy == nil || *r.EnteredBy == uuid.Nil):
 		return ErrEnteredByRequired
+	case r.Channel == tap.ChannelQRLive:
+		// A LIVE QR TAP NAMES A SCREEN, NOT A PLAQUE (M16-21). This line used to be
+		// "every non-manual tap needs a tag", which refused every plaqueless live QR
+		// request with ErrInvalidRequest -- a 500 and no record (§4.6; the M16-19
+		// inventory's first Go row). The rule is now per channel: a live QR request
+		// carries no plaque at all, and a verified token names its screen.
+		if r.TagUID != "" {
+			return fmt.Errorf("%w: a live QR tap names no plaque", ErrInvalidRequest)
+		}
+		if r.TokenVerified && r.DisplayID == uuid.Nil {
+			return fmt.Errorf("%w: a verified live QR code names its screen", ErrInvalidRequest)
+		}
+		// 🔴 AND ITS EXPIRY (the M16-21 security review, R8). tap.Decide writes
+		// tap:tokenOverdueSeconds only for a verified code WITH an expiry, and
+		// sys:live-qr-expired never matches a missing key -- so a caller that verified the
+		// code and forgot to carry its window would have every old photograph decided as a
+		// fresh scan (`ok` with an IP). GET /q's context cannot say verified without an
+		// expiry (parseLive refuses it); this closes the same door for any other caller
+		// (M16-22's app path) rather than trusting it to remember.
+		if r.TokenVerified && r.TokenExpiresAt.IsZero() {
+			return fmt.Errorf("%w: a verified live QR code carries its expiry", ErrInvalidRequest)
+		}
 	case r.Channel != tap.ChannelManual && r.TagUID == "":
 		return fmt.Errorf("%w: a tap needs a tag", ErrInvalidRequest)
 	}
@@ -1344,8 +1597,13 @@ type tapFacts struct {
 	// returned. Its evidence is a server-side decision input only (K-39): never
 	// logged, never rendered (db.HoldingSite redacts itself in both).
 	site *db.HoldingSite
-	// sameHolding is K-29's answer for a plaque of another tenant (peerSite).
+	// sameHolding is K-29's answer for a plaque of another tenant (peerSite), or for a
+	// live QR screen of another tenant (livePeer).
 	sameHolding bool
+	// screen is the live QR screen the tap was made at (qr_live only, M16-21), nil for a
+	// plaque tap and for a live QR token that did not verify. insertParams writes its
+	// venue -- location_id, or the site columns for a peer's screen.
+	screen *db.ResolvedLiveQRDisplay
 }
 
 // gather reads the tenant-scoped evidence in ONE transaction, so every fact the
@@ -1704,10 +1962,13 @@ func (s *Service) insert(ctx context.Context, tx pgx.Tx, params store.InsertTran
 }
 
 // feedEligible is K-4's entry rule as the own-tenant feed trigger applies it to a row without a
-// site (migration 00049, punch_feed): an ok tap on nfc or qr that is not practice -- the one row
-// that trigger takes its tenant's counter lock for.
+// site (migration 00049, punch_feed; since 00112 the live QR channel too -- Q38 (a)): an ok tap on
+// nfc, qr or qr_live that is not practice -- the one row that trigger takes its tenant's counter
+// lock for. TestFeedEligible_IsPunchFeedsEntryRule holds it to the installed trigger.
 func feedEligible(p store.InsertTransactionParams) bool {
-	return p.Verdict == string(tap.VerdictOK) && (p.Channel == string(tap.ChannelNFC) || p.Channel == string(tap.ChannelQR)) && !p.Practice
+	return p.Verdict == string(tap.VerdictOK) &&
+		(p.Channel == string(tap.ChannelNFC) || p.Channel == string(tap.ChannelQR) || p.Channel == string(tap.ChannelQRLive)) &&
+		!p.Practice
 }
 
 // insertParams maps a Decision onto the record's columns.
@@ -1770,7 +2031,7 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	//
 	// The value is the engine's S(at), present only while the switch is on: with it off
 	// Decision.BusinessDayStart is nil and the row is NULL, like every row before 00064.
-	if dec.Type != nil && (req.Channel == tap.ChannelNFC || req.Channel == tap.ChannelQR) {
+	if dec.Type != nil && tapChannel(req.Channel) {
 		p.BusinessDayStart = dec.BusinessDayStart
 	}
 	// WHO CHOSE THE DIRECTION (ADR 0032 §B.4, migration 00065): the engine's answer
@@ -1804,6 +2065,17 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	if req.Channel != tap.ChannelManual {
 		p.SunValid = boolPtr(dec.PolicyContext[policy.CtxTapSunValid])
 	}
+	if req.Channel == tap.ChannelQRLive {
+		// 🔴 FALSE ON A LIVE QR ROW, WHATEVER THE CONTEXT SAYS (M16-19's hand-off). The
+		// holding gate's tolerant arm and the site's two refusal keys (00112) take a live QR
+		// row's sun_valid to be NOT TRUE, and nothing in the schema forces it: a true here
+		// would send a holding refusal down the strict arm -- 23514 at a membership end,
+		// the record lost -- and onto the site's "real refusal once" key. tap.Decide already
+		// writes false; this does not rely on it. False, not NULL: the channel WAS judged
+		// for a SUN and has none, exactly a static QR's false.
+		no := false
+		p.SunValid = &no
+	}
 	if trust := dec.Trust; trust >= 0 {
 		t := int16(trust) //nolint:gosec // 20..100 by construction (§5), asserted in the domain tests
 		p.Trust = &t
@@ -1820,7 +2092,9 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 		ip := req.SourceIP.Unmap()
 		p.SourceIp = &ip
 	}
-	if req.Channel != tap.ChannelManual {
+	if req.Channel == tap.ChannelQRLive {
+		liveWall(&p, req, f)
+	} else if req.Channel != tap.ChannelManual {
 		uid := tagRow.UID
 		if tagRow.TenantID != req.SessionTenantID {
 			// A PEER'S PLAQUE (M11 API-1b, ADR 0027 §4, K-30): the row is the employer's
@@ -1850,7 +2124,7 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	// tenant (f.locationResolved). The composite FK (location_id, tenant_id) would
 	// refuse a foreign one anyway — and a refused INSERT is a lost record, so the
 	// belt is here and the braces are in the schema.
-	if f.locationResolved && tagRow.LocationID != nil {
+	if req.Channel != tap.ChannelQRLive && f.locationResolved && tagRow.LocationID != nil {
 		// THE SECOND CONDITION IS BELT, NOT BRACES, and it is written out because the
 		// two facts have different sources: locationResolved says GetLocationForTap
 		// found a row, and the pointer says the plaque had a wall at all. They cannot
@@ -1873,6 +2147,46 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	return p, nil
 }
 
+// liveWall writes a live QR record's wall (M16-21): never a plaque (tag_uid and ctr stay
+// NULL -- a screen is not one), and the screen's venue in the column its tenant decides:
+//
+//	the session's own screen       location_id, when the venue resolved in this tenant (the
+//	                               composite key would refuse anything else -- a lost record)
+//	a PEER's screen (Q43 (b))      site_tenant_id + site_location_id, site_tag_uid NULL --
+//	                               00112's third arm of transactions_site_by_channel; the
+//	                               decision is the refusal, and the site sees it as `refused`
+//	no screen (token unverified)   nothing: the reject names no venue (Q39 (a))
+//
+// The site columns are written ONLY for a peer (f.sameHolding): a screen of a tenant
+// outside the holding never reaches the write (sys:tenant-mismatch redirects), and if it
+// did, naming it would be refused by the site gate and lose the record.
+func liveWall(p *store.InsertTransactionParams, req Request, f tapFacts) {
+	if f.screen == nil {
+		return
+	}
+	venue := f.screen.LocationID
+	if f.screen.TenantID == req.SessionTenantID {
+		if f.locationResolved {
+			p.LocationID = &venue
+		}
+		return
+	}
+	if f.sameHolding {
+		site := f.screen.TenantID
+		p.SiteTenantID, p.SiteLocationID = &site, &venue
+	}
+}
+
+// tapChannel reports whether ch is a TAP channel -- a person at a plaque or a screen: nfc,
+// qr and since M16-21 qr_live (00112 admits it in every closed set). manual is the one
+// channel that is not. The four columns that belong to a tap -- the frozen business day,
+// the direction's source, the shift snapshot and the client -- are written on these and
+// nowhere else; before qr_live they each spelled "nfc or qr" and would have written a
+// live QR row without any of them (the M16-19 inventory's Go rows).
+func tapChannel(ch tap.Channel) bool {
+	return ch == tap.ChannelNFC || ch == tap.ChannelQR || ch == tap.ChannelQRLive
+}
+
 // shiftColumns writes transactions.shift_* (migration 00095, ADR 0042): the shift the engine
 // was handed (f.shift — the department's when it has one, otherwise the TAPPED venue's, §5/Q17)
 // and where it came from, on a DIRECTED nfc/qr decision:
@@ -1893,7 +2207,7 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 // What is copied is exactly Input.Shift, so the stored snapshot and the engine's own
 // Decision.MinutesLate are computed from the same value (the report reproduces it).
 func shiftColumns(p *store.InsertTransactionParams, channel tap.Channel, dec tap.Decision, f tapFacts) {
-	if dec.Type == nil || (channel != tap.ChannelNFC && channel != tap.ChannelQR) {
+	if dec.Type == nil || !tapChannel(channel) {
 		return
 	}
 	if f.shift == nil {
@@ -1923,7 +2237,7 @@ func shiftColumns(p *store.InsertTransactionParams, channel tap.Channel, dec tap
 // refuse it with 23514 and the record would be lost (§4.6). Decide gives every directed
 // decision one of the two (tap's TestDecide_ tests); this does not rely on it.
 func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.DirectionSource {
-	if dec.Type == nil || (channel != tap.ChannelNFC && channel != tap.ChannelQR) {
+	if dec.Type == nil || !tapChannel(channel) {
 		return nil
 	}
 	switch src := dec.DirectionSource; src {
@@ -1945,7 +2259,7 @@ func directionSourceColumn(channel tap.Channel, dec tap.Decision) *tap.Direction
 // on it. Unlike the business day and the direction source it does not depend on the decision:
 // a refused or ignored tap still came through a client.
 func clientColumn(channel tap.Channel, client tap.Client) *string {
-	if channel != tap.ChannelNFC && channel != tap.ChannelQR {
+	if !tapChannel(channel) {
 		return nil
 	}
 	switch client {

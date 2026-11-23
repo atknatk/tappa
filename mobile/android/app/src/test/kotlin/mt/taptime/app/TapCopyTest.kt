@@ -55,6 +55,10 @@ class TapCopyTest {
         "tp_too_many_title", "tp_too_many_message", "tp_too_many_hint",
         "tp_stale_title", "tp_stale_hint",
         "tp_foreign_title", "tp_foreign_message", "tp_foreign_hint",
+        // M16-23: a live QR's tap -- the browser's GET /q variants (tap.go tapProblemLive*), word for
+        // word; the iOS twin's TapCopy.Problems.*Live is held by IosCopyTest.
+        "tp_live_server_hint", "tp_live_too_many_hint", "tp_live_stale_hint",
+        "tp_live_foreign_title", "tp_live_foreign_message", "tp_live_foreign_hint",
         "try_again",
     )
 

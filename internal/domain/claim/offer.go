@@ -22,6 +22,9 @@ type Card struct {
 	AnchorAt  time.Time
 	Window    Window
 	Prefilled *time.Time
+	// Zone is the business's IANA zone, for a caller that renders the card's clocks (the app,
+	// M16-43); the browser's card reads the tap result's zone instead.
+	Zone string
 }
 
 // Offer is the card for the result screen of the person's record tapID, or nil when there is none
@@ -82,7 +85,7 @@ func (s *Service) Offer(ctx context.Context, tenantID, employeeID, tapID uuid.UU
 			return fmt.Errorf("read the anchor: %w", err)
 		}
 		out = &Card{Kind: cand.Kind, AnchorID: a.id, AnchorAt: a.at, Window: cand.Window,
-			Prefilled: utcOrNil(Prefill(cand.Kind, a.at, a.shift, cand.Window))}
+			Prefilled: utcOrNil(Prefill(cand.Kind, a.at, a.shift, cand.Window)), Zone: p.zone}
 		return nil
 	})
 	if err != nil {

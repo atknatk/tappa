@@ -49,25 +49,28 @@ type securityFactSources struct {
 	Figures pages.SecurityFigures
 	Copy    pages.SecurityText
 
-	SunParams  string // internal/sun/params.go
-	SunKeys    string // internal/sun/keys.go
-	Token      string // internal/session/token.go
-	Activate   string // internal/handler/activate.go
-	Checkin    string // internal/domain/checkin/checkin.go
-	Decide     string // internal/domain/tap/decide.go
-	Guardrails string // internal/policy/guardrails.go
-	Prefix     string // internal/netx/prefix.go
-	Venue      string // internal/domain/tenant/venue.go
-	Config     string // internal/config/config.go
-	Report     string // internal/domain/ledger/report.go
-	Manual     string // internal/domain/manual/manual.go
-	Review     string // internal/domain/review/review.go
-	Pool       string // internal/db/pool.go
-	Signing    string // internal/webhook/signing.go
-	Delivery   string // internal/webhook/delivery/delivery.go
-	Dashboard  string // internal/handler/dashboard.go
-	HoldingDB  string // internal/db/holding.go
-	APISurface string // internal/handler/api/surface.go
+	SunParams string // internal/sun/params.go
+	SunKeys   string // internal/sun/keys.go
+	Token     string // internal/session/token.go
+	Activate  string // internal/handler/activate.go
+	// ActivateApproval is internal/handler/activateapproval.go: the live QR scan's and the manager
+	// approval's roads to finishActivation (M16-23).
+	ActivateApproval string
+	Checkin          string // internal/domain/checkin/checkin.go
+	Decide           string // internal/domain/tap/decide.go
+	Guardrails       string // internal/policy/guardrails.go
+	Prefix           string // internal/netx/prefix.go
+	Venue            string // internal/domain/tenant/venue.go
+	Config           string // internal/config/config.go
+	Report           string // internal/domain/ledger/report.go
+	Manual           string // internal/domain/manual/manual.go
+	Review           string // internal/domain/review/review.go
+	Pool             string // internal/db/pool.go
+	Signing          string // internal/webhook/signing.go
+	Delivery         string // internal/webhook/delivery/delivery.go
+	Dashboard        string // internal/handler/dashboard.go
+	HoldingDB        string // internal/db/holding.go
+	APISurface       string // internal/handler/api/surface.go
 
 	RollTempl   string // web/templates/pages/reports.templ
 	DocketTempl string // web/templates/components/docket.templ
@@ -124,39 +127,40 @@ func loadSecurityFactSources(t *testing.T) securityFactSources {
 	}
 	figures := securityFigures()
 	return securityFactSources{
-		Figures:     figures,
-		Copy:        pages.SecurityCopy(figures),
-		SunParams:   strip(repoFile(t, "internal", "sun", "params.go")),
-		SunKeys:     strip(repoFile(t, "internal", "sun", "keys.go")),
-		Token:       strip(repoFile(t, "internal", "session", "token.go")),
-		Activate:    strip(repoFile(t, "internal", "handler", "activate.go")),
-		Checkin:     strip(repoFile(t, "internal", "domain", "checkin", "checkin.go")),
-		Decide:      strip(repoFile(t, "internal", "domain", "tap", "decide.go")),
-		Guardrails:  strip(repoFile(t, "internal", "policy", "guardrails.go")),
-		Prefix:      strip(repoFile(t, "internal", "netx", "prefix.go")),
-		Venue:       strip(repoFile(t, "internal", "domain", "tenant", "venue.go")),
-		Config:      strip(repoFile(t, "internal", "config", "config.go")),
-		Report:      strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
-		Manual:      strip(repoFile(t, "internal", "domain", "manual", "manual.go")),
-		Review:      strip(repoFile(t, "internal", "domain", "review", "review.go")),
-		Pool:        strip(repoFile(t, "internal", "db", "pool.go")),
-		Signing:     strip(repoFile(t, "internal", "webhook", "signing.go")),
-		Delivery:    strip(repoFile(t, "internal", "webhook", "delivery", "delivery.go")),
-		Dashboard:   strip(repoFile(t, "internal", "handler", "dashboard.go")),
-		HoldingDB:   strip(repoFile(t, "internal", "db", "holding.go")),
-		APISurface:  strip(repoFile(t, "internal", "handler", "api", "surface.go")),
-		RollTempl:   repoFile(t, "web", "templates", "pages", "reports.templ"),
-		DocketTempl: repoFile(t, "web", "templates", "components", "docket.templ"),
-		Deploy:      repoFile(t, "deploy", "README.md"),
-		TxQueries:   queries["transactions.sql"],
-		Queries:     queries,
-		Migs:        migs,
-		NonPolicyGo: nonPolicy,
-		Scripts:     shippedScripts(t),
-		Guards:      policy.Guardrails(policy.DefaultParams()),
-		Baseline:    policy.Baseline(),
-		Notice:      cookieNotice(),
-		Policies:    []string{marketingCSP, landingCSPFor("", "")},
+		Figures:          figures,
+		Copy:             pages.SecurityCopy(figures),
+		SunParams:        strip(repoFile(t, "internal", "sun", "params.go")),
+		SunKeys:          strip(repoFile(t, "internal", "sun", "keys.go")),
+		Token:            strip(repoFile(t, "internal", "session", "token.go")),
+		Activate:         strip(repoFile(t, "internal", "handler", "activate.go")),
+		ActivateApproval: strip(repoFile(t, "internal", "handler", "activateapproval.go")),
+		Checkin:          strip(repoFile(t, "internal", "domain", "checkin", "checkin.go")),
+		Decide:           strip(repoFile(t, "internal", "domain", "tap", "decide.go")),
+		Guardrails:       strip(repoFile(t, "internal", "policy", "guardrails.go")),
+		Prefix:           strip(repoFile(t, "internal", "netx", "prefix.go")),
+		Venue:            strip(repoFile(t, "internal", "domain", "tenant", "venue.go")),
+		Config:           strip(repoFile(t, "internal", "config", "config.go")),
+		Report:           strip(repoFile(t, "internal", "domain", "ledger", "report.go")),
+		Manual:           strip(repoFile(t, "internal", "domain", "manual", "manual.go")),
+		Review:           strip(repoFile(t, "internal", "domain", "review", "review.go")),
+		Pool:             strip(repoFile(t, "internal", "db", "pool.go")),
+		Signing:          strip(repoFile(t, "internal", "webhook", "signing.go")),
+		Delivery:         strip(repoFile(t, "internal", "webhook", "delivery", "delivery.go")),
+		Dashboard:        strip(repoFile(t, "internal", "handler", "dashboard.go")),
+		HoldingDB:        strip(repoFile(t, "internal", "db", "holding.go")),
+		APISurface:       strip(repoFile(t, "internal", "handler", "api", "surface.go")),
+		RollTempl:        repoFile(t, "web", "templates", "pages", "reports.templ"),
+		DocketTempl:      repoFile(t, "web", "templates", "components", "docket.templ"),
+		Deploy:           repoFile(t, "deploy", "README.md"),
+		TxQueries:        queries["transactions.sql"],
+		Queries:          queries,
+		Migs:             migs,
+		NonPolicyGo:      nonPolicy,
+		Scripts:          shippedScripts(t),
+		Guards:           policy.Guardrails(policy.DefaultParams()),
+		Baseline:         policy.Baseline(),
+		Notice:           cookieNotice(),
+		Policies:         []string{marketingCSP, landingCSPFor("", "")},
 	}
 }
 
@@ -296,8 +300,25 @@ func activationViolation(s securityFactSources) string {
 				"at an active plaque of the same business"
 		}
 	}
+	// M16-23: the two roads without a plaque. The live QR scan judges the code (the same business,
+	// a screen in service, inside its window) before it finishes; the manager approval finishes only
+	// an approved request. Each finishes through finishActivation and nothing else.
+	scan := goFuncBody(s.ActivateApproval, "func (a *Activation) CompleteByLiveQR(")
+	if judge, fin := strings.Index(scan, "liveQRActivationRefusal("), strings.Index(scan, "a.finishActivation("); judge < 0 || fin < 0 || judge > fin {
+		return "Activation.CompleteByLiveQR no longer judges the live QR code before it finishes"
+	}
+	rule := goFuncBody(s.ActivateApproval, "func liveQRActivationRefusal(")
+	for _, want := range []string{"!o.Verified", "o.Screen.TenantID != tenantID", "o.Screen.RevokedAt != nil", "!o.Screen.LocationActive", "LiveQRNetworkGraceSeconds"} {
+		if !strings.Contains(rule, want) {
+			return "liveQRActivationRefusal no longer carries " + want + ", so a scan proves less than the page says"
+		}
+	}
+	collect := goFuncBody(s.ActivateApproval, "func (a *Activation) CollectApproval(")
+	if gate, fin := strings.Index(collect, "ap.State != invite.ApprovalApproved"), strings.Index(collect, "a.finishActivation("); gate < 0 || fin < 0 || gate > fin {
+		return "Activation.CollectApproval no longer finishes only a manager's approval"
+	}
 	finish := goFuncBody(s.Activate, "func (a *Activation) finishActivation(")
-	for _, fn := range []string{body, finish} {
+	for _, fn := range []string{body, scan, collect, finish} {
 		if regexp.MustCompile(`(?i)transaction\b|InsertTransaction|checkin\.`).MatchString(fn) {
 			return "the activation tap now reaches the attendance record; the page says it writes none"
 		}
@@ -1070,7 +1091,7 @@ func hostedViolation(s securityFactSources) string {
 var securityDerivationFuncs = map[pages.Fact]func(securityFactSources) string{
 	pages.FactSignatureLengthAndKey:               signatureViolation,
 	pages.FactPlaqueKeysAreWrapped:                wrappedViolation,
-	pages.FactActivationEndsOnARealTap:            activationViolation,
+	pages.FactActivationEndsOnPresence:            activationViolation,
 	pages.FactSessionTokenIsStoredHashed:          tokenViolation,
 	pages.FactDeactivatedTapIsASecurityEvent:      deactivatedEventViolation,
 	pages.FactAddressIsTheRequestsOwn:             addressViolation,
@@ -1170,6 +1191,12 @@ func TestSecurityFacts_SayNoWhenTheFactIsAbsent(t *testing.T) {
 		}},
 		{"activation at another business's plaque", activationViolation, func(s *securityFactSources) {
 			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) CompleteByTap("), "pv.TenantID != ictx.TenantID", "false")
+		}},
+		{"a live QR of another business activates", activationViolation, func(s *securityFactSources) {
+			s.ActivateApproval = strings.Replace(s.ActivateApproval, "o.Screen.TenantID != tenantID", "false", 1)
+		}},
+		{"an unapproved request activates", activationViolation, func(s *securityFactSources) {
+			s.ActivateApproval = strings.Replace(s.ActivateApproval, "ap.State != invite.ApprovalApproved", "false", 1)
 		}},
 		{"activation writes a record", activationViolation, func(s *securityFactSources) {
 			s.Activate = within(s.Activate, goFuncBody(s.Activate, "func (a *Activation) finishActivation("), "{", "{\n\ta.checkin.Record(r.Context(), nil)")
@@ -1711,7 +1738,7 @@ func TestSecurityLadder_EveryRungIsTheEngines(t *testing.T) {
 // pagesCountWord spells a count as the page does (pages.countWord is unexported).
 func pagesCountWord(n int) string {
 	return []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-		"eleven", "twelve"}[n]
+		"eleven", "twelve", "thirteen", "fourteen", "fifteen"}[n]
 }
 
 // --- the page as rendered ------------------------------------------------------------
@@ -1768,7 +1795,7 @@ func TestSecurityFigures_AreTheProductsAndThePagePrintsThem(t *testing.T) {
 		}
 	}
 	for _, real := range []string{"16-character", "256-bit", "a /7 holds", "150 m by default", "within 60 seconds",
-		"of the eleven guardrails", "limit /7", "16 hex"} {
+		"of the fifteen guardrails", "limit /7", "16 hex"} {
 		if strings.Contains(otherText, asRendered(real)) {
 			t.Errorf("CONTROL: the page rendered with other figures still prints %q", real)
 		}

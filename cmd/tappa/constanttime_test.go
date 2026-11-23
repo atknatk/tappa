@@ -97,8 +97,9 @@ var constantTimeInventory = map[string]int{
 	"internal/adminauth/switchtoken.go": 1,
 	// The signup state: CSRF and the signed cookie.
 	"internal/handler/signupstate.go": 2,
-	// The tap context's signed cookie.
-	"internal/handler/tapcontext.go": 1,
+	// The tap context's signed cookie (parseHeld), and -- M16-23 -- liveShaped's check of the same
+	// signature before it lets a context choose the words of a refusal (attacker-fed: the form field).
+	"internal/handler/tapcontext.go": 2,
 	// The claim card's signed context (M15-17): the posted MAC against the one this
 	// session's key computes. Attacker-fed (the form field).
 	"internal/handler/claimcontext.go": 1,

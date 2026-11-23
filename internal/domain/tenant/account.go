@@ -203,7 +203,11 @@ func (v VATCheck) State() VATState {
 // opens the settings screen, so the query does not select them and this type has
 // nowhere to put them.
 type Settings struct {
-	Name string
+	// StaffShiftVisible is the owner's "these are my staff's real shifts" switch (00116, M16-45):
+	// with it on, the staff app shows the usual shift and its reminder and lock-screen timer use
+	// the shift's end.
+	StaffShiftVisible bool
+	Name              string
 	// VATNumber is read-only on this screen. It is carried because the customer must
 	// be able to SEE what the invoice will say, and because the VAT verdict below is
 	// meaningless without the number it is about.
@@ -295,6 +299,7 @@ func (a *Accounts) Settings(ctx context.Context, tenantID uuid.UUID) (Settings, 
 		}
 		out = settingsOf(row.Name, row.VatNumber, row.BusinessType,
 			row.Timezone, row.VatVerified, row.VatCheckedAt, row.CreatedAt)
+		out.StaffShiftVisible = row.StaffShiftVisible
 		return nil
 	})
 	if err != nil {

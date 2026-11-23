@@ -12,6 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ActivationRequest struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	EmployeeID  uuid.UUID
+	InviteID    uuid.UUID
+	Client      string
+	BindingHash string
+	PairingCode string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	Decision    *string
+	DecidedAt   *time.Time
+	DecidedBy   *uuid.UUID
+	WithdrawnAt *time.Time
+	CollectedAt *time.Time
+}
+
 type AdminIdentity struct {
 	ID               uuid.UUID
 	Email            string
@@ -264,6 +281,19 @@ type LegalDocument struct {
 	Body        string
 	PublishedAt time.Time
 	PublishedBy *uuid.UUID
+}
+
+type LiveQrDisplay struct {
+	ID               uuid.UUID
+	TenantID         uuid.UUID
+	LocationID       uuid.UUID
+	PairingCodeHash  *string
+	PairingExpiresAt time.Time
+	PairedAt         *time.Time
+	SessionHash      *string
+	CreatedAt        time.Time
+	RevokedAt        *time.Time
+	LastSeenAt       *time.Time
 }
 
 type Location struct {
@@ -549,6 +579,7 @@ type Tenant struct {
 	SuspendedAt           *time.Time
 	SuspensionReason      *string
 	DayCutoff             pgtype.Time
+	StaffShiftVisible     bool
 }
 
 type TenantBranding struct {

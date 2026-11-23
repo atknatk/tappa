@@ -195,7 +195,7 @@ final class TapModelTests: XCTestCase {
         await app.open(plaque)
         XCTAssertEqual(view, TapModel.View(employeeName: "Maria Borg", locationName: "St Julians",
                                            brand: AppBrand(name: nil, logo: nil, accent: "DA291C"), direction: "in",
-                                           source: .plaque(sun: sun, context: "signed-context-1")))
+                                           source: .plaque(link: .plaque(sun: sun), context: "signed-context-1")))
         XCTAssertTrue(server.taps.isEmpty, "the screen records nothing")
         XCTAssertTrue(location.reads.isEmpty)
         await tap.press(want: "out")
@@ -205,6 +205,106 @@ final class TapModelTests: XCTestCase {
         guard case .result = tap.screen else {
             return XCTFail("\(tap.screen)")
         }
+    }
+
+    // MARK: Any iPhone: a venue screen's live QR (M16-22)
+
+    /// The camera reads the screen's code and the Universal Link opens the app: tap/start gets the
+    /// /q URL's query as `liveQR` (never as `sun`), the screen is the plaque link's -- the name, the
+    /// venue, one button -- and the press is the same press. No scan sheet, nothing recorded first.
+    func testALiveQRLinkShowsTheTapScreenAndThePressSendsIt() async {
+        let q = "t=AQ00112233-_abcXYZ"
+        await app.launch()
+        await app.open(URL(string: "https://taptime.mt/q?" + q)!)
+        XCTAssertEqual(view, TapModel.View(employeeName: "Maria Borg", locationName: "St Julians",
+                                           brand: AppBrand(name: nil, logo: nil, accent: "DA291C"), direction: "in",
+                                           source: .plaque(link: .liveQR(query: q), context: "signed-context-1")))
+        XCTAssertEqual(server.liveQRStarts, [q], "the query, verbatim, as liveQR")
+        XCTAssertTrue(server.tapStarts.isEmpty, "never sent as a plaque's sun")
+        XCTAssertTrue(server.taps.isEmpty, "the screen records nothing")
+        await tap.press(want: "in")
+        XCTAssertTrue(reader.alerts.isEmpty, "the camera was the read: no sheet")
+        XCTAssertEqual(server.taps.first?["want"] as? String, "in")
+        guard case .result = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
+    }
+
+    /// An iPhone without an NFC reader still takes a live QR: the reader is not asked.
+    func testALiveQRNeedsNoReader() async {
+        reader.isAvailable = false
+        await app.launch()
+        await app.open(URL(string: "https://taptime.mt/q?t=abc")!)
+        XCTAssertEqual(view?.locationName, "St Julians")
+        XCTAssertEqual(server.liveQRStarts, ["t=abc"])
+    }
+
+    /// M16-23 (§9, handed over by M16-22): a live QR's problem screens name the screen's code, not
+    /// the plaque -- server, too many, stale, foreign; the plaque's path keeps its words.
+    func testALiveQRsProblemsAreTheScreensVariantsAndThePlaquesStayThePlaques() async {
+        let live = URL(string: "https://taptime.mt/q?t=abc")!
+        await app.launch()
+        server.tapStartScript = [(500, "server_error"), (429, "rate_limited")]
+        await app.open(live)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.serverLive)))
+        await app.open(live)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.tooManyLive)))
+        await app.open(live)
+        server.tapScript = [(400, "stale_context")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.staleLive)))
+        await app.open(live)
+        server.tapScript = [(403, "foreign_tenant")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.foreignTenantLive)))
+        // The plaque's path: unchanged.
+        server.tapStartScript = [(500, "server_error")]
+        await app.open(plaque)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.server)))
+        await app.open(plaque)
+        server.tapScript = [(403, "foreign_tenant")]
+        await tap.press(want: "in")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.foreignTenant)))
+        // The variants keep the plaque's titles and messages (foreign's excepted) and change the hint.
+        for (live, plaque) in [(TapCopy.Problems.serverLive, TapCopy.Problems.server),
+                               (TapCopy.Problems.tooManyLive, TapCopy.Problems.tooMany),
+                               (TapCopy.Problems.staleLive, TapCopy.Problems.stale)] {
+            XCTAssertEqual(live.title, plaque.title)
+            XCTAssertEqual(live.message, plaque.message)
+            XCTAssertNotEqual(live.hint, plaque.hint)
+            XCTAssertFalse(live.hint.contains("plaque"), live.hint)
+        }
+    }
+
+    /// M16-23: the activated iPhone without a reader is told to use the venue screen's code.
+    func testTheNoReaderScreenSendsThePersonToTheVenueScreen() async {
+        reader.isAvailable = false
+        await app.launch()
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.noReader, retry: false)))
+        XCTAssertEqual(TapCopy.Problems.noReader.message,
+                       "This iPhone has no NFC reader. To record a tap, open your camera and scan the code on the Taptime screen at your workplace.")
+        XCTAssertEqual(TapCopy.Problems.noReader.hint, "No screen there? Ask your manager.")
+    }
+
+    /// A live QR URL of another host, port or path is "That link didn't work", sent nowhere.
+    func testALiveQRLinkOfAnotherHostIsSentNowhere() async {
+        await app.launch()
+        let before = server.seen.count
+        for bad in ["https://evil.example/q?t=abc", "https://taptime.mt:8443/q?t=abc", "https://taptime.mt/q/?t=abc",
+                    "https://taptime.mt/qr?t=abc", "https://taptime.mt/q", "https://taptime.mt/q?t=abc#x"] {
+            await app.open(URL(string: bad)!)
+            XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.badURL)), bad)
+        }
+        XCTAssertEqual(server.seen.count, before, "nothing was sent")
+    }
+
+    /// Signed out on a live QR: Safari gets the /q URL rebuilt from the server's origin.
+    func testSignedOutOnALiveQROffersItsRebuiltURLInSafari() async {
+        await app.launch()
+        server.devicesSignedOut.insert(deviceID)
+        await app.open(URL(string: "https://TAPTIME.MT/q?t=abc")!)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: Copy.Problems.signedOut, retry: false,
+                                                             browserURL: URL(string: "https://taptime.mt/q?t=abc")!, startAgain: true)))
     }
 
     /// A link that LAUNCHED the app waits for the record and goes straight to its screen.
@@ -685,5 +785,57 @@ final class PlaqueURLTests: XCTestCase {
     func testTheBrowserURLIsRebuilt() {
         XCTAssertEqual(PlaqueURL.url(base: URL(string: "https://taptime.mt")!, sun: q)?.absoluteString,
                        "https://taptime.mt/t?" + q)
+    }
+
+    /// The plaque's printed static QR is sun.PlaqueQRURL's https://<host>/t?tag=<UID>: the plaque
+    /// route itself, so the same gate lets it through as a plaque.
+    func testThePrintedStaticQRIsThePlaqueRoute() {
+        let printed = URL(string: "https://taptime.mt/t?tag=04A1B2C3D4E5F6")!
+        XCTAssertEqual(TapLink.of(printed, host: host), .plaque(sun: "tag=04A1B2C3D4E5F6"))
+    }
+}
+
+/// The live QR URL's gate (M16-22): the screens' codes are https://<host>/q?t=<token> and nothing
+/// else; the plaque's rule applies, and a plaque URL is never a live QR (nor the other way round).
+final class LiveQRURLTests: XCTestCase {
+    let host = "taptime.mt"
+    let q = "t=AQ00112233445566778899-_abcXYZ"
+
+    func testOnlyTheScreensShapePasses() {
+        XCTAssertEqual(LiveQRURL.query(of: URL(string: "https://taptime.mt/q?" + q)!, host: host), q)
+        XCTAssertEqual(LiveQRURL.query(of: URL(string: "https://TAPTIME.MT/q?" + q)!, host: host), q)
+        for bad in ["https://taptime.mt:8443/q?", "http://taptime.mt/q?", "https://taptime.mt/q/?", "https://evil.example/q?",
+                    "https://taptime.mt.evil.example/q?", "https://taptime.mt/qr?", "https://taptime.mt/Q?", "https://taptime.mt/t?",
+                    "https://taptime.mt/screen?"] {
+            XCTAssertNil(LiveQRURL.query(of: URL(string: bad + q)!, host: host), bad)
+        }
+        for (user, password) in [("u", nil), ("u", "p")] as [(String, String?)] {
+            var c = URLComponents(string: "https://taptime.mt/q?" + q)!
+            c.user = user
+            c.password = password
+            XCTAssertNil(LiveQRURL.query(of: c.url!, host: host), user)
+        }
+        XCTAssertNil(LiveQRURL.query(of: URL(string: "https://taptime.mt/q?" + q + "#x")!, host: host))
+        XCTAssertNil(LiveQRURL.query(of: URL(string: "https://taptime.mt/q")!, host: host))
+    }
+
+    func testATapLinkIsThePlaqueOrTheLiveQR() {
+        XCTAssertEqual(TapLink.of(URL(string: "https://taptime.mt/q?" + q)!, host: host), .liveQR(query: q))
+        XCTAssertEqual(TapLink.of(URL(string: "https://taptime.mt/t?tag=04A1B2C3D4E5F6")!, host: host), .plaque(sun: "tag=04A1B2C3D4E5F6"))
+        XCTAssertNil(TapLink.of(URL(string: "https://taptime.mt/activate?code=x")!, host: host))
+        XCTAssertEqual(TapLink.liveQR(query: q).browserURL(base: URL(string: "https://taptime.mt")!)?.absoluteString,
+                       "https://taptime.mt/q?" + q)
+    }
+
+    /// The path is the server's: GET /q's literal and the screens' TapURL constant (read from the Go
+    /// source, which the test bundle can reach from this checkout).
+    func testThePathIsTheServers() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let token = try String(contentsOf: root.appendingPathComponent("internal/liveqr/token.go"), encoding: .utf8)
+        let livetap = try String(contentsOf: root.appendingPathComponent("internal/handler/livetap.go"), encoding: .utf8)
+        XCTAssertTrue(token.contains("LiveQRTapPath = \"\(LiveQRURL.path)\""), "liveqr.LiveQRTapPath")
+        XCTAssertTrue(token.contains("TokenParam    = \"t\""), "liveqr.TokenParam")
+        XCTAssertTrue(livetap.contains("const LiveQRPath = \"\(LiveQRURL.path)\""), "handler.LiveQRPath")
     }
 }

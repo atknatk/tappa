@@ -374,13 +374,13 @@ func ProductCopy(f ProductFigures) ProductText {
 		ShiftHeading: l("From the invite link to the payroll file.",
 			FactPeopleAreInvitedFromTheDashboard, FactHoursExportAsCSV),
 		ShiftLede: l("Who does what, from a new hire's first link to the hours your payroll reads.",
-			FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnARealTap, FactHoursExportAsCSV),
+			FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnPresence, FactHoursExportAsCSV),
 		ShiftSteps: []ProductStep{
 			{No: "01", Who: "Manager", Title: "Invite",
 				Text: l("Add the person in People, then invite them.", FactPeopleAreInvitedFromTheDashboard)},
 			{No: "02", Who: "Employee", Title: "Activation tap",
 				Text: l("They open the link on their own phone and confirm. Their first tap on one of your plaques finishes the "+
-					"setup — it records no hours.", FactActivationEndsOnARealTap)},
+					"setup — it records no hours.", FactActivationEndsOnPresence)},
 			{No: "03", Who: "Employee", Title: "Clock in",
 				Text: l("From then on, a tap opens the tap screen and one press records it.",
 					FactTapPageNeedsNoApp, FactTapScreenIsOneButtonAndACorrection)},
@@ -587,7 +587,7 @@ type ProductRuleRow struct {
 var ProductGuardRows = []ProductRuleRow{
 	{Sid: "sys:sun-invalid", No: "03", Words: "The NFC signature is wrong, or the plaque's counter did not move", Effect: "Reject"},
 	{Sid: "sys:employee-deactivated", No: "05", Words: "The person has been deactivated", Effect: "Reject"},
-	{Sid: "sys:person-debounce", No: "08", Words: "The same person taps again inside the repeat window", Effect: "Ignore — recorded, counts nothing"},
+	{Sid: "sys:person-debounce", No: "10", Words: "The same person taps again inside the repeat window", Effect: "Ignore — recorded, counts nothing"},
 }
 
 // ProductBaselineRows are three of the baseline rules as the Rules screen lists them.

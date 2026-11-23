@@ -1313,6 +1313,18 @@ components:
         channel:
           type: string
           enum: [nfc, qr]
+          description: |
+            How the employee tapped. `nfc` -- the phone touched the plaque. `qr` -- the phone's camera read a
+            code: the plaque's printed one or, at a venue that has one, a live QR screen's rotating code
+            (`qrKind` says which).
+        qrKind:
+          type: string
+          enum: [static, live]
+          description: |
+            Which code a `qr` punch read: `static` -- the code printed on the plaque; `live` -- the rotating
+            code of a venue's live QR screen, which has no plaque (`tagId` is null). Absent on an `nfc` punch.
+            Added to version 1 and not required: a client that does not read it reads every other field as
+            before, and sees a live QR punch as a `qr` punch.
         direction:
           type: string
           enum: [in, out]
@@ -1340,7 +1352,7 @@ components:
         tagId:
           type: ["string", "null"]
           pattern: "^tag_[0-9A-Fa-f]{14}$"
-          description: The plaque touched (also for a QR punch).
+          description: The plaque touched (also for a QR punch of the plaque's printed code); null for a live QR punch -- there is no plaque.
     PunchDelivery:
       type: object
       additionalProperties: true
@@ -1378,6 +1390,18 @@ components:
         channel:
           type: string
           enum: [nfc, qr]
+          description: |
+            How the employee tapped. `nfc` -- the phone touched the plaque. `qr` -- the phone's camera read a
+            code: the plaque's printed one or, at a venue that has one, a live QR screen's rotating code
+            (`qrKind` says which).
+        qrKind:
+          type: string
+          enum: [static, live]
+          description: |
+            Which code a `qr` punch read: `static` -- the code printed on the plaque; `live` -- the rotating
+            code of a venue's live QR screen, which has no plaque (`tagId` is null). Absent on an `nfc` punch.
+            Added to version 1 and not required: a client that does not read it reads every other field as
+            before, and sees a live QR punch as a `qr` punch.
         direction:
           type: string
           enum: [in, out]
@@ -1405,7 +1429,7 @@ components:
         tagId:
           type: ["string", "null"]
           pattern: "^tag_[0-9A-Fa-f]{14}$"
-          description: The plaque touched (also for a QR punch).
+          description: The plaque touched (also for a QR punch of the plaque's printed code); null for a live QR punch -- there is no plaque.
     Ping:
       type: object
       additionalProperties: true

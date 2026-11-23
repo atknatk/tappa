@@ -376,6 +376,7 @@ templ wizardTap(v ActivateView) {
 				<span class="wizard-waiting-dot" aria-hidden="true"></span>
 				Waiting for your tap…
 			</p>
+			@wizardNoTap(v)
 			if v.SecondDevice || v.HeldByName != "" {
 				@components.Notice(components.ToneWarn, "") {
 					if v.HeldByName != "" {
@@ -402,6 +403,119 @@ templ wizardTap(v ActivateView) {
 		</div>
 	</div>
 	@components.DevTapStrip(true)
+}
+
+// wizardNoTap is the waiting screen's answer for a phone that cannot tap (M16-23). Where no
+// live QR screen runs at the person's venue it is "My phone can't tap": a plain POST with the
+// synchronizer token that opens a manager-approval request -- a quiet link-styled button, not
+// a primary one (step 3 has no primary button, and this is not the tenant accent's slot).
+// Where a screen runs it is one line sending the person to it: the camera opens the screen's
+// code, and that scan finishes the setup (GET /q). The server refuses the request there too;
+// this only decides what is drawn.
+templ wizardNoTap(v ActivateView) {
+	if v.ApprovalOffered {
+		<form method="post" action="/activate/approval" class="flex flex-col">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<button type="submit" class="wizard-back">My phone can't tap</button>
+		</form>
+	} else {
+		<p class="text-center text-sm text-ink/70">
+			Phone can't tap? Open your camera and scan the code on the Taptime screen at your workplace.
+		</p>
+	}
+}
+
+// Approval is the manager-approval screen (M16-23): a phone that cannot tap shows its manager
+// a six-digit code, the manager approves it in the panel, and this page finishes the setup.
+// It sits in the wizard's frame as step 3 -- it IS the last step, by another road -- in the
+// invitation business's look: the header (the logo under the VIES rule, M10 WL-13) and the
+// progress bar's ink-under-accent rule. It has no accent slot: its buttons are the palette's
+// (btn--primary, or btn--ink beside an accent, so the tenant's colour is never doubled by a
+// green fill; ADR 0023 §2, §9's numbered slots are not widened).
+//
+// IT WORKS WITHOUT ITS SCRIPT. "Check now" is the collect form itself: approved, it finishes
+// the setup; not yet, the server sends the person back here. The script (activate.js) only
+// presses it for them once GET /activate/approval/status says "approved", and reloads this
+// page when the answer turns to "rejected" or "expired".
+templ Approval(v ApprovalView, look layout.Brand) {
+	@layout.PageWithScript("Ask your manager — Taptime", "/static/js/activate.js", look) {
+		@wizardShell(ActivateView{Step: ActivateStepTap}, look.Accented()) {
+			<div data-approval-wait data-status-url={ v.StatusURL } data-shown={ v.State } class="flex flex-col gap-6">
+				switch v.State {
+					case "rejected":
+						@approvalEnded(v, look.Accented(), "Your manager didn't approve this phone",
+							"Nothing was set up and nothing was recorded.",
+							"Talk to your manager. If they ask you to, try again.", "Ask again")
+					case "expired":
+						@approvalEnded(v, look.Accented(), "That code ran out of time",
+							"Your manager didn't approve it in time, so nothing was set up.",
+							"Get a new code and show it to your manager.", "Get a new code")
+					default:
+						@approvalWaiting(v, look.Accented())
+				}
+			</div>
+		}
+	}
+}
+
+func approvalButton(accented bool) string {
+	if accented {
+		return "btn btn--ink w-full"
+	}
+	return "btn btn--primary w-full"
+}
+
+templ approvalWaiting(v ApprovalView, accented bool) {
+	<section class="wizard-panel">
+		<p class="docket-label">Last step</p>
+		if v.State == "approved" {
+			<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+				Your manager approved this phone
+			</h1>
+			<p class="mt-3 text-base text-ink/85">Finishing setup…</p>
+		} else {
+			<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+				Ask your manager to approve this phone
+			</h1>
+			<p class="mt-3 text-base text-ink/85">
+				Show this code to your manager. They approve it in Taptime, under People.
+			</p>
+		}
+	</section>
+	if v.State != "approved" && v.Code != "" {
+		<p class="docket text-center font-mono text-5xl font-bold tracking-[0.2em] text-ink" aria-label={ "Code " + v.Code }>{ v.Code }</p>
+		<p class="wizard-waiting" role="status">
+			<span class="wizard-waiting-dot" aria-hidden="true"></span>
+			Waiting for your manager…
+		</p>
+		<p class="text-center text-sm text-ink/70">The code works for { strconv.Itoa(v.Minutes) } minutes.</p>
+	}
+	<div class="wizard-actions">
+		<form method="post" action="/activate/approval/collect" data-approval-collect class="flex flex-col">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			if v.State == "approved" {
+				<button type="submit" class={ approvalButton(accented) }>Finish setup</button>
+			} else {
+				<button type="submit" class="wizard-back">Check now</button>
+			}
+		</form>
+		<a href={ templ.URL(v.BackURL) } class="wizard-back">Back</a>
+	</div>
+}
+
+templ approvalEnded(v ApprovalView, accented bool, title, message, hint, again string) {
+	@components.Notice(components.ToneAlert, "") {
+		<h1 class="font-display text-xl font-bold tracking-tight">{ title }</h1>
+		<p class="mt-2">{ message }</p>
+		<p class="mt-2 text-ink/70">{ hint }</p>
+	}
+	<div class="wizard-actions">
+		<form method="post" action="/activate/approval" class="flex flex-col">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<button type="submit" class={ approvalButton(accented) }>{ again }</button>
+		</form>
+		<a href={ templ.URL(v.BackURL) } class="wizard-back">Back</a>
+	</div>
 }
 
 // plaqueWait is the waiting animation: a plaque, and a phone that comes down to

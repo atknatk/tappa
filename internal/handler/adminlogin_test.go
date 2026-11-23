@@ -663,9 +663,14 @@ func (f *fakeReviewer) recorded() []review.Decision {
 // transaction — a fake accepts whatever it is told, so those live in
 // employeeactions_db_test.go against real Postgres.
 type fakeStaff struct {
-	mu        sync.Mutex
-	person    *tenant.Person
-	personErr error
+	mu sync.Mutex
+	// The manager-approved activation (M16-23): what PendingApprovals answers, and every press.
+	approvals    []tenant.PendingApproval
+	approvalsErr error
+	decideErr    error
+	decisions    []tenant.DecideApprovalCommand
+	person       *tenant.Person
+	personErr    error
 	// M12-20's card summary. The zero value is NotQueried: the fake claims nothing about a
 	// person's sessions or links unless a test says what they are.
 	summary       tenant.PersonSummary
@@ -843,6 +848,24 @@ func (f *fakeStaff) SignOutPhones(_ context.Context, c tenant.SignOutCommand) (t
 		return tenant.SignedOut{Sessions: 1}, nil
 	}
 	return tenant.SignedOut{Sessions: f.signOutCount, AppDevices: f.signOutApps}, nil
+}
+
+// PendingApprovals answers the configured open requests (M16-23); DecideApproval records the press
+// and answers decideErr, or the decision.
+func (f *fakeStaff) PendingApprovals(context.Context, uuid.UUID) ([]tenant.PendingApproval, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.approvals, f.approvalsErr
+}
+
+func (f *fakeStaff) DecideApproval(_ context.Context, c tenant.DecideApprovalCommand) (tenant.DecidedApproval, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.decisions = append(f.decisions, c)
+	if f.decideErr != nil {
+		return tenant.DecidedApproval{}, f.decideErr
+	}
+	return tenant.DecidedApproval{EmployeeID: uuid.New(), Approved: c.Approve}, nil
 }
 
 func (f *fakeStaff) signOutCommands() []tenant.SignOutCommand {

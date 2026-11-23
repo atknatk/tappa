@@ -148,6 +148,9 @@ templ VenueDetail(d VenueDetailView) {
 		</div>
 		@venuePlaques(d)
 		{ children... }
+		if d.LiveQR != nil {
+			@venueLiveQR(*d.LiveQR)
+		}
 		@venueDepartments(d)
 		<div class="flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper px-4 py-4 md:px-6 md:py-[18px]">
 			<h3 class="font-display text-base font-bold tracking-tight">
@@ -285,6 +288,51 @@ templ venuePlaques(d VenueDetailView) {
 			<p class="px-4 pb-4 pt-1.5 text-[13px] text-ink/70 md:px-6">This page could not list every plaque, and none of those it listed is at this venue.</p>
 		} else {
 			<p class="px-4 pb-4 pt-1.5 text-[13px] text-ink/70 md:px-6">No plaque has been mounted at this venue.</p>
+		}
+	</div>
+}
+
+// venueLiveQR is the venue's live QR screens (M16-20): each screen's state as a word, a Remove for
+// the ones that can still show a code, and "Add a live QR screen". The press answers with the one
+// page that shows the new code; nothing here carries one. A scan of the screen proves no touch of a
+// plaque, so how it is judged is the engine's rule for that channel (M16-21), not this block's.
+templ venueLiveQR(q LiveQRBlockView) {
+	<div id="live-qr" class="flex flex-col gap-2.5 rounded-[18px] border border-line bg-paper px-4 py-4 md:px-6 md:py-[18px]">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
+			<h3 class="font-display text-base font-bold tracking-tight">Live QR screens</h3>
+			<form method="post" action={ templ.URL(Bound(ctx, q.AddAction)) }>
+				<input type="hidden" name="location_id" value={ q.VenueID }/>
+				<button type="submit" class="btn btn--line">Add a live QR screen</button>
+			</form>
+		</div>
+		<p class="text-[13px] leading-snug text-ink/70">
+			A tablet or TV at this venue can show a QR code that changes every 20 seconds, for staff whose phones cannot tap the plaque.
+			Open <span class="break-all font-mono text-ink">{ q.ScreenURL }</span> on the screen and type the code you get here.
+		</p>
+		if len(q.Screens) == 0 {
+			<p class="text-[13px] text-ink/70">No screen has been added at this venue.</p>
+		}
+		for _, sc := range q.Screens {
+			<div class="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-dashed border-line pt-2">
+				<span class="flex min-w-0 flex-col gap-0.5">
+					<span class="text-sm font-bold">{ sc.State }</span>
+					<span class="font-mono text-xs text-ink/70">
+						{ "added " + sc.Added }
+						if sc.Since != "" {
+							{ " · " + sc.Since }
+						}
+						if sc.LastSeen != "" {
+							{ " · " + sc.LastSeen }
+						}
+					</span>
+				</span>
+				if sc.CanRemove {
+					<form method="post" action={ templ.URL(Bound(ctx, q.RevokeAction)) }>
+						<input type="hidden" name="display_id" value={ sc.ID }/>
+						<button type="submit" class="inline-flex min-h-11 items-center px-3 text-[13px] font-bold text-ink underline underline-offset-4">Remove<span class="sr-only">{ " this screen" }</span></button>
+					</form>
+				}
+			</div>
 		}
 	</div>
 }

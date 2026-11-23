@@ -165,7 +165,7 @@ type apiFactSources struct {
 	Mig38    string // api_enabled_at, and the guard that tappa_app cannot write it
 	Mig39    string // op_enable_tenant_api
 	// MigFeed is the Up section of the newest migration that defines punch_feed() and
-	// holding_feed() -- feedMigration (00049 until M15-13; 00067 since): punch_feed(), which
+	// holding_feed() -- feedMigration (00049 until M15-13; 00067 until M16-19; 00112 since): punch_feed(), which
 	// queues the webhook delivery, and holding_feed(), which queues the employer's.
 	MigFeed string
 	// ReportsCSV is internal/handler/reportscsv.go: where a manager's typed entry goes
@@ -269,8 +269,9 @@ func v1RouteViolation(s apiFactSources, method, pathConst, want string) string {
 }
 
 // feedMigration is the newest migration whose Up defines punch_feed() and holding_feed(): 00049
-// wrote both, M15-13's 00067 replaced both (directionSource).
-const feedMigration = "00067_say_who_chose_a_punchs_direction.sql"
+// wrote both, M15-13's 00067 replaced both (directionSource), M16-19's 00112 replaced both again (the
+// live QR channel, qr_live, is a counted tap -- Q38 (a)).
+const feedMigration = "00112_add_the_qr_live_channel.sql"
 
 // punchFeedBodyRE cuts punch_feed() out of feedMigration's Up, up to its closing dollar quote.
 var punchFeedBodyRE = regexp.MustCompile(`(?s)CREATE (?:OR REPLACE )?FUNCTION public\.punch_feed\(\).*?\n\$\$;`)
@@ -314,24 +315,24 @@ func apiWritesViolation(s apiFactSources) string {
 	return ""
 }
 
-// The punch feed's two gates (feedMigration's punch_feed): a record enters as an ok tap on the NFC
-// or QR channel, or as a flagged one when it is approved. Nothing on the manual channel
+// The punch feed's two gates (feedMigration's punch_feed): a record enters as an ok tap on the NFC,
+// QR or live QR channel, or as a flagged one when it is approved. Nothing on the manual channel
 // passes either, which is what the pages say ("every counted tap … entries typed by a
 // manager stay in the CSV").
 var (
-	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
+	feedTapGateRE    = regexp.MustCompile(`IF NEW\.verdict <> 'ok' OR NEW\.channel NOT IN \('nfc', 'qr', 'qr_live'\) OR NEW\.practice IS NOT FALSE OR NEW\.type IS NULL THEN\s+RETURN NULL;`)
 	feedReviewGateRE = regexp.MustCompile(`IF NEW\.outcome <> 'approved' THEN\s+RETURN NULL;`)
-	// holding_feed's two gates (feedMigration's): the employer's event is an ok NFC or QR tap, or an
+	// holding_feed's two gates (feedMigration's): the employer's event is an ok NFC, QR or live QR tap, or an
 	// approved flagged one -- the holding twins of the two above (LP-08 re-review: a
 	// 'manual' added to either was green).
-	holdingTapGateRE  = regexp.MustCompile(`v_event := NEW\.verdict = 'ok' AND NEW\.channel IN \('nfc', 'qr'\) AND NEW\.practice IS FALSE AND NEW\.type IS NOT NULL;`)
-	holdingFlagGateRE = regexp.MustCompile(`v_event := NEW\.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN \('nfc', 'qr'\) AND v_practice IS FALSE\s+AND v_type IS NOT NULL;`)
+	holdingTapGateRE  = regexp.MustCompile(`v_event := NEW\.verdict = 'ok' AND NEW\.channel IN \('nfc', 'qr', 'qr_live'\) AND NEW\.practice IS FALSE AND NEW\.type IS NOT NULL;`)
+	holdingFlagGateRE = regexp.MustCompile(`v_event := NEW\.outcome = 'approved' AND v_verdict = 'flag' AND v_channel IN \('nfc', 'qr', 'qr_live'\) AND v_practice IS FALSE\s+AND v_type IS NOT NULL;`)
 	// reportChannelRE is every place the ledger's code reads a record's channel, and
 	// reportManualFieldRE the one it may: marking a row as typed (it never drops it).
 	reportChannelRE     = regexp.MustCompile(`\.Channel\b`)
 	reportManualFieldRE = regexp.MustCompile(`Manual:\s+row\.Channel == "manual",`)
 	reportManualSkipRE  = regexp.MustCompile(`(?s)if\s[^{]*\bManual\b[^{]*\{\s*(?:continue|return)\b`)
-	feedFlagGateRE      = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
+	feedFlagGateRE      = regexp.MustCompile(`IF v_verdict <> 'flag' OR v_channel NOT IN \('nfc', 'qr', 'qr_live'\) OR v_practice IS NOT FALSE OR v_type IS NULL THEN\s+RETURN NULL;`)
 )
 
 // apiFeedViolation is FactAPIFeedsEveryCountedTap's: the feed route, the trigger that
@@ -352,11 +353,11 @@ func apiFeedViolation(s apiFactSources) string {
 		return feedMigration + "'s punch_feed() no longer queues a webhook delivery for a punch"
 	}
 	if !feedTapGateRE.MatchString(body) || !feedReviewGateRE.MatchString(body) || !feedFlagGateRE.MatchString(body) {
-		return feedMigration + "'s punch_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+		return feedMigration + "'s punch_feed() no longer admits exactly an ok NFC, QR or live QR tap and an approved flagged one, " +
 			"so \"every counted tap, and no entry typed by a manager\" is no longer what the feed carries"
 	}
 	if hold := holdingFeedBodyRE.FindString(s.MigFeed); !holdingTapGateRE.MatchString(hold) || !holdingFlagGateRE.MatchString(hold) {
-		return feedMigration + "'s holding_feed() no longer admits exactly an ok NFC or QR tap and an approved flagged one, " +
+		return feedMigration + "'s holding_feed() no longer admits exactly an ok NFC, QR or live QR tap and an approved flagged one, " +
 			"so a holding punch's employer feed is no longer \"every counted tap, and no entry typed by a manager\""
 	}
 	// The hours the CSV prints include a manager's typed entry: the worked-hours read
@@ -1469,7 +1470,7 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}{
 		{"/v1 is not routed", apiWritesViolation, apiPkg, "r.Route(Prefix,", "r.Group("},
 		{"APIPrefix is not /v1", apiFeedViolation, apiHost, `APIPrefix = "/v1"`, `APIPrefix = "/v2"`},
-		{"cmd does not hand the surface to the router", apiGateViolation, cmd, "integrationAPI, oauthTokens, devTools, appLinks)", "oauthTokens, devTools, appLinks)"},
+		{"cmd does not hand the surface to the router", apiGateViolation, cmd, "integrationAPI, oauthTokens, devTools, appLinks, liveScreen)", "oauthTokens, devTools, appLinks, liveScreen)"},
 		{"no PUT locations", apiWritesViolation, apiPkg, "r.Put(locationPath,", "r.Get(locationPath,"},
 		{"no PUT employees", apiWritesViolation, apiPkg, "r.Put(employeePath,", "r.Get(employeePath,"},
 		{"locations moved", apiWritesViolation, apiPkg, `locationPath = "/locations/{ref}"`, `locationPath = "/sites/{ref}"`},
@@ -1480,11 +1481,11 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			"INSERT INTO public.nothing (tenant_id, endpoint_id, punch_event_seq) VALUES (v_employer"},
 		{"no webhook sender", apiFeedViolation, cmd, "work.Add(deliveries)", "_ = deliveries"},
 		{"the webhook body is not the punch", apiFeedViolation, delivery, "\tpunchwire.Punch\n", "\tX int\n"},
-		{"the feed admits a manual record", apiFeedViolation, migFeed, "OR NEW.channel NOT IN ('nfc', 'qr')", "OR NEW.channel NOT IN ('nfc', 'qr', 'manual')"},
+		{"the feed admits a manual record", apiFeedViolation, migFeed, "OR NEW.channel NOT IN ('nfc', 'qr', 'qr_live')", "OR NEW.channel NOT IN ('nfc', 'qr', 'qr_live', 'manual')"},
 		{"the feed admits a rejected record", apiFeedViolation, migFeed, "IF NEW.outcome <> 'approved' THEN", "IF NEW.outcome = 'never' THEN"},
 		{"the CSV drops the manager's entries", apiFeedViolation, reportsCSV, "manager_entered_arrivals", "arrivals"},
-		{"the holding feed admits a manual record", apiFeedViolation, migFeed, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'manual')"},
-		{"the holding feed admits a manual approval", apiFeedViolation, migFeed, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'manual')"},
+		{"the holding feed admits a manual record", apiFeedViolation, migFeed, "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'qr_live')", "v_event := NEW.verdict = 'ok' AND NEW.channel IN ('nfc', 'qr', 'qr_live', 'manual')"},
+		{"the holding feed admits a manual approval", apiFeedViolation, migFeed, "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'qr_live')", "AND v_verdict = 'flag' AND v_channel IN ('nfc', 'qr', 'qr_live', 'manual')"},
 		{"the worked-hours read drops typed rows", apiFeedViolation, txQueries, "  AND NOT t.practice\n  AND t.occurred_at >= @from_at", "  AND NOT t.practice\n  AND t.channel <> 'manual'\n  AND t.occurred_at >= @from_at"},
 		{"the ledger skips a typed row", apiFeedViolation, report, "if e.Manual {", "if e.Manual {\n\t\t\tcontinue\n\t\t}\n\t\tif e.Manual {"},
 		{"the ledger reads the channel again", apiFeedViolation, report, `Manual:       row.Channel == "manual",`, `Manual:       row.Channel == "manual" || row.Channel == "x",`},
@@ -1509,12 +1510,13 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 			t.Errorf("API control %q: the derivation still holds over a source without it", tc.name)
 		}
 	}
+	// A name after feedMigration, whatever it is (00099 was "later" until 00112 became feedMigration).
 	redefined := api
-	redefined.Migrations = map[string]string{"00099_x.sql": "CREATE OR REPLACE FUNCTION public.punch_feed() RETURNS trigger"}
+	redefined.Migrations = map[string]string{"99999_x.sql": "CREATE OR REPLACE FUNCTION public.punch_feed() RETURNS trigger"}
 	if apiFeedViolation(redefined) == "" {
 		t.Error("apiFeedViolation does not notice a later migration redefining punch_feed()")
 	}
-	redefined.Migrations = map[string]string{"00099_x.sql": "CREATE OR REPLACE FUNCTION public.holding_feed() RETURNS trigger"}
+	redefined.Migrations = map[string]string{"99999_x.sql": "CREATE OR REPLACE FUNCTION public.holding_feed() RETURNS trigger"}
 	if apiFeedViolation(redefined) == "" {
 		t.Error("apiFeedViolation does not notice a later migration redefining holding_feed()")
 	}

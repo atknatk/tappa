@@ -49,6 +49,8 @@ var (
 	testTenant   = uuid.MustParse("11111111-1111-4111-8111-111111111111")
 	testEmployee = uuid.MustParse("22222222-2222-4222-8222-222222222222")
 	testInvite   = uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	testRequest  = uuid.MustParse("44444444-4444-4444-8444-444444444444")
+	testApprover = uuid.MustParse("55555555-5555-4555-8555-555555555555")
 )
 
 func okContext(status string) invite.Context {
@@ -72,6 +74,14 @@ type fakeInvites struct {
 	activateCalls int
 	consentCalls  int
 	steps         *[]string
+	// M16-23: the approval path's knobs and counters.
+	approvalOffered  *bool
+	openErr          error
+	openCalls        int
+	openClient       string
+	approval         *invite.Approval
+	approvedCalls    int
+	activateApproved func(invite.Code) (invite.ApprovedActivation, error)
 }
 
 func (f *fakeInvites) RecordConsent(_ context.Context, c invite.Code, _ invite.Binding) (invite.Context, error) {
@@ -106,6 +116,51 @@ func (f *fakeInvites) Activate(_ context.Context, c invite.Code, _ invite.Bindin
 
 func (f *fakeInvites) ActivationContext(_ context.Context, _, _ uuid.UUID) (invite.Context, error) {
 	return okContext("active"), nil
+}
+
+// The manager-approved activation's four (M16-23). approvalOffered nil means "no screen runs"
+// (offered); approval nil means "this binding never asked".
+func (f *fakeInvites) ApprovalOffered(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	if f.approvalOffered == nil {
+		return true, nil
+	}
+	return *f.approvalOffered, nil
+}
+
+func (f *fakeInvites) OpenApproval(_ context.Context, c invite.Code, _ invite.Binding, client string) (invite.Approval, error) {
+	f.openCalls++
+	f.openClient = client
+	ictx, err := f.Lookup(context.Background(), c)
+	if err != nil {
+		return invite.Approval{Context: ictx}, err
+	}
+	if f.openErr != nil {
+		return invite.Approval{Context: ictx}, f.openErr
+	}
+	return invite.Approval{Context: ictx, RequestID: testRequest, PairingCode: invite.ParsePairingCode("482913"),
+		State: invite.ApprovalWaiting, ExpiresAt: time.Now().Add(invite.ApprovalTTL)}, nil
+}
+
+func (f *fakeInvites) ApprovalState(_ context.Context, c invite.Code, _ invite.Binding) (invite.Approval, error) {
+	ictx, err := f.Lookup(context.Background(), c)
+	if err != nil {
+		return invite.Approval{Context: ictx}, err
+	}
+	if f.approval == nil {
+		return invite.Approval{Context: ictx}, invite.ErrNoApproval
+	}
+	ap := *f.approval
+	ap.Context = ictx
+	return ap, nil
+}
+
+func (f *fakeInvites) ActivateApproved(_ context.Context, c invite.Code, _ invite.Binding) (invite.ApprovedActivation, error) {
+	f.approvedCalls++
+	if f.activateApproved != nil {
+		return f.activateApproved(c)
+	}
+	return invite.ApprovedActivation{Activation: invite.Activation{Context: okContext("active")},
+		RequestID: testRequest, ApprovedBy: testApprover}, nil
 }
 
 type fakeSessions struct {

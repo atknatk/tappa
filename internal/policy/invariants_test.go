@@ -34,11 +34,12 @@ import (
 // terminal first-match layer can only ever restrict. (TestGuardrails_NormativeOrder
 // already pins the sids/order; this adds the effect invariant, not covered there.)
 //
-// ONE NAMED EXCEPTION, review (reviewGuardrails): ADR 0027 §7's cross-tenant QR guardrail
+// TWO NAMED EXCEPTIONS, review (reviewGuardrails): ADR 0027 §7's cross-tenant QR guardrail
 // FLAGS -- it may not reject, because a QR scan at a peer's venue without that venue's
 // network is still somebody's attendance and §4.6 keeps it -- and it is as terminal as
 // the rest: no policy turns it into allow (TestGuardrail_NoTenantPolicyCanLoosen carries
-// its scenario), and no policy turns it into deny either (K-38's named cost).
+// its scenario), and no policy turns it into deny either (K-38's named cost); and Q39
+// (b)'s expired live QR guardrail (M16-21), for the same two reasons.
 func TestInvariant_GuardrailsAreOnlyRestrictive(t *testing.T) {
 	for _, g := range DefaultGuardrails() {
 		if g.Effect == EffectReview && reviewGuardrails[g.Sid] != "" {
@@ -60,6 +61,9 @@ var reviewGuardrails = map[string]string{
 	"sys:cross-tenant-qr-site-ip": "ADR 0027 §7 (K-1g, the user's decision 2026-10-10; K-38): a QR scan at a peer's " +
 		"venue without that venue's network is recorded and queued -- flag, never a silent reject (§4.6) -- and the " +
 		"employer can neither loosen nor tighten it",
+	"sys:live-qr-expired": "Q39 (b) (the user's answer 2026-11-19; ADR 0045 §2.5, M16-21): a genuine live QR token " +
+		"first seen past its window plus the network grace is recorded and queued -- flag + a note, never a reject " +
+		"(the scan is real) and never a tenant-loosenable allow (an old photograph would equal standing at the screen)",
 }
 
 // --- §4.1: no context key or Context field is body-derived --------------------
@@ -79,7 +83,7 @@ var reviewGuardrails = map[string]string{
 // which scans PRODUCTION code. Pinning the surface here means this test needs to
 // name no forbidden term itself, and any drift in the input surface fails loudly.
 func TestInvariant_NoBodyDerivedContextKey(t *testing.T) {
-	// (a) the closed context-key vocabulary is EXACTLY these 26 keys (ADR 0004 §8),
+	// (a) the closed context-key vocabulary is EXACTLY these 29 keys (ADR 0004 §8),
 	// every one a place/time/status/role/tap signal — none a body attribute (§4.1).
 	// tap:client and tap:mockLocation are ADR 0045 §2.4's (M16-06): which endpoint
 	// accepted the tap, and whether the app's OS called the position it sent a mock
@@ -94,9 +98,12 @@ func TestInvariant_NoBodyDerivedContextKey(t *testing.T) {
 		CtxEmployeeCrossLocation: true, CtxLocationID: true, CtxTimeLocalHour: true,
 		CtxTimeWithinShift: true, CtxTimeMinutesLate: true, CtxActorRole: true,
 		CtxTapClient: true, CtxTapMockLocation: true,
+		// M16-21 (ADR 0045 §2.5): the live QR token's verification and lateness, and
+		// the screen's state -- server facts about a signed code on a venue's screen.
+		CtxTapTokenVerified: true, CtxTapTokenOverdueSeconds: true, CtxScreenStatus: true,
 	}
-	if len(wantKeys) != 26 {
-		t.Fatalf("the golden key set itself must list 26 keys (ADR 0004 §8, ADR 0045 §2.4), lists %d", len(wantKeys))
+	if len(wantKeys) != 29 {
+		t.Fatalf("the golden key set itself must list 29 keys (ADR 0004 §8, ADR 0045 §2.4, §2.5), lists %d", len(wantKeys))
 	}
 	if len(validContextKeys) != len(wantKeys) {
 		t.Fatalf("closed context-key vocabulary has %d keys, expected %d — a new key needs an ADR (ADR 0004 §8) and review it is not body-derived (§4.1)",

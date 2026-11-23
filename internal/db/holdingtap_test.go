@@ -283,6 +283,8 @@ func holdingWantGate(t *testing.T, err error, what string) {
 //   - the refusal of a KF plaque with no wall (unassigned) is WRITTEN: site_location_id NULL is
 //     allowed on a tap channel (§4.6);
 //   - a manual record for KF's venue (site_location_id, no plaque) is written;
+//   - a live QR refusal at KF's screen (site_location_id, no plaque -- 00112's third arm, Q43 (b)) is
+//     written, and one naming a plaque or no site location is refused by transactions_site_by_channel;
 //   - site_tenant_id = tenant_id is refused -- by the gate first (a tenant is never its own
 //     peer), and with the gate disabled by transactions_site_is_another_tenant;
 //   - site_tenant_id NULL with a site location or a site plaque is refused (the 7th round's
@@ -305,6 +307,10 @@ func TestHoldingCheck_ChannelRules(t *testing.T) {
 	if err := holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "manual", verdict: "flag", kind: "in",
 		siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
 		t.Errorf("a manual record for KF's venue was not written: %v", err)
+	}
+	if err := holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "qr_live", verdict: "reject",
+		siteTenant: &w.kf, siteVenue: &w.kfVenue}); err != nil {
+		t.Errorf("a live QR refusal at KF's screen was not written: %v", err)
 	}
 	holdingWantGate(t, holdingInsertRow(t, ctx, tx, holdingRow{employer: w.km, employee: w.kmEmployee, channel: "qr", verdict: "flag", kind: "in",
 		siteTenant: &w.km, siteTag: &w.kfTag}), "a row naming its own tenant as the site (the gate)")
@@ -334,6 +340,11 @@ func TestHoldingCheck_ChannelRules(t *testing.T) {
 				holdingRow{channel: "manual", verdict: "flag", kind: "in", siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}},
 			{"a manual record with no site location", "transactions_site_by_channel",
 				holdingRow{channel: "manual", verdict: "flag", kind: "in", siteTenant: &w.kf}},
+			// 00112 (M16-19): the live QR's arm is the manual arm's shape -- a screen is no plaque.
+			{"a live QR refusal naming a site plaque", "transactions_site_by_channel",
+				holdingRow{channel: "qr_live", verdict: "reject", siteTenant: &w.kf, siteVenue: &w.kfVenue, siteTag: &w.kfTag}},
+			{"a live QR refusal with no site location", "transactions_site_by_channel",
+				holdingRow{channel: "qr_live", verdict: "reject", siteTenant: &w.kf}},
 			{"a site row with a local venue", "transactions_site_excludes_the_local_venue",
 				holdingRow{channel: "qr", verdict: "flag", kind: "in", siteTenant: &w.kf, siteTag: &w.kfTag, localVenue: &kmVenue}},
 			{"a site row with a local plaque", "transactions_site_excludes_the_local_venue",
@@ -928,6 +939,8 @@ func TestHoldingReads_AfterLeftReturnNothing(t *testing.T) {
 //	QR flag                                                     refused   refused   (strict)
 //	QR ok, sun_valid true, ctr <= last_ctr (arm i's shape)      refused   refused   (strict)
 //	manual                                                      refused   refused   (strict)
+//	live QR refusal (00112, Q43 (b): site location, no plaque)  written   refused   (arm ii)
+//	live QR flag (a shape the engine never writes, Q43 (b))     refused   refused   (strict)
 //
 // and with KM a live member every row is written. Named rows of ADR 0027's list it carries:
 // HoldingWindow_AdvancedBeforeLeftWrittenAfterIsRecorded, ..._RefusalsSurviveTheLeftRace,
@@ -969,6 +982,15 @@ func TestHoldingWindow_GateArms(t *testing.T) {
 		}, false},
 		{"ManualAfterLeftIsRefused", func(w holdingWorld) holdingRow {
 			return holdingRow{channel: "manual", verdict: "flag", kind: "in", siteTenant: &w.kf, siteVenue: &w.kfVenue}
+		}, false},
+		// 00112 (M16-19): a live QR refusal is a refusal on a tap channel -- the tolerant arm, so a
+		// membership ending between the decision and the write does not cost the record (§4.6).
+		// MUTANT: 'qr_live' out of the gate's channel list -> this row is refused 10 s after left_at.
+		{"LiveQRRefusalSurvivesTheLeftRace", func(w holdingWorld) holdingRow {
+			return holdingRow{channel: "qr_live", verdict: "reject", siteTenant: &w.kf, siteVenue: &w.kfVenue}
+		}, true},
+		{"LiveQRFlagAfterLeftIsRefused", func(w holdingWorld) holdingRow {
+			return holdingRow{channel: "qr_live", verdict: "flag", kind: "in", siteTenant: &w.kf, siteVenue: &w.kfVenue}
 		}, false},
 	}
 	ctx, tx := opTx(t)

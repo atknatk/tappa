@@ -9,12 +9,14 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atknatk/tappa/internal/appdevice"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/geo"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/liveqr"
 	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -78,6 +80,61 @@ type appMeResponse struct {
 	Brand        appBrand `json:"brand"`
 	// Direction is "in", "out", or "" for the direction-neutral "Tap" (Q41).
 	Direction string `json:"direction"`
+	// Presence is the open check-in the next tap would close (M16-45), null otherwise. The app
+	// schedules its local reminder and lock-screen timer from it and computes nothing itself.
+	Presence *appPresence `json:"presence"`
+	// Shift is the person's usual shift, null unless the owner marked the shifts real (00116).
+	Shift *appShift `json:"shift"`
+	// MissingTimes is how many records take a claim now (M16-43): the app shows "Missing times"
+	// only when it is above 0, and reads the list only when that screen opens.
+	MissingTimes int `json:"missingTimes"`
+}
+
+// appPresence carries instants (RFC 3339, UTC) for the phone's scheduling and the business's
+// wall clock (HH:MM, rendered here -- §6) for its words. The app never converts a zone.
+type appPresence struct {
+	InSince          time.Time  `json:"inSince"`
+	InSinceLocal     string     `json:"inSinceLocal"`
+	ShiftEndsAt      *time.Time `json:"shiftEndsAt"`
+	ShiftEndsAtLocal *string    `json:"shiftEndsAtLocal"`
+	RemindAt         *time.Time `json:"remindAt"`
+	ShowUntil        time.Time  `json:"showUntil"`
+	StaleAt          time.Time  `json:"staleAt"`
+}
+
+type appShift struct {
+	Start     string `json:"start"`
+	End       string `json:"end"`
+	Overnight bool   `json:"overnight"`
+	Venue     string `json:"venue"`
+}
+
+func appPresenceOf(p *tenant.Presence) *appPresence {
+	if p == nil {
+		return nil
+	}
+	out := &appPresence{
+		InSince:      p.InSince.UTC(),
+		InSinceLocal: localClock(p.InSince, p.Timezone),
+		ShowUntil:    p.ShowUntil.UTC(),
+		StaleAt:      p.StaleAt.UTC(),
+	}
+	if p.ShiftEndsAt != nil {
+		e, l := p.ShiftEndsAt.UTC(), localClock(*p.ShiftEndsAt, p.Timezone)
+		out.ShiftEndsAt, out.ShiftEndsAtLocal = &e, &l
+	}
+	if p.RemindAt != nil {
+		r := p.RemindAt.UTC()
+		out.RemindAt = &r
+	}
+	return out
+}
+
+func appShiftOf(s *tenant.UsualShift) *appShift {
+	if s == nil {
+		return nil
+	}
+	return &appShift{Start: clockOf(s.Start), End: clockOf(s.End), Overnight: s.Overnight, Venue: s.Venue}
 }
 
 // Me serves GET /app/v1/me: the app's home screen before any plaque is read (Q41 (a): the iPhone
@@ -112,10 +169,17 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 		a.log.WarnContext(ctx, "app: the stored accent does not pass the legibility gate today; no accent",
 			"tenant_id", dev.TenantID)
 	}
+	if facts.ShiftErr != nil {
+		a.log.ErrorContext(ctx, "app: reading the usual shift failed; no presence and no shift",
+			"tenant_id", dev.TenantID, "employee_id", dev.EmployeeID, "err", facts.ShiftErr)
+	}
 	a.writeAppJSON(w, r, http.StatusOK, appMeResponse{
 		EmployeeName: facts.EmployeeName,
 		Brand:        appBrandOf(facts.Brand),
 		Direction:    appDirectionOf(facts.Prediction),
+		Presence:     appPresenceOf(facts.Presence),
+		Shift:        appShiftOf(facts.Shift),
+		MissingTimes: a.missingTimes(ctx, dev.TenantID, dev.EmployeeID),
 	})
 }
 
@@ -123,7 +187,11 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 
 type appTapStartRequest struct {
 	// SUN is the plaque URL's QUERY, as the NFC read (or the QR) gave it: tag=..&ctr=..&cmac=..
-	SUN string `json:"sun"`
+	SUN string `json:"sun,omitempty"`
+	// LiveQR is a venue screen's live QR URL's QUERY (<base>/q?t=<token>, M16-20), as the camera
+	// gave it (M16-22). Exactly one of SUN and LiveQR is sent; the token is opened here, on the
+	// server, by GET /q's own reader, and never travels further (§7).
+	LiveQR string `json:"liveQR,omitempty"`
 }
 
 type appTapStartResponse struct {
@@ -156,7 +224,8 @@ func parseSUNQuery(raw string) (sun.Params, error) {
 // signed context for the press.
 //
 // ORDER: the signature first -- a caller who cannot sign learns nothing about any plaque -- then
-// the SUN query, then the page's own order (pre-check, facts, mint).
+// the SUN query, then the page's own order (pre-check, facts, mint). A body carrying `liveQR`
+// instead is a venue screen's code (tapStartLive, GET /q's twin), opened after the same signature.
 func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
 	body, ok := readAppBody(w, r)
@@ -167,9 +236,13 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	// declares (signedOutAppTap). Nothing is acted on until the read verifies.
 	var in appTapStartRequest
 	decoded := decodeAppJSON(body, &in)
+	live := decoded && in.LiveQR != ""
 	p, perr := parseSUNQuery(in.SUN)
 	channel := "unverified"
-	if decoded && perr == nil {
+	switch {
+	case live && in.SUN == "":
+		channel = string(sun.ChannelQRLive)
+	case decoded && !live && perr == nil:
 		channel = string(p.Channel)
 	}
 	dev, ok := a.authRead(w, r, body, "tap_start", channel)
@@ -178,6 +251,10 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decoded {
 		writeAppError(w, appErrBadRequest)
+		return
+	}
+	if live {
+		a.tapStartLive(w, r, dev, in)
 		return
 	}
 	if err := perr; err != nil {
@@ -248,6 +325,103 @@ func (a *App) TapStart(w http.ResponseWriter, r *http.Request) {
 	}, dev.ID)
 	if err != nil {
 		a.log.ErrorContext(ctx, "app tap start: minting the tap context failed", "employee_id", dev.EmployeeID, "err", err)
+		writeAppError(w, appErrServer)
+		return
+	}
+	out.Context = signed
+	a.writeAppJSON(w, r, http.StatusOK, out)
+}
+
+// tapStartLive is TapStart for a venue screen's live QR (M16-22) -- GET /q's twin, as TapStart is
+// GET /t's. It writes NOTHING: the token is opened by GET /q's reader (liveQRTap.open: shape and
+// tag in constant time, the screen from its row, the row's venue equal to the token's), and what
+// crosses to the phone is the OUTCOME inside the signed context -- the version-2 layout GET /q
+// mints, bound to this device -- never the token (§7). The press is the ordinary POST
+// /app/v1/tap, which hands the context's live QR half to the same checkin.Service.Record GET /q's
+// press reaches: no second writer.
+//
+// A TOKEN THAT DOES NOT VERIFY STILL GETS THE TAP SCREEN, as GET /q renders for it: the refusal
+// is Q39 (a)'s RECORDED reject (sys:live-qr-unverified), written by the press (§4.6). A removed
+// screen, a switched-off venue, an expired token and a peer's screen answer the same way, for the
+// same reason -- the decision, and its record, are the press's.
+//
+// Refused here, with nothing written (bad_request): a body naming a plaque AND a live QR, and a
+// server whose live QR is off (TAPPA_LIVE_QR_KEY unset -- GET /q is not mounted then, a 404).
+func (a *App) tapStartLive(w http.ResponseWriter, r *http.Request, dev appdevice.Device, in appTapStartRequest) {
+	ctx := r.Context() // see checkin.go: one level of paren depth for redline R7.
+	if in.SUN != "" {
+		a.log.InfoContext(ctx, "app tap start: a plaque and a live QR code in one request", "employee_id", dev.EmployeeID)
+		writeAppError(w, appErrBadRequest)
+		return
+	}
+	if a.live == nil {
+		a.log.InfoContext(ctx, "app tap start: a live QR code, and live QR is off on this server", "employee_id", dev.EmployeeID)
+		writeAppError(w, appErrBadRequest)
+		return
+	}
+	// GET /q reads r.URL.Query().Get(t); this is the same reading of the same query. A query that
+	// does not parse carries no token, which Open answers as malformed -- Q39 (a)'s recorded
+	// reject, as in the browser.
+	token := ""
+	if q, err := url.ParseQuery(in.LiveQR); err == nil {
+		token = q.Get(liveqr.TokenParam)
+	}
+	o, err := a.live.open(ctx, token)
+	if err != nil {
+		a.log.ErrorContext(ctx, "app tap start: resolving the live QR screen failed", "display_id", o.Claims.DisplayID, "err", err)
+		writeAppError(w, appErrServer)
+		return
+	}
+	switch o.Refusal {
+	case liveRefusalMalformed, liveRefusalSignature:
+		a.log.WarnContext(ctx, "app tap start: the live QR code did not verify; the press records a reject",
+			"kind", o.Refusal, "employee_id", dev.EmployeeID, "tenant_id", dev.TenantID)
+	case liveRefusalUnknownScreen:
+		a.log.WarnContext(ctx, "app tap start: a genuine live QR code names a screen we do not hold; the press records a reject",
+			"display_id", o.Claims.DisplayID, "employee_id", dev.EmployeeID)
+	case liveRefusalVenueMismatch:
+		a.log.ErrorContext(ctx, "app tap start: a genuine live QR code names a venue its screen is not at; the press records a reject",
+			"display_id", o.Claims.DisplayID, "employee_id", dev.EmployeeID)
+	}
+
+	// GET /q's derivation, the same function: the context's live half and the prediction gate.
+	live := liveTapOf(o, dev.TenantID)
+	facts, err := a.directory.TapPage(ctx, dev.TenantID, dev.EmployeeID, live.Context.LocationID, live.Predict)
+	// QR stays false, as GET /q draws pages.Tap with QR false: the flag is the static QR's wording
+	// and the browser's bfcache reload, neither of which a live QR has.
+	var out appTapStartResponse
+	switch {
+	case errors.Is(err, tenant.ErrForeignLocation):
+		// Another business's screen (a peer's -- refused at the press, Q43 (b) -- or one outside
+		// the holding -- foreign_tenant at the press), or no screen believed: no venue, no brand.
+		a.log.WarnContext(ctx, "app tap start: no venue of this business to show for the live QR code",
+			"employee_id", dev.EmployeeID, "session_tenant_id", dev.TenantID,
+			"display_id", o.Screen.ID, "screen_tenant_id", live.Context.TagTenantID, "verified", o.Verified)
+		out.EmployeeName = facts.EmployeeName
+	case errors.Is(err, tenant.ErrBrandUnread):
+		a.log.ErrorContext(ctx, "app tap start: reading the business's brand failed; answering Taptime's",
+			"tenant_id", dev.TenantID, "employee_id", dev.EmployeeID, "err", err)
+		out.EmployeeName, out.LocationName = facts.EmployeeName, facts.LocationName
+	case err != nil:
+		a.log.ErrorContext(ctx, "app tap start: loading the employee failed", "employee_id", dev.EmployeeID, "err", err)
+		writeAppError(w, appErrServer)
+		return
+	default:
+		if facts.Brand.AccentRefused {
+			a.log.WarnContext(ctx, "app tap start: the stored accent does not pass the legibility gate today; no accent",
+				"tenant_id", dev.TenantID)
+		}
+		if facts.PredictionErr != nil {
+			a.log.ErrorContext(ctx, "app tap start: reading the predicted direction failed; the button says Tap",
+				"tenant_id", dev.TenantID, "employee_id", dev.EmployeeID, "err", facts.PredictionErr)
+		}
+		out.EmployeeName, out.LocationName = facts.EmployeeName, facts.LocationName
+		out.Brand = appBrandOf(facts.Brand)
+		out.Direction = appDirectionOf(facts.Prediction)
+	}
+	signed, err := a.contexts.mintForDevice(live.Context, dev.ID)
+	if err != nil {
+		a.log.ErrorContext(ctx, "app tap start: minting the live QR tap context failed", "employee_id", dev.EmployeeID, "err", err)
 		writeAppError(w, appErrServer)
 		return
 	}
@@ -359,6 +533,12 @@ func (a *App) Tap(w http.ResponseWriter, r *http.Request) {
 		Channel:         tap.Channel(tctx.Channel),
 		CMACVerified:    tctx.CMACVerified,
 		TagTenantID:     tctx.TagTenantID,
+		// The live QR half of the context (M16-21): tap/start's live QR read mints it (M16-22,
+		// tapStartLive), zero for a plaque. checkin's validate refuses a verified code without its
+		// expiry, so a context that lost TokenExpiresAt could not record a stale photo as fresh.
+		DisplayID:      tctx.DisplayID,
+		TokenVerified:  tctx.TokenVerified,
+		TokenExpiresAt: tctx.TokenExpiresAt,
 		// SERVER-DERIVED (ADR 0045 §2.4): this handler is the app's endpoint, so the client is the
 		// app by construction -- nothing in the request is read for it.
 		Client:       tap.ClientApp,

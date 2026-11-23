@@ -431,6 +431,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// "Missing times" in the staff app (M16-43, ADR 0050 (i)): the SAME claim service the result
+	// screen's card sends through -- one Submit, one lock, one queue.
+	if err := app.ServeClaims(claims, cfg); err != nil {
+		return err
+	}
 
 	// Panel authentication (M6-01 phase B). It is a SEPARATE manager from
 	// `sessions` on purpose — separate table, separate resolver, separate cookie
@@ -915,6 +920,13 @@ func run() error {
 		return err
 	}
 	panelOptions = append(panelOptions, handler.AdminMemberships(memberships))
+	// THE LIVE QR SCREENS (M16-20, ADR 0045 §2.5): only while TAPPA_LIVE_QR_KEY is set -- the panel's
+	// screens block and its two writes, and the screen page (liveScreen, a nil Mounter when off).
+	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, tap, app, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelOptions = append(panelOptions, liveQROptions...)
 	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, resetFlow, cfg, slog.Default(), panelOptions...)
 	if err != nil {
 		return err
@@ -1056,7 +1068,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:        cfg.Addr,
 		BaseContext: assetContext(assets),
-		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools, appLinks),
+		Handler:     appRouter(cfg, slog.Default(), activation, tap, app, panelAuth, panelAuth.InviteAcceptance(), panelAuth.EmailUndo(), logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface, integrationAPI, oauthTokens, devTools, appLinks, liveScreen),
 		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
 		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
 		// WriteTimeout hands the client EOF while the access record says 200 (measured;

@@ -47,6 +47,7 @@ import (
 	"github.com/atknatk/tappa/internal/egress"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/punchwire"
 	"github.com/atknatk/tappa/internal/webhook"
 	"github.com/atknatk/tappa/internal/webhook/delivery"
 	"github.com/atknatk/tappa/internal/webhook/endpoints"
@@ -1422,8 +1423,12 @@ func TestOpenAPI_TheWebhooksAreTheSenders(t *testing.T) {
 	if canonical(append([]any{"event", "deliveryId"}, pReq.([]any)...)) != canonical(dReq) {
 		t.Errorf("PunchDelivery's required %v, Punch's %v", dReq, pReq)
 	}
-	// The body's JSON names are the documented properties, in the wire struct's own order.
-	b, err := json.Marshal(delivery.Body{})
+	// The body's JSON names are the documented properties, in the wire struct's own order. qrKind
+	// is the one property the wire OMITS when it has no value (an nfc punch -- Q38 (a), M16-21:
+	// absent, so an nfc body's bytes and signatures did not move), so the body marshalled here is
+	// a QR punch's, which carries every documented key.
+	kind := "live"
+	b, err := json.Marshal(delivery.Body{Punch: punchwire.Punch{QRKind: &kind}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -20,9 +22,10 @@ import androidx.compose.runtime.setValue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import mt.taptime.app.activation.ActivationFlow
+import mt.taptime.app.activation.ApprovalPoll
 import mt.taptime.app.activation.InviteCode
 import mt.taptime.app.activation.PendingActivation
-import mt.taptime.app.activation.PlaqueRead
+import mt.taptime.app.activation.TapLink
 import mt.taptime.app.activation.Problem
 import mt.taptime.app.device.KeystoreKeys
 import mt.taptime.app.device.PrefsDeviceState
@@ -33,7 +36,19 @@ import mt.taptime.app.tap.Retry
 import mt.taptime.app.tap.TapFlow
 import mt.taptime.app.tap.TapLocation
 import mt.taptime.app.tap.TapProblem
+import mt.taptime.app.staff.AlarmReminder
+import mt.taptime.app.staff.ClaimWords
+import mt.taptime.app.staff.OngoingTimer
+import mt.taptime.app.staff.PrefsStaffSwitches
+import mt.taptime.app.staff.PresenceSync
+import mt.taptime.app.staff.StaffChannels
+import mt.taptime.app.staff.StaffFlow
+import mt.taptime.app.staff.TimerDismissals
 import mt.taptime.app.ui.ActivatedScreen
+import mt.taptime.app.ui.ClaimNotice
+import mt.taptime.app.ui.HomeScreen
+import mt.taptime.app.ui.MissingTimesScreen
+import mt.taptime.app.ui.SettingsScreen
 import mt.taptime.app.ui.BlockedScreen
 import mt.taptime.app.ui.CodeScreen
 import mt.taptime.app.ui.LoadingScreen
@@ -46,11 +61,16 @@ import mt.taptime.app.ui.SetUpScreen
 import mt.taptime.app.ui.TapProblemScreen
 import mt.taptime.app.ui.TapScreen
 import mt.taptime.app.ui.TermsSheet
+import mt.taptime.app.ui.WaitingScreen
 import mt.taptime.app.ui.WelcomeScreen
 import mt.taptime.app.wire.AppClient
+import mt.taptime.app.wire.ApprovalReply
 import mt.taptime.app.wire.Brand
 import mt.taptime.app.wire.HttpUrlTransport
 import mt.taptime.app.wire.LookupReply
+import mt.taptime.app.wire.MeReply
+import mt.taptime.app.wire.OpenClaim
+import mt.taptime.app.wire.SentClaim
 import mt.taptime.app.wire.OrgJsonDecoder
 import mt.taptime.app.wire.ServerClock
 import mt.taptime.app.wire.TapReply
@@ -59,9 +79,14 @@ import mt.taptime.app.wire.TapReply
 // (M16-13).
 //
 // HOW A PLAQUE OPENS IT (manifest): an NFC read of <base>/t (NDEF_DISCOVERED) or an App Link to the
-// same URL (a QR scanned by the camera, a link). Either lands here with the URL as the intent's data,
-// at launch or -- the activity is singleTop -- in onNewIntent. The URL goes to TapFlow.start and
-// nowhere else; a URL that is not this server's <base>/t is "That link didn't work".
+// same URL (the plaque's printed QR scanned by the camera, a link). Either lands here with the URL as
+// the intent's data, at launch or -- the activity is singleTop -- in onNewIntent. A VENUE SCREEN'S
+// LIVE QR (M16-22) is an App Link to <base>/q: the system camera reads it (no reader in the app, Q36
+// (c)), and it lands here the same way. The URL goes to TapFlow.start and nowhere else; a URL that is
+// not this server's <base>/t or <base>/q is "That link didn't work". During activation (step 3, a
+// consent bound) a live QR read FINISHES the activation (M16-23): its query goes to
+// activate/complete as `liveQR` -- the way a phone without an NFC reader activates. A static
+// plaque QR (`<base>/t?tag=` without SUN) still needs a touch, as today.
 //
 // STATE IS HELD HERE, IN MEMORY, AND NOWHERE ELSE. The manifest keeps this activity across
 // configuration changes (android:configChanges), so a rotation does not rebuild it and the
@@ -89,9 +114,26 @@ class MainActivity : ComponentActivity() {
         }
         data class Ready(val pending: PendingActivation) : Screen
         data class Tap(val pending: PendingActivation, val problem: Problem? = null, val busy: Boolean = false) : Screen
+        /**
+         * M16-23: waiting for the manager's approval. [approval] carries the pairing code (its own
+         * toString redacts it); [ended] is the request's end that is not "approved" (rejected,
+         * expired) -- the screen then offers a new request; [notice] is the last poll's passing
+         * trouble. Polled every [pollDelay] (ApprovalPoll) while shown and the activity is in front.
+         */
+        data class Waiting(
+            val pending: PendingActivation, val approval: ApprovalReply.Waiting?,
+            val ended: Problem? = null, val notice: Problem? = null, val busy: Boolean = false,
+        ) : Screen
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
         data class SetUp(val name: String) : Screen
-        /** This phone cannot activate (KeyGate, or no NFC reader). */
+        // --- the staff app's own screens (M16-44/46/47/48) ---
+        data class Home(val me: MeReply) : Screen
+        data class Settings(val me: MeReply, val remind: Boolean, val timer: Boolean, val notificationsOff: Boolean = false) : Screen
+        data class Missing(
+            val me: MeReply, val open: List<OpenClaim> = emptyList(), val sent: List<SentClaim> = emptyList(),
+            val notice: ClaimNotice? = null, val problems: Map<String, String> = emptyMap(), val busy: Boolean = true,
+        ) : Screen
+        /** This phone cannot activate (KeyGate). A missing NFC reader no longer stops it (M16-23). */
         data class Blocked(val problem: Problem) : Screen
         /**
          * The launch check could not open the key (M16-12 hand-over (3)) or the clock is a day off
@@ -118,9 +160,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var flow: ActivationFlow
     private lateinit var tapFlow: TapFlow
     private lateinit var location: TapLocation
+    private lateinit var staff: StaffFlow
+    private lateinit var switches: PrefsStaffSwitches
+    private lateinit var presence: PresenceSync
+    private lateinit var appClient: AppClient
+    // The first onResume follows onCreate's own /me; every later one syncs (M16-46: each return to
+    // the front reads /me again, apart from what the screen shows).
+    private var resumedOnce = false
+
+    // The notification permission (Android 13+) is asked when a switch is turned on in Settings,
+    // never at the tap, the result or activation (CLAUDE.md §9). [afterNotify] gets the answer.
+    private var afterNotify: ((Boolean) -> Unit)? = null
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        afterNotify?.invoke(granted)
+        afterNotify = null
+    }
     private var nfc: NfcAdapter? = null
     private var readerOn = false
     private var resumed = false
+    // The waiting screen's poll (M16-23): ONE delayed tick at a time, re-posted after each answer --
+    // never a repeating timer -- and only while the waiting screen is shown and the activity is in
+    // front (taken back in onPause / onDestroy, and a tick that finds another screen does nothing).
+    private val main = Handler(Looper.getMainLooper())
+    private val pollTick = Runnable { poll() }
+    /** The next tick's delay: ApprovalPoll's base, doubled on each 429 in a row (up to its cap). */
+    private var pollDelay = ApprovalPoll.BASE_MS
 
     // The location permission is asked AT THE PRESS, never at start (CLAUDE.md §4.2, the manifest's
     // note): the browser's prompt comes with getCurrentPosition at the press too. Whatever the
@@ -140,13 +204,20 @@ class MainActivity : ComponentActivity() {
         flow = ActivationFlow(client, keys, state)
         tapFlow = TapFlow(client, keys, state, BuildConfig.BASE_URL)
         location = TapLocation(applicationContext)
+        appClient = client
+        staff = StaffFlow(client, keys, state)
+        switches = PrefsStaffSwitches(applicationContext)
+        presence = PresenceSync(AlarmReminder(applicationContext), OngoingTimer(applicationContext), switches) { TimerDismissals.key }
+        StaffChannels.ensure(applicationContext)
         nfc = NfcAdapter.getDefaultAdapter(this)
         setContent { Render() }
         // A PLAQUE URL IS ACTED ON ONCE, when it is delivered. Reopened from Recents, or after the
         // system rebuilt the activity, the same intent comes back with the same, already spent,
         // counter: a press on it could only record a sun-invalid reject, and that reject would start
         // the person's 60-second debounce over their real next tap (tap.js keeps a restored NFC page
-        // as it was for the same reason). Such a launch is the launcher's.
+        // as it was for the same reason). Such a launch is the launcher's. A live QR URL likewise
+        // (M16-22): reopened, its token is long past its window, and a press could only record
+        // sys:live-qr-expired's flag -- a fresh code comes from the screen.
         val replayed = savedInstanceState != null || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
         val plaque = if (replayed) null else plaqueUrlOf(intent)
         if (plaque != null) startTap(plaque) else home()
@@ -168,6 +239,13 @@ class MainActivity : ComponentActivity() {
                 onPlaque(url)
             }
             is Screen.Tap -> if (!s.busy) onPlaque(url)
+            // Waiting for the manager, the bind is still pending: a read (a venue screen's code,
+            // a touch) finishes the activation instead -- back to the tap step, which takes it.
+            is Screen.Waiting -> if (!s.busy) {
+                main.removeCallbacks(pollTick)
+                screen = Screen.Tap(s.pending)
+                onPlaque(url)
+            }
             // Mid-consent: the person is in the middle of setting up; their screen stays.
             is Screen.Welcome -> Unit
             is Screen.Code -> if (!s.busy) startTap(url)
@@ -179,10 +257,13 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         resumed = true
         updateReader()
+        schedulePoll()
+        if (resumedOnce) syncPresence() else resumedOnce = true
     }
 
     override fun onPause() {
         resumed = false
+        main.removeCallbacks(pollTick)
         stopReader()
         super.onPause()
     }
@@ -192,6 +273,7 @@ class MainActivity : ComponentActivity() {
         // an ask left out keeps the location provider on for nothing), then the worker is shut;
         // anything that still arrives is dropped by LateWork.
         location.cancel()
+        main.removeCallbacks(pollTick)
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -219,10 +301,34 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Tap -> {
                 BackHandler(enabled = !s.busy) { screen = Screen.Ready(s.pending); updateReader() }
-                TapScreen(s.pending.facts, nfcState, s.problem, s.busy) { screen = Screen.Ready(s.pending); updateReader() }
+                TapScreen(
+                    s.pending.facts, nfcState, s.problem, s.busy,
+                    onCantTap = { askApproval(s.pending) { screen = s.copy(busy = true, problem = null) } },
+                    onBack = { screen = Screen.Ready(s.pending); updateReader() },
+                )
+            }
+            is Screen.Waiting -> {
+                val leave = { main.removeCallbacks(pollTick); screen = Screen.Tap(s.pending); updateReader() }
+                BackHandler(enabled = !s.busy) { leave() }
+                WaitingScreen(s.pending.facts.brand, s.approval?.pairingCode, s.ended, s.notice, s.busy,
+                    onAskAgain = { askApproval(s.pending) { screen = s.copy(busy = true) } }, onBack = leave)
             }
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
-            is Screen.SetUp -> SetUpScreen(s.name, null)
+            is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
+            is Screen.Home -> HomeScreen(s.me, hasReader = nfc != null,
+                onMissing = { openMissing(s.me) }, onSettings = { screen = settingsOf(s.me) })
+            is Screen.Settings -> {
+                BackHandler { screen = Screen.Home(s.me) }
+                SettingsScreen(s.me, s.remind, s.timer, s.notificationsOff,
+                    onRemind = { on -> setSwitch(s, on) { switches.remind = it } },
+                    onTimer = { on -> setSwitch(s, on) { switches.timer = it } },
+                    onBack = { screen = Screen.Home(s.me) })
+            }
+            is Screen.Missing -> {
+                BackHandler(enabled = !s.busy) { screen = Screen.Home(s.me); syncPresence() }
+                MissingTimesScreen(s.me.brand, s.open, s.sent, s.notice, s.problems, s.busy,
+                    onSend = { c, at -> sendClaim(s, c, at) }, onBack = { screen = Screen.Home(s.me); syncPresence() })
+            }
             is Screen.Blocked -> BlockedScreen(s.problem)
             is Screen.Retryable -> RetryScreen(s.problem) { home() }
             is Screen.Plaque -> PlaqueTapScreen(s.ready.facts, s.busy) { want -> press(s.ready, want) }
@@ -233,7 +339,7 @@ class MainActivity : ComponentActivity() {
                 s.problem,
                 Buttons.of(s.problem, s.retry),
                 onRetry = { if (s.retry == Retry.HOME) home() else startTap(s.url) },
-                onBrowser = { PlaqueRead.browserUrl(s.url, BuildConfig.BASE_URL)?.let(::openInBrowser) },
+                onBrowser = { TapLink.browserUrl(s.url, BuildConfig.BASE_URL)?.let(::openInBrowser) },
                 onActivate = { screen = activationEntry(null) },
             )
         }
@@ -249,14 +355,116 @@ class MainActivity : ComponentActivity() {
                 ActivationFlow.HomeResult.SignedOut -> activationEntry(Problem.SIGNED_OUT)
                 ActivationFlow.HomeResult.KeyUnreadable -> Screen.Retryable(Problem.KEY_UNREADABLE)
                 ActivationFlow.HomeResult.Clock -> Screen.Retryable(Problem.CLOCK)
-                is ActivationFlow.HomeResult.SetUp -> Screen.SetUp(r.device.employeeName)
+                is ActivationFlow.HomeResult.SetUp -> r.me?.let { Screen.Home(it) } ?: Screen.SetUp(r.device.employeeName)
+            }
+            applyPresence(r)
+        }
+    }
+
+    // --- the staff app's own screens (M16-44/46/47/48) -----------------------------------------
+
+    // The reminder and the timer follow /me; a signed-out phone keeps neither.
+    private fun applyPresence(r: ActivationFlow.HomeResult) {
+        when (r) {
+            is ActivationFlow.HomeResult.SetUp -> r.me?.let { presence.apply(it.presence, appClient.clock.offsetMillis(), System.currentTimeMillis()) }
+            ActivationFlow.HomeResult.SignedOut, ActivationFlow.HomeResult.NotActivated -> presence.clear()
+            else -> Unit // a failed read leaves the last answer standing
+        }
+    }
+
+    // A /me read for the sync alone: the screen changes only where it shows /me's facts.
+    private fun syncPresence() {
+        work({ flow.home() }, failed = { screen }) { r ->
+            applyPresence(r)
+            val me = (r as? ActivationFlow.HomeResult.SetUp)?.me ?: return@work
+            screen = when (val s = screen) {
+                is Screen.Home -> Screen.Home(me)
+                is Screen.SetUp -> Screen.Home(me)
+                is Screen.Settings -> s.copy(me = me)
+                else -> s
             }
         }
     }
 
-    // The code screen, unless this phone cannot activate at all (ActivationFlow.refusedAtLaunch).
-    private fun activationEntry(notice: Problem?): Screen =
-        ActivationFlow.refusedAtLaunch(hasNfcReader = nfc != null)?.let { Screen.Blocked(it) } ?: Screen.Code(notice)
+    // Said only when it matters: a switch is on and the phone still blocks the notifications (the
+    // permission is asked when a switch is turned on, so before that there is nothing to say).
+    private fun notificationsOff(): Boolean =
+        (switches.remind || switches.timer) &&
+            getSystemService(android.app.NotificationManager::class.java)?.areNotificationsEnabled() == false
+
+    // A switch turned on asks for the notification permission first (Android 13+); refused, the
+    // switch stays off and the row says why.
+    private fun settingsOf(me: MeReply, refused: Boolean = false) =
+        Screen.Settings(me, switches.remind, switches.timer, refused || notificationsOff())
+
+    private fun setSwitch(s: Screen.Settings, on: Boolean, store: (Boolean) -> Unit) {
+        val apply = { value: Boolean ->
+            store(value)
+            screen = settingsOf(s.me)
+            syncPresence()
+        }
+        if (!on) {
+            apply(false)
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            afterNotify = { granted -> if (granted) apply(true) else { store(false); screen = settingsOf(s.me, refused = true) } }
+            try {
+                askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } catch (_: ActivityNotFoundException) {
+                afterNotify = null
+            }
+            return
+        }
+        apply(true)
+    }
+
+    private fun openMissing(me: MeReply) {
+        val s = Screen.Missing(me)
+        screen = s
+        loadMissing(s, null, emptyMap())
+    }
+
+    private fun loadMissing(s: Screen.Missing, notice: ClaimNotice?, problems: Map<String, String>) {
+        work({ staff.claims() }, failed = { s.copy(busy = false, notice = ClaimNotice.NETWORK) }) { r ->
+            screen = when (r) {
+                is StaffFlow.Answer.Ok -> s.copy(open = r.value.open, sent = r.value.sent, notice = notice, problems = problems, busy = false)
+                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                else -> s.copy(busy = false, notice = ClaimNotice.NETWORK)
+            }
+        }
+    }
+
+    private fun sendClaim(s: Screen.Missing, c: OpenClaim, at: String) {
+        if (s.busy) return
+        val busy = s.copy(busy = true, notice = null)
+        screen = busy
+        work({ staff.send(c.context, at) }, failed = { s.copy(busy = false, notice = ClaimNotice.NETWORK) }) { r ->
+            when (r) {
+                is StaffFlow.Answer.Ok -> when (r.value) {
+                    "sent", "already_sent" -> loadMissing(busy, ClaimNotice.SENT, emptyMap())
+                    "outside_window" -> {
+                        val why = if (at.isEmpty()) getString(R.string.claim_enter_time)
+                        else getString(R.string.claim_outside, getString(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo))
+                        screen = s.copy(busy = false, problems = s.problems + (c.context to why))
+                    }
+                    "expired" -> loadMissing(busy, ClaimNotice.EXPIRED, emptyMap())
+                    "resolved" -> loadMissing(busy, ClaimNotice.RESOLVED, emptyMap())
+                    "not_active" -> screen = s.copy(busy = false, notice = ClaimNotice.NOT_ACTIVE)
+                    "still_open" -> loadMissing(busy, ClaimNotice.STILL_OPEN, emptyMap())
+                    else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
+                }
+                StaffFlow.Answer.Stale -> loadMissing(busy, null, emptyMap())
+                StaffFlow.Answer.SignedOut -> { presence.clear(); screen = activationEntry(Problem.SIGNED_OUT) }
+                else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
+            }
+        }
+    }
+
+    // The code screen. A phone without an NFC reader is no longer refused here (M16-23): it
+    // activates by a venue screen's live QR or the manager's approval, offered on step 3.
+    private fun activationEntry(notice: Problem?): Screen = Screen.Code(notice)
 
     private fun submitCode(pasted: String) {
         val code = InviteCode.from(pasted, BuildConfig.BASE_URL)
@@ -302,13 +510,15 @@ class MainActivity : ComponentActivity() {
     private fun onPlaque(url: String) {
         val s = screen as? Screen.Tap ?: return
         if (s.busy) return
-        val sun = PlaqueRead.sunQuery(url, BuildConfig.BASE_URL)
-        if (sun == null) {
+        // A plaque's SUN query, or (M16-23) a venue screen's live QR as `liveQR`. Anything else --
+        // another host's tag or link -- is sent nowhere.
+        val link = TapLink.of(url, BuildConfig.BASE_URL)
+        if (link == null) {
             screen = s.copy(problem = Problem.TAP_FAILED)
             return
         }
         screen = s.copy(busy = true, problem = null)
-        work({ flow.complete(s.pending, sun) }) { r ->
+        work({ flow.complete(s.pending, link) }) { r ->
             screen = when (r) {
                 is ActivationFlow.CompleteResult.Activated ->
                     Screen.Activated(r.device.employeeName, r.secondDevice, s.pending.facts.brand)
@@ -318,6 +528,50 @@ class MainActivity : ComponentActivity() {
                     if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
             }
             updateReader()
+        }
+    }
+
+    // --- the manager's approval (M16-23) --------------------------------------------------------
+
+    // "My phone can't tap" (step 3), or "Ask again" / "Get a new code" (the waiting screen's end):
+    // a new request; an earlier open one of this invitation is withdrawn by the server.
+    private fun askApproval(p: PendingActivation, markBusy: () -> Unit) {
+        markBusy()
+        pollDelay = ApprovalPoll.BASE_MS // a new request starts at the base
+        work({ flow.requestApproval(p) }) { r -> showApproval(r, p) }
+    }
+
+    private fun showApproval(r: ActivationFlow.ApprovalResult, p: PendingActivation) {
+        screen = when (r) {
+            is ActivationFlow.ApprovalResult.Waiting -> Screen.Waiting(r.pending, r.approval, notice = r.notice)
+            is ActivationFlow.ApprovalResult.Activated -> Screen.Activated(r.device.employeeName, r.secondDevice, p.facts.brand)
+            is ActivationFlow.ApprovalResult.Ended -> Screen.Waiting(r.pending, null, ended = r.problem)
+            is ActivationFlow.ApprovalResult.TapStep -> Screen.Tap(r.pending, r.problem)
+            is ActivationFlow.ApprovalResult.Rebind -> Screen.Welcome(r.code, p.facts, problem = r.problem)
+            is ActivationFlow.ApprovalResult.Restart ->
+                if (r.problem == Problem.NO_SECURE_KEY) Screen.Blocked(r.problem) else Screen.Code(r.problem)
+        }
+        updateReader()
+        schedulePoll()
+    }
+
+    private fun schedulePoll() {
+        main.removeCallbacks(pollTick)
+        val s = screen as? Screen.Waiting ?: return
+        if (s.approval != null && s.ended == null && resumed) main.postDelayed(pollTick, pollDelay)
+    }
+
+    private fun poll() {
+        val s = screen as? Screen.Waiting ?: return
+        val last = s.approval ?: return
+        if (s.ended != null || s.busy || !resumed) return
+        work({ flow.pollApproval(s.pending, last) }, failed = { if (screen === s) s.copy(notice = Problem.SERVER) else screen }) { r ->
+            // An approved answer stands whatever is on screen: the device exists now (and is saved).
+            // Anything else belongs to the waiting screen the poll left from.
+            if (r is ActivationFlow.ApprovalResult.Activated || screen === s) {
+                pollDelay = ApprovalPoll.nextDelay(pollDelay, ApprovalPoll.outcomeOf(r))
+                showApproval(r, s.pending)
+            }
         }
     }
 
@@ -352,7 +606,7 @@ class MainActivity : ComponentActivity() {
             // retry of the same context, the next touch is a fresh tap.
             work({ tapFlow.press(s.ready, want.ifEmpty { null }, fix) }, failed = { Screen.TapTrouble(TapProblem.LOST, s.url, Retry.HOME) }) { r ->
                 screen = when (r) {
-                    is TapFlow.Press.Recorded -> Screen.Result(r.reply)
+                    is TapFlow.Press.Recorded -> Screen.Result(r.reply).also { syncPresence() }
                     is TapFlow.Press.Problem -> Screen.TapTrouble(r.problem, s.url, r.retry)
                 }
             }

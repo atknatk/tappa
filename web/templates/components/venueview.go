@@ -122,6 +122,8 @@ type VenueRowView struct {
 // QR code (TestPlaqueDrawing_TheMountedPlaqueCarriesItsRealQRCode).
 type VenueDetailView struct {
 	Venue VenueRowView
+	// ID is the venue's id as text: what the live QR block's forms post (M16-20).
+	ID string
 
 	// Plaques are this venue's plaques that are not in stock: the ones in service
 	// first, then the ones out of service, newest retirement first. OutOfService counts
@@ -150,6 +152,36 @@ type VenueDetailView struct {
 	// M10 F0-6 rule the old wall list's empty state followed).
 	InStock   int
 	Mountable int
+
+	// LiveQR is the venue's live QR screens (M16-20), or nil: nil when this server has no live QR
+	// key (the feature is off and the block is not drawn), or on a render path that did not read
+	// them. A failed read never reaches here as nil -- the section answers a problem page (§4.6).
+	LiveQR *LiveQRBlockView
+}
+
+// LiveQRBlockView is the venue's live QR screens (M16-20): the list, the add form and the address
+// a screen opens. It carries no code: the code is shown on the answer to the press alone
+// (pages.LiveQRCodeView).
+type LiveQRBlockView struct {
+	VenueID      string
+	AddAction    string
+	RevokeAction string
+	// ScreenURL is where a screen opens (TAPPA_BASE_URL + /screen), printed as text.
+	ScreenURL string
+	Screens   []LiveQRScreenRowView
+}
+
+// LiveQRScreenRowView is one screen: its state as a word, when that state began, when it was
+// added, and whether it can still be removed (a removed or never-paired, expired screen cannot).
+type LiveQRScreenRowView struct {
+	ID    string
+	State string
+	Since string
+	Added string
+	// LastSeen is when a paired screen last asked for a code ("last seen 19 Nov 16:28", or "not
+	// seen since pairing"), "" for a screen that was never paired.
+	LastSeen  string
+	CanRemove bool
 }
 
 // DepartmentRowView is one department as the docket renders it.

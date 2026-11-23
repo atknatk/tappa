@@ -170,6 +170,15 @@ fun CorrectionLink(text: String, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
+/** The manager-approval pairing code (M16-23): mono, large, already grouped ("482 913"), centred. */
+@Composable
+fun PairingCodeText(grouped: String) {
+    Box(Modifier.fillMaxWidth().background(Palette.Paper).border(1.dp, Palette.Line).padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center) {
+        BasicText(grouped, style = Mono.copy(fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp))
+    }
+}
+
 /** The result's time: mono, the headline's second line (result.templ: font-mono, xl, ink/70). */
 @Composable
 fun MonoTime(text: String) {

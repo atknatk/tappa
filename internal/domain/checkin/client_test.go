@@ -38,7 +38,10 @@ func TestInsertParams_WritesTheClientOnEveryTapAndNoneOnAManualRecord(t *testing
 		{"an nfc tap with the zero client is NULL (the sandbox)", tap.ChannelNFC, tap.VerdictOK, &in, "", ""},
 		{"a client the column does not admit is NULL, never written", tap.ChannelNFC, tap.VerdictOK, &in, "ios", ""},
 		{"a capital is no client", tap.ChannelQR, tap.VerdictOK, &in, "Browser", ""},
-		{"a channel outside the three is NULL", tap.Channel("qr_live"), tap.VerdictOK, &in, tap.ClientApp, ""},
+		// M16-21: qr_live is a tap channel (tapChannel), so a live QR tap carries its client like the others.
+		{"a browser live QR ok", tap.ChannelQRLive, tap.VerdictOK, &in, tap.ClientBrowser, "browser"},
+		{"an app live QR reject", tap.ChannelQRLive, tap.VerdictReject, nil, tap.ClientApp, "app"},
+		{"a channel outside the four is NULL", tap.Channel("telepathy"), tap.VerdictOK, &in, tap.ClientApp, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

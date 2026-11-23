@@ -59,8 +59,8 @@ templ BrandedPage(title string, logo Logo) {
 // PageWithScript is the same shell plus exactly ONE self-hosted script tag and the
 // business's brand -- the logo in the header and the accent's stylesheet.
 //
-// IT HAS TWO CALLERS, each with its own script and its own reason (counted in the
-// .templ sources on 2026-10-09):
+// IT HAS THREE CALLERS, each with its own script and its own reason (counted in the
+// .templ sources on 2026-10-09; the third added by M16-20 on 2026-11-19):
 //
 //   - THE TAP PAGE. §4.2 allows the browser's location to be read at the moment of a
 //     tap and forbids every other shape of it (in the background, continuously, or by
@@ -72,6 +72,10 @@ templ BrandedPage(title string, logo Logo) {
 //     GET /activate/status and flips the screen to "Activation complete" when the tap
 //     finished in another tab; without script the words on the screen stay true and
 //     the tap's own tab says "Activation complete".
+//   - THE LIVE QR SCREEN (M16-20, pages.LiveScreen). Its script draws each rotating
+//     code from the server's poll and hides it once it has run out, so an offline
+//     screen shows no stale code; without script it shows no code at all and says so.
+//     It passes Brand{}: a venue screen carries no business's brand (ADR 0023 §2).
 //
 // (An earlier version of this comment said "it exists for the tap page and nothing
 // else" and "the activation flow needs no script and gets none". Both stopped being

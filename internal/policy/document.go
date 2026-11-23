@@ -206,6 +206,15 @@ func (a Action) Valid() bool { return validActions[a] }
 // review): a report of "mock" is believed against the employee's interest, and the
 // absence of one -- or a report of "not mock" -- proves nothing. tap:client, beside
 // it, is server-derived in full: the endpoint that accepted the request names it.
+//
+// THE LIVE QR KEYS (M16-21, ADR 0045 §2.5) are server-derived in full and present
+// ONLY on a qr_live tap: tap:tokenVerified is whether the screen's signed token
+// verified (internal/liveqr's Open, and the screen row agreeing with it),
+// tap:tokenOverdueSeconds how long after the token's own expiry the server first
+// saw it (the page's mint, a server stamp -- negative while it was still valid),
+// and screen:status the screen row's state (active | revoked | location_inactive),
+// the plaque's tag:status twin. None of them is a client claim: the token is
+// verified by the server and its expiry is the server's own stamp.
 type ContextKey string
 
 const (
@@ -222,8 +231,11 @@ const (
 	CtxTapDirection             ContextKey = "tap:direction"
 	CtxTapQueued                ContextKey = "tap:queued"
 	CtxTapOccurredAtSkewSeconds ContextKey = "tap:occurredAtSkewSeconds"
-	CtxTapClient                ContextKey = "tap:client"       // browser | app (ADR 0045 §2.4); absent when no client wrote the tap
-	CtxTapMockLocation          ContextKey = "tap:mockLocation" // the app's mock-location report; absent from a browser
+	CtxTapClient                ContextKey = "tap:client"              // browser | app (ADR 0045 §2.4); absent when no client wrote the tap
+	CtxTapMockLocation          ContextKey = "tap:mockLocation"        // the app's mock-location report; absent from a browser
+	CtxTapTokenVerified         ContextKey = "tap:tokenVerified"       // qr_live only: the screen's token verified
+	CtxTapTokenOverdueSeconds   ContextKey = "tap:tokenOverdueSeconds" // qr_live only: seconds past the token's expiry when first seen
+	CtxScreenStatus             ContextKey = "screen:status"           // qr_live only: active | revoked | location_inactive
 	CtxTagStatus                ContextKey = "tag:status"
 	CtxTagLocationID            ContextKey = "tag:locationId"
 	CtxEmployeeStatus           ContextKey = "employee:status"
@@ -243,6 +255,7 @@ var validContextKeys = map[ContextKey]bool{
 	CtxTapTrust: true, CtxTapCtrGap: true, CtxTapPageAgeSeconds: true,
 	CtxTapPractice: true, CtxTapDirection: true, CtxTapQueued: true,
 	CtxTapOccurredAtSkewSeconds: true, CtxTapClient: true, CtxTapMockLocation: true,
+	CtxTapTokenVerified: true, CtxTapTokenOverdueSeconds: true, CtxScreenStatus: true,
 	CtxTagStatus: true, CtxTagLocationID: true,
 	CtxEmployeeStatus: true, CtxEmployeeLocationID: true, CtxEmployeeDepartmentID: true,
 	CtxEmployeeCrossLocation: true, CtxLocationID: true, CtxTimeLocalHour: true,

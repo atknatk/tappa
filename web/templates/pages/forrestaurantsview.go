@@ -130,13 +130,15 @@ const (
 	// venue, counts its hours like any other, and says so in its legend and receipt.
 	// Derived from internal/domain/ledger (DayMarks.Other) and pages/reports.templ.
 	FactRollMarksWorkAtAnotherVenue Fact = "ledger:DayMarks.Other+templ:roll legend and receipt"
-	// A session comes only from activation, and activation ends only on a real NFC tap:
-	// a QR scan (no SUN) is refused there, finishActivation is its one caller of the
-	// session issue, and nothing else in the product creates a session. So a phone that
-	// cannot tap a plaque is never set up, and QR is a fallback for a phone already set
-	// up. Derived from internal/handler/activate.go, internal/sun and every Go file that
-	// could issue a session.
-	FactSetupTakesARealTap Fact = "handler:session only via CompleteByTap(HasSUN) → finishActivation"
+	// A session comes only from activation, and activation ends only on proof the phone is
+	// at work (M16-23): a real NFC tap (CompleteByTap refuses a read without the plaque's
+	// signature -- a printed QR code), a verified live QR scan of the business's own screen
+	// in service and inside its window (CompleteByLiveQR), or a manager's approval collected
+	// by the browser that asked (CollectApproval). finishActivation is the one caller of the
+	// session issue and those three are its only callers; nothing else in the product
+	// creates a session. Derived from internal/handler/activate.go, activateapproval.go,
+	// internal/sun and every Go file that could issue a session.
+	FactSetupNeedsPresence Fact = "handler:session only via finishActivation from CompleteByTap(HasSUN), CompleteByLiveQR or CollectApproval"
 	// A check-in left open past the engine's stale threshold is NOT closed by the person's
 	// next tap: since ADR 0032 (M15, merged into this branch 2026-10-23) that tap is a new
 	// check-in WITH a note and the old entry stays open; the report does not pay it, lists
@@ -367,9 +369,10 @@ func restaurantsCopy() RestaurantsText {
 				"a list that is too wide is refused when you save it.", FactWideAddressListIsNoEvidence),
 			l("If a phone's NFC is off or fails on the day, the same page opens from the venue's QR code; by default "+
 				"a QR check-in needs the venue's network, and on a position alone it is flagged for a manager. "+
-				"Setting a phone up still takes one real tap on a plaque.",
+				"Setting a phone up still needs proof it is at work: a real tap on a plaque, a scan of a venue's live QR screen, "+
+				"or a manager's approval in person.",
 				FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-				FactActivationEndsOnARealTap, FactSetupTakesARealTap),
+				FactActivationEndsOnPresence, FactSetupNeedsPresence),
 		},
 		VenuesChip: LandingPricingIncludes[0],
 
@@ -405,7 +408,7 @@ func restaurantsCopy() RestaurantsText {
 			FactGPSAloneApprovesATap),
 		Cases: []RestaurantsCase{
 			{Label: "New-hire setup", Text: l("Invite link, activated on their own phone",
-				FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnARealTap)},
+				FactPeopleAreInvitedFromTheDashboard, FactActivationEndsOnPresence)},
 			{Label: "When someone leaves", Text: l("Switch off in the dashboard — the next tap is refused",
 				FactDeactivatedPersonIsRefused)},
 			{Label: "If it breaks", Text: l("Stick a spare plaque and swap it in the dashboard",

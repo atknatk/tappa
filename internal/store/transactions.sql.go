@@ -2295,7 +2295,7 @@ SELECT EXTRACT(EPOCH FROM (clock_timestamp() - created_at))::float8 AS seconds_s
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
-  AND channel IN ('nfc', 'qr')
+  AND channel IN ('nfc', 'qr', 'qr_live')
   AND created_at > clock_timestamp() - make_interval(secs => $3::float8)
 ORDER BY created_at DESC
 LIMIT 1
@@ -2320,12 +2320,18 @@ type SecondsSinceLastRecordedTapParams struct {
 // this person have a tap RECORDED in the last N seconds" -- and no caller can
 // reorder it, because created_at is the database's own now().
 //
-// channel IN ('nfc','qr') IS THE MANUAL EXEMPTION, expressed where it cannot be
+// channel IN ('nfc','qr','qr_live') IS THE MANUAL EXEMPTION, expressed where it cannot be
 // dodged. created_at on a manual row is when a MANAGER TYPED IT, which carries no
 // claim about where the employee was: counting it would debounce an employee's
 // genuine tap thirty seconds after a manager's backdated entry, and would break
 // bulk manual entry. channel is server-derived, so this predicate is not a lever
 // a caller can reach.
+//
+// qr_live IS IN SINCE M16-21 (ADR 0045 §2.5, ADR 0006): a live QR tap is a tap, and
+// the debounce is its one brake (no counter). Left out, a live QR predecessor with a
+// backdated occurred_at would be invisible to THIS leg and the declared leg alone
+// would decide -- the ADR 0006 hole, reopened silently for one channel
+// (TestLiveQRDB_ABackdatedLiveQRPredecessorStillDebounces).
 //
 // 🔴 IT RETURNS AN AGE, NOT A TIMESTAMP, AND THAT IS LOAD-BEARING. An earlier
 // version returned created_at and let Go subtract it from its own clock. That

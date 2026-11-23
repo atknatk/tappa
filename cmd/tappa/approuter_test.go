@@ -80,6 +80,15 @@ func (silentDB) GetPasswordResetByTokenHash(context.Context, string) (db.Resolve
 	return db.ResolvedPasswordReset{}, errSilent
 }
 func (silentDB) Ping(context.Context) error { return errSilent }
+func (silentDB) GetLiveQRDisplayByPairingCodeHash(context.Context, string) (db.ResolvedLiveQRPairing, error) {
+	return db.ResolvedLiveQRPairing{}, errSilent
+}
+func (silentDB) GetLiveQRDisplayBySessionHash(context.Context, string) (db.ResolvedLiveQRSession, error) {
+	return db.ResolvedLiveQRSession{}, errSilent
+}
+func (silentDB) GetLiveQRDisplayByID(context.Context, uuid.UUID) (db.ResolvedLiveQRDisplay, error) {
+	return db.ResolvedLiveQRDisplay{}, errSilent
+}
 func (silentDB) GetAppDeviceByID(context.Context, uuid.UUID) (db.ResolvedAppDevice, error) {
 	return db.ResolvedAppDevice{}, errSilent
 }
@@ -206,10 +215,12 @@ type appFeatures struct {
 	oauth *oauthapi.Surface
 	// appLinks mounts the files whose platform walkConfig configured: none off, both on.
 	appLinks *handler.AppLinks
+	// liveScreen is the live QR screen page (M16-20): a nil interface off, as run() hands it.
+	liveScreen httpx.Mounter
 }
 
 func (f appFeatures) router(cfg *config.Config) http.Handler {
-	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.oauth, f.devTools, f.appLinks)
+	return appRouter(cfg, nil, f.activation, f.tap, f.app, f.panel, f.panel.InviteAcceptance(), f.panel.EmailUndo(), f.logos, f.marketing, f.signupFlow, f.resetFlow, f.ready, f.theme, f.operator, f.api, f.oauth, f.devTools, f.appLinks, f.liveScreen)
 }
 
 func (f appFeatures) named() []struct {
@@ -224,6 +235,7 @@ func (f appFeatures) named() []struct {
 		{"marketing", f.marketing}, {"signup", f.signupFlow}, {"reset", f.resetFlow},
 		{"ready", f.ready}, {"theme", f.theme}, {"operator", f.operator},
 		{"api", f.api}, {"oauth", f.oauth}, {"devtools", f.devTools}, {"applinks", f.appLinks},
+		{"livescreen", f.liveScreen},
 	}
 }
 
@@ -249,6 +261,9 @@ func walkConfig(t *testing.T, on bool) *config.Config {
 		// The native app's two association files (M16-08), with fake values of the right shapes.
 		cfg.AppAppleTeamID = "ABCDE12345"
 		cfg.AppAndroidSignerSHA256 = []string{"14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5"}
+		// The live QR screens (M16-20): on, the panel mounts their two writes and the screen page
+		// its three routes.
+		cfg.LiveQRKey = config.NewKey(randBytes(t, 32))
 	}
 	return cfg
 }
@@ -328,7 +343,10 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 	must(err)
 	oauthServer, oauthTokens, err := openOAuth(cfg, data, trail, log)
 	must(err)
-	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, handler.IntegrationKeys(apiKeys), handler.OAuthConsent(oauthServer))
+	liveQROptions, liveScreen, err := openLiveQR(cfg, data, trail, tap, app, log)
+	must(err)
+	panelOptions := append([]handler.AdminAuthOption{handler.IntegrationKeys(apiKeys), handler.OAuthConsent(oauthServer)}, liveQROptions...)
+	panel, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, nil, resetFlow, cfg, log, panelOptions...)
 	must(err)
 	logos, err := handler.NewBrandLogos(brandReader, panel, tap, log)
 	must(err)
@@ -346,6 +364,7 @@ func buildAppFeatures(t *testing.T, cfg *config.Config, on bool) appFeatures {
 		activation: activation, tap: tap, app: app, panel: panel, logos: logos,
 		marketing: handler.NewMarketing(texts, log, cfg.APIHost, cfg.BaseURL), signupFlow: signupFlow, resetFlow: resetFlow,
 		ready: ready, theme: handler.NewBrandTheme(), operator: operator.Off(), oauth: oauthTokens,
+		liveScreen: liveScreen,
 	}
 	// As run() builds it, from the configuration: walkConfig sets both platforms only when on.
 	f.appLinks, err = handler.NewAppLinks(cfg.BaseURL, cfg.AppAppleTeamID, cfg.AppAndroidSignerSHA256)
@@ -461,22 +480,33 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 	outsidePanel := map[string]string{
 		"POST /activate":     "activation",
 		"POST /api/activate": "activation",
-		"POST /api/checkin":  "tap",
-		"POST /api/claim":    "tap",
+		// M16-23: "My phone can't tap" and the approval's collection -- the wizard's own POSTs (the
+		// activation cookie's synchronizer token), like /api/activate.
+		"POST " + handler.ActivationApprovalPath:        "activation",
+		"POST " + handler.ActivationApprovalCollectPath: "activation",
+		"POST /api/checkin":                             "tap",
+		"POST /api/claim":                               "tap",
 		// M16-07: the native app's signed surface -- the tap's and the activation's twin, outside
 		// the panel and, like the tap, without a suspension gate (ADR 0025, ADR 0045 §2.3).
 		"POST " + handler.AppActivateLookupPath:   "app",
 		"POST " + handler.AppActivateBindPath:     "app",
 		"POST " + handler.AppActivateCompletePath: "app",
-		"POST " + handler.AppNoncePath:            "app",
-		"POST " + handler.AppTapStartPath:         "app",
-		"POST " + handler.AppTapPath:              "app",
-		"POST " + handler.AppRevokePath:           "app",
-		"POST /admin/reset":                       "reset",
-		"POST /admin/reset/new":                   "reset",
-		"POST /signup":                            "signup",
-		"POST /signup/places":                     "signup",
-		"POST /signup/account":                    "signup",
+		// M16-23: the app's manager-approval request and its status read (signed by the bound key).
+		"POST " + handler.AppActivateApprovalPath:       "app",
+		"POST " + handler.AppActivateApprovalStatusPath: "app",
+		"POST " + handler.AppNoncePath:                  "app",
+		"POST " + handler.AppTapStartPath:               "app",
+		"POST " + handler.AppTapPath:                    "app",
+		"POST " + handler.AppRevokePath:                 "app",
+		// M16-43: "Missing times" -- POST /api/claim's twin, outside the panel and, like it, without a
+		// suspension gate (a claim writes no record; the manager's decision is the panel's, behind it).
+		"POST " + handler.AppClaimsPath:     "app",
+		"POST " + handler.AppClaimsSendPath: "app",
+		"POST /admin/reset":                 "reset",
+		"POST /admin/reset/new":             "reset",
+		"POST /signup":                      "signup",
+		"POST /signup/places":               "signup",
+		"POST /signup/account":              "signup",
 		// M14-17: the registration link's confirmation -- it creates a NEW business (no tenant's
 		// writing chain to gate: the business does not exist until this POST), like the wizard's
 		// own POSTs; under /admin only because the existing identity's proof is the panel cookie.
@@ -508,6 +538,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// T173: the sign-in address change's undo -- sessionless (ADR 0044 §5.3), mounted beside the
 		// panel and outside its chains, only with the panel identity flag on.
 		"POST /admin/undo-email-change": "undo",
+		// M16-20: the live QR screen's pairing -- the code is the credential (no session, no tenant
+		// known before it resolves), so no panel chain applies; only with TAPPA_LIVE_QR_KEY set.
+		"POST " + handler.LiveScreenPairPath: "livescreen",
 	}
 	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
 	// chi's own method list, less the two reads: what a methodless route is reported under.

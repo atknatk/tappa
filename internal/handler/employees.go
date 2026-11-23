@@ -259,6 +259,17 @@ func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, reject
 	// filter bar renders each option list once, and a per-row copy multiplies exactly
 	// the control M6-03 measured at 96% of a page and removed. A page-level card costs
 	// one option list and one extra charged request when a manager opens it.
+	// THE PHONES WAITING FOR APPROVAL (M16-23): read beside the roster, never instead of it -- a
+	// failed read says so on the card (§4.6) and the list below still stands.
+	if pending, err := a.staff.PendingApprovals(r.Context(), id.TenantID()); err != nil {
+		a.log.Error("panel: could not read the phones waiting for approval", "err", err)
+		v.ApprovalsUnread = true
+	} else {
+		v.Approvals = approvalViews(pending, zone, now)
+	}
+	v.ApprovalAction = employeeApprovalHref
+	v.ApprovalDone = oneOfWords(r.URL.Query().Get("approval"), approvalWords...)
+
 	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem, now)
 	v.Done = a.confirmedRosterAction(r, v.Actions)
 	v.Add = a.rosterAdd(r, f, screen, rejected)

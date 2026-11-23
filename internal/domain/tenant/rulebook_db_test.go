@@ -518,7 +518,9 @@ func TestRulebookDB_AnAddedRuleIsAnnouncedToABusinessSetUpBeforeIt(t *testing.T)
 	store := func(t *testing.T, f *rulebookFixture, tenantID uuid.UUID, stamp string, withMock bool) {
 		t.Helper()
 		for _, d := range policy.Baseline() {
-			if d.Name == mockName && !withMock {
+			// A business set up before the additions holds none of the added documents (the
+			// mock-location rule, 2026-11-14; the live QR rule, 2026-11-19 -- M16-21).
+			if _, added := policy.BaselineAddition(d.Name); added && !withMock {
 				continue
 			}
 			doc := d.Document
@@ -539,7 +541,15 @@ func TestRulebookDB_AnAddedRuleIsAnnouncedToABusinessSetUpBeforeIt(t *testing.T)
 			t.Fatalf("before the next tap: %q, added %q; want not provisioned and announced", states[mockName], added[mockName])
 		}
 		for name, a := range added {
-			if name != mockName && a != "" {
+			later, isAddition := policy.BaselineAddition(name)
+			switch {
+			case name == mockName:
+			case isAddition:
+				// M16-21's live QR rule is the second addition: announced in its own words.
+				if a != later.Summary {
+					t.Fatalf("%q is an addition and carries %q, want its own sentence", name, a)
+				}
+			case a != "":
 				t.Fatalf("%q carries the addition's sentence", name)
 			}
 		}

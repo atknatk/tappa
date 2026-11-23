@@ -268,6 +268,13 @@ type Querier interface {
 	// (a closed gate gives the row back untouched). The lease is clock_timestamp()-based; the worker
 	// keeps the returned value and matches it when it records the result.
 	ClaimWebhookDelivery(ctx context.Context, arg ClaimWebhookDeliveryParams) (ClaimWebhookDeliveryRow, error)
+	// Drops the code digest of this tenant's screens whose pairing expired before it was used (00111's
+	// header: a dead code must not hold its value in the global UNIQUE). M16-20 runs it in the creating
+	// tenant before it draws a new code, and any cleanup may. The screens stay -- dead unpaired, listed
+	// by ListLiveQRDisplaysForLocation -- and never pair: the one-way trigger refuses a dropped code back.
+	// Tenant-scoped like every lazy delete here (K-19): another tenant's expired codes wait for that
+	// tenant.
+	ClearExpiredLiveQRPairingCodes(ctx context.Context, tenantID uuid.UUID) (int64, error)
 	// Resets the accent: the button goes back to the default colour. An UPDATE, not a
 	// DELETE (section 4.6; the row may still carry a logo).
 	ClearTenantAccent(ctx context.Context, arg ClearTenantAccentParams) (int64, error)
@@ -309,6 +316,13 @@ type Querier interface {
 	// RETURNING carries no tenant name (a RETURNING clause cannot join); the caller
 	// already knows which tenant it just closed a period for.
 	CloseBillingPeriod(ctx context.Context, arg CloseBillingPeriodParams) (CloseBillingPeriodRow, error)
+	// THE COLLECTION, ONE STATEMENT: the approved, uncollected, unexpired request of this invitation and
+	// binding is stamped collected. It runs inside the consuming transaction (internal/invite
+	// ActivateApproved / ActivateDeviceApproved), so "the invitation was consumed on a manager's
+	// approval" implies "that approval was collected, once": a second collection matches nothing, and a
+	// rolled-back consumption un-collects nothing because nothing committed. pgx.ErrNoRows: no approval
+	// to collect.
+	CollectActivationApproval(ctx context.Context, arg CollectActivationApprovalParams) (CollectActivationApprovalRow, error)
 	// Did THIS admin, in THIS business, remove THIS row, JUST NOW?
 	//
 	// 🔴 IT EXISTS SO THE PANEL CAN ACKNOWLEDGE A DELETION WITHOUT LYING (user decision,
@@ -544,6 +558,14 @@ type Querier interface {
 	// can activate an employee whose invitation was not consented to by the browser
 	// presenting it.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// THE PAIRING, ONE STATEMENT (§4.4's shape; the card: the code is consumed by one statement): the
+	// code's digest is cleared, the pairing stamped and the screen session's digest stored, only while
+	// the code is unconsumed, unexpired and the screen unrevoked. 0 rows (pgx.ErrNoRows) -> the code is
+	// refused, whatever the reason (the caller says one thing for all of them). Two racing consumptions
+	// of one code: the second waits for the first's row lock, re-reads the committed row -- its
+	// pairing_code_hash is NULL now -- and matches nothing (TestLiveQRDisplays_ConcurrentPairingExactlyOnce).
+	// A revocation racing it is the same row: whichever commits first, the other matches nothing new.
+	ConsumeLiveQRDisplayPairing(ctx context.Context, arg ConsumeLiveQRDisplayPairingParams) (ConsumeLiveQRDisplayPairingRow, error)
 	// §5.2 step 3, with the ADR's "Uygulama notları" refinement: the code is spent by ONE conditional
 	// UPDATE whose row is taken FOR UPDATE SKIP LOCKED. It answers one row, always:
 	//   reached = false        the row is locked -- a concurrent exchange of the same code is in flight
@@ -792,6 +814,23 @@ type Querier interface {
 	// landed. The cap needs the device row locked in a PREVIOUS statement of the same transaction
 	// (SELECT ... FOR NO KEY UPDATE) or a per-device advisory lock, before the count (M16-07's card).
 	CountLiveAppRequestNonces(ctx context.Context, arg CountLiveAppRequestNoncesParams) (int32, error)
+	// activationrequests.sql -- the manager-approved activation (M16-23; migration 00115): a phone that
+	// cannot tap a plaque asks, a manager approves or rejects in the panel, and the phone collects.
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The phone's tenant is its invitation's (resolve_invite_by_code_hash), the
+	// panel's its session's -- no statement here is context-less.
+	//
+	// KIRMIZI CIZGI (§7): binding_hash is matched, never RETURNED; the pairing code is returned to the
+	// two places that show it (the phone that asked, the panel) and to nothing else -- no log line and no
+	// audit detail carries it (internal/invite, internal/handler).
+	// THE GATE (the card's user decision): the manager approval is offered only where no live QR screen
+	// runs. A screen RUNS when it is paired, not revoked, its session younger than
+	// liveqr.ScreenSessionLifetime (session_lifetime_seconds), its venue active, and it has asked for a
+	// code within seen_within_seconds (last_seen_at, 00114 -- stamped at most every ten minutes while the
+	// screen polls). A screen that stopped polling shows nothing to scan, so it does not close the door.
+	// location_id NULL counts the whole business (a person with no home venue, K-14).
+	CountLiveQRScreensForApproval(ctx context.Context, arg CountLiveQRScreensForApprovalParams) (int32, error)
 	// What still points at this venue, so the screen can say WHY it cannot be deleted.
 	//
 	// 🔴 IT IS ONE ROW AT A TIME, ON PURPOSE, AND THE COST IS WHY. Measured 2026-08-08 on
@@ -1286,6 +1325,12 @@ type Querier interface {
 	// number a sentence calls "ready" is this one. Same predicate as the bind, so the
 	// count and the refusal cannot disagree.
 	CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error)
+	// Opens a request for the invitation's CURRENT consent: the row is written only while the invitation
+	// is unused, uncancelled and unexpired and its consent binding is the caller's -- the INSERT selects
+	// from the invitation, so a request is born only for the browser or key that consented last. 0 rows
+	// (pgx.ErrNoRows): the invitation is not usable for this binding; the caller re-reads why. ttl_seconds
+	// is the caller's; 00115's CHECK caps it at one hour.
+	CreateActivationRequest(ctx context.Context, arg CreateActivationRequestParams) (CreateActivationRequestRow, error)
 	// Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
 	// IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
 	// task as one of the three that open the write path, and states the rule it must
@@ -1544,6 +1589,30 @@ type Querier interface {
 	//
 	// code_hash is written, never returned (section 4.7).
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (CreateInviteRow, error)
+	// liveqr.sql -- the live QR screens (M16-19, ADR 0045 §2.5; migration 00111). M16-20 pairs a screen
+	// from the panel and serves its page; M16-21 resolves a tap's screen.
+	//
+	// Every statement here runs inside WithTenant and carries an explicit tenant_id filter (CLAUDE.md
+	// §4.5, belt and braces). The three context-less reads of live_qr_displays are the resolvers,
+	// hand-written in internal/db/resolve.go (sqlc cannot type a RETURNS TABLE call -- resolve.sql). They
+	// are NOT duplicated here: the screen page's request names a code digest or a session digest and no
+	// tenant, a resolver answers the tenant, and only then do these run.
+	//
+	// KIRMIZI CIZGI (§4.7, §7): no query RETURNS pairing_code_hash or session_hash -- tappa_app cannot
+	// SELECT the second at all (00111), and the first exists to be matched. The code and the cookie
+	// value never reach the database: their digests are computed by the caller (M16-20).
+	//
+	// 🔴 EVERY WRITE TO revoked_at IS COALESCE(revoked_at, now()) (appdevices.sql's note): the
+	// live_qr_displays_state_one_way trigger refuses a revoked_at that moves, so a bare
+	// `SET revoked_at = now()` would reach it the moment two revocations race and roll the winner's
+	// caller back. With COALESCE the loser re-reads the committed row and writes nothing new.
+	// Records a screen waiting for its pairing code at one location (the panel's "Add a live QR screen",
+	// M16-20). tenant_id is explicit and the RLS WITH CHECK confirms it equals the context; the composite
+	// key to locations confirms the location is the same tenant's. ttl_seconds is the caller's; the
+	// table's CHECK caps it at one hour (23514 above that). id and created_at are the database's. A code
+	// digest another waiting screen already holds -- any tenant -- is refused by
+	// live_qr_displays_pairing_code_hash_key (23505): the caller draws another code.
+	CreateLiveQRDisplay(ctx context.Context, arg CreateLiveQRDisplayParams) (CreateLiveQRDisplayRow, error)
 	// Adds a venue.
 	//
 	// 🔴 THE TENANT IS SELECTED, NOT ASSIGNED, AND THAT SHAPE WAS CHOSEN BY A TEST
@@ -1864,6 +1933,11 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
 	// foreign id matches nothing, so this cannot end another tenant's employment.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (DeactivateEmployeeRow, error)
+	// THE DECISION, ONE STATEMENT, ONE WAY: an open, unexpired request is approved or rejected by one
+	// panel account, stamped now. The one-way trigger refuses any later change. pgx.ErrNoRows: the
+	// request is no longer open (decided, withdrawn or expired) -- the caller read it locked, so that is
+	// the expiry crossing between the read and this statement.
+	DecideActivationRequest(ctx context.Context, arg DecideActivationRequestParams) (DecideActivationRequestRow, error)
 	// Not now: a limit is reached (ADR 0022 §9 -- the limit delays the send, never refuses the
 	// request) or the send failed (back-off). The request stays, due again at @due. Only under this
 	// worker's lease.
@@ -2219,6 +2293,9 @@ type Querier interface {
 	// After a revocation matched no row: is the key unknown in this tenant (no row) or revoked
 	// already (a timestamp)? Read in the same transaction, for the panel's sentence only.
 	GetAPIKeyRevokedAt(ctx context.Context, arg GetAPIKeyRevokedAtParams) (*time.Time, error)
+	// The phone's read of its own latest request: the invitation's request opened by THIS binding,
+	// newest first. expired is the DATABASE clock's answer. pgx.ErrNoRows: this binding never asked.
+	GetActivationRequestForBinding(ctx context.Context, arg GetActivationRequestForBindingParams) (GetActivationRequestForBindingRow, error)
 	// The in-context identity read: who am I, what may I do, am I still enabled.
 	// This is where `role` comes from -- authorization is decided with a tenant
 	// context established, never from the pre-authentication resolver (00011).
@@ -2624,6 +2701,17 @@ type Querier interface {
 	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
 	// deactivated one could never spend it).
 	GetEmployeeInviteStatus(ctx context.Context, arg GetEmployeeInviteStatusParams) (string, error)
+	// The staff app's "Usual shift" line and the switch that allows it (M16-45, ADR 0050 (iv); Q52
+	// (1) (a), (2) (c)): the person's department's shift, and their PROFILE location's shift and name.
+	// The profile, not a tapped venue: the line says "usual", there is no tap, and it computes no late
+	// minutes (CLAUDE.md §5's "the tapped location" is lateness's rule). The caller prefers the
+	// department's shift when it is set, as the engine does.
+	//
+	// staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
+	// off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+	// A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
+	// only a department's shift can apply, and the line names no venue.
+	GetEmployeeUsualShift(ctx context.Context, arg GetEmployeeUsualShiftParams) (GetEmployeeUsualShiftRow, error)
 	// The recorded request after a claim found a row.
 	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)
 	// GetIdempotency's twin for an OAuth grant (00106).
@@ -2834,6 +2922,14 @@ type Querier interface {
 	// same_email compares the address on file with the PUT's BYTE FOR BYTE (ErrSameEmail's rule: a
 	// change of capitals is a change) without the address ever reaching Go.
 	GetLiveEmployeeByExternalRef(ctx context.Context, arg GetLiveEmployeeByExternalRefParams) (GetLiveEmployeeByExternalRefRow, error)
+	// The screen page's own read (M16-20): after resolve_live_qr_display_by_session_hash named the
+	// screen and its tenant, this reads -- under that tenant -- whether it is revoked, when it was paired
+	// (a screen session ends ScreenSessionLifetime after it, internal/liveqr), the venue's name the page
+	// prints (a venue's name, no person's: the screen shows no personal data), whether the venue is
+	// active and whether the operator has suspended the business (ADR 0025 §1, 00063's suspended_at):
+	// an inactive venue's or a suspended business's screen shows no code. The composite key makes the
+	// join one row and the tenants join is by primary key; no digest is returned.
+	GetLiveQRDisplayForScreen(ctx context.Context, arg GetLiveQRDisplayForScreenParams) (GetLiveQRDisplayForScreenRow, error)
 	// locations.sql -- tenant-scoped location reads for proof-of-place, plus the one
 	// read the activation page needs. EVERY query here carries an explicit tenant_id
 	// filter (CLAUDE.md section 4.5, belt + braces on RLS).
@@ -3290,6 +3386,9 @@ type Querier interface {
 	// vat_verified and vat_checked_at (migration 00017) ARE selected, and this is the first
 	// statement anywhere in the product that reads them back. Their four states are
 	// described where they are declared; the display sentence lives in internal/handler.
+	//
+	// staff_shift_visible (00116, M16-45) is the owner's "these are my staff's real shifts" switch,
+	// drawn on this screen beside the business's other facts.
 	GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (GetTenantAccountRow, error)
 	// The activation family's per-page read (M10 WL-13; ADR 0023's WL-13 note): the brand
 	// fields a page draws, the business's NAME (the logo's alt) and whether VIES confirmed
@@ -3424,6 +3523,9 @@ type Querier interface {
 	// subject, tenant_branding. tenants.id is bound to the same parameter as well: each
 	// table this statement reads names the tenant (section 4.5).
 	GetTenantPanelBrand(ctx context.Context, tenantID uuid.UUID) (GetTenantPanelBrandRow, error)
+	// The switch's value BEFORE an owner's change, locked, for the trail's "before" (Accounts.Save's
+	// rule: the row describes the change that happened, not one read a moment earlier).
+	GetTenantStaffShiftVisibleForUpdate(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	// Whether the operator has suspended this business (ADR 0025 §1; 00063's suspended_at) -- the ONE
 	// read of /v1's suspension checkpoint (M11 API-4b; ADR 0028 §10; internal/handler/api/suspension.go).
 	// It runs INSIDE the write's own transaction (apikey.Writes.Run, the key's tenant context), so the
@@ -4418,6 +4520,10 @@ type Querier interface {
 	// token_hash is NOT selected (section 4.7); used_at and cancelled_at are not selected
 	// either, because the WHERE pins both to NULL for every returned row.
 	ListLivePasswordResetsForAdmin(ctx context.Context, arg ListLivePasswordResetsForAdminParams) ([]ListLivePasswordResetsForAdminRow, error)
+	// The screens of one location, newest first (the panel's list, M16-20): when each was created,
+	// whether it is waiting for its code (paired_at NULL, until pairing_expires_at), paired, or revoked,
+	// and -- since 00114 -- when a paired one last asked for a code. No digest is returned.
+	ListLiveQRDisplaysForLocation(ctx context.Context, arg ListLiveQRDisplaysForLocationParams) ([]ListLiveQRDisplaysForLocationRow, error)
 	// §11.3 step 2, the invitation queue's gate when neither K-22 column is set: the apps holding a live
 	// grant with employees:write in this business -- a grant that still has a live refresh token (a dead
 	// grant does not open the gate: the "Uygulama notları"). No LIMIT: the partial UNIQUE (tenant_id,
@@ -4429,6 +4535,14 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// The panel's "Phones waiting for approval": the business's open, unexpired requests whose
+	// invitation can still be spent by the binding that asked (a request whose person has since
+	// activated another way, or whose consent moved to another phone, is not shown -- approving it would
+	// complete nothing). Oldest first. The venue is the person's home venue, NULL for none (K-14).
+	// replaces_phone: the person holds a live browser session or a live app device right now, which
+	// the approval's activation signs out (Q40 (a)) -- the panel row says so (M16-23 security DÜŞÜK).
+	// "Live" is the panel card's own definition (GetPanelEmployeeSummary: revoked_at IS NULL).
+	ListOpenActivationRequests(ctx context.Context, tenantID uuid.UUID) ([]ListOpenActivationRequestsRow, error)
 	// Check-ins in the window that no checkout closes.
 	//
 	// 🔴 "OPEN" IS ADR 0032 §A.6's DEFINITION, THE ONE THE REPORTS SECTION USES TOO (M15-05).
@@ -4496,6 +4610,15 @@ type Querier interface {
 	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 	// header -- the two statements share the next-record lookup and were measured together.
 	ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error)
+	// The person's own recent claims for the staff app's "Missing times" screen (M16-43, Q50 (5) (b)):
+	// what was asked, about which record, and whether a manager has decided. The decision's note and
+	// its decider are NOT selected -- the person sees the answer to their own request, nothing about
+	// who gave it. approved_at is selected for the app's "Approved at 18:00", which the caller shows
+	// only while the business shows staff their hours (M16-30's switch; until it exists, never).
+	// Explicit tenant and person on every table beside RLS (§4.5). Plan: punch_claims_tenant_created_idx
+	// with employee_id as a filter -- a business's claims of 30 days are a handful (12 in production
+	// over 30 days, measured 2026-11-19).
+	ListOwnPunchClaims(ctx context.Context, arg ListOwnPunchClaimsParams) ([]ListOwnPunchClaimsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
 	//
@@ -5843,6 +5966,16 @@ type Querier interface {
 	// explicit predicate -- and a context in which the row is not visible returns NO ROW and takes no
 	// lock, which the caller treats as a failure, never as "locked".
 	LockAPIDeactivationBudget(ctx context.Context, arg LockAPIDeactivationBudgetParams) (LockAPIDeactivationBudgetRow, error)
+	// The panel's decision reads the request FOR UPDATE first, so two managers pressing at once queue on
+	// the row: the second reads the committed decision and is answered "no longer open" (one audit row).
+	// self is THE SELF-APPROVAL CHECK (ADR 0037's spirit, the card): the deciding panel account's
+	// address is the person's address. admin_users.email is the account's address (an identity-linked
+	// account's mirror, 00102), employees.email the person's; both citext, so the comparison ignores
+	// case. A person without an address is never "self" -- the check can only see what is written.
+	// employee_deactivated: a deactivated person's request is closed to a decision (the consumption would
+	// refuse it anyway; the panel must not record an approval nothing can collect -- M16-23 security
+	// review DÜŞÜK). pgx.ErrNoRows: no such request in this business.
+	LockActivationRequestForDecision(ctx context.Context, arg LockActivationRequestForDecisionParams) (LockActivationRequestForDecisionRow, error)
 	// adminmembers.sql -- the owner's side of a business's memberships (M14-16, ADR 0031 §5.12): the
 	// people who run this business in the panel, disabling and enabling one, and moving a membership
 	// between owner and manager (the two steps of an ownership transfer).
@@ -5988,6 +6121,11 @@ type Querier interface {
 	// row: the grant is revoked (invalid_grant). scopes are the grant's: a refresh may narrow the access
 	// token below them, never widen it (§5.3).
 	LockLiveOAuthGrant(ctx context.Context, arg LockLiveOAuthGrantParams) (LockLiveOAuthGrantRow, error)
+	// The panel's revocation reads the screen FOR UPDATE first (M16-20), so a repeat press -- or two
+	// managers at once -- is answered "already removed" and writes ONE audit row: the second waits for
+	// the first's lock and reads the committed revoked_at. pgx.ErrNoRows: no such screen in this tenant.
+	// No digest is returned.
+	LockLiveQRDisplay(ctx context.Context, arg LockLiveQRDisplayParams) (LockLiveQRDisplayRow, error)
 	// ---------------------------------------------------------------------------
 	// THE INTEGRATION API'S VENUE WRITE (M11 API-5, ADR 0028 §9: PUT /v1/locations/{ref}).
 	// internal/domain/tenant/venueapi.go is the one caller; it runs inside the API's write
@@ -6643,6 +6781,13 @@ type Querier interface {
 	// RevokeSessionsForEmployee and before the trail row -- sessions, then devices, then nonces -- and
 	// retries the whole transaction on 40P01.
 	RevokeAppDevicesForEmployee(ctx context.Context, arg RevokeAppDevicesForEmployeeParams) ([]uuid.UUID, error)
+	// Revokes one screen (the panel's revoke, M16-20). COALESCE keeps the FIRST stamp, so a repeat is
+	// idempotent and never rewrites when the screen died. The row is matched whatever its state, so
+	// pgx.ErrNoRows means "no such screen in this tenant" -- a different answer from "already revoked".
+	// A screen waiting for its code is revoked the same way, and its code's digest is DROPPED in the same
+	// statement: a dead code must not hold its value in the global UNIQUE (00111's header). A paired
+	// screen holds no code, so the second assignment changes nothing there.
+	RevokeLiveQRDisplay(ctx context.Context, arg RevokeLiveQRDisplayParams) (RevokeLiveQRDisplayRow, error)
 	// §6: an access token presented to /oauth/revoke ends alone; the grant lives (§18.2 item 13). 0
 	// rows: already revoked or not an access token of this tenant -- RFC 7009 answers 200 either way.
 	RevokeOAuthAccessToken(ctx context.Context, arg RevokeOAuthAccessTokenParams) (int64, error)
@@ -6715,12 +6860,18 @@ type Querier interface {
 	// this person have a tap RECORDED in the last N seconds" -- and no caller can
 	// reorder it, because created_at is the database's own now().
 	//
-	// channel IN ('nfc','qr') IS THE MANUAL EXEMPTION, expressed where it cannot be
+	// channel IN ('nfc','qr','qr_live') IS THE MANUAL EXEMPTION, expressed where it cannot be
 	// dodged. created_at on a manual row is when a MANAGER TYPED IT, which carries no
 	// claim about where the employee was: counting it would debounce an employee's
 	// genuine tap thirty seconds after a manager's backdated entry, and would break
 	// bulk manual entry. channel is server-derived, so this predicate is not a lever
 	// a caller can reach.
+	//
+	// qr_live IS IN SINCE M16-21 (ADR 0045 §2.5, ADR 0006): a live QR tap is a tap, and
+	// the debounce is its one brake (no counter). Left out, a live QR predecessor with a
+	// backdated occurred_at would be invisible to THIS leg and the declared leg alone
+	// would decide -- the ADR 0006 hole, reopened silently for one channel
+	// (TestLiveQRDB_ABackdatedLiveQRPredecessorStillDebounces).
 	//
 	// 🔴 IT RETURNS AN AGE, NOT A TIMESTAMP, AND THAT IS LOAD-BEARING. An earlier
 	// version returned created_at and let Go subtract it from its own clock. That
@@ -6903,6 +7054,8 @@ type Querier interface {
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more
 	// than 262 144 bytes (migration 00028).
 	SetTenantLogo(ctx context.Context, arg SetTenantLogoParams) (int64, error)
+	// The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
+	SetTenantStaffShiftVisible(ctx context.Context, arg SetTenantStaffShiftVisibleParams) (int64, error)
 	// Switch the endpoint off or on. Only a change matches: switching off an endpoint that is off writes
 	// nothing, so the caller writes no second trail row.
 	SetWebhookEndpointActive(ctx context.Context, arg SetWebhookEndpointActiveParams) (int64, error)
@@ -7099,6 +7252,10 @@ type Querier interface {
 	// Refreshes last_used_at on use. revoked_at IS NULL makes it fail CLOSED: a device revoked between
 	// resolution and this write updates 0 rows (pgx.ErrNoRows) instead of being stamped as fresh.
 	TouchAppDevice(ctx context.Context, arg TouchAppDeviceParams) (TouchAppDeviceRow, error)
+	// Stamps when a paired, unrevoked screen last asked for a code (00114), at most once every ten
+	// minutes: ONE conditional UPDATE, so a poll every ~17 s writes a row at most six times an hour.
+	// 0 rows is the ordinary answer (stamped recently), never an error.
+	TouchLiveQRDisplay(ctx context.Context, arg TouchLiveQRDisplayParams) (int64, error)
 	// §8.1 step 6: last_used_at at most once a minute per grant (TouchAPIKey's rule), the "Connected
 	// apps" list's last use. A revoked grant is not touched.
 	TouchOAuthGrant(ctx context.Context, arg TouchOAuthGrantParams) (int64, error)
@@ -7219,6 +7376,9 @@ type Querier interface {
 	// what was stored rather than from what was posted -- so a value the database
 	// normalised, or a column somebody else changed in between, is what the customer sees.
 	UpdateTenantAccount(ctx context.Context, arg UpdateTenantAccountParams) (UpdateTenantAccountRow, error)
+	// Opening a new request withdraws the invitation's open one first, in the same transaction
+	// (00115's one-open UNIQUE): the newest request is the one the panel shows.
+	WithdrawOpenActivationRequests(ctx context.Context, arg WithdrawOpenActivationRequestsParams) (int64, error)
 	// RETIRE ONE LINK THAT WAS NEVER HANDED TO ANYBODY (M10 EM-7C round 3).
 	//
 	// 🔴 WHY IT EXISTS: since EM-7C a recovery request mints nothing while the account

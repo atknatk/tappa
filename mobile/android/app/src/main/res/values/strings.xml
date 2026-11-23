@@ -83,6 +83,20 @@
     <!-- APP-ONLY (Android): the browser cannot see the phone's NFC switch; the app reads the
          plaque itself. iOS has no switch to name. -->
     <string name="nfc_off">Turn on NFC in your phone\'s settings, then tap the plaque.</string>
+    <!-- M16-23, the phone that cannot tap (the browser wizard says the same): the secondary button
+         when lookup's managerApproval is true, the line in its place when it is false. -->
+    <string name="cant_tap">My phone can\'t tap</string>
+    <string name="scan_screen_line">Phone can\'t tap? Open your camera and scan the code on the Taptime screen at your workplace.</string>
+
+    <!-- M16-23: waiting for the manager's approval (the browser wizard says the same). The pairing
+         code is drawn between body and status, grouped by three ("482 913"). -->
+    <string name="approval_label">Last step</string>
+    <string name="approval_title">Ask your manager to approve this phone</string>
+    <string name="approval_body">Show this code to your manager. They approve it in Taptime, under People.</string>
+    <string name="approval_status">Waiting for your manager…</string>
+    <string name="approval_footnote">The code works for 15 minutes.</string>
+    <string name="approval_ask_again">Ask again</string>
+    <string name="approval_new_code">Get a new code</string>
 
     <!-- Activation complete, and already set up. -->
     <string name="setup_label">Setup</string>
@@ -117,6 +131,20 @@
     <string name="p_tap_failed_title">That tap didn\'t finish setup</string>
     <string name="p_tap_failed_message">Your phone isn\'t activated yet, and nothing was recorded.</string>
     <string name="p_tap_failed_hint">Hold the top of your phone against a Taptime plaque at your workplace and try again.</string>
+    <!-- M16-23: a venue screen's live QR did not finish setup (every refusal is one code). -->
+    <string name="p_live_failed_title">That scan didn\'t finish setup</string>
+    <string name="p_live_failed_message">Your phone isn\'t activated yet, and nothing was recorded.</string>
+    <string name="p_live_failed_hint">Scan the code on the Taptime screen at your workplace again — it changes every few seconds.</string>
+    <!-- M16-23: the manager-approval path's three ends that are not "approved". -->
+    <string name="p_rejected_title">Your manager didn\'t approve this phone</string>
+    <string name="p_rejected_message">Nothing was set up and nothing was recorded.</string>
+    <string name="p_rejected_hint">Talk to your manager. If they ask you to, try again.</string>
+    <string name="p_expired_title">That code ran out of time</string>
+    <string name="p_expired_message">Your manager didn\'t approve it in time, so nothing was set up.</string>
+    <string name="p_expired_hint">Get a new code and show it to your manager.</string>
+    <string name="p_screen_available_title">Scan the screen\'s code instead</string>
+    <string name="p_screen_available_message">There\'s a Taptime screen at your workplace, so your manager can\'t approve this phone.</string>
+    <string name="p_screen_available_hint">Open your camera and scan the code on the screen to finish setup.</string>
     <string name="p_needs_touch_title">Hold your phone against the plaque</string>
     <string name="p_needs_touch_message">Activation needs a real tap on the plaque, so this didn\'t finish it.</string>
     <string name="p_needs_touch_hint">Touch the top of your phone to the plaque to finish.</string>
@@ -126,10 +154,13 @@
     <string name="p_signed_out_title">This phone was signed out</string>
     <string name="p_signed_out_message">This phone is no longer signed in to Taptime, so it can\'t record time.</string>
     <string name="p_signed_out_hint">Ask your manager for a new activation link.</string>
-    <!-- APP-ONLY: no NFC reader at all, refused at launch. The iOS twin says "This iPhone ...". -->
+    <!-- APP-ONLY (M16-23): no NFC reader at all. No longer a refusal at launch: a notice on step 3
+         in place of the plaque, which sends the person to the venue screen's code. The hint is shown
+         only when the manager can approve (lookup's managerApproval). The iOS twin says "This
+         iPhone ..." (ActivationCopy.swift, Copy.Problems.noReader). -->
     <string name="p_no_reader_title">This phone can\'t read the plaque</string>
-    <string name="p_no_reader_message">Setting up the app needs a tap on the plaque, and this phone has no NFC reader.</string>
-    <string name="p_no_reader_hint">Ask your manager — setup without a plaque tap isn\'t available yet.</string>
+    <string name="p_no_reader_message">Finish setup by scanning the code on the Taptime screen at your workplace with your camera.</string>
+    <string name="p_no_reader_hint">Or ask your manager to approve this phone.</string>
     <!-- APP-ONLY: the Keystore is software only (KeyGate). The iOS twin says "This iPhone ...". -->
     <string name="p_no_key_title">This phone can\'t be set up</string>
     <string name="p_no_key_message">The app keeps its key in this phone\'s secure chip, and the chip isn\'t available.</string>
@@ -141,6 +172,11 @@
     <string name="p_not_set_up_title">This app isn\'t set up yet</string>
     <string name="p_not_set_up_message">This app hasn\'t been set up for Taptime yet, so it can\'t record this tap.</string>
     <string name="p_not_set_up_hint">Open the tap in your browser instead, or set up the app with the link your workplace sent you.</string>
+    <!-- APP-ONLY (M16-23): an activated phone without an NFC reader ("already set up" screen); the
+         iOS twin's TapCopy.Problems.noReader, "This iPhone ...". -->
+    <string name="p_no_nfc_title">This phone can\'t read the plaque</string>
+    <string name="p_no_nfc_message">This phone has no NFC reader. To record a tap, open your camera and scan the code on the Taptime screen at your workplace.</string>
+    <string name="p_no_nfc_hint">No screen there? Ask your manager.</string>
     <!-- APP-ONLY (M16-12 hand-over (3)): the Keystore did not hand out the device key. The iOS app's
          keyUnreadable text, word for word; its screen carries "Try again". -->
     <string name="p_key_unreadable_title">Taptime couldn\'t open this phone\'s key</string>
@@ -217,6 +253,15 @@
     <string name="tp_foreign_title">That plaque isn\'t yours</string>
     <string name="tp_foreign_message">This plaque belongs to a different employer, so nothing was recorded.</string>
     <string name="tp_foreign_hint">Use your own workplace\'s plaque, or tell your manager.</string>
+    <!-- M16-23: the same problems when the tap came from a venue screen's LIVE QR (/q): the
+         plaque's titles and messages, with the hints (and the foreign screen's words) naming the
+         screen's code. TapCopyTest pins them; the iOS twin's TapCopy.Problems.*Live. -->
+    <string name="tp_live_server_hint">Scan the code on the screen again in a moment.</string>
+    <string name="tp_live_too_many_hint">Wait a moment and scan the screen\'s code again. Tell your manager if it keeps happening.</string>
+    <string name="tp_live_stale_hint">Scan the code on the screen again.</string>
+    <string name="tp_live_foreign_title">That screen isn\'t yours</string>
+    <string name="tp_live_foreign_message">This screen belongs to a different employer, so nothing was recorded.</string>
+    <string name="tp_live_foreign_hint">Use your own workplace\'s screen, or tell your manager.</string>
     <!-- APP-ONLY: no answer to tap/start (the browser shows its own offline page). tap/start writes
          nothing, so "nothing was recorded" is true and "Try again" is safe. Title as activation's. -->
     <string name="tp_unreachable_title">Can\'t reach Taptime</string>
@@ -228,4 +273,68 @@
     <string name="tp_lost_title">Can\'t reach Taptime</string>
     <string name="tp_lost_message">We couldn\'t confirm this tap, so it may not have been recorded.</string>
     <string name="tp_lost_hint">Check your connection and tap the plaque again. Tell your manager if that looks wrong.</string>
+    <!-- M16-44/46/47/48: the home screen, Settings, "Missing times", the reminder and the lock-screen
+         timer (the user's §9 answers of 2026-11-23). The claim card's lines are the browser card's
+         (internal/handler/claim.go claimCardView, web/templates/pages/claim.templ). -->
+    <string name="home_at_work">At work</string>
+    <string name="home_not_in">Not clocked in</string>
+    <string name="home_stamp_in">Clocked in</string>
+    <string name="home_hello">Hello %1$s</string>
+    <string name="home_in_since">Clocked in at %1$s</string>
+    <string name="home_tap_out">Tap a plaque to clock out.</string>
+    <string name="home_tap_in">Tap a plaque to clock in.</string>
+    <string name="home_missing">Missing times (%1$d)</string>
+    <string name="home_settings">Settings</string>
+    <string name="shift_usual">Usual shift: %1$s–%2$s · %3$s</string>
+    <string name="shift_usual_overnight">Usual shift: %1$s–%2$s (next day) · %3$s</string>
+    <string name="shift_today_ends">Today\'s shift ends at %1$s</string>
+    <string name="settings_label">Settings</string>
+    <string name="settings_remind">Remind me to clock out</string>
+    <string name="settings_remind_hint">If you may have forgotten, your phone reminds you about 10 hours after you clock in.</string>
+    <string name="settings_timer">Show a timer on the lock screen</string>
+    <string name="settings_notifications_off">Notifications are off for Taptime in your phone\'s Settings.</string>
+    <string name="missing_label">Missing times</string>
+    <string name="missing_none">Nothing to send.</string>
+    <string name="missing_sent_label">Sent</string>
+    <string name="missing_sent_row">%1$s · %2$s %3$s</string>
+    <string name="missing_kind_in">in</string>
+    <string name="missing_kind_out">out</string>
+    <string name="claim_lead_out_today">You clocked in at %1$s and didn\'t clock out.</string>
+    <string name="claim_lead_out_yesterday">Yesterday you clocked in at %1$s but there\'s no clock-out.</string>
+    <string name="claim_lead_out_earlier">On %1$s you clocked in at %2$s but there\'s no clock-out.</string>
+    <string name="claim_lead_in_today">You clocked out at %1$s but there\'s no clock-in.</string>
+    <string name="claim_lead_in_yesterday">Yesterday you clocked out at %1$s but there\'s no clock-in.</string>
+    <string name="claim_lead_in_earlier">On %1$s you clocked out at %2$s but there\'s no clock-in.</string>
+    <string name="claim_question_out">What time did you leave?</string>
+    <string name="claim_question_in">What time did you come in?</string>
+    <string name="claim_send">Send to my manager</string>
+    <string name="claim_skip">You can skip this.</string>
+    <string name="claim_sent">Sent — your manager will review it.</string>
+    <string name="claim_enter_time">Enter the time, then send it.</string>
+    <string name="claim_outside">That time does not fit this record. It has to be %1$s.</string>
+    <string name="claim_window_after_before">after %1$s and before %2$s</string>
+    <string name="claim_window_from_before">from %1$s and before %2$s</string>
+    <string name="claim_window_after_upto">after %1$s up to %2$s</string>
+    <string name="claim_window_from_upto">from %1$s up to %2$s</string>
+    <string name="claim_expired_title">This question has expired</string>
+    <string name="claim_expired_message">Nothing was sent to your manager.</string>
+    <string name="claim_tell_manager">Tell your manager what time it was.</string>
+    <string name="claim_resolved_title">Already resolved</string>
+    <string name="claim_resolved_message">That record no longer needs this time, so nothing was sent.</string>
+    <string name="claim_resolved_hint">Tell your manager if that looks wrong.</string>
+    <string name="claim_not_active_title">Your account can\'t send this</string>
+    <string name="claim_not_active_message">Only an active employee can send a time to their manager. Nothing was sent.</string>
+    <string name="claim_still_open_title">You\'re still clocked in</string>
+    <string name="claim_still_open_message">Nothing was sent. Tap the plaque when you leave.</string>
+    <string name="claim_state_pending">Waiting for your manager</string>
+    <string name="claim_state_approved">Approved</string>
+    <string name="claim_state_approved_at">Approved at %1$s</string>
+    <string name="claim_state_rejected">Not approved</string>
+    <string name="remind_title">Still at work?</string>
+    <string name="remind_body">You clocked in at %1$s. If you\'ve finished, remember to clock out.</string>
+    <string name="remind_body_shift">If you\'ve finished, remember to clock out. Your shift ended at %1$s.</string>
+    <string name="timer_title">Clocked in</string>
+    <string name="timer_shift_ends">Shift ends %1$s</string>
+    <string name="channel_reminders">Clock-out reminders</string>
+    <string name="channel_timer">At-work timer</string>
 </resources>

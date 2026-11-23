@@ -65,16 +65,7 @@ object InviteCode {
 object PlaqueRead {
     const val PATH = "/t"
 
-    fun sunQuery(url: String, baseUrl: String): String? {
-        val read = parse(url) ?: return null
-        val base = parse(baseUrl) ?: return null
-        if (!read.scheme.equals(base.scheme, ignoreCase = true)) return null
-        if (!read.host.equals(base.host, ignoreCase = true)) return null
-        if (effectivePort(read) != effectivePort(base)) return null
-        if (read.rawPath != PATH) return null
-        if (read.rawFragment != null) return null
-        return read.rawQuery?.takeIf { it.isNotEmpty() }
-    }
+    fun sunQuery(url: String, baseUrl: String): String? = routeQuery(url, baseUrl, PATH)
 
     /**
      * The URL "Open in browser" hands the browser: REBUILT as this server's `<base>/t?` + the verified
@@ -85,12 +76,78 @@ object PlaqueRead {
     fun browserUrl(url: String, baseUrl: String): String? =
         sunQuery(url, baseUrl)?.let { baseUrl.trimEnd('/') + PATH + "?" + it }
 
-    private fun parse(s: String): URI? = try {
-        URI(s.trim()).takeIf { it.isAbsolute && it.host != null && it.rawUserInfo == null }
-    } catch (_: URISyntaxException) {
-        null
+}
+
+/**
+ * A venue screen's LIVE QR (M16-22, ADR 0045 §2.5): the camera reads the screen's rotating code,
+ * `<base>/q?t=<token>`, and the App Link opens the app with it. The query goes to tap/start as
+ * `liveQR`, exactly as written -- the server opens the token (GET /q's reader) and the app judges
+ * nothing about it, as it judges nothing about a chip.
+ *
+ * The same origin rule as [PlaqueRead] (scheme, host, port, the exact path `/q`, no user, no
+ * fragment): a look-alike host's code is never sent. The token is a ~20-second credential: it is
+ * held in memory only and never printed (§7).
+ */
+object LiveQrRead {
+    const val PATH = "/q"
+
+    fun query(url: String, baseUrl: String): String? = routeQuery(url, baseUrl, PATH)
+
+    /** "Open in browser" for a live QR: `<base>/q?` + the verified query, never the URL as it arrived. */
+    fun browserUrl(url: String, baseUrl: String): String? =
+        query(url, baseUrl)?.let { baseUrl.trimEnd('/') + PATH + "?" + it }
+}
+
+/**
+ * What opened the tap screen: a plaque (NFC, or its printed static QR -- the same `<base>/t`
+ * route, the server tells them apart) or a venue screen's live QR (`<base>/q`). [query] is sent to
+ * tap/start and nowhere else; neither is ever printed (the SUN query carries the chip's CMAC, the
+ * live query a live token).
+ */
+sealed interface TapLink {
+    val query: String
+
+    /** `<base>/t?` + the query: tap/start's `sun`. */
+    class Plaque(override val query: String) : TapLink {
+        override fun toString() = "Plaque(query=<redacted>)"
     }
 
+    /** `<base>/q?` + the query: tap/start's `liveQR`. */
+    class LiveQr(override val query: String) : TapLink {
+        override fun toString() = "LiveQr(query=<redacted>)"
+    }
+
+    companion object {
+        /** This server's plaque or live QR URL, or null for anything else (it is sent nowhere). */
+        fun of(url: String, baseUrl: String): TapLink? =
+            PlaqueRead.sunQuery(url, baseUrl)?.let(::Plaque) ?: LiveQrRead.query(url, baseUrl)?.let(::LiveQr)
+
+        /** The URL "Open in browser" hands the browser, rebuilt from the base (the iOS twin's rule). */
+        fun browserUrl(url: String, baseUrl: String): String? =
+            PlaqueRead.browserUrl(url, baseUrl) ?: LiveQrRead.browserUrl(url, baseUrl)
+    }
+}
+
+/**
+ * The query of [url] when it is THIS server's [path]: same scheme, host and port as [baseUrl], the
+ * path exactly [path], no user, no fragment, a non-empty query. The one origin check of the two
+ * readers ([PlaqueRead], [LiveQrRead]).
+ */
+private fun routeQuery(url: String, baseUrl: String, path: String): String? {
+    val read = parseAbsolute(url) ?: return null
+    val base = parseAbsolute(baseUrl) ?: return null
+    if (!read.scheme.equals(base.scheme, ignoreCase = true)) return null
+    if (!read.host.equals(base.host, ignoreCase = true)) return null
+    if (effectivePort(read) != effectivePort(base)) return null
+    if (read.rawPath != path) return null
+    if (read.rawFragment != null) return null
+    return read.rawQuery?.takeIf { it.isNotEmpty() }
+}
+
+private fun parseAbsolute(s: String): URI? = try {
+    URI(s.trim()).takeIf { it.isAbsolute && it.host != null && it.rawUserInfo == null }
+} catch (_: URISyntaxException) {
+    null
 }
 
 /** The URI's port, the scheme's default when none is written: what both readers compare. */

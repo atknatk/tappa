@@ -282,3 +282,24 @@
 --   SELECT tenant_id, token_id, kind, grant_id, client_id, token_scopes, expires_at, used_at,
 --          token_revoked_at, grant_revoked_at, client_disabled_at, api_enabled_at, api_code
 --   FROM resolve_oauth_token_by_hash($1);
+
+-- GetLiveQRDisplayByPairingCodeHash / GetLiveQRDisplayBySessionHash / GetLiveQRDisplayByID
+-- (hand-written: internal/db/resolve.go, M16-19, migration 00111, ADR 0045 §2.5). Context-less; each
+-- calls its resolver, never public.live_qr_displays or public.locations. At most one row each:
+-- pairing_code_hash and session_hash are globally UNIQUE, id is the primary key and the join to
+-- locations is the composite key's one row.
+--   * The pairing code and the screen's session cookie never arrive here: the caller hashes them
+--     (M16-20). A consumed code's digest is NULL, so it resolves nothing.
+--   * The pairing is consumed afterwards under the resolved tenant's context, by ONE statement
+--     (liveqr.sql ConsumeLiveQRDisplayPairing), never here.
+--   * Every state -- the expiry, the revocation, the location's active flag -- is returned and NOT
+--     filtered; M16-20 (the screen page) and M16-21 (the tap, §5 row 1's twin) decide and record.
+--   * resolve_live_qr_display_by_id is the tap's: it reads another tenant's screen when a holding
+--     peer's employee scans it (ADR 0027), the twin of resolve_tag_by_uid. Its input is the screen id
+--     the server-signed token carries -- not a credential: the token's signature is (M16-21).
+--   SELECT id, tenant_id, location_id, pairing_expires_at, revoked_at
+--   FROM resolve_live_qr_display_by_pairing_code_hash($1);
+--   SELECT id, tenant_id, location_id, revoked_at
+--   FROM resolve_live_qr_display_by_session_hash($1);
+--   SELECT id, tenant_id, location_id, revoked_at, location_active
+--   FROM resolve_live_qr_display_by_id($1);

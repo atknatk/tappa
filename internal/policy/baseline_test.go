@@ -392,7 +392,7 @@ func TestBaseline_AllSidsPresentOnce(t *testing.T) {
 	want := []string{
 		SidIPOrGPSOK, SidGPSOnlyAllow, SidNoEvidenceReview, SidQRRequiresIP,
 		SidCrossLocationNote, SidQueuedWindow, SidCtrGapReview, SidGPSConflictReview,
-		SidMockLocationReview, SidAuthzOwner, SidAuthzManager,
+		SidMockLocationReview, SidLiveQRRequiresIP, SidAuthzOwner, SidAuthzManager,
 	}
 	seen := map[string]int{}
 	for _, bd := range Baseline() {

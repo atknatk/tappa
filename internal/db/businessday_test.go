@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -696,7 +697,7 @@ func TestBusinessDay00064_DownRefusesAFrozenDayAndOtherwiseGivesBack00063(t *tes
 	if !strings.Contains(head.function, "vol=i par=s definer=false config=search_path=pg_catalog, pg_temp acl=tappa_owner=X/tappa_owner,tappa_app=X/tappa_owner ret=text") {
 		t.Errorf("PREMISE at HEAD: function %q", head.function)
 	}
-	if head.tenantsUpdate != "name,business_type,timezone,day_cutoff" {
+	if head.tenantsUpdate != "name,business_type,timezone,day_cutoff,staff_shift_visible" {
 		t.Errorf("PREMISE at HEAD: tappa_app UPDATE on tenants = %q", head.tenantsUpdate)
 	}
 
@@ -771,16 +772,30 @@ func TestBusinessDay00064_DownRefusesAFrozenDayAndOtherwiseGivesBack00063(t *tes
 			}
 			opRunSection(t, ctx, sp, down, "00064 Down")
 			at63 := bdRead(t, ctx, sp)
-			if at63.columns != "" || at63.constraints != "" || at63.function != "" || at63.tenantsUpdate != "name,business_type,timezone" {
-				t.Errorf("after 00064's Down: %+v\nwant no column, no constraint, no function and tenants UPDATE = name,business_type,timezone (00024's list)", at63)
+			// 00024's list, plus 00116's staff_shift_visible: this test runs 00064's Down ALONE, at HEAD,
+			// so a later migration's grant stays.
+			if at63.columns != "" || at63.constraints != "" || at63.function != "" || at63.tenantsUpdate != "name,business_type,timezone,staff_shift_visible" {
+				t.Errorf("after 00064's Down: %+v\nwant no column, no constraint, no function and tenants UPDATE = name,business_type,timezone,staff_shift_visible (00024's list and 00116's)", at63)
 			}
 			if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
 				t.Errorf("the Down took a strong lock on %v, outside the tables it names", extra)
 			}
 			opRunSection(t, ctx, sp, up, "00064 Up again")
-			if again := bdRead(t, ctx, sp); again != head {
+			// The Up adds day_cutoff back AFTER 00116's column, so the grant list is compared as a set.
+			again := bdRead(t, ctx, sp)
+			if sortedCSV(again.tenantsUpdate) == sortedCSV(head.tenantsUpdate) {
+				again.tenantsUpdate = head.tenantsUpdate
+			}
+			if again != head {
 				t.Errorf("after the Up again:\n %+v\nwant HEAD's\n %+v", again, head)
 			}
 		})
 	})
+}
+
+// sortedCSV is a comma list in sorted order (a grant list compared as a set).
+func sortedCSV(s string) string {
+	parts := strings.Split(s, ",")
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }

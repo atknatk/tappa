@@ -140,6 +140,24 @@ type Config struct {
 	// API host (either surface would be redirected away instead of served).
 	RedirectHosts []string
 
+	// LiveQRKey is the live QR screens' one server secret (M16-20, ADR 0045 §2.5,
+	// TAPPA_LIVE_QR_KEY). OPTIONAL: unset, the live QR is OFF -- the screen page is not mounted
+	// (its paths answer 404) and the panel draws no live QR block in a venue detail; the
+	// server starts as before, because a venue screen is an option a business may never take
+	// (ADR 0045: "lokasyon başına isteğe bağlı"). Set, it is 32 bytes (the TAPPA_TAG_KEK_PREVIOUS
+	// rule: an optional value that is SET and wrong refuses the start) and it differs from every
+	// other key (namedKeys).
+	//
+	// ONE KEY, THREE USES, EACH UNDER ITS OWN LABEL (internal/liveqr.NewKeys): the signature of the
+	// rotating QR token, the HMAC-SHA256 digest of a pairing code and the HMAC-SHA256 digest of a
+	// screen's session cookie (live_qr_displays.pairing_code_hash / session_hash). It is ONE
+	// variable, not two, for the OAuth key's reason (TAPPA_OAUTH_HMAC_KEY: one secret, a domain
+	// label per use): the three live in one process and one Secret, so a second variable adds a
+	// rotation step and no separation. What rotating it costs is written where it is decided:
+	// every paired screen must be paired again (its session digest no longer matches) -- the right
+	// answer after a leak, which is the one reason to rotate it.
+	LiveQRKey Key
+
 	// AppAppleTeamID and AppAndroidSignerSHA256 are the native app's two identities as the two stores
 	// know them (M16-08, ADR 0045; TAPPA_APP_APPLE_TEAM_ID, TAPPA_APP_ANDROID_SIGNER_SHA256). They are
 	// what internal/handler's AppLinks writes into /.well-known/apple-app-site-association and
@@ -465,6 +483,10 @@ func Load() (*Config, error) {
 	for _, err := range loadOperatorSurface(c) {
 		push(err)
 	}
+	// The live QR screens' key (M16-20): optional, and read before the separation rule compares it.
+	if c.LiveQRKey, err = optionalKey32(EnvLiveQRKey); err != nil {
+		push(err)
+	}
 	push(keysSeparation(c))
 	// After the operator surface: the API host must differ from the operator host too.
 	if c.APIHost, err = apiHost(os.Getenv(envAPIHost), c.BaseURL, c.OperatorHost); err != nil {
@@ -647,6 +669,12 @@ const (
 	AdminIdentityOff = "off"
 	AdminIdentityOn  = "on"
 )
+
+// EnvLiveQRKey is the live QR screens' key variable (M16-20; Config.LiveQRKey).
+const EnvLiveQRKey = "TAPPA_LIVE_QR_KEY"
+
+// LiveQRConfigured reports whether the live QR screens are on: their key is set (Config.LiveQRKey).
+func (c *Config) LiveQRConfigured() bool { return c.LiveQRKey.Len() > 0 }
 
 // EnvAppAppleTeamID and EnvAppAndroidSignerSHA256 are the native app's association variables
 // (M16-08; Config.AppAppleTeamID, Config.AppAndroidSignerSHA256).
@@ -1350,6 +1378,7 @@ func (c *Config) namedKeys() []namedKey {
 		{envWebhookKEK, c.WebhookKEK},
 		{envOperatorTOTPKEK, c.OperatorTOTPKEK},
 		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey},
+		{EnvLiveQRKey, c.LiveQRKey},
 	}
 }
 

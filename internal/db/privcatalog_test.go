@@ -247,7 +247,16 @@ SELECT line FROM (
 // functions (execute=-); the three resolvers
 // (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's named columns of the four tables and
 // tenants SELECT (api_code); api_idempotency's grant_id (tappa_app SELECT and INSERT); and
-// tappa_opdefiner's columns of oauth_clients and the five op_*_oauth_client* (EXECUTE tappa_operator)
+// tappa_opdefiner's columns of oauth_clients and the five op_*_oauth_client* (EXECUTE tappa_operator);
+// 00111 -- M16-19, ADR 0045 §2.5 -- added live_qr_displays (the RLS five; tappa_app's column lists,
+// session_hash not readable, no DELETE), its INVOKER one-way trigger function (execute=-), the three
+// live QR screen resolvers (tappa_resolver's, EXECUTE tappa_app) with tappa_resolver's seven columns of
+// the table and id, tenant_id, active of locations -- that role's first locations grant; 00112 and
+// 00113 change no privilege (CREATE OR REPLACE keeps the three triggers' owners and ACLs); 00114
+// (M16-20) gives tappa_app SELECT and UPDATE on live_qr_displays.last_seen_at; 00115 -- M16-23, ADR
+// 0026 Bedel 3 -- added activation_requests (the RLS five; tappa_app's column lists: SELECT every
+// column, INSERT seven, UPDATE the five state columns, no DELETE) and its INVOKER one-way trigger
+// function (execute=-); no resolver, no other role
 // -- and READ line by line before
 // it was written here. Things the reading noted, all
 // kept on purpose:
@@ -272,6 +281,9 @@ SELECT line FROM (
 // A line is added here only together with the migration that makes it true, and with the reason
 // in that migration (or, for an M11 object, in m11schema_test.go's matrix).
 const privCatalogAllowed = `
+column activation_requests tappa_app INSERT tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,expires_at
+column activation_requests tappa_app SELECT id,tenant_id,employee_id,invite_id,client,binding_hash,pairing_code,created_at,expires_at,decision,decided_at,decided_by,withdrawn_at,collected_at
+column activation_requests tappa_app UPDATE decision,decided_at,decided_by,withdrawn_at,collected_at
 column admin_identities tappa_identitydefiner INSERT email,password_hash
 column admin_identities tappa_identitydefiner SELECT id,email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant
 column admin_identities tappa_identitydefiner UPDATE email,password_hash,email_verified_at,confirm_opened_at,confirm_open_until,confirm_scope,last_used_tenant,last_login_at
@@ -352,9 +364,14 @@ column invite_requests tappa_app UPDATE lease_until,attempts
 column legal_documents tappa_app SELECT id,slug,body,published_at
 column legal_documents tappa_opdefiner INSERT slug,body,published_by
 column legal_documents tappa_opdefiner SELECT id,slug,body,published_at,published_by
+column live_qr_displays tappa_app INSERT tenant_id,location_id,pairing_code_hash,pairing_expires_at
+column live_qr_displays tappa_app SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,paired_at,created_at,revoked_at,last_seen_at
+column live_qr_displays tappa_app UPDATE pairing_code_hash,paired_at,session_hash,revoked_at,last_seen_at
+column live_qr_displays tappa_resolver SELECT id,tenant_id,location_id,pairing_code_hash,pairing_expires_at,session_hash,revoked_at
 column locations tappa_feedwriter SELECT id,tenant_id,name,external_ref
 column locations tappa_holdingdefiner SELECT id,tenant_id,name,static_ips,gps_lat,gps_lng,shift_start,shift_end,overnight,external_ref
 column locations tappa_opdefiner SELECT id,tenant_id,name
+column locations tappa_resolver SELECT id,tenant_id,active
 column oauth_clients tappa_opdefiner INSERT name,redirect_uris,allowed_scopes,secret_hash,secret_hint,created_by
 column oauth_clients tappa_opdefiner SELECT id,name,redirect_uris,allowed_scopes,secret_hint,secret_rotated_at,created_at,created_by,disabled_at
 column oauth_clients tappa_opdefiner UPDATE redirect_uris,secret_hash,secret_hint,secret_rotated_at,disabled_at
@@ -411,7 +428,7 @@ column tenant_branding tappa_holdingdefiner SELECT tenant_id,accent,logo,logo_sh
 column tenant_plan_history tappa_app SELECT tenant_id,plan,effective_from
 column tenant_plan_history tappa_opdefiner SELECT tenant_id,plan,effective_from
 column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at
-column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff
+column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff,staff_shift_visible
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
 column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_enabled_at,api_code
 column tenants tappa_identitydefiner SELECT id,name,vat_number,created_at,suspended_at
@@ -441,6 +458,7 @@ database tappa_resolver CONNECT,TEMPORARY
 extension citext schema=public
 extension pgcrypto schema=public
 extension plpgsql schema=pg_catalog
+function activation_requests_state_is_one_way() owner=tappa_owner definer=false execute=-
 function admin_users_guard_identity_credentials() owner=tappa_owner definer=false execute=-
 function api_keys_revocation_is_one_way() owner=tappa_owner definer=false execute=-
 function app_devices_revocation_is_one_way() owner=tappa_owner definer=false execute=-
@@ -489,6 +507,7 @@ function identity_switch_session(text,uuid,text) owner=tappa_identitydefiner def
 function identity_unlink_backfilled(text,uuid) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_verify_email(text,text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
 function identity_withdraw_reset(text) owner=tappa_identitydefiner definer=true execute=tappa_app,tappa_identitydefiner
+function live_qr_displays_state_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_clients_disabling_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_codes_spending_is_one_way() owner=tappa_owner definer=false execute=-
 function oauth_grants_revocation_is_one_way() owner=tappa_owner definer=false execute=-
@@ -532,6 +551,9 @@ function resolve_identity_by_email(citext) owner=tappa_resolver definer=true exe
 function resolve_identity_reset_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_identity_verification_by_token_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_invite_by_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_id(uuid) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_pairing_code_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
+function resolve_live_qr_display_by_session_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_client(uuid,text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_code_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
 function resolve_oauth_token_by_hash(text) owner=tappa_resolver definer=true execute=tappa_app,tappa_resolver
@@ -563,6 +585,7 @@ function tappa_plan_in_force(uuid,timestamp with time zone,text) owner=tappa_own
 function tappa_record_plan_change() owner=tappa_owner definer=false execute=-
 function webhook_delivery_settle() owner=tappa_owner definer=false execute=-
 namespace public owner=pg_database_owner
+rel activation_requests r owner=tappa_owner rls=enable,force
 rel admin_identities r owner=tappa_owner rls=enable,force
 rel admin_identity_events r owner=tappa_owner rls=enable,force
 rel admin_identity_resets r owner=tappa_owner rls=enable,force
@@ -586,6 +609,7 @@ rel holding_members r owner=tappa_owner rls=enable,force
 rel holdings r owner=tappa_owner rls=enable,force
 rel invite_requests r owner=tappa_owner rls=enable,force
 rel legal_documents r owner=tappa_owner rls=enable,force
+rel live_qr_displays r owner=tappa_owner rls=enable,force
 rel locations r owner=tappa_owner rls=enable,force
 rel oauth_clients r owner=tappa_owner rls=enable,force
 rel oauth_codes r owner=tappa_owner rls=enable,force

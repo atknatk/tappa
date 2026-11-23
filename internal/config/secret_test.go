@@ -133,9 +133,9 @@ func TestConfig_EverySecretFieldIsARedactingType(t *testing.T) {
 			t.Errorf("Config.%s: %s (backlog T80, CLAUDE.md §4.7)", path, p)
 		}
 	})
-	if len(keys) != 9 || len(dsns) != 2 || len(credentials) != 2 {
+	if len(keys) != 10 || len(dsns) != 2 || len(credentials) != 2 {
 		t.Errorf("the walk found keys %v, DSNs %v, credentials %v; it has gone blind or a secret moved "+
-			"(today: nine keys -- TAPPA_OAUTH_HMAC_KEY since issue #37 --, two DSNs, the two SMTP credentials)", keys, dsns, credentials)
+			"(today: ten keys -- TAPPA_OAUTH_HMAC_KEY since issue #37, TAPPA_LIVE_QR_KEY since M16-20 --, two DSNs, the two SMTP credentials)", keys, dsns, credentials)
 	}
 
 	for _, tc := range []struct {
@@ -197,8 +197,8 @@ func canaryConfig(t *testing.T) (config.Config, []string) {
 		}
 	}
 	fill(reflect.ValueOf(&c).Elem())
-	if len(canaries) != 13 {
-		t.Fatalf("%d secret fields were filled, want 13", len(canaries))
+	if len(canaries) != 14 {
+		t.Fatalf("%d secret fields were filled, want 14", len(canaries))
 	}
 	return c, canaries
 }

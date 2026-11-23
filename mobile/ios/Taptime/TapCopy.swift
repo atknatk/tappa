@@ -146,10 +146,26 @@ enum TapCopy {
             title: "The plaque wasn't read",
             message: "Nothing was recorded.",
             hint: "Hold the top of your phone against the plaque and try again.")
-        static let noReader = Copy.Problem( // [app] -- NFCNDEFReaderSession.readingAvailable is false
+        static let noReader = Copy.Problem( // [app] -- NFCNDEFReaderSession.readingAvailable is false (M16-23 text)
             title: "This iPhone can't read the plaque",
-            message: "This iPhone has no NFC reader, so the app can't record a tap from here.",
-            hint: "Ask your manager.")
+            message: "This iPhone has no NFC reader. To record a tap, open your camera and scan the code on the Taptime screen at your workplace.",
+            hint: "No screen there? Ask your manager.")
+        // M16-23: the same four problems when the tap came from a venue screen's LIVE QR (/q): the
+        // plaque's titles and messages, with the hints (and the foreign screen's words) naming the
+        // screen's code (the browser's /q screens take the same words).
+        static let serverLive = Copy.Problem(
+            title: server.title, message: server.message,
+            hint: "Scan the code on the screen again in a moment.")
+        static let tooManyLive = Copy.Problem(
+            title: tooMany.title, message: tooMany.message,
+            hint: "Wait a moment and scan the screen's code again. Tell your manager if it keeps happening.")
+        static let staleLive = Copy.Problem(
+            title: stale.title, message: stale.message,
+            hint: "Scan the code on the screen again.")
+        static let foreignTenantLive = Copy.Problem(
+            title: "That screen isn't yours",
+            message: "This screen belongs to a different employer, so nothing was recorded.",
+            hint: "Use your own workplace's screen, or tell your manager.")
         static let clock = Copy.Problem( // [app] -- M16-16 hand-off 4
             title: "Check your phone's clock",
             message: "Your phone's date and time are too far off for Taptime to accept them. Nothing was recorded.",

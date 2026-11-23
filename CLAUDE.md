@@ -84,6 +84,9 @@ internal/appdevice/   native uygulama isteğinin "kim"i (ADR 0045 §2.3): cihaz 
                       (ham P-256 noktası, eğri üstünde doğrulanır), sunucu nonce'u ver/tüket,
                       ECDSA P-256 imza doğrulaması. Plaket kriptografisi DEĞİL. Karar vermez,
                       log yazmaz. Kanonik metin vektörleri: test/fixtures/appdevice_vectors.json
+internal/liveqr/      canlı QR ekranı (ADR 0045 §2.5, M16-20): eşleşme kodu (65 bit), ekran oturumu
+                      çerezi ve dönen QR token'ı; üçü tek `TAPPA_LIVE_QR_KEY`'den etiketle türeyen
+                      anahtarlarla (HMAC-SHA256). Plaket kriptografisi DEĞİL. Karar vermez, log yazmaz.
 internal/adminauth/   panel yöneticisinin kimliği ve oturumu (ADR 0031); kimlik tablolarına
                       yalnız `identity_*` / `resolve_identity_*` ile gider
 internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,
@@ -407,6 +410,19 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
 - **QR kanalı** (`channel='qr'`): SUN yok → **IP zorunlu**, GPS tek başına yetmez
   → `flag`. QR fotoğraflanır ve süresiz geçerlidir; fiziksel dokunuş kanıtı yok.
   Baseline politikası `base:qr-requires-ip`, tenant değiştirebilir.
+  **Canlı QR** (`channel='qr_live'`, ADR 0045 §2.5, M16-21): mekândaki ekranın ~20 sn'de bir
+  dönen, sunucu imzalı kodu; plaket yok, sayaç yok. Kanal **token'dan** türer (`GET /q`
+  token'ı açar; istek alanından değil). Statik QR'ın kuralı aynen: **IP zorunlu**, GPS tek
+  başına → `flag` (`base:live-qr-requires-ip` — kullanıcı kararı 2026-11-19, ayrı belge ki
+  mevcut işletmelere de ulaşsın; tenant değiştirebilir). Dört guardrail, hepsi kayıt yazar:
+  imza/biçim tutmuyor ya da ekran o lokasyonda yok → `reject` (`sys:live-qr-unverified`,
+  Q39 a) · ekran kaldırılmış ya da lokasyon pasif → `reject` (`sys:screen-not-active`,
+  satır 1'in eşi) · holding ekranı → `reject`, site sütunları dolu (`sys:cross-tenant-live-qr`,
+  Q43 b) · token ömrü + 10 sn ağ payı geçmiş → `flag` + not (`sys:live-qr-expired`, Q39 b).
+  `sys:tap-freshness` canlı QR'a da uygulanır (kod bir anı kanıtlar, kayıt basışta zamanlanır).
+  Debounce kişi başına ve kanallar arasıdır — sayaç olmadığı için tek fren; aynı token'ı
+  okuyan iki kişi ikisi de kayıt. Satırda `tag_uid`/`ctr` NULL, `location_id` ekranın
+  lokasyonu, `sun_valid` false. `/v1`'de `channel: qr` + `qrKind: live`, `tagId: null` (Q38 a).
 - **Aktivasyon dokunuşu** (practice tap'in yerini aldı — ADR 0026): davet linki bir
   sihirbaz açar; onay POST'u yalnız onayı kaydeder ve bu tarayıcıya bağlar (daveti
   tüketmez, oturum vermez). Aktivasyon, o tarayıcıdan gelen ilk **gerçek NFC**
@@ -422,6 +438,17 @@ onu tek-tenant'taki anlamıyla uygular (kullanıcı kararı K-1i, 2026-10-14).
   tarayıcı oturumlarının ve eski uygulama cihazlarının iptali + cihazın doğuşu. İki
   yolda da bu dokunuş **`transactions` satırı yazmaz**; sonraki dokunuş sıradan check-in'dir. Yeni kayıt `practice=true`
   olmaz; tarihsel practice satırları saate sayılmaz ve yön zincirine girmez (ADR 0008).
+  **NFC'siz yollar** (M16-23, ADR 0026 Bedel 3 iptal): aynı onay bağından sonra kanıt
+  (1) **canlı QR** olabilir — `GET /q` (tarayıcı) ya da `activate/complete`'in `liveQR` alanı
+  (uygulama), aynı sıra, `sun.Verify`'ın yerinde token doğrulaması: imza → ekran satırı →
+  davetle **aynı tenant**, hizmette (iptal yok, lokasyon aktif) → pencere (`TokenLifetime` + ağ
+  payı, ölçü anı *şimdi*) → tüketim; basılı QR yine aktive edemez — ya da (2) **müdür onayı**:
+  yalnız çalışanın profil şubesinde (yoksa işletmenin hiçbir yerinde) çalışan canlı QR ekranı
+  **yoksa** (sunucu reddeder), 6 haneli kodlu, 15 dk ömürlü istek (`activation_requests`) →
+  panelde onay/ret (tek yön, `audit_log`; kendi telefonuna onay yok) → tüketim + onayın toplanması
+  tek transaction: tarayıcıda `POST /activate/approval/collect`'te (*Check now* ya da onayı gören
+  sayfa betiği), uygulamada onaylı isteği okuyan `approval/status` çağrısında. İkisi de
+  **`transactions` yazmaz**.
 - **Manuel kayıt:** `channel='manual'` + `entered_by` dolu; raporlarda ayrı görünür.
 - **API'nin açtığı lokasyon** (`PUT /v1/locations`, M11) kanıtsız doğar: panelden IP/GPS tanımlanana
   kadar dokunuşları satır 7'ye (`flag`) düşer, kayıt yine yazılır. Lokasyonun `active` etiketi karar
@@ -568,7 +595,7 @@ değişiklik yine önce sorulur.
 
 **Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ekranı, sonuç ekranı, Account önizlemesi ve aktivasyon ailesinde — sihirbazın üç adımı, "Activation complete", "already set up" — tek şekil: ortalanmış 56 px yuva, altında co-brand satırı yok (kullanıcı §9 kararları, 2026-11-02); aktivasyon ailesinde **yalnız VIES-doğrulanmış** işletmede; panelde 32 px + co-brand) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini (tap ekranı ve aktivasyon sihirbazının 1. ve 2. adımlarının birincil düğmesi) ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer; accent varken sihirbazın öteki yeşil işaretleri (ilerleme çubuğu, hazırlık adımının 01/02'si) ink olur. **Çalışanın sonuç ekranı kaşe damgası, güven puanı ve kural notu taşımaz** (kullanıcı §9 kararı, 2026-11-02: docket'te mekân, başlık, saat; ardından kapanış cümlesi — `flag` onaydan söz etmez, §4.6 kayıttadır ve kuyruktadır); bunlar panelde aynen durur. Panelin kaşe damgaları, durum→renk eşlemesi, docket, sonuç ekranının renkleri, aktivasyonun problem ve onay ekranları ve bekleme ekranının plaket çizimi değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b, K-2b'nin yerini alan 2026-11-02 kararı; aktivasyon ailesi 2026-10-09 — ADR 0023 WL-13 notu ve 2026-11-02 notları) verilmiş sayılı istisnadır — tap/sonuç/aktivasyon ekranlarındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
 
-**Uygulama ekranları (ADR 0045, M16-13/M16-17).** iOS ve Android personel uygulamasının tap ve sonuç ekranları tarayıcınınkilerin eşidir: aynı sıra, aynı metin (*"page"* → *"the app"*: *"All done — you can close the app."*), aynı tek düğme ve tahmin varken *"Not right? …"*; iki platform tek metin listesini paylaşır (Android `IosCopyTest`). Kişinin adı dokunuş kaydedilmeden önce ekranın en büyük metnidir (paylaşılan telefon riskinin hafifletmesi). Sonuç ekranı düğmesizdir; accent yalnız tap düğmesindedir; uygulamada logo henüz yoktur. Tarayıcıda olmayan düğmeler kullanıcının §9 kararlarıdır (2026-11-18): *"Try again"* hiçbir şeyi yeniden göndermez; *"Open in browser"* yalnız plaket URL'si kesin harcanmamışken ve uygulama devam edemediğinde (kurulmamış, oturum kapalı, basıştan **önce** ulaşılamıyor) — basıştan sonra cevap gelmezse yoktur; *"Start again"* / *"Set up this phone"* aktivasyona götürür; iPhone 7–X'te tap düğmesi Core NFC okuma sayfasını açar (Q41 a). Aktivasyon sihirbazındaki uygulama düğmeleri (iOS *"Scan the plaque"*, *Back*) sayılı accent slotu değildir. Bu ekranlarda başka her değişiklik yine önce sorulur.
+**Uygulama ekranları (ADR 0045, M16-13/M16-17).** iOS ve Android personel uygulamasının tap ve sonuç ekranları tarayıcınınkilerin eşidir: aynı sıra, aynı metin (*"page"* → *"the app"*: *"All done — you can close the app."*), aynı tek düğme ve tahmin varken *"Not right? …"*; iki platform tek metin listesini paylaşır (Android `IosCopyTest`). Kişinin adı dokunuş kaydedilmeden önce ekranın en büyük metnidir (paylaşılan telefon riskinin hafifletmesi). Sonuç ekranı düğmesizdir; accent yalnız tap düğmesindedir; uygulamada logo henüz yoktur. Tarayıcıda olmayan düğmeler kullanıcının §9 kararlarıdır (2026-11-18): *"Try again"* hiçbir şeyi yeniden göndermez; *"Open in browser"* yalnız plaket URL'si kesin harcanmamışken ve uygulama devam edemediğinde (kurulmamış, oturum kapalı, basıştan **önce** ulaşılamıyor) — basıştan sonra cevap gelmezse yoktur; *"Start again"* / *"Set up this phone"* aktivasyona götürür; iPhone 7–X'te tap düğmesi Core NFC okuma sayfasını açar (Q41 a). Aktivasyon sihirbazındaki uygulama düğmeleri (iOS *"Scan the plaque"*, *Back*) sayılı accent slotu değildir. Plaketin basılı QR'ı (`/t`) ve mekân ekranının canlı QR'ı (`/q`, M16-22) sistem kamerasıyla okunur, Universal Link / App Link ile aynı tap ekranını açar — uygulama içi okuyucu, kamera izni ve yeni metin yoktur. Bu ekranlarda başka her değişiklik yine önce sorulur.
 
 **Holding plaketinde marka plaketin tenant'ınındır (M11 — ADR 0027 §10, kullanıcı kararı K-1c).** Bir holding dokunuşunda (KM çalışanı KF plaketinde) tap ekranı **KF'nin** logosunu ve accent'ini, sonuç ekranı **KF'nin** logosunu taşır — oturumun tenant'ınınkini değil; logo yalnız VIES-doğrulanmış saha tenant'ında ve `holding_logo` ile. Slotlar, sayılı istisna ve sonuç ekranında accent olmaması aynen geçerlidir; değişen yalnız markanın **sahibidir**. Aktivasyon ailesi değişmez (aktivasyon yalnız kendi tenant'ının plaketinde — ADR 0026). **Saha ve işveren panelinde holding (API-1c — ADR 0027 §9):** sahanın raporu eş personelin dokunuşlarını **süresiz** listeler (süre işverende). İşverenin panelinde eş mekân satırı (K-39) için gösterilmeyenler: fişte ve onay kuyruğunda güven puanı, IP/GPS işaretleri ve **kanıt anlatan kuralın notu** (sid'e göre kapalı küme: `base:`/`own:` × `ip-or-gps-ok`, `gps-only-allow`, `no-evidence-review`, `qr-requires-ip`, `gps-conflict-review`, ve `sys:cross-tenant-qr-site-ip`) — yerine *"Decided by your rules at a partner venue — evidence is not shown."*; manuel kaydın notu ve kanıt dışı notlar (kayıp plaket, sayaç boşluğu, farklı şube, yön) korunur — kural önceliği üzerinden kalan artık ADR 0027 §13 madde 5 (e). Anomali ekranında eş satırları hiçbir kanıt sayısına girmez; kural dağılımında tek, adsız ve **hep sonda** duran bir kovadır (eş satırları kural sorgusuna girmez). Okuyucuların envanteri `TestEvidenceReaders_EveryOneIsClassified`'tadır; holding'siz işletmenin rapor ve anomali sayfası bayt bayt aynıdır (şablon: `TestHoldinglessPanels_AreByteIdenticalToTheGolden`, handler: `TestHoldinglessViews_AreByteIdenticalToTheGolden`). Verdict kaşesi, `NoteIsTenants` etiketi ve kural önceliği adlandırılmış artıktır (ADR 0027 §13 madde 5).
 

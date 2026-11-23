@@ -1,5 +1,6 @@
 package mt.taptime.app
 
+import mt.taptime.app.activation.LiveQrRead
 import mt.taptime.app.wire.AppErrorCode
 import mt.taptime.app.wire.Bodies
 import mt.taptime.app.wire.Canonical
@@ -42,11 +43,17 @@ class ContractPinTest {
             "AppTapPath" to Paths.TAP,
             "AppMePath" to Paths.ME,
             "AppRevokePath" to Paths.REVOKE,
+            // M16-43: "Missing times".
+            "AppClaimsPath" to Paths.CLAIMS,
+            "AppClaimsSendPath" to Paths.CLAIMS_SEND,
         )
         for ((goName, kt) in pairs) assertEquals(goName, goStringConst(app, goName), kt)
-        // CONTROL: the server declares exactly these eight App*Path constants.
-        val declared = Regex("""\b(App\w+Path)\s*=""").findAll(app).map { it.groupValues[1] }.toSet()
-        assertEquals(pairs.keys, declared)
+        // M16-23: the two approval routes, pinned by VALUE (the Go names are the server's to choose).
+        val m1623 = setOf(Paths.ACTIVATE_APPROVAL, Paths.ACTIVATE_APPROVAL_STATUS)
+        // CONTROL: the server declares exactly these App*Path constants -- the ten above and the two.
+        val declared = Regex("""\b(App\w+Path)\s*=\s*"([^"]*)"""").findAll(app).associate { it.groupValues[1] to it.groupValues[2] }
+        assertEquals(pairs.keys, declared.keys - declared.filterValues { it in m1623 }.keys)
+        assertEquals("the approval routes are the server's", m1623, declared.values.toSet() - pairs.values.toSet())
     }
 
     @Test
@@ -102,7 +109,21 @@ class ContractPinTest {
         val point = ByteArray(65).also { it[0] = 4 }
         assertEquals(tags("appLookupRequest"), keys(Bodies.lookup("c")))
         assertEquals(tags("appBindRequest"), keys(Bodies.bind("c", point)))
-        assertEquals(tags("appCompleteRequest"), keys(Bodies.complete("c", point, "tag=1")))
+        // M16-23: complete takes ONE of `sun` and `liveQR`; the two bodies together are the struct.
+        assertEquals(setOf("sun"), keys(Bodies.complete("c", point, "tag=1")) - keys(Bodies.approval("c", point)))
+        assertEquals(setOf("liveQR"), keys(Bodies.completeLive("c", point, "t=1")) - keys(Bodies.approval("c", point)))
+        assertEquals(tags("appCompleteRequest"), keys(Bodies.complete("c", point, "tag=1")) + keys(Bodies.completeLive("c", point, "t=1")))
+        // The approval routes' body is complete's without the read.
+        assertTrue(tags("appCompleteRequest").containsAll(keys(Bodies.approval("c", point))))
+    }
+
+    // M16-23: lookup's answer carries managerApproval (the app reads it; absent is false).
+    @Test
+    fun theLookupAnswerCarriesTheApprovalFlag() {
+        val activate = go("taptime.go.appactivate")
+        val body = Regex("""type\s+appLookupResponse\s+struct\s*\{(.*?)\n}""", RegexOption.DOT_MATCHES_ALL).find(activate)?.groupValues?.get(1)
+            ?: throw AssertionError("no struct appLookupResponse in appactivate.go")
+        assertTrue(body, Regex("""json:"managerApproval[",]""").containsMatchIn(body))
     }
 
     // M16-13: the tap's two request structs (apptap.go). Every key the app can send is one the
@@ -117,8 +138,23 @@ class ContractPinTest {
             return Regex("""json:"([^",]+)""").findAll(body).map { it.groupValues[1] }.toSet()
         }
         fun keys(b: ByteArray): Set<String> = MiniJson.decodeObject(String(b, Charsets.UTF_8)).keys
-        assertEquals(tags("appTapStartRequest"), keys(Bodies.tapStart("tag=1")))
+        // M16-22: tap/start takes ONE of two fields -- the plaque's `sun` or the live QR's `liveQR`;
+        // each body sends exactly one, and the two together are the server's whole struct.
+        assertEquals(setOf("sun"), keys(Bodies.tapStart("tag=1")))
+        assertEquals(setOf("liveQR"), keys(Bodies.tapStartLive("t=1")))
+        assertEquals(tags("appTapStartRequest"), keys(Bodies.tapStart("tag=1")) + keys(Bodies.tapStartLive("t=1")))
         assertEquals(tags("appTapRequest") - "occurredAt", keys(Bodies.tap("c", "in", 1.0, 2.0, mockLocation = true)))
         assertTrue("CONTROL: the server still has the queued field", "occurredAt" in tags("appTapRequest"))
+    }
+
+    // M16-22: the live QR URL the screens show (liveqr.TapURL: <base>/q?t=<token>) is the route the
+    // app's App Link takes; the path and the token's parameter are the server's constants, and GET /q
+    // is mounted at the same literal (handler.LiveQRPath).
+    @Test
+    fun theLiveQrRouteIsTheServersPath() {
+        val token = go("taptime.go.liveqrToken")
+        assertEquals(goStringConst(token, "LiveQRTapPath"), LiveQrRead.PATH)
+        assertEquals(goStringConst(go("taptime.go.livetap"), "LiveQRPath"), LiveQrRead.PATH)
+        assertEquals("the token's parameter", "t", goStringConst(token, "TokenParam"))
     }
 }

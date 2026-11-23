@@ -78,6 +78,7 @@ var accountHref = mustSectionHref(pages.TabAccount)
 type panelAccounts interface {
 	Settings(ctx context.Context, tenantID uuid.UUID) (tenant.Settings, error)
 	Save(ctx context.Context, c tenant.AccountCommand) (tenant.Settings, error)
+	SetStaffShiftVisible(ctx context.Context, tenantID, actorID uuid.UUID, on bool) error
 }
 
 // accountZoneSuggestions is what the browser offers under the timezone box.
@@ -103,7 +104,7 @@ var (
 	// sentence, so it cannot borrow "saved" without claiming the business's facts moved.
 	// "stepped-down" (M14-16): an owner who stepped down to manager lands here -- the Managers page
 	// is an owner's -- with a sentence saying what they now are.
-	accountDoneWords    = append([]string{"saved", "password", "stepped-down"}, accountIdentityDoneWords...)
+	accountDoneWords    = append([]string{"saved", "password", "stepped-down", "shifts"}, accountIdentityDoneWords...)
 	accountProblemWords = append([]string{"unreadable", "not-permitted", "unknown-business", "unavailable"}, accountIdentityProblemWords...)
 )
 
@@ -118,6 +119,9 @@ func accountDoneSentence(word string) string {
 		return "These details are what Taptime now has on file for this business. " +
 			"Everything on this page is read from the row that was just written, not " +
 			"from what was typed."
+	}
+	if word == "shifts" {
+		return "The staff app now follows this choice: with it on, staff see their usual shift and the app's reminder uses the shift's end."
 	}
 	if word == "stepped-down" {
 		return "You stepped down: you are now a manager of this business. Its owners decide who runs it from here."
@@ -274,6 +278,11 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 	}
 	// THE BILLING LINK IS DRAWN ONLY FOR SOMEBODY WHO MAY OPEN IT. mayManageBilling is
 	// the same predicate /admin/billing refuses on, read rather than restated.
+	// M16-45: the owner's "real shifts" switch, drawn for the owner alone (the POST refuses anyone
+	// else as well).
+	if mayEditAccount(id) {
+		v.StaffShift = &pages.AccountStaffShift{PostHref: accountStaffShiftHref, On: s.StaffShiftVisible}
+	}
 	if mayManageBilling(id) {
 		v.BillingHref = billingHref
 	}

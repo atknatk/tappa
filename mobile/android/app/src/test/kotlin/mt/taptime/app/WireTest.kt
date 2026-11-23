@@ -120,6 +120,9 @@ class WireTest {
     @Test
     fun theTapBodiesAreTheContractsFieldsInItsOrder() {
         assertEquals("""{"sun":"tag=04A1&ctr=000011&cmac=00AA"}""", String(Bodies.tapStart("tag=04A1&ctr=000011&cmac=00AA")))
+        // M16-22: a live QR's query, written as it came (the JSON writer escapes nothing a base64url
+        // token or '=' could need).
+        assertEquals("""{"liveQR":"t=AQ-_09azAZ"}""", String(Bodies.tapStartLive("t=AQ-_09azAZ")))
         assertEquals("""{"context":"X","want":"in","lat":35.9,"lng":14.5,"mockLocation":true}""",
             String(Bodies.tap("X", "in", 35.9, 14.5, mockLocation = true)))
         assertEquals("mock false is absent", """{"context":"X","want":"out","lat":35.9,"lng":14.5}""",

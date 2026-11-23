@@ -337,8 +337,15 @@ func TestGuardrailGuards_ReCheckedWhenTheShippedSetChanges(t *testing.T) {
 	t.Parallel()
 	want := []string{
 		"sys:tenant-mismatch", "sys:tag-not-active", "sys:sun-invalid", "sys:no-session",
-		"sys:employee-deactivated", "sys:tap-freshness", "sys:occurred-at-bound",
-		"sys:person-debounce", "sys:cross-tenant-qr-site-ip", "sys:policy-edit-owner-only",
+		"sys:employee-deactivated",
+		// M16-21 (ADR 0045 §2.5): the four live QR guarantees. Re-checked: each is gated on
+		// c.Action == tap:record before anything else, so guardsWords' panel probe (a non-tap
+		// action) leaves them silent and they are drawn with the taps.
+		"sys:live-qr-unverified", "sys:screen-not-active",
+		"sys:tap-freshness", "sys:occurred-at-bound",
+		"sys:person-debounce", "sys:cross-tenant-qr-site-ip",
+		"sys:cross-tenant-live-qr", "sys:live-qr-expired",
+		"sys:policy-edit-owner-only",
 		"sys:no-self-review",
 	}
 	var got []string
@@ -1262,7 +1269,8 @@ func TestAssemble_OnlyTheVersionCeilingCanFabricateAnUnknownState(t *testing.T) 
 func TestGuardrailPlanned_TheSelfReviewPlateSaysItIsNotEnforced(t *testing.T) {
 	t.Parallel()
 	gs := testRulebook(t).guardrails()
-	if len(gs) != 11 {
+	// 15 since M16-21's four live QR guarantees (ADR 0045 §2.5).
+	if len(gs) != 15 {
 		t.Fatalf("%d guarantees; ADR 0037 changes the words and not the count", len(gs))
 	}
 	last := gs[len(gs)-1]

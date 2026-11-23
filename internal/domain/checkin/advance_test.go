@@ -119,6 +119,10 @@ func (t *tenantRecorder) GetTagByUID(context.Context, string) (db.ResolvedTag, e
 	return db.ResolvedTag{}, errors.New("not used by these tests")
 }
 
+func (t *tenantRecorder) GetLiveQRDisplayByID(context.Context, uuid.UUID) (db.ResolvedLiveQRDisplay, error) {
+	return db.ResolvedLiveQRDisplay{}, errors.New("not used by these tests")
+}
+
 // mountedAt is a plaque's wall as the nullable column returns it. It exists so a
 // fixture has to SAY it is building a mounted plaque rather than getting one by
 // accident: nil means "loaded but not on a wall", which is a real state since
@@ -281,6 +285,10 @@ func (c *countingHolding) HoldingAdvanceTagCounter(_ context.Context, uid string
 
 func (c *countingHolding) TapSite(context.Context, string) (db.HoldingSite, bool, error) {
 	return db.HoldingSite{}, false, errors.New("not used by the advance")
+}
+
+func (c *countingHolding) SiteLocations(context.Context) (map[uuid.UUID]db.HoldingSiteLocation, error) {
+	return nil, errors.New("not used by the advance")
 }
 
 // TestAdvance_APeersPlaqueGoesThroughTheHoldingStatementOnly is the wiring pin of the

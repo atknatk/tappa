@@ -2,7 +2,9 @@ import Foundation
 
 // THE /app/v1 CLIENT (M16-07's wire contract, docs/plan/m16-mobil.md "Tel sözleşmesi"). One
 // surface, the browser flow's twin: activate/lookup, activate/bind, activate/complete, and the
-// signed requests every later screen uses (nonce, me, tap/start, tap, revoke).
+// signed requests every later screen uses (nonce, me, tap/start, tap, revoke). M16-23 adds the
+// phone that cannot tap: complete with a venue screen's live QR (`liveQR` in place of `sun`), and
+// the manager's approval (activate/approval, activate/approval/status), signed like complete.
 //
 // THE SERVER DECODES STRICTLY: an unknown field is a 400 (DisallowUnknownFields), and it matches
 // field names case-insensitively. So every request body here is a struct with exactly the
@@ -41,6 +43,9 @@ struct LookupResponse: Decodable, Equatable {
     let wifiSsid: String?
     let secondDevice: Bool
     let brand: AppBrand
+    /// M16-23: the manager-approval path is offered (no live QR screen runs at the person's
+    /// workplace). Absent -- an older server -- is false.
+    var managerApproval: Bool? = nil
 }
 
 struct BindResponse: Decodable, Equatable {
@@ -54,6 +59,38 @@ struct CompleteResponse: Decodable, Equatable {
     /// App-Device-Id of every later request.
     let deviceId: String
     let employeeName: String
+}
+
+/// The open manager-approval request (M16-23): the six digits the manager matches in the panel and
+/// when the request runs out. The code is a credential of the moment: never printed (§7).
+struct PendingApproval: Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    let pairingCode: String
+    let expiresAt: String
+
+    /// "482913" -> "482 913", as the waiting screen shows it.
+    var grouped: String {
+        pairingCode.count == 6 ? String(pairingCode.prefix(3)) + " " + String(pairingCode.suffix(3)) : pairingCode
+    }
+
+    var description: String { "PendingApproval(pairingCode: <redacted>, expiresAt: \(expiresAt))" }
+    var debugDescription: String { description }
+}
+
+/// activate/approval and approval/status's answer. `approved` IS a finished activation: the server
+/// created the device in that very call, exactly as a successful complete.
+enum ApprovalState: Equatable {
+    case waiting(PendingApproval)
+    case approved(CompleteResponse)
+    case rejected
+    case expired
+}
+
+private struct ApprovalResponse: Decodable {
+    let state: String
+    let pairingCode: String?
+    let expiresAt: String?
+    let deviceId: String?
+    let employeeName: String?
 }
 
 struct NonceResponse: Decodable, Equatable {
@@ -103,15 +140,28 @@ private struct BindRequest: Encodable {
     let publicKey: String
 }
 
+/// complete's body: EXACTLY ONE of the plaque's `sun` and a venue screen's `liveQR` (M16-23). The
+/// synthesised Encodable omits the nil one.
 private struct CompleteRequest: Encodable {
     let code: String
     let publicKey: String
     let platform: String
-    let sun: String
+    var sun: String?
+    var liveQR: String?
 }
 
+/// activate/approval and approval/status (M16-23): complete's fields without the read.
+private struct ApprovalRequest: Encodable {
+    let code: String
+    let publicKey: String
+    let platform: String
+}
+
+/// tap/start's body: exactly ONE of the two (M16-22). The synthesised Encodable omits a nil
+/// optional (encodeIfPresent), so a plaque read sends {"sun"} and a live QR {"liveQR"}.
 private struct TapStartRequest: Encodable {
-    let sun: String
+    var sun: String?
+    var liveQR: String?
 }
 
 /// The press: the signed context, the direction pressed, and at most one fix with its mock report.
@@ -147,6 +197,8 @@ enum AppErrorCode: String, CaseIterable {
     case methodNotAllowed = "method_not_allowed"
     case newKeyRequired = "new_key_required"
     case activationNotReady = "activation_not_ready"
+    /// M16-23: a live QR screen runs at the workplace -- scan it; no manager approval.
+    case screenAvailable = "screen_available"
     case tryAgain = "try_again"
     case rateLimited = "rate_limited"
     case serverError = "server_error"
@@ -179,6 +231,8 @@ final class AppClient {
         static let lookup = "/app/v1/activate/lookup"
         static let bind = "/app/v1/activate/bind"
         static let complete = "/app/v1/activate/complete"
+        static let approval = "/app/v1/activate/approval"
+        static let approvalStatus = "/app/v1/activate/approval/status"
         static let nonce = "/app/v1/nonce"
         static let me = "/app/v1/me"
         static let tapStart = "/app/v1/tap/start"
@@ -251,26 +305,76 @@ final class AppClient {
     /// The first genuine NFC read, signed by the BOUND key over the server's challenge. No retry:
     /// the text carries no clock, so a fresh measurement could not change the answer.
     func complete(code: String, signer: DeviceSigner, binding: BindResponse, sun: String) async throws -> CompleteResponse {
-        let body = try encode(CompleteRequest(code: code, publicKey: Base64URL.encode(signer.publicPoint),
-                                              platform: AppClient.platform, sun: sun))
-        let text: Data
-        do {
-            text = try CanonicalText.request(method: "POST", path: Path.complete, body: body,
-                                             nonce: binding.challenge, deviceID: binding.activationId)
-        } catch {
-            throw AppAPIError.malformed
-        }
-        let signature = Base64URL.encode(try signer.sign(text))
-        let (data, resp) = try await send("POST", Path.complete, body: body, headers: [
-            Header.deviceID: binding.activationId,
-            Header.nonce: binding.challenge,
-            Header.signature: signature,
-        ])
+        try await complete(CompleteRequest(code: code, publicKey: Base64URL.encode(signer.publicPoint),
+                                           platform: AppClient.platform, sun: sun), signer: signer, binding: binding)
+    }
+
+    /// M16-23: a venue screen's live QR in place of the plaque -- the /q URL's query as `liveQR`.
+    func complete(code: String, signer: DeviceSigner, binding: BindResponse, liveQR: String) async throws -> CompleteResponse {
+        try await complete(CompleteRequest(code: code, publicKey: Base64URL.encode(signer.publicPoint),
+                                           platform: AppClient.platform, liveQR: liveQR), signer: signer, binding: binding)
+    }
+
+    private func complete(_ request: CompleteRequest, signer: DeviceSigner, binding: BindResponse) async throws -> CompleteResponse {
+        let (data, resp) = try await activationSigned(Path.complete, body: try encode(request), signer: signer, binding: binding)
         let r: CompleteResponse = try decode(data, resp)
         guard CanonicalText.validDeviceID(r.deviceId) else {
             throw AppAPIError.unexpected(status: resp.statusCode)
         }
         return r
+    }
+
+    /// M16-23: "My phone can't tap" -- opens a manager-approval request (an earlier open one of the
+    /// invitation is withdrawn by the server).
+    func approval(code: String, signer: DeviceSigner, binding: BindResponse) async throws -> ApprovalState {
+        try await approval(Path.approval, code: code, signer: signer, binding: binding)
+    }
+
+    /// M16-23: the request's state. `approved` means the device was created in this call.
+    func approvalStatus(code: String, signer: DeviceSigner, binding: BindResponse) async throws -> ApprovalState {
+        try await approval(Path.approvalStatus, code: code, signer: signer, binding: binding)
+    }
+
+    private func approval(_ path: String, code: String, signer: DeviceSigner, binding: BindResponse) async throws -> ApprovalState {
+        let body = try encode(ApprovalRequest(code: code, publicKey: Base64URL.encode(signer.publicPoint), platform: AppClient.platform))
+        let (data, resp) = try await activationSigned(path, body: body, signer: signer, binding: binding)
+        let r: ApprovalResponse = try decode(data, resp)
+        switch r.state {
+        case "waiting":
+            guard let c = r.pairingCode, c.utf8.count == 6, c.utf8.allSatisfy({ (48...57).contains($0) }) else {
+                throw AppAPIError.unexpected(status: resp.statusCode)
+            }
+            return .waiting(PendingApproval(pairingCode: c, expiresAt: r.expiresAt ?? ""))
+        case "approved":
+            guard let id = r.deviceId, CanonicalText.validDeviceID(id), let name = r.employeeName else {
+                throw AppAPIError.unexpected(status: resp.statusCode)
+            }
+            return .approved(CompleteResponse(deviceId: id, employeeName: name))
+        case "rejected":
+            return .rejected
+        case "expired":
+            return .expired
+        default:
+            throw AppAPIError.unexpected(status: resp.statusCode)
+        }
+    }
+
+    /// The activation signature: App-Device-Id = the activation id, App-Nonce = the server's
+    /// challenge, signed by the BOUND key over `path` -- each route its own text. Not retried.
+    private func activationSigned(_ path: String, body: Data, signer: DeviceSigner, binding: BindResponse) async throws -> (Data, HTTPURLResponse) {
+        let text: Data
+        do {
+            text = try CanonicalText.request(method: "POST", path: path, body: body,
+                                             nonce: binding.challenge, deviceID: binding.activationId)
+        } catch {
+            throw AppAPIError.malformed
+        }
+        let signature = Base64URL.encode(try signer.sign(text))
+        return try await send("POST", path, body: body, headers: [
+            Header.deviceID: binding.activationId,
+            Header.nonce: binding.challenge,
+            Header.signature: signature,
+        ])
     }
 
     // MARK: Signed requests
@@ -283,7 +387,27 @@ final class AppClient {
     /// The plaque read's screen: a signed read (nothing recorded, no counter spent), retried once on
     /// a 401 like every signed read.
     func tapStart(_ device: DeviceIdentity, sun: String) async throws -> TapStartResponse {
-        let body = try encode(TapStartRequest(sun: sun))
+        try await tapStart(device, body: TapStartRequest(sun: sun))
+    }
+
+    /// A venue screen's live QR read (M16-22): the /q URL's query as `liveQR` -- GET /q's twin, the
+    /// same signed read, nothing recorded.
+    func tapStart(_ device: DeviceIdentity, liveQR: String) async throws -> TapStartResponse {
+        try await tapStart(device, body: TapStartRequest(liveQR: liveQR))
+    }
+
+    /// One of the two reads opened by a link: plaque or live QR.
+    func tapStart(_ device: DeviceIdentity, link: TapLink) async throws -> TapStartResponse {
+        switch link {
+        case .plaque(let sun):
+            return try await tapStart(device, sun: sun)
+        case .liveQR(let q):
+            return try await tapStart(device, liveQR: q)
+        }
+    }
+
+    private func tapStart(_ device: DeviceIdentity, body request: TapStartRequest) async throws -> TapStartResponse {
+        let body = try encode(request)
         let (data, resp) = try await signedRead("POST", Path.tapStart, body: body, device: device)
         let r: TapStartResponse = try decode(data, resp)
         guard !r.context.isEmpty else {

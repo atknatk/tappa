@@ -353,38 +353,30 @@ func (t *Tap) Claim(w http.ResponseWriter, r *http.Request) {
 	// Submit, as no moment (the zero time). Submit answers "already sent" before it looks at the
 	// moment, so a second send is "Sent" whatever its time, and otherwise "outside", which shows
 	// the form again with the sentence that fits.
-	value, problem := "", "Enter the time, then send it."
-	var at time.Time
-	if clock, ok := parseWallClock(r.PostForm[claimAtField]); ok {
-		value = clock.String()
-		problem = "That time does not fit this record. It has to be " +
-			claimWindowPhrase(cc.Window, func(t time.Time) string { return t.In(loc).Format("15:04") }) + "."
-		if resolved, ok := resolveClaimedAt(clock, cc, loc); ok {
-			at = resolved
-		}
-	}
-	sub, err := t.claims.Submit(ctx, claim.Claim{
-		TenantID: id.Session.TenantID, EmployeeID: id.Session.EmployeeID,
-		// From the signed context and from nowhere else: K4 is enforced by what was minted.
-		AnchorID: cc.AnchorID, Kind: cc.Kind, ClaimedAt: at,
-	})
-	// From here the request's cancellation decides nothing (checkin.go's post).
+	res, err := claimSend(ctx, t.claims, id.Session.TenantID, id.Session.EmployeeID, cc, r.PostForm[claimAtField])
+	sub, value, problem := res.sent, res.value, res.problem
 	post := r.WithContext(context.WithoutCancel(ctx))
 	switch {
-	case err == nil:
+	case err != nil:
+		t.log.ErrorContext(ctx, "claim: sending the claim failed; nothing was sent",
+			"employee_id", id.EmployeeID(), "anchor_id", cc.AnchorID, "err", err)
+		t.renderProblem(w, post, http.StatusInternalServerError, claimProblemServer)
+	case res.word == appClaimSent:
 		t.log.InfoContext(ctx, "claim: sent", "employee_id", id.EmployeeID(), "claim_id", sub.ID)
 		t.render(w, post, http.StatusOK, pages.ClaimSent(), false)
-	case errors.Is(err, claim.ErrAlreadySent):
+	case res.word == appClaimAlreadySent:
 		// §C.5: a second "Send" is the Sent screen, never an error -- the first one is on record.
 		t.log.InfoContext(ctx, "claim: already sent", "employee_id", id.EmployeeID(), "anchor_id", cc.AnchorID)
 		t.render(w, post, http.StatusOK, pages.ClaimSent(), false)
-	case errors.Is(err, claim.ErrOutsideWindow):
+	case res.word == appClaimOutsideWindow:
 		t.render(w, post, http.StatusUnprocessableEntity, pages.ClaimForm(claimCardView(cc, loc, signed, value, problem)), false)
-	case errors.Is(err, claim.ErrExpired):
+	case res.word == appClaimExpired:
 		t.renderProblem(w, post, http.StatusGone, claimProblemExpired)
-	case errors.Is(err, claim.ErrResolved):
+	case res.word == appClaimResolved, res.word == appClaimStillOpen:
+		// still_open cannot reach the browser (its card shows only after a later record); were it
+		// to, "already resolved" is the screen that says nothing was sent.
 		t.renderProblem(w, post, http.StatusConflict, claimProblemResolved)
-	case errors.Is(err, claim.ErrNotActive):
+	case res.word == appClaimNotActive:
 		t.log.WarnContext(ctx, "claim: refused for an employee who is not active", "employee_id", id.EmployeeID())
 		t.renderProblem(w, post, http.StatusForbidden, claimProblemNotActive)
 	default:

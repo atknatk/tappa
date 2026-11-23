@@ -220,6 +220,9 @@ func (noActivation) PendingTenant(*http.Request) (uuid.UUID, bool) { return uuid
 func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params) {
 	panic("CompleteByTap reached for a phone with no pending activation")
 }
+func (noActivation) CompleteByLiveQR(http.ResponseWriter, *http.Request, liveQROpener) {
+	panic("CompleteByLiveQR reached for a phone with no pending activation")
+}
 
 // pendingActivation stands in for a browser holding a CONSENTED activation (ADR
 // 0026). It records what the tap page handed it.
@@ -230,6 +233,10 @@ type pendingActivation struct {
 	deactivated bool
 	// inviteTenant is the pending invitation's business (K-35).
 	inviteTenant uuid.UUID
+	// scans, opened and openErr are the live QR scans handed over (M16-23).
+	scans   int
+	opened  liveQROpening
+	openErr error
 }
 
 func (p *pendingActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
@@ -245,6 +252,14 @@ func (p *pendingActivation) PendingTenant(*http.Request) (uuid.UUID, bool) {
 func (p *pendingActivation) CompleteByTap(w http.ResponseWriter, _ *http.Request, sp sun.Params) {
 	p.calls++
 	p.got = sp
+	w.WriteHeader(http.StatusTeapot)
+}
+
+// CompleteByLiveQR records a live QR scan handed over (M16-23) and opens the token, so a test can
+// see the opening the activation would judge.
+func (p *pendingActivation) CompleteByLiveQR(w http.ResponseWriter, r *http.Request, open liveQROpener) {
+	p.scans++
+	p.opened, p.openErr = open(r.Context())
 	w.WriteHeader(http.StatusTeapot)
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/liveqr"
 )
 
 // THE APP ASSOCIATION FILES (M16-08, ADR 0045). A phone with the native app installed opens a
@@ -20,10 +21,17 @@ import (
 // for a plaque: without the app, or without these files, the URL opens the browser exactly as
 // before -- the plaque is never re-encoded (ADR 0045).
 //
-// WHAT IS LINKED IS appLinkPaths AND NOTHING ELSE: the plaque tap path, TapPath. /activate is NOT
-// (Q40, user decision 2026-11-14): an invitation link opens in the browser and the app takes the
-// invitation code on its own screen, so browser activation does not change because an app happens
-// to be installed. Phase D's live-QR path is added to this list by M16-20, on that card.
+// WHAT IS LINKED IS appLinkPaths AND NOTHING ELSE: the plaque tap path, TapPath, and the live QR's,
+// liveqr.LiveQRTapPath (/q -- M16-20, M16-08's Phase D item: a phone with the app installed that
+// scans a venue screen opens the app). /activate is NOT (Q40, user decision 2026-11-14): an
+// invitation link opens in the browser and the app takes the invitation code on its own screen, so
+// browser activation does not change because an app happens to be installed.
+//
+// ⚠️ ANDROID'S LIST IS ALSO THE MANIFEST (M16-08's card note 4): the Dynamic App Links extension
+// below can narrow the manifest's intent filter, never widen it, and Android 14 and earlier read the
+// manifest alone. mobile/android's filters name /t and, since the app handles a live QR (M16-22),
+// /q -- the M16-08 order rule ("a platform's list grows only once its app handles the path")
+// applied to the manifest side: the /q filter came with the app's live QR read, not before it.
 //
 // EACH FILE IS SERVED ONLY WHILE ITS PLATFORM IS CONFIGURED (internal/config: Config.AppAppleTeamID,
 // Config.AppAndroidSignerSHA256, each optional on its own). Unconfigured, the route is not mounted and
@@ -59,7 +67,7 @@ const AppBundleID = "mt.taptime.app"
 
 // appLinkPaths are the URL paths the app may open (the package doc). Both files are built from
 // this one list, so the two platforms cannot link different paths.
-var appLinkPaths = []string{TapPath}
+var appLinkPaths = []string{TapPath, liveqr.LiveQRTapPath}
 
 // appLinksCacheControl lets a cache keep the file for five minutes. It is short because the body
 // changes with a deploy (a new certificate, a path M16-20 adds) and a stale association is

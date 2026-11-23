@@ -72,6 +72,14 @@ Metin uzunluğu sınırlı, HTML yok (XSS), emoji serbest. Varsayılana dönüş
 olmalı. Tap ekranı tek ekran/tek buton olarak kalır (CLAUDE.md §9). Çalışan
 yalnızca kendi kayıtlarını görür; RLS'e ek olarak `employee_id` filtresi.
 
+> **M16 Faz G'ye alındı (2026-11-18, kullanıcı kararı).** Bu kart
+> [m16-mobil.md](m16-mobil.md) → *Faz G — Personel self-servis*'in dört kartıyla
+> **karşılanır**: M16-30 (işletmenin aç/kapa + pencere ayarı — kullanıcı kararı:
+> Saatlerim'i işletme yönetir), M16-31 (sunucu okuması + `/app/v1/hours`), M16-32
+> (tarayıcı sayfası), M16-33 (uygulama ekranları). Yukarıdaki iki kural orada kabul
+> kriteridir. Bu kart
+> ayrıca uygulanmaz; durumunu `state.md`'de **M16-40 (Faz G kapanışı) kapatır** (o zamana dek `todo`).
+
 ---
 
 ## M9-06 — Policy simülatörü

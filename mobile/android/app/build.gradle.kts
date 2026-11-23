@@ -124,6 +124,10 @@ val serverFiles = mapOf(
     "taptime.templ.result" to "web/templates/pages/result.templ",
     "taptime.go.view" to "web/templates/pages/view.go",
     "taptime.js.tap" to "web/static/js/tap.js",
+    // M16-22: the live QR route the screens' codes point at (liveqr.LiveQRTapPath, TokenParam) and
+    // the literal GET /q is mounted at (handler.LiveQRPath) -- the path the app's App Link takes.
+    "taptime.go.liveqrToken" to "internal/liveqr/token.go",
+    "taptime.go.livetap" to "internal/handler/livetap.go",
 )
 
 val mergedManifests = mutableMapOf<String, Provider<RegularFile>>()

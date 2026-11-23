@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/liveqr"
 )
 
 // /app/v1 -- THE NATIVE APP'S ONE SURFACE (ADR 0045 §2.3, §2.4; M16-07). It is the browser flow's
@@ -35,15 +36,27 @@ import (
 //	POST /app/v1/activate/bind      unsigned   consent + public key -> challenge (POST
 //	                                           /api/activate's twin; spends nothing)
 //	POST /app/v1/activate/complete  signed by  the bound key over the challenge; the first
-//	                                the bound  genuine NFC read's SUN query -> the device
-//	                                key        (CompleteByTap's order; NO transactions row)
+//	                                the bound  genuine NFC read's SUN query -- or a live QR
+//	                                key        screen's code (M16-23) -> the device
+//	                                           (CompleteByTap's order; NO transactions row)
+//	POST /app/v1/activate/approval  signed by  "My phone can't tap" (M16-23): a request for a
+//	                                the bound  manager's approval, with a pairing code
+//	                                key
+//	POST /app/v1/activate/approval/status      the request's state; an approved one is
+//	                                signed by  collected HERE -> the device (NO transactions row)
+//	                                the bound key
 //	POST /app/v1/nonce              read-signed  one single-use nonce (the cap drops the oldest)
 //	POST /app/v1/tap/start          read-signed  the SUN query -> name, venue, brand, predicted
 //	                                             direction, signed tap context (GET /t's twin;
-//	                                             the counter does NOT advance)
+//	                                             the counter does NOT advance) -- or a live QR
+//	                                             URL's query -> the same (GET /q's twin, M16-22)
 //	POST /app/v1/tap                nonce-signed the context + want + fix + mock flag -> the
 //	                                             record (POST /api/checkin's twin)
-//	GET  /app/v1/me                 read-signed  name, brand, predicted direction (Q41)
+//	GET  /app/v1/me                 read-signed  name, brand, predicted direction (Q41), presence,
+//	                                             usual shift, missing-times count (M16-43/45)
+//	POST /app/v1/claims             read-signed  the records that take a claim now + the person's
+//	                                             own claims (M16-43)
+//	POST /app/v1/claims/send        nonce-signed one claim -> a result word (POST /api/claim's twin)
 //	POST /app/v1/revoke             nonce-signed the device's own sign-out
 //
 // THE TWO UNSIGNED ROUTES AND THE ONE WITHOUT A NONCE are the card's two named exceptions plus
@@ -85,6 +98,12 @@ type (
 		ActivateDevice(ctx context.Context, c invite.Code, b invite.Binding, d invite.DeviceParams) (invite.DeviceActivation, error)
 		// ConsentBound is complete's non-advancing pre-check: is THIS key's binding the one recorded.
 		ConsentBound(ctx context.Context, c invite.Code, b invite.Binding) (bool, error)
+		// The manager-approved activation (M16-23): the gate the lookup reports, the request, its
+		// state, and the consumption that collects an approval and creates the device.
+		ApprovalOffered(ctx context.Context, tenantID, locationID uuid.UUID) (bool, error)
+		OpenApproval(ctx context.Context, c invite.Code, b invite.Binding, client string) (invite.Approval, error)
+		ApprovalState(ctx context.Context, c invite.Code, b invite.Binding) (invite.Approval, error)
+		ActivateDeviceApproved(ctx context.Context, c invite.Code, b invite.Binding, d invite.DeviceParams) (invite.ApprovedDeviceActivation, error)
 	}
 	// appDirectory is the tap page's directory plus the app's home screen (Q41).
 	appDirectory interface {
@@ -112,7 +131,30 @@ type App struct {
 	// traffic and the browser's are metered by two buckets of the same size.
 	limiter *httpx.TapLimiter
 	log     *slog.Logger
+	// live reads a venue screen's live QR code at tap/start (M16-22): GET /q's reader, nil while
+	// TAPPA_LIVE_QR_KEY is unset (ServeLiveQR).
+	live *liveQRTap
+	// claims serves "Missing times" (M16-43): nil until ServeClaims; claimContexts signs its
+	// contexts for a device.
+	claims        appClaims
+	claimContexts claimContexts
 }
+
+// ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the
+// SAME reader GET /q uses (newLiveQRTap, liveQRTap.open). cmd/tappa's openLiveQR calls it next to
+// Tap.ServeLiveQR, so the browser and the app read the screens' codes together or not at all. Off,
+// a live QR read is answered bad_request and nothing is written -- GET /q's 404.
+func (a *App) ServeLiveQR(keys *liveqr.Keys, screens liveQRDisplays) error {
+	live, err := newLiveQRTap(keys, screens)
+	if err != nil {
+		return err
+	}
+	a.live = live
+	return nil
+}
+
+// ServesLiveQR says whether ServeLiveQR turned the live QR read on (cmd/tappa's wiring test).
+func (a *App) ServesLiveQR() bool { return a.live != nil }
 
 // NewApp wires the surface. Every dependency is required.
 func NewApp(devices appDevices, invites appInvites, verifier activationVerifier, dir appDirectory, checkins checkinRecorder, activation *Activation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*App, error) {
@@ -155,11 +197,17 @@ const (
 	AppActivateLookupPath   = "/app/v1/activate/lookup"
 	AppActivateBindPath     = "/app/v1/activate/bind"
 	AppActivateCompletePath = "/app/v1/activate/complete"
-	AppNoncePath            = "/app/v1/nonce"
-	AppTapStartPath         = "/app/v1/tap/start"
-	AppTapPath              = "/app/v1/tap"
-	AppMePath               = "/app/v1/me"
-	AppRevokePath           = "/app/v1/revoke"
+	// The manager-approved activation (M16-23): open a request, read (and on approval collect) it.
+	AppActivateApprovalPath       = "/app/v1/activate/approval"
+	AppActivateApprovalStatusPath = "/app/v1/activate/approval/status"
+	AppNoncePath                  = "/app/v1/nonce"
+	AppTapStartPath               = "/app/v1/tap/start"
+	AppTapPath                    = "/app/v1/tap"
+	AppMePath                     = "/app/v1/me"
+	AppRevokePath                 = "/app/v1/revoke"
+	// "Missing times" (M16-43): the list (a signed read) and one claim (nonce-signed).
+	AppClaimsPath     = "/app/v1/claims"
+	AppClaimsSendPath = "/app/v1/claims/send"
 )
 
 // appPrefix is the surface's root; every App*Path starts with it.
@@ -180,10 +228,14 @@ func (a *App) Mount(r chi.Router) {
 		r.Post(sub(AppActivateLookupPath), a.ActivateLookup)
 		r.Post(sub(AppActivateBindPath), a.ActivateBind)
 		r.Post(sub(AppActivateCompletePath), a.ActivateComplete)
+		r.Post(sub(AppActivateApprovalPath), a.ActivateApproval)
+		r.Post(sub(AppActivateApprovalStatusPath), a.ActivateApprovalStatus)
 		r.Post(sub(AppNoncePath), a.Nonce)
 		r.Post(sub(AppTapStartPath), a.TapStart)
 		r.Post(sub(AppTapPath), a.Tap)
 		r.Get(sub(AppMePath), a.Me)
+		r.Post(sub(AppClaimsPath), a.Claims)
+		r.Post(sub(AppClaimsSendPath), a.ClaimsSend)
 		r.Post(sub(AppRevokePath), a.Revoke)
 	})
 }
@@ -213,6 +265,7 @@ const (
 	appErrUnknownPlaque        appError = "unknown_plaque"         // the plaque is not ours
 	appErrForeignTenant        appError = "foreign_tenant"         // sys:tenant-mismatch
 	appErrTryAgain             appError = "try_again"              // ADR 0027 §6's race; nothing was written
+	appErrScreenAvailable      appError = "screen_available"       // M16-23: a live QR screen runs at the workplace -- scan it; no manager approval
 	appErrNotFound             appError = "not_found"              // no /app/v1 route at this path
 	appErrMethodNotAllowed     appError = "method_not_allowed"     // the route exists, not with this method
 )
@@ -233,6 +286,7 @@ var appErrorStatus = map[appError]int{
 	appErrUnknownPlaque:        http.StatusNotFound,
 	appErrForeignTenant:        http.StatusForbidden,
 	appErrTryAgain:             http.StatusConflict,
+	appErrScreenAvailable:      http.StatusConflict,
 	appErrNotFound:             http.StatusNotFound,
 	appErrMethodNotAllowed:     http.StatusMethodNotAllowed,
 }
@@ -242,7 +296,7 @@ var appErrors = []appError{
 	appErrBadRequest, appErrTooMany, appErrServer, appErrInvalidInvite, appErrConsentRequired,
 	appErrInvalidKey, appErrNewKeyRequired, appErrActivationNotReady, appErrActivationNeedsTouch,
 	appErrActivationTapFailed, appErrStaleContext, appErrUnknownPlaque, appErrForeignTenant, appErrTryAgain,
-	appErrNotFound, appErrMethodNotAllowed,
+	appErrScreenAvailable, appErrNotFound, appErrMethodNotAllowed,
 }
 
 // setAppHeaders: every /app/v1 answer is no-store (the card), nosniff, and never framed.

@@ -378,6 +378,18 @@ spec:
                 secretKeyRef:
                   name: tappa-secrets
                   key: TAPPA_WEBHOOK_KEK
+            # THE LIVE QR SCREENS' KEY (M16-20, ADR 0045 §2.5): OPTIONAL in internal/config --
+            # unset, the live QR is off (the screen page is not mounted, the panel draws no
+            # live QR block) -- so `optional: true` here, the TAPPA_TAG_KEK_PREVIOUS precedent:
+            # tappa-secrets does not hold it until Phase D ships (M16-24's deploy note), and
+            # without the flag kubelet would refuse to start the container. Set, it must differ
+            # from every other key (config.Load compares every pair).
+            - name: TAPPA_LIVE_QR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_LIVE_QR_KEY
+                  optional: true
             # 🔴 THE PLATFORM OPERATOR'S SURFACE (M10 OP-7): FOUR KEYS, ONE SET, ALL
             # `optional: true`, ALL FROM tappa-secrets -- and each of those three
             # facts is load-bearing.

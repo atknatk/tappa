@@ -316,9 +316,40 @@ Outcomes of complete, mapped by `ActivationFlow` to the iOS twin's destinations:
 bind); `new_key_required` → drop the key, generate a new pair, bind again with the consent
 already given, tap again; `activation_not_ready` (the binding moved), a server error or any
 other refusal → back to step 1 with the same code (the key dropped); `invalid_invite` → back to
-the code screen. A phone without an NFC reader is refused at launch, before the code screen.
-No `transactions` row is written by any of
-it (CLAUDE.md §5).
+the code screen. No `transactions` row is written by any of it (CLAUDE.md §5).
+
+**The phone that cannot tap (M16-23).** A phone without an NFC reader is **no longer refused at
+launch**: it walks the same steps, and step 3 shows *"This phone can't read the plaque"* in the
+plaque drawing's place. Two ways finish it, on any phone:
+
+- **A venue screen's live QR.** The system camera reads `<base>/q?t=…` and the App Link brings it
+  here; while step 3 (or the waiting screen) holds a bind, its query goes to
+  `POST /app/v1/activate/complete` as **`liveQR`** in place of `sun` (`ActivationFlow.complete(p,
+  TapLink)`). Every refusal of it is `activation_tap_failed` (one code, §4.7): the app knows it
+  sent a screen's code, so step 3 says *"That scan didn't finish setup"* / *"Scan the code on the
+  Taptime screen at your workplace again — it changes every few seconds."*, not the plaque's text.
+  A static plaque QR (`/t?tag=` without SUN) still goes as `sun` and still needs a touch.
+- **The manager's approval.** When lookup says `managerApproval: true`, step 3 offers the
+  secondary *"My phone can't tap"* (an underlined link, never the accent's slot); otherwise the
+  line *"Phone can't tap? Open your camera and scan the code on the Taptime screen at your
+  workplace."* It calls `POST /app/v1/activate/approval` (signed like complete, over its own path)
+  and shows the waiting screen with the pairing code grouped by three (*"482 913"*).
+  `POST /app/v1/activate/approval/status` is polled every 5 s (`ApprovalPoll`: each 429 in a row
+  doubles it -- 5, 10, 20, 40, then 60 s at most; an answer, or no answer, is 5 s again; ~20 phones
+  behind one venue NAT fit the address's status budget) while that screen is shown and the
+  activity is in front (one `Handler.postDelayed` tick at a time, re-posted after each answer —
+  no repeating timer). `approved` **is** the activation (the server created the device in that
+  call): saved exactly as complete's success. `rejected` / `expired` end the wait with *"Ask
+  again"* / *"Get a new code"* (a new request). `screen_available` (409) → step 3 with *"Scan the
+  screen's code instead"*, the button gone. No answer, `rate_limited` or `server_error` while
+  polling keep the code on screen with a notice and keep polling; `activation_not_ready` → the
+  consent step; `new_key_required` → a fresh key bound, step 3 again; `invalid_invite` → the
+  code screen. The pairing code is never printed (`ApprovalReply.Waiting.toString`).
+
+An activated phone without a reader says on its *"already set up"* screen *"This phone has no NFC
+reader. To record a tap, open your camera and scan the code on the Taptime screen at your
+workplace."* / *"No screen there? Ask your manager."* A live QR's tap problems (server, too many,
+stale, foreign) name the screen's code instead of the plaque (`TapProblem.forLink`).
 
 ### The key
 
@@ -453,10 +484,9 @@ the ones listed under *Android only* and *platform word*). What differs from the
    browser's *"open your link again"* would send the person to the browser (Q40). The activated
    screens say *"You can close the app."*
 6. **App-only** — *"Can't reach Taptime"* / *"Check your connection and try again."* (no answer).
-7. **Platform word** — the two refusals iOS writes with *"iPhone"* say *"phone"* here:
-   *"This phone can't read the plaque"* / *"Setting up the app needs a tap on the plaque, and this
-   phone has no NFC reader."* / *"Ask your manager — setup without a plaque tap isn't available
-   yet."* (no NFC reader, refused **at launch, before the code screen**, as on iOS) and *"This
+7. **Platform word** — the lines iOS writes with *"iPhone"* say *"phone"* here:
+   *"This phone can't read the plaque"* (no NFC reader: since M16-23 a notice on step 3, not a
+   refusal — see *The phone that cannot tap*) and *"This
    phone can't be set up"* / *"The app keeps its key in this phone's secure chip, and the chip
    isn't available."* / *"Ask your manager — you can still use Taptime in your browser."*
    (software key store, `KeyGate`).
@@ -495,8 +525,9 @@ placeholder from `BASE_URL`, so a debug build pointed elsewhere takes that host'
 - **`NDEF_DISCOVERED`** — the NFC read of the plaque's URI record. Whether Android's tag
   dispatch picks the app before the browser is **to be measured on a real phone** (M16-14).
 - **`VIEW` + `BROWSABLE`, `autoVerify="true"`** — the same URL as a link: a QR scanned by the
-  camera, a link in a message. Verified against `/.well-known/assetlinks.json` (M16-08), which
-  links `/t` only. `/activate` is not the app's (Q40).
+  camera, a link in a message. Verified against `/.well-known/assetlinks.json` (M16-08).
+  `/activate` is not the app's (Q40). M16-22 adds a third filter, VIEW only, for a venue screen's
+  live QR (`/q`) — see *QR codes* below.
 
 The URL reaches `TapFlow.start` (or, during activation step 2/3, the activation's complete — the
 browser's consented activation takes `GET /t` the same way). `PlaqueRead` re-checks scheme, host,
@@ -703,3 +734,40 @@ again* offered after a lost press → `TapFlowTest` red · `InviteCode`'s port c
 never asking fresh → `FixRulesTest` red · GPS **or** network instead of both → `FixRulesTest` red ·
 `TapStartReply`'s `toString` override dropped → `RedactionTest` red · the browser URL passed on as it
 arrived → `InputsTest` red.
+
+## QR codes (M16-22)
+
+No QR reader in the app and **no camera permission** (Q36 (c), 2026-11-14): the phone's own camera
+reads the code and the App Link opens the app. Two kinds of code, one tap screen.
+
+| Code | URL (measured on the server) | Filter | tap/start body |
+|---|---|---|---|
+| **Static** — printed on the plaque | `sun.PlaqueQRURL`: `https://<host>/t?tag=<UID>` (no `ctr`, no `cmac`) — the plaque route itself | the existing `/t` VIEW filter (M16-13); nothing new | `{"sun":"tag=<UID>"}` — the server derives `channel=qr` |
+| **Live** — a venue screen's rotating code (M16-20) | `liveqr.TapURL`: `https://<host>/q?t=<token>` (~20 s) | a **new** VIEW + BROWSABLE filter, `autoVerify="true"`, path exactly `/q` (no NDEF: a QR is never an NFC read) | `{"liveQR":"t=<token>"}` — the URL's query as written |
+
+- **`TapLink`** (`activation/Inputs.kt`) is what opened the tap screen: `PlaqueRead` (`/t`) or
+  `LiveQrRead` (`/q`), the same origin rule (scheme, host, port, exact path, no user, no
+  fragment). Anything else is *"That link didn't work"* and is sent nowhere. The query is never
+  printed (`toString` = `<redacted>`).
+- **The server opens the token** (`apptap.go` `tapStartLive`, GET /q's own reader
+  `liveQRTap.open`): shape and tag in constant time, the screen from its row, the row's venue equal to
+  the token's. The app judges nothing. A code that does not verify still draws the tap screen and the
+  press records a reject (Q39 (a)); an expired one a flag (Q39 (b)); GPS alone a flag
+  (`base:live-qr-requires-ip`). The press is the ordinary `POST /app/v1/tap`.
+- **The screens are the plaque's** — the same tap screen (name, venue, one button, *"Not right? …"*),
+  the same result and problem screens, **no new text**. *"Open in browser"* rebuilds the `/q` URL
+  from the base, under the same rule as the plaque's (only while nothing was pressed).
+- **Acted on once**: a live QR intent reopened from Recents is the launcher's, as a plaque's.
+- **During activation** a live QR finishes nothing (the plaque reader is the activating read);
+  NFC-less activation is M16-23.
+- **Phone without NFC**: activation refuses it at launch (*"This phone can't read the plaque"*) —
+  unchanged here; a live QR's tap/start needs no NFC.
+
+Tests: `TapFlowTest` (`aLiveQrIsASignedReadOfItsQueryAndTheSamePress`, `…OfAnotherHostOrPath…`,
+`…OnAPhoneWithNoDevice…`), `InputsTest` (`onlyThisServersLiveQrRouteYieldsALiveQuery`,
+`aTapLinkIsThePlaqueOrTheLiveQrAndNothingElse`), `ContractPinTest`
+(`theLiveQrRouteIsTheServersPath` — `/q` and `t` read from `internal/liveqr/token.go` and
+`internal/handler/livetap.go`; `theTapBodiesUseTheServersFieldNames` — `sun` ∪ `liveQR`),
+`WireTest` (the `liveQR` body), `MergedManifestTest` (three URL filters, `/q` VIEW only;
+`noCameraIsAskedForOrDeclared`), `RedactionTest` (the live query). Mutations (2026-11-19): the `/q`
+filter's path set to `/t` → `MergedManifestTest` red; a live QR sent as `sun` → `TapFlowTest` red.

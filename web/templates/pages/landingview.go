@@ -663,7 +663,7 @@ func LandingFreeMonthsLine(n int) Line {
 // digits.
 func countWord(n int) string {
 	words := []string{"zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
-		"nine", "ten", "eleven", "twelve"}
+		"nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"}
 	if n >= 0 && n < len(words) {
 		return words[n]
 	}
@@ -1377,9 +1377,10 @@ var LandingFAQ = []Question{
 	},
 	{
 		// LP-09 review (2026-10-22): this asked "What if the phone has no NFC?" and answered
-		// with the QR code, but a phone is set up only by a real NFC tap (ADR 0026), so a
-		// phone with no NFC never gets as far as a check-in. The QR code is the fallback
-		// for a set-up phone whose NFC is off or fails, and the answer now says both.
+		// with the QR code, but a phone is set up only with proof it is at work -- a real NFC tap
+		// (ADR 0026), or since M16-23 a venue's live QR screen or a manager's approval in person.
+		// The printed QR code is the fallback for a set-up phone whose NFC is off or fails, and
+		// the answer says both.
 		// "By default" (LP-15 fact review), as /for/production and /security say it:
 		// base:qr-requires-ip is a baseline rule an owner may change.
 		Q: "What if a phone's NFC fails?",
@@ -1387,9 +1388,10 @@ var LandingFAQ = []Question{
 			"code with the camera. A QR tap carries no cryptographic signature — no proof of a " +
 			"physical touch — so by default it needs your venue's network address to match before it's " +
 			"approved. A position on its own is not enough: without the address it's stored, " +
-			"flagged and queued for review. Setting a phone up still takes one real tap on a plaque.",
+			"flagged and queued for review. Setting a phone up still needs proof it is at work: a real tap on a " +
+			"plaque, a scan of a venue's live QR screen, or a manager's approval in person.",
 		Facts: []Fact{FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-			FactActivationEndsOnARealTap, FactSetupTakesARealTap},
+			FactActivationEndsOnPresence, FactSetupNeedsPresence},
 	},
 	{
 		Q: "Can someone clock in from home?",

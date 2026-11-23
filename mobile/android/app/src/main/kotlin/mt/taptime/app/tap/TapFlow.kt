@@ -3,7 +3,7 @@ package mt.taptime.app.tap
 import mt.taptime.app.activation.ActiveDevice
 import mt.taptime.app.activation.DeviceKeys
 import mt.taptime.app.activation.DeviceState
-import mt.taptime.app.activation.PlaqueRead
+import mt.taptime.app.activation.TapLink
 import mt.taptime.app.wire.AppClient
 import mt.taptime.app.wire.AppErrorCode
 import mt.taptime.app.wire.Bodies
@@ -18,7 +18,10 @@ import mt.taptime.app.wire.TapStartReply
  * problem texts (internal/handler/tap.go) where it has one, the app's own where it has none.
  */
 enum class TapProblem {
-    /** tapProblemBadURL: the plaque URL is not this server's, or the server could not parse it. */
+    /**
+     * tapProblemBadURL: the URL is not this server's plaque or live QR route, or the server could
+     * not parse it.
+     */
     BAD_LINK,
     /** tapProblemUnknownTag. */
     UNKNOWN_PLAQUE,
@@ -46,6 +49,25 @@ enum class TapProblem {
      * signed-out device.
      */
     CLOCK,
+    /**
+     * M16-23: SERVER, TOO_MANY, STALE and FOREIGN when the tap came from a venue screen's LIVE QR
+     * (`/q`): the same titles and messages, with the hints (and FOREIGN's words) saying "the screen's
+     * code" where the plaque's say "the plaque". [forLink] chooses; nothing else differs.
+     */
+    LIVE_SERVER,
+    LIVE_TOO_MANY,
+    LIVE_STALE,
+    LIVE_FOREIGN,
+    ;
+
+    /** This problem in the words of what opened the tap: a live QR's variant, or itself. */
+    fun forLink(link: TapLink): TapProblem = if (link !is TapLink.LiveQr) this else when (this) {
+        SERVER -> LIVE_SERVER
+        TOO_MANY -> LIVE_TOO_MANY
+        STALE -> LIVE_STALE
+        FOREIGN -> LIVE_FOREIGN
+        else -> this
+    }
 }
 
 /** What a problem screen's "Try again" does. */
@@ -84,10 +106,13 @@ class KeyUnreadable(cause: Throwable) : Exception("device key unreadable", cause
 
 // THE APP'S TAP (card M16-13), GET /t + POST /api/checkin's twin over /app/v1:
 //
-//	start   the plaque's URL (the NFC dispatch, or an App Link for a QR / a link): this server's
-//	        <base>/t only (PlaqueRead); its query goes to POST /app/v1/tap/start, a SIGNED READ --
-//	        no nonce, no counter advanced, nothing written. The answer is the tap screen: the
-//	        person's name, the tapped venue, the brand, the predicted direction, the signed context.
+//	start   the plaque's URL (the NFC dispatch, or an App Link for the plaque's printed QR / a
+//	        link): this server's <base>/t (PlaqueRead), its query as tap/start's `sun`; or a venue
+//	        screen's LIVE QR read by the camera (M16-22): <base>/q (LiveQrRead), its query as
+//	        `liveQR`. POST /app/v1/tap/start is a SIGNED READ -- no nonce, no counter advanced,
+//	        nothing written. The answer is the tap screen: the person's name, the tapped venue (the
+//	        screen's, for a live QR), the brand, the predicted direction, the signed context. The
+//	        screen, the press and the result are the same for all three entries.
 //	press   the one button (or "Not right? …"): POST /app/v1/tap, nonce-signed, with the context,
 //	        the pressed direction, ONE fix read at the press (TapLocation, §4.2) and the mock flag
 //	        when true. The server runs the same checkin.Service.Record as the browser; the app
@@ -104,10 +129,11 @@ class TapFlow(
     private val baseUrl: String,
 ) {
     sealed interface Start {
-        /** The tap screen. [sun] is kept for "Try again" and for nothing else. */
-        data class Ready(val device: ActiveDevice, val signer: Signer, val sun: String, val facts: TapStartReply) : Start {
-            // The SUN query carries the chip's CMAC and counter: never in a printed value (§7).
-            override fun toString() = "Ready(device=${device.deviceId}, sun=<redacted>, facts=$facts)"
+        /** The tap screen. [link] is what opened it (a plaque or a live QR), for nothing but its record here. */
+        data class Ready(val device: ActiveDevice, val signer: Signer, val link: TapLink, val facts: TapStartReply) : Start {
+            // The SUN query carries the chip's CMAC and counter, a live QR query a live token:
+            // never in a printed value (§7).
+            override fun toString() = "Ready(device=${device.deviceId}, link=<redacted>, facts=$facts)"
         }
         data class Problem(val problem: TapProblem, val retry: Retry) : Start
     }
@@ -126,7 +152,7 @@ class TapFlow(
     private fun retryOf(p: TapProblem) = if (p == TapProblem.CLOCK) Retry.RESTART else Retry.NONE
 
     fun start(url: String): Start {
-        val sun = PlaqueRead.sunQuery(url, baseUrl) ?: return Start.Problem(TapProblem.BAD_LINK, Retry.NONE)
+        val link = TapLink.of(url, baseUrl) ?: return Start.Problem(TapProblem.BAD_LINK, Retry.NONE)
         val device = state.active() ?: return Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE)
         val signer = try {
             loadTwice(device.keyAlias)
@@ -140,15 +166,25 @@ class TapFlow(
             return Start.Problem(TapProblem.NOT_SET_UP, Retry.NONE)
         }
         val r = try {
-            client.tapStart(device.deviceId, Guarded(signer), sun)
+            when (link) {
+                is TapLink.Plaque -> client.tapStart(device.deviceId, Guarded(signer), link.query)
+                is TapLink.LiveQr -> client.tapStartLive(device.deviceId, Guarded(signer), link.query)
+            }
         } catch (_: KeyUnreadable) {
             return Start.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
+        return when (val started = startAnswer(device, signer, link, r)) {
+            is Start.Problem -> started.copy(problem = started.problem.forLink(link))
+            is Start.Ready -> started
+        }
+    }
+
+    private fun startAnswer(device: ActiveDevice, signer: Signer, link: TapLink, r: Outcome<TapStartReply>): Start {
         return when (r) {
             is Outcome.Ok -> {
                 val name = r.value.employeeName
                 if (name.isNotEmpty() && name != device.employeeName) state.save(device.copy(employeeName = name))
-                Start.Ready(device, signer, sun, r.value)
+                Start.Ready(device, signer, link, r.value)
             }
             Outcome.Unauthenticated -> refusedSignature().let { Start.Problem(it, retryOf(it)) }
             is Outcome.Failed -> Start.Problem(TapProblem.UNREACHABLE, Retry.RESTART)
@@ -176,6 +212,13 @@ class TapFlow(
             // Signing failed before POST /app/v1/tap went out: nothing reached the record.
             return Press.Problem(TapProblem.KEY_UNREADABLE, Retry.RESTART)
         }
+        return when (val pressed = pressAnswer(r)) {
+            is Press.Problem -> pressed.copy(problem = pressed.problem.forLink(ready.link))
+            is Press.Recorded -> pressed
+        }
+    }
+
+    private fun pressAnswer(r: Outcome<TapReply>): Press {
         return when (r) {
             is Outcome.Ok -> Press.Recorded(r.value)
             // A refused signature records nothing: the URL is unspent (signed out keeps its exits).

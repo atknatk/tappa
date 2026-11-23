@@ -173,6 +173,8 @@ type AccountView struct {
 	// ManagersHref is the owner's "Managers" page (M14-15), "" while the panel identity flag keeps the
 	// invitations closed or for a reader who is not an owner -- then nothing of the card is drawn.
 	ManagersHref string
+	// StaffShift is the owner's "real shifts" switch (M16-45); nil for anyone else.
+	StaffShift *AccountStaffShift
 
 	// --- the password form (T73) --------------------------------------------------
 
@@ -383,4 +385,10 @@ type EmailUndoView struct {
 	// Dead: the link cannot be used (one sentence for every cause). Done: the change was undone.
 	Dead bool
 	Done bool
+}
+
+// AccountStaffShift is the owner's "these are my staff's real shifts" card (M16-45, ADR 0050 (iv)).
+type AccountStaffShift struct {
+	PostHref string
+	On       bool
 }

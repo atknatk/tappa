@@ -340,14 +340,15 @@ func ForProductionCopy(f ForProductionFigures) ForProductionText {
 					FactTapButtonSizedForAWetHand, FactTapScreenIsOneButtonAndACorrection),
 			},
 			{
-				Title: l("What if a phone's NFC fails?", FactTapPageNeedsNoApp, FactSetupTakesARealTap),
+				Title: l("What if a phone's NFC fails?", FactTapPageNeedsNoApp, FactSetupNeedsPresence),
 				Body: l("If a phone's NFC is off or fails on the day, the same page opens from the venue's QR code with "+
 					"the camera. A QR tap carries no cryptographic signature — no proof of a physical touch — so by "+
 					"default it needs your venue's network address to match before it's approved. A position on its "+
 					"own is not enough: without the address it's stored, flagged and queued for review. Setting a "+
-					"phone up still takes one real tap on a plaque.",
+					"phone up still needs proof it is at work: a real tap on a plaque, a scan of a venue's live QR "+
+					"screen, or a manager's approval in person.",
 					FactTapPageNeedsNoApp, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager,
-					FactActivationEndsOnARealTap, FactSetupTakesARealTap),
+					FactActivationEndsOnPresence, FactSetupNeedsPresence),
 			},
 		},
 	}

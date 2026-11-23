@@ -108,3 +108,66 @@
 
   schedule();
 })();
+
+// THE MANAGER-APPROVAL SCREEN (M16-23), the same file because it is the same flow and the same
+// page family. It does ONE thing too: notice that a manager approved this phone and press the
+// screen's own "Check now" form for the person -- the POST that finishes the setup, the same
+// one the button sends without the script. It writes no markup and no text; on "rejected" or
+// "expired" it reloads the page, which the server then draws in that state. It stops at the
+// first answer that is not "waiting", and after MAX_WAIT_MS.
+(function () {
+  'use strict';
+
+  var root = document.querySelector('[data-approval-wait]');
+  if (!root || !window.fetch) return;
+
+  var url = root.getAttribute('data-status-url');
+  var collect = root.querySelector('[data-approval-collect]');
+  if (!url || !collect) return;
+
+  // Five seconds, doubling on every 429 up to a minute and back to five on an answer: the poll is
+  // metered per address on the status budget the apps share (M16-23 audit ORTA-1), so a venue's
+  // NAT with many phones waiting must slow down rather than spend it.
+  var INTERVAL_MS = 5000;
+  var MAX_INTERVAL_MS = 60000;
+  var delay = INTERVAL_MS;
+  // Fifteen minutes is the request's own life (invite.ApprovalTTL); past it the answer is
+  // "expired" anyway.
+  var MAX_WAIT_MS = 16 * 60 * 1000;
+  var started = Date.now();
+  var finished = false;
+
+  function check() {
+    if (finished) return;
+    if (Date.now() - started > MAX_WAIT_MS) {
+      finished = true;
+      return;
+    }
+    window
+      .fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        if (res.status === 429) return { state: 'slow_down' };
+        return res.json();
+      })
+      .then(function (body) {
+        var state = body && body.state;
+        delay = state === 'slow_down' ? Math.min(delay * 2, MAX_INTERVAL_MS) : INTERVAL_MS;
+        if (state === 'approved') {
+          finished = true;
+          collect.submit();
+        } else if (state === 'rejected' || state === 'expired') {
+          finished = true;
+          if (root.getAttribute('data-shown') !== state) window.location.reload();
+        } else if (state === 'none') {
+          finished = true;
+        } else {
+          window.setTimeout(check, delay);
+        }
+      })
+      .catch(function () {
+        window.setTimeout(check, delay);
+      });
+  }
+
+  window.setTimeout(check, delay);
+})();

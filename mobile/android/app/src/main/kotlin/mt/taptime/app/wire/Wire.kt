@@ -12,11 +12,19 @@ object Paths {
     const val ACTIVATE_LOOKUP = "/app/v1/activate/lookup"
     const val ACTIVATE_BIND = "/app/v1/activate/bind"
     const val ACTIVATE_COMPLETE = "/app/v1/activate/complete"
+    /** M16-23: a manager-approval request for a phone that cannot tap (signed like complete). */
+    const val ACTIVATE_APPROVAL = "/app/v1/activate/approval"
+    /** M16-23: the request's state; an approved one is collected here (the device is born in this call). */
+    const val ACTIVATE_APPROVAL_STATUS = "/app/v1/activate/approval/status"
     const val NONCE = "/app/v1/nonce"
     const val TAP_START = "/app/v1/tap/start"
     const val TAP = "/app/v1/tap"
     const val ME = "/app/v1/me"
     const val REVOKE = "/app/v1/revoke"
+    /** M16-43: the records that take a claim now and the person's own claims (a signed read). */
+    const val CLAIMS = "/app/v1/claims"
+    /** M16-43: one claim (nonce-signed). */
+    const val CLAIMS_SEND = "/app/v1/claims/send"
 }
 
 object Headers {
@@ -41,6 +49,8 @@ enum class AppErrorCode(val wire: String, val status: Int) {
     METHOD_NOT_ALLOWED("method_not_allowed", 405),
     NEW_KEY_REQUIRED("new_key_required", 409),
     ACTIVATION_NOT_READY("activation_not_ready", 409),
+    /** M16-23: a live QR screen runs at the workplace -- scan it; the manager cannot approve this phone. */
+    SCREEN_AVAILABLE("screen_available", 409),
     TRY_AGAIN("try_again", 409),
     RATE_LIMITED("rate_limited", 429),
     SERVER_ERROR("server_error", 500),
@@ -78,6 +88,11 @@ data class LookupReply(
     val wifiSsid: String?,
     val secondDevice: Boolean,
     val brand: Brand,
+    /**
+     * M16-23: the manager-approval path is offered -- no live QR screen runs at the person's
+     * workplace. Absent is false (an older server offers nothing).
+     */
+    val managerApproval: Boolean = false,
 )
 
 data class BindReply(val activationId: String, val challenge: String) {
@@ -87,7 +102,59 @@ data class BindReply(val activationId: String, val challenge: String) {
 
 data class CompleteReply(val deviceId: String, val employeeName: String)
 
-data class MeReply(val employeeName: String, val brand: Brand, val direction: String)
+/**
+ * M16-23: POST /app/v1/activate/approval and approval/status. [Approved] is a finished activation:
+ * the server created the device in that very call, exactly as a successful complete.
+ */
+sealed interface ApprovalReply {
+    /** [pairingCode] is six ASCII digits the manager matches in the panel: never printed (§7). */
+    class Waiting(val pairingCode: String, val expiresAt: String) : ApprovalReply {
+        override fun toString() = "Waiting(pairingCode=<redacted>, expiresAt=$expiresAt)"
+        override fun equals(other: Any?) = other is Waiting && other.pairingCode == pairingCode && other.expiresAt == expiresAt
+        override fun hashCode() = pairingCode.hashCode() * 31 + expiresAt.hashCode()
+    }
+    data class Approved(val deviceId: String, val employeeName: String) : ApprovalReply
+    data object Rejected : ApprovalReply
+    data object Expired : ApprovalReply
+}
+
+/**
+ * GET /app/v1/me. [presence] is the open check-in the next tap would close (M16-45; null when there
+ * is none), [shift] the usual shift (null unless the owner marked shifts real), [missingTimes] how
+ * many records take a claim now (M16-43). An old server omits the three: null, null, 0.
+ */
+data class MeReply(
+    val employeeName: String, val brand: Brand, val direction: String,
+    val presence: Presence? = null, val shift: UsualShift? = null, val missingTimes: Int = 0,
+)
+
+/**
+ * The server's instants (epoch milliseconds) for the phone's scheduling, and its wall clocks
+ * ("HH:MM", the business's zone) for the words. The app converts no zone (§6).
+ */
+data class Presence(
+    val inSinceMs: Long, val inSinceLocal: String,
+    val shiftEndsAtMs: Long?, val shiftEndsAtLocal: String?,
+    val remindAtMs: Long?, val showUntilMs: Long, val staleAtMs: Long,
+)
+
+data class UsualShift(val start: String, val end: String, val overnight: Boolean, val venue: String)
+
+/** One record that takes a claim now; [context] is signed for this device and goes back verbatim. */
+data class OpenClaim(
+    val context: String, val kind: String, val anchorDate: String, val anchorAt: String, val day: String,
+    val windowFrom: String, val fromInclusive: Boolean, val windowTo: String, val toInclusive: Boolean,
+    val prefill: String?,
+) {
+    override fun toString() = "OpenClaim(context=<redacted>, kind=$kind, day=$day)"
+}
+
+data class SentClaim(
+    val kind: String, val anchorDate: String, val anchorAt: String, val claimedAt: String,
+    val state: String, val approvedAt: String?,
+)
+
+data class ClaimsReply(val open: List<OpenClaim>, val sent: List<SentClaim>)
 
 data class NonceReply(val nonce: String, val expiresAt: String) {
     override fun toString() = "NonceReply(nonce=<redacted>, expiresAt=$expiresAt)"
@@ -154,6 +221,7 @@ object Replies {
             wifiSsid = optString("wifiSsid")?.takeIf { it.isNotEmpty() },
             secondDevice = bool("secondDevice"),
             brand = brand(optObject("brand")),
+            managerApproval = optBool("managerApproval"),
         )
     }
 
@@ -172,9 +240,72 @@ object Replies {
         CompleteReply(id, string("employeeName"))
     }
 
-    fun me(m: Map<String, Any?>): MeReply = Fields(m).run {
-        MeReply(string("employeeName"), brand(optObject("brand")), optString("direction") ?: "")
+    /** The six digits the panel shows: anything else is a reply this app cannot show. */
+    private val pairing = Regex("^[0-9]{6}$")
+
+    fun approval(m: Map<String, Any?>): ApprovalReply = Fields(m).run {
+        when (string("state")) {
+            "waiting" -> {
+                val c = string("pairingCode")
+                if (!pairing.matches(c)) throw JsonException("approval reply: malformed pairing code")
+                ApprovalReply.Waiting(c, optString("expiresAt").orEmpty())
+            }
+            "approved" -> {
+                val id = string("deviceId")
+                if (!Canonical.validDeviceId(id)) throw JsonException("approval reply: malformed device id")
+                ApprovalReply.Approved(id, string("employeeName"))
+            }
+            "rejected" -> ApprovalReply.Rejected
+            "expired" -> ApprovalReply.Expired
+            else -> throw JsonException("approval reply: unknown state")
+        }
     }
+
+    fun me(m: Map<String, Any?>): MeReply = Fields(m).run {
+        MeReply(
+            string("employeeName"), brand(optObject("brand")), optString("direction") ?: "",
+            presence = optObject("presence")?.let(::presence),
+            shift = optObject("shift")?.run { UsualShift(string("start"), string("end"), optBool("overnight"), optString("venue") ?: "") },
+            missingTimes = optInt("missingTimes"),
+        )
+    }
+
+    private fun presence(f: Fields): Presence = f.run {
+        Presence(
+            inSinceMs = instant(string("inSince")), inSinceLocal = string("inSinceLocal"),
+            shiftEndsAtMs = optString("shiftEndsAt")?.let(::instant), shiftEndsAtLocal = optString("shiftEndsAtLocal"),
+            remindAtMs = optString("remindAt")?.let(::instant),
+            showUntilMs = instant(string("showUntil")), staleAtMs = instant(string("staleAt")),
+        )
+    }
+
+    // RFC 3339 in UTC as the server writes it (Go's time.Time JSON, "Z").
+    private fun instant(v: String): Long = try {
+        java.time.Instant.parse(v).toEpochMilli()
+    } catch (_: java.time.format.DateTimeParseException) {
+        throw JsonException("an instant that does not parse")
+    }
+
+    fun claims(m: Map<String, Any?>): ClaimsReply = Fields(m).run {
+        ClaimsReply(
+            open = objects("open").map { o ->
+                o.run {
+                    val from = optObject("windowFrom") ?: throw JsonException("claim: no window")
+                    val to = optObject("windowTo") ?: throw JsonException("claim: no window")
+                    OpenClaim(
+                        string("context"), string("kind"), string("anchorDate"), string("anchorAt"), string("day"),
+                        from.string("at"), from.optBool("inclusive"), to.string("at"), to.optBool("inclusive"),
+                        optString("prefill"),
+                    )
+                }
+            },
+            sent = objects("sent").map { o ->
+                o.run { SentClaim(string("kind"), string("anchorDate"), string("anchorAt"), string("claimedAt"), string("state"), optString("approvedAt")) }
+            },
+        )
+    }
+
+    fun claimSend(m: Map<String, Any?>): String = Fields(m).string("result")
 
     fun tapStart(m: Map<String, Any?>): TapStartReply = Fields(m).run {
         val context = string("context")
@@ -223,7 +354,28 @@ object Bodies {
         JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint))
             .put("platform", PLATFORM).put("sun", sun).bytes()
 
+    /**
+     * activate/complete with a venue screen's LIVE QR (M16-23): the `<base>/q` URL's query as
+     * `liveQR` in place of `sun` -- exactly one of the two, as on tap/start.
+     */
+    fun completeLive(code: String, publicPoint: ByteArray, liveQuery: String): ByteArray =
+        JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint))
+            .put("platform", PLATFORM).put("liveQR", liveQuery).bytes()
+
+    /** activate/approval and approval/status (M16-23): the same three fields. */
+    fun approval(code: String, publicPoint: ByteArray): ByteArray =
+        JsonObjectWriter().put("code", code).put("publicKey", B64Url.encode(publicPoint)).put("platform", PLATFORM).bytes()
+
     fun tapStart(sun: String): ByteArray = JsonObjectWriter().put("sun", sun).bytes()
+
+    /** POST /app/v1/claims: an empty object. */
+    fun claims(): ByteArray = "{}".toByteArray(Charsets.UTF_8)
+
+    /** POST /app/v1/claims/send: the signed context as it came, and the wall clock "HH:MM". */
+    fun claimSend(context: String, at: String): ByteArray = JsonObjectWriter().put("context", context).put("at", at).bytes()
+
+    /** tap/start for a live QR (M16-22): exactly one field, the `<base>/q` URL's query as written. */
+    fun tapStartLive(liveQuery: String): ByteArray = JsonObjectWriter().put("liveQR", liveQuery).bytes()
 
     /**
      * POST /app/v1/tap's body. [want] is sent only when the pressed button said a direction; the

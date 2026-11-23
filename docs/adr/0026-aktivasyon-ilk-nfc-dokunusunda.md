@@ -92,6 +92,46 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 - **Bedel 3 — QR ile aktivasyon YOK.** Arka planda NFC okuyamayan telefonlar (iPhone
   X ve öncesi) bugün aktive **olamaz**. QR fiziksel dokunuş kanıtı taşımadığı için
   bilinçli; çözüm (ör. müdür onaylı aktivasyon) ayrı bir ürün kararıdır.
+  > **İPTAL EDİLDİ (2026-11-20, M16-23; madde silinmez, tarih için kalır).** NFC'siz telefon
+  > artık iki yoldan aktive olur; **basılı (statik) QR hâlâ aktive edemez** (`CompleteByTap`'in
+  > *"needs touch"* reddi aynen):
+  > (1) **Canlı QR** — onaylı (bağlı) aktivasyonu olan tarayıcı `GET /q`'da, uygulama
+  > `POST /app/v1/activate/complete`'in `liveQR` alanıyla, davetle **aynı tenant'ın** hizmetteki
+  > (iptal yok, lokasyon aktif) bir ekranının penceresi içindeki (`TokenLifetime` +
+  > `policy.LiveQRNetworkGraceSeconds`, aktivasyonda ölçü anı *şimdi*dir — sayfa yok) token'ını
+  > okur: `CompleteByTap`'in sırası, `sun.Verify`'ın yerinde token doğrulaması
+  > (`Activation.CompleteByLiveQR`, `liveQRActivationRefusal` — iki istemcinin tek kuralı).
+  > (2) **Müdür onayı** — davetin çalışanının profil şubesinde (profil şubesi yoksa işletmenin
+  > hiçbir yerinde) **çalışan** bir canlı QR ekranı yoksa sihirbaz *"My phone can't tap"* sunar;
+  > istek bu tarayıcının/anahtarın onay bağına bağlı, 6 haneli eşleşme kodlu, 15 dk ömürlü bir
+  > `activation_requests` satırıdır (00115); müdür panelde onaylar ya da reddeder (tek yön,
+  > `audit_log`'da aktörüyle; kod hiçbir log'a ve `detail`'e girmez); tüketim ve onayın toplanması
+  > **tek transaction'dır** (`invite.ActivateApproved` / `ActivateDeviceApproved`) — tarayıcıda
+  > `POST /activate/approval/collect`'te, uygulamada onaylı isteği okuyan `approval/status`
+  > çağrısında. Ekranlı lokasyonda istek **sunucuda** reddedilir (`ErrScreenAvailable`). "Çalışan
+  > ekran" son 20 dk'da kod istemiş ekrandır; `last_seen_at` en fazla 10 dk'da bir damgalandığından
+  > **kapatılan bir tablet kapıyı ancak son damgasından 10–20 dk sonra açar** (o arada istek
+  > `screen_available` alır). Yönetici kendi telefonunu onaylayamaz (adres eşitliği, ADR 0037'nin
+  > ruhu; sahip muafiyeti yok — telefonun başka yolu var). **Sınırı:** kural yalnız yazılı adresleri
+  > karşılaştırır — yöneticinin hesabında adres yoksa, çalışanın adresi boşsa ya da ikisi farklıysa
+  > (aynı kişi iki adresle) yakalamaz (ADR 0037 §3 seçenek C'nin adlandırılmış zayıflığı;
+  > `employees.admin_user_id` bağı — A′ — gelince güçlenir).
+  > **Kabul edilen bedel — daveti verenin onayı (kullanıcı kararı, 2026-11-20; ADR 0037'ye bağlı).**
+  > Daveti veren yönetici linki kendi telefonunda açıp *"My phone can't tap"* diyebilir ve açılan isteği
+  > kendisi onaylayabilir: o telefon plakete gitmeden aktive olur. Kazandığı yalnız aktivasyondur —
+  > sonraki her check-in yine kanıt ister (§5 satır 6–7: IP ya da GPS; ikisi de yoksa `flag`, onay
+  > kuyruğu). İz kalır: davet ve onay `audit_log`'da **aynı aktörle** görünür (`invite.code_shown_to_manager`
+  > / `invite.code_emailed` satırının ve `activation.approved` satırının `actor_id`'si), yani ADR 0037'nin
+  > denetim sinyali bu yolda da okunabilir. Kural eklenmedi, çünkü canlıdaki dört işletmenin dördü tek
+  > sahiplidir ve bütün davetleri sahip verir: *"daveti veren onaylayamaz"* kuralı ekransız bir işletmede
+  > müdür onayı yolunu tümden kapatırdı. (Ölçüm, M16-23 düzeltme turu: daveti vereni okumak için
+  > migration gerekmiyordu — `audit_log_invite_delivery_idx` kapsar; engel ürün kararıdır, teknik değil.)
+  > İkisi de `transactions` satırı yazmaz; her red `activation.failed` satırıdır (§4.6). Bedeli: canlı
+  > QR'ın ~20 sn'lik penceresinde fotoğrafı anında iletilen kod, onay vermiş başka bir telefonu
+  > o pencerede aktive edebilir (ADR 0045 §2.5'in check-in için kabul ettiği maruziyet; davet tek
+  > kişilik ve tek tüketimlik). Testler: `TestNFCLessDB_*`, `TestAppNFCLessDB_*`,
+  > `TestLiveQRActivationRefusal_IsTheOneRuleForBothReaders` (`internal/handler`), `internal/db`
+  > `TestActivationRequestsCatalog`, `TestRLS_ActivationRequests_TenantIsolation`.
 
 ## Test edilenler (adlarıyla)
 
@@ -254,7 +294,9 @@ madde 1). Holding ([ADR 0027](0027-holding-ve-capraz-tenant-dokunusu.md)) iki ş
   holding dokunuşudur (`internal/handler/tap.go:369-385` aksi hâlde onu yabancı plaket aktivasyon
   hatasına çevirirdi); plaketin tenant'ı davetinkiyle aynıysa aktivasyon yine tamamlanır (Karar 3).
   Oturumsuz tarayıcıda değişiklik yoktur.
-- QR ile aktivasyon yine yoktur (Bedel 3) — çapraz QR da aktive edemez.
+- QR ile aktivasyon yine yoktur (Bedel 3) — çapraz QR da aktive edemez. *(2026-11-20, M16-23: basılı
+  QR için hâlâ doğru; canlı QR davetin **kendi** işletmesinin ekranıyla aktive eder — bir eşin ya da
+  yabancının ekranı reddedilir, `foreign_tenant_screen`.)*
 
 ## Çerez denetimi notu (2026-11-11, kullanıcının §9 kararı)
 

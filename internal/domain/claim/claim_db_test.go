@@ -770,7 +770,13 @@ func TestDecideDB_TheLockHoldsATapUntilTheApprovalCommits(t *testing.T) {
 	w.cutoff = tap.DayCutoff{Cutoff: time.Duration(seconds) * time.Second, Timezone: "UTC"}
 	start := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
 	in := w.tapAt("in", start, w.home)
+	// M16-43 (Y1): Submit refuses a claim on a check-in the next tap would still close, so the claim
+	// is sent from an instant where the check-in is stale; the approval and the tap below run on the
+	// real clock, where it is open -- the race this test measures (a claim sent before the rule, or
+	// from a chain a later cutoff change reopened).
+	w.svc.now = func() time.Time { return start.Add(tap.StaleOpenIn + time.Hour) }
 	c := w.mustSubmit(in, KindOut, start.Add(2*time.Hour))
+	w.svc.now = nil
 	svc, err := checkin.New(w.data, w.trail, w.cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)

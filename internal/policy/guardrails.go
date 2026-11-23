@@ -2,8 +2,10 @@ package policy
 
 // This file is the GUARDRAIL layer (ADR 0004 §4-§5; M3-05 card; CLAUDE.md §4,
 // §5 rows 1-5). Guardrails are the product's reason for existing made
-// unbreakable: the eleven immutable system rules that no customer policy can loosen
-// (ten until M11 API-1b added sys:cross-tenant-qr-site-ip, ADR 0027 §7).
+// unbreakable: the fifteen immutable system rules that no customer policy can loosen
+// (ten until M11 API-1b added sys:cross-tenant-qr-site-ip, ADR 0027 §7; eleven until
+// M16-21 added the four live QR rules, ADR 0045 §2.5 -- sys:live-qr-unverified,
+// sys:screen-not-active, sys:cross-tenant-live-qr and sys:live-qr-expired).
 //
 // THREE properties are structural, not disciplinary:
 //
@@ -15,9 +17,9 @@ package policy
 //     document is even looked at.
 //
 //   - ORDER IS A SECURITY BOUNDARY (ADR 0004 §5). Guardrails() returns them in
-//     the NORMATIVE 1->11 order and that order is defined in exactly ONE place
+//     the NORMATIVE 1->15 order and that order is defined in exactly ONE place
 //     (the slice literal below). §5 says "first match wins"; a wrong order is
-//     exploitable, so it is fixed in code and locked by the 1->11 property test
+//     exploitable, so it is fixed in code and locked by the 1->15 property test
 //     (M3-08). The two exploits the order defends against (both hunted by
 //     tappa-security-auditor R8) are called out on sys:sun-invalid.
 //
@@ -110,7 +112,39 @@ const (
 	employeeDeactivated = "deactivated"
 	channelNFC          = "nfc"
 	roleOwner           = "owner"
+	// channelQRLive is the live QR channel (00112, ADR 0045 §2.5): a venue screen's
+	// rotating signed token, no plaque. The four live QR guardrails key on it.
+	channelQRLive = "qr_live"
+	// screenStatusActive is the ONLY screen state a live QR tap may proceed on
+	// (sys:screen-not-active asks for it rather than listing the bad ones, for
+	// sys:tag-not-active's reason: the next value is refused on the day it is added).
+	screenStatusActive = "active"
 )
+
+// LiveQRNetworkGraceSeconds is how long PAST a live QR token's own expiry the server
+// still takes the token as fresh (Q39: "pencere ~20 sn + ağ payı"; M16-21 sets the
+// number). sys:live-qr-expired reviews a token first seen later than that.
+//
+// WHAT IT HAS TO COVER, MEASURED IN THE CODE THAT SHOWS THE TOKEN (internal/liveqr,
+// internal/handler/livescreen.go, web/static/js/livescreen.js): the screen asks for the
+// next token liveScreenRefreshLead (3 s) before the current one runs out and HIDES a
+// code whose time has passed, counting from when its request was SENT -- so the screen
+// never shows a token past its expiry on the server's clock, but it can show one with
+// as little as ~3 s left, and less over a slow link. After that the person's phone has
+// to recognise the code, the person has to open the link the camera offers (a human
+// press -- iOS and Android both show a banner, neither opens it unasked), and the
+// request has to reach us over mobile data. Ten seconds is that path with room; it is a
+// CHOICE, not a device measurement -- the real-device figure is M16-24's tour.
+//
+// WHY NOT MORE: the grace is also how long a photograph of the screen stays as good as
+// standing in front of it (ADR 0045 Bedel 5, ADR 0005). 20 s + 10 s keeps that to half
+// a minute; past it the tap is still RECORDED (§4.6), as a flag. WHY NOT LESS: a person
+// who scanned at the last second and took a few seconds to press the banner would be
+// flagged for being slow, which is the honest employee's cost and the approval queue's.
+//
+// It is a constant and not a tenant parameter on purpose: like the guardrail it feeds,
+// it is a proof-of-moment rule, not a preference.
+const LiveQRNetworkGraceSeconds = 10
 
 // SecurityAlert names a security-relevant event a firing guardrail asks the
 // caller to surface to the tenant's managers (a push — §5). It is a FIXED
@@ -224,9 +258,11 @@ func boundedParams() map[ContextKey]NumericRange {
 // that has not resolved tenant-specific windows should use.
 func DefaultGuardrails() []Guardrail { return Guardrails(DefaultParams()) }
 
-// Guardrails returns the eleven immutable system guardrails in their NORMATIVE
-// 1->11 order (ADR 0004 §5; M3-05 card; the ninth, sys:cross-tenant-qr-site-ip,
-// is ADR 0027 §7's -- M11 API-1b). This slice literal is the ONE place the
+// Guardrails returns the fifteen immutable system guardrails in their NORMATIVE
+// 1->15 order (ADR 0004 §5; M3-05 card; sys:cross-tenant-qr-site-ip (11) is ADR
+// 0027 §7's -- M11 API-1b; the four live QR rules (6, 7, 12, 13) are ADR 0045
+// §2.5's -- M16-21, all four BEHIND the alerting guardrails, so the placement rule
+// below admits them without a new exception). This slice literal is the ONE place the
 // order is defined; Evaluate runs them in slice order and the first match is
 // terminal (evaluate.go). p supplies the three bounded windows (ADR 0004 §11);
 // pass a Validate()'d Params.
@@ -234,7 +270,7 @@ func DefaultGuardrails() []Guardrail { return Guardrails(DefaultParams()) }
 // The order is load-bearing (ADR 0004 §5), and it carries THREE separate claims:
 //
 //   - sys:sun-invalid (3) MUST precede sys:employee-deactivated (5) and
-//     sys:person-debounce (8). If it did not, a stolen cookie + stale URL with an
+//     sys:person-debounce (10). If it did not, a stolen cookie + stale URL with an
 //     invalid SUN would (a) learn whether the account is deactivated and flood
 //     managers with alerts — info leak + alert fatigue — and (b) have the replay
 //     swallowed by debounce, reopening the §4.4 hole. Both are proven in
@@ -243,12 +279,12 @@ func DefaultGuardrails() []Guardrail { return Guardrails(DefaultParams()) }
 //   - THE PLACEMENT RULE FOR AN ELEVENTH GUARDRAIL — the only GENERAL claim in
 //     this list, and the one an addition has to be tested against. §5's five rows
 //     map onto tag-not-active (2, row 1), sun-invalid (3, row 2), no-session
-//     (4, row 3), employee-deactivated (5, row 4), person-debounce (8, row 5) —
+//     (4, row 3), employee-deactivated (5, row 4), person-debounce (10, row 5) —
 //     but that mapping is a FACT, not the rule. The rule that used to stand here
 //     ("a guardrail §5 does not name may sit anywhere that keeps those five in
 //     §5's relative order") was measured and is NOT falsifiable: the order that
 //     shipped the ADR 0007 regression put §5's rows at positions [2 3 6 7 8],
-//     exactly as monotonic as today's [2 3 4 5 8]. It admitted the bug.
+//     exactly as monotonic as the then order's [2 3 4 5 8]. It admitted the bug.
 //
 //     What discriminates is ALERT SURVIVAL. Only the WINNING guardrail's Alert
 //     reaches the Decision (evaluate.go), so a guardrail placed ahead of an
@@ -286,14 +322,15 @@ func DefaultGuardrails() []Guardrail { return Guardrails(DefaultParams()) }
 //     "argue it into the allowlist".
 //
 //   - sys:employee-deactivated (5) MUST precede the two guardrails §5 does NOT
-//     name that can fire on the same request — sys:tap-freshness (6) and
-//     sys:occurred-at-bound (7) — because only the WINNING guardrail's Alert is
+//     name that can fire on the same request — sys:tap-freshness (8) and
+//     sys:occurred-at-bound (9), and since M16-21 the live QR rules (6, 7, 12,
+//     13) — because only the WINNING guardrail's Alert is
 //     surfaced, so pre-empting §5 row 4 silently deletes its security alert while
 //     still writing the row. Measured, fixed and bounded in ADR 0007; pinned by
 //     TestGuardrails_TimingRulesDoNotPreemptTheDeactivatedAlert and by the tap
 //     engine's TestDecide_DelegatesOrderToPolicy twins.
 //
-//     A THIRD rule co-fires on that request: sys:person-debounce (8). §5 DOES
+//     A THIRD rule co-fires on that request: sys:person-debounce (10). §5 DOES
 //     name it (row 5) and it is already behind, so it was never part of the ADR
 //     0007 fix — but it deletes the same alert if moved ahead, and worse, its
 //     effect is `ignore`, so the deny would vanish too. The test above carries a
@@ -384,7 +421,7 @@ func Guardrails(p Params) []Guardrail {
 		},
 
 		// 3. sys:sun-invalid — an NFC tap whose SUN failed: CMAC mismatch OR ctr
-		// did not advance (§5 row 2; §4.4). MUST precede #5 and #8 (see the
+		// did not advance (§5 row 2; §4.4). MUST precede #5 and #10 (see the
 		// Guardrails doc). QR carries no SUN, so tap:sunValid=false is EXPECTED
 		// there and handled by the baseline (base:qr-requires-ip, M3-06); this
 		// guardrail is therefore NFC-only, never denying a legitimate QR tap.
@@ -403,7 +440,7 @@ func Guardrails(p Params) []Guardrail {
 
 		// 4. sys:no-session — a tap with no valid session goes to the activation
 		// page, NO record (§5 row 3). Tap recording only: an unauthenticated
-		// authorization action must fail closed (deny — #9 or the default),
+		// authorization action must fail closed (deny — #14 or the default),
 		// never be redirected to a tap activation page.
 		{
 			Sid:    "sys:no-session",
@@ -418,7 +455,7 @@ func Guardrails(p Params) []Guardrail {
 		// deny + security alert (§5 row 4). AFTER sun-invalid (#3) so a forged SUN
 		// can neither learn the account is deactivated nor spam this alert.
 		//
-		// 🔴 IT SITS AHEAD OF THE TWO TIMING GUARDRAILS (#6, #7) AND THAT POSITION
+		// 🔴 IT SITS AHEAD OF THE TWO TIMING GUARDRAILS (#8, #9) AND THAT POSITION
 		// IS THE ALERT (ADR 0007, 2026-08-02). §5 row 4 is "reject + log the attempt
 		// + SECURITY ALERT", and only the guardrail that WINS contributes an Alert
 		// (evaluate.go) — so any rule that pre-empts this one deletes the alert
@@ -447,15 +484,93 @@ func Guardrails(p Params) []Guardrail {
 			Alert: func(Context) SecurityAlert { return AlertDeactivatedEmployeeTapped },
 		},
 
-		// 6. sys:tap-freshness — an NFC tap whose page is older than the freshness
-		// window (ADR 0004 §11 bounded param; M5-10, URL-hoarding A1).
+		// 6. sys:live-qr-unverified — a LIVE QR tap whose screen token did not
+		// verify: not a token at all, a signature that does not match, or a genuine
+		// signature naming a screen the database does not hold at the location the
+		// token names (Q39 (a), the user's answer: "imza bozuk → reject, yeni
+		// guardrail, kayıt yazılır"). §5 row 2's twin for a channel with no chip.
+		// deny, RECORDED for the person the session names (§4.6).
 		//
-		// NFC-ONLY, and that is a §5 rule rather than an omission: a QR code is
-		// photographed and valid indefinitely, so it has no touch to be stale
+		// FAIL-CLOSED ON A MISSING KEY, unlike most guardrails here, and on purpose:
+		// on a qr_live tap the key is the whole proof that the code came from one of
+		// our screens, and a caller that forgot to set it must not get the evidence
+		// rules instead. A missing key on any OTHER channel never matches (the
+		// channel gate below), so no NFC, QR or manual outcome moves.
+		//
+		// POSITION: behind sys:employee-deactivated (#5), ahead of the debounce. Not
+		// ahead of #5 like sys:sun-invalid: that one is ahead because an
+		// unauthenticated URL must not manufacture an alert (R8), and a live QR tap
+		// cannot get here without the session the alert is about -- and the static
+		// QR channel already reaches #5 with no proof of anything, so placing this
+		// ahead would protect nothing a static QR does not already give away. Ahead
+		// of the debounce (#10) so a forged code inside the window is a REJECT on the
+		// record, not an `ignored` beside a real tap (sys:sun-invalid's reason).
+		{
+			Sid:    "sys:live-qr-unverified",
+			Effect: EffectDeny,
+			Reason: "the live QR code could not be verified",
+			Match: func(c Context) bool {
+				if c.Action != ActionTapRecord {
+					return false
+				}
+				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelQRLive {
+					return false
+				}
+				verified, ok := c.Keys[CtxTapTokenVerified].(bool)
+				return !(ok && verified)
+			},
+		},
+
+		// 7. sys:screen-not-active — a live QR tap on a screen that is anything other
+		// than active: removed from the panel (live_qr_displays.revoked_at), or on a
+		// venue that has been switched off. §5 row 1's twin (the plaque's
+		// sys:tag-not-active): deny, RECORDED (§4.6). The token cannot see a removal
+		// -- the last one a removed screen showed lives ~20 s -- so the state comes
+		// from the screen ROW, re-read at the button press (checkin).
+		//
+		// An ALLOW-LIST like sys:tag-not-active: only `active` proceeds, and a
+		// missing key on a qr_live tap is not active either (the token verified, so
+		// the caller resolved the screen; if it says nothing, nothing is proven).
+		//
+		// POSITION: right behind #6 -- a token that did not verify names no screen
+		// worth reading the state of -- and behind #5 for #6's reason. It raises no
+		// alert: a removed screen is routine lifecycle, as a retired plaque is.
+		{
+			Sid:    "sys:screen-not-active",
+			Effect: EffectDeny,
+			Reason: "this live QR screen is not in service",
+			Match: func(c Context) bool {
+				if c.Action != ActionTapRecord {
+					return false
+				}
+				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelQRLive {
+					return false
+				}
+				s, ok := c.Keys[CtxScreenStatus].(string)
+				return !(ok && s == screenStatusActive)
+			},
+		},
+
+		// 8. sys:tap-freshness — an NFC or LIVE QR tap whose page is older than the
+		// freshness window (ADR 0004 §11 bounded param; M5-10, URL-hoarding A1).
+		//
+		// NOT FOR STATIC QR, and that is a §5 rule rather than an omission: a QR code
+		// is photographed and valid indefinitely, so it has no touch to be stale
 		// relative to. M5-10 configured the window and deliberately did NOT extend
 		// it to QR; the QR ceiling is bounded by base:qr-requires-ip, the person
 		// debounce and the rate limits instead
 		// (TestCheckinDB_StaleQRPageIsNotDeniedByFreshness).
+		//
+		// 🔴 LIVE QR IS IN (M16-21, measured rather than assumed). The live token
+		// proves a MOMENT -- the screen showed it ~20 s before the server first saw
+		// it, and sys:live-qr-expired judges that at the page's mint -- but the
+		// RECORD is timed at the button press (checkin's now), which the page can
+		// postpone up to the signed context's 15-minute TTL. Without this rule a code
+		// scanned at the venue at 09:00 could be pressed into an `ok` at 09:14 from
+		// wherever the person was by then, and the token's 20 seconds would bound
+		// nothing about the record. With it the gap is the same 180 s an NFC page
+		// gets, and an older page is the same recorded reject. A static QR has no
+		// moment to protect, which is the line between the two.
 		//
 		// BOUNDARY: strictly greater. A page aged EXACTLY the window is fresh; the
 		// deny starts one tick past it. Stated because internal/config pins the
@@ -463,7 +578,7 @@ func Guardrails(p Params) []Guardrail {
 		// inferred from a comparison operator
 		// (TestGuardrails_FreshnessBoundaryIsStrictlyGreater).
 		//
-		// POSITION: behind #4 AND #5, ahead of #8 (ADR 0007). Behind #5 for the
+		// POSITION: behind #4 AND #5, ahead of #10 (ADR 0007). Behind #5 for the
 		// alert (see there). Behind #4 is the SAME move sys:occurred-at-bound made
 		// and it is easy to overlook because only the alert motivated the fix: a
 		// session-less request with a stale page now takes §5 row 3's activation
@@ -476,7 +591,7 @@ func Guardrails(p Params) []Guardrail {
 			Effect: EffectDeny,
 			Reason: "this tap page is too old; please tap again",
 			Match: func(c Context) bool {
-				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelNFC {
+				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelNFC && ch != channelQRLive {
 					return false
 				}
 				age, ok := toFloat(c.Keys[CtxTapPageAgeSeconds])
@@ -484,7 +599,7 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 7. sys:occurred-at-bound — a tap whose client-declared occurred_at is in
+		// 9. sys:occurred-at-bound — a tap whose client-declared occurred_at is in
 		// the future (skew < 0, where skew = created_at - occurred_at) or older
 		// than the max tolerance (ADR 0004 §11; K1). Tap recording only: manual
 		// entry is the separate record:manual action that may legitimately
@@ -537,7 +652,7 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 8. sys:person-debounce — the SAME PERSON tapping again within the window
+		// 10. sys:person-debounce — the SAME PERSON tapping again within the window
 		// is ignored (§5 row 5). PERSON-based, not tag-based: the input is seconds
 		// since THIS PERSON's last tap, so different people can tap the same
 		// plaque back-to-back and each is recorded. A nil gap (no previous tap)
@@ -556,7 +671,7 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 9. sys:cross-tenant-qr-site-ip — a QR scan on a PEER's plaque (ADR 0027 §7,
+		// 11. sys:cross-tenant-qr-site-ip — a QR scan on a PEER's plaque (ADR 0027 §7,
 		// K-1g -- the user's decision: "o şubenin IP'si şart") whose source address does
 		// not match THAT venue's network is flagged: recorded, queued for the employer's
 		// approval (§4.6). tap:ipMatch is the site's here -- the tapped location is the
@@ -568,7 +683,7 @@ func Guardrails(p Params) []Guardrail {
 		// a guardrail match ends the evaluation before the baseline and the tenant layer
 		// run, ADR 0004 §4) nor TIGHTEN it to deny. The cost is named in ADR 0027 §13.
 		//
-		// POSITION: right after sys:person-debounce (#8), before the baseline (K-38).
+		// POSITION: right after sys:person-debounce (#10), before the baseline (K-38).
 		// Behind the debounce because the debounce is QR's ONE brake (CLAUDE.md §5 --
 		// no counter): ahead of it, a repeated QR inside the window would be flagged
 		// instead of ignored and fill the approval queue. Behind #5 and the timing rules
@@ -591,7 +706,75 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 10. sys:policy-edit-owner-only — policy:edit is restricted to the tenant
+		// 12. sys:cross-tenant-live-qr — a LIVE QR scan at a PEER's screen (ADR 0027,
+		// Q43 (b), the user's decision 2026-11-14: "holding qr_live kapalı"). deny,
+		// RECORDED at the employer with the site named (site_tenant_id and
+		// site_location_id set, site_tag_uid NULL -- 00112's third arm), so the site
+		// sees the refusal in site_punches as it sees a plaque's (K-1h: the outcome,
+		// never the reason). sys:tenant-mismatch (#1) stepped aside because the two
+		// are peers; outside a holding #1 still redirects and nothing is written.
+		//
+		// CLOSED, NOT TUNABLE: a guardrail match ends the evaluation before any
+		// document runs, so no employer policy opens it. Opening it is the user's
+		// decision plus an ADR 0027 §2 change (CLAUDE.md §4.5) -- the holding definer
+		// would have to read another tenant's screens.
+		//
+		// POSITION: right behind #11, #11's reason: behind the debounce, which is the
+		// one brake a code without a counter has, so a repeat inside the window is
+		// `ignored` rather than a second refusal for the site to count; behind #5 and
+		// the timing rules so their alerts and denials keep winning; ahead of
+		// sys:live-qr-expired so a refused holding tap is a refusal, never a flag.
+		{
+			Sid:    "sys:cross-tenant-live-qr",
+			Effect: EffectDeny,
+			Reason: "a live QR code at another business of the group is not accepted",
+			Match: func(c Context) bool {
+				if c.Action != ActionTapRecord || !c.SameHolding ||
+					c.TagTenantID == nil || c.SessionTenantID == nil || *c.TagTenantID == *c.SessionTenantID {
+					return false
+				}
+				ch, _ := c.Keys[CtxTapChannel].(string)
+				return ch == channelQRLive
+			},
+		},
+
+		// 13. sys:live-qr-expired — a LIVE QR tap whose token had run out more than
+		// LiveQRNetworkGraceSeconds before the server first saw it (Q39 (b), the
+		// user's answer: "imza geçerli, pencere dolmuş → flag + not, kayıt yazılır").
+		// The token is genuine, so the scan is real -- but it was not at the moment
+		// the screen vouches for, which is what a photograph of the screen looks
+		// like (ADR 0045 Bedel 5). review: RECORDED and queued for approval, at most
+		// what a static QR proves.
+		//
+		// "FIRST SAW" IS THE PAGE'S MINT, a server stamp authenticated inside the tap
+		// context (tap.Decide computes tap:tokenOverdueSeconds from it); the press
+		// afterwards is sys:tap-freshness's (#8). STRICTLY GREATER, like #8: a token
+		// seen exactly at expiry + grace is fresh.
+		//
+		// A GUARDRAIL AND NOT A BASELINE DOCUMENT: as a document a tenant could switch
+		// it off and an old photograph would become as good as standing at the
+		// screen, which is the one thing the rotating code exists to prevent.
+		//
+		// POSITION: last of the tap rules -- behind the debounce (a repeat inside the
+		// window is ignored, not a second flag in the queue) and behind #12 (a
+		// holding scan is refused whether or not it was late).
+		{
+			Sid:    "sys:live-qr-expired",
+			Effect: EffectReview,
+			Reason: "the live QR code had already run out when it was scanned; sent for approval",
+			Match: func(c Context) bool {
+				if c.Action != ActionTapRecord {
+					return false
+				}
+				if ch, _ := c.Keys[CtxTapChannel].(string); ch != channelQRLive {
+					return false
+				}
+				overdue, ok := toFloat(c.Keys[CtxTapTokenOverdueSeconds])
+				return ok && overdue > LiveQRNetworkGraceSeconds
+			},
+		},
+
+		// 14. sys:policy-edit-owner-only — policy:edit is restricted to the tenant
 		// owner; anyone else, or an absent role, is denied (ADR 0004 K2,
 		// fail-closed). Scopes itself by action.
 		{
@@ -607,7 +790,7 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 11. sys:no-self-review — an actor may not approve/review their own
+		// 15. sys:no-self-review — an actor may not approve/review their own
 		// transaction (ADR 0004 Y-C). Fires whenever both ids are present and
 		// equal, which scopes it to review actions.
 		{
