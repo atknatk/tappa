@@ -431,6 +431,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// "Missing times" in the staff app (M16-43, ADR 0050 (i)): the SAME claim service the result
+	// screen's card sends through -- one Submit, one lock, one queue.
+	if err := app.ServeClaims(claims, cfg); err != nil {
+		return err
+	}
 
 	// Panel authentication (M6-01 phase B). It is a SEPARATE manager from
 	// `sessions` on purpose — separate table, separate resolver, separate cookie

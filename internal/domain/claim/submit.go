@@ -129,6 +129,12 @@ func (s *Service) Submit(ctx context.Context, c Claim) (Submitted, error) {
 		if !ok || kind != c.Kind || chain.DayCutShort(i, p.cutoff) {
 			return ErrResolved // DayCutShort: WindowOf would refuse it too; named as Decide names it
 		}
+		if chain.StillClosable(i, p.cutoff, now) {
+			// Y1 (M16-43): under the person's lock, on the chain read under it. A claim on the
+			// still-open check-in would write a manual `out` while the person is at work, and the
+			// evening's tap would then record a new `in` (the chain reversal M15 closed).
+			return ErrStillOpen
+		}
 		w, ok := chain.WindowOf(i, p.cutoff, now)
 		if !ok || !w.Contains(c.ClaimedAt) {
 			return ErrOutsideWindow
@@ -195,7 +201,7 @@ func utcOrNil(t *time.Time) *time.Time {
 // isTyped reports whether err is one of this package's sentences.
 func isTyped(err error) bool {
 	for _, e := range []error{ErrUnknownAnchor, ErrUnknownClaim, ErrNotActive, ErrResolved, ErrOutsideWindow, ErrExpired,
-		ErrAlreadySent, ErrAlreadyDecided, ErrSelfDecision, ErrNeedsConfirmation, ErrRefused, ErrPartnershipEnded, ErrNoVenue} {
+		ErrAlreadySent, ErrStillOpen, ErrAlreadyDecided, ErrSelfDecision, ErrNeedsConfirmation, ErrRefused, ErrPartnershipEnded, ErrNoVenue} {
 		if errors.Is(err, e) {
 			return true
 		}

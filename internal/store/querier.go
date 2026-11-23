@@ -4608,6 +4608,15 @@ type Querier interface {
 	// EXPLAIN (ANALYZE, BUFFERS): M15-05's before/after measurement is in CountMaskedOpenCheckIns'
 	// header -- the two statements share the next-record lookup and were measured together.
 	ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error)
+	// The person's own recent claims for the staff app's "Missing times" screen (M16-43, Q50 (5) (b)):
+	// what was asked, about which record, and whether a manager has decided. The decision's note and
+	// its decider are NOT selected -- the person sees the answer to their own request, nothing about
+	// who gave it. approved_at is selected for the app's "Approved at 18:00", which the caller shows
+	// only while the business shows staff their hours (M16-30's switch; until it exists, never).
+	// Explicit tenant and person on every table beside RLS (§4.5). Plan: punch_claims_tenant_created_idx
+	// with employee_id as a filter -- a business's claims of 30 days are a handful (12 in production
+	// over 30 days, measured 2026-11-19).
+	ListOwnPunchClaims(ctx context.Context, arg ListOwnPunchClaimsParams) ([]ListOwnPunchClaimsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
 	//

@@ -164,6 +164,24 @@ func (c Chain) Missing(i int) (Kind, bool) {
 	return "", true
 }
 
+// StillClosable reports whether the record at i is a check-in a tap NOW would still close: the
+// last directed record of the chain, an `in`, and tap.PredictDirection at now saying `out` (not
+// left open from an earlier business day, not stale). Such a check-in is missing no clock-out yet
+// -- the next tap gives it one -- so it takes no claim (M16-43, ADR 0050 (i); audit Y1). Once a
+// directed record follows it, or the business day ends, or 18 h pass, it is claimable. It is the
+// engine's own function on the engine's facts, so the list and the button cannot disagree.
+func (c Chain) StillClosable(i int, cutoff *tap.DayCutoff, now time.Time) bool {
+	if i < 0 || i >= len(c.events) || i != len(c.events)-1 {
+		return false
+	}
+	e := c.events[i]
+	if e.Direction != tap.TypeIn {
+		return false
+	}
+	p := tap.PredictDirection(now, &tap.Transaction{ID: e.ID, OccurredAt: e.At, Direction: tap.TypeIn}, cutoff)
+	return p.Direction == tap.TypeOut && p.LeftOpen == nil
+}
+
 // Bound is one end of a window: an instant and whether it is admitted.
 type Bound struct {
 	At        time.Time

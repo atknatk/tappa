@@ -139,11 +139,18 @@ func (c claimContexts) payload(v claimContext) string {
 }
 
 func (c claimContexts) sign(payload string, sessionID uuid.UUID) []byte {
+	return c.signFor(payload, sessionID.String())
+}
+
+// signFor is sign for any holder: a session id's string (the browser) or appDeviceHolder's
+// "app-device:<id>" (the staff app, M16-43). The prefix keeps the two spaces disjoint, so a
+// context minted for a device never verifies for a session and the other way round.
+func (c claimContexts) signFor(payload, holder string) []byte {
 	m := hmac.New(sha256.New, c.key.Reveal())
 	_, _ = m.Write([]byte(claimContextMACLabel))
 	_, _ = m.Write([]byte(payload))
 	_, _ = m.Write([]byte("|"))
-	_, _ = m.Write([]byte(sessionID.String()))
+	_, _ = m.Write([]byte(holder))
 	return m.Sum(nil)
 }
 
@@ -155,13 +162,29 @@ func (c claimContexts) mint(v claimContext, sessionID uuid.UUID) (string, error)
 	if sessionID == uuid.Nil {
 		return "", errors.New("handler: refusing to sign a claim context with no session")
 	}
+	return c.mintHeld(v, sessionID.String())
+}
+
+// mintForDevice is mint for a staff-app device (M16-43): the same payload, label, key and TTL,
+// bound to appDeviceHolder -- tapContexts.mintForDevice's rule.
+func (c claimContexts) mintForDevice(v claimContext, deviceID uuid.UUID) (string, error) {
+	if c.key.Len() == 0 {
+		return "", errors.New("handler: claim contexts were not configured")
+	}
+	if deviceID == uuid.Nil {
+		return "", errors.New("handler: refusing to sign a claim context with no device")
+	}
+	return c.mintHeld(v, appDeviceHolder(deviceID))
+}
+
+func (c claimContexts) mintHeld(v claimContext, holder string) (string, error) {
 	if _, ok := claim.ParseKind(string(v.Kind)); !ok || v.AnchorID == uuid.Nil || v.Zone == "" || strings.Contains(v.Zone, "|") {
 		return "", errors.New("handler: refusing to sign an incomplete claim context")
 	}
 	v.IssuedAt = c.clock().Truncate(time.Second)
 	p := c.payload(v)
 	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." +
-		base64.RawURLEncoding.EncodeToString(c.sign(p, sessionID)), nil
+		base64.RawURLEncoding.EncodeToString(c.signFor(p, holder)), nil
 }
 
 // parse verifies a context against sessionID: shape, SIGNATURE, expiry, then the fields --
@@ -173,6 +196,21 @@ func (c claimContexts) parse(v string, sessionID uuid.UUID) (claimContext, error
 	if sessionID == uuid.Nil {
 		return claimContext{}, errClaimContextSignature
 	}
+	return c.parseHeld(v, sessionID.String())
+}
+
+// parseForDevice is parse for a staff-app device: the same checks in the same order.
+func (c claimContexts) parseForDevice(v string, deviceID uuid.UUID) (claimContext, error) {
+	if c.key.Len() == 0 {
+		return claimContext{}, errors.New("handler: claim contexts were not configured")
+	}
+	if deviceID == uuid.Nil {
+		return claimContext{}, errClaimContextSignature
+	}
+	return c.parseHeld(v, appDeviceHolder(deviceID))
+}
+
+func (c claimContexts) parseHeld(v string, holder string) (claimContext, error) {
 	encoded, sig, ok := strings.Cut(v, ".")
 	if !ok || encoded == "" || sig == "" {
 		return claimContext{}, errClaimContextMalformed
@@ -185,7 +223,7 @@ func (c claimContexts) parse(v string, sessionID uuid.UUID) (claimContext, error
 	if err != nil {
 		return claimContext{}, errClaimContextMalformed
 	}
-	if subtle.ConstantTimeCompare(got, c.sign(string(raw), sessionID)) != 1 {
+	if subtle.ConstantTimeCompare(got, c.signFor(string(raw), holder)) != 1 {
 		return claimContext{}, errClaimContextSignature
 	}
 	parts := strings.Split(string(raw), "|")

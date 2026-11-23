@@ -85,6 +85,9 @@ type appMeResponse struct {
 	Presence *appPresence `json:"presence"`
 	// Shift is the person's usual shift, null unless the owner marked the shifts real (00116).
 	Shift *appShift `json:"shift"`
+	// MissingTimes is how many records take a claim now (M16-43): the app shows "Missing times"
+	// only when it is above 0, and reads the list only when that screen opens.
+	MissingTimes int `json:"missingTimes"`
 }
 
 // appPresence carries instants (RFC 3339, UTC) for the phone's scheduling and the business's
@@ -176,6 +179,7 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 		Direction:    appDirectionOf(facts.Prediction),
 		Presence:     appPresenceOf(facts.Presence),
 		Shift:        appShiftOf(facts.Shift),
+		MissingTimes: a.missingTimes(ctx, dev.TenantID, dev.EmployeeID),
 	})
 }
 

@@ -249,3 +249,24 @@ SELECT LEAST(
          - (SELECT count(*) FROM punch_claim_decisions AS d WHERE d.tenant_id = @tenant_id),
            sqlc.arg('cap')::int
        )::bigint AS count;
+
+-- name: ListOwnPunchClaims :many
+-- The person's own recent claims for the staff app's "Missing times" screen (M16-43, Q50 (5) (b)):
+-- what was asked, about which record, and whether a manager has decided. The decision's note and
+-- its decider are NOT selected -- the person sees the answer to their own request, nothing about
+-- who gave it. approved_at is selected for the app's "Approved at 18:00", which the caller shows
+-- only while the business shows staff their hours (M16-30's switch; until it exists, never).
+-- Explicit tenant and person on every table beside RLS (§4.5). Plan: punch_claims_tenant_created_idx
+-- with employee_id as a filter -- a business's claims of 30 days are a handful (12 in production
+-- over 30 days, measured 2026-11-19).
+SELECT c.kind, c.claimed_at, c.created_at, t.occurred_at AS anchor_at, d.outcome, d.approved_at
+FROM punch_claims c
+JOIN transactions t
+  ON t.tenant_id = c.tenant_id AND t.id = c.anchor_transaction_id AND t.tenant_id = @tenant_id
+LEFT JOIN punch_claim_decisions d
+  ON d.tenant_id = c.tenant_id AND d.claim_id = c.id AND d.tenant_id = @tenant_id
+WHERE c.tenant_id = @tenant_id
+  AND c.employee_id = @employee_id
+  AND c.created_at >= @since
+ORDER BY c.created_at DESC, c.id DESC
+LIMIT 50;

@@ -52,7 +52,11 @@ import (
 //	                                             URL's query -> the same (GET /q's twin, M16-22)
 //	POST /app/v1/tap                nonce-signed the context + want + fix + mock flag -> the
 //	                                             record (POST /api/checkin's twin)
-//	GET  /app/v1/me                 read-signed  name, brand, predicted direction (Q41)
+//	GET  /app/v1/me                 read-signed  name, brand, predicted direction (Q41), presence,
+//	                                             usual shift, missing-times count (M16-43/45)
+//	POST /app/v1/claims             read-signed  the records that take a claim now + the person's
+//	                                             own claims (M16-43)
+//	POST /app/v1/claims/send        nonce-signed one claim -> a result word (POST /api/claim's twin)
 //	POST /app/v1/revoke             nonce-signed the device's own sign-out
 //
 // THE TWO UNSIGNED ROUTES AND THE ONE WITHOUT A NONCE are the card's two named exceptions plus
@@ -130,6 +134,10 @@ type App struct {
 	// live reads a venue screen's live QR code at tap/start (M16-22): GET /q's reader, nil while
 	// TAPPA_LIVE_QR_KEY is unset (ServeLiveQR).
 	live *liveQRTap
+	// claims serves "Missing times" (M16-43): nil until ServeClaims; claimContexts signs its
+	// contexts for a device.
+	claims        appClaims
+	claimContexts claimContexts
 }
 
 // ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the
@@ -197,6 +205,9 @@ const (
 	AppTapPath                    = "/app/v1/tap"
 	AppMePath                     = "/app/v1/me"
 	AppRevokePath                 = "/app/v1/revoke"
+	// "Missing times" (M16-43): the list (a signed read) and one claim (nonce-signed).
+	AppClaimsPath     = "/app/v1/claims"
+	AppClaimsSendPath = "/app/v1/claims/send"
 )
 
 // appPrefix is the surface's root; every App*Path starts with it.
@@ -223,6 +234,8 @@ func (a *App) Mount(r chi.Router) {
 		r.Post(sub(AppTapStartPath), a.TapStart)
 		r.Post(sub(AppTapPath), a.Tap)
 		r.Get(sub(AppMePath), a.Me)
+		r.Post(sub(AppClaimsPath), a.Claims)
+		r.Post(sub(AppClaimsSendPath), a.ClaimsSend)
 		r.Post(sub(AppRevokePath), a.Revoke)
 	})
 }

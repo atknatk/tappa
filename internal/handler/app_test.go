@@ -91,7 +91,7 @@ func TestAppContract_ResponseShapes(t *testing.T) {
 			`{"employeeName":"E","locationName":"L","brand":{},"direction":"in","qr":false,"context":"X"}`},
 		"tap": {appTapResponse{Outcome: "recorded", Verdict: "ok", Direction: "out", Venue: "V", At: "09:00", BusinessType: "bar"},
 			`{"outcome":"recorded","verdict":"ok","direction":"out","venue":"V","at":"09:00","businessType":"bar"}`},
-		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":"","presence":null,"shift":null}`},
+		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":"","presence":null,"shift":null,"missingTimes":0}`},
 		// M16-45: the presence and the usual shift, every field named.
 		"me (at work)": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: "out",
 			Presence: appPresenceOf(&tenant.Presence{
@@ -102,7 +102,15 @@ func TestAppContract_ResponseShapes(t *testing.T) {
 			`{"employeeName":"E","brand":{},"direction":"out","presence":{"inSince":"2026-11-23T08:00:00Z","inSinceLocal":"09:00",` +
 				`"shiftEndsAt":"2026-11-23T16:00:00Z","shiftEndsAtLocal":"17:00","remindAt":"2026-11-23T16:30:00Z",` +
 				`"showUntil":"2026-11-23T18:30:00Z","staleAt":"2026-11-24T02:00:00Z"},` +
-				`"shift":{"start":"09:00","end":"17:00","overnight":false,"venue":"V"}}`},
+				`"shift":{"start":"09:00","end":"17:00","overnight":false,"venue":"V"},"missingTimes":0}`},
+		// M16-43: the claims list and the send's result.
+		"claims": {appClaimsResponse{Open: []appOpenClaim{{Context: "C", Kind: "out", AnchorDate: "2026-11-22", AnchorAt: "09:12",
+			Day: "yesterday", WindowFrom: appClaimBound{At: "09:12", Inclusive: false}, WindowTo: appClaimBound{At: "05:00", Inclusive: false}}},
+			Sent: []appSentClaim{{Kind: "out", AnchorDate: "2026-11-20", AnchorAt: "10:00", ClaimedAt: "18:00", State: "pending"}}},
+			`{"open":[{"context":"C","kind":"out","anchorDate":"2026-11-22","anchorAt":"09:12","day":"yesterday",` +
+				`"windowFrom":{"at":"09:12","inclusive":false},"windowTo":{"at":"05:00","inclusive":false},"prefill":null}],` +
+				`"sent":[{"kind":"out","anchorDate":"2026-11-20","anchorAt":"10:00","claimedAt":"18:00","state":"pending","approvedAt":null}]}`},
+		"claims/send": {appClaimSendResponse{Result: "still_open"}, `{"result":"still_open"}`},
 	} {
 		got, err := json.Marshal(tc.v)
 		if err != nil {

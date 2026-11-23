@@ -646,6 +646,8 @@ var storeSurface = map[string]string{
 	// decision, instants, booleans and counts.
 	// M16-45 (migration 00116): the staff app's usual shift and the owner's switch -- shift wall
 	// clocks, a venue name and booleans; no key, no token.
+	// M16-43: the person's own claims for the app -- kinds, instants, an outcome; no note, no decider.
+	"ListOwnPunchClaims":                  "(context.Context, ListOwnPunchClaimsParams{TenantID uuid.UUID; EmployeeID uuid.UUID; Since time.Time}) ([]ListOwnPunchClaimsRow{Kind string; ClaimedAt time.Time; CreatedAt time.Time; AnchorAt time.Time; Outcome *string; ApprovedAt *time.Time}, error)",
 	"GetEmployeeUsualShift":               "(context.Context, GetEmployeeUsualShiftParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeUsualShiftRow{StaffShiftVisible bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight bool; LocationName string}, error)",
 	"GetTenantStaffShiftVisibleForUpdate": "(context.Context, uuid.UUID) (bool, error)",
 	"SetTenantStaffShiftVisible":          "(context.Context, SetTenantStaffShiftVisibleParams{StaffShiftVisible bool; TenantID uuid.UUID}) (int64, error)",
@@ -1366,8 +1368,10 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 312 -> 315 on 2026-11-23 (M16-45, migration 00116): employees.sql's GetEmployeeUsualShift and
 	// tenants.sql's GetTenantStaffShiftVisibleForUpdate and SetTenantStaffShiftVisible, each over the
 	// caller's own business's rows; none calls a definer.
-	if named != 315 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND FIFTEEN were "+
+	// 315 -> 316 on 2026-11-23 (M16-43): punchclaims.sql's ListOwnPunchClaims, over the caller's own
+	// business's rows; it calls no definer.
+	if named != 316 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND SIXTEEN were "+
 			"there when this was pinned (2026-11-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+
