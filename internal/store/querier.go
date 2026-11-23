@@ -2701,6 +2701,15 @@ type Querier interface {
 	// 'invited' person is sent an invitation by the queue (K-15: an activated person gets none; a
 	// deactivated one could never spend it).
 	GetEmployeeInviteStatus(ctx context.Context, arg GetEmployeeInviteStatusParams) (string, error)
+	// The staff app's "Usual shift" line and the switch that allows it (M16-45, ADR 0050 (iv); Q52
+	// (1) (a), (2) (c)): the person's department's shift, and their PROFILE location's shift and name.
+	// The profile, not a tapped venue: the line says "usual", there is no tap, and it computes no late
+	// minutes (CLAUDE.md §5's "the tapped location" is lateness's rule). The caller prefers the
+	// department's shift when it is set, as the engine does.
+	//
+	// staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
+	// off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+	GetEmployeeUsualShift(ctx context.Context, arg GetEmployeeUsualShiftParams) (GetEmployeeUsualShiftRow, error)
 	// The recorded request after a claim found a row.
 	GetIdempotency(ctx context.Context, arg GetIdempotencyParams) (GetIdempotencyRow, error)
 	// GetIdempotency's twin for an OAuth grant (00106).
@@ -3375,6 +3384,9 @@ type Querier interface {
 	// vat_verified and vat_checked_at (migration 00017) ARE selected, and this is the first
 	// statement anywhere in the product that reads them back. Their four states are
 	// described where they are declared; the display sentence lives in internal/handler.
+	//
+	// staff_shift_visible (00116, M16-45) is the owner's "these are my staff's real shifts" switch,
+	// drawn on this screen beside the business's other facts.
 	GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (GetTenantAccountRow, error)
 	// The activation family's per-page read (M10 WL-13; ADR 0023's WL-13 note): the brand
 	// fields a page draws, the business's NAME (the logo's alt) and whether VIES confirmed
@@ -3509,6 +3521,9 @@ type Querier interface {
 	// subject, tenant_branding. tenants.id is bound to the same parameter as well: each
 	// table this statement reads names the tenant (section 4.5).
 	GetTenantPanelBrand(ctx context.Context, tenantID uuid.UUID) (GetTenantPanelBrandRow, error)
+	// The switch's value BEFORE an owner's change, locked, for the trail's "before" (Accounts.Save's
+	// rule: the row describes the change that happened, not one read a moment earlier).
+	GetTenantStaffShiftVisibleForUpdate(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	// Whether the operator has suspended this business (ADR 0025 §1; 00063's suspended_at) -- the ONE
 	// read of /v1's suspension checkpoint (M11 API-4b; ADR 0028 §10; internal/handler/api/suspension.go).
 	// It runs INSIDE the write's own transaction (apikey.Writes.Run, the key's tenant context), so the
@@ -7028,6 +7043,8 @@ type Querier interface {
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more
 	// than 262 144 bytes (migration 00028).
 	SetTenantLogo(ctx context.Context, arg SetTenantLogoParams) (int64, error)
+	// The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
+	SetTenantStaffShiftVisible(ctx context.Context, arg SetTenantStaffShiftVisibleParams) (int64, error)
 	// Switch the endpoint off or on. Only a change matches: switching off an endpoint that is off writes
 	// nothing, so the caller writes no second trail row.
 	SetWebhookEndpointActive(ctx context.Context, arg SetWebhookEndpointActiveParams) (int64, error)

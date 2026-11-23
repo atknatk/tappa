@@ -428,7 +428,7 @@ column tenant_branding tappa_holdingdefiner SELECT tenant_id,accent,logo,logo_sh
 column tenant_plan_history tappa_app SELECT tenant_id,plan,effective_from
 column tenant_plan_history tappa_opdefiner SELECT tenant_id,plan,effective_from
 column tenants tappa_app INSERT id,name,vat_number,business_type,structure,timezone,vat_verified,vat_checked_at
-column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff
+column tenants tappa_app UPDATE name,business_type,timezone,day_cutoff,staff_shift_visible
 column tenants tappa_feedwriter SELECT id,api_enabled_at,api_code
 column tenants tappa_holdingdefiner SELECT id,name,timezone,vat_verified,api_enabled_at,api_code
 column tenants tappa_identitydefiner SELECT id,name,vat_number,created_at,suspended_at

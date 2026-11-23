@@ -1384,3 +1384,30 @@ SET day_cutoff = sqlc.narg('day_cutoff')
 WHERE tenant_id = @tenant_id
   AND id = @id
 RETURNING id, day_cutoff;
+
+-- name: GetEmployeeUsualShift :one
+-- The staff app's "Usual shift" line and the switch that allows it (M16-45, ADR 0050 (iv); Q52
+-- (1) (a), (2) (c)): the person's department's shift, and their PROFILE location's shift and name.
+-- The profile, not a tapped venue: the line says "usual", there is no tap, and it computes no late
+-- minutes (CLAUDE.md §5's "the tapped location" is lateness's rule). The caller prefers the
+-- department's shift when it is set, as the engine does.
+--
+-- staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
+-- off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+SELECT t.staff_shift_visible,
+       d.shift_start AS department_shift_start,
+       d.shift_end   AS department_shift_end,
+       d.overnight   AS department_overnight,
+       l.shift_start AS location_shift_start,
+       l.shift_end   AS location_shift_end,
+       l.overnight   AS location_overnight,
+       l.name        AS location_name
+FROM employees e
+JOIN tenants t
+  ON t.id = e.tenant_id AND t.id = @tenant_id
+JOIN locations l
+  ON l.tenant_id = e.tenant_id AND l.id = e.location_id AND l.tenant_id = @tenant_id
+LEFT JOIN departments d
+  ON d.tenant_id = e.tenant_id AND d.id = e.department_id AND d.tenant_id = @tenant_id
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @employee_id;

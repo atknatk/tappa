@@ -338,7 +338,7 @@ var storeSurface = map[string]string{
 	"GetPunchHistoryWindow":    "(context.Context, GetPunchHistoryWindowParams{AfterTime time.Time; AfterSeq int64; TenantID uuid.UUID; FromTime time.Time; ToTime time.Time; ScanSize int32; WindowSize int32}) (GetPunchHistoryWindowRow{Scanned int64; EndTime time.Time; EndSeq int64}, error)",
 	"GetRosterCursorAnchor":    "(context.Context, GetRosterCursorAnchorParams{TenantID uuid.UUID; ID uuid.UUID}) (string, error)",
 	"GetTagForTenant":          "(context.Context, GetTagForTenantParams{TenantID uuid.UUID; Uid string}) (GetTagForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
-	"GetTenantAccount":         "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time}, error)",
+	"GetTenantAccount":         "(context.Context, uuid.UUID) (GetTenantAccountRow{ID uuid.UUID; Name string; VatNumber string; BusinessType string; Timezone string; VatVerified *bool; VatCheckedAt *time.Time; CreatedAt time.Time; StaffShiftVisible bool}, error)",
 	"GetTenantActivationBrand": "(context.Context, uuid.UUID) (GetTenantActivationBrandRow{Name string; VatVerified bool; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
 	"GetTenantActivationLogo":  "(context.Context, GetTenantActivationLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantActivationLogoRow{Logo []byte; LogoMime *string}, error)",
 	"GetTenantBrand":           "(context.Context, uuid.UUID) (GetTenantBrandRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
@@ -644,14 +644,19 @@ var storeSurface = map[string]string{
 	// collection) and is never handed back; the six-digit pairing code comes back to the two places
 	// that show it (the phone that asked, the panel's list) -- ids, a name, a venue name, a client, a
 	// decision, instants, booleans and counts.
-	"CountLiveQRScreensForApproval":    "(context.Context, CountLiveQRScreensForApprovalParams{TenantID uuid.UUID; LocationID *uuid.UUID; SessionLifetimeSeconds int32; SeenWithinSeconds int32}) (int32, error)",
-	"WithdrawOpenActivationRequests":   "(context.Context, WithdrawOpenActivationRequestsParams{TenantID uuid.UUID; InviteID uuid.UUID}) (int64, error)",
-	"CreateActivationRequest":          "(context.Context, CreateActivationRequestParams{Client string; BindingHash string; PairingCode string; TtlSeconds int32; TenantID uuid.UUID; InviteID uuid.UUID}) (CreateActivationRequestRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time}, error)",
-	"GetActivationRequestForBinding":   "(context.Context, GetActivationRequestForBindingParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (GetActivationRequestForBindingRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time; Decision *string; DecidedBy *uuid.UUID; WithdrawnAt *time.Time; CollectedAt *time.Time; Expired bool}, error)",
-	"CollectActivationApproval":        "(context.Context, CollectActivationApprovalParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (CollectActivationApprovalRow{ID uuid.UUID; DecidedBy *uuid.UUID}, error)",
-	"ListOpenActivationRequests":       "(context.Context, uuid.UUID) ([]ListOpenActivationRequestsRow{ID uuid.UUID; EmployeeID uuid.UUID; FullName string; LocationName *string; Client string; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time; ReplacesPhone bool}, error)",
-	"LockActivationRequestForDecision": "(context.Context, LockActivationRequestForDecisionParams{AdminUserID uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (LockActivationRequestForDecisionRow{ID uuid.UUID; EmployeeID uuid.UUID; Client string; Decision *string; WithdrawnAt *time.Time; Expired bool; EmployeeDeactivated bool; InviteUsable bool; Self bool}, error)",
-	"DecideActivationRequest":          "(context.Context, DecideActivationRequestParams{Decision string; DecidedBy *uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (DecideActivationRequestRow{ID uuid.UUID; EmployeeID uuid.UUID; Decision *string; DecidedAt *time.Time}, error)",
+	// M16-45 (migration 00116): the staff app's usual shift and the owner's switch -- shift wall
+	// clocks, a venue name and booleans; no key, no token.
+	"GetEmployeeUsualShift":               "(context.Context, GetEmployeeUsualShiftParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeUsualShiftRow{StaffShiftVisible bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight bool; LocationName string}, error)",
+	"GetTenantStaffShiftVisibleForUpdate": "(context.Context, uuid.UUID) (bool, error)",
+	"SetTenantStaffShiftVisible":          "(context.Context, SetTenantStaffShiftVisibleParams{StaffShiftVisible bool; TenantID uuid.UUID}) (int64, error)",
+	"CountLiveQRScreensForApproval":       "(context.Context, CountLiveQRScreensForApprovalParams{TenantID uuid.UUID; LocationID *uuid.UUID; SessionLifetimeSeconds int32; SeenWithinSeconds int32}) (int32, error)",
+	"WithdrawOpenActivationRequests":      "(context.Context, WithdrawOpenActivationRequestsParams{TenantID uuid.UUID; InviteID uuid.UUID}) (int64, error)",
+	"CreateActivationRequest":             "(context.Context, CreateActivationRequestParams{Client string; BindingHash string; PairingCode string; TtlSeconds int32; TenantID uuid.UUID; InviteID uuid.UUID}) (CreateActivationRequestRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time}, error)",
+	"GetActivationRequestForBinding":      "(context.Context, GetActivationRequestForBindingParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (GetActivationRequestForBindingRow{ID uuid.UUID; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time; Decision *string; DecidedBy *uuid.UUID; WithdrawnAt *time.Time; CollectedAt *time.Time; Expired bool}, error)",
+	"CollectActivationApproval":           "(context.Context, CollectActivationApprovalParams{TenantID uuid.UUID; InviteID uuid.UUID; BindingHash string}) (CollectActivationApprovalRow{ID uuid.UUID; DecidedBy *uuid.UUID}, error)",
+	"ListOpenActivationRequests":          "(context.Context, uuid.UUID) ([]ListOpenActivationRequestsRow{ID uuid.UUID; EmployeeID uuid.UUID; FullName string; LocationName *string; Client string; PairingCode string; CreatedAt time.Time; ExpiresAt time.Time; ReplacesPhone bool}, error)",
+	"LockActivationRequestForDecision":    "(context.Context, LockActivationRequestForDecisionParams{AdminUserID uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (LockActivationRequestForDecisionRow{ID uuid.UUID; EmployeeID uuid.UUID; Client string; Decision *string; WithdrawnAt *time.Time; Expired bool; EmployeeDeactivated bool; InviteUsable bool; Self bool}, error)",
+	"DecideActivationRequest":             "(context.Context, DecideActivationRequestParams{Decision string; DecidedBy *uuid.UUID; TenantID uuid.UUID; ID uuid.UUID}) (DecideActivationRequestRow{ID uuid.UUID; EmployeeID uuid.UUID; Decision *string; DecidedAt *time.Time}, error)",
 }
 
 // TestStoreSurface_IsTheOneRecorded is the inventory check.
@@ -1358,8 +1363,11 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// GetActivationRequestForBinding, CollectActivationApproval, ListOpenActivationRequests,
 	// LockActivationRequestForDecision, DecideActivationRequest), each over the caller's own business's
 	// rows; none calls a definer.
-	if named != 312 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND TWELVE were "+
+	// 312 -> 315 on 2026-11-23 (M16-45, migration 00116): employees.sql's GetEmployeeUsualShift and
+	// tenants.sql's GetTenantStaffShiftVisibleForUpdate and SetTenantStaffShiftVisible, each over the
+	// caller's own business's rows; none calls a definer.
+	if named != 315 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; THREE HUNDRED AND FIFTEEN were "+
 			"there when this was pinned (2026-11-20: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
 			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries, "+

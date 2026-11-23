@@ -80,6 +80,58 @@ type appMeResponse struct {
 	Brand        appBrand `json:"brand"`
 	// Direction is "in", "out", or "" for the direction-neutral "Tap" (Q41).
 	Direction string `json:"direction"`
+	// Presence is the open check-in the next tap would close (M16-45), null otherwise. The app
+	// schedules its local reminder and lock-screen timer from it and computes nothing itself.
+	Presence *appPresence `json:"presence"`
+	// Shift is the person's usual shift, null unless the owner marked the shifts real (00116).
+	Shift *appShift `json:"shift"`
+}
+
+// appPresence carries instants (RFC 3339, UTC) for the phone's scheduling and the business's
+// wall clock (HH:MM, rendered here -- §6) for its words. The app never converts a zone.
+type appPresence struct {
+	InSince          time.Time  `json:"inSince"`
+	InSinceLocal     string     `json:"inSinceLocal"`
+	ShiftEndsAt      *time.Time `json:"shiftEndsAt"`
+	ShiftEndsAtLocal *string    `json:"shiftEndsAtLocal"`
+	RemindAt         *time.Time `json:"remindAt"`
+	ShowUntil        time.Time  `json:"showUntil"`
+	StaleAt          time.Time  `json:"staleAt"`
+}
+
+type appShift struct {
+	Start     string `json:"start"`
+	End       string `json:"end"`
+	Overnight bool   `json:"overnight"`
+	Venue     string `json:"venue"`
+}
+
+func appPresenceOf(p *tenant.Presence) *appPresence {
+	if p == nil {
+		return nil
+	}
+	out := &appPresence{
+		InSince:      p.InSince.UTC(),
+		InSinceLocal: localClock(p.InSince, p.Timezone),
+		ShowUntil:    p.ShowUntil.UTC(),
+		StaleAt:      p.StaleAt.UTC(),
+	}
+	if p.ShiftEndsAt != nil {
+		e, l := p.ShiftEndsAt.UTC(), localClock(*p.ShiftEndsAt, p.Timezone)
+		out.ShiftEndsAt, out.ShiftEndsAtLocal = &e, &l
+	}
+	if p.RemindAt != nil {
+		r := p.RemindAt.UTC()
+		out.RemindAt = &r
+	}
+	return out
+}
+
+func appShiftOf(s *tenant.UsualShift) *appShift {
+	if s == nil {
+		return nil
+	}
+	return &appShift{Start: clockOf(s.Start), End: clockOf(s.End), Overnight: s.Overnight, Venue: s.Venue}
 }
 
 // Me serves GET /app/v1/me: the app's home screen before any plaque is read (Q41 (a): the iPhone
@@ -114,10 +166,16 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 		a.log.WarnContext(ctx, "app: the stored accent does not pass the legibility gate today; no accent",
 			"tenant_id", dev.TenantID)
 	}
+	if facts.ShiftErr != nil {
+		a.log.ErrorContext(ctx, "app: reading the usual shift failed; no presence and no shift",
+			"tenant_id", dev.TenantID, "employee_id", dev.EmployeeID, "err", facts.ShiftErr)
+	}
 	a.writeAppJSON(w, r, http.StatusOK, appMeResponse{
 		EmployeeName: facts.EmployeeName,
 		Brand:        appBrandOf(facts.Brand),
 		Direction:    appDirectionOf(facts.Prediction),
+		Presence:     appPresenceOf(facts.Presence),
+		Shift:        appShiftOf(facts.Shift),
 	})
 }
 

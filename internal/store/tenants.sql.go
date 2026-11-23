@@ -143,20 +143,21 @@ func (q *Queries) GetAPIBusiness(ctx context.Context, tenantID uuid.UUID) (GetAP
 
 const getTenantAccount = `-- name: GetTenantAccount :one
 SELECT id, name, vat_number, business_type, timezone,
-       vat_verified, vat_checked_at, created_at
+       vat_verified, vat_checked_at, created_at, staff_shift_visible
 FROM tenants
 WHERE id = $1
 `
 
 type GetTenantAccountRow struct {
-	ID           uuid.UUID
-	Name         string
-	VatNumber    string
-	BusinessType string
-	Timezone     string
-	VatVerified  *bool
-	VatCheckedAt *time.Time
-	CreatedAt    time.Time
+	ID                uuid.UUID
+	Name              string
+	VatNumber         string
+	BusinessType      string
+	Timezone          string
+	VatVerified       *bool
+	VatCheckedAt      *time.Time
+	CreatedAt         time.Time
+	StaffShiftVisible bool
 }
 
 // The business's own facts, for the account settings screen (M7-05).
@@ -177,6 +178,9 @@ type GetTenantAccountRow struct {
 // vat_verified and vat_checked_at (migration 00017) ARE selected, and this is the first
 // statement anywhere in the product that reads them back. Their four states are
 // described where they are declared; the display sentence lives in internal/handler.
+//
+// staff_shift_visible (00116, M16-45) is the owner's "these are my staff's real shifts" switch,
+// drawn on this screen beside the business's other facts.
 func (q *Queries) GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (GetTenantAccountRow, error) {
 	row := q.db.QueryRow(ctx, getTenantAccount, tenantID)
 	var i GetTenantAccountRow
@@ -189,6 +193,7 @@ func (q *Queries) GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (Get
 		&i.VatVerified,
 		&i.VatCheckedAt,
 		&i.CreatedAt,
+		&i.StaffShiftVisible,
 	)
 	return i, err
 }
@@ -250,6 +255,22 @@ func (q *Queries) GetTenantClock(ctx context.Context, tenantID uuid.UUID) (GetTe
 	var i GetTenantClockRow
 	err := row.Scan(&i.ID, &i.Name, &i.Timezone)
 	return i, err
+}
+
+const getTenantStaffShiftVisibleForUpdate = `-- name: GetTenantStaffShiftVisibleForUpdate :one
+SELECT staff_shift_visible
+FROM tenants
+WHERE id = $1
+FOR UPDATE
+`
+
+// The switch's value BEFORE an owner's change, locked, for the trail's "before" (Accounts.Save's
+// rule: the row describes the change that happened, not one read a moment earlier).
+func (q *Queries) GetTenantStaffShiftVisibleForUpdate(ctx context.Context, tenantID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, getTenantStaffShiftVisibleForUpdate, tenantID)
+	var staff_shift_visible bool
+	err := row.Scan(&staff_shift_visible)
+	return staff_shift_visible, err
 }
 
 const getTenantSuspended = `-- name: GetTenantSuspended :one
@@ -318,6 +339,26 @@ func (q *Queries) SetTenantDayCutoff(ctx context.Context, arg SetTenantDayCutoff
 	var i SetTenantDayCutoffRow
 	err := row.Scan(&i.ID, &i.DayCutoff)
 	return i, err
+}
+
+const setTenantStaffShiftVisible = `-- name: SetTenantStaffShiftVisible :execrows
+UPDATE tenants
+SET staff_shift_visible = $1
+WHERE id = $2
+`
+
+type SetTenantStaffShiftVisibleParams struct {
+	StaffShiftVisible bool
+	TenantID          uuid.UUID
+}
+
+// The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
+func (q *Queries) SetTenantStaffShiftVisible(ctx context.Context, arg SetTenantStaffShiftVisibleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setTenantStaffShiftVisible, arg.StaffShiftVisible, arg.TenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateTenantAccount = `-- name: UpdateTenantAccount :one

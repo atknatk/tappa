@@ -31,6 +31,14 @@ type AppHomeFacts struct {
 	// failed; PredictionErr then says why, for the caller's log.
 	Prediction    *tap.Prediction
 	PredictionErr error
+	// Presence is the open check-in the next tap would close (M16-45): only with a prediction of
+	// `out` -- a check-in left open from an earlier business day, or stale, is not "at work". It is
+	// computed from the SAME row and cutoff the prediction read.
+	Presence *Presence
+	// Shift is the person's usual shift, only when the owner marked the shifts real (00116).
+	// ShiftErr says why it is nil after a failed read (the caller logs it; the rest stands).
+	Shift    *UsualShift
+	ShiftErr error
 }
 
 // AppHome reads the app's home screen for one device's person (tenantID and employeeID come from
@@ -52,6 +60,10 @@ type AppHomeFacts struct {
 //
 // The reads run in ONE transaction (the employee, the brand, the prediction), and a failure of the
 // brand or of the prediction costs only that part -- TapPage's rollback rules, word for word.
+// errShiftRollback ends the home screen's read when the usual-shift read failed (errBrandRollback's
+// reasoning: the reads before it are in Go values and the transaction is read-only).
+var errShiftRollback = errors.New("tenant: usual shift read failed; rolling back the home screen's reads")
+
 func (d *Directory) AppHome(ctx context.Context, tenantID, employeeID uuid.UUID) (AppHomeFacts, error) {
 	if tenantID == uuid.Nil || employeeID == uuid.Nil {
 		return AppHomeFacts{}, errors.New("tenant: app home: tenant and employee are required")
@@ -81,11 +93,35 @@ func (d *Directory) AppHome(ctx context.Context, tenantID, employeeID uuid.UUID)
 			b.Name = emp.TenantName
 		}
 		out.Brand = b
-		if out.Prediction, predErr = d.predictTap(ctx, q, tenantID, employeeID); predErr != nil {
+		f, err := d.predictTapFacts(ctx, q, tenantID, employeeID)
+		if err != nil {
+			predErr = err
 			return errPredictionRollback
+		}
+		out.Prediction = f.prediction
+		if f.prediction == nil {
+			// A person who is not active, or a closed business-day switch: no presence and no shift
+			// (the prediction's own gate).
+			return nil
+		}
+		row, err := q.GetEmployeeUsualShift(ctx, store.GetEmployeeUsualShiftParams{TenantID: tenantID, EmployeeID: employeeID})
+		if err != nil {
+			out.ShiftErr = fmt.Errorf("load the usual shift: %w", err)
+			return errShiftRollback
+		}
+		out.Shift = usualShiftOf(row)
+		if f.prediction.Direction == tap.TypeOut && f.open != nil {
+			p := presenceOf(f.open.OccurredAt, frozenShiftOf(f.open), row.StaffShiftVisible, f.cutoff, f.cutoff.Timezone)
+			out.Presence = &p
 		}
 		return nil
 	})
+	if errors.Is(err, errShiftRollback) {
+		// The prediction is already in Go; without the switch's answer no shift is used and the
+		// presence (which needs the switch) is dropped too -- never a guessed "not real".
+		out.Presence, out.Shift = nil, nil
+		return out, nil
+	}
 	if errors.Is(err, errBrandRollback) {
 		return out, fmt.Errorf("%w: %w", ErrBrandUnread, brandErr)
 	}

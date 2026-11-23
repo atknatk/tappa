@@ -114,9 +114,26 @@ RETURNING id, name, vat_number, business_type, structure, plan, timezone,
 -- vat_verified and vat_checked_at (migration 00017) ARE selected, and this is the first
 -- statement anywhere in the product that reads them back. Their four states are
 -- described where they are declared; the display sentence lives in internal/handler.
+--
+-- staff_shift_visible (00116, M16-45) is the owner's "these are my staff's real shifts" switch,
+-- drawn on this screen beside the business's other facts.
 SELECT id, name, vat_number, business_type, timezone,
-       vat_verified, vat_checked_at, created_at
+       vat_verified, vat_checked_at, created_at, staff_shift_visible
 FROM tenants
+WHERE id = @tenant_id;
+
+-- name: GetTenantStaffShiftVisibleForUpdate :one
+-- The switch's value BEFORE an owner's change, locked, for the trail's "before" (Accounts.Save's
+-- rule: the row describes the change that happened, not one read a moment earlier).
+SELECT staff_shift_visible
+FROM tenants
+WHERE id = @tenant_id
+FOR UPDATE;
+
+-- name: SetTenantStaffShiftVisible :execrows
+-- The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
+UPDATE tenants
+SET staff_shift_visible = @staff_shift_visible
 WHERE id = @tenant_id;
 
 -- name: UpdateTenantAccount :one

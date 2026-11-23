@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -90,7 +91,18 @@ func TestAppContract_ResponseShapes(t *testing.T) {
 			`{"employeeName":"E","locationName":"L","brand":{},"direction":"in","qr":false,"context":"X"}`},
 		"tap": {appTapResponse{Outcome: "recorded", Verdict: "ok", Direction: "out", Venue: "V", At: "09:00", BusinessType: "bar"},
 			`{"outcome":"recorded","verdict":"ok","direction":"out","venue":"V","at":"09:00","businessType":"bar"}`},
-		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":""}`},
+		"me": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: ""}, `{"employeeName":"E","brand":{},"direction":"","presence":null,"shift":null}`},
+		// M16-45: the presence and the usual shift, every field named.
+		"me (at work)": {appMeResponse{EmployeeName: "E", Brand: appBrand{}, Direction: "out",
+			Presence: appPresenceOf(&tenant.Presence{
+				InSince: time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC), ShiftEndsAt: ptrTime(time.Date(2026, 11, 23, 16, 0, 0, 0, time.UTC)),
+				RemindAt: ptrTime(time.Date(2026, 11, 23, 16, 30, 0, 0, time.UTC)), ShowUntil: time.Date(2026, 11, 23, 18, 30, 0, 0, time.UTC),
+				StaleAt: time.Date(2026, 11, 24, 2, 0, 0, 0, time.UTC), Timezone: "Europe/Malta"}),
+			Shift: appShiftOf(&tenant.UsualShift{Start: 9 * time.Hour, End: 17 * time.Hour, Venue: "V"})},
+			`{"employeeName":"E","brand":{},"direction":"out","presence":{"inSince":"2026-11-23T08:00:00Z","inSinceLocal":"09:00",` +
+				`"shiftEndsAt":"2026-11-23T16:00:00Z","shiftEndsAtLocal":"17:00","remindAt":"2026-11-23T16:30:00Z",` +
+				`"showUntil":"2026-11-23T18:30:00Z","staleAt":"2026-11-24T02:00:00Z"},` +
+				`"shift":{"start":"09:00","end":"17:00","overnight":false,"venue":"V"}}`},
 	} {
 		got, err := json.Marshal(tc.v)
 		if err != nil {

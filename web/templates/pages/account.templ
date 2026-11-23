@@ -74,6 +74,9 @@ templ AdminAccount(v AccountView) {
 				// M15-08: the owner's read-only check of every level, beside the business card.
 				@accountBusinessDayCheck(*v.DayCheck)
 			}
+			if v.StaffShift != nil {
+				@accountStaffShift(*v.StaffShift)
+			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
 			if v.Identity != nil {
@@ -793,4 +796,23 @@ templ accountBrandAccent(e BrandEditor) {
 			</form>
 		}
 	</div>
+}
+
+// accountStaffShift is the owner's "real shifts" switch (M16-45, ADR 0050 (iv); the user's §9
+// answer of 2026-11-23). The sentence says what it changes and what it does not.
+templ accountStaffShift(c AccountStaffShift) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, c.PostHref)) } class="panel-card min-w-0" aria-labelledby="account-staffshift-heading">
+		@accountCardHeading("account-staffshift-heading", "Shifts in the staff app")
+		<label class="flex items-start gap-2.5 text-[14px] leading-normal text-ink">
+			<input type="checkbox" name="staff_shift_visible" value="on" class="mt-1" checked?={ c.On }/>
+			<span>These are my staff's real shift times.</span>
+		</label>
+		<p class="text-[13px] leading-normal text-ink/70">
+			Staff see their usual shift in the Taptime app, and its reminder and lock-screen timer use the shift's end.
+			Turning this on does not change late minutes or time claims: those already use any shift you set.
+		</p>
+		<div>
+			<button type="submit" class="btn btn--line">Save</button>
+		</div>
+	</form>
 }

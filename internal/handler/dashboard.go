@@ -270,6 +270,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
+		// M16-45: the owner's "these are my staff's real shifts" switch -- a write to `tenants`,
+		// owner-only, stopped by a suspension like the details save beside it.
+		r.Post(accountStaffShiftHref, a.accountStaffShiftSave)
 		// 🔴 THE BUSINESS DAY'S TWO PRESSES (M15-07): the review mints a confirmation and
 		// sets its twin cookie -- state -- and the apply rewrites a cutoff that decides how
 		// every later tap of the people it reaches is paired. The business level is

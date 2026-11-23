@@ -45,21 +45,39 @@ var errPredictionRollback = errors.New("tenant: prediction read failed; rolling 
 // person's day is read at all. The person's status is asked first of all -- a deactivated
 // person's page offers no direction (ADR 0032 §B.2) and their day is not read either.
 func (d *Directory) predictTap(ctx context.Context, q *store.Queries, tenantID, employeeID uuid.UUID) (*tap.Prediction, error) {
+	f, err := d.predictTapFacts(ctx, q, tenantID, employeeID)
+	return f.prediction, err
+}
+
+// tapFacts is predictTap's answer with the two facts it was computed from, for the one reader
+// that needs them (AppHome's presence, M16-45): the open check-in row (nil when there is none)
+// and the person's resolved cutoff. They are the SAME row and the SAME cutoff the prediction
+// read -- a second read could disagree with the button.
+type tapFacts struct {
+	prediction *tap.Prediction
+	open       *store.Transaction
+	cutoff     *tap.DayCutoff
+}
+
+func (d *Directory) predictTapFacts(ctx context.Context, q *store.Queries, tenantID, employeeID uuid.UUID) (tapFacts, error) {
 	emp, err := q.GetEmployeeForTap(ctx, store.GetEmployeeForTapParams{TenantID: tenantID, EmployeeID: employeeID})
 	if err != nil {
-		return nil, fmt.Errorf("load the person's day: %w", err)
+		return tapFacts{}, fmt.Errorf("load the person's day: %w", err)
 	}
 	if tap.EmployeeStatus(emp.Status) != tap.EmployeeActive || !emp.EffectiveDayCutoff.Valid {
 		// NOT NULL through tenants.day_cutoff, so an invalid value is a broken invariant; it is
 		// "no business day" for the engine (checkin's gather) and "no prediction" here.
-		return nil, nil
+		return tapFacts{}, nil
 	}
 	now := d.clock()
 	cutoff := d.DayCutoff(now, time.Duration(emp.EffectiveDayCutoff.Microseconds)*time.Microsecond, emp.TenantTimezone)
 	if cutoff == nil {
-		return nil, nil
+		return tapFacts{}, nil
 	}
-	var open *tap.Transaction
+	var (
+		open    *tap.Transaction
+		openRow *store.Transaction
+	)
 	row, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{
 		TenantID: tenantID, EmployeeID: &employeeID, At: now,
 	})
@@ -68,10 +86,11 @@ func (d *Directory) predictTap(ctx context.Context, q *store.Queries, tenantID, 
 		// The query excludes practice rows (ADR 0008); the flag is carried so the engine's own
 		// defence (PredictDirection treats a practice row as no open check-in) reads it too.
 		open = &tap.Transaction{ID: row.ID, OccurredAt: row.OccurredAt, Practice: row.Practice, Direction: tap.TypeIn}
+		openRow = &row
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
-		return nil, fmt.Errorf("load the open check-in: %w", err)
+		return tapFacts{}, fmt.Errorf("load the open check-in: %w", err)
 	}
 	p := tap.PredictDirection(now, open, cutoff)
-	return &p, nil
+	return tapFacts{prediction: &p, open: openRow, cutoff: cutoff}, nil
 }

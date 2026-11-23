@@ -712,6 +712,35 @@ func PredictDirection(at time.Time, open *Transaction, cutoff *DayCutoff) Predic
 	return p
 }
 
+// OpenUntil is the instant an open check-in made at `in` stops being closable by a tap: the
+// earlier of the end of its business day (Next(S(in))) and in + StaleOpenIn -- exactly where
+// PredictDirection starts answering LeftOpen instead of `out` (M16-45, ADR 0050 (ii), N1). The
+// staff app's reminder and lock-screen timer are bounded by it: after it, a "clock out" reminder
+// would send the person to record a new CHECK-IN.
+//
+// THE TWO ENDS ARE NOT THE SAME KIND OF BOUND, and the test pins both: at the business day's end
+// itself PredictDirection already says LeftOpen (S(at) is that instant, and the open check-in is
+// before it), while at in + StaleOpenIn exactly it still says `out` (the stale test is `>`). So
+// every instant strictly before OpenUntil predicts `out`; OpenUntil itself does when the 18 h end
+// is the earlier one, and does not when the business day's end is.
+//
+// With no business day (cutoff nil or unresolvable) only the 18 h bound applies -- the same
+// fallback PredictDirection takes.
+func OpenUntil(in time.Time, cutoff *DayCutoff) time.Time {
+	until := in.Add(StaleOpenIn)
+	if cutoff == nil {
+		return until
+	}
+	s, ok := BusinessDayStart(in, *cutoff)
+	if !ok {
+		return until
+	}
+	if next, ok := NextBusinessDayStart(s, *cutoff); ok && next.Before(until) {
+		return next
+	}
+	return until
+}
+
 // resolveDirection is the RECORDED direction (ADR 0032 §B.3): the engine's D
 // (PredictDirection at the tap's instant), or the person's request where it differs.
 //

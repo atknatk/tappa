@@ -517,6 +517,9 @@ var m11Columns = []m11Column{
 	{"locations", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
 	{"departments", "day_cutoff", map[string]string{"tappa_app": "SIU"}},
 	{"tenants", "day_cutoff", map[string]string{"tappa_app": "SU"}},
+	// 00116 (M16-45, ADR 0050 (iv)): the owner's "real shifts" switch -- the same column-by-column
+	// UPDATE as day_cutoff, and no other role: only the staff app's /me reads it, as tappa_app.
+	{"tenants", "staff_shift_visible", map[string]string{"tappa_app": "SU"}},
 	// 00064 (M15-02, ADR 0032 §A.5): the frozen business day of a tap. transactions' table-level
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
