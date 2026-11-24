@@ -230,7 +230,7 @@ func MyHours(v MyHoursView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if len(d.Records) == 0 {
+				if len(d.Records) == 0 && v.WholeWeek {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"mt-1 text-ink/70\">No records</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err

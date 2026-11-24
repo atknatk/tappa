@@ -121,7 +121,7 @@ func (t *Tap) MyHours(w http.ResponseWriter, r *http.Request) {
 		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
-	t.render(w, r, http.StatusOK, pages.MyHours(t.myHoursView(ctx, week)), false)
+	t.render(w, r, http.StatusOK, pages.MyHours(t.myHoursView(ctx, week, q.After != nil)), false)
 }
 
 // myHoursHref is the page's own address for a week and, optionally, a cursor.
@@ -133,8 +133,9 @@ func myHoursHref(week string, cursor *string) string {
 	return MyHoursPath + "?" + v.Encode()
 }
 
-// myHoursView formats one page of the week in the business's zone.
-func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek) pages.MyHoursView {
+// myHoursView formats one page of the week in the business's zone. continued says the page was opened
+// with a cursor (a page after the first).
+func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek, continued bool) pages.MyHoursView {
 	loc := w.Zone
 	if loc == nil {
 		loc = time.UTC
@@ -145,6 +146,10 @@ func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek) pages.MyHoursVi
 		Week:  "Week of " + monday.Format("2 Jan 2006"),
 		Total: hoursMinutes(w.Worked),
 		Days:  make([]pages.MyHoursDay, 0, len(w.Daily)),
+		// "No records" is true of a day only when this page holds the whole week: on a page after
+		// the first, a day's records may all be on an earlier page, and before the last page on a
+		// later one, while its total -- the whole week's -- still shows.
+		WholeWeek: !continued && w.Next == nil,
 	}
 	if w.Awaiting > 0 {
 		v.Awaiting = hoursMinutes(w.Awaiting)

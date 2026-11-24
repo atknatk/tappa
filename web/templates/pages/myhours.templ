@@ -44,7 +44,7 @@ templ MyHours(v MyHoursView) {
 					<span class="report-who">{ d.Label }</span>
 					<span class="report-day">{ d.Total }</span>
 				</div>
-				if len(d.Records) == 0 {
+				if len(d.Records) == 0 && v.WholeWeek {
 					<p class="mt-1 text-ink/70">No records</p>
 				}
 				for _, rec := range d.Records {

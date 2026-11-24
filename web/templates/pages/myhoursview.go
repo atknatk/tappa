@@ -18,6 +18,10 @@ type MyHoursView struct {
 	// PrevHref / NextHref are the neighbouring weeks' pages ("" when outside the window); MoreHref is
 	// this week's next page of records ("" on the last page).
 	PrevHref, NextHref, MoreHref string
+	// WholeWeek says this page holds every record of the week (opened with no cursor, and no next
+	// page). Only then does a day with no record on it say "No records"; on a partial page it says
+	// nothing, because its records may be on another page.
+	WholeWeek bool
 }
 
 // MyHoursDay is one day of the week: its counted time and the records on it.

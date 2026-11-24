@@ -101,6 +101,27 @@ func (f *myHoursFixture) write(t *testing.T, tenantID, person, location uuid.UUI
 	}
 }
 
+// writeOne commits one record of person at at, with its verdict and direction ("" for none).
+func (f *myHoursFixture) writeOne(t *testing.T, tenantID, person, location uuid.UUID, at time.Time, verdict, typ string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := f.owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transactions (tenant_id, employee_id, location_id, occurred_at, created_at, verdict, channel, type, practice)
+	                           VALUES ($1, $2, $3, $4, $4, $5, 'nfc', NULLIF($6, ''), false)`, tenantID, person, location, at, verdict, typ); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (f *myHoursFixture) get(t *testing.T, target string, c *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -184,6 +205,10 @@ func TestMyHoursDB_ThePersonSeesOnlyTheirOwnRecords(t *testing.T) {
 	if strings.Contains(body, theirs.In(zone).Format("15:04")) {
 		t.Fatalf("another person's record is on the page:\n%s", body)
 	}
+	// One page holds the whole week: the six other days say so.
+	if n := strings.Count(body, "No records"); n != 6 {
+		t.Errorf("a one-page week says \"No records\" %d times, want 6 (every day but the record's)", n)
+	}
 	for _, s := range []string{"APPROVED", "FLAGGED", "stamp", "trust", "Trust"} {
 		if strings.Contains(body, s) {
 			t.Errorf("the page carries %q (plain words only, no score)", s)
@@ -236,14 +261,31 @@ func TestMyHoursDB_ThePersonSeesOnlyTheirOwnRecords(t *testing.T) {
 
 var showMoreHref = regexp.MustCompile(`href="(/me/hours\?[^"]*after=[^"]*)"[^>]*>Show more<`)
 
+// TestMyHoursDB_ShowMoreOpensTheNextPageWithTheSameTotal [G32-e]: a week of 201 records pages with "Show
+// more", and both pages carry the same NON-ZERO total -- a counted pair (in 10:00, out 10:30 on the
+// Monday) and 199 flagged check-ins on the Tuesday, in LAST week (a window of two weeks), so no time of
+// day today can move a record out of the week. Page two holds no Monday record, and its Monday -- like
+// every day with no row on either partial page -- does not say "No records" while its total shows.
 func TestMyHoursDB_ShowMoreOpensTheNextPageWithTheSameTotal(t *testing.T) {
 	f := newMyHoursFixture(t)
-	f.setWeeks(t, f.h.tenantID, 1)
+	f.setWeeks(t, f.h.tenantID, 2)
 	t.Cleanup(func() { f.setWeeks(t, f.h.tenantID, nil) })
-	f.write(t, f.h.tenantID, f.h.employeeID, f.h.locationID, time.Now().UTC().Add(-time.Second), ledger.OwnPageSize+1)
+	zone := f.zoneOf(t, f.h.tenantID)
+	today := time.Now().In(zone)
+	monday := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, zone)
+	for monday.Weekday() != time.Monday {
+		monday = monday.AddDate(0, 0, -1)
+	}
+	monday = monday.AddDate(0, 0, -7)
+	at := func(day, hh, mm int) time.Time {
+		return time.Date(monday.Year(), monday.Month(), monday.Day()+day, hh, mm, 0, 0, zone).UTC()
+	}
+	f.writeOne(t, f.h.tenantID, f.h.employeeID, f.h.locationID, at(0, 10, 0), "ok", "in")
+	f.writeOne(t, f.h.tenantID, f.h.employeeID, f.h.locationID, at(0, 10, 30), "ok", "out")
+	f.write(t, f.h.tenantID, f.h.employeeID, f.h.locationID, at(1, 12, 0), ledger.OwnPageSize-1)
 	c := f.h.cookieForEmployee(t, f.h.employeeID)
 
-	first := f.get(t, MyHoursPath, c)
+	first := f.get(t, MyHoursPath+"?week="+monday.Format("2006-01-02"), c)
 	m := showMoreHref.FindStringSubmatch(first.Body.String())
 	if first.Code != http.StatusOK || m == nil {
 		t.Fatalf("page one = %d, no Show more link", first.Code)
@@ -252,13 +294,27 @@ func TestMyHoursDB_ShowMoreOpensTheNextPageWithTheSameTotal(t *testing.T) {
 	if second.Code != http.StatusOK || showMoreHref.MatchString(second.Body.String()) {
 		t.Fatalf("page two = %d, or it offers another page", second.Code)
 	}
-	count := func(s string) int { return strings.Count(s, "Waiting for your manager") }
-	if a, b := count(first.Body.String()), count(second.Body.String()); a != ledger.OwnPageSize || b != 1 {
-		t.Fatalf("records on the two pages: %d and %d, want %d and 1", a, b, ledger.OwnPageSize)
+	count := func(s, word string) int { return strings.Count(s, `<span class="ml-2">`+word+`</span>`) }
+	p1, p2 := first.Body.String(), second.Body.String()
+	if a, b := count(p1, "Counted"), count(p2, "Counted"); a != 2 || b != 0 {
+		t.Fatalf("counted records on the two pages: %d and %d, want 2 and 0", a, b)
+	}
+	if a, b := count(p1, "Waiting for your manager"), count(p2, "Waiting for your manager"); a != ledger.OwnPageSize-2 || b != 1 {
+		t.Fatalf("waiting records on the two pages: %d and %d, want %d and 1", a, b, ledger.OwnPageSize-2)
 	}
 	total := regexp.MustCompile(`class="report-total">([^<]*)<`)
-	t1, t2 := total.FindStringSubmatch(first.Body.String()), total.FindStringSubmatch(second.Body.String())
-	if t1 == nil || t2 == nil || t1[1] != t2[1] {
-		t.Fatalf("the totals differ between the pages: %v %v", t1, t2)
+	t1, t2 := total.FindStringSubmatch(p1), total.FindStringSubmatch(p2)
+	if t1 == nil || t2 == nil || t1[1] != t2[1] || t1[1] != hoursMinutes(30*time.Minute) {
+		t.Fatalf("the totals: %v and %v, want %q on both pages", t1, t2, hoursMinutes(30*time.Minute))
+	}
+	// Page two's Monday: its total, and no "No records" -- its two records are on page one.
+	mon := regexp.MustCompile(`report-who">` + regexp.QuoteMeta(monday.Format("Mon 2 Jan")) + `</span>\s*<span class="report-day">([^<]*)<`)
+	if d := mon.FindStringSubmatch(p2); d == nil || d[1] != hoursMinutes(30*time.Minute) {
+		t.Fatalf("page two's Monday total = %v, want %q", d, hoursMinutes(30*time.Minute))
+	}
+	for i, p := range []string{p1, p2} {
+		if strings.Contains(p, "No records") {
+			t.Errorf("page %d of a two-page week says \"No records\" for a day whose records may be on the other page", i+1)
+		}
 	}
 }
