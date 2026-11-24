@@ -27,6 +27,8 @@ object Paths {
     const val CLAIMS_SEND = "/app/v1/claims/send"
     /** M16-31: the person's own week (a signed read). */
     const val HOURS = "/app/v1/hours"
+    /** M16-37: "Delete my account" (nonce-signed, 204). */
+    const val ACCOUNT_DELETE = "/app/v1/account/delete"
 }
 
 object Headers {
@@ -130,6 +132,8 @@ data class MeReply(
     val presence: Presence? = null, val shift: UsualShift? = null, val missingTimes: Int = 0,
     /** M16-30: the owner's My hours window in weeks; 0 is off (and an old server's answer). */
     val hoursWeeks: Int = 0,
+    /** M16-37: the employer's name, always set by a current server ("" from an older one). */
+    val businessName: String = "",
 )
 
 /**
@@ -291,6 +295,7 @@ object Replies {
             shift = optObject("shift")?.run { UsualShift(string("start"), string("end"), optBool("overnight"), optString("venue") ?: "") },
             missingTimes = optInt("missingTimes"),
             hoursWeeks = optInt("hoursWeeks"),
+            businessName = optString("businessName").orEmpty(),
         )
     }
 

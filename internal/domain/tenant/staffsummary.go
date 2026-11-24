@@ -77,6 +77,9 @@ type PersonSummary struct {
 	LastUsed      *time.Time
 	// Link is the outstanding activation link, read in its own savepoint.
 	Link ActivationLink
+	// DeletionRequested is the person's latest "delete my account" request from the staff app
+	// (M16-37), nil when they never asked.
+	DeletionRequested *time.Time
 }
 
 // Since is the lifecycle stamp that matches Status, nil when it was never written -- the
@@ -136,6 +139,7 @@ func (s *Staff) Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (Pe
 			FirstSignedIn:  row.FirstSessionAt,
 			LastUsed:       row.SessionLastUsedAt,
 		}
+		out.DeletionRequested = s.deletionRequested(ctx, tx, tenantID, employeeID)
 		out.Link = s.activationLink(ctx, tx, tenantID, employeeID)
 		return nil
 	})
@@ -149,6 +153,41 @@ func (s *Staff) Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (Pe
 			"err", err, "tenant_id", tenantID)
 		return PersonSummary{State: ReadFailed}, nil
 	}
+}
+
+// deletionRequested reads the person's latest deletion request inside a savepoint, so its failure
+// costs the line and never the summary (activationLink's rule).
+func (s *Staff) deletionRequested(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID) *time.Time {
+	at, err := func() (*time.Time, error) {
+		sp, err := tx.Begin(ctx) // SAVEPOINT
+		if err != nil {
+			return nil, fmt.Errorf("savepoint: %w", err)
+		}
+		target := employeeID.String()
+		ats, err := store.New(sp).ListEmployeeDeletionRequests(ctx, store.ListEmployeeDeletionRequestsParams{
+			TenantID: tenantID, EmployeeTarget: &target,
+		})
+		if err != nil {
+			err = fmt.Errorf("list deletion requests: %w", err)
+			// activationLink's pattern: a background context, and a failed rollback joined, never discarded.
+			if rbErr := sp.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) { // ROLLBACK TO SAVEPOINT
+				err = errors.Join(err, fmt.Errorf("roll back savepoint: %w", rbErr))
+			}
+			return nil, err
+		}
+		if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
+			return nil, fmt.Errorf("release savepoint: %w", err)
+		}
+		if len(ats) == 0 {
+			return nil, nil
+		}
+		return &ats[0], nil
+	}()
+	if err != nil {
+		s.log.Error("tenant: could not read a person's deletion request; the card will omit it", "err", err, "tenant_id", tenantID)
+		return nil
+	}
+	return at
 }
 
 // activationLink reads the pending links inside a savepoint, so its failure cannot abort the

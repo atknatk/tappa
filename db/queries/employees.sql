@@ -1416,3 +1416,16 @@ LEFT JOIN departments d
   ON d.tenant_id = e.tenant_id AND d.id = e.department_id AND d.tenant_id = @tenant_id
 WHERE e.tenant_id = @tenant_id
   AND e.id = @employee_id;
+
+-- name: ListEmployeeDeletionRequests :many
+-- The person's latest "delete my account" request from the staff app (M16-37), for the People
+-- card: at most one instant, none when they never asked. From the trail itself -- the request
+-- writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
+-- employee id as the trail writes it.
+SELECT a.at
+FROM audit_log a
+WHERE a.tenant_id = @tenant_id
+  AND a.action = 'employee.deletion_requested'
+  AND a.target = @employee_target
+ORDER BY a.at DESC
+LIMIT 1;

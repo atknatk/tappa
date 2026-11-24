@@ -1409,6 +1409,45 @@ func (q *Queries) ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesPara
 	return items, nil
 }
 
+const listEmployeeDeletionRequests = `-- name: ListEmployeeDeletionRequests :many
+SELECT a.at
+FROM audit_log a
+WHERE a.tenant_id = $1
+  AND a.action = 'employee.deletion_requested'
+  AND a.target = $2
+ORDER BY a.at DESC
+LIMIT 1
+`
+
+type ListEmployeeDeletionRequestsParams struct {
+	TenantID       uuid.UUID
+	EmployeeTarget *string
+}
+
+// The person's latest "delete my account" request from the staff app (M16-37), for the People
+// card: at most one instant, none when they never asked. From the trail itself -- the request
+// writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
+// employee id as the trail writes it.
+func (q *Queries) ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]time.Time, error) {
+	rows, err := q.db.Query(ctx, listEmployeeDeletionRequests, arg.TenantID, arg.EmployeeTarget)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []time.Time{}
+	for rows.Next() {
+		var at time.Time
+		if err := rows.Scan(&at); err != nil {
+			return nil, err
+		}
+		items = append(items, at)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLastTapsForEmployees = `-- name: ListLastTapsForEmployees :many
 SELECT p.employee_id::uuid AS employee_id, lt.occurred_at, lt.verdict, lt.channel
 FROM unnest($1::uuid[]) AS p(employee_id)

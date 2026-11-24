@@ -930,6 +930,9 @@ func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, 
 	v.SignedInLine = signedInLine(s.LiveDevices, s.FirstSignedIn, s.LastUsed, zone)
 	v.LiveAppDevices = s.LiveAppDevices
 	v.AppLine = appLine(s.LiveAppDevices)
+	if s.DeletionRequested != nil {
+		v.DeletionLine = "Asked to delete their account on " + rosterDate(s.DeletionRequested, zone)
+	}
 	switch s.Status {
 	case ledger.StatusActive:
 		if s.Activated != nil {

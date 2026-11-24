@@ -26,11 +26,19 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
      * forgets it -- the key leaves the Keystore and the stored device is cleared. A device the
      * server no longer knows (401) is forgotten as well; a network failure forgets nothing.
      */
-    fun signOut(): Answer<Unit> {
+    fun signOut(): Answer<Unit> = forget { id, key -> client.revoke(id, key) }
+
+    /**
+     * "Delete my account" (M16-37): the server signs the person out everywhere and tells the
+     * employer; the phone then forgets this device as signOut does. No record is deleted.
+     */
+    fun deleteAccount(): Answer<Unit> = forget { id, key -> client.deleteAccount(id, key) }
+
+    private fun forget(call: (String, mt.taptime.app.wire.Signer) -> Outcome<Unit>): Answer<Unit> {
         val device = state.active() ?: return Answer.SignedOut
         val key = keys.load(device.keyAlias)
         if (key != null) {
-            when (val r = client.revoke(device.deviceId, key)) {
+            when (call(device.deviceId, key)) {
                 is Outcome.Ok, Outcome.Unauthenticated -> Unit
                 is Outcome.Failed -> return Answer.Network
                 is Outcome.Refused -> return Answer.Server

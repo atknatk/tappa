@@ -41,6 +41,9 @@ type AppHomeFacts struct {
 	ShiftErr error
 	// HoursWeeks is the owner's My hours window (00117, M16-30): 0 when off or unread.
 	HoursWeeks int
+	// BusinessName is the employer's name, always set (M16-37: the settings screen and the
+	// deletion request name who keeps the records; brand.name is a logo's caption only).
+	BusinessName string
 }
 
 // AppHome reads the app's home screen for one device's person (tenantID and employeeID come from
@@ -85,6 +88,7 @@ func (d *Directory) AppHome(ctx context.Context, tenantID, employeeID uuid.UUID)
 			return fmt.Errorf("load employee: %w", err)
 		}
 		out.EmployeeName = emp.FullName
+		out.BusinessName = emp.TenantName
 
 		b, err := pageBrandOf(q.GetTenantBrand(ctx, tenantID))
 		if err != nil {

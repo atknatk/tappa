@@ -48,11 +48,13 @@ class ContractPinTest {
             "AppClaimsSendPath" to Paths.CLAIMS_SEND,
             // M16-31: My hours.
             "AppHoursPath" to Paths.HOURS,
+            // M16-37: "Delete my account".
+            "AppAccountDeletePath" to Paths.ACCOUNT_DELETE,
         )
         for ((goName, kt) in pairs) assertEquals(goName, goStringConst(app, goName), kt)
         // M16-23: the two approval routes, pinned by VALUE (the Go names are the server's to choose).
         val m1623 = setOf(Paths.ACTIVATE_APPROVAL, Paths.ACTIVATE_APPROVAL_STATUS)
-        // CONTROL: the server declares exactly these App*Path constants -- the eleven above and the two.
+        // CONTROL: the server declares exactly these App*Path constants -- the twelve above and the two.
         val declared = Regex("""\b(App\w+Path)\s*=\s*"([^"]*)"""").findAll(app).associate { it.groupValues[1] to it.groupValues[2] }
         assertEquals(pairs.keys, declared.keys - declared.filterValues { it in m1623 }.keys)
         assertEquals("the approval routes are the server's", m1623, declared.values.toSet() - pairs.values.toSet())

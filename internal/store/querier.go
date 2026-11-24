@@ -4416,6 +4416,11 @@ type Querier interface {
 	// first row and filtered 150 001 rows away (90 ms a page); bare, it reads the page (0.8 ms).
 	// TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter pins it.
 	ListDirectoryEmployees(ctx context.Context, arg ListDirectoryEmployeesParams) ([]ListDirectoryEmployeesRow, error)
+	// The person's latest "delete my account" request from the staff app (M16-37), for the People
+	// card: at most one instant, none when they never asked. From the trail itself -- the request
+	// writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
+	// employee id as the trail writes it.
+	ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]time.Time, error)
 	// One page of the queue, newest first.
 	//
 	// THE COLUMN LIST IS ListPanelTransactions' LIST, and the reason is section 4.7:

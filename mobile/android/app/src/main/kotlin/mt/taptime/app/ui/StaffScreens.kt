@@ -493,7 +493,7 @@ private fun TimelineRow(r: HoursRecord) {
 @Composable
 fun SettingsContent(
     me: MeReply, remind: Boolean, timer: Boolean, notificationsOff: Boolean, version: String, canPickLanguage: Boolean,
-    onRemind: (Boolean) -> Unit, onTimer: (Boolean) -> Unit, onLanguage: () -> Unit, onSignOut: () -> Unit,
+    onRemind: (Boolean) -> Unit, onTimer: (Boolean) -> Unit, onLanguage: () -> Unit, onSignOut: () -> Unit, onDelete: () -> Unit,
 ) {
     LargeTitle(stringResource(R.string.tab_settings))
     Surface(radius = 22.dp) {
@@ -501,7 +501,7 @@ fun SettingsContent(
             Avatar(initialsOf(me.employeeName), 56.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 BasicText(me.employeeName, style = text(18.sp, FontWeight.Bold))
-                me.brand.name?.let { BasicText(it, style = text(13.sp, color = Muted)) }
+                me.businessName.ifEmpty { me.brand.name.orEmpty() }.takeIf { it.isNotEmpty() }?.let { BasicText(it, style = text(13.sp, color = Muted)) }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(Icons.CHECK, Palette.TappaGreen, 14.dp, 2.4f)
                     BasicText(stringResource(R.string.settings_connected), style = text(12.sp, FontWeight.SemiBold, Palette.TappaGreen))
@@ -537,6 +537,9 @@ fun SettingsContent(
         }
         ListRow(Icons.LOGOUT, stringResource(R.string.settings_signout), null, titleColor = Palette.Tomato, iconTint = Palette.Tomato,
             iconFill = Palette.Tomato.copy(alpha = 0.1f), onClick = onSignOut)
+        RowDivider()
+        ListRow(Icons.TRASH, stringResource(R.string.settings_delete), stringResource(R.string.settings_delete_sub), titleColor = Palette.Tomato,
+            iconTint = Palette.Tomato, iconFill = Palette.Tomato.copy(alpha = 0.1f), onClick = onDelete)
     }
     BasicText(stringResource(R.string.settings_privacy), Modifier.padding(horizontal = 8.dp), style = text(12.sp, color = Muted))
     BasicText(stringResource(R.string.settings_version, version), Modifier.padding(horizontal = 8.dp), style = text(12.sp, color = Muted, mono = true))

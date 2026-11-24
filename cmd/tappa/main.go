@@ -491,6 +491,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// "Delete my account" in the staff app (M16-37): the panel's own staff service, so the request
+	// revokes in SignOutPhones' order and the People card reads its trail row.
+	if err := app.ServeDeletion(staff); err != nil {
+		return err
+	}
 	// The locations section's venue and department side — its reads and its writes
 	// (M6-06 phase A): venue
 	// configuration and department management. It takes the SAME audit recorder as

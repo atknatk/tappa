@@ -112,6 +112,15 @@ class AppClient(
             Outcome.Unauthenticated -> Outcome.Unauthenticated
         }
 
+    /** POST /app/v1/account/delete: the person's deletion request (204). */
+    fun deleteAccount(deviceId: String, key: Signer): Outcome<Unit> =
+        when (val r = signedRequest("POST", Paths.ACCOUNT_DELETE, "{}".toByteArray(Charsets.UTF_8), deviceId, key) { }) {
+            is Outcome.Ok -> Outcome.Ok(Unit)
+            is Outcome.Refused -> r
+            is Outcome.Failed -> r
+            Outcome.Unauthenticated -> Outcome.Unauthenticated
+        }
+
     fun hours(deviceId: String, key: Signer, week: String?, after: String?): Outcome<HoursReply> =
         signedRead("POST", Paths.HOURS, Bodies.hours(week, after), deviceId, key, Replies::hours)
 

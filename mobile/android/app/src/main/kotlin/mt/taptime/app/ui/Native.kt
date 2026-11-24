@@ -95,6 +95,7 @@ object Icons {
     const val GLOBE = "M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17M3.5 12h17M12 3.5c2.5 2.5 2.5 14.5 0 17M12 3.5c-2.5 2.5-2.5 14.5 0 17"
     const val CHECK = "M5 12l5 5 9-10"
     const val LOGOUT = "M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"
+    const val TRASH = "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"
 }
 
 @Composable

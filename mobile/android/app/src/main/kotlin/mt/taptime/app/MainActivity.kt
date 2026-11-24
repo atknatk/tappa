@@ -147,7 +147,8 @@ class MainActivity : ComponentActivity() {
         ) : Screen
         data class Settings(
             val me: MeReply, val remind: Boolean, val timer: Boolean, val notificationsOff: Boolean = false,
-            val confirmSignOut: Boolean = false, val busy: Boolean = false, val failed: Boolean = false,
+            /** The open confirmation: "signout" (this phone) or "delete" (the account request). */
+            val confirm: String? = null, val busy: Boolean = false, val failed: Boolean = false,
         ) : Screen
         /**
          * My hours (M16-33): [reply] the week shown (null until the first answer), [records] its
@@ -347,7 +348,7 @@ class MainActivity : ComponentActivity() {
             is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
             is Screen.Home -> {
                 BackHandler(enabled = s.claims != null && !s.busy) { screen = s.copy(claims = null, notice = null, problem = null) }
-                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName), overlay = {
+                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
                     val list = s.claims
                     if (list != null && s.index < list.size) {
                         ClaimSheet(list[s.index], s.index, list.size, s.notice, s.problem, s.busy,
@@ -363,7 +364,7 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Hours -> {
                 BackHandler { goHome(s.me) }
-                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName)) {
+                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName)) {
                     HoursContent(s.me.hoursWeeks, s.reply, s.records, s.busy, s.network,
                         onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
                         onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
@@ -372,20 +373,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
             is Screen.Settings -> {
-                BackHandler(enabled = !s.busy) { if (s.confirmSignOut) screen = s.copy(confirmSignOut = false) else goHome(s.me) }
-                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName), overlay = {
-                    if (s.confirmSignOut) ConfirmDialog(
-                        getString(R.string.signout_title),
-                        if (s.failed) getString(R.string.signout_failed) else getString(R.string.signout_body),
-                        getString(R.string.signout_confirm), getString(R.string.cancel), s.busy,
-                        onConfirm = { signOut(s) }, onDismiss = { screen = s.copy(confirmSignOut = false, failed = false) })
+                BackHandler(enabled = !s.busy) { if (s.confirm != null) screen = s.copy(confirm = null) else goHome(s.me) }
+                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
+                    val business = s.me.businessName.ifEmpty { s.me.brand.name ?: getString(R.string.delete_your_employer) }
+                    when (s.confirm) {
+                        "signout" -> ConfirmDialog(
+                            getString(R.string.signout_title),
+                            if (s.failed) getString(R.string.signout_failed) else getString(R.string.signout_body),
+                            getString(R.string.signout_confirm), getString(R.string.cancel), s.busy,
+                            onConfirm = { forget(s) { staff.signOut() } }, onDismiss = { screen = s.copy(confirm = null, failed = false) })
+                        "delete" -> ConfirmDialog(
+                            getString(R.string.delete_title),
+                            if (s.failed) getString(R.string.signout_failed) else getString(R.string.delete_body, business),
+                            getString(R.string.delete_confirm), getString(R.string.cancel), s.busy,
+                            onConfirm = { forget(s) { staff.deleteAccount() } }, onDismiss = { screen = s.copy(confirm = null, failed = false) })
+                    }
                 }) {
                     SettingsContent(s.me, s.remind, s.timer, s.notificationsOff, BuildConfig.VERSION_NAME,
                         canPickLanguage = android.os.Build.VERSION.SDK_INT >= 33,
                         onRemind = { on -> setSwitch(s, on) { switches.remind = it } },
                         onTimer = { on -> setSwitch(s, on) { switches.timer = it } },
                         onLanguage = ::openLanguage,
-                        onSignOut = { screen = s.copy(confirmSignOut = true, failed = false) })
+                        onSignOut = { screen = s.copy(confirm = "signout", failed = false) },
+                        onDelete = { screen = s.copy(confirm = "delete", failed = false) })
                 }
             }
             is Screen.Blocked -> BlockedScreen(s.problem)
@@ -621,10 +631,10 @@ class MainActivity : ComponentActivity() {
 
     // "Sign this phone out": the server revokes the device, the phone forgets it, the reminder and
     // the timer go, and the app is back at its activation entry.
-    private fun signOut(s: Screen.Settings) {
+    private fun forget(s: Screen.Settings, call: () -> StaffFlow.Answer<Unit>) {
         if (s.busy) return
         screen = s.copy(busy = true, failed = false)
-        work({ staff.signOut() }, failed = { s.copy(busy = false, failed = true) }) { r ->
+        work({ call() }, failed = { s.copy(busy = false, failed = true) }) { r ->
             screen = when (r) {
                 is StaffFlow.Answer.Ok, StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(null) }
                 else -> s.copy(busy = false, failed = true)

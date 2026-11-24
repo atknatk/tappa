@@ -181,6 +181,15 @@ templ RosterActions(v RosterActionsView) {
 		// desk's side column, two on a tablet, where the card spans the screen above
 		// the list. The invitation comes before the placement at every width.
 		<div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2 desk:grid-cols-1">
+			if v.DeletionLine != "" {
+				// M16-37: the request goes to the employer; nothing of the records was deleted.
+				<div class="flex flex-col gap-1.5 border-l-4 border-saffron bg-paper px-4 py-3 md:col-span-2 desk:col-span-1">
+					<p class="text-sm font-bold text-ink">{ v.DeletionLine }</p>
+					<p class="text-xs text-ink/70">
+						Their phones were signed out. Their clock-in records are kept: they are legal records you control. Decide what to do with their data and reply to them within one month.
+					</p>
+				</div>
+			}
 			if v.SignedInLine != "" {
 				<div class="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
 					<p class="lbl">Signed in</p>
