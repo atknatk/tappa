@@ -425,7 +425,7 @@ func TestOwnerNotices_TheDrainCutsTheSendsAndRecordsTheJobsNotStarted(t *testing
 }
 
 // blockingTrail is a recorder whose every write waits for its context to end, as a stalled Postgres.
-type blockingTrail struct{ fakeTrail }
+type blockingTrail struct{}
 
 func (b *blockingTrail) Record(ctx context.Context, e audit.Event) (uuid.UUID, error) {
 	<-ctx.Done()
