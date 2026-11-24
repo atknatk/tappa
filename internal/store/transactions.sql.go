@@ -212,13 +212,13 @@ SELECT
        AND NOT t.practice AND t.verdict = 'flag'
        AND t.occurred_at >= $3 AND t.occurred_at < $4
        AND NOT EXISTS (SELECT 1 FROM transaction_reviews rv
-                        WHERE rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id))::int AS records,
+                        WHERE rv.tenant_id = $1 AND rv.transaction_id = t.id))::int AS records,
   (SELECT count(*) FROM punch_claims c
      JOIN transactions a ON a.tenant_id = c.tenant_id AND a.id = c.anchor_transaction_id
-     WHERE c.tenant_id = $1 AND c.employee_id = $2
+     WHERE c.tenant_id = $1 AND a.tenant_id = $1 AND c.employee_id = $2
        AND a.occurred_at >= $3 AND a.occurred_at < $4
        AND NOT EXISTS (SELECT 1 FROM punch_claim_decisions cd
-                        WHERE cd.tenant_id = c.tenant_id AND cd.claim_id = c.id))::int AS claims
+                        WHERE cd.tenant_id = $1 AND cd.claim_id = c.id))::int AS claims
 `
 
 type CountOwnWaitingParams struct {
@@ -235,7 +235,8 @@ type CountOwnWaitingRow struct {
 
 // The staff app's "waiting for your manager" line (M16-31): in the window [from_at, to_at), the
 // person's flagged records nobody has decided and their claims with no decision (anchored in the
-// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): explicit predicates.
+// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): every WHERE binds its
+// table's tenant_id to @tenant_id, beside RLS.
 func (q *Queries) CountOwnWaiting(ctx context.Context, arg CountOwnWaitingParams) (CountOwnWaitingRow, error) {
 	row := q.db.QueryRow(ctx, countOwnWaiting,
 		arg.TenantID,

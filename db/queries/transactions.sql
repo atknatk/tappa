@@ -1561,17 +1561,18 @@ LIMIT sqlc.arg('row_limit')::int;
 -- name: CountOwnWaiting :one
 -- The staff app's "waiting for your manager" line (M16-31): in the window [from_at, to_at), the
 -- person's flagged records nobody has decided and their claims with no decision (anchored in the
--- window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): explicit predicates.
+-- window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): every WHERE binds its
+-- table's tenant_id to @tenant_id, beside RLS.
 SELECT
   (SELECT count(*) FROM transactions t
      WHERE t.tenant_id = @tenant_id AND t.employee_id = @employee_id
        AND NOT t.practice AND t.verdict = 'flag'
        AND t.occurred_at >= @from_at AND t.occurred_at < @to_at
        AND NOT EXISTS (SELECT 1 FROM transaction_reviews rv
-                        WHERE rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id))::int AS records,
+                        WHERE rv.tenant_id = @tenant_id AND rv.transaction_id = t.id))::int AS records,
   (SELECT count(*) FROM punch_claims c
      JOIN transactions a ON a.tenant_id = c.tenant_id AND a.id = c.anchor_transaction_id
-     WHERE c.tenant_id = @tenant_id AND c.employee_id = @employee_id
+     WHERE c.tenant_id = @tenant_id AND a.tenant_id = @tenant_id AND c.employee_id = @employee_id
        AND a.occurred_at >= @from_at AND a.occurred_at < @to_at
        AND NOT EXISTS (SELECT 1 FROM punch_claim_decisions cd
-                        WHERE cd.tenant_id = c.tenant_id AND cd.claim_id = c.id))::int AS claims;
+                        WHERE cd.tenant_id = @tenant_id AND cd.claim_id = c.id))::int AS claims;

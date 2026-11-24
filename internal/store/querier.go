@@ -1029,7 +1029,8 @@ type Querier interface {
 	CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloorByVenueParams) ([]CountOnTheFloorByVenueRow, error)
 	// The staff app's "waiting for your manager" line (M16-31): in the window [from_at, to_at), the
 	// person's flagged records nobody has decided and their claims with no decision (anchored in the
-	// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): explicit predicates.
+	// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): every WHERE binds its
+	// table's tenant_id to @tenant_id, beside RLS.
 	CountOwnWaiting(ctx context.Context, arg CountOwnWaitingParams) (CountOwnWaitingRow, error)
 	// How many people the roster holds per lifecycle status (M12-17, panel redesign D3):
 	// the People screen's status chips and its "N on the books" kicker.
