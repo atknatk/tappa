@@ -61,9 +61,24 @@ final class StaffModel: ObservableObject {
             week = nil
             return
         }
-        if let w = try? await tap.api.hours(id, week: nil, after: nil) {
-            week = w
+        do {
+            week = try await tap.api.hours(id, week: nil, after: nil)
+        } catch AppAPIError.unauthenticated {
+            signedOut()
+        } catch {
+            // The summary card simply waits for the next read.
         }
+    }
+
+    /// Any staff read answered 401 (after the clock retry) takes the home screen's path: the
+    /// reminder, the widget and the counter are cleared and the activation screens say "This phone
+    /// was signed out" (the Android twin: StaffFlow.Answer.SignedOut -> clearPresence +
+    /// activationEntry(SIGNED_OUT)). Nothing of the sheet survives into the next activation.
+    private func signedOut() {
+        claims = nil
+        claimIndex = 0
+        claimProblem = nil
+        tap.staffReadSignedOut()
     }
 
     // MARK: My hours
@@ -82,6 +97,8 @@ final class StaffModel: ObservableObject {
         } catch AppAPIError.refused(.notFound, _) {
             hoursOff = true
             hours = nil
+        } catch AppAPIError.unauthenticated {
+            signedOut()
         } catch {
             hoursFailed = true
         }
@@ -123,6 +140,8 @@ final class StaffModel: ObservableObject {
             claims = r.open.isEmpty ? nil : r.open
             claimIndex = 0
             claimProblem = nil
+        } catch AppAPIError.unauthenticated {
+            signedOut()
         } catch {
             notice = StaffCopy.network
         }
@@ -154,6 +173,9 @@ final class StaffModel: ObservableObject {
         } catch AppAPIError.refused(.staleContext, _) {
             await reloadClaims(notice: nil)
             return
+        } catch AppAPIError.unauthenticated {
+            signedOut()
+            return
         } catch {
             claimProblem = StaffCopy.network
             return
@@ -171,7 +193,15 @@ final class StaffModel: ObservableObject {
 
     private func reloadClaims(notice: String?) async {
         guard let id = tap.identity else { return }
-        let r = try? await tap.api.claims(id)
+        let r: ClaimsResponse?
+        do {
+            r = try await tap.api.claims(id)
+        } catch AppAPIError.unauthenticated {
+            signedOut()
+            return
+        } catch {
+            r = nil
+        }
         let open = r?.open ?? []
         claims = open.isEmpty ? nil : open
         claimIndex = 0

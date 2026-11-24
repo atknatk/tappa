@@ -567,6 +567,93 @@ final class TapModelTests: XCTestCase {
                        "the unseen result is shown, unchanged")
     }
 
+    // MARK: The staff screens' reads answered 401 (the Android twin's StaffFlow.Answer.SignedOut)
+
+    private let openClaim = ClaimsResponse.Open(
+        context: "claim-context-1", kind: "out", anchorDate: "2026-11-14", anchorAt: "18:00", day: "yesterday",
+        windowFrom: ClaimsResponse.Bound(at: "18:00", inclusive: false), windowTo: ClaimsResponse.Bound(at: "23:59", inclusive: true),
+        prefill: nil)
+
+    /// Each staff read -- the Today summary, My hours, the missing times, a claim, the list after
+    /// a claim -- takes the home screen's signed-out path: cleared, then "This phone was signed out".
+    func testAStaffReadSignedOutIsTheHomeScreensPath() async throws {
+        server.meBody["presence"] = inPresence
+        server.meBody["hoursWeeks"] = 4
+        await app.launch()
+        let staff = app.staff
+        let claim = openClaim
+        let reads: [(name: String, path: String, run: () async -> Void)] = [
+            ("Today's summary", AppClient.Path.hours, { await staff.refreshToday() }),
+            ("My hours", AppClient.Path.hours, { await staff.loadHours(week: nil, after: nil) }),
+            ("the missing times", AppClient.Path.claims, { await staff.openMissing() }),
+            ("a claim", AppClient.Path.nonce, { await staff.send(claim, at: "22:00") }),
+        ]
+        for (i, r) in reads.enumerated() {
+            // Activated again, with the counter running.
+            server.devicesSignedOut.remove(deviceID)
+            guard let d = activation.device else {
+                return XCTFail("no device")
+            }
+            tap.enter(d)
+            activation.showActivated()
+            await tap.home()
+            XCTAssertEqual(counter.live.count, 1, r.name)
+
+            server.devicesSignedOut.insert(deviceID)
+            await r.run()
+            XCTAssertEqual(server.seen.last?.path, r.path, r.name)
+            XCTAssertEqual(activation.screen, .code(notice: Copy.Problems.signedOut), r.name)
+            XCTAssertEqual(reminder.cancels, i + 1, r.name)
+            XCTAssertTrue(counter.live.isEmpty, r.name)
+            XCTAssertEqual(share.read(), .none, r.name)
+            XCTAssertNil(staff.claims, r.name)
+        }
+    }
+
+    /// The list read again after a claim was answered: signed out there too, and no /me after it.
+    func testTheListAfterAClaimSignedOutIsTheHomeScreensPath() async throws {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        let s = server!
+        let id = deviceID
+        // The claim goes through; the server signs the phone out before the list is read again.
+        MockURLProtocol.handler = { req, body in
+            if req.url?.path == AppClient.Path.claims {
+                s.devicesSignedOut.insert(id)
+            }
+            return try s.handle(req, body)
+        }
+        let mes = mePaths
+        await app.staff.send(openClaim, at: "22:00")
+        XCTAssertEqual(server.seen.last?.path, AppClient.Path.claims)
+        XCTAssertEqual(mePaths, mes)
+        XCTAssertEqual(activation.screen, .code(notice: Copy.Problems.signedOut))
+        XCTAssertEqual(reminder.cancels, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+    }
+
+    /// A staff read offline is not "signed out", and a clock days off says so instead.
+    func testAStaffReadOfflineOrOffClockSignsNothingOut() async throws {
+        server.meBody["presence"] = inPresence
+        server.meBody["hoursWeeks"] = 4
+        await app.launch()
+        offline(paths: [AppClient.Path.hours])
+        await app.staff.loadHours(week: nil, after: nil)
+        XCTAssertTrue(app.staff.hoursFailed)
+        XCTAssertEqual(activation.screen, .activated)
+        XCTAssertEqual(reminder.cancels, 0)
+        XCTAssertEqual(counter.live.count, 1)
+
+        let s = server!
+        MockURLProtocol.handler = { req, body in try s.handle(req, body) }
+        server.now = local.addingTimeInterval(3 * 86_400)
+        await app.staff.openMissing()
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.clock)))
+        XCTAssertEqual(activation.screen, .activated)
+        XCTAssertEqual(reminder.cancels, 0)
+        XCTAssertEqual(counter.live.count, 1)
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".

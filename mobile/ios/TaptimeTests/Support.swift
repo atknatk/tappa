@@ -443,6 +443,18 @@ final class FakeAppServer {
             let n = Base64URL.encode(Data((0..<32).map { _ in UInt8.random(in: 0...255) }))
             liveNonces.insert(n)
             return reply(200, object: ["nonce": n, "expiresAt": "2026-11-18T10:00:00Z"])
+        // The staff screens' reads and the one claim write (M16-43, M16-31): only their signature
+        // is checked here -- the tests drive the 401 path: verified, My hours is off and nothing is missing.
+        case AppClient.Path.hours, AppClient.Path.claims:
+            guard readVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            return path == AppClient.Path.claims ? reply(200, object: ["open": [Any]()]) : reply(404, error: "not_found")
+        case AppClient.Path.claimsSend:
+            guard noncedVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            return reply(200, object: ["result": "sent"])
         case AppClient.Path.revoke:
             guard noncedVerifies(method, path, body, headers) else {
                 return reply(401)

@@ -459,6 +459,21 @@ final class TapModel: ObservableObject {
         await followPresence(d)
     }
 
+    /// A staff read (My hours, the missing times, a claim) answered 401 after its clock retry: the
+    /// home screen's path -- "check the clock" when the answers' clock was days from the phone's,
+    /// otherwise signed out (the Android twin's StaffFlow.Answer.SignedOut). Never while a press is
+    /// on the wire: its answer must not be hidden.
+    func staffReadSignedOut() {
+        guard device != nil, !sending else { return }
+        generation += 1
+        pressing = false
+        if client.clock.lastAnswerWasFarOff {
+            screen = .problem(Problem(copy: TapCopy.Problems.clock))
+        } else {
+            onSignedOut?()
+        }
+    }
+
     /// /me read for the reminder, the widget and the counter alone: the result screen stays exactly
     /// as it is (CLAUDE.md §9). Offline, or any other failure, the last server answer stands; a
     /// signed-out answer clears them, and the next home screen says so.
