@@ -72,4 +72,17 @@ final class InfoPlistTests: XCTestCase {
         XCTAssertTrue(plist.keys.filter { $0.hasSuffix("UsageDescription") }.isEmpty)
         XCTAssertTrue(plist.keys.filter { $0.hasPrefix("NSLocation") }.isEmpty)
     }
+
+    // App Store validation refuses an extension whose version or build is not its app's. Both
+    // targets take MARKETING_VERSION and CURRENT_PROJECT_VERSION from the PROJECT's build
+    // settings (none of their own), so a bump moves both; this holds the built bundles to it.
+    func testTheWidgetCarriesTheAppsVersions() throws {
+        let plugins = try XCTUnwrap(Bundle.main.builtInPlugInsURL)
+        let ext = try XCTUnwrap(Bundle(url: plugins.appendingPathComponent("TaptimeWidgets.appex")))
+        for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
+            let app = try XCTUnwrap(info[key] as? String, key)
+            XCTAssertFalse(app.isEmpty, key)
+            XCTAssertEqual(ext.infoDictionary?[key] as? String, app, key)
+        }
+    }
 }

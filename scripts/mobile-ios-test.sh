@@ -137,7 +137,17 @@ check_widget_plist() { # check_widget_plist <label> <Info.plist>
     || fail "$label: the widget's CFBundleIdentifier is not $WIDGET_BUNDLE_ID"
   [[ $(plutil -extract MinimumOSVersion raw "$plist") == "$MIN_OS" ]] \
     || fail "$label: the widget's MinimumOSVersion is not $MIN_OS"
-  echo "  $label widget Info.plist: widgetkit extension point; no UIBackgroundModes; no usage keys"
+  # App Store validation refuses an extension whose versions are not its app's. Both come from
+  # the PROJECT-level MARKETING_VERSION / CURRENT_PROJECT_VERSION; a target-level copy that
+  # drifts fails here, on the built bundles.
+  local app_plist key
+  app_plist="$(dirname "$plist")/../../Info.plist"
+  for key in CFBundleShortVersionString CFBundleVersion; do
+    [[ -n $(plutil -extract "$key" raw "$app_plist") && \
+       $(plutil -extract "$key" raw "$plist") == $(plutil -extract "$key" raw "$app_plist") ]] \
+      || fail "$label: the widget's $key is not the app's"
+  done
+  echo "  $label widget Info.plist: widgetkit extension point; no UIBackgroundModes; no usage keys; the app's versions"
 }
 
 # --- 0. source entitlements (cheap, before any build) ---------------------------------
