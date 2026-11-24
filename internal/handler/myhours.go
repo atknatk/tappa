@@ -102,7 +102,7 @@ func (t *Tap) MyHours(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Week = ledger.Date{Year: d.Year(), Month: d.Month(), Day: d.Day()}
 	}
-	after, ok := decodeOwnCursor(form.Get("after"))
+	after, bind, ok := decodeOwnCursor(form.Get("after"))
 	if !ok {
 		t.renderProblem(w, r, http.StatusBadRequest, myHoursBadPage)
 		return
@@ -123,7 +123,13 @@ func (t *Tap) MyHours(w http.ResponseWriter, r *http.Request) {
 		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
-	t.render(w, r, http.StatusOK, pages.MyHours(t.myHoursView(ctx, week, q.After != nil)), false)
+	// The cursor's binding (apphours.go): another person's or another week's cursor is the 400 above.
+	if !ownCursorBound(after, bind, id.TenantID(), id.EmployeeID(), week.Period.FirstDay) {
+		t.renderProblem(w, r, http.StatusBadRequest, myHoursBadPage)
+		return
+	}
+	bound := ownCursorBinding(id.TenantID(), id.EmployeeID(), week.Period.FirstDay)
+	t.render(w, r, http.StatusOK, pages.MyHours(t.myHoursView(ctx, week, q.After != nil, bound)), false)
 }
 
 // myHoursHref is the page's own address for a week and, optionally, a cursor.
@@ -136,8 +142,8 @@ func myHoursHref(week string, cursor *string) string {
 }
 
 // myHoursView formats one page of the week in the business's zone. continued says the page was opened
-// with a cursor (a page after the first).
-func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek, continued bool) pages.MyHoursView {
+// with a cursor (a page after the first); bind is the binding "Show more"'s cursor carries.
+func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek, continued bool, bind string) pages.MyHoursView {
 	loc := w.Zone
 	if loc == nil {
 		loc = time.UTC
@@ -174,7 +180,7 @@ func (t *Tap) myHoursView(ctx context.Context, w ledger.OwnWeek, continued bool)
 	if w.HasNext {
 		v.NextHref = myHoursHref(monday.AddDate(0, 0, 7).Format("2006-01-02"), nil)
 	}
-	if next := encodeOwnCursor(w.Next); next != nil {
+	if next := encodeOwnCursor(w.Next, bind); next != nil {
 		v.MoreHref = myHoursHref(weekKey, next)
 	}
 	byDate := map[string]int{}

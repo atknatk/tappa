@@ -294,6 +294,10 @@ func TestMyHoursDB_ShowMoreOpensTheNextPageWithTheSameTotal(t *testing.T) {
 	if second.Code != http.StatusOK || showMoreHref.MatchString(second.Body.String()) {
 		t.Fatalf("page two = %d, or it offers another page", second.Code)
 	}
+	// The cursor is bound to the person (apphours.go): another person's session gets the 400 page.
+	if w := f.get(t, html.UnescapeString(m[1]), f.h.cookieForEmployee(t, f.h.newEmployee(t, "active"))); w.Code != http.StatusBadRequest {
+		t.Errorf("another person's Show more = %d, want 400", w.Code)
+	}
 	count := func(s, word string) int { return strings.Count(s, `<span class="ml-2">`+word+`</span>`) }
 	p1, p2 := first.Body.String(), second.Body.String()
 	if a, b := count(p1, "Counted"), count(p2, "Counted"); a != 2 || b != 0 {

@@ -12,6 +12,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -86,38 +88,66 @@ type appHoursResponse struct {
 // appHoursChannels is the closed channel set the app draws; any other value is "other".
 var appHoursChannels = map[string]bool{"nfc": true, "qr": true, "qr_live": true, "manual": true}
 
-// ownCursorPrefix marks a My hours cursor: own_<occurred_at unix nanos>_<record id>.
+// ownCursorPrefix marks a My hours cursor: own_<occurred_at unix nanos>_<record id>_<binding>.
+//
+// THE BINDING is a digest of the walk the cursor was issued for -- the business, the person and the
+// week's Monday (M16-31's card; /v1/timesheets' tms_ rule): a cursor sent by another person or with
+// another week is 400, never a page of a different walk. The week is the one the read RESOLVED (an
+// absent week is this week), so the check runs after the read (ownCursorBound); the read itself is
+// already the person's own records only. A cursor of the older two-part shape is refused like any
+// malformed one. The apps carry the cursor opaquely (Android wire.Wire, iOS AppClient): they send
+// back nextCursor with the week the answer named.
 const ownCursorPrefix = "own_"
 
-func encodeOwnCursor(c *ledger.OwnCursor) *string {
+// ownCursorBinding is that digest: 8 bytes of SHA-256, 16 lower-case hex characters.
+func ownCursorBinding(tenantID, employeeID uuid.UUID, week ledger.Date) string {
+	sum := sha256.Sum256([]byte("tappa/app-own-hours\x00" + tenantID.String() + "\x00" + employeeID.String() + "\x00" + week.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+func encodeOwnCursor(c *ledger.OwnCursor, bind string) *string {
 	if c == nil {
 		return nil
 	}
-	s := ownCursorPrefix + strconv.FormatInt(c.At.UnixNano(), 10) + "_" + c.ID.String()
+	s := ownCursorPrefix + strconv.FormatInt(c.At.UnixNano(), 10) + "_" + c.ID.String() + "_" + bind
 	return &s
 }
 
-func decodeOwnCursor(s string) (*ledger.OwnCursor, bool) {
+// decodeOwnCursor reads the cursor's shape; ok false is a malformed cursor. The binding it returns is
+// checked against the resolved walk by ownCursorBound.
+func decodeOwnCursor(s string) (c *ledger.OwnCursor, bind string, ok bool) {
 	if s == "" {
-		return nil, true
+		return nil, "", true
 	}
 	rest, ok := strings.CutPrefix(s, ownCursorPrefix)
 	if !ok {
-		return nil, false
+		return nil, "", false
 	}
-	ns, idText, ok := strings.Cut(rest, "_")
-	if !ok {
-		return nil, false
+	parts := strings.Split(rest, "_")
+	if len(parts) != 3 {
+		return nil, "", false
 	}
-	n, err := strconv.ParseInt(ns, 10, 64)
+	n, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
-	id, err := uuid.Parse(idText)
+	id, err := uuid.Parse(parts[1])
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
-	return &ledger.OwnCursor{At: time.Unix(0, n).UTC(), ID: id}, true
+	bind = parts[2]
+	if len(bind) != 16 || strings.ToLower(bind) != bind {
+		return nil, "", false
+	}
+	if _, err := hex.DecodeString(bind); err != nil {
+		return nil, "", false
+	}
+	return &ledger.OwnCursor{At: time.Unix(0, n).UTC(), ID: id}, bind, true
+}
+
+// ownCursorBound says whether a request's cursor (none: always) belongs to the walk the read resolved.
+func ownCursorBound(after *ledger.OwnCursor, bind string, tenantID, employeeID uuid.UUID, week ledger.Date) bool {
+	return after == nil || bind == ownCursorBinding(tenantID, employeeID, week)
 }
 
 func minutesOf(d time.Duration) int { return int(d / time.Minute) }
@@ -151,7 +181,7 @@ func (a *App) Hours(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Week = ledger.Date{Year: d.Year(), Month: d.Month(), Day: d.Day()}
 	}
-	after, ok := decodeOwnCursor(req.After)
+	after, bind, ok := decodeOwnCursor(req.After)
 	if !ok {
 		writeAppError(w, appErrBadRequest)
 		return
@@ -170,10 +200,15 @@ func (a *App) Hours(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, appErrServer)
 		return
 	}
-	a.writeAppJSON(w, r, http.StatusOK, a.appHoursOf(ctx, week))
+	if !ownCursorBound(after, bind, dev.TenantID, dev.EmployeeID, week.Period.FirstDay) {
+		writeAppError(w, appErrBadRequest)
+		return
+	}
+	a.writeAppJSON(w, r, http.StatusOK, a.appHoursOf(ctx, week, ownCursorBinding(dev.TenantID, dev.EmployeeID, week.Period.FirstDay)))
 }
 
-func (a *App) appHoursOf(ctx context.Context, w ledger.OwnWeek) appHoursResponse {
+// appHoursOf is the answer; bind is the binding its nextCursor carries.
+func (a *App) appHoursOf(ctx context.Context, w ledger.OwnWeek, bind string) appHoursResponse {
 	loc := w.Zone
 	if loc == nil {
 		loc = time.UTC
@@ -193,7 +228,7 @@ func (a *App) appHoursOf(ctx context.Context, w ledger.OwnWeek) appHoursResponse
 		},
 		Days:       make([]appHoursDay, 0, len(w.Daily)),
 		Records:    make([]appHoursRecord, 0, len(w.Records)),
-		NextCursor: encodeOwnCursor(w.Next),
+		NextCursor: encodeOwnCursor(w.Next, bind),
 		Waiting:    appHoursWaiting{Records: w.WaitingRecords, Claims: w.WaitingClaims},
 	}
 	for i, d := range w.Daily {
