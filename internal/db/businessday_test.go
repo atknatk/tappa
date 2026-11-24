@@ -697,7 +697,7 @@ func TestBusinessDay00064_DownRefusesAFrozenDayAndOtherwiseGivesBack00063(t *tes
 	if !strings.Contains(head.function, "vol=i par=s definer=false config=search_path=pg_catalog, pg_temp acl=tappa_owner=X/tappa_owner,tappa_app=X/tappa_owner ret=text") {
 		t.Errorf("PREMISE at HEAD: function %q", head.function)
 	}
-	if head.tenantsUpdate != "name,business_type,timezone,day_cutoff,staff_shift_visible" {
+	if head.tenantsUpdate != "name,business_type,timezone,day_cutoff,staff_shift_visible,staff_hours_weeks" {
 		t.Errorf("PREMISE at HEAD: tappa_app UPDATE on tenants = %q", head.tenantsUpdate)
 	}
 
@@ -774,8 +774,8 @@ func TestBusinessDay00064_DownRefusesAFrozenDayAndOtherwiseGivesBack00063(t *tes
 			at63 := bdRead(t, ctx, sp)
 			// 00024's list, plus 00116's staff_shift_visible: this test runs 00064's Down ALONE, at HEAD,
 			// so a later migration's grant stays.
-			if at63.columns != "" || at63.constraints != "" || at63.function != "" || at63.tenantsUpdate != "name,business_type,timezone,staff_shift_visible" {
-				t.Errorf("after 00064's Down: %+v\nwant no column, no constraint, no function and tenants UPDATE = name,business_type,timezone,staff_shift_visible (00024's list and 00116's)", at63)
+			if at63.columns != "" || at63.constraints != "" || at63.function != "" || at63.tenantsUpdate != "name,business_type,timezone,staff_shift_visible,staff_hours_weeks" {
+				t.Errorf("after 00064's Down: %+v\nwant no column, no constraint, no function and tenants UPDATE = name,business_type,timezone,staff_shift_visible,staff_hours_weeks (00024's list, 00116's and 00117's)", at63)
 			}
 			if extra := strongTableLocksOutside(t, ctx, sp, tables); len(extra) > 0 {
 				t.Errorf("the Down took a strong lock on %v, outside the tables it names", extra)

@@ -63,6 +63,13 @@ var evidenceReaders = map[string]evidenceReaderClass{
 	"ListTimesheetShiftEvents": {"residue", "", 0,
 		"GET /v1/timesheets (M11 API-14, ADR 0046): ListWorkedShiftEvents' columns exactly, for a page of employees; the verdict decides " +
 			"the hours state only and reaches the answer as minutes, never as evidence (§13 item 5: the verdict residue)"},
+	"ListWorkedShiftEventsForEmployee": {"residue", "", 0,
+		"the staff app's My hours (M16-31): ListWorkedShiftEvents' columns exactly, for the person themselves; the verdict decides " +
+			"the hours state only and reaches the answer as minutes (§13 item 5: the verdict residue)"},
+	"ListOwnRecords": {"residue", "", 0,
+		"the staff app's My hours list (M16-31): the person's own records as day, time, direction, channel and a state word from " +
+			"the verdict and the review; a partner row's venue is named by holding_site_locations, no evidence column is selected"},
+	"CountOwnWaiting":     {"residue", "", 0, "the staff app's waiting line (M16-31): a count of the person's own undecided flags -- the verdict residue (§13 item 5)"},
 	"CountPendingFlagged": {"residue", "", 0, "a count of flags to decide; a flag's existence is the verdict residue (§13 item 5)"},
 	"CountPanelTransactionsByVerdict": {"residue", "", 0,
 		"the day's records by verdict under the list's own filters (M12-16); a partner-venue row's verdict is counted -- the verdict residue (§13 item 5); no evidence column is read"},

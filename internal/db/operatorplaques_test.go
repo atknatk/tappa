@@ -221,6 +221,8 @@ var opAtVersionSkips = map[int]string{
 		"table holds a row -- rows TestActivationRequests_ConcurrentCollectionExactlyOnce commits",
 	116: "tenants.staff_shift_visible and tappa_app's UPDATE on it (M16-45) -- no operator object; its Down takes " +
 		"ACCESS EXCLUSIVE on tenants (DROP COLUMN)",
+	117: "tenants.staff_hours_weeks, its CHECK and tappa_app's UPDATE on it (M16-30) -- no operator object; its Down " +
+		"takes ACCESS EXCLUSIVE on tenants (DROP COLUMN)",
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file

@@ -273,6 +273,7 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// M16-45: the owner's "these are my staff's real shifts" switch -- a write to `tenants`,
 		// owner-only, stopped by a suspension like the details save beside it.
 		r.Post(accountStaffShiftHref, a.accountStaffShiftSave)
+		r.Post(accountStaffHoursHref, a.accountStaffHoursSave)
 		// 🔴 THE BUSINESS DAY'S TWO PRESSES (M15-07): the review mints a confirmation and
 		// sets its twin cookie -- state -- and the apply rewrites a cutoff that decides how
 		// every later tap of the people it reaches is paired. The business level is

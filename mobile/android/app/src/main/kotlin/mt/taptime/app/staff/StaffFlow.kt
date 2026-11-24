@@ -4,6 +4,7 @@ import mt.taptime.app.activation.DeviceKeys
 import mt.taptime.app.activation.DeviceState
 import mt.taptime.app.wire.AppClient
 import mt.taptime.app.wire.ClaimsReply
+import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.Outcome
 
 // "Missing times" (M16-44): the list and one send, signed by this phone's key. Nothing here is
@@ -16,6 +17,18 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         /** The server refused the context (stale_context): the list is read again. */
         data object Stale : Answer<Nothing>
         data object Server : Answer<Nothing>
+        /** M16-31: the business has My hours turned off (not_found). */
+        data object Off : Answer<Nothing>
+    }
+
+    /** My hours (M16-31): one page of a week; [week] null is this week, [after] the next page's cursor. */
+    fun hours(week: String?, after: String?): Answer<HoursReply> {
+        val device = state.active() ?: return Answer.SignedOut
+        val key = keys.load(device.keyAlias) ?: return Answer.SignedOut
+        return when (val r = client.hours(device.deviceId, key, week, after)) {
+            is Outcome.Refused -> if (r.code == mt.taptime.app.wire.AppErrorCode.NOT_FOUND) Answer.Off else answer(r)
+            else -> answer(r)
+        }
     }
 
     fun claims(): Answer<ClaimsReply> {

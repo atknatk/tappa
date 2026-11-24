@@ -103,6 +103,9 @@ class AppClient(
     fun claims(deviceId: String, key: Signer): Outcome<ClaimsReply> =
         signedRead("POST", Paths.CLAIMS, Bodies.claims(), deviceId, key, Replies::claims)
 
+    fun hours(deviceId: String, key: Signer, week: String?, after: String?): Outcome<HoursReply> =
+        signedRead("POST", Paths.HOURS, Bodies.hours(week, after), deviceId, key, Replies::hours)
+
     fun claimSend(deviceId: String, key: Signer, context: String, at: String): Outcome<String> =
         when (val r = signedRequest("POST", Paths.CLAIMS_SEND, Bodies.claimSend(context, at), deviceId, key, Replies::claimSend)) {
             is Outcome.Ok -> r.value?.let { Outcome.Ok(it) } ?: Outcome.Failed("empty reply")

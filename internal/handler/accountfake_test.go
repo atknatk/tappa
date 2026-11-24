@@ -100,6 +100,17 @@ func (f *fakeAccounts) setVAT(verified *bool, checkedAt *time.Time) {
 	f.settings.VAT = tenant.VATCheck{Verified: verified, CheckedAt: checkedAt}
 }
 
+// SetStaffHoursWeeks stores the owner's My hours window on the double's row (M16-30).
+func (f *fakeAccounts) SetStaffHoursWeeks(_ context.Context, _, _ uuid.UUID, weeks *int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.settings.StaffHoursWeeks = 0
+	if weeks != nil {
+		f.settings.StaffHoursWeeks = *weeks
+	}
+	return nil
+}
+
 // SetStaffShiftVisible stores the owner's switch on the double's row (M16-45).
 func (f *fakeAccounts) SetStaffShiftVisible(_ context.Context, _, _ uuid.UUID, on bool) error {
 	f.mu.Lock()

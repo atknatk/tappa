@@ -1,6 +1,10 @@
 package pages
 
-import "github.com/atknatk/tappa/web/templates/components"
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
 
 // The ACCOUNT screen (M7-05) — the business's own facts, the three it may change,
 // what the tax register said about its VAT number, and the sentence its staff read
@@ -175,6 +179,8 @@ type AccountView struct {
 	ManagersHref string
 	// StaffShift is the owner's "real shifts" switch (M16-45); nil for anyone else.
 	StaffShift *AccountStaffShift
+	// StaffHours is the owner's My hours card (M16-30); nil for anybody else.
+	StaffHours *AccountStaffHours
 
 	// --- the password form (T73) --------------------------------------------------
 
@@ -391,4 +397,32 @@ type EmailUndoView struct {
 type AccountStaffShift struct {
 	PostHref string
 	On       bool
+}
+
+// AccountStaffHours is the owner's My hours card (M16-30): off, or a window of whole weeks.
+type AccountStaffHours struct {
+	PostHref string
+	// Weeks is 0 when off, else 1, 2, 4 or 13.
+	Weeks int
+}
+
+// StaffHoursChoice is one option of the My hours card.
+type StaffHoursChoice struct {
+	Value, Label string
+	Selected     bool
+}
+
+// Choices are the card's options in order, the current one selected.
+func (c AccountStaffHours) Choices() []StaffHoursChoice {
+	opts := []StaffHoursChoice{
+		{Value: "0", Label: "Off"},
+		{Value: "1", Label: "This week"},
+		{Value: "2", Label: "2 weeks"},
+		{Value: "4", Label: "4 weeks"},
+		{Value: "13", Label: "13 weeks"},
+	}
+	for i := range opts {
+		opts[i].Selected = opts[i].Value == strconv.Itoa(c.Weeks)
+	}
+	return opts
 }

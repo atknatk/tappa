@@ -1027,6 +1027,11 @@ type Querier interface {
 	// The 2026-10-20 plan (seed tenant, 72 rows) read 78 pages with the old anti-join; it is
 	// superseded by T272's numbers above.
 	CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloorByVenueParams) ([]CountOnTheFloorByVenueRow, error)
+	// The staff app's "waiting for your manager" line (M16-31): in the window [from_at, to_at), the
+	// person's flagged records nobody has decided and their claims with no decision (anchored in the
+	// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): every WHERE binds its
+	// table's tenant_id to @tenant_id, beside RLS.
+	CountOwnWaiting(ctx context.Context, arg CountOwnWaitingParams) (CountOwnWaitingRow, error)
 	// How many people the roster holds per lifecycle status (M12-17, panel redesign D3):
 	// the People screen's status chips and its "N on the books" kicker.
 	//
@@ -2709,6 +2714,8 @@ type Querier interface {
 	//
 	// staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
 	// off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+	// staff_hours_weeks (00117, M16-30) rides here for /me's hoursWeeks: the owner's My hours window,
+	// NULL when off -- the app shows the My hours link only when it is set.
 	// A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
 	// only a department's shift can apply, and the line names no venue.
 	GetEmployeeUsualShift(ctx context.Context, arg GetEmployeeUsualShiftParams) (GetEmployeeUsualShiftRow, error)
@@ -3523,6 +3530,11 @@ type Querier interface {
 	// subject, tenant_branding. tenants.id is bound to the same parameter as well: each
 	// table this statement reads names the tenant (section 4.5).
 	GetTenantPanelBrand(ctx context.Context, tenantID uuid.UUID) (GetTenantPanelBrandRow, error)
+	// What the staff app's My hours read needs about the business (M16-31): the window and the zone
+	// (the window is whole weeks in the business's zone).
+	GetTenantStaffHours(ctx context.Context, tenantID uuid.UUID) (GetTenantStaffHoursRow, error)
+	// The My hours window BEFORE an owner's change, locked, for the trail's "before" (M16-30).
+	GetTenantStaffHoursWeeksForUpdate(ctx context.Context, tenantID uuid.UUID) (*int16, error)
 	// The switch's value BEFORE an owner's change, locked, for the trail's "before" (Accounts.Save's
 	// rule: the row describes the change that happened, not one read a moment earlier).
 	GetTenantStaffShiftVisibleForUpdate(ctx context.Context, tenantID uuid.UUID) (bool, error)
@@ -4619,6 +4631,22 @@ type Querier interface {
 	// with employee_id as a filter -- a business's claims of 30 days are a handful (12 in production
 	// over 30 days, measured 2026-11-19).
 	ListOwnPunchClaims(ctx context.Context, arg ListOwnPunchClaimsParams) ([]ListOwnPunchClaimsRow, error)
+	// The staff app's My hours list (M16-31): every one of the person's records in a week, refusals
+	// and ignored repeats included (their type may be NULL -- 00014), in time order, one page.
+	//
+	// 🔴 SECTION 4.7 -- WHAT IT DOES NOT SELECT: gps_lat, gps_lng, source_ip, policy_context (the
+	// ledger docket's rule), trust_score and the record's note (the employee screens' rule of
+	// 2026-11-02: no trust number, no rule note), the review's note and the claim decision's note (a
+	// manager's free text), entered_by (a typed record does not name the manager).
+	//
+	// The venue is the tapped location's name; a tap at a holding peer's venue carries
+	// site_location_id, which the caller names through holding_site_locations (ledger.siteVenuesFor,
+	// the ledger's own naming). A claim anchored on the row: its decision, if any (00068: one claim per
+	// anchor, one decision per claim).
+	//
+	// Keyset page: (occurred_at, id) after the cursor. TENANT AND PERSON SCOPE (section 4.5): explicit
+	// predicates beside RLS, every JOIN restating the tenant.
+	ListOwnRecords(ctx context.Context, arg ListOwnRecordsParams) ([]ListOwnRecordsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
 	//
@@ -5946,6 +5974,17 @@ type Querier interface {
 	// report counts and names on the screen. Still no minutes_late: the snapshot is an input the
 	// record carries, not a total, and the one lateness function (tap.MinutesLate) computes from it.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
+	// The staff app's My hours totals (M16-31): ListWorkedShiftEvents for ONE PERSON.
+	//
+	// 🔴 THE COLUMN LIST IS ListWorkedShiftEvents' OWN, COLUMN FOR COLUMN -- ledger converts each row to
+	// a store.ListWorkedShiftEventsRow (a Go type conversion that compiles only while the two generated
+	// types match) and hands it to the same events() and accumulate() the panel's report runs. One
+	// arithmetic: what ListWorkedShiftEvents' block says about the columns NOT selected, the LEFT JOINs,
+	// NOT practice, type IS NOT NULL and the window's edges holds here unchanged.
+	//
+	// TENANT AND PERSON SCOPE (section 4.5): the explicit tenant_id AND employee_id predicates beside
+	// RLS; both come from the verified device row, never from the request.
+	ListWorkedShiftEventsForEmployee(ctx context.Context, arg ListWorkedShiftEventsForEmployeeParams) ([]ListWorkedShiftEventsForEmployeeRow, error)
 	// SERIALISE ONE API KEY'S DEACTIVATIONS (M11 API-6, ADR 0028 §12, K-25). The budget is a
 	// READ-THEN-DECIDE over this table (CountAPIDeactivations), and without a lock N concurrent
 	// deactivations all count before any of them has committed and all pass -- the budget exceeded
@@ -7054,6 +7093,8 @@ type Querier interface {
 	// the bytes, a type outside image/png and image/jpeg, a size outside 1..512 and more
 	// than 262 144 bytes (migration 00028).
 	SetTenantLogo(ctx context.Context, arg SetTenantLogoParams) (int64, error)
+	// The owner's My hours setting (M16-30): NULL is off, else 1, 2, 4 or 13 whole weeks (00117's CHECK).
+	SetTenantStaffHoursWeeks(ctx context.Context, arg SetTenantStaffHoursWeeksParams) (int64, error)
 	// The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
 	SetTenantStaffShiftVisible(ctx context.Context, arg SetTenantStaffShiftVisibleParams) (int64, error)
 	// Switch the endpoint off or on. Only a change matches: switching off an endpoint that is off writes

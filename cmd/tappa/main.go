@@ -466,6 +466,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// My hours in the staff app (M16-31): the panel's own reader, so a person's week is the
+	// report's arithmetic for them.
+	if err := app.ServeHours(records); err != nil {
+		return err
+	}
 	// The panel's WRITE side (M6-04): the FLAGGED approval queue. It takes the SAME
 	// audit recorder every other service does, because the review row and its audit
 	// row have to share one transaction — internal/domain/review says why that is

@@ -25,6 +25,8 @@ object Paths {
     const val CLAIMS = "/app/v1/claims"
     /** M16-43: one claim (nonce-signed). */
     const val CLAIMS_SEND = "/app/v1/claims/send"
+    /** M16-31: the person's own week (a signed read). */
+    const val HOURS = "/app/v1/hours"
 }
 
 object Headers {
@@ -126,6 +128,8 @@ sealed interface ApprovalReply {
 data class MeReply(
     val employeeName: String, val brand: Brand, val direction: String,
     val presence: Presence? = null, val shift: UsualShift? = null, val missingTimes: Int = 0,
+    /** M16-30: the owner's My hours window in weeks; 0 is off (and an old server's answer). */
+    val hoursWeeks: Int = 0,
 )
 
 /**
@@ -155,6 +159,25 @@ data class SentClaim(
 )
 
 data class ClaimsReply(val open: List<OpenClaim>, val sent: List<SentClaim>)
+
+/** M16-31: one week of My hours. Minutes are whole and floored by the server; dates and clocks are the business's. */
+data class HoursTotals(
+    val workedMinutes: Int, val awaitingMinutes: Int, val openEntries: Int, val checkInMissing: Int,
+    val truncated: Boolean, val complete: Boolean,
+)
+
+data class HoursDay(val date: String, val workedMinutes: Int)
+
+data class HoursRecord(
+    val date: String, val at: String, val venue: String, val direction: String, val channel: String,
+    val state: String, val claim: String?,
+)
+
+data class HoursReply(
+    val week: String, val weeksVisible: Int, val hasPrev: Boolean, val hasNext: Boolean,
+    val totals: HoursTotals, val days: List<HoursDay>, val records: List<HoursRecord>,
+    val nextCursor: String?, val waitingRecords: Int, val waitingClaims: Int,
+)
 
 data class NonceReply(val nonce: String, val expiresAt: String) {
     override fun toString() = "NonceReply(nonce=<redacted>, expiresAt=$expiresAt)"
@@ -267,6 +290,7 @@ object Replies {
             presence = optObject("presence")?.let(::presence),
             shift = optObject("shift")?.run { UsualShift(string("start"), string("end"), optBool("overnight"), optString("venue") ?: "") },
             missingTimes = optInt("missingTimes"),
+            hoursWeeks = optInt("hoursWeeks"),
         )
     }
 
@@ -306,6 +330,29 @@ object Replies {
     }
 
     fun claimSend(m: Map<String, Any?>): String = Fields(m).string("result")
+
+    fun hours(m: Map<String, Any?>): HoursReply = Fields(m).run {
+        val t = optObject("totals") ?: throw JsonException("hours: no totals")
+        val w = optObject("waiting")
+        HoursReply(
+            week = string("week"), weeksVisible = int("weeksVisible"),
+            hasPrev = optBool("hasPrev"), hasNext = optBool("hasNext"),
+            totals = HoursTotals(
+                t.int("workedMinutes"), t.optInt("awaitingMinutes"), t.optInt("openEntries"), t.optInt("checkInMissing"),
+                t.optBool("truncated"), t.optBool("complete"),
+            ),
+            days = objects("days").map { d -> HoursDay(d.string("date"), d.int("workedMinutes")) },
+            records = objects("records").map { r ->
+                HoursRecord(
+                    r.string("date"), r.string("at"), r.optString("venue").orEmpty(), r.optString("direction").orEmpty(),
+                    r.optString("channel") ?: "other", r.string("state"), r.optString("claim"),
+                )
+            },
+            nextCursor = optString("nextCursor"),
+            waitingRecords = w?.optInt("records") ?: 0,
+            waitingClaims = w?.optInt("claims") ?: 0,
+        )
+    }
 
     fun tapStart(m: Map<String, Any?>): TapStartReply = Fields(m).run {
         val context = string("context")
@@ -370,6 +417,14 @@ object Bodies {
 
     /** POST /app/v1/claims: an empty object. */
     fun claims(): ByteArray = "{}".toByteArray(Charsets.UTF_8)
+
+    /** POST /app/v1/hours: a Monday "YYYY-MM-DD" (null: this week) and the previous page's cursor. */
+    fun hours(week: String?, after: String?): ByteArray {
+        val w = JsonObjectWriter()
+        if (week != null) w.put("week", week)
+        if (after != null) w.put("after", after)
+        return w.bytes()
+    }
 
     /** POST /app/v1/claims/send: the signed context as it came, and the wall clock "HH:MM". */
     fun claimSend(context: String, at: String): ByteArray = JsonObjectWriter().put("context", context).put("at", at).bytes()

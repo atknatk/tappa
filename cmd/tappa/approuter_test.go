@@ -501,6 +501,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// M16-43: "Missing times" -- POST /api/claim's twin, outside the panel and, like it, without a
 		// suspension gate (a claim writes no record; the manager's decision is the panel's, behind it).
 		"POST " + handler.AppClaimsPath:     "app",
+		"POST " + handler.AppHoursPath:      "app",
 		"POST " + handler.AppClaimsSendPath: "app",
 		"POST /admin/reset":                 "reset",
 		"POST /admin/reset/new":             "reset",

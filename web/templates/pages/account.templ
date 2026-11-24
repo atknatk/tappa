@@ -77,6 +77,9 @@ templ AdminAccount(v AccountView) {
 			if v.StaffShift != nil {
 				@accountStaffShift(*v.StaffShift)
 			}
+			if v.StaffHours != nil {
+				@accountStaffHours(*v.StaffHours)
+			}
 			@accountBrand(v.Brand, v.PanelChrome)
 			@accountPasswordForm(v)
 			if v.Identity != nil {
@@ -810,6 +813,28 @@ templ accountStaffShift(c AccountStaffShift) {
 		<p class="text-[13px] leading-normal text-ink/70">
 			Staff see their usual shift in the Taptime app, and its reminder and lock-screen timer use the shift's end.
 			Turning this on does not change late minutes or time claims: those already use any shift you set.
+		</p>
+		<div>
+			<button type="submit" class="btn btn--line">Save</button>
+		</div>
+	</form>
+}
+
+// accountStaffHours is the owner's My hours setting (M16-30): off, or how many whole weeks back a
+// person may read their own records in the staff app.
+templ accountStaffHours(c AccountStaffHours) {
+	<form method="post" action={ templ.URL(components.Bound(ctx, c.PostHref)) } class="panel-card min-w-0" aria-labelledby="account-staffhours-heading">
+		@accountCardHeading("account-staffhours-heading", "My hours in the staff app")
+		<label class="flex flex-col gap-1.5 text-[14px] leading-normal text-ink">
+			<span>Show staff their own records and weekly hours</span>
+			<select name="staff_hours_weeks" class="min-h-11 border border-ink/20 bg-paper px-3 text-[14px] text-ink">
+				for _, o := range c.Choices() {
+					<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+				}
+			</select>
+		</label>
+		<p class="text-[13px] leading-normal text-ink/70">
+			A convenience for your staff: this week, or this week and the weeks before it. Their right to a copy of their own records does not depend on this setting.
 		</p>
 		<div>
 			<button type="submit" class="btn btn--line">Save</button>

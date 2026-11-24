@@ -337,4 +337,52 @@
     <string name="timer_shift_ends">Shift ends %1$s</string>
     <string name="channel_reminders">Clock-out reminders</string>
     <string name="channel_timer">At-work timer</string>
+
+    <!-- My hours (M16-31/33): the person's own week, in plain words. -->
+    <string name="home_hours">My hours</string>
+    <string name="hours_label">My hours</string>
+    <string name="hours_window_1">This week</string>
+    <string name="hours_window_n">Last %1$d weeks</string>
+    <string name="hours_week_of">Week of %1$s</string>
+    <string name="hours_counted_label">Counted</string>
+    <string name="hours_duration">%1$d h %2$02d min</string>
+    <string name="hours_awaiting">Waiting for your manager, not counted yet: %1$s.</string>
+    <plurals name="hours_open">
+        <item quantity="one">%d check-in has no check-out yet, so it is not counted.</item>
+        <item quantity="other">%d check-ins have no check-out yet, so they are not counted.</item>
+    </plurals>
+    <plurals name="hours_in_missing">
+        <item quantity="one">%d check-out has no check-in.</item>
+        <item quantity="other">%d check-outs have no check-in.</item>
+    </plurals>
+    <string name="hours_truncated">Too many records to add up: the total is at least this much.</string>
+    <plurals name="hours_waiting_records">
+        <item quantity="one">%d record</item>
+        <item quantity="other">%d records</item>
+    </plurals>
+    <plurals name="hours_waiting_claims">
+        <item quantity="one">%d time claim</item>
+        <item quantity="other">%d time claims</item>
+    </plurals>
+    <string name="hours_waiting_line">Waiting for your manager: %1$s.</string>
+    <string name="hours_days_label">Days</string>
+    <string name="hours_records_label">Records</string>
+    <string name="hours_none">No records this week.</string>
+    <string name="hours_state_approved">Counted</string>
+    <string name="hours_state_waiting">Waiting for your manager</string>
+    <string name="hours_state_rejected">Not counted</string>
+    <string name="hours_state_repeat">Repeat tap</string>
+    <string name="hours_dir_in">In</string>
+    <string name="hours_dir_out">Out</string>
+    <string name="hours_channel_manual">Entered by your manager</string>
+    <string name="hours_channel_qr">QR</string>
+    <string name="hours_channel_qr_live">Live QR</string>
+    <string name="hours_channel_other">Other</string>
+    <string name="hours_claim_pending">Time claim sent</string>
+    <string name="hours_claim_approved">Time claim approved</string>
+    <string name="hours_claim_rejected">Time claim declined</string>
+    <string name="hours_prev">Previous week</string>
+    <string name="hours_next">Next week</string>
+    <string name="hours_more">Show more</string>
+    <string name="hours_off">Your employer has turned My hours off.</string>
 </resources>

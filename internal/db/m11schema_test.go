@@ -520,6 +520,8 @@ var m11Columns = []m11Column{
 	// 00116 (M16-45, ADR 0050 (iv)): the owner's "real shifts" switch -- the same column-by-column
 	// UPDATE as day_cutoff, and no other role: only the staff app's /me reads it, as tappa_app.
 	{"tenants", "staff_shift_visible", map[string]string{"tappa_app": "SU"}},
+	// 00117 (M16-30): the owner's My hours window -- the same column-by-column UPDATE.
+	{"tenants", "staff_hours_weeks", map[string]string{"tappa_app": "SU"}},
 	// 00064 (M15-02, ADR 0032 §A.5): the frozen business day of a tap. transactions' table-level
 	// SELECT and INSERT (00005), nothing else: written once by the tap's INSERT, never updated (§4.3).
 	// Neither feed writer reads it -- the punch event and the site projection carry no business day.
@@ -1458,14 +1460,15 @@ var employeeLocationReaders = []string{
 // and a location_id or a wildcard -- that do NOT read employees.location_id, each with what its
 // location_id is. A statement is in exactly one of the two lists.
 var employeeLocationNonReaders = map[string]string{
-	"CountPanelTransactionsByVerdict": "t.location_id, the venue filter on transactions (ListPanelTransactions' own); employees is matched by full_name in the name CTE",
-	"ListFlaggedForReview":            "t.location_id, the record's venue; employees is joined for full_name",
-	"ListCheckoutsWithoutCheckIn":     "o.location_id, the checkout's venue; employees is joined for full_name (M15-06)",
-	"ListOpenCheckIns":                "t.location_id, the record's venue; employees is joined for full_name",
-	"ListPanelTransactions":           "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
-	"ListTapsTakenTogether":           "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
-	"ListWorkedShiftEvents":           "t.location_id, the record's venue; employees is joined for full_name",
-	"ListTimesheetShiftEvents":        "t.location_id, the record's venue; employees is joined for full_name (M11 API-14: ListWorkedShiftEvents' columns)",
+	"CountPanelTransactionsByVerdict":  "t.location_id, the venue filter on transactions (ListPanelTransactions' own); employees is matched by full_name in the name CTE",
+	"ListFlaggedForReview":             "t.location_id, the record's venue; employees is joined for full_name",
+	"ListCheckoutsWithoutCheckIn":      "o.location_id, the checkout's venue; employees is joined for full_name (M15-06)",
+	"ListOpenCheckIns":                 "t.location_id, the record's venue; employees is joined for full_name",
+	"ListPanelTransactions":            "t.location_id and the venue filter on transactions; employees is matched and joined for full_name",
+	"ListTapsTakenTogether":            "transactions' location_id through its ordered/pairs CTEs; employees is joined for full_name",
+	"ListWorkedShiftEvents":            "t.location_id, the record's venue; employees is joined for full_name",
+	"ListTimesheetShiftEvents":         "t.location_id, the record's venue; employees is joined for full_name (M11 API-14: ListWorkedShiftEvents' columns)",
+	"ListWorkedShiftEventsForEmployee": "t.location_id, the record's venue; employees is joined for full_name (M16-31: ListWorkedShiftEvents' columns)",
 	// M11 API-1c: the manager's record at a holding peer's venue -- location_id is WRITTEN NULL (K-30:
 	// a site row names no local venue) and the venue is the peer's site_location_id; employees is
 	// read for the id and the department alone, so an employee with no home venue is filed the same.
