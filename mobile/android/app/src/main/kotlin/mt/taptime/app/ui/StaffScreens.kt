@@ -35,6 +35,8 @@ import mt.taptime.app.R
 import mt.taptime.app.activation.AccentFill
 import mt.taptime.app.staff.ClaimWords
 import mt.taptime.app.wire.Brand
+import mt.taptime.app.wire.HoursRecord
+import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
 import mt.taptime.app.wire.OpenClaim
 import mt.taptime.app.wire.SentClaim
@@ -56,7 +58,7 @@ private fun shiftLine(s: UsualShift): String =
 
 /** The home screen: who, at work or not, the usual shift, and two quiet links. No button. */
 @Composable
-fun HomeScreen(me: MeReply, hasReader: Boolean, onMissing: () -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(me: MeReply, hasReader: Boolean, onMissing: () -> Unit, onSettings: () -> Unit, onHours: () -> Unit = {}) {
     val p = me.presence
     Page({ staffHeader(me.brand) }) {
         Panel(docket = true) {
@@ -71,6 +73,7 @@ fun HomeScreen(me: MeReply, hasReader: Boolean, onMissing: () -> Unit, onSetting
         if (hasReader) Body(stringResource(if (p != null) R.string.home_tap_out else R.string.home_tap_in), center = true)
         else Notice(Tone.WARN, stringResource(R.string.p_no_nfc_title), stringResource(R.string.p_no_nfc_message),
             stringResource(R.string.p_no_nfc_hint))
+        if (me.hoursWeeks > 0) QuietLink(stringResource(R.string.home_hours), onClick = onHours)
         if (me.missingTimes > 0) QuietLink(stringResource(R.string.home_missing, me.missingTimes), onClick = onMissing)
         QuietLink(stringResource(R.string.home_settings), onClick = onSettings)
     }
@@ -190,3 +193,113 @@ private fun ClaimCard(c: OpenClaim, locale: java.util.Locale, problem: String?, 
 @Composable
 fun outsideWindowText(c: OpenClaim): String =
     stringResource(R.string.claim_outside, stringResource(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo))
+
+// --- My hours (M16-33): the person's own week, in plain words (the card's recommendation (b)) ---
+
+@Composable
+private fun duration(minutes: Int): String = stringResource(R.string.hours_duration, minutes / 60, minutes % 60)
+
+private fun dayOf(date: String, locale: java.util.Locale): String = ClaimWords.date(date, locale)
+
+@Composable
+private fun stateWord(state: String): String = stringResource(
+    when (state) {
+        "approved" -> R.string.hours_state_approved
+        "waiting" -> R.string.hours_state_waiting
+        "repeat" -> R.string.hours_state_repeat
+        else -> R.string.hours_state_rejected
+    },
+)
+
+@Composable
+private fun recordLine(r: HoursRecord, locale: java.util.Locale): String {
+    val parts = mutableListOf(dayOf(r.date, locale), r.at)
+    when (r.direction) {
+        "in" -> parts += stringResource(R.string.hours_dir_in)
+        "out" -> parts += stringResource(R.string.hours_dir_out)
+    }
+    if (r.venue.isNotEmpty()) parts += r.venue
+    return parts.joinToString(" · ")
+}
+
+@Composable
+private fun recordNote(r: HoursRecord): String {
+    val parts = mutableListOf(stateWord(r.state))
+    when (r.channel) {
+        "manual" -> parts += stringResource(R.string.hours_channel_manual)
+        "qr" -> parts += stringResource(R.string.hours_channel_qr)
+        "qr_live" -> parts += stringResource(R.string.hours_channel_qr_live)
+        "other" -> parts += stringResource(R.string.hours_channel_other)
+    }
+    when (r.claim) {
+        "pending" -> parts += stringResource(R.string.hours_claim_pending)
+        "approved" -> parts += stringResource(R.string.hours_claim_approved)
+        "rejected" -> parts += stringResource(R.string.hours_claim_rejected)
+    }
+    return parts.joinToString(" · ")
+}
+
+/**
+ * "My hours": the week's counted total, what keeps it from being complete, the days, and every
+ * record with its state in words. Nothing is kept on the phone (the card's rule): the screen shows
+ * the answer it was given and reads again when it opens.
+ */
+@Composable
+fun HoursScreen(
+    brand: Brand?, reply: HoursReply?, records: List<HoursRecord>, busy: Boolean, network: Boolean,
+    onPrev: () -> Unit, onNext: () -> Unit, onMore: () -> Unit, onBack: () -> Unit,
+) {
+    val locale = LocalConfiguration.current.locales[0]
+    val res = androidx.compose.ui.platform.LocalContext.current.resources
+    Page({ staffHeader(brand) }) {
+        DocketLabel(stringResource(R.string.hours_label))
+        if (network) ProblemNotice(mt.taptime.app.activation.Problem.NETWORK)
+        if (reply != null) {
+            val t = reply.totals
+            Panel(docket = true) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    DocketLabel(stringResource(R.string.hours_week_of, dayOf(reply.week, locale)))
+                    DocketLabel(
+                        if (reply.weeksVisible <= 1) stringResource(R.string.hours_window_1)
+                        else stringResource(R.string.hours_window_n, reply.weeksVisible),
+                    )
+                }
+                Body(stringResource(R.string.hours_counted_label), small = true, muted = true)
+                Heading(duration(t.workedMinutes))
+                if (t.awaitingMinutes > 0) Body(stringResource(R.string.hours_awaiting, duration(t.awaitingMinutes)), small = true)
+                if (t.openEntries > 0) Body(res.getQuantityString(R.plurals.hours_open, t.openEntries, t.openEntries), small = true)
+                if (t.checkInMissing > 0) Body(res.getQuantityString(R.plurals.hours_in_missing, t.checkInMissing, t.checkInMissing), small = true)
+                if (t.truncated) Body(stringResource(R.string.hours_truncated), small = true)
+            }
+            val waiting = buildList {
+                if (reply.waitingRecords > 0) add(res.getQuantityString(R.plurals.hours_waiting_records, reply.waitingRecords, reply.waitingRecords))
+                if (reply.waitingClaims > 0) add(res.getQuantityString(R.plurals.hours_waiting_claims, reply.waitingClaims, reply.waitingClaims))
+            }
+            if (waiting.isNotEmpty()) Notice(Tone.WARN, null, stringResource(R.string.hours_waiting_line, waiting.joinToString(" · ")))
+            DocketLabel(stringResource(R.string.hours_days_label))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (d in reply.days) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        BasicText(dayOf(d.date, locale), style = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace, fontSize = 14.sp))
+                        BasicText(if (d.workedMinutes > 0) duration(d.workedMinutes) else "—",
+                            style = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace, fontSize = 14.sp))
+                    }
+                }
+            }
+            DocketLabel(stringResource(R.string.hours_records_label))
+            if (records.isEmpty()) Body(stringResource(R.string.hours_none), muted = true)
+            for (r in records) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    BasicText(recordLine(r, locale), style = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace, fontSize = 14.sp))
+                    Body(recordNote(r), small = true, muted = r.state == "approved")
+                }
+            }
+            if (reply.nextCursor != null) QuietLink(stringResource(R.string.hours_more), enabled = !busy, onClick = onMore)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Box(Modifier.weight(1f)) { if (reply.hasPrev) QuietLink(stringResource(R.string.hours_prev), enabled = !busy, onClick = onPrev) }
+                Box(Modifier.weight(1f)) { if (reply.hasNext) QuietLink(stringResource(R.string.hours_next), enabled = !busy, onClick = onNext) }
+            }
+        }
+        QuietLink(stringResource(R.string.back), enabled = true, onClick = onBack)
+    }
+}

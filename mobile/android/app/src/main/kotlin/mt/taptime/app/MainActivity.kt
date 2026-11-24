@@ -47,6 +47,7 @@ import mt.taptime.app.staff.TimerDismissals
 import mt.taptime.app.ui.ActivatedScreen
 import mt.taptime.app.ui.ClaimNotice
 import mt.taptime.app.ui.HomeScreen
+import mt.taptime.app.ui.HoursScreen
 import mt.taptime.app.ui.MissingTimesScreen
 import mt.taptime.app.ui.SettingsScreen
 import mt.taptime.app.ui.BlockedScreen
@@ -68,6 +69,8 @@ import mt.taptime.app.wire.ApprovalReply
 import mt.taptime.app.wire.Brand
 import mt.taptime.app.wire.HttpUrlTransport
 import mt.taptime.app.wire.LookupReply
+import mt.taptime.app.wire.HoursRecord
+import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
 import mt.taptime.app.wire.OpenClaim
 import mt.taptime.app.wire.SentClaim
@@ -132,6 +135,14 @@ class MainActivity : ComponentActivity() {
         data class Missing(
             val me: MeReply, val open: List<OpenClaim> = emptyList(), val sent: List<SentClaim> = emptyList(),
             val notice: ClaimNotice? = null, val problems: Map<String, String> = emptyMap(), val busy: Boolean = true,
+        ) : Screen
+        /**
+         * My hours (M16-33): [reply] the week shown (null until the first answer), [records] its
+         * pages so far. Nothing of it is stored on the phone.
+         */
+        data class Hours(
+            val me: MeReply, val week: String? = null, val reply: HoursReply? = null,
+            val records: List<HoursRecord> = emptyList(), val busy: Boolean = true, val network: Boolean = false,
         ) : Screen
         /** This phone cannot activate (KeyGate). A missing NFC reader no longer stops it (M16-23). */
         data class Blocked(val problem: Problem) : Screen
@@ -316,7 +327,16 @@ class MainActivity : ComponentActivity() {
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
             is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
             is Screen.Home -> HomeScreen(s.me, hasReader = nfc != null,
-                onMissing = { openMissing(s.me) }, onSettings = { screen = settingsOf(s.me) })
+                onMissing = { openMissing(s.me) }, onSettings = { screen = settingsOf(s.me) },
+                onHours = { loadHours(Screen.Hours(s.me), null, append = false) })
+            is Screen.Hours -> {
+                BackHandler { screen = Screen.Home(s.me); syncPresence() }
+                HoursScreen(s.me.brand, s.reply, s.records, s.busy, s.network,
+                    onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
+                    onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
+                    onMore = { s.reply?.nextCursor?.let { loadHours(s, it, append = true) } },
+                    onBack = { screen = Screen.Home(s.me); syncPresence() })
+            }
             is Screen.Settings -> {
                 BackHandler { screen = Screen.Home(s.me) }
                 SettingsScreen(s.me, s.remind, s.timer, s.notificationsOff,
@@ -418,6 +438,30 @@ class MainActivity : ComponentActivity() {
             return
         }
         apply(true)
+    }
+
+    private fun shiftWeek(week: String, days: Long): String =
+        java.time.LocalDate.parse(week).plusDays(days).toString()
+
+    // One page of My hours. A new week replaces the list; "Show more" appends the next page.
+    private fun loadHours(s: Screen.Hours, after: String?, append: Boolean) {
+        val busy = s.copy(busy = true, network = false)
+        screen = busy
+        work({ staff.hours(s.week, after) }, failed = { busy.copy(busy = false, network = true) }) { r ->
+            screen = when (r) {
+                is StaffFlow.Answer.Ok -> busy.copy(
+                    week = r.value.week, reply = r.value,
+                    records = if (append) busy.records + r.value.records else r.value.records, busy = false,
+                )
+                StaffFlow.Answer.Off -> {
+                    android.widget.Toast.makeText(this, R.string.hours_off, android.widget.Toast.LENGTH_LONG).show()
+                    syncPresence()
+                    Screen.Home(s.me.copy(hoursWeeks = 0))
+                }
+                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                else -> busy.copy(busy = false, network = true)
+            }
+        }
     }
 
     private fun openMissing(me: MeReply) {

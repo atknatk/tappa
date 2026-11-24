@@ -246,4 +246,52 @@
     <string name="timer_shift_ends">Vardiya bitişi %1$s</string>
     <string name="channel_reminders">Çıkış hatırlatmaları</string>
     <string name="channel_timer">İşteyken sayaç</string>
+
+    <!-- Saatlerim (M16-31/33). -->
+    <string name="home_hours">Saatlerim</string>
+    <string name="hours_label">Saatlerim</string>
+    <string name="hours_window_1">Bu hafta</string>
+    <string name="hours_window_n">Son %1$d hafta</string>
+    <string name="hours_week_of">Hafta: %1$s</string>
+    <string name="hours_counted_label">Sayılan</string>
+    <string name="hours_duration">%1$d sa %2$02d dk</string>
+    <string name="hours_awaiting">Müdür onayı bekleyen, henüz sayılmayan: %1$s.</string>
+    <plurals name="hours_open">
+        <item quantity="one">%d girişin henüz çıkışı yok; sayılmadı.</item>
+        <item quantity="other">%d girişin henüz çıkışı yok; sayılmadı.</item>
+    </plurals>
+    <plurals name="hours_in_missing">
+        <item quantity="one">%d çıkışın girişi yok.</item>
+        <item quantity="other">%d çıkışın girişi yok.</item>
+    </plurals>
+    <string name="hours_truncated">Toplanamayacak kadar çok kayıt var: toplam en az bu kadar.</string>
+    <plurals name="hours_waiting_records">
+        <item quantity="one">%d kayıt</item>
+        <item quantity="other">%d kayıt</item>
+    </plurals>
+    <plurals name="hours_waiting_claims">
+        <item quantity="one">%d saat talebi</item>
+        <item quantity="other">%d saat talebi</item>
+    </plurals>
+    <string name="hours_waiting_line">Müdür onayı bekleyen: %1$s.</string>
+    <string name="hours_days_label">Günler</string>
+    <string name="hours_records_label">Kayıtlar</string>
+    <string name="hours_none">Bu hafta kayıt yok.</string>
+    <string name="hours_state_approved">Sayıldı</string>
+    <string name="hours_state_waiting">Müdür onayı bekliyor</string>
+    <string name="hours_state_rejected">Sayılmadı</string>
+    <string name="hours_state_repeat">Tekrar dokunuş</string>
+    <string name="hours_dir_in">Giriş</string>
+    <string name="hours_dir_out">Çıkış</string>
+    <string name="hours_channel_manual">Müdür girdi</string>
+    <string name="hours_channel_qr">QR</string>
+    <string name="hours_channel_qr_live">Canlı QR</string>
+    <string name="hours_channel_other">Diğer</string>
+    <string name="hours_claim_pending">Saat talebi gönderildi</string>
+    <string name="hours_claim_approved">Saat talebi onaylandı</string>
+    <string name="hours_claim_rejected">Saat talebi reddedildi</string>
+    <string name="hours_prev">Önceki hafta</string>
+    <string name="hours_next">Sonraki hafta</string>
+    <string name="hours_more">Daha fazla göster</string>
+    <string name="hours_off">İşvereniniz Saatlerim özelliğini kapattı.</string>
 </resources>
