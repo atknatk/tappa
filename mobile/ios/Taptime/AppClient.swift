@@ -102,6 +102,106 @@ struct MeResponse: Decodable, Equatable {
     let employeeName: String
     let brand: AppBrand
     let direction: String
+    // The staff app's facts (M16-43/45/30/37). An older server omits them: nil, read as none / 0.
+    var presence: Presence?
+    var shift: UsualShift?
+    var missingTimes: Int?
+    var hoursWeeks: Int?
+    var businessName: String?
+
+    /// The employer's name: businessName, else the brand's caption.
+    var business: String { (businessName?.isEmpty == false ? businessName : brand.name) ?? "" }
+}
+
+/// An open check-in the next tap would close (M16-45): RFC 3339 instants for the phone's
+/// scheduling, the business's wall clocks for the words. The app converts no zone (§6).
+struct Presence: Decodable, Equatable {
+    let inSince: String
+    let inSinceLocal: String
+    let shiftEndsAt: String?
+    let shiftEndsAtLocal: String?
+    let remindAt: String?
+    let showUntil: String
+    let staleAt: String
+
+    static func instant(_ s: String?) -> Date? {
+        guard let s = s else { return nil }
+        let f = ISO8601DateFormatter()
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: s)
+    }
+}
+
+/// The usual shift (only when the owner marked shifts real, 00116).
+struct UsualShift: Decodable, Equatable {
+    let start: String
+    let end: String
+    let overnight: Bool
+    let venue: String
+}
+
+/// "Missing times" (M16-43): the records that take a claim now and the person's own claims.
+struct ClaimsResponse: Decodable, Equatable {
+    struct Bound: Decodable, Equatable {
+        let at: String
+        let inclusive: Bool
+    }
+    struct Open: Decodable, Equatable, CustomStringConvertible {
+        let context: String
+        let kind: String
+        let anchorDate: String
+        let anchorAt: String
+        let day: String
+        let windowFrom: Bound
+        let windowTo: Bound
+        let prefill: String?
+        // The context is signed for this device: never printed (§7).
+        var description: String { "Open(kind: \(kind), day: \(day))" }
+    }
+    let open: [Open]
+}
+
+struct ClaimSendResponse: Decodable, Equatable {
+    let result: String
+}
+
+/// My hours (M16-31): one week, minutes whole and floored by the server.
+struct HoursResponse: Decodable, Equatable {
+    struct Totals: Decodable, Equatable {
+        let workedMinutes: Int
+        let awaitingMinutes: Int
+        let openEntries: Int
+        let checkInMissing: Int
+        let truncated: Bool
+        let complete: Bool
+    }
+    struct Day: Decodable, Equatable {
+        let date: String
+        let workedMinutes: Int
+    }
+    struct Record: Decodable, Equatable {
+        let date: String
+        let at: String
+        let venue: String
+        let direction: String
+        let channel: String
+        let state: String
+        let claim: String?
+    }
+    struct Waiting: Decodable, Equatable {
+        let records: Int
+        let claims: Int
+    }
+    let week: String
+    let weeksVisible: Int
+    let hasPrev: Bool
+    let hasNext: Bool
+    let totals: Totals
+    let days: [Day]
+    let records: [Record]
+    let nextCursor: String?
+    let waiting: Waiting?
 }
 
 /// GET /t's twin: the tap screen of THIS plaque read. Nothing was recorded and no counter moved.
@@ -238,6 +338,11 @@ final class AppClient {
         static let tapStart = "/app/v1/tap/start"
         static let tap = "/app/v1/tap"
         static let revoke = "/app/v1/revoke"
+        // The staff app's own screens (M16-43, M16-31, M16-37).
+        static let claims = "/app/v1/claims"
+        static let claimsSend = "/app/v1/claims/send"
+        static let hours = "/app/v1/hours"
+        static let accountDelete = "/app/v1/account/delete"
     }
 
     enum Header {
@@ -432,6 +537,42 @@ final class AppClient {
             throw AppAPIError.unexpected(status: resp.statusCode)
         }
         return r
+    }
+
+    // MARK: The staff app's own screens
+
+    func claims(_ device: DeviceIdentity) async throws -> ClaimsResponse {
+        let (data, resp) = try await signedRead("POST", Path.claims, body: Data("{}".utf8), device: device)
+        return try decode(data, resp)
+    }
+
+    /// One claim: the server's result word ("sent", "already_sent", "outside_window", …).
+    func claimSend(_ device: DeviceIdentity, context: String, at: String) async throws -> String {
+        let body = try encode(["context": context, "at": at])
+        let (data, resp) = try await signedWithNonce("POST", Path.claimsSend, body: body, device: device)
+        let r: ClaimSendResponse = try decode(data, resp)
+        return r.result
+    }
+
+    /// My hours: nil week is this week; `after` the previous page's cursor. 404 = turned off.
+    func hours(_ device: DeviceIdentity, week: String?, after: String?) async throws -> HoursResponse {
+        var fields: [String: String] = [:]
+        if let w = week { fields["week"] = w }
+        if let a = after { fields["after"] = a }
+        let body = try encode(fields)
+        let (data, resp) = try await signedRead("POST", Path.hours, body: body, device: device)
+        return try decode(data, resp)
+    }
+
+    /// "Delete my account" (M16-37): signed out everywhere, the employer told; 204.
+    func deleteAccount(_ device: DeviceIdentity) async throws {
+        let (data, resp) = try await signedWithNonce("POST", Path.accountDelete, body: Data("{}".utf8), device: device)
+        guard resp.statusCode == 204 else {
+            if !(200...299).contains(resp.statusCode) {
+                let _: ErrorBody = try decode(data, resp) // throws the contract's error
+            }
+            throw AppAPIError.unexpected(status: resp.statusCode)
+        }
     }
 
     /// The device's own sign-out: 204, nothing else.

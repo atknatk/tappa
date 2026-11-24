@@ -232,6 +232,8 @@ final class TapModel: ObservableObject {
     }
 
     @Published private(set) var screen: Screen = .loading
+    /// The last /me answer (the staff screens' facts: presence, shift, missing times, My hours).
+    @Published private(set) var me: MeResponse?
     /// True from the press until its answer: the buttons are disabled and the primary one says
     /// "Tapping…".
     @Published private(set) var pressing = false
@@ -241,6 +243,11 @@ final class TapModel: ObservableObject {
     var onSignedOut: (() -> Void)?
     /// "Start again" on a problem screen: back to the activation code screen.
     var onStartAgain: (() -> Void)?
+    /// Every /me answer, for the local reminder (StaffNotifier).
+    var onMe: ((MeResponse) -> Void)?
+    /// The signed device, for the staff screens' own reads.
+    var identity: DeviceIdentity? { device?.identity }
+    var api: AppClient { client }
     /// Whether the app is in front (AppModel keeps it). A result that lands while it is not has
     /// not been seen yet.
     var inForeground = true
@@ -296,6 +303,8 @@ final class TapModel: ObservableObject {
         do {
             let me = try await client.me(d.identity)
             guard gen == generation else { return }
+            self.me = me
+            onMe?(me)
             screen = .tap(View(employeeName: me.employeeName, locationName: "", brand: me.brand,
                                direction: me.direction, source: .home), problem: nil)
         } catch AppAPIError.unauthenticated {

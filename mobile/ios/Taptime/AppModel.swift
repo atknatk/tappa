@@ -19,6 +19,8 @@ import SwiftUI
 final class AppModel: ObservableObject {
     let activation: ActivationModel
     let tap: TapModel
+    /// The staff screens (the native shell, 2026-11-24): Today, My hours, Settings.
+    let staff: StaffModel
     private let browser: BrowserOpening
     private var launched = false
     private var queued: URL?
@@ -31,7 +33,12 @@ final class AppModel: ObservableObject {
     init(activation: ActivationModel, tap: TapModel, browser: BrowserOpening) {
         self.activation = activation
         self.tap = tap
+        self.staff = StaffModel(tap: tap)
         self.browser = browser
+        staff.onForgotten = { [weak activation] in activation?.forgetDevice() }
+        tap.onMe = { [weak tap] me in
+            StaffNotifier.shared.apply(me, offset: tap?.api.clock.currentOffset ?? 0)
+        }
         tap.onSignedOut = { [weak activation] in activation?.signedOut() }
         tap.onStartAgain = { [weak activation] in activation?.startAgain() }
         activation.onRelaunch = { [weak self] in

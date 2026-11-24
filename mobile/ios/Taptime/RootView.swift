@@ -33,7 +33,7 @@ private struct RootContent: View {
         case .checking:
             ScreenFrame(look: BrandLook(.taptime)) { EmptyView() }
         case .activated:
-            TapRootView(model: tap)
+            TapRootView(model: tap, staff: app.staff)
         case .notSetUp(let url):
             NotSetUpScreen(model: activation, url: url) { app.openInBrowser($0) }
         case .code(let notice):

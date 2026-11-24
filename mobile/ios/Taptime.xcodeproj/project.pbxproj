@@ -32,6 +32,9 @@
 		0A0000000000000000000212 /* TapFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000112 /* TapFlow.swift */; };
 		0A0000000000000000000213 /* TapViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000113 /* TapViews.swift */; };
 		0A0000000000000000000214 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000114 /* AppModel.swift */; };
+		0A0000000000000000000217 /* StaffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000117 /* StaffViews.swift */; };
+		0A0000000000000000000216 /* StaffModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000116 /* StaffModel.swift */; };
+		0A0000000000000000000215 /* StaffCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000115 /* StaffCopy.swift */; };
 		0A000000000000000000020F /* TapModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000010F /* TapModelTests.swift */; };
 		0A0000000000000000000281 /* space-grotesk-v22-latin-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */; };
 		0A0000000000000000000282 /* space-grotesk-v22-latin-ext-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */; };
@@ -83,6 +86,9 @@
 		0A0000000000000000000112 /* TapFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapFlow.swift; sourceTree = "<group>"; };
 		0A0000000000000000000113 /* TapViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapViews.swift; sourceTree = "<group>"; };
 		0A0000000000000000000114 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		0A0000000000000000000117 /* StaffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffViews.swift; sourceTree = "<group>"; };
+		0A0000000000000000000116 /* StaffModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffModel.swift; sourceTree = "<group>"; };
+		0A0000000000000000000115 /* StaffCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffCopy.swift; sourceTree = "<group>"; };
 		0A000000000000000000010F /* TapModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapModelTests.swift; sourceTree = "<group>"; };
 		0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-wght.woff2; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-ext-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-ext-wght.woff2; sourceTree = SOURCE_ROOT; };
@@ -151,6 +157,9 @@
 				0A0000000000000000000112 /* TapFlow.swift */,
 				0A0000000000000000000113 /* TapViews.swift */,
 				0A0000000000000000000114 /* AppModel.swift */,
+				0A0000000000000000000117 /* StaffViews.swift */,
+				0A0000000000000000000116 /* StaffModel.swift */,
+				0A0000000000000000000115 /* StaffCopy.swift */,
 				0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */,
 				0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */,
 				0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */,
@@ -305,6 +314,9 @@
 				0A0000000000000000000212 /* TapFlow.swift in Sources */,
 				0A0000000000000000000213 /* TapViews.swift in Sources */,
 				0A0000000000000000000214 /* AppModel.swift in Sources */,
+				0A0000000000000000000217 /* StaffViews.swift in Sources */,
+				0A0000000000000000000216 /* StaffModel.swift in Sources */,
+				0A0000000000000000000215 /* StaffCopy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

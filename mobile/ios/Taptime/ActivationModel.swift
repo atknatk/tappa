@@ -147,6 +147,16 @@ final class ActivationModel: ObservableObject {
         enterActivation(notice: Copy.Problems.signedOut)
     }
 
+    /// This phone was signed out by the person (Settings: "Sign this phone out" or "Delete my
+    /// account"): the record -- and with it the Secure Enclave key's only handle -- is cleared, and
+    /// the app is back at its code screen.
+    func forgetDevice() {
+        store.clear()
+        device = nil
+        reset()
+        enterActivation(notice: nil)
+    }
+
     /// "Start again" from a tap problem screen: the code screen, nothing deleted.
     func startAgain() {
         reset()
