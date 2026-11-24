@@ -154,9 +154,21 @@ final class PresenceSyncTests: XCTestCase {
             ("switch off: end", s, false, now, [RunningCounter(id: "a", state: want, staleAt: until)], [.end(id: "a")]),
             ("switch off, none running: nothing", s, false, now, [], []),
             ("signed out: end", .none, true, now, [RunningCounter(id: "a", state: want, staleAt: until)], [.end(id: "a")]),
-            ("past showUntil: end, never start", s, true, iso("2026-11-25T03:30:00Z"),
+            // M16-47 O3: still in after showUntil -- the stale view stays until the system's limit.
+            ("past showUntil, still in: left stale, not ended", s, true, iso("2026-11-25T03:30:00Z"),
+             [RunningCounter(id: "a", state: want, staleAt: until)], []),
+            ("past showUntil, none running: never start", s, true, iso("2026-11-25T03:30:00Z"), [], []),
+            ("past showUntil, an older check-in running: update, stale at once", s, true, iso("2026-11-25T03:30:00Z"),
+             [RunningCounter(id: "a", state: other, staleAt: until)], [.update(id: "a", want, staleAt: until)]),
+            ("past showUntil, two running: keep one stale, end the stray", s, true, iso("2026-11-25T03:30:00Z"),
+             [RunningCounter(id: "a", state: want, staleAt: until), RunningCounter(id: "b", state: other, staleAt: until)],
+             [.end(id: "b")]),
+            ("past showUntil, out: end", PresenceShare(isIn: false), true, iso("2026-11-25T03:30:00Z"),
              [RunningCounter(id: "a", state: want, staleAt: until)], [.end(id: "a")]),
-            ("past showUntil, none running: nothing", s, true, iso("2026-11-25T03:30:00Z"), [], []),
+            ("past showUntil, signed out: end", .none, true, iso("2026-11-25T03:30:00Z"),
+             [RunningCounter(id: "a", state: want, staleAt: until)], [.end(id: "a")]),
+            ("past showUntil, switch off: end", s, false, iso("2026-11-25T03:30:00Z"),
+             [RunningCounter(id: "a", state: want, staleAt: until)], [.end(id: "a")]),
         ]
         for t in tests {
             XCTAssertEqual(LiveCounter.plan(share: t.share, enabled: t.enabled, now: t.at, running: t.running), t.want, t.name)

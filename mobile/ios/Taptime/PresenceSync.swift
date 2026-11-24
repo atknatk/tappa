@@ -77,17 +77,23 @@ enum LiveCounter {
         return false
     }
 
-    /// At most ONE activity, and only while the switch is on and the share says "at work" now
-    /// (before showUntil). Anything else the system holds is a stray and is ended.
+    /// At most ONE activity, and only while the switch is on and /me says "in". It is ended with
+    /// the immediate dismissal ONLY when /me no longer says so (out, signed out, never synced) or
+    /// the switch is off; anything else the system holds is a stray and is ended.
+    ///
+    /// PAST showUntil, STILL IN (M16-47's O3): the activity is LEFT as it is -- its staleDate
+    /// (showUntil) has passed, so the system draws the stale view, "Open Taptime to check", with no
+    /// counter, until its own limit (8 h active + 4 h on the lock screen) takes it away. Nothing new
+    /// is started then: it would open already stale.
     static func plan(share: PresenceShare, enabled: Bool, now: Date, running: [RunningCounter]) -> [CounterOp] {
-        guard enabled, share.face(at: now) == .atWork, let since = share.inSince, let local = share.inSinceLocal,
+        guard enabled, share.synced, share.isIn, let since = share.inSince, let local = share.inSinceLocal,
               let until = share.showUntil else {
             return running.map { .end(id: $0.id) }
         }
         let want = CounterState(inSince: since, inSinceLocal: local, shiftEndsAt: share.shiftEndsAt,
                                 shiftEndsAtLocal: share.shiftEndsAtLocal)
         guard let keep = running.first else {
-            return [.start(want, staleAt: until)]
+            return now < until ? [.start(want, staleAt: until)] : []
         }
         var ops: [CounterOp] = []
         if keep.state != want || keep.staleAt != until {
