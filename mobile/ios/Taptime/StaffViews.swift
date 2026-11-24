@@ -1,10 +1,16 @@
 import SwiftUI
+import UIKit
 
-// The staff app's own screens on iOS (the native shell of 2026-11-24, the Android app's twin):
-// a top bar, three tabs -- Today, My hours, Settings -- and the missing-time sheet. The tap screen
-// (a plaque link's) and the result are TapViews.swift's and do not change (CLAUDE.md §9). On an
-// iPhone the plaque is read from the app's own button too (iPhone 7-X have no background read,
-// Q41 (a)), so Today's plaque stub IS that button.
+// The staff app's own screens on iOS, drawn with the system's own components (the user's answer
+// of 2026-11-24: "native components -- the tab bar, the navigation bar, a native drawer"): a
+// TabView, a NavigationView per tab with a large title and its toolbar, an inset-grouped List for
+// Settings, the system sheet (a draggable drawer, medium and large detents from iOS 16) with the
+// system's wheel for the missing time, the system's confirmation dialog and alert. The brand is in
+// the colours, the type and the status card; the chrome is iOS's.
+//
+// The tap screen (a plaque link's) and the result are TapViews.swift's and do not change (CLAUDE.md
+// §9). An iPhone reads the plaque from the app's own button too (iPhone 7-X have no background
+// read, Q41 (a)), so Today's plaque row IS that button.
 
 private extension Color {
     static let greenLite = Color(red: 0xE1 / 255, green: 0xED / 255, blue: 0xE6 / 255)
@@ -22,9 +28,35 @@ private func initials(_ name: String) -> String {
 
 private func firstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }
 
+/// The navigation bar's and tab bar's look: the system's bars, the brand's type and ink.
+enum StaffAppearance {
+    static func install() {
+        let nav = UINavigationBarAppearance()
+        nav.configureWithDefaultBackground()
+        nav.backgroundColor = UIColor(Palette.porcelain).withAlphaComponent(0.92)
+        let ink = UIColor(Palette.ink)
+        if let large = Typeface.Faces.shared.display(34, .bold) {
+            nav.largeTitleTextAttributes = [.font: large as UIFont, .foregroundColor: ink]
+        }
+        if let small = Typeface.Faces.shared.display(17, .bold) {
+            nav.titleTextAttributes = [.font: small as UIFont, .foregroundColor: ink]
+        }
+        UINavigationBar.appearance().standardAppearance = nav
+        UINavigationBar.appearance().scrollEdgeAppearance = nav
+        UINavigationBar.appearance().compactAppearance = nav
+
+        let tab = UITabBarAppearance()
+        tab.configureWithDefaultBackground()
+        UITabBar.appearance().standardAppearance = tab
+        if #available(iOS 15.0, *) {
+            UITabBar.appearance().scrollEdgeAppearance = tab
+        }
+    }
+}
+
 struct Avatar: View {
     let name: String
-    var size: CGFloat = 34
+    var size: CGFloat = 32
 
     var body: some View {
         Text(initials(name))
@@ -38,22 +70,13 @@ struct Avatar: View {
 
 private struct Card<Content: View>: View {
     var fill: Color = Palette.paper
-    var radius: CGFloat = 22
+    var radius: CGFloat = 20
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(fill))
-            .shadow(color: Palette.ink.opacity(0.06), radius: 1, y: 1)
-    }
-}
-
-private struct LargeTitle: View {
-    let text: String
-    var body: some View {
-        Text(text).font(Typeface.display(32, .bold)).tracking(-0.8).foregroundColor(Palette.ink)
-            .accessibilityAddTraits(.isHeader).padding(.horizontal, 4)
     }
 }
 
@@ -63,22 +86,24 @@ private struct Banner: View {
     var body: some View {
         Text(text).font(Typeface.display(14, .medium)).foregroundColor(Palette.ink)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(
                 tone == .ok ? Color.greenLite : (tone == .warn ? Color.saffronLite : Palette.tomato.opacity(0.12))))
     }
 }
 
 private struct Chevron: View {
-    var body: some View { Image(systemName: "chevron.right").font(.system(size: 15, weight: .semibold)).foregroundColor(Palette.ink) }
+    var body: some View {
+        Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundColor(Color(UIColor.tertiaryLabel))
+    }
 }
 
-private struct IconTile: View {
+/// The settings list's icon square: white symbol on a filled rounded square (the system's look).
+private struct IconSquare: View {
     let symbol: String
-    var tint: Color = Palette.green
-    var fill: Color = .greenLite
+    var fill: Color = Palette.green
     var body: some View {
-        Image(systemName: symbol).font(.system(size: 17, weight: .medium)).foregroundColor(tint)
-            .frame(width: 38, height: 38).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(fill))
+        Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+            .frame(width: 29, height: 29).background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
             .accessibilityHidden(true)
     }
 }
@@ -93,76 +118,60 @@ struct StaffRootView: View {
 
     var body: some View {
         let me = tap.me
-        ZStack {
-            Palette.porcelain.ignoresSafeArea()
-            VStack(spacing: 0) {
-                TopBar(business: me?.business ?? "", name: me?.employeeName ?? view.employeeName)
+        let name = me?.employeeName ?? view.employeeName
+        TabView(selection: Binding(get: { staff.tab }, set: { staff.show($0) })) {
+            NavigationView {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        switch staff.tab {
-                        case .today: TodayView(staff: staff, tap: tap, view: view, problem: problem)
-                        case .hours: HoursView(staff: staff)
-                        case .settings: SettingsView(staff: staff, me: me, name: view.employeeName)
-                        }
+                        TodayView(staff: staff, tap: tap, view: view, problem: problem)
                     }
-                    .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 24)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
                 }
-                TabBar(staff: staff)
+                .background(Palette.porcelain.ignoresSafeArea())
+                .navigationTitle(StaffCopy.hello(firstName(name)))
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Avatar(name: name) } }
+                .refreshable { await tap.home(); await staff.refreshToday() }
             }
+            .navigationViewStyle(.stack)
+            .tabItem { Label(StaffCopy.tabToday, systemImage: "house") }
+            .tag(StaffModel.Tab.today)
+
+            NavigationView {
+                HoursView(staff: staff)
+                    .navigationTitle(StaffCopy.tabHours)
+            }
+            .navigationViewStyle(.stack)
+            .tabItem { Label(StaffCopy.tabHours, systemImage: "clock") }
+            .tag(StaffModel.Tab.hours)
+
+            NavigationView {
+                SettingsView(staff: staff, me: me, name: name)
+                    .navigationTitle(StaffCopy.tabSettings)
+            }
+            .navigationViewStyle(.stack)
+            .tabItem { Label(StaffCopy.tabSettings, systemImage: "gearshape") }
+            .tag(StaffModel.Tab.settings)
+        }
+        .tint(Palette.green)
+        .preferredColorScheme(.light)
+        .sheet(isPresented: Binding(get: { staff.claims != nil }, set: { if !$0 { staff.closeSheet() } })) {
             if let list = staff.claims, staff.claimIndex < list.count {
                 ClaimSheet(staff: staff, claim: list[staff.claimIndex], index: staff.claimIndex, count: list.count)
-            }
-            if let c = staff.confirm {
-                ConfirmOverlay(staff: staff, which: c, business: me?.business ?? "")
+                    .drawerDetents()
             }
         }
-        .preferredColorScheme(.light)
     }
 }
 
-private struct TopBar: View {
-    let business: String
-    let name: String
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("taptime").font(Typeface.display(20, .bold)).tracking(-0.4).foregroundColor(Palette.green)
-            if !business.isEmpty {
-                Rectangle().fill(Palette.line).frame(width: 1, height: 18)
-                Text(business).font(Typeface.display(14, .medium)).foregroundColor(muted).lineLimit(1)
-            }
-            Spacer()
-            Avatar(name: name)
+private extension View {
+    /// The sheet as a drawer: half height and full height, with its grabber (iOS 16+). On iOS 15 the
+    /// system sheet is full height, still dragged down to close.
+    @ViewBuilder func drawerDetents() -> some View {
+        if #available(iOS 16.0, *) {
+            presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        } else {
+            self
         }
-        .padding(.horizontal, 20).frame(height: 56)
-    }
-}
-
-private struct TabBar: View {
-    @ObservedObject var staff: StaffModel
-    var body: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Palette.line).frame(height: 1)
-            HStack {
-                item(.today, "house", StaffCopy.tabToday)
-                item(.hours, "clock", StaffCopy.tabHours)
-                item(.settings, "gearshape", StaffCopy.tabSettings)
-            }
-            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
-        }
-        .background(Palette.paper.ignoresSafeArea(edges: .bottom))
-    }
-
-    private func item(_ t: StaffModel.Tab, _ symbol: String, _ label: String) -> some View {
-        let on = staff.tab == t
-        return Button { staff.show(t) } label: {
-            VStack(spacing: 4) {
-                Image(systemName: on ? symbol + ".fill" : symbol).font(.system(size: 19, weight: .medium))
-                    .frame(width: 56, height: 30).background(Capsule().fill(on ? Color.greenLite : Color.clear))
-                Text(label).font(Typeface.display(12, on ? .bold : .medium))
-            }
-            .foregroundColor(on ? Palette.green : muted).frame(maxWidth: .infinity, minHeight: 56)
-        }
-        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -177,7 +186,9 @@ private struct TodayView: View {
     var body: some View {
         let me = tap.me
         let p = me?.presence
-        LargeTitle(text: StaffCopy.hello(firstName(me?.employeeName ?? view.employeeName)))
+        if let b = me?.business, !b.isEmpty {
+            Text(b).font(Typeface.display(15, .medium)).foregroundColor(muted).padding(.horizontal, 4).padding(.top, -6)
+        }
         if let n = staff.notice { Banner(text: n) }
         if let pr = problem { Banner(text: [pr.title, pr.message].compactMap { $0 }.joined(separator: " — "), tone: .alert) }
 
@@ -202,13 +213,7 @@ private struct TodayView: View {
                             if let end = Presence.instant(p.shiftEndsAt), end > since {
                                 let frac = min(1, max(0, now.timeIntervalSince(since) / end.timeIntervalSince(since)))
                                 let leftMin = Int(end.timeIntervalSince(now) / 60)
-                                GeometryReader { g in
-                                    ZStack(alignment: .leading) {
-                                        Capsule().fill(Palette.paper.opacity(0.14))
-                                        Capsule().fill(Color.greenLite).frame(width: g.size.width * frac)
-                                    }
-                                }
-                                .frame(height: 8)
+                                ProgressView(value: frac).progressViewStyle(.linear).tint(.greenLite)
                                 HStack {
                                     Text(StaffCopy.shiftUntil(p.shiftEndsAtLocal ?? ""))
                                     Spacer()
@@ -230,16 +235,17 @@ private struct TodayView: View {
                 Task { await tap.press(want: view.direction.isEmpty ? nil : view.direction) }
             } label: {
                 HStack(spacing: 14) {
-                    IconTile(symbol: "iphone.radiowaves.left.and.right")
+                    Image(systemName: "wave.3.right").font(.system(size: 18, weight: .semibold)).foregroundColor(.white)
+                        .frame(width: 44, height: 44).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.green))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(tap.pressing ? StaffCopy.reading : (p != nil ? StaffCopy.tapOut : StaffCopy.tapIn))
-                            .font(Typeface.display(16, .bold)).foregroundColor(Palette.ink)
+                            .font(Typeface.display(17, .bold)).foregroundColor(Palette.ink)
                         Text(StaffCopy.tapHint).font(Typeface.display(13)).foregroundColor(muted)
                     }
                     Spacer()
-                    Chevron()
+                    if tap.pressing { ProgressView() } else { Chevron() }
                 }
-                .padding(.horizontal, 22).padding(.vertical, 18).background(Palette.paper)
+                .padding(.horizontal, 20).padding(.vertical, 16).background(Palette.paper)
             }
             .disabled(tap.pressing)
         }
@@ -249,14 +255,14 @@ private struct TodayView: View {
             Button { Task { await staff.openMissing() } } label: {
                 HStack(spacing: 14) {
                     Text("\(n)").font(Typeface.mono(16, bold: true)).foregroundColor(Palette.ink)
-                        .frame(width: 40, height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Palette.saffron))
+                        .frame(width: 40, height: 40).background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Palette.saffron))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(n == 1 ? StaffCopy.missingOne : StaffCopy.missingMany(n)).font(Typeface.display(15, .bold))
                         Text(StaffCopy.missingSub).font(Typeface.display(13)).opacity(0.75)
                     }
                     .foregroundColor(Palette.ink)
                     Spacer()
-                    Chevron()
+                    if staff.claimBusy { ProgressView() } else { Chevron() }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.saffronLite))
@@ -314,28 +320,37 @@ private struct HoursView: View {
     @State private var chosen: String?
 
     var body: some View {
-        HStack {
-            LargeTitle(text: StaffCopy.tabHours)
-            Spacer()
-            if let h = staff.hours {
-                HStack(spacing: 2) {
-                    arrow("chevron.left", StaffCopy.previous, h.hasPrev) { staff.shiftWeek(-7) }
-                    Text(weekday(h.week, "dMMM")).font(Typeface.mono(13, bold: true)).padding(.horizontal, 4)
-                    arrow("chevron.right", StaffCopy.next, h.hasNext) { staff.shiftWeek(7) }
-                }
-                .padding(2).background(RoundedRectangle(cornerRadius: 14).fill(Palette.paper))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                content
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .background(Palette.porcelain.ignoresSafeArea())
+        .refreshable { await staff.loadHours(week: staff.hours?.week, after: nil) }
+        .toolbar {
+            // Always the two buttons (a conditional toolbar needs iOS 16): disabled with no week.
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button { staff.shiftWeek(-7) } label: { Image(systemName: "chevron.left") }
+                    .disabled(!(staff.hours?.hasPrev ?? false) || staff.hoursBusy).accessibilityLabel(StaffCopy.previous)
+                Button { staff.shiftWeek(7) } label: { Image(systemName: "chevron.right") }
+                    .disabled(!(staff.hours?.hasNext ?? false) || staff.hoursBusy).accessibilityLabel(StaffCopy.next)
             }
         }
+    }
+
+    @ViewBuilder private var content: some View {
         if staff.hoursOff {
             Card {
                 VStack(alignment: .leading, spacing: 8) {
-                    IconTile(symbol: "clock")
+                    IconSquare(symbol: "clock")
                     Text(StaffCopy.hoursOffTitle).font(Typeface.display(18, .bold))
                     Text(StaffCopy.hoursOffBody).font(Typeface.display(14)).foregroundColor(muted)
                 }
-                .padding(22)
+                .padding(20)
             }
         } else if let h = staff.hours {
+            Text(weekLabel(h)).font(Typeface.mono(13, bold: true)).foregroundColor(muted).padding(.horizontal, 4).padding(.top, -6)
             summary(h)
             dayChips(h)
             if let day = h.days.first(where: { $0.date == current(h) }) {
@@ -343,23 +358,18 @@ private struct HoursView: View {
             }
             if h.nextCursor != nil {
                 Button(StaffCopy.more) { Task { await staff.loadHours(week: h.week, after: h.nextCursor) } }
-                    .font(Typeface.display(15, .medium)).foregroundColor(muted).frame(maxWidth: .infinity, minHeight: 48)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
         } else if staff.hoursFailed {
             Banner(text: StaffCopy.network, tone: .alert)
         } else {
-            ForEach([132, 80, 220], id: \.self) { hgt in
-                RoundedRectangle(cornerRadius: 22).fill(Palette.line.opacity(0.6)).frame(height: CGFloat(hgt))
-            }
+            ProgressView().frame(maxWidth: .infinity, minHeight: 200)
         }
     }
 
-    private func arrow(_ symbol: String, _ label: String, _ on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).frame(width: 40, height: 40)
-                .foregroundColor(on ? Palette.ink : Palette.ink.opacity(0.25))
-        }
-        .disabled(!on || staff.hoursBusy).accessibilityLabel(label)
+    private func weekLabel(_ h: HoursResponse) -> String {
+        guard let d = StaffModel.day(h.week), let e = Calendar(identifier: .gregorian).date(byAdding: .day, value: 6, to: d) else { return h.week }
+        return weekday(h.week, "dMMM") + " – " + weekday(StaffModel.dayString(e), "dMMM")
     }
 
     private func current(_ h: HoursResponse) -> String? {
@@ -417,9 +427,10 @@ private struct HoursView: View {
                     }
                     .foregroundColor(on ? Palette.paper : Palette.ink.opacity(future ? 0.5 : 1))
                     .frame(maxWidth: .infinity).padding(.top, 10).padding(.bottom, 8)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(on ? Palette.ink : Palette.paper.opacity(future ? 0.5 : 1)))
-                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Palette.saffron, lineWidth: open && !on ? 2 : 0))
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(on ? Palette.ink : Palette.paper.opacity(future ? 0.5 : 1)))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.saffron, lineWidth: open && !on ? 2 : 0))
                 }
+                .buttonStyle(.plain)
                 .disabled(future)
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
@@ -430,7 +441,7 @@ private struct HoursView: View {
         let recs = staff.records.filter { $0.date == day.date }
         let directed = recs.filter { !$0.direction.isEmpty }
         let others = recs.filter { $0.direction.isEmpty }
-        return Card(radius: 24) {
+        return Card(radius: 22) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text(weekday(day.date, "EEEEdMMMM")).font(Typeface.display(17, .bold))
@@ -447,7 +458,7 @@ private struct HoursView: View {
                         let next = directed[i + 1]
                         let pair = r.direction == "in" && next.direction == "out"
                         HStack(spacing: 12) {
-                            Rectangle().fill(pair ? Palette.green : Palette.line).frame(width: 2, height: 40).frame(width: 24)
+                            Rectangle().fill(pair ? Palette.green : Palette.line).frame(width: 2, height: 36).frame(width: 24)
                             if pair, let m = minutes(r.at, next.at, nextDay: next.date != r.date) {
                                 Text(StaffCopy.duration(m)).font(Typeface.mono(12, bold: true)).foregroundColor(Palette.green)
                                     .padding(.horizontal, 9).padding(.vertical, 3).background(RoundedRectangle(cornerRadius: 8).fill(Color.greenLite))
@@ -456,13 +467,13 @@ private struct HoursView: View {
                     }
                 }
                 if !others.isEmpty {
-                    Rectangle().fill(Palette.line).frame(height: 1).padding(.vertical, 12)
+                    Divider().padding(.vertical, 12)
                     ForEach(Array(others.enumerated()), id: \.offset) { _, r in
                         Text("\(r.at) · \(StaffCopy.state(r.state))").font(Typeface.display(13)).foregroundColor(muted)
                     }
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 18)
+            .padding(.horizontal, 18).padding(.vertical, 16)
         }
     }
 
@@ -501,7 +512,7 @@ private struct HoursView: View {
     }
 }
 
-// MARK: - The missing-time sheet
+// MARK: - The missing-time drawer
 
 private struct ClaimSheet: View {
     @ObservedObject var staff: StaffModel
@@ -511,46 +522,48 @@ private struct ClaimSheet: View {
     @State private var time = Date()
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Palette.ink.opacity(0.55).ignoresSafeArea()
-                .onTapGesture { if !staff.claimBusy { staff.closeSheet() } }
-            VStack(alignment: .leading, spacing: 16) {
-                Capsule().fill(Palette.line).frame(width: 40, height: 5).frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
+        NavigationView {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("\(weekday(claim.anchorDate, "EEEdMMM")) · \(claim.anchorAt)").font(Typeface.mono(12, bold: true))
                             .padding(.horizontal, 10).padding(.vertical, 4).background(RoundedRectangle(cornerRadius: 8).fill(Color.saffronLite))
-                        if count > 1 { Text("\(index + 1)/\(count)").font(Typeface.mono(12)).foregroundColor(muted) }
+                        Text(StaffCopy.lead(kind: claim.kind, day: claim.day, date: weekday(claim.anchorDate, "EEEdMMM"), at: claim.anchorAt))
+                            .font(Typeface.display(15)).foregroundColor(Palette.ink.opacity(0.8))
+                        Text(StaffCopy.question(claim.kind)).font(Typeface.display(24, .bold)).tracking(-0.5)
                     }
-                    Text(StaffCopy.lead(kind: claim.kind, day: claim.day, date: weekday(claim.anchorDate, "EEEdMMM"), at: claim.anchorAt))
-                        .font(Typeface.display(15)).foregroundColor(Palette.ink.opacity(0.8))
-                    Text(StaffCopy.question(claim.kind)).font(Typeface.display(26, .bold)).tracking(-0.5)
+                    .padding(.vertical, 6)
                 }
-                DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.wheel).labelsHidden()
-                    .environment(\.locale, Locale(identifier: "en_GB"))
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 20).fill(Palette.porcelain))
-                Text(staff.claimProblem ?? StaffCopy.window(from: claim.windowFrom.at, to: claim.windowTo.at))
-                    .font(Typeface.display(13, staff.claimProblem != nil ? .medium : .regular))
-                    .foregroundColor(staff.claimProblem != nil ? Palette.tomato : muted)
-                    .frame(maxWidth: .infinity)
-                Button {
-                    Task { await staff.send(claim, at: Self.hm(time)) }
-                } label: {
-                    Text(staff.claimBusy ? StaffCopy.sending : StaffCopy.send).font(Typeface.display(17, .bold)).foregroundColor(Palette.paper)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.green.opacity(staff.claimBusy ? 0.5 : 1)))
+                Section {
+                    DatePicker(StaffCopy.question(claim.kind), selection: $time, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.wheel).labelsHidden()
+                        .environment(\.locale, Locale(identifier: "en_GB"))
+                        .frame(maxWidth: .infinity)
+                } footer: {
+                    Text(staff.claimProblem ?? StaffCopy.window(from: claim.windowFrom.at, to: claim.windowTo.at))
+                        .foregroundColor(staff.claimProblem != nil ? Palette.tomato : nil)
                 }
-                .disabled(staff.claimBusy)
-                Button(StaffCopy.skip) { staff.skip() }
-                    .font(Typeface.display(15, .medium)).foregroundColor(muted).frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(staff.claimBusy)
+                Section {
+                    Button(StaffCopy.skip) { staff.skip() }.disabled(staff.claimBusy)
+                }
             }
-            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 20)
-            .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Palette.paper).ignoresSafeArea(edges: .bottom))
-            .transition(.move(edge: .bottom))
+            .navigationTitle(count > 1 ? "\(index + 1)/\(count)" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(StaffCopy.cancel) { staff.closeSheet() }.disabled(staff.claimBusy)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if staff.claimBusy {
+                        ProgressView()
+                    } else {
+                        Button(StaffCopy.sendShort) { Task { await staff.send(claim, at: Self.hm(time)) } }.font(.body.weight(.semibold))
+                    }
+                }
+            }
         }
+        .tint(Palette.green)
+        .interactiveDismissDisabled(staff.claimBusy)
         .onAppear { time = Self.date(claim.prefill ?? claim.anchorAt) }
         .onChange(of: claim.context) { _ in time = Self.date(claim.prefill ?? claim.anchorAt) }
     }
@@ -580,111 +593,76 @@ private struct SettingsView: View {
     let name: String
 
     var body: some View {
-        LargeTitle(text: StaffCopy.tabSettings)
-        Card {
-            HStack(spacing: 14) {
-                Avatar(name: me?.employeeName ?? name, size: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(me?.employeeName ?? name).font(Typeface.display(18, .bold))
-                    if let b = me?.business, !b.isEmpty { Text(b).font(Typeface.display(13)).foregroundColor(muted) }
-                    Label(StaffCopy.connected, systemImage: "checkmark").font(Typeface.display(12, .medium)).foregroundColor(Palette.green)
-                }
-                Spacer()
-            }
-            .padding(16)
-        }
-        section(StaffCopy.notifications)
-        Card {
-            Toggle(isOn: Binding(get: { staff.remind }, set: { v in Task { await staff.setRemind(v) } })) {
+        List {
+            Section {
                 HStack(spacing: 14) {
-                    IconTile(symbol: "bell")
+                    Avatar(name: me?.employeeName ?? name, size: 56)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(StaffCopy.remind).font(Typeface.display(16, .bold))
-                        Text(StaffCopy.remindHint).font(Typeface.display(13)).foregroundColor(muted)
+                        Text(me?.employeeName ?? name).font(Typeface.display(18, .bold))
+                        if let b = me?.business, !b.isEmpty { Text(b).font(Typeface.display(13)).foregroundColor(muted) }
+                        Label(StaffCopy.connected, systemImage: "checkmark").font(Typeface.display(12, .medium)).foregroundColor(Palette.green)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section {
+                Toggle(isOn: Binding(get: { staff.remind }, set: { v in Task { await staff.setRemind(v) } })) {
+                    Label { Text(StaffCopy.remind) } icon: { IconSquare(symbol: "bell.fill") }
+                }
+            } header: {
+                Text(StaffCopy.notifications)
+            } footer: {
+                Text(staff.notificationsOff ? StaffCopy.notificationsOff : StaffCopy.remindHint)
+            }
+            if let s = me?.shift {
+                Section(StaffCopy.shift) {
+                    HStack {
+                        Label { Text(StaffCopy.usualShift) } icon: { IconSquare(symbol: "clock.fill") }
+                        Spacer()
+                        Text("\(s.start)–\(s.end)").font(Typeface.mono(15)).foregroundColor(.secondary)
                     }
                 }
             }
-            .tint(Palette.green).padding(.horizontal, 16).padding(.vertical, 12)
-        }
-        if staff.notificationsOff { Banner(text: StaffCopy.notificationsOff, tone: .warn) }
-        if let s = me?.shift {
-            section(StaffCopy.shift)
-            Card {
-                HStack(spacing: 14) {
-                    IconTile(symbol: "clock")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(StaffCopy.usualShift).font(Typeface.display(16, .bold))
-                        if !s.venue.isEmpty { Text(s.venue).font(Typeface.display(13)).foregroundColor(muted) }
-                    }
-                    Spacer()
-                    Text("\(s.start)–\(s.end)").font(Typeface.mono(15, bold: true))
-                }
-                .padding(.horizontal, 16).padding(.vertical, 12)
-            }
-        }
-        section(StaffCopy.thisPhone)
-        Card {
-            row("globe", StaffCopy.language, StaffCopy.languageSub, tint: Palette.green) {
-                if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
-            }
-            Rectangle().fill(Palette.line).frame(height: 1).padding(.leading, 68)
-            row("rectangle.portrait.and.arrow.right", StaffCopy.signOut, nil, tint: Palette.tomato) { staff.confirm = .signOut }
-            Rectangle().fill(Palette.line).frame(height: 1).padding(.leading, 68)
-            row("trash", StaffCopy.delete, StaffCopy.deleteSub, tint: Palette.tomato) { staff.confirm = .delete }
-        }
-        Text(StaffCopy.privacy).font(Typeface.display(12)).foregroundColor(muted).padding(.horizontal, 8)
-        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-            Text(StaffCopy.version(v)).font(Typeface.mono(12)).foregroundColor(muted).padding(.horizontal, 8)
-        }
-    }
-
-    private func section(_ t: String) -> some View {
-        Text(t).font(Typeface.display(13, .medium)).foregroundColor(muted).padding(.leading, 8).padding(.top, 6)
-    }
-
-    private func row(_ symbol: String, _ title: String, _ sub: String?, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                IconTile(symbol: symbol, tint: tint, fill: tint == Palette.green ? .greenLite : Palette.tomato.opacity(0.1))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(Typeface.display(16, .bold)).foregroundColor(tint == Palette.green ? Palette.ink : Palette.tomato)
-                    if let s = sub { Text(s).font(Typeface.display(13)).foregroundColor(muted) }
-                }
-                Spacer()
-                if tint == Palette.green { Chevron() }
-            }
-            .padding(.horizontal, 16).padding(.vertical, 12).frame(minHeight: 64)
-        }
-    }
-}
-
-private struct ConfirmOverlay: View {
-    @ObservedObject var staff: StaffModel
-    let which: StaffModel.Confirm
-    let business: String
-
-    var body: some View {
-        ZStack {
-            Palette.ink.opacity(0.55).ignoresSafeArea().onTapGesture { if !staff.confirmBusy { staff.confirm = nil } }
-            VStack(alignment: .leading, spacing: 12) {
-                Text(which == .signOut ? StaffCopy.signOutTitle : StaffCopy.deleteTitle).font(Typeface.display(20, .bold))
-                Text(staff.confirmFailed ? StaffCopy.failed : (which == .signOut ? StaffCopy.signOutBody : StaffCopy.deleteBody(business)))
-                    .font(Typeface.display(15)).foregroundColor(Palette.ink.opacity(0.8))
+            Section(StaffCopy.thisPhone) {
                 Button {
-                    Task { await staff.perform(which) }
+                    if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
                 } label: {
-                    Text(which == .signOut ? StaffCopy.signOutConfirm : StaffCopy.deleteConfirm).font(Typeface.display(17, .bold))
-                        .foregroundColor(Palette.paper).frame(maxWidth: .infinity, minHeight: 56)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.tomato.opacity(staff.confirmBusy ? 0.5 : 1)))
+                    HStack {
+                        Label { Text(StaffCopy.language).foregroundColor(Palette.ink) } icon: { IconSquare(symbol: "globe", fill: Palette.ink.opacity(0.7)) }
+                        Spacer()
+                        Chevron()
+                    }
                 }
-                .disabled(staff.confirmBusy).padding(.top, 4)
-                Button(StaffCopy.cancel) { staff.confirm = nil }
-                    .font(Typeface.display(15, .medium)).foregroundColor(muted).frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(staff.confirmBusy)
+                Button(role: .destructive) { staff.confirm = .signOut } label: {
+                    Label { Text(StaffCopy.signOut) } icon: { IconSquare(symbol: "rectangle.portrait.and.arrow.right", fill: Palette.tomato) }
+                }
             }
-            .padding(22)
-            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Palette.paper))
-            .padding(24)
+            Section {
+                Button(role: .destructive) { staff.confirm = .delete } label: {
+                    Text(StaffCopy.delete).frame(maxWidth: .infinity)
+                }
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(StaffCopy.deleteSub)
+                    Text(StaffCopy.privacy)
+                    if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String { Text(StaffCopy.version(v)) }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .task { await staff.refreshNotificationState() }
+        .confirmationDialog(StaffCopy.signOutTitle, isPresented: Binding(get: { staff.confirm == .signOut }, set: { if !$0 { staff.confirm = nil } }),
+                            titleVisibility: .visible) {
+            Button(StaffCopy.signOutConfirm, role: .destructive) { Task { await staff.perform(.signOut) } }
+            Button(StaffCopy.cancel, role: .cancel) { staff.confirm = nil }
+        } message: {
+            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.signOutBody)
+        }
+        .alert(StaffCopy.deleteTitle, isPresented: Binding(get: { staff.confirm == .delete }, set: { if !$0 { staff.confirm = nil } })) {
+            Button(StaffCopy.deleteConfirm, role: .destructive) { Task { await staff.perform(.delete) } }
+            Button(StaffCopy.cancel, role: .cancel) { staff.confirm = nil }
+        } message: {
+            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.deleteBody(me?.business ?? ""))
         }
     }
 }

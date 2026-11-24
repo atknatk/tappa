@@ -105,6 +105,7 @@ enum StaffCopy {
     static func window(from: String, to: String) -> String { t("It has to be between \(from) and \(to).", "Saat şu aralıkta olmalı: \(from) – \(to).") }
     static var send: String { t("Send to my manager", "Müdüre gönder") }
     static var sending: String { t("Sending…", "Gönderiliyor…") }
+    static var sendShort: String { t("Send", "Gönder") }
     static var skip: String { t("Not now", "Şimdilik geç") }
     static var sent: String { t("Sent — your manager will review it.", "Gönderildi — müdürün inceleyecek.") }
     static var outside: String { t("That time does not fit this record.", "Bu saat bu kayda uymuyor.") }

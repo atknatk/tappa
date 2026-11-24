@@ -209,7 +209,9 @@ final class StaffModel: ObservableObject {
         } catch AppAPIError.unauthenticated {
             // Already gone on the server: the phone forgets it all the same.
         } catch {
+            // The system dialog closed with the press: it opens again, saying it failed.
             confirmFailed = true
+            confirm = c
             return
         }
         StaffNotifier.shared.cancel()

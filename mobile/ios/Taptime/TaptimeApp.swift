@@ -12,6 +12,8 @@ struct TaptimeApp: App {
     init() {
         // The local reminder's actions ("Remind me in an hour") are this app's own delegate's.
         StaffNotifier.shared.install()
+        // The system's navigation and tab bars, in the brand's type (the native shell, 2026-11-24).
+        StaffAppearance.install()
     }
 
     var body: some Scene {
