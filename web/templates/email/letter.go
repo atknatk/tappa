@@ -402,6 +402,33 @@ func emailChangedLetter(when, life string) letter {
 	}
 }
 
+// employeeWithoutName stands in for an employee name nameShown withholds.
+const employeeWithoutName = "An employee"
+
+// deletionRequestedLetter is the owners' notice of an employee's "Delete my account" (M16-37, Q46 (b)).
+// It says what happened and what did not (the records stay: §4.3, they are the employer's), and what the
+// owner owes the person: an answer within a month (GDPR Art. 12(3)). It names the employee only through
+// nameShown and carries no address.
+func deletionRequestedLetter(employeeName, day string) letter {
+	who := employeeWithoutName
+	if n, ok := nameShown(employeeName); ok {
+		who = n
+	}
+	return letter{
+		subject: subjectDeletionRequested,
+		heading: "An employee asked to delete their account",
+		before: []string{
+			greetingWithoutName,
+			who + " asked to delete their Taptime account on " + day + ". Their phones are signed out.",
+			"Their clock-in records are kept: they are legal records you control. Decide what to do with " +
+				"their data and reply to them within one month (GDPR Art. 12(3)).",
+		},
+		action:  "Open Taptime",
+		after:   []string{"You will find the request on their card in People."},
+		closing: "You get this email because you own this business on Taptime.",
+	}
+}
+
 // nameMarks is the punctuation a shown name may carry besides letters, marks,
 // digits, spaces and a sentence-ending ".".
 const nameMarks = "&'’-–—,()!"

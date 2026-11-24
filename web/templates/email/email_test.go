@@ -156,12 +156,18 @@ func renderEach(t *testing.T, employeeName, tenantName string) []rendered {
 	if err != nil {
 		t.Fatalf("address changed, no undo: %v", err)
 	}
+	// M16-37: the owners' notice of an employee's deletion request (the employee named, through nameShown).
+	mdr, err := RenderDeletionRequested(ctx, sin, DeletionRequestedView{BaseURL: testBase, EmployeeName: employeeName, RequestedAt: emailChangedAt})
+	if err != nil {
+		t.Fatalf("deletion request notice for employee %q: %v", employeeName, err)
+	}
 	return []rendered{{"invitation", inv, mi}, {"reset", rst, mr}, {"password changed", sin, mp},
 		{"reset, every business", rsp, mrp}, {"password changed, every business", sin, mpp},
 		{"registration verification", sgv, msv}, {"registration, known address", sgk, msk}, {"manager invitation", adm, ma},
 		{"e-mail verification", ver, mv}, {"link by e-mail", lnk, ml}, {"businesses added", sin, mn},
 		{"address change", chg, mc}, {"address change, taken", sin, mct},
-		{"address changed, undo", und, mu}, {"address changed, no undo", sin, mun}}
+		{"address changed, undo", und, mu}, {"address changed, no undo", sin, mun},
+		{"deletion requested", sin, mdr}}
 }
 
 // hostileNames are names an open signup lets an attacker choose. Each must be
@@ -1586,6 +1592,7 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"address change, taken":            emailChangeTakenLetter(),
 		"address changed, undo":            emailChangedLetter(emailChangedWhen, "7 days"),
 		"address changed, no undo":         emailChangedLetter(emailChangedWhen, ""),
+		"deletion requested":               deletionRequestedLetter("Maria Borg", emailChangedAt.UTC().Format("2 January 2006")),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
@@ -1594,7 +1601,7 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 	for i, kind := range []string{"invitation", "reset", "password changed", "reset, every business", "password changed, every business",
 		"registration verification", "registration, known address", "manager invitation", "e-mail verification",
 		"link by e-mail", "businesses added", "address change", "address change, taken", "address changed, undo",
-		"address changed, no undo"} {
+		"address changed, no undo", "deletion requested"} {
 		if r[i].kind != kind {
 			t.Fatalf("message %d is %q, want %q (renderEach's order)", i, r[i].kind, kind)
 		}
@@ -1904,5 +1911,54 @@ func TestAdminInvitation_NamesNoPersonAndTheBusinessOnlyWhenVerified(t *testing.
 				t.Errorf("verified=%v: the e-mail does not say %q -- it must serve both kinds of reader (R18)", verified, both)
 			}
 		}
+	}
+}
+
+// TestDeletionRequested_SaysTheDayInTheBusinessZoneAndNamesThroughTheGate (M16-37): the owners' notice
+// prints the request's DAY in the business's zone (23:30 UTC on 30 November is 1 December in Malta), the
+// subject is the fixed one, a name nameShown refuses reads "An employee", and neither part carries an '@'.
+func TestDeletionRequested_SaysTheDayInTheBusinessZoneAndNamesThroughTheGate(t *testing.T) {
+	ctx := context.Background()
+	malta, err := time.LoadLocation("Europe/Malta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sin := testBase + signInPath
+	at := time.Date(2026, 11, 30, 23, 30, 0, 0, time.UTC)
+	m, err := RenderDeletionRequested(ctx, sin, DeletionRequestedView{BaseURL: testBase, EmployeeName: "Maria Borg", RequestedAt: at, Zone: malta})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Subject != "An employee asked to delete their Taptime account" {
+		t.Errorf("subject %q", m.Subject)
+	}
+	want := "Maria Borg asked to delete their Taptime account on 1 December 2026."
+	if !strings.Contains(m.Text, want) || !strings.Contains(visibleText(t, m.HTML), want) {
+		t.Errorf("a part does not say %q:\n%s", want, m.Text)
+	}
+	if !strings.Contains(m.Text, "within one month (GDPR Art. 12(3))") {
+		t.Errorf("the text part does not name the one-month answer")
+	}
+	utc, err := RenderDeletionRequested(ctx, sin, DeletionRequestedView{BaseURL: testBase, EmployeeName: "Maria Borg", RequestedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(utc.Text, "on 30 November 2026.") {
+		t.Errorf("with no zone the day is not UTC's:\n%s", utc.Text)
+	}
+	for _, hostile := range []string{"help@evil.example", "evil.example", ""} {
+		h, err := RenderDeletionRequested(ctx, sin, DeletionRequestedView{BaseURL: testBase, EmployeeName: hostile, RequestedAt: at, Zone: malta})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(h.Text, "An employee asked to delete their Taptime account on 1 December 2026.") {
+			t.Errorf("name %q: the neutral words do not stand in:\n%s", hostile, h.Text)
+		}
+		if strings.Contains(h.Text, "@") || strings.Contains(h.HTML, "@") {
+			t.Errorf("name %q: a part carries an '@'", hostile)
+		}
+	}
+	if _, err := RenderDeletionRequested(ctx, sin+"?t=x", DeletionRequestedView{BaseURL: testBase, RequestedAt: at}); err == nil {
+		t.Error("a link with a query was accepted")
 	}
 }

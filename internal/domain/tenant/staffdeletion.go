@@ -8,8 +8,8 @@ package tenant
 // employees row (neither deleted nor deactivated -- ADR 0010). What happens, in ONE transaction:
 // every live browser session and app device of the person is revoked (SignOutPhones' order:
 // sessions, then devices, then their nonces), and one trail row says the person asked. The panel's
-// employee card reads that row ("Asked to delete their account on …"). The owner's e-mail is M16-35's
-// notice path and comes with it.
+// employee card reads that row ("Asked to delete their account on …"), and the owners are e-mailed off
+// the request path (internal/handler's ownerNotices) from what this returns.
 //
 // A DEACTIVATED PERSON keeps their credentials (T59's rule, ErrSignOutDeactivated's reason: their
 // attempts must stay refused-and-recorded, §5 row 4); the request is still trailed, so it still
@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,11 +36,18 @@ type DeletionRequest struct {
 	TenantID, EmployeeID, AppDeviceID uuid.UUID
 }
 
-// DeletionRequested is what the request closed: counts only (§7).
+// DeletionRequested is what the request closed (counts only, §7) and what the owners' notice says
+// about it (M16-37): the person's name, the business's zone and when it was recorded. No address.
 type DeletionRequested struct {
 	Sessions, AppDevices int
 	// Deactivated says the person was deactivated, so nothing was revoked.
 	Deactivated bool
+	// EmployeeName is the person's name as the business stores it; Timezone the business's zone name
+	// (tenants.timezone, read in the same transaction); At the moment the transaction committed, read
+	// on this server's clock after it.
+	EmployeeName string
+	Timezone     string
+	At           time.Time
 }
 
 type deletionDetail struct {
@@ -88,7 +96,11 @@ func (s *Staff) requestDeletionOnce(ctx context.Context, r DeletionRequest) (Del
 			}
 			return fmt.Errorf("load employee: %w", err)
 		}
-		out = DeletionRequested{Deactivated: who.Status == statusDeactivated}
+		clock, err := q.GetTenantClock(ctx, r.TenantID)
+		if err != nil {
+			return fmt.Errorf("load business zone: %w", err)
+		}
+		out = DeletionRequested{Deactivated: who.Status == statusDeactivated, EmployeeName: who.FullName, Timezone: clock.Timezone}
 		if !out.Deactivated {
 			sessions, err := q.RevokeSessionsForEmployee(ctx, store.RevokeSessionsForEmployeeParams{TenantID: r.TenantID, EmployeeID: r.EmployeeID})
 			if err != nil {
@@ -109,5 +121,6 @@ func (s *Staff) requestDeletionOnce(ctx context.Context, r DeletionRequest) (Del
 		})
 		return err
 	})
+	out.At = time.Now()
 	return out, err
 }

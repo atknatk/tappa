@@ -491,11 +491,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// "Delete my account" in the staff app (M16-37): the panel's own staff service, so the request
-	// revokes in SignOutPhones' order and the People card reads its trail row.
-	if err := app.ServeDeletion(staff); err != nil {
-		return err
-	}
 	// The locations section's venue and department side — its reads and its writes
 	// (M6-06 phase A): venue
 	// configuration and department management. It takes the SAME audit recorder as
@@ -797,6 +792,19 @@ func run() error {
 	}
 	resetFlow, err := handler.NewAdminReset(resets, resetChannel, trail, cfg, slog.Default())
 	if err != nil {
+		return err
+	}
+	// "Delete my account" in the staff app (M16-37): the panel's own staff service, so the request
+	// revokes in SignOutPhones' order and the People card reads its trail row, and the owners' notices
+	// (Q46 (b)) -- a bounded background queue of its own around the ONE breaker, sending only under
+	// TAPPA_RESET_DELIVERY=email (the switch of every letter to an administrator's own address), the
+	// owners and their addresses read by the recovery flow's resets. It is drained beside the reset
+	// outbox at shutdown (drainers, below).
+	ownerNotices, err := handler.NewEmailOwnerNotices(breaker, cfg.ResetDelivery == config.ResetDeliveryEmail, resets, cfg.BaseURL, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	if err := app.ServeDeletion(staff, ownerNotices); err != nil {
 		return err
 	}
 
@@ -1115,7 +1123,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work, panelAuth}, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work, panelAuth, ownerNotices}, handler.ResetDrainGrace)
 	}
 }
 

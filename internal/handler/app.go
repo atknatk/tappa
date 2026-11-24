@@ -144,8 +144,10 @@ type App struct {
 	claimContexts claimContexts
 	// hours serves My hours (M16-31): nil until ServeHours.
 	hours appHours
-	// deletion serves "Delete my account" (M16-37): nil until ServeDeletion.
+	// deletion serves "Delete my account" (M16-37) and owners tells the business's owners: both nil
+	// until ServeDeletion.
 	deletion appDeletion
+	owners   ownerNotifier
 }
 
 // ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the

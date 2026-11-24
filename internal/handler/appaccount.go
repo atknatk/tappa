@@ -2,7 +2,9 @@ package handler
 
 // appaccount.go -- "Delete my account" in the staff app (M16-37; Apple 5.1.1(v)): POST
 // /app/v1/account/delete, nonce-signed, body {} -> 204. The person is signed out everywhere and
-// the request reaches the employer (the People card; the owner's e-mail comes with M16-35). Their
+// the request reaches the employer: the People card, and every owner's e-mail -- handed to the
+// owners' notices queue (ownernotice.go) after the request committed, so the 204 never waits for a
+// relay. Their
 // clock-in records are NOT deleted (§4.3): the employer controls them. tenant.Staff.RequestDeletion
 // says what is and is not touched.
 //
@@ -21,12 +23,22 @@ type appDeletion interface {
 	RequestDeletion(ctx context.Context, r tenant.DeletionRequest) (tenant.DeletionRequested, error)
 }
 
-// ServeDeletion turns the app's "Delete my account" on.
-func (a *App) ServeDeletion(d appDeletion) error {
+// ownerNotifier is what the request needs from the owners' notices (*OwnerNotices): a hand-over that
+// never blocks and never fails.
+type ownerNotifier interface {
+	Submit(ctx context.Context, n OwnerNotice)
+}
+
+// ServeDeletion turns the app's "Delete my account" on, with the owners' notice: the two come
+// together, so no deployment can take the request without telling the owners.
+func (a *App) ServeDeletion(d appDeletion, owners ownerNotifier) error {
 	if isNil(d) {
 		return errors.New("handler: nil deletion service")
 	}
-	a.deletion = d
+	if isNil(owners) {
+		return errors.New("handler: nil owner notices")
+	}
+	a.deletion, a.owners = d, owners
 	return nil
 }
 
@@ -49,13 +61,20 @@ func (a *App) AccountDelete(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, appErrBadRequest)
 		return
 	}
-	if _, err := a.deletion.RequestDeletion(ctx, tenant.DeletionRequest{
+	done, err := a.deletion.RequestDeletion(ctx, tenant.DeletionRequest{
 		TenantID: dev.TenantID, EmployeeID: dev.EmployeeID, AppDeviceID: dev.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		a.log.ErrorContext(ctx, "app: a deletion request failed", "employee_id", dev.EmployeeID, "err", err)
 		writeAppError(w, appErrServer)
 		return
 	}
+	// Active and deactivated alike: the request is the employer's to answer either way. Submit only
+	// queues (or, when the queue will not take it, writes the one undelivered row) and returns.
+	a.owners.Submit(ctx, OwnerNotice{
+		Kind: ownerNoticeDeletionRequest, TenantID: dev.TenantID, EmployeeID: dev.EmployeeID,
+		EmployeeName: done.EmployeeName, At: done.At, Zone: ownerZone(done.Timezone),
+	})
 	setAppHeaders(w)
 	w.WriteHeader(http.StatusNoContent)
 }
