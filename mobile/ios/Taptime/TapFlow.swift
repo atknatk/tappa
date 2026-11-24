@@ -451,6 +451,14 @@ final class TapModel: ObservableObject {
         }
     }
 
+    /// The app came back to the front over a result it had not shown (M16-46 [G46-f]): the tap was
+    /// answered while the app was away, where its own follow-up may not have reached the server or
+    /// the system (a Live Activity starts only from the front). The same quiet /me, now.
+    func syncPresence() async {
+        guard let d = device else { return }
+        await followPresence(d)
+    }
+
     /// /me read for the reminder, the widget and the counter alone: the result screen stays exactly
     /// as it is (CLAUDE.md §9). Offline, or any other failure, the last server answer stands; a
     /// signed-out answer clears them, and the next home screen says so.

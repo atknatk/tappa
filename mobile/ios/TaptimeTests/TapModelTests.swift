@@ -378,8 +378,13 @@ final class TapModelTests: XCTestCase {
         guard case .result = tap.screen else {
             return XCTFail("the unseen result was replaced: \(tap.screen)")
         }
-        // Launch and the quiet one after the recorded tap; the return to the front read none.
-        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 2)
+        // Launch, the quiet one after the recorded tap, and the return's catch-up (M16-46 [G46-f]),
+        // which leaves the result on screen.
+        try await waitFor { server.seen.filter { $0.path == "/app/v1/me" }.count == 3 }
+        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 3)
+        guard case .result = tap.screen else {
+            return XCTFail("the catch-up replaced the unseen result: \(tap.screen)")
+        }
         app.scenePhase(.background)
         app.scenePhase(.active)
         try await waitFor { view?.source == .home }
@@ -527,6 +532,39 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(reminder.cancels, 1)
         XCTAssertTrue(counter.live.isEmpty)
         XCTAssertEqual(share.read(), .none)
+    }
+
+    /// M16-46 [G46-f]: a tap answered while the app was away -- its own follow-up lost there -- is
+    /// caught up with on the way back to the front: one quiet /me and one onMe, and the unseen
+    /// result stays on screen.
+    func testBackInFrontOverAnUnseenResultTheCounterCatchesUp() async throws {
+        location.hold = true
+        await app.launch()
+        await app.open(plaque)
+        let pressing = Task { await tap.press(want: "in") }
+        try await waitFor { location.reads.count == 1 }
+        app.scenePhase(.background)
+        offline(paths: [AppClient.Path.me]) // the follow-up from the background does not get through
+        location.deliver()
+        await pressing.value
+        XCTAssertEqual(lost, [AppClient.Path.me])
+        XCTAssertTrue(counter.live.isEmpty)
+        let s = server!
+        MockURLProtocol.handler = { req, body in try s.handle(req, body) }
+        server.meBody["presence"] = inPresence
+        server.meBody["direction"] = "out"
+        let mes = mePaths
+        let applied = reminder.applied.count
+
+        app.scenePhase(.active)
+        try await waitFor { self.counter.live.count == 1 }
+        XCTAssertEqual(mePaths, mes + 1, "one quiet /me")
+        XCTAssertEqual(reminder.applied.count, applied + 1, "one onMe")
+        XCTAssertEqual(counter.live.count, 1)
+        XCTAssertTrue(share.read().isIn)
+        XCTAssertEqual(tap.screen, .result(TapModel.Result(verdict: "ok", direction: "in", venue: "St Julians", at: "09:12",
+                                                           businessType: "restaurant", practice: false)),
+                       "the unseen result is shown, unchanged")
     }
 
     // MARK: Problems

@@ -153,6 +153,8 @@ final class AppModel: ObservableObject {
             // A result that came back while the app was away is shown first; the NEXT return goes
             // home. (A plaque link never reaches here: linkArrived cleared returnHome.)
             if activation.screen == .activated, tap.showUnseenResult() {
+                // The result stays; the reminder, the widget and the counter catch up with it.
+                Task { [weak self] in await self?.tap.syncPresence() }
                 return
             }
             guard let d = activation.device else {
