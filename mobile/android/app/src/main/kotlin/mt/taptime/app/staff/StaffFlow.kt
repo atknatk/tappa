@@ -21,6 +21,26 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         data object Off : Answer<Nothing>
     }
 
+    /**
+     * Signs this phone out (POST /app/v1/revoke): the server revokes the device, then the phone
+     * forgets it -- the key leaves the Keystore and the stored device is cleared. A device the
+     * server no longer knows (401) is forgotten as well; a network failure forgets nothing.
+     */
+    fun signOut(): Answer<Unit> {
+        val device = state.active() ?: return Answer.SignedOut
+        val key = keys.load(device.keyAlias)
+        if (key != null) {
+            when (val r = client.revoke(device.deviceId, key)) {
+                is Outcome.Ok, Outcome.Unauthenticated -> Unit
+                is Outcome.Failed -> return Answer.Network
+                is Outcome.Refused -> return Answer.Server
+            }
+        }
+        keys.delete(device.keyAlias)
+        state.clear()
+        return Answer.Ok(Unit)
+    }
+
     /** My hours (M16-31): one page of a week; [week] null is this week, [after] the next page's cursor. */
     fun hours(week: String?, after: String?): Answer<HoursReply> {
         val device = state.active() ?: return Answer.SignedOut

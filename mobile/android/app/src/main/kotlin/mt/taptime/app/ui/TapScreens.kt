@@ -90,7 +90,7 @@ fun ResultScreen(r: TapReply) {
         }
         for (l in ResultCopy.closing(r.verdict, r.direction, r.businessType, r.practice)) {
             if (l.key.startsWith("brand_")) {
-                BasicText(line(l), style = TextStyle(color = Palette.Ink, fontFamily = FontFamily.SansSerif, fontSize = 18.sp))
+                BasicText(line(l), style = TextStyle(color = Palette.Ink, fontFamily = GroteskFamily, fontSize = 18.sp))
             } else {
                 Body(line(l), muted = true)
             }

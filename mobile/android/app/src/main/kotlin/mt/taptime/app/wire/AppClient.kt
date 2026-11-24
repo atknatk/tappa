@@ -103,6 +103,15 @@ class AppClient(
     fun claims(deviceId: String, key: Signer): Outcome<ClaimsReply> =
         signedRead("POST", Paths.CLAIMS, Bodies.claims(), deviceId, key, Replies::claims)
 
+    /** POST /app/v1/revoke: this device's own sign-out (204). A 401 means it is already gone. */
+    fun revoke(deviceId: String, key: Signer): Outcome<Unit> =
+        when (val r = signedRequest("POST", Paths.REVOKE, "{}".toByteArray(Charsets.UTF_8), deviceId, key) { }) {
+            is Outcome.Ok -> Outcome.Ok(Unit)
+            is Outcome.Refused -> r
+            is Outcome.Failed -> r
+            Outcome.Unauthenticated -> Outcome.Unauthenticated
+        }
+
     fun hours(deviceId: String, key: Signer, week: String?, after: String?): Outcome<HoursReply> =
         signedRead("POST", Paths.HOURS, Bodies.hours(week, after), deviceId, key, Replies::hours)
 

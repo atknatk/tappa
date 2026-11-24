@@ -294,4 +294,47 @@
     <string name="hours_next">Sonraki hafta</string>
     <string name="hours_more">Daha fazla göster</string>
     <string name="hours_off">İşvereniniz Saatlerim özelliğini kapattı.</string>
+
+    <!-- Native kabuk (2026-11-24). -->
+    <string name="tab_today">Bugün</string>
+    <string name="tab_hours">Saatlerim</string>
+    <string name="tab_settings">Ayarlar</string>
+    <string name="today_hello">Merhaba, %1$s</string>
+    <string name="today_at_work">İştesin</string>
+    <string name="today_not_in">İşte değilsin</string>
+    <string name="today_in_at">Giriş %1$s</string>
+    <string name="today_not_in_body">Bir sonraki vardiyada görüşürüz.</string>
+    <string name="today_shift_until">Vardiya bitişi %1$s</string>
+    <string name="today_left">Kalan %1$s</string>
+    <string name="today_over">Vardiyadan fazla %1$s</string>
+    <string name="today_tap_out">Çıkış için plakete dokun</string>
+    <string name="today_tap_in">Giriş için plakete dokun</string>
+    <string name="today_tap_hint">Önce uygulamayı açman gerekmez.</string>
+    <string name="today_missing_one">Eksik bir saatin var</string>
+    <string name="today_missing_many">%1$d eksik saat</string>
+    <string name="today_missing_sub">Saatini müdürüne bildir</string>
+    <string name="today_week">Bu hafta sayılan</string>
+    <string name="hours_chip_open">Açık giriş: %1$d</string>
+    <string name="hours_day_empty">Bu gün kayıt yok.</string>
+    <string name="hours_off_title">Saatlerim henüz açık değil</string>
+    <string name="hours_off_body">İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.</string>
+    <string name="sheet_hour">Saat</string>
+    <string name="sheet_minute">Dakika</string>
+    <string name="sheet_skip">Şimdilik geç</string>
+    <string name="sheet_sending">Gönderiliyor…</string>
+    <string name="settings_connected">Bu telefon bağlı</string>
+    <string name="settings_notifications">Bildirimler</string>
+    <string name="settings_shift_label">Vardiya</string>
+    <string name="settings_usual">Her zamanki vardiya</string>
+    <string name="settings_account">Bu telefon</string>
+    <string name="settings_language">Dil</string>
+    <string name="settings_language_sub">Telefonun dili ya da seçtiğin bir dil</string>
+    <string name="settings_signout">Bu telefonun bağlantısını kaldır</string>
+    <string name="signout_title">Bağlantı kaldırılsın mı?</string>
+    <string name="signout_body">Taptime\'ı bu telefonda yeniden kullanmak için müdüründen yeni bir davet gerekir. Kayıtların olduğu gibi kalır.</string>
+    <string name="signout_confirm">Bağlantıyı kaldır</string>
+    <string name="signout_failed">Bağlantı kaldırılamadı. İnternetini kontrol edip yeniden dene.</string>
+    <string name="cancel">Vazgeç</string>
+    <string name="settings_privacy">Konumun yalnız plakete dokunduğun anda okunur. Parmak izi ya da yüz kullanılmaz.</string>
+    <string name="settings_version">Sürüm %1$s</string>
 </resources>

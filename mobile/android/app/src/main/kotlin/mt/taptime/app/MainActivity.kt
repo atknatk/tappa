@@ -46,10 +46,14 @@ import mt.taptime.app.staff.StaffFlow
 import mt.taptime.app.staff.TimerDismissals
 import mt.taptime.app.ui.ActivatedScreen
 import mt.taptime.app.ui.ClaimNotice
-import mt.taptime.app.ui.HomeScreen
-import mt.taptime.app.ui.HoursScreen
-import mt.taptime.app.ui.MissingTimesScreen
-import mt.taptime.app.ui.SettingsScreen
+import mt.taptime.app.ui.ClaimSheet
+import mt.taptime.app.ui.ConfirmDialog
+import mt.taptime.app.ui.HoursContent
+import mt.taptime.app.ui.SettingsContent
+import mt.taptime.app.ui.StaffShell
+import mt.taptime.app.ui.Tab
+import mt.taptime.app.ui.TodayContent
+import mt.taptime.app.ui.tabLabels
 import mt.taptime.app.ui.BlockedScreen
 import mt.taptime.app.ui.CodeScreen
 import mt.taptime.app.ui.LoadingScreen
@@ -73,7 +77,6 @@ import mt.taptime.app.wire.HoursRecord
 import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
 import mt.taptime.app.wire.OpenClaim
-import mt.taptime.app.wire.SentClaim
 import mt.taptime.app.wire.OrgJsonDecoder
 import mt.taptime.app.wire.ServerClock
 import mt.taptime.app.wire.TapReply
@@ -130,11 +133,18 @@ class MainActivity : ComponentActivity() {
         data class Activated(val name: String, val secondDevice: Boolean, val brand: Brand) : Screen
         data class SetUp(val name: String) : Screen
         // --- the staff app's own screens (M16-44/46/47/48) ---
-        data class Home(val me: MeReply) : Screen
-        data class Settings(val me: MeReply, val remind: Boolean, val timer: Boolean, val notificationsOff: Boolean = false) : Screen
-        data class Missing(
-            val me: MeReply, val open: List<OpenClaim> = emptyList(), val sent: List<SentClaim> = emptyList(),
-            val notice: ClaimNotice? = null, val problems: Map<String, String> = emptyMap(), val busy: Boolean = true,
+        /**
+         * The Today tab. [week] is this week's My hours for the summary card (only while the owner
+         * has My hours on); [claims] non-null is the missing-time sheet, showing [index].
+         */
+        data class Home(
+            val me: MeReply, val week: HoursReply? = null, val weekLoading: Boolean = false,
+            val claims: List<OpenClaim>? = null, val index: Int = 0, val busy: Boolean = false,
+            val notice: ClaimNotice? = null, val problem: String? = null,
+        ) : Screen
+        data class Settings(
+            val me: MeReply, val remind: Boolean, val timer: Boolean, val notificationsOff: Boolean = false,
+            val confirmSignOut: Boolean = false, val busy: Boolean = false, val failed: Boolean = false,
         ) : Screen
         /**
          * My hours (M16-33): [reply] the week shown (null until the first answer), [records] its
@@ -326,28 +336,48 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Activated -> ActivatedScreen(s.name, s.secondDevice, s.brand)
             is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
-            is Screen.Home -> HomeScreen(s.me, hasReader = nfc != null,
-                onMissing = { openMissing(s.me) }, onSettings = { screen = settingsOf(s.me) },
-                onHours = { loadHours(Screen.Hours(s.me), null, append = false) })
+            is Screen.Home -> {
+                BackHandler(enabled = s.claims != null && !s.busy) { screen = s.copy(claims = null, notice = null, problem = null) }
+                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, overlay = {
+                    val list = s.claims
+                    if (list != null && s.index < list.size) {
+                        ClaimSheet(list[s.index], s.index, list.size, s.notice, s.problem, s.busy,
+                            onSend = { at -> sendClaim(s, list[s.index], at) },
+                            onSkip = { nextClaim(s) },
+                            onDismiss = { screen = s.copy(claims = null, notice = null, problem = null) })
+                    }
+                }) {
+                    TodayContent(s.me, hasReader = nfc != null, offsetMs = appClient.clock.offsetMillis(), week = s.week,
+                        weekLoading = s.weekLoading, notice = if (s.claims == null) s.notice else null,
+                        onMissing = { openMissing(s) }, onHours = { goTab(Tab.HOURS, s.me) })
+                }
+            }
             is Screen.Hours -> {
-                BackHandler { screen = Screen.Home(s.me); syncPresence() }
-                HoursScreen(s.me.brand, s.reply, s.records, s.busy, s.network,
-                    onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
-                    onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
-                    onMore = { s.reply?.nextCursor?.let { loadHours(s, it, append = true) } },
-                    onBack = { screen = Screen.Home(s.me); syncPresence() })
+                BackHandler { goHome(s.me) }
+                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }) {
+                    HoursContent(s.me.hoursWeeks, s.reply, s.records, s.busy, s.network,
+                        onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
+                        onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
+                        onMore = { s.reply?.nextCursor?.let { loadHours(s, it, append = true) } },
+                        onRetry = { loadHours(s, null, append = false) })
+                }
             }
             is Screen.Settings -> {
-                BackHandler { screen = Screen.Home(s.me) }
-                SettingsScreen(s.me, s.remind, s.timer, s.notificationsOff,
-                    onRemind = { on -> setSwitch(s, on) { switches.remind = it } },
-                    onTimer = { on -> setSwitch(s, on) { switches.timer = it } },
-                    onBack = { screen = Screen.Home(s.me) })
-            }
-            is Screen.Missing -> {
-                BackHandler(enabled = !s.busy) { screen = Screen.Home(s.me); syncPresence() }
-                MissingTimesScreen(s.me.brand, s.open, s.sent, s.notice, s.problems, s.busy,
-                    onSend = { c, at -> sendClaim(s, c, at) }, onBack = { screen = Screen.Home(s.me); syncPresence() })
+                BackHandler(enabled = !s.busy) { if (s.confirmSignOut) screen = s.copy(confirmSignOut = false) else goHome(s.me) }
+                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, overlay = {
+                    if (s.confirmSignOut) ConfirmDialog(
+                        getString(R.string.signout_title),
+                        if (s.failed) getString(R.string.signout_failed) else getString(R.string.signout_body),
+                        getString(R.string.signout_confirm), getString(R.string.cancel), s.busy,
+                        onConfirm = { signOut(s) }, onDismiss = { screen = s.copy(confirmSignOut = false, failed = false) })
+                }) {
+                    SettingsContent(s.me, s.remind, s.timer, s.notificationsOff, BuildConfig.VERSION_NAME,
+                        canPickLanguage = android.os.Build.VERSION.SDK_INT >= 33,
+                        onRemind = { on -> setSwitch(s, on) { switches.remind = it } },
+                        onTimer = { on -> setSwitch(s, on) { switches.timer = it } },
+                        onLanguage = ::openLanguage,
+                        onSignOut = { screen = s.copy(confirmSignOut = true, failed = false) })
+                }
             }
             is Screen.Blocked -> BlockedScreen(s.problem)
             is Screen.Retryable -> RetryScreen(s.problem) { home() }
@@ -375,9 +405,10 @@ class MainActivity : ComponentActivity() {
                 ActivationFlow.HomeResult.SignedOut -> activationEntry(Problem.SIGNED_OUT)
                 ActivationFlow.HomeResult.KeyUnreadable -> Screen.Retryable(Problem.KEY_UNREADABLE)
                 ActivationFlow.HomeResult.Clock -> Screen.Retryable(Problem.CLOCK)
-                is ActivationFlow.HomeResult.SetUp -> r.me?.let { Screen.Home(it) } ?: Screen.SetUp(r.device.employeeName)
+                is ActivationFlow.HomeResult.SetUp -> r.me?.let { homeOf(it) } ?: Screen.SetUp(r.device.employeeName)
             }
             applyPresence(r)
+            loadWeek()
         }
     }
 
@@ -398,9 +429,10 @@ class MainActivity : ComponentActivity() {
             applyPresence(r)
             val me = (r as? ActivationFlow.HomeResult.SetUp)?.me ?: return@work
             screen = when (val s = screen) {
-                is Screen.Home -> Screen.Home(me)
-                is Screen.SetUp -> Screen.Home(me)
+                is Screen.Home -> s.copy(me = me)
+                is Screen.SetUp -> homeOf(me)
                 is Screen.Settings -> s.copy(me = me)
+                is Screen.Hours -> s.copy(me = me)
                 else -> s
             }
         }
@@ -456,7 +488,7 @@ class MainActivity : ComponentActivity() {
                 StaffFlow.Answer.Off -> {
                     android.widget.Toast.makeText(this, R.string.hours_off, android.widget.Toast.LENGTH_LONG).show()
                     syncPresence()
-                    Screen.Home(s.me.copy(hoursWeeks = 0))
+                    Screen.Hours(s.me.copy(hoursWeeks = 0), busy = false)
                 }
                 StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
                 else -> busy.copy(busy = false, network = true)
@@ -464,44 +496,120 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openMissing(me: MeReply) {
-        val s = Screen.Missing(me)
-        screen = s
-        loadMissing(s, null, emptyMap())
+    // --- the tabs and the missing-time sheet (the native shell, 2026-11-24) ---
+
+    private fun homeOf(me: MeReply) = Screen.Home(me, weekLoading = me.hoursWeeks > 0)
+
+    private fun goHome(me: MeReply) {
+        screen = homeOf(me)
+        loadWeek()
+        syncPresence()
     }
 
-    private fun loadMissing(s: Screen.Missing, notice: ClaimNotice?, problems: Map<String, String>) {
-        work({ staff.claims() }, failed = { s.copy(busy = false, notice = ClaimNotice.NETWORK) }) { r ->
+    private fun goTab(tab: Tab, me: MeReply) {
+        when (tab) {
+            Tab.TODAY -> if (screen !is Screen.Home) goHome(me)
+            Tab.HOURS -> if (screen !is Screen.Hours) {
+                if (me.hoursWeeks > 0) loadHours(Screen.Hours(me), null, append = false) else screen = Screen.Hours(me, busy = false)
+            }
+            Tab.SETTINGS -> if (screen !is Screen.Settings) screen = settingsOf(me)
+        }
+    }
+
+    // This week's total for Today's summary card: read only while My hours is on, never stored.
+    private fun loadWeek() {
+        val s = screen as? Screen.Home ?: return
+        if (s.me.hoursWeeks <= 0) return
+        work({ staff.hours(null, null) }, failed = { screen }) { r ->
+            val now = screen as? Screen.Home ?: return@work
             screen = when (r) {
-                is StaffFlow.Answer.Ok -> s.copy(open = r.value.open, sent = r.value.sent, notice = notice, problems = problems, busy = false)
-                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
-                else -> s.copy(busy = false, notice = ClaimNotice.NETWORK)
+                is StaffFlow.Answer.Ok -> now.copy(week = r.value, weekLoading = false)
+                StaffFlow.Answer.Off -> now.copy(me = now.me.copy(hoursWeeks = 0), week = null, weekLoading = false)
+                else -> now.copy(weekLoading = false)
             }
         }
     }
 
-    private fun sendClaim(s: Screen.Missing, c: OpenClaim, at: String) {
+    // Opens the sheet: the list is read when the card is pressed, shown one record at a time.
+    private fun openMissing(s: Screen.Home) {
         if (s.busy) return
-        val busy = s.copy(busy = true, notice = null)
+        screen = s.copy(busy = true, notice = null, problem = null)
+        work({ staff.claims() }, failed = { s.copy(busy = false) }) { r ->
+            val now = screen as? Screen.Home ?: return@work
+            screen = when (r) {
+                is StaffFlow.Answer.Ok -> if (r.value.open.isEmpty()) now.copy(busy = false, me = now.me.copy(missingTimes = 0))
+                    else now.copy(claims = r.value.open, index = 0, busy = false)
+                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                else -> now.copy(busy = false, notice = ClaimNotice.NETWORK)
+            }
+        }
+    }
+
+    private fun nextClaim(s: Screen.Home) {
+        val list = s.claims ?: return
+        screen = if (s.index + 1 < list.size) s.copy(index = s.index + 1, notice = null, problem = null)
+        else s.copy(claims = null, notice = null, problem = null)
+    }
+
+    // After a send the list is read again: the record just answered drops out, the next one shows.
+    private fun reloadClaims(s: Screen.Home, notice: ClaimNotice?) {
+        work({ staff.claims() }, failed = { s.copy(busy = false, notice = ClaimNotice.NETWORK) }) { r ->
+            screen = when (r) {
+                is StaffFlow.Answer.Ok -> {
+                    val me = s.me.copy(missingTimes = r.value.open.size)
+                    if (r.value.open.isEmpty()) s.copy(me = me, claims = null, busy = false, notice = notice, problem = null)
+                    else s.copy(me = me, claims = r.value.open, index = 0, busy = false, notice = notice.takeIf { it != ClaimNotice.SENT }, problem = null)
+                }
+                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                else -> s.copy(busy = false, notice = ClaimNotice.NETWORK)
+            }
+            if (notice == ClaimNotice.SENT) syncPresence()
+        }
+    }
+
+    private fun sendClaim(s: Screen.Home, c: OpenClaim, at: String) {
+        if (s.busy) return
+        val busy = s.copy(busy = true, notice = null, problem = null)
         screen = busy
         work({ staff.send(c.context, at) }, failed = { s.copy(busy = false, notice = ClaimNotice.NETWORK) }) { r ->
             when (r) {
                 is StaffFlow.Answer.Ok -> when (r.value) {
-                    "sent", "already_sent" -> loadMissing(busy, ClaimNotice.SENT, emptyMap())
+                    "sent", "already_sent" -> reloadClaims(busy, ClaimNotice.SENT)
                     "outside_window" -> {
-                        val why = if (at.isEmpty()) getString(R.string.claim_enter_time)
-                        else getString(R.string.claim_outside, getString(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo))
-                        screen = s.copy(busy = false, problems = s.problems + (c.context to why))
+                        val why = getString(R.string.claim_outside, getString(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo))
+                        screen = s.copy(busy = false, problem = why)
                     }
-                    "expired" -> loadMissing(busy, ClaimNotice.EXPIRED, emptyMap())
-                    "resolved" -> loadMissing(busy, ClaimNotice.RESOLVED, emptyMap())
+                    "expired" -> reloadClaims(busy, ClaimNotice.EXPIRED)
+                    "resolved" -> reloadClaims(busy, ClaimNotice.RESOLVED)
                     "not_active" -> screen = s.copy(busy = false, notice = ClaimNotice.NOT_ACTIVE)
-                    "still_open" -> loadMissing(busy, ClaimNotice.STILL_OPEN, emptyMap())
+                    "still_open" -> reloadClaims(busy, ClaimNotice.STILL_OPEN)
                     else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
                 }
-                StaffFlow.Answer.Stale -> loadMissing(busy, null, emptyMap())
+                StaffFlow.Answer.Stale -> reloadClaims(busy, null)
                 StaffFlow.Answer.SignedOut -> { presence.clear(); screen = activationEntry(Problem.SIGNED_OUT) }
                 else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
+            }
+        }
+    }
+
+    // The per-app language screen (Android 13+): the system's own picker for this app.
+    private fun openLanguage() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+        } catch (_: ActivityNotFoundException) {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+        }
+    }
+
+    // "Sign this phone out": the server revokes the device, the phone forgets it, the reminder and
+    // the timer go, and the app is back at its activation entry.
+    private fun signOut(s: Screen.Settings) {
+        if (s.busy) return
+        screen = s.copy(busy = true, failed = false)
+        work({ staff.signOut() }, failed = { s.copy(busy = false, failed = true) }) { r ->
+            screen = when (r) {
+                is StaffFlow.Answer.Ok, StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(null) }
+                else -> s.copy(busy = false, failed = true)
             }
         }
     }

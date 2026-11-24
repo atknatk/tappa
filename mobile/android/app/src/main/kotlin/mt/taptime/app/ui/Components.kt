@@ -31,19 +31,23 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import mt.taptime.app.R
 import mt.taptime.app.activation.AccentFill
 
 // The browser wizard's components, drawn by hand in Compose foundation (Q36: no material3;
 // skill tappa-brand). Palette tokens verbatim; no other colour except the tenant accent, and
 // that only on the wizard's primary button (ADR 0023 §2, WL-13). The fonts are the platform's
-// (sans for Space Grotesk's place, monospace for IBM Plex Mono's): the web's self-hosted woff2
-// files are not an Android font format, and bundling the families is a decision of its own.
+// are the brand's own, bundled as TrueType (the user's decision of 2026-11-24; the web's woff2 files
+// are not an Android font format).
 object Palette {
     val Ink = Color(0xFF152219)
     val Porcelain = Color(0xFFEDF0EA)
@@ -52,14 +56,31 @@ object Palette {
     val Saffron = Color(0xFFD98E2B)
     val Tomato = Color(0xFFBE3D2A)
     val Line = Color(0xFFC9D2C8)
+    val GreenLite = Color(0xFFE1EDE6)
+    val SaffronLite = Color(0xFFF7EBD6)
 
     fun rgb(v: Int) = Color(0xFF000000 or v.toLong())
 }
 
 enum class Tone(val color: Color) { OK(Palette.TappaGreen), WARN(Palette.Saffron), ALERT(Palette.Tomato) }
 
-private val Display = TextStyle(color = Palette.Ink, fontFamily = FontFamily.SansSerif)
-private val Mono = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace)
+// The brand's families, bundled (mobile/android/licenses/FONTS.md): Space Grotesk is one variable
+// file, each weight a variation of it; IBM Plex Mono ships as three static weights (bold draws the
+// semibold, the heaviest the app uses).
+@OptIn(ExperimentalTextApi::class)
+private fun grotesk(w: Int) = Font(R.font.space_grotesk, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+
+@OptIn(ExperimentalTextApi::class)
+val GroteskFamily = FontFamily(grotesk(400), grotesk(500), grotesk(600), grotesk(700))
+val MonoFamily = FontFamily(
+    Font(R.font.ibm_plex_mono_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_mono_medium, FontWeight.Medium),
+    Font(R.font.ibm_plex_mono_semibold, FontWeight.SemiBold),
+    Font(R.font.ibm_plex_mono_semibold, FontWeight.Bold),
+)
+
+private val Display = TextStyle(color = Palette.Ink, fontFamily = GroteskFamily)
+private val Mono = TextStyle(color = Palette.Ink, fontFamily = MonoFamily)
 
 @Composable
 fun Page(header: @Composable () -> Unit, content: @Composable ColumnScope.() -> Unit) {
