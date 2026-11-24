@@ -20,6 +20,11 @@ final class TapModelTests: XCTestCase {
     var activation: ActivationModel!
     var tap: TapModel!
     var app: AppModel!
+    /// The reminder, the widget's share and the lock-screen counter AppModel drives (M16-46/47).
+    var reminder: FakeReminder!
+    var counter: FakeCounter!
+    var shareSuite = ""
+    var share: PresenceShareStore!
     var deviceID = ""
     /// Requests that failed in transport before the twin saw them (see offline(paths:)).
     var lost: [String] = []
@@ -40,7 +45,13 @@ final class TapModelTests: XCTestCase {
                                clock: ServerClock(localNow: { l }))
         activation = ActivationModel(client: client, keys: SoftwareKeyFactory(), store: store, reader: reader)
         tap = TapModel(client: client, reader: reader, location: location, browser: browser, now: { l })
-        app = AppModel(activation: activation, tap: tap, browser: browser)
+        reminder = FakeReminder()
+        counter = FakeCounter()
+        shareSuite = "taptime.tests.\(UUID().uuidString)"
+        share = PresenceShareStore(defaults: UserDefaults(suiteName: shareSuite)!)
+        app = AppModel(activation: activation, tap: tap, browser: browser,
+                       presence: PresenceSync(store: share, reload: {}, counter: counter, enabled: { true }, now: { l }),
+                       reminder: reminder)
         let k = SoftwareDeviceKey()
         deviceID = server.register(k)
         store.record = ActivationRecord(deviceId: deviceID, employeeName: "Maria Borg", keyHandle: k.persistentHandle)
@@ -49,6 +60,7 @@ final class TapModelTests: XCTestCase {
 
     override func tearDown() async throws {
         MockURLProtocol.handler = nil
+        UserDefaults(suiteName: shareSuite)?.removePersistentDomain(forName: shareSuite)
     }
 
     /// Requests to these paths never reach the twin (offline); everything else does.
@@ -112,7 +124,8 @@ final class TapModelTests: XCTestCase {
         XCTAssertNil(body["mockLocation"], "a reading not reported as simulated sends no flag at all")
         XCTAssertEqual(tap.screen, .result(TapModel.Result(verdict: "ok", direction: "in", venue: "St Julians",
                                                            at: "09:12", businessType: "restaurant", practice: false)))
-        XCTAssertEqual(server.seen.map(\.path), ["/app/v1/me", "/app/v1/tap/start", "/app/v1/nonce", "/app/v1/tap"])
+        // The quiet /me after the recorded tap (M16-46/47 trigger 1) is the last request.
+        XCTAssertEqual(server.seen.map(\.path), ["/app/v1/me", "/app/v1/tap/start", "/app/v1/nonce", "/app/v1/tap", "/app/v1/me"])
         XCTAssertEqual(location.reads.count, 1)
         XCTAssertFalse(tap.pressing)
     }
@@ -342,7 +355,8 @@ final class TapModelTests: XCTestCase {
         app.scenePhase(.active)
         try await waitFor { view?.source == .home }
         XCTAssertEqual(view?.source, .home)
-        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 2)
+        // Launch, the quiet one after the recorded tap, and the way home.
+        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 3)
     }
 
     /// A result that came back while the app was away is shown when it returns -- not replaced by
@@ -364,7 +378,8 @@ final class TapModelTests: XCTestCase {
         guard case .result = tap.screen else {
             return XCTFail("the unseen result was replaced: \(tap.screen)")
         }
-        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 1)
+        // Launch and the quiet one after the recorded tap; the return to the front read none.
+        XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 2)
         app.scenePhase(.background)
         app.scenePhase(.active)
         try await waitFor { view?.source == .home }
@@ -413,6 +428,107 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(server.seen.filter { $0.path == "/app/v1/me" }.count, 1, "only the launch read /me")
     }
 
+    // MARK: The lock screen, the widget and the reminder follow the tap (M16-46/47 trigger 1)
+
+    /// An open check-in as /me reports it, on the test's clock (the server's is the phone's).
+    private var inPresence: [String: Any] {
+        ["inSince": "2026-11-15T00:00:00Z", "inSinceLocal": "02:00", "remindAt": "2026-11-15T10:00:00Z",
+         "showUntil": "2026-11-15T12:00:00Z", "staleAt": "2026-11-15T13:00:00Z"]
+    }
+
+    private var mePaths: Int { server.seen.filter { $0.path == AppClient.Path.me }.count }
+
+    /// A recorded tap: exactly one /me after it and one onMe; the counter starts at clock-in and
+    /// ends at clock-out while the app is in front, and the result screen is untouched.
+    func testARecordedTapFollowsWithOneQuietMe() async {
+        await app.launch()
+        XCTAssertEqual(mePaths, 1)
+        XCTAssertEqual(reminder.applied.count, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+
+        server.meBody["presence"] = inPresence
+        server.meBody["direction"] = "out"
+        await app.open(plaque)
+        await tap.press(want: "in")
+        let clockedIn = TapModel.Result(verdict: "ok", direction: "in", venue: "St Julians", at: "09:12",
+                                        businessType: "restaurant", practice: false)
+        XCTAssertEqual(tap.screen, .result(clockedIn), "the result screen stays exactly as it was")
+        XCTAssertEqual(mePaths, 2, "one /me after the tap")
+        XCTAssertEqual(server.seen.last?.path, AppClient.Path.me)
+        XCTAssertEqual(reminder.applied.count, 2, "one onMe after the tap")
+        XCTAssertEqual(tap.me?.presence?.inSinceLocal, "02:00")
+        XCTAssertEqual(counter.live.count, 1, "clock-in starts the counter")
+        XCTAssertTrue(share.read().isIn)
+
+        server.meBody["presence"] = nil
+        server.meBody["direction"] = "in"
+        server.tapBody["direction"] = "out"
+        await app.open(plaque)
+        await tap.press(want: "out")
+        XCTAssertEqual(mePaths, 3)
+        XCTAssertEqual(reminder.applied.count, 3)
+        XCTAssertTrue(counter.live.isEmpty, "clock-out ends it")
+        XCTAssertFalse(share.read().isIn)
+        guard case .result(let r) = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
+        XCTAssertEqual(r.direction, "out")
+    }
+
+    /// A tap that records nothing reads no /me: nothing moved.
+    func testAFailedPressReadsNoMe() async {
+        await app.launch()
+        await app.open(plaque)
+        server.tapScript = [(500, "server_error")]
+        await tap.press(want: "in")
+        XCTAssertEqual(mePaths, 1)
+        XCTAssertEqual(reminder.applied.count, 1)
+    }
+
+    /// The quiet /me unreachable: the last answer stands and the result screen stays.
+    func testAnUnreachableQuietMeLeavesTheLastAnswer() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        XCTAssertEqual(counter.live.count, 1)
+        await app.open(plaque)
+        offline(paths: [AppClient.Path.me])
+        await tap.press(want: "out")
+        XCTAssertEqual(lost, [AppClient.Path.me])
+        XCTAssertEqual(reminder.applied.count, 1)
+        XCTAssertEqual(reminder.cancels, 0)
+        XCTAssertEqual(counter.live.count, 1)
+        XCTAssertTrue(share.read().isIn)
+        guard case .result = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
+    }
+
+    /// The quiet /me answered signed out: everything is cleared, and the result screen stays.
+    func testASignedOutQuietMeClearsAndKeepsTheResult() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        XCTAssertEqual(counter.live.count, 1)
+        await app.open(plaque)
+        // The press goes through; the server signs the phone out before the /me after it.
+        let s = server!
+        let id = deviceID
+        MockURLProtocol.handler = { req, body in
+            if req.url?.path == AppClient.Path.me {
+                s.devicesSignedOut.insert(id)
+            }
+            return try s.handle(req, body)
+        }
+        await tap.press(want: "out")
+        XCTAssertEqual(server.taps.count, 1)
+        guard case .result = tap.screen else {
+            return XCTFail("\(tap.screen)")
+        }
+        XCTAssertEqual(activation.screen, .activated, "the result screen is not replaced")
+        XCTAssertEqual(reminder.cancels, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+        XCTAssertEqual(share.read(), .none)
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".
@@ -435,6 +551,66 @@ final class TapModelTests: XCTestCase {
         tap.startAgain()
         XCTAssertEqual(activation.screen, .code(notice: nil))
         XCTAssertTrue(server.taps.isEmpty)
+    }
+
+    /// A 401 on a plaque's tap/start: the problem screen, and nothing says "at work" any more;
+    /// "Start again" clears again on its way to activation (M16-46 trigger 3, M16-47).
+    func testASignedOutPlaqueClearsTheLockScreen() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        XCTAssertEqual(counter.live.count, 1)
+        XCTAssertTrue(share.read().isIn)
+        server.devicesSignedOut.insert(deviceID)
+        await app.open(plaque)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: Copy.Problems.signedOut, retry: false,
+                                                             browserURL: plaque, startAgain: true)))
+        XCTAssertEqual(reminder.cancels, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+        XCTAssertEqual(share.read(), .none)
+        tap.startAgain()
+        XCTAssertEqual(activation.screen, .code(notice: nil))
+        XCTAssertEqual(reminder.cancels, 2)
+        XCTAssertEqual(share.read(), .none)
+    }
+
+    /// A 401 on the press itself (tap/start passed): the same.
+    func testASignedOutPressClearsTheLockScreen() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        XCTAssertEqual(counter.live.count, 1)
+        await app.open(plaque)
+        server.refuseNonced = 2
+        await tap.press(want: "out")
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: Copy.Problems.signedOut, retry: false,
+                                                             browserURL: plaque, startAgain: true)))
+        XCTAssertEqual(reminder.cancels, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+        XCTAssertEqual(share.read(), .none)
+        XCTAssertEqual(mePaths, 1, "nothing was recorded, so no /me follows")
+    }
+
+    /// A 401 at home: the activation screen, and the reminder goes with the share and the counter.
+    func testASignedOutHomeClearsTheReminderToo() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        XCTAssertEqual(counter.live.count, 1)
+        server.devicesSignedOut.insert(deviceID)
+        await tap.home()
+        XCTAssertEqual(activation.screen, .code(notice: Copy.Problems.signedOut))
+        XCTAssertEqual(reminder.cancels, 1)
+        XCTAssertTrue(counter.live.isEmpty)
+        XCTAssertEqual(share.read(), .none)
+    }
+
+    /// A clock days off is not "signed out": the last answer stands.
+    func testAClockDaysOffClearsNothing() async {
+        server.meBody["presence"] = inPresence
+        await app.launch()
+        server.now = local.addingTimeInterval(3 * 86_400)
+        await app.open(plaque)
+        XCTAssertEqual(tap.screen, .problem(TapModel.Problem(copy: TapCopy.Problems.clock)))
+        XCTAssertEqual(reminder.cancels, 0)
+        XCTAssertEqual(counter.live.count, 1)
     }
 
     /// "Open in browser" opens the URL REBUILT from the server's origin and the checked query, not

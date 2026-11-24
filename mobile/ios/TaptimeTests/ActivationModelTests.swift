@@ -16,6 +16,7 @@ final class ActivationModelTests: XCTestCase {
     var model: ActivationModel!
     var tap: TapModel!
     var app: AppModel!
+    var shareSuite = "taptime.tests.\(UUID().uuidString)"
 
     override func setUp() async throws {
         server = FakeAppServer(now: local.addingTimeInterval(600))
@@ -30,7 +31,10 @@ final class ActivationModelTests: XCTestCase {
                                clock: ServerClock(localNow: { l }))
         model = ActivationModel(client: client, keys: keys, store: store, reader: reader)
         tap = TapModel(client: client, reader: reader, location: FakeLocation(), browser: FakeBrowser(), now: { l })
-        app = AppModel(activation: model, tap: tap, browser: FakeBrowser())
+        let shared = PresenceShareStore(defaults: UserDefaults(suiteName: shareSuite)!)
+        app = AppModel(activation: model, tap: tap, browser: FakeBrowser(),
+                       presence: PresenceSync(store: shared, reload: {}, counter: FakeCounter(), enabled: { true }),
+                       reminder: FakeReminder())
     }
 
     /// The tap screen's greeting, or nil when the tap screen is not showing.
@@ -43,6 +47,7 @@ final class ActivationModelTests: XCTestCase {
 
     override func tearDown() async throws {
         MockURLProtocol.handler = nil
+        UserDefaults(suiteName: shareSuite)?.removePersistentDomain(forName: shareSuite)
     }
 
     private func walkToTheTapStep() async {

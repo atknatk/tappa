@@ -243,8 +243,12 @@ final class TapModel: ObservableObject {
     var onSignedOut: (() -> Void)?
     /// "Start again" on a problem screen: back to the activation code screen.
     var onStartAgain: (() -> Void)?
-    /// Every /me answer, for the local reminder (StaffNotifier).
+    /// Every /me answer, for the local reminder (StaffNotifier) and the lock-screen counter.
     var onMe: ((MeResponse) -> Void)?
+    /// The server answered this phone as signed out where the screen does not go to activation (the
+    /// quiet /me after a recorded tap; a tap's own "signed out" problem screen): the reminder, the
+    /// widget and the counter must not go on saying "at work" for a phone that is signed out.
+    var onPresenceGone: (() -> Void)?
     /// The signed device, for the staff screens' own reads.
     var identity: DeviceIdentity? { device?.identity }
     var api: AppClient { client }
@@ -280,6 +284,12 @@ final class TapModel: ObservableObject {
 
     func enter(_ device: ActivatedDevice) {
         self.device = device
+    }
+
+    /// The person signed this phone out (Settings): a /me still on the wire must not bring the
+    /// counter back after it was cleared.
+    func leave() {
+        device = nil
     }
 
     // MARK: Entries
@@ -344,7 +354,7 @@ final class TapModel: ObservableObject {
                                direction: s.direction, source: .plaque(link: link, context: s.context)), problem: nil)
         } catch {
             guard gen == generation else { return }
-            screen = .problem(problem(for: error, link: link, sent: false))
+            fail(problem(for: error, link: link, sent: false))
         }
     }
 
@@ -401,7 +411,7 @@ final class TapModel: ObservableObject {
             } catch {
                 guard gen == generation else { return }
                 pressing = false
-                screen = .problem(problem(for: error, link: .plaque(sun: sun), sent: false))
+                fail(problem(for: error, link: .plaque(sun: sun), sent: false))
                 return
             }
             guard gen == generation else { return }
@@ -415,19 +425,56 @@ final class TapModel: ObservableObject {
         let hasFix = report.lat != nil && report.lng != nil
         let request = TapRequest(context: context, want: want, lat: hasFix ? report.lat : nil, lng: hasFix ? report.lng : nil,
                                  mockLocation: hasFix && report.mock == true ? true : nil)
-        sending = true
-        defer {
-            sending = false
-            pressing = false
-        }
+        var recorded = false
         do {
-            let r = try await client.tap(d.identity, request)
-            resultUnseen = !inForeground
-            screen = .result(Result(verdict: r.verdict, direction: r.direction, venue: r.venue, at: r.at,
-                                    businessType: r.businessType, practice: r.practice ?? false))
-        } catch {
-            screen = .problem(problem(for: error, link: opened, sent: true))
+            sending = true
+            defer {
+                sending = false
+                pressing = false
+            }
+            do {
+                let r = try await client.tap(d.identity, request)
+                resultUnseen = !inForeground
+                screen = .result(Result(verdict: r.verdict, direction: r.direction, venue: r.venue, at: r.at,
+                                        businessType: r.businessType, practice: r.practice ?? false))
+                recorded = true
+            } catch {
+                fail(problem(for: error, link: opened, sent: true))
+            }
         }
+        // M16-46/47 trigger 1: the tap moved the person in or out, so the reminder, the widget and
+        // the lock-screen counter follow it now -- not at the next home screen (the Android twin's
+        // Press.Recorded -> syncPresence). After `sending` is cleared: a plaque link may take the
+        // screen meanwhile, and this read never touches the screen.
+        if recorded {
+            await followPresence(d)
+        }
+    }
+
+    /// /me read for the reminder, the widget and the counter alone: the result screen stays exactly
+    /// as it is (CLAUDE.md §9). Offline, or any other failure, the last server answer stands; a
+    /// signed-out answer clears them, and the next home screen says so.
+    private func followPresence(_ d: ActivatedDevice) async {
+        do {
+            let me = try await client.me(d.identity)
+            guard device != nil else { return }
+            self.me = me
+            onMe?(me)
+        } catch AppAPIError.unauthenticated {
+            if device != nil, !client.clock.lastAnswerWasFarOff {
+                onPresenceGone?()
+            }
+        } catch {
+            // Unreachable is not "out": nothing is touched.
+        }
+    }
+
+    /// A problem screen; the signed-out one also clears what the lock screen and the widget show.
+    private func fail(_ p: Problem) {
+        if p.copy == TapCopy.Problems.signedOut {
+            onPresenceGone?()
+        }
+        screen = .problem(p)
     }
 
     /// The app came to the front over a result it had not shown yet: it is shown now, so the next

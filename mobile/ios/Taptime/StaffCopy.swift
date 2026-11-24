@@ -169,7 +169,7 @@ enum StaffCopy {
 /// The local "Still at work?" reminder (M16-46's iOS half): ONE pending notification request, put
 /// at /me's remindAt, with "Remind me in an hour" while that is before the business day's end.
 /// No push, no location, nothing leaves the phone.
-final class StaffNotifier: NSObject, UNUserNotificationCenterDelegate {
+final class StaffNotifier: NSObject, UNUserNotificationCenterDelegate, ReminderScheduling {
     static let shared = StaffNotifier()
     private static let id = "taptime.remind"
     private static let category = "taptime.remind"

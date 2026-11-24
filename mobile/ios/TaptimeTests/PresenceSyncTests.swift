@@ -19,30 +19,6 @@ private func me(_ p: Presence?) -> MeResponse {
 
 private func iso(_ s: String) -> Date { Presence.instant(s)! }
 
-private final class FakeCounter: CounterDriving {
-    var allowed = true
-    var live: [RunningCounter] = []
-    private(set) var performed: [[CounterOp]] = []
-    private var next = 0
-
-    func running() -> [RunningCounter] { live }
-
-    func perform(_ ops: [CounterOp]) {
-        performed.append(ops)
-        for op in ops {
-            switch op {
-            case let .start(s, staleAt):
-                next += 1
-                live.append(RunningCounter(id: "a\(next)", state: s, staleAt: staleAt))
-            case let .update(id, s, staleAt):
-                live = live.map { $0.id == id ? RunningCounter(id: id, state: s, staleAt: staleAt) : $0 }
-            case let .end(id):
-                live.removeAll { $0.id == id }
-            }
-        }
-    }
-}
-
 final class PresenceSyncTests: XCTestCase {
     private var suite: String!
     private var defaults: UserDefaults!
