@@ -49,8 +49,8 @@ import (
 //   - undelivered, per owner: no e-mail in this deployment, the owner's daily cap spent, no address, the
 //     address unreadable, the relay refusing, the job's time or the drain cutting it, a panic;
 //   - undelivered, ONE per job with no owner named: the queue full or closed (written synchronously, by
-//     the request), a job the drain never started, the owners unreadable or none, a panic before the
-//     owners were known.
+//     the request), a job the drain never started, the drain cutting the owners' read, the owners
+//     unreadable or none, a panic before the owners were known.
 //
 // COUNTED LIMITS: a process that DIES loses the queue and what is in flight with no row (the reset
 // outbox's accepted gap; the People card's line is the deletion row itself, which committed first and
@@ -122,6 +122,7 @@ const (
 	ownerReasonQueueShut   = "the notice queue was closed for shutdown, so no owner was e-mailed"
 	ownerReasonNotStarted  = "the process stopped before the notice started, so no owner was e-mailed"
 	ownerReasonOwnersRead  = "the business's owners could not be read, so no owner was e-mailed"
+	ownerReasonOwnersCut   = "the process stopped while the business's owners were being read, so no owner was e-mailed"
 	ownerReasonNoOwners    = "the business has no owner who can sign in, so no owner was e-mailed"
 	ownerReasonJobFault    = "the notice stopped on an internal fault before its owners were known; no owner may have been e-mailed"
 	ownerNoticeLogPanicked = "owner notice: the notice panicked; the request stands and the notice went on"
@@ -413,6 +414,11 @@ func (o *OwnerNotices) run(j ownerNoticeJob, l ownerNoticeLetter, st *ownerJobSt
 	owners, err := o.dir.NoticeOwners(readCtx, j.n.TenantID)
 	cancelRead()
 	if err != nil {
+		// The drain cutting the read is the process stopping, not the owners being unreadable.
+		if o.sendsStopped.Err() != nil {
+			jobless(ownerReasonOwnersCut)
+			return
+		}
 		o.log.ErrorContext(j.base, "owner notice: reading the business's owners failed",
 			"kind", string(j.n.Kind), "tenant_id", j.n.TenantID, "employee_id", j.n.EmployeeID, "err_type", fmt.Sprintf("%T", err))
 		jobless(ownerReasonOwnersRead)

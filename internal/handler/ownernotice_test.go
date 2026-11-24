@@ -424,6 +424,27 @@ func TestOwnerNotices_TheDrainCutsTheSendsAndRecordsTheJobsNotStarted(t *testing
 	}
 }
 
+// TestOwnerNotices_TheDrainCuttingTheOwnersReadSaysTheProcessStopped: a job whose owners' read the drain
+// cuts gets one owner-less row saying the process stopped -- not that the owners could not be read.
+func TestOwnerNotices_TheDrainCuttingTheOwnersReadSaysTheProcessStopped(t *testing.T) {
+	f := newOwnerFixture(t, 1, true)
+	f.dir.gate, f.dir.entered = make(chan struct{}), make(chan struct{}, 1)
+	f.q.Submit(context.Background(), f.notice())
+	<-f.dir.entered
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	if err := f.q.Drain(ctx); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	rows := f.rows(t)
+	if len(rows) != 1 || rows[0].Reason != ownerReasonOwnersCut || rows[0].AdminUserID != "" {
+		t.Fatalf("rows %+v, want one owner-less row: %q", rows, ownerReasonOwnersCut)
+	}
+	if sent := f.send.to(); len(sent) != 0 {
+		t.Fatalf("%d e-mails, want 0", len(sent))
+	}
+}
+
 // blockingTrail is a recorder whose every write waits for its context to end, as a stalled Postgres.
 type blockingTrail struct{}
 
