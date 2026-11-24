@@ -45,7 +45,15 @@ func TestAppClaimsDB_ListSendAndTheContextsHolder(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT timezone FROM tenants WHERE id = $1`, h.tenantID).Scan(&zone); err != nil {
 		t.Fatal(err)
 	}
-	in := time.Now().Add(-30 * time.Hour).UTC().Truncate(time.Minute)
+	// 09:00 two days ago, in the business's zone: stale whatever the hour the test runs, and its
+	// window (to the next 05:00, capped at 18 h) holds the 17:00 the send claims. "30 hours ago"
+	// put a 06:27 UTC run's check-in at 01:27 Malta, whose window closes at 05:00.
+	zloc, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ago := time.Now().In(zloc).AddDate(0, 0, -2)
+	in := time.Date(ago.Year(), ago.Month(), ago.Day(), 9, 0, 0, 0, zloc).UTC()
 	day, ok := tap.BusinessDayStart(in, tap.DayCutoff{Cutoff: 5 * time.Hour, Timezone: zone})
 	if !ok {
 		t.Fatal("no business day")
