@@ -70,11 +70,15 @@ func (a *App) AccountDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Active and deactivated alike: the request is the employer's to answer either way. Submit only
-	// queues (or, when the queue will not take it, writes the one undelivered row) and returns.
-	a.owners.Submit(ctx, OwnerNotice{
-		Kind: ownerNoticeDeletionRequest, TenantID: dev.TenantID, EmployeeID: dev.EmployeeID,
-		EmployeeName: done.EmployeeName, At: done.At, Zone: ownerZone(done.Timezone),
-	})
+	// queues (or, when the queue will not take it, writes the one undelivered row) and returns. A
+	// deactivated person's repeat inside tenant.DeletionRepeatWindow wrote nothing, and the owners
+	// were told the first time: no notice, the same 204.
+	if !done.Repeat {
+		a.owners.Submit(ctx, OwnerNotice{
+			Kind: ownerNoticeDeletionRequest, TenantID: dev.TenantID, EmployeeID: dev.EmployeeID,
+			EmployeeName: done.EmployeeName, At: done.At, Zone: ownerZone(done.Timezone),
+		})
+	}
 	setAppHeaders(w)
 	w.WriteHeader(http.StatusNoContent)
 }

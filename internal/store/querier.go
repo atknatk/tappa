@@ -6075,6 +6075,21 @@ type Querier interface {
 	// retirement (staffapi.go) then sees it. activated_at says whether the person has ever
 	// activated (K-15: an activated person's new address gets no invitation).
 	LockEmployeeForAPI(ctx context.Context, arg LockEmployeeForAPIParams) (LockEmployeeForAPIRow, error)
+	// SERIALISE ONE PERSON'S DELETION REQUESTS (M16-37's repeat rule). A deactivated person keeps their
+	// app device (T59), so they can ask again and again; a repeat inside RecentDeletionRequestExists'
+	// window writes nothing. That is a READ-THEN-DECIDE, and without a lock two concurrent requests both
+	// read "none yet" and both write (LockAPIDeactivationBudget's argument: READ COMMITTED takes a fresh
+	// snapshot per statement, and a transaction-scoped advisory lock is released only after its COMMIT
+	// is visible). It is the transaction's FIRST statement, before the revokes' row locks.
+	//
+	// THE KEY IS NAMESPACED ('deletion-request:' keeps it apart from LockEmployeeForTap's bare
+	// "<tenant>:<employee>" and every other key) and taken by this statement alone, so it joins no lock
+	// cycle; a hash collision serialises two unrelated requests and mixes nothing.
+	//
+	// IT READS THE PERSON'S ROW and takes the lock in the SELECT LIST (LockAPIDeactivationBudget's §4.5
+	// shape): explicit tenant_id beside RLS, and a person not on this business's roster returns NO ROW
+	// and takes no lock.
+	LockEmployeeForDeletionRequest(ctx context.Context, arg LockEmployeeForDeletionRequestParams) (LockEmployeeForDeletionRequestRow, error)
 	// The same row as GetEmployeeEmail, ROW-LOCKED FOR UPDATE until the transaction ends
 	// (M10 EM-6, step 2 of internal/domain/tenant.Staff.ChangeEmail).
 	//
@@ -6571,6 +6586,11 @@ type Querier interface {
 	ReadWebhookBucket(ctx context.Context, arg ReadWebhookBucketParams) (ReadWebhookBucketRow, error)
 	// A new address for THIS endpoint; its key is unchanged.
 	ReaddressWebhookEndpoint(ctx context.Context, arg ReaddressWebhookEndpointParams) (int64, error)
+	// Did this person already ask, in the last @window_seconds (the repeat rule's window)? Read under
+	// LockEmployeeForDeletionRequest, after it, so a request committed by the holder before is seen.
+	// `at` is the database's clock (00005's DEFAULT) and so is now(). TENANT SCOPE (section 4.5):
+	// explicit predicate beside RLS; rides audit_log_tenant_target_idx.
+	RecentDeletionRequestExists(ctx context.Context, arg RecentDeletionRequestExistsParams) (bool, error)
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is

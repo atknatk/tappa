@@ -212,7 +212,9 @@ func TestAppAccountDeleteDB_TheOwnersAreEMailedWhileTheBreakerRefuses(t *testing
 }
 
 // TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners: the deactivated person keeps
-// their credentials (T59) and the owners are still e-mailed.
+// their credentials (T59) and the owners are still e-mailed. Their SECOND request inside tenant.DeletionRepeatWindow answers the same 204
+// and adds nothing: one trail row and one notice in total (the device still signs, so without the rule
+// every press is a row and an e-mail per owner).
 func TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners(t *testing.T) {
 	h := newAppHarness(t)
 	p := &breakerProbe{}
@@ -222,12 +224,17 @@ func TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners(t *tes
 	phone := newAppPhone(t)
 	h.register(t, phone, gone)
 
-	if w := h.post(t, phone, AppAccountDeletePath, "{}"); w.Code != http.StatusNoContent {
-		t.Fatalf("delete = %d %s, want 204", w.Code, w.Body.String())
+	for i := range 2 {
+		if w := h.post(t, phone, AppAccountDeletePath, "{}"); w.Code != http.StatusNoContent {
+			t.Fatalf("delete #%d = %d %s, want 204", i+1, w.Code, w.Body.String())
+		}
 	}
 	drainNow(t, q)
 	if p.count() != 1 {
 		t.Fatalf("%d e-mails, want 1", p.count())
+	}
+	if n := h.countWhere(t, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'employee.deletion_requested' AND target = $2::text`, gone); n != 1 {
+		t.Fatalf("%d trail rows after a repeat, want 1", n)
 	}
 	rows := h.noticeRows(t, gone)
 	if len(rows) != 1 || rows[0].action != ActionEmployeeDeletionNoticeSent || rows[0].AdminUserID != owner.String() {
