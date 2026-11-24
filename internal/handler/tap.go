@@ -103,7 +103,10 @@ type Tap struct {
 	// then not mounted (404) -- set by ServeLiveQR (cmd/tappa's openLiveQR, the one place
 	// that reads the key, so the screen page and the tap page are on or off together).
 	live *liveQRTap
-	log  *slog.Logger
+	// hours is the browser's My hours (M16-32, myhours.go): nil until ServeMyHours, and GET /me/hours
+	// then answers 404.
+	hours myHoursReader
+	log   *slog.Logger
 }
 
 // ⚠️ THE AUDIT RECORDER IS NOT A FIELD ON Tap, and that is not an oversight:
@@ -308,6 +311,10 @@ func (t *Tap) Mount(r chi.Router) {
 		if t.live != nil {
 			r.Get(LiveQRPath, t.LivePage)
 		}
+		// GET /me/hours, the browser's My hours (M16-32): the same chain, so the person comes from the
+		// tap's session cookie and the page is metered with the tap. Mounted always (the app's routes'
+		// rule): until ServeMyHours it answers the router's own 404.
+		r.Get(MyHoursPath, t.MyHours)
 		r.Post("/api/checkin", t.Checkin)
 		// The claim card's answer (M15-17): the same chain, the same limiter instance -- a
 		// claim is the tail of a tap, metered with it -- and, like the tap, no suspension

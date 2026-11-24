@@ -471,6 +471,10 @@ func run() error {
 	if err := app.ServeHours(records); err != nil {
 		return err
 	}
+	// The browser's My hours (M16-32): the same reader, on the tap surface (GET /me/hours).
+	if err := tap.ServeMyHours(records); err != nil {
+		return err
+	}
 	// The panel's WRITE side (M6-04): the FLAGGED approval queue. It takes the SAME
 	// audit recorder every other service does, because the review row and its audit
 	// row have to share one transaction — internal/domain/review says why that is

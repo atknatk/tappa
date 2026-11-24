@@ -45,6 +45,7 @@ var plainNotFoundPaths = []string{
 	"/app/no-such-route",
 	"/screen/no-such-page",
 	"/q/no-such-page",
+	"/me/no-such-page",
 	"/admin/../no-such-page", "//admin/x", "/%61dmin/x", "/admin%2Fx", "/ADMIN/x", `/\admin/x`,
 	"/x/../brand/y", "/Brand/theme/x",
 }

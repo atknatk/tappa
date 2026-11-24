@@ -1,0 +1,83 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// MyHoursSignedOut is the page for a browser with no live session (M16-32): one sentence, nothing
+// read. The person's identity is only ever their phone's session cookie.
+templ MyHoursSignedOut() {
+	@layout.Page("My hours — Taptime") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">My hours</h1>
+		<p>Open this on the phone you clock in with.</p>
+	}
+}
+
+// MyHours is the browser's My hours page (M16-32): the week's totals on one kitchen ticket, then one
+// ticket per day with its records, every figure in the mono face. Status is told in words, never in
+// colour alone. Links only -- no form, no script: the week's neighbours and "Show more" are plain GETs.
+templ MyHours(v MyHoursView) {
+	@layout.Page("My hours — Taptime") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">My hours</h1>
+		<section class="docket">
+			<p class="docket-label">{ v.Week }</p>
+			<div class="report-head mt-1">
+				<span class="report-who">Counted</span>
+				<span class="report-total">{ v.Total }</span>
+			</div>
+			if v.Awaiting != "" {
+				<p class="mt-1 text-ink/85">{ v.Awaiting } waiting for your manager</p>
+			}
+			for _, n := range v.Notes {
+				<p class="mt-1 text-ink/85">{ n }</p>
+			}
+		</section>
+		if v.Waiting != "" {
+			@components.Notice(components.ToneWarn, "") {
+				{ v.Waiting }
+			}
+		}
+		for _, d := range v.Days {
+			<section class="docket">
+				<div class="report-head">
+					<span class="report-who">{ d.Label }</span>
+					<span class="report-day">{ d.Total }</span>
+				</div>
+				if len(d.Records) == 0 {
+					<p class="mt-1 text-ink/70">No records</p>
+				}
+				for _, rec := range d.Records {
+					<div class="mt-2">
+						<p class="text-ink">
+							<span>{ rec.At }</span>
+							if rec.Direction != "" {
+								<span class="ml-2 font-bold uppercase">{ rec.Direction }</span>
+							}
+							<span class="ml-2">{ rec.State }</span>
+						</p>
+						if rec.Venue != "" {
+							<p class="text-xs text-ink/70">{ rec.Venue }</p>
+						}
+						if rec.Claim != "" {
+							<p class="text-xs text-ink/85">{ rec.Claim }</p>
+						}
+					</div>
+				}
+			</section>
+		}
+		if v.MoreHref != "" {
+			<a href={ templ.URL(v.MoreHref) } class="font-display font-bold underline">Show more</a>
+		}
+		<nav class="flex justify-between gap-4">
+			if v.PrevHref != "" {
+				<a href={ templ.URL(v.PrevHref) } class="font-display font-bold underline">Previous week</a>
+			} else {
+				<span></span>
+			}
+			if v.NextHref != "" {
+				<a href={ templ.URL(v.NextHref) } class="font-display font-bold underline">Next week</a>
+			}
+		</nav>
+	}
+}
