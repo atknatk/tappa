@@ -66,6 +66,10 @@ func deletionOwners(t *testing.T, h *appHarness, p *breakerProbe, tripped bool) 
 func (h *appHarness) addAdmin(t *testing.T, role, status, address string) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
+	// admin_users is written under the panel tables lock (cmd/opadmin's
+	// TestTablesLock_AdminRowsAreWrittenUnderTheHolder).
+	release := holdPanelTablesLock(t)
+	defer release()
 	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
 		                      VALUES ($1, $2, 'Owner Fixture', $3, $4, $5, $6)`, id, h.tenantID, address, ownerDigest, role, status)
