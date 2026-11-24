@@ -157,11 +157,17 @@ tasks.withType<Test>().configureEach {
     inputs.dir(mainSrc).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.mainSrc", mainSrc.asFile.absolutePath)
     // M16-13: the iOS twin's tap copy (mobile/ios/Taptime/TapCopy.swift, ActivationCopy.swift), held
-    // line for line by IosCopyTest. The files exist on a branch that carries both apps; on a branch
-    // without them the test is SKIPPED, not passed. -Ptaptime.iosRoot=<dir> reads another checkout's
-    // (a measurement, never a build input of release).
+    // line for line by IosCopyTest; M16-47 adds the staff screens' (StaffCopy.swift) and the lock
+    // screen's and widget's (Shared/LiveCopy.swift), in both languages. The files exist on a branch
+    // that carries both apps; on a branch without them the test is SKIPPED, not passed.
+    // -Ptaptime.iosRoot=<dir> reads another checkout's (a measurement, never a build input of release).
     val iosRoot = providers.gradleProperty("taptime.iosRoot").orNull?.let { file(it) } ?: rootProject.file("../ios")
-    for ((property, name) in mapOf("taptime.ios.tapCopy" to "Taptime/TapCopy.swift", "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift")) {
+    for ((property, name) in mapOf(
+        "taptime.ios.tapCopy" to "Taptime/TapCopy.swift",
+        "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift",
+        "taptime.ios.staffCopy" to "Taptime/StaffCopy.swift",
+        "taptime.ios.liveCopy" to "Shared/LiveCopy.swift",
+    )) {
         val f = File(iosRoot, name)
         if (f.isFile) {
             inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)

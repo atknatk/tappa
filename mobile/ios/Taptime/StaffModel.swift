@@ -160,7 +160,7 @@ final class StaffModel: ObservableObject {
         }
         switch word {
         case "sent", "already_sent": await reloadClaims(notice: StaffCopy.sent)
-        case "outside_window": claimProblem = StaffCopy.outside + " " + StaffCopy.window(from: c.windowFrom.at, to: c.windowTo.at)
+        case "outside_window": claimProblem = StaffCopy.outside(StaffCopy.window(from: c.windowFrom, to: c.windowTo))
         case "expired": await reloadClaims(notice: StaffCopy.expired)
         case "resolved": await reloadClaims(notice: StaffCopy.resolved)
         case "not_active": claimProblem = StaffCopy.notActive

@@ -540,7 +540,7 @@ private struct ClaimSheet: View {
                         .environment(\.locale, Locale(identifier: "en_GB"))
                         .frame(maxWidth: .infinity)
                 } footer: {
-                    Text(staff.claimProblem ?? StaffCopy.window(from: claim.windowFrom.at, to: claim.windowTo.at))
+                    Text(staff.claimProblem ?? StaffCopy.outside(StaffCopy.window(from: claim.windowFrom, to: claim.windowTo)))
                         .foregroundColor(staff.claimProblem != nil ? Palette.tomato : nil)
                 }
                 Section {

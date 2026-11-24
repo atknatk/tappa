@@ -7,14 +7,17 @@ import UserNotifications
 enum StaffCopy {
     static var turkish: Bool { Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") ?? false }
     static func t(_ en: String, _ tr: String) -> String { turkish ? tr : en }
+    /// The design's stamps are capitals; the words are the Android app's, capitalised by the
+    /// language's own rules (Turkish i -> İ), as Android's uppercase(locale) does.
+    static func upper(_ s: String) -> String { s.uppercased(with: Locale(identifier: turkish ? "tr" : "en")) }
 
     static var tabToday: String { t("Today", "Bugün") }
     static var tabHours: String { t("My hours", "Saatlerim") }
     static var tabSettings: String { t("Settings", "Ayarlar") }
 
     static func hello(_ first: String) -> String { t("Hello, \(first)", "Merhaba, \(first)") }
-    static var atWork: String { t("AT WORK", "İŞTESİN") }
-    static var notIn: String { t("NOT CLOCKED IN", "İŞTE DEĞİLSİN") }
+    static var atWork: String { upper(t("At work", "İştesin")) }
+    static var notIn: String { upper(t("Not clocked in", "İşte değilsin")) }
     static func inAt(_ hm: String) -> String { t("In at \(hm)", "Giriş \(hm)") }
     static var notInBody: String { t("See you at your next shift.", "Bir sonraki vardiyada görüşürüz.") }
     static func shiftUntil(_ hm: String) -> String { t("Shift until \(hm)", "Vardiya bitişi \(hm)") }
@@ -30,7 +33,9 @@ enum StaffCopy {
     static var week: String { t("Counted this week", "Bu hafta sayılan") }
     static var counted: String { t("Counted", "Sayılan") }
     static func duration(_ minutes: Int) -> String {
-        t("\(minutes / 60) h \(String(format: "%02d", minutes % 60)) min", "\(minutes / 60) sa \(String(format: "%02d", minutes % 60)) dk")
+        let h = minutes / 60
+        let m = String(format: "%02d", minutes % 60)
+        return t("\(h) h \(m) min", "\(h) sa \(m) dk")
     }
 
     // My hours
@@ -88,47 +93,70 @@ enum StaffCopy {
     static func lead(kind: String, day: String, date: String, at: String) -> String {
         if kind == "in" {
             switch day {
-            case "today": return t("You clocked out at \(at) but there's no clock-in.", "Bugün \(at) çıkışının girişi yok.")
-            case "yesterday": return t("Yesterday you clocked out at \(at) but there's no clock-in.", "Dün \(at) çıkışının girişi yok.")
-            default: return t("On \(date) you clocked out at \(at) but there's no clock-in.", "\(date) tarihinde \(at) çıkışının girişi yok.")
+            case "today": return t("You clocked out at \(at) but there's no clock-in.", "Çıkış saatin \(at), ama giriş yok.")
+            case "yesterday": return t("Yesterday you clocked out at \(at) but there's no clock-in.", "Dün çıkış saatin \(at), ama giriş yok.")
+            default: return t("On \(date) you clocked out at \(at) but there's no clock-in.", "\(date) günü çıkış saatin \(at), ama giriş yok.")
             }
         }
         switch day {
-        case "today": return t("You clocked in at \(at) and didn't clock out.", "Bugün \(at) girişinin çıkışı yok.")
-        case "yesterday": return t("Yesterday you clocked in at \(at) but there's no clock-out.", "Dün \(at) girişinin çıkışı yok.")
-        default: return t("On \(date) you clocked in at \(at) but there's no clock-out.", "\(date) tarihinde \(at) girişinin çıkışı yok.")
+        case "today": return t("You clocked in at \(at) and didn't clock out.", "Giriş saatin \(at), ama çıkış yapmadın.")
+        case "yesterday": return t("Yesterday you clocked in at \(at) but there's no clock-out.", "Dün giriş saatin \(at), ama çıkış yok.")
+        default: return t("On \(date) you clocked in at \(at) but there's no clock-out.", "\(date) günü giriş saatin \(at), ama çıkış yok.")
         }
     }
     static func question(_ kind: String) -> String {
-        kind == "in" ? t("What time did you come in?", "Kaçta gelmiştin?") : t("What time did you leave?", "Kaçta çıktın?")
+        kind == "in" ? t("What time did you come in?", "Kaçta geldin?") : t("What time did you leave?", "Kaçta çıktın?")
     }
-    static func window(from: String, to: String) -> String { t("It has to be between \(from) and \(to).", "Saat şu aralıkta olmalı: \(from) – \(to).") }
-    static var send: String { t("Send to my manager", "Müdüre gönder") }
+    /// The window phrase (the browser's claimWindowPhrase, Android's ClaimWords.window): an
+    /// excluded end "after" / "before", an included one "from" / "up to".
+    static func window(from: ClaimsResponse.Bound, to: ClaimsResponse.Bound) -> String {
+        let a = from.at, b = to.at
+        switch (from.inclusive, to.inclusive) {
+        case (true, true): return t("from \(a) up to \(b)", "\(a) ile \(b) arası")
+        case (true, false): return t("from \(a) and before \(b)", "en erken \(a) ve \(b) öncesi")
+        case (false, true): return t("after \(a) up to \(b)", "\(a) sonrası ve en geç \(b)")
+        case (false, false): return t("after \(a) and before \(b)", "\(a) sonrası ve \(b) öncesi")
+        }
+    }
+    static func outside(_ window: String) -> String {
+        t("That time does not fit this record. It has to be \(window).", "Bu saat bu kayda uymuyor. Şu aralıkta olmalı: \(window).")
+    }
+    static var send: String { t("Send to my manager", "Müdürüme gönder") }
     static var sending: String { t("Sending…", "Gönderiliyor…") }
     static var sendShort: String { t("Send", "Gönder") }
     static var skip: String { t("Not now", "Şimdilik geç") }
     static var sent: String { t("Sent — your manager will review it.", "Gönderildi — müdürün inceleyecek.") }
-    static var outside: String { t("That time does not fit this record.", "Bu saat bu kayda uymuyor.") }
-    static var expired: String { t("This question has expired. Tell your manager what time it was.", "Bu sorunun süresi doldu. Saati müdürüne söyle.") }
-    static var resolved: String { t("Already resolved: nothing was sent.", "Zaten çözülmüş: bir şey gönderilmedi.") }
-    static var notActive: String { t("Only an active employee can send a time.", "Yalnız aktif bir çalışan saat gönderebilir.") }
-    static var stillOpen: String { t("You're still clocked in. Tap the plaque when you leave.", "Hâlâ içeridesin. Çıkarken plakete dokun.") }
+    // The outcomes are the Android app's banners: a title, " — ", and its line.
+    static var expired: String {
+        t("This question has expired", "Bu sorunun süresi doldu") + " — " + t("Tell your manager what time it was.", "Müdürüne saatin kaç olduğunu söyle.")
+    }
+    static var resolved: String {
+        t("Already resolved", "Zaten çözülmüş") + " — "
+            + t("That record no longer needs this time, so nothing was sent.", "Bu kayıt artık bu saate ihtiyaç duymuyor, bu yüzden hiçbir şey gönderilmedi.")
+    }
+    static var notActive: String { t("Your account can't send this", "Hesabın bunu gönderemez") }
+    static var stillOpen: String {
+        t("You're still clocked in", "Hâlâ girişlisin") + " — " + t("Nothing was sent. Tap the plaque when you leave.", "Hiçbir şey gönderilmedi. Çıkarken plakete dokun.")
+    }
     static var network: String { t("Can't reach Taptime. Check your connection.", "Taptime'a ulaşılamıyor. İnternetini kontrol et.") }
 
     // Settings
     static var connected: String { t("This phone is connected", "Bu telefon bağlı") }
     static var notifications: String { t("Notifications", "Bildirimler") }
-    static var remind: String { t("Remind me to clock out", "Çıkışı hatırlat") }
+    static var remind: String { t("Remind me to clock out", "Çıkışı bana hatırlat") }
     static var remindHint: String {
-        t("If you may have forgotten, your phone reminds you once.", "Çıkışı unutmuş olabilirsen telefonun bir kez hatırlatır.")
+        t("If you may have forgotten, your phone reminds you about 10 hours after you clock in.",
+          "Unutmuş olabilirsen, telefonun girişten yaklaşık 10 saat sonra sana hatırlatır.")
     }
-    static var notificationsOff: String { t("Notifications are off for Taptime in Settings.", "Taptime bildirimleri telefon ayarlarında kapalı.") }
+    static var notificationsOff: String {
+        t("Notifications are off for Taptime in your phone's Settings.", "Telefonunun Ayarlar'ında Taptime bildirimleri kapalı.")
+    }
     // The lock-screen counter (M16-47): the title is the Android app's settings_timer, the
     // subtitle the design's (ios/Settings).
     static var counter: String { t("Show a timer on the lock screen", "Kilit ekranında sayaç göster") }
     static var counterSub: String { t("A live counter while you're in", "İşteyken canlı sayaç") }
     static var activitiesOff: String {
-        t("Live Activities are off for Taptime in Settings.", "Taptime için Canlı Etkinlikler telefon ayarlarında kapalı.")
+        t("Live Activities are off for Taptime in your phone's Settings.", "Telefonunun Ayarlar'ında Taptime için Canlı Etkinlikler kapalı.")
     }
     static var shift: String { t("Shift", "Vardiya") }
     static var usualShift: String { t("Usual shift", "Her zamanki vardiya") }
@@ -161,8 +189,8 @@ enum StaffCopy {
 
     // The reminder
     static var remindTitle: String { t("Still at work?", "Hâlâ işte misin?") }
-    static func remindBody(_ inAt: String) -> String { t("You clocked in at \(inAt). If you've finished, remember to clock out.", "\(inAt) girişi yaptın. Bitirdiysen çıkışı unutma.") }
-    static func remindBodyShift(_ end: String) -> String { t("If you've finished, remember to clock out. Your shift ended at \(end).", "Bitirdiysen çıkışı unutma. Vardiyan \(end) bitti.") }
+    static func remindBody(_ inAt: String) -> String { t("You clocked in at \(inAt). If you've finished, remember to clock out.", "Giriş saatin \(inAt). Bitirdiysen çıkış yapmayı unutma.") }
+    static func remindBodyShift(_ end: String) -> String { t("If you've finished, remember to clock out. Your shift ended at \(end).", "Bitirdiysen çıkış yapmayı unutma. Vardiyanın bitişi: \(end).") }
     static var snooze: String { t("Remind me in an hour", "1 saat sonra hatırlat") }
 }
 
