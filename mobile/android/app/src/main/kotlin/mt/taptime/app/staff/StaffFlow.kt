@@ -87,6 +87,15 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         return answer(client.claimSend(device.deviceId, key, context, at))
     }
 
+    companion object {
+        /**
+         * "No records this day" is true only when the loaded pages hold the whole week (the
+         * browser's WholeWeek): while a next cursor exists, the day's records may all be on a later
+         * page while its total -- the whole week's -- already shows.
+         */
+        fun saysNoRecords(loadedThatDay: Int, reply: HoursReply): Boolean = loadedThatDay == 0 && reply.nextCursor == null
+    }
+
     private fun <T> answer(r: Outcome<T>): Answer<T> = when (r) {
         is Outcome.Ok -> Answer.Ok(r.value)
         Outcome.Unauthenticated -> Answer.SignedOut

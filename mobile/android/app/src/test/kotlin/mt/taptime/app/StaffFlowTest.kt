@@ -11,6 +11,7 @@ import mt.taptime.app.wire.HttpUrlTransport
 import mt.taptime.app.wire.ServerClock
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,6 +86,23 @@ class StaffFlowTest {
         twoPages()
         assertEquals(Answer.Server, flow.hours("2026-11-09", null))
         assertEquals("no retry without a cursor", 1, server.hoursBodies.size)
+    }
+
+    /** The browser's WholeWeek: "No records" only when no page is left to load. */
+    @Test
+    fun noRecordsIsSaidOnlyWhenTheLoadedPagesHoldTheWholeWeek() {
+        activated()
+        twoPages()
+        val first = (flow.hours(week, null) as Answer.Ok<HoursReply>).value
+        var loaded = first.records
+        fun on(date: String) = loaded.count { it.date == date }
+        assertFalse("Tuesday's records are on page two", StaffFlow.saysNoRecords(on("2026-11-17"), first))
+        assertFalse("a later page may hold Wednesday's", StaffFlow.saysNoRecords(on("2026-11-18"), first))
+        val second = (flow.hours(week, first.nextCursor) as Answer.Ok<HoursReply>).value
+        loaded = loaded + second.records
+        assertTrue(StaffFlow.saysNoRecords(on("2026-11-18"), second))
+        assertFalse(StaffFlow.saysNoRecords(on("2026-11-17"), second))
+        assertFalse(StaffFlow.saysNoRecords(on("2026-11-16"), second))
     }
 
     @Test

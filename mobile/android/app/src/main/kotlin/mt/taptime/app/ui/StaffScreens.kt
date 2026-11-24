@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import mt.taptime.app.R
 import mt.taptime.app.staff.ClaimWords
+import mt.taptime.app.staff.StaffFlow
 import mt.taptime.app.wire.HoursRecord
 import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
@@ -402,7 +403,10 @@ fun HoursContent(
     }
 
     val day = reply.days.firstOrNull { it.date == chosen }
-    if (day != null) DayTimeline(day.date, day.workedMinutes, byDay[day.date].orEmpty(), locale)
+    if (day != null) {
+        val recs = byDay[day.date].orEmpty()
+        DayTimeline(day.date, day.workedMinutes, recs, StaffFlow.saysNoRecords(recs.size, reply), locale)
+    }
     if (reply.nextCursor != null) TextAction(stringResource(R.string.hours_more), enabled = !busy, onClick = onMore)
 }
 
@@ -415,7 +419,7 @@ private fun WeekArrow(path: String, label: String, enabled: Boolean, onClick: ()
 }
 
 @Composable
-private fun DayTimeline(date: String, worked: Int, recs: List<HoursRecord>, locale: java.util.Locale) {
+private fun DayTimeline(date: String, worked: Int, recs: List<HoursRecord>, noRecords: Boolean, locale: java.util.Locale) {
     Surface(radius = 24.dp) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -423,7 +427,7 @@ private fun DayTimeline(date: String, worked: Int, recs: List<HoursRecord>, loca
                 if (worked > 0) BasicText(duration(worked), style = text(14.sp, FontWeight.SemiBold, mono = true))
             }
             if (recs.isEmpty()) {
-                BasicText(stringResource(R.string.hours_day_empty), style = text(14.sp, color = Muted))
+                if (noRecords) BasicText(stringResource(R.string.hours_day_empty), style = text(14.sp, color = Muted))
                 return@Column
             }
             val directed = recs.filter { it.direction.isNotEmpty() }

@@ -118,6 +118,13 @@ final class StaffModel: ObservableObject {
         }
     }
 
+    /// "No records this day" is true only when the loaded pages hold the whole week (the browser's
+    /// WholeWeek): while a next cursor exists, the day's records may all be on a later page while
+    /// its total -- the whole week's -- already shows.
+    func saysNoRecords(on date: String) -> Bool {
+        hours?.nextCursor == nil && !records.contains { $0.date == date }
+    }
+
     /// A 400 to a signed read: bad_request, or a code this version does not know.
     nonisolated static func cursorRefused(_ e: AppAPIError) -> Bool {
         switch e {

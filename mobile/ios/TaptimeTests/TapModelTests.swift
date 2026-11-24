@@ -716,6 +716,20 @@ final class TapModelTests: XCTestCase {
         XCTAssertTrue(app.staff.hoursFailed)
     }
 
+    /// The browser's WholeWeek: "No records this day" only when no page is left to load.
+    func testNoRecordsIsSaidOnlyWhenTheLoadedPagesHoldTheWholeWeek() async {
+        twoPages()
+        await app.launch()
+        let staff = app.staff
+        await staff.loadHours(week: "2026-11-16", after: nil)
+        XCTAssertFalse(staff.saysNoRecords(on: "2026-11-17"), "Tuesday's records are on page two")
+        XCTAssertFalse(staff.saysNoRecords(on: "2026-11-18"), "a later page may hold Wednesday's")
+        await staff.loadHours(week: "2026-11-16", after: "own_c1")
+        XCTAssertTrue(staff.saysNoRecords(on: "2026-11-18"))
+        XCTAssertFalse(staff.saysNoRecords(on: "2026-11-17"))
+        XCTAssertFalse(staff.saysNoRecords(on: "2026-11-16"))
+    }
+
     // MARK: The missing-time sheet's hint
 
     /// Before a time is sent the hint names the window alone; "does not fit" is the server's

@@ -449,7 +449,7 @@ private struct HoursView: View {
                     if day.workedMinutes > 0 { Text(StaffCopy.duration(day.workedMinutes)).font(Typeface.mono(14, bold: true)) }
                 }
                 .padding(.bottom, 12)
-                if recs.isEmpty {
+                if recs.isEmpty && staff.saysNoRecords(on: day.date) {
                     Text(StaffCopy.dayEmpty).font(Typeface.display(14)).foregroundColor(muted)
                 }
                 ForEach(Array(directed.enumerated()), id: \.offset) { i, r in
