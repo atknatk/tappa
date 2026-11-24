@@ -141,7 +141,7 @@ Records are stored in a database where each business's data is separated at the 
 
 12. The Taptime staff app
 
-[TASLAK — BÖLÜM 12 HUKUKİ İNCELEME İÇİNDİR (M16-41). Her cümle 6fdeaced ağacındaki koda karşı okundu; kaynaklar aşağıda "Bölüm 12'nin kaynağı" tablosunda. Kodda olmayan üç iddia "[Only if … ships: …]" köşeli parantezindedir (e-postayla giriş — ADR 0049, M16-35; sahiplere e-posta — M16-35; cihaz doğrulaması — Faz E): özellik yayından önce canlıya çıkmadıysa parantez metniyle birlikte silinir, çıktıysa yalnız parantez işaretleri kalkar. Android'e özgü iki özellik (kilit ekranı sayacı, ana ekran widget'ı) iOS'ta bugün yok; metin bunu söylüyor. Bu paragraf yayından önce silinir.]
+[TASLAK — BÖLÜM 12 HUKUKİ İNCELEME İÇİNDİR (M16-41). Her cümle 6fdeaced ağacındaki koda karşı okundu; kaynaklar aşağıda "Bölüm 12'nin kaynağı" tablosunda. Kodda olmayan iki iddia "[Only if … ships: …]" köşeli parantezindedir (e-postayla giriş — ADR 0049, M16-35; cihaz doğrulaması — Faz E): özellik yayından önce canlıya çıkmadıysa parantez metniyle birlikte silinir, çıktıysa yalnız parantez işaretleri kalkar. Kilit ekranı sayacı ve ana ekran widget'ı iki platformda da var (iOS: Live Activity + WidgetKit, 250bd852); sahiplere e-posta 13f24033 ile geldi. Bu paragraf yayından önce silinir.]
 
 Taptime also offers an app for staff, for iPhone and Android. Using it is optional: clocking in with the phone's browser works as before. This section describes what is different when you use the app. Everything else in this notice applies to the app as well.
 
@@ -163,7 +163,7 @@ My hours. If your employer turns it on (it is off until they do), the app's My h
 
 Missing times. When one of your records lacks its other half (for example, you clocked in but there is no clock-out), the app can offer to send your employer the missing time. You give the time; Taptime stores your request, the time you gave and when you sent it, as part of your employer's records. A request is not a clock-in record and adds no hours. Hours are added only if a manager approves the request, and then as a new record marked as entered by that manager; if the manager rejects it, nothing is added. Requests, like records, are never edited or deleted afterwards. The app shows you the requests you sent and what happened to them.
 
-Reminders, lock-screen timer and home-screen widget. The app can remind you to clock out ("Still at work?") if you may have forgotten. On Android, it can also show a running timer on the lock screen while you are clocked in, and you can add a Taptime widget to your home screen. The reminder and the timer are off until you turn them on, and the widget appears only if you add it. All three are set up on your phone, by your phone: Taptime uses no push-notification service for them, receives no push token, and collects nothing new for them. The phone works them out from the clock-in time the app already receives when you open it, and none of them uses your location. They show times only: no name, no business and no venue (the timer adds your shift's end time only if your employer marks its shifts as real). What the widget keeps on the phone is only the time you clocked in and the end of that business day. Your on/off choices stay on the phone.
+Reminders, lock-screen timer and home-screen widget. The app can remind you to clock out ("Still at work?") if you may have forgotten. It can also show a running timer on the lock screen while you are clocked in (on iPhone, as a Live Activity), and you can add a Taptime widget to your home screen. The reminder and the timer are off until you turn them on, and the widget appears only if you add it. All three are set up on your phone, by your phone: Taptime uses no push-notification service for them, receives no push token, and collects nothing new for them. The phone works them out from the clock-in time the app already receives when you open it, and none of them uses your location. They show times only: no name, no business and no venue (the timer adds your shift's end time only if your employer marks its shifts as real). What the widget and the timer keep on the phone is only the time you clocked in, the end of that business day and, where your employer marks its shifts as real, your shift's end time. Your on/off choices stay on the phone.
 
 Removing a phone. In the app's settings, "Remove this phone" signs this phone out of Taptime and deletes its key from it. Your other phones and your records are not affected.
 
@@ -173,7 +173,7 @@ Deleting your account. The app's settings also offer "Delete my account". Your c
 
 - Your clock-in records, your requests about them and the history of changes to them are not deleted: they are legal records that your employer keeps and controls (section 9). Your employee record is not deleted or switched off either.
 
-- Your request reaches your employer: it appears, with its date, on your entry in their Taptime dashboard. [Only if the e-mail to owners ships: The business's owners are also told by e-mail. — Not in this version: the server records the request and shows it in the dashboard only (card M16-35).]
+- Your request reaches your employer: it appears, with its date, on your entry in their Taptime dashboard, and the business's owners are told by e-mail. The e-mail gives your name and the date of your request; it does not contain your e-mail address. [DOĞRULA: e-posta yalnız sunucunun e-posta gönderimi açıkken gider (TAPPA_RESET_DELIVERY=email); canlıda açık olduğu yayından önce ölçülmeli.]
 
 - Your employer decides what happens to your data and must answer you within one month of your request, as data protection law requires (GDPR Article 12(3)). Taptime helps your employer answer. [DOĞRULA: md. 12(3)'ün iki aylık uzatma imkânı ve gerekçe bildirimi yazılsın mı; Taptime'ın işverene yardım yükümlülüğü DPA'ya bağlı (Q23 açık); talebi işveren reddederse çalışana ne söylenir (md. 17(3)(b)/(e)).]
 
@@ -214,7 +214,7 @@ When this notice changes, the new version is published here with its date, and e
 | Saklama süresi kararsız | `deploy/k8s/05-config.yaml` `TAPPA_RETENTION_YEARS` yorumu; open-questions Q13 |
 | Log'lar 15 gün | Q28 (b), kullanıcı 2026-10-14 (`2ef582ea`, dal `m10-a1`; bu dalda yok — T285) |
 
-## Bölüm 12'nin kaynağı (okundu, 6fdeaced)
+## Bölüm 12'nin kaynağı (okundu, 6fdeaced; e-posta ve iOS sayacı satırları 250bd852)
 
 | Cümle | Kaynak |
 |---|---|
@@ -237,11 +237,11 @@ When this notice changes, the new version is published here with its date, and e
 | Olağan vardiya yalnız sahibi işaretlerse | `db/migrations/00116_add_the_staff_shift_switch.sql` (`staff_shift_visible DEFAULT false`) |
 | Eksik zaman talebi: `punch_claims` satırı, kayıt değil; saat yalnız onayda, manuel kayıt olarak; ret bir şey eklemez; değişmez | `internal/domain/claim/claim.go` (*"A CLAIM IS NOT A RECORD"*); `db/migrations/00068_create_punch_claims_and_their_decisions.sql` (`kind`, `claimed_at`, `created_at`; `punch_claims_no_mutation`); `internal/handler/appclaims.go` |
 | Hatırlatma, kilit ekranı sayacı, widget: yerel, push yok, konum yok, varsayılan kapalı; yalnız zaman gösterir | `mobile/android/app/src/main/kotlin/mt/taptime/app/staff/PresenceSync.kt` (*"NO PUSH, NO LOCATION, NO BACKGROUND WORK"*); `StaffNotifications.kt` (*"No name, no business, no venue"*; anahtarlar `false` varsayılan); `PresenceWidget.kt` (iki an + bir saat metni); `mobile/ios/Taptime/StaffCopy.swift` `StaffNotifier` (*"No push, no location, nothing leaves the phone"*); `AndroidManifest.xml` `POST_NOTIFICATIONS` yorumu |
-| Sayaç ve widget yalnız Android'de | iOS'ta `ActivityKit`/`WidgetKit` yok (grep); `mobile/ios/` altında widget hedefi yok |
+| Sayaç ve widget iki platformda | iOS: `mobile/ios/TaptimeWidgets/` (WidgetKit + Live Activity), `mobile/ios/Shared/PresenceShare.swift` (App Group'ta yalnız anlar + iki HH:MM metni; `PresenceSyncTests` anahtar kümesini sabitler), `mobile/ios/Taptime/PresenceSync.swift` (push yok, yerel `Activity.request`) |
 | "Remove this phone" | `wire/Wire.kt` `REVOKE`; `mobile/android/app/src/main/kotlin/mt/taptime/app/staff/StaffFlow.kt` `signOut`; `mobile/ios/Taptime/StaffModel.swift:206` |
 | Silme talebi: her oturum/cihaz kapanır; kayıtlar, talepler, audit ve çalışan satırı dokunulmaz; deaktive kişide hiçbir şey kapanmaz ama talep işverene gider | `internal/domain/tenant/staffdeletion.go` (baş yorum ve `requestDeletionOnce`); `internal/handler/appaccount.go`; telefonda anahtar silinir: `StaffFlow.kt` `deleteAccount` (`forget`), `mobile/ios/Taptime/StaffModel.swift:207` |
 | Talep panelde, tarihiyle | `internal/domain/tenant/staffsummary.go` `deletionRequested`; `internal/handler/employees.go:934` (*"Asked to delete their account on …"*) |
-| Sahiplere e-posta YOK (köşeli parantez) | `internal/handler/appaccount.go:5` ve `staffdeletion.go:11` (*"the owner's e-mail comes with M16-35"*) |
+| Sahiplere e-posta, adressiz gövde | `internal/handler/ownernotice.go` (`deletion_request` türü; audit `employee.deletion_notice.sent`/`.undelivered`, detail'de adres yok); `internal/handler/appaccount_db_test.go` [G37-d] |
 | Bir ay | Panelin işverene söylediği: `web/templates/components/roster.templ:189` (*"reply to them within one month"*); süre hukuki — GDPR md. 12(3) |
 | Yeniden etkinleştirme yeni davetle | Çalışan satırı silinmez/deaktive edilmez (`staffdeletion.go`); aktivasyon davet koduyla (`appactivate.go`); M16-38 onay metni (*"If you still work there, you can sign in again later."*) |
 | Biyometri yok | Anahtar kullanıcı doğrulaması istemez (`KeystoreKeys.kt`, `DeviceKey.swift`'te `setUserAuthenticationRequired`/`LAContext`/`biometry` yok — redline R1 mobil kalıpları); CLAUDE.md §4.1 |
