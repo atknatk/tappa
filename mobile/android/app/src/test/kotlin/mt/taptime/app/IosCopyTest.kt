@@ -117,7 +117,7 @@ class IosCopyTest {
         "hours_more", "hours_off_title", "hours_off_body", "hours_chip_open",
         "claim_lead_out_today", "claim_lead_out_yesterday", "claim_lead_out_earlier",
         "claim_lead_in_today", "claim_lead_in_yesterday", "claim_lead_in_earlier",
-        "claim_question_out", "claim_question_in", "claim_send", "claim_sent", "claim_outside",
+        "claim_question_out", "claim_question_in", "claim_send", "claim_sent", "claim_window_hint", "claim_outside",
         "claim_window_after_before", "claim_window_from_before", "claim_window_after_upto", "claim_window_from_upto",
         "claim_expired_title", "claim_tell_manager", "claim_resolved_title", "claim_resolved_message",
         "claim_not_active_title", "claim_still_open_title", "claim_still_open_message",

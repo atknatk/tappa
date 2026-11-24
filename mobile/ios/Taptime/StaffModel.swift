@@ -17,6 +17,9 @@ final class StaffModel: ObservableObject {
     @Published private(set) var claimIndex = 0
     @Published private(set) var claimBusy = false
     @Published private(set) var claimProblem: String?
+    /// The time the server last answered "outside_window" to: its "does not fit" is about THAT
+    /// time, so it stands only while the wheel still shows it.
+    @Published private(set) var claimRefusedAt: String?
     @Published var notice: String?
     // My hours
     @Published private(set) var hours: HoursResponse?
@@ -78,6 +81,7 @@ final class StaffModel: ObservableObject {
         claims = nil
         claimIndex = 0
         claimProblem = nil
+        claimRefusedAt = nil
         tap.staffReadSignedOut()
     }
 
@@ -140,6 +144,7 @@ final class StaffModel: ObservableObject {
             claims = r.open.isEmpty ? nil : r.open
             claimIndex = 0
             claimProblem = nil
+            claimRefusedAt = nil
         } catch AppAPIError.unauthenticated {
             signedOut()
         } catch {
@@ -150,6 +155,7 @@ final class StaffModel: ObservableObject {
     func closeSheet() {
         claims = nil
         claimProblem = nil
+        claimRefusedAt = nil
     }
 
     func skip() {
@@ -157,6 +163,7 @@ final class StaffModel: ObservableObject {
         if claimIndex + 1 < list.count {
             claimIndex += 1
             claimProblem = nil
+            claimRefusedAt = nil
         } else {
             closeSheet()
         }
@@ -166,6 +173,7 @@ final class StaffModel: ObservableObject {
         guard let id = tap.identity, !claimBusy else { return }
         claimBusy = true
         claimProblem = nil
+        claimRefusedAt = nil
         defer { claimBusy = false }
         let word: String
         do {
@@ -182,13 +190,24 @@ final class StaffModel: ObservableObject {
         }
         switch word {
         case "sent", "already_sent": await reloadClaims(notice: StaffCopy.sent)
-        case "outside_window": claimProblem = StaffCopy.outside(StaffCopy.window(from: c.windowFrom, to: c.windowTo))
+        case "outside_window":
+            claimProblem = StaffCopy.outside(StaffCopy.window(from: c.windowFrom, to: c.windowTo))
+            claimRefusedAt = at
         case "expired": await reloadClaims(notice: StaffCopy.expired)
         case "resolved": await reloadClaims(notice: StaffCopy.resolved)
         case "not_active": claimProblem = StaffCopy.notActive
         case "still_open": await reloadClaims(notice: StaffCopy.stillOpen)
         default: claimProblem = StaffCopy.network
         }
+    }
+
+    /// The sheet's footer: the window until a sent time is refused; then the refusal, while the
+    /// wheel still shows that time. Other problems (the network, an inactive account) stand.
+    func claimHint(_ c: ClaimsResponse.Open, picked: String) -> (text: String, problem: Bool) {
+        if let p = claimProblem, claimRefusedAt == nil || claimRefusedAt == picked {
+            return (p, true)
+        }
+        return (StaffCopy.windowHint(StaffCopy.window(from: c.windowFrom, to: c.windowTo)), false)
     }
 
     private func reloadClaims(notice: String?) async {

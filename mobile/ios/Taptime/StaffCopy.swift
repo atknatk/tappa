@@ -118,6 +118,9 @@ enum StaffCopy {
         case (false, false): return t("after \(a) and before \(b)", "\(a) sonrası ve \(b) öncesi")
         }
     }
+    /// The sheet's hint before any time is sent: the window alone. "Does not fit" is the server's
+    /// answer to a sent time (outside).
+    static func windowHint(_ window: String) -> String { t("It has to be \(window).", "Şu aralıkta olmalı: \(window).") }
     static func outside(_ window: String) -> String {
         t("That time does not fit this record. It has to be \(window).", "Bu saat bu kayda uymuyor. Şu aralıkta olmalı: \(window).")
     }
@@ -145,8 +148,8 @@ enum StaffCopy {
     static var notifications: String { t("Notifications", "Bildirimler") }
     static var remind: String { t("Remind me to clock out", "Çıkışı bana hatırlat") }
     static var remindHint: String {
-        t("If you may have forgotten, your phone reminds you about 10 hours after you clock in.",
-          "Unutmuş olabilirsen, telefonun girişten yaklaşık 10 saat sonra sana hatırlatır.")
+        t("If you may have forgotten, your phone reminds you about 10 hours after you clock in, or 30 minutes after your shift ends.",
+          "Unutmuş olabilirsen, telefonun girişten yaklaşık 10 saat sonra ya da vardiyan bittikten 30 dakika sonra sana hatırlatır.")
     }
     static var notificationsOff: String {
         t("Notifications are off for Taptime in your phone's Settings.", "Telefonunun Ayarlar'ında Taptime bildirimleri kapalı.")

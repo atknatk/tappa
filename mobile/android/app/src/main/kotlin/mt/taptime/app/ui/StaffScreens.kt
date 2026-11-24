@@ -225,6 +225,11 @@ fun BoxScope.ClaimSheet(
     val start = parseHM(c.prefill) ?: parseHM(c.anchorAt) ?: (9 to 0)
     var hour by remember(c.context) { mutableIntStateOf(start.first) }
     var minute by remember(c.context) { mutableIntStateOf(start.second) }
+    // The time last sent: the server's "does not fit" is about THAT time, so it stands only while
+    // the wheels still show it; before a send, and once they move, the hint just names the window.
+    var sent by remember(c.context) { mutableStateOf<String?>(null) }
+    val picked = "%02d:%02d".format(hour, minute)
+    val refusal = problem?.takeIf { sent == picked }
     BottomSheet(busy, onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -246,9 +251,9 @@ fun BoxScope.ClaimSheet(
             }
         }
         BasicText(
-            problem ?: stringResource(R.string.claim_outside, stringResource(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo)),
-            Modifier.fillMaxWidth(), style = text(13.sp, if (problem != null) FontWeight.SemiBold else FontWeight.Normal,
-                if (problem != null) Palette.Tomato else Muted, align = TextAlign.Center),
+            refusal ?: stringResource(R.string.claim_window_hint, stringResource(ClaimWords.window(c.fromInclusive, c.toInclusive), c.windowFrom, c.windowTo)),
+            Modifier.fillMaxWidth(), style = text(13.sp, if (refusal != null) FontWeight.SemiBold else FontWeight.Normal,
+                if (refusal != null) Palette.Tomato else Muted, align = TextAlign.Center),
         )
         when (notice) {
             ClaimNotice.EXPIRED -> Banner(stringResource(R.string.claim_expired_title) + " — " + stringResource(R.string.claim_tell_manager), Tone.ALERT)
@@ -260,7 +265,8 @@ fun BoxScope.ClaimSheet(
         }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ActionButton(stringResource(if (busy) R.string.sheet_sending else R.string.claim_send), enabled = !busy) {
-                onSend("%02d:%02d".format(hour, minute))
+                sent = picked
+                onSend(picked)
             }
             TextAction(stringResource(R.string.sheet_skip), enabled = !busy, onClick = onSkip)
         }

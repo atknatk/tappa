@@ -199,7 +199,7 @@
     <string name="shift_today_ends">Bugünkü vardiyanın bitişi: %1$s</string>
     <string name="settings_label">Ayarlar</string>
     <string name="settings_remind">Çıkışı bana hatırlat</string>
-    <string name="settings_remind_hint">Unutmuş olabilirsen, telefonun girişten yaklaşık 10 saat sonra sana hatırlatır.</string>
+    <string name="settings_remind_hint">Unutmuş olabilirsen, telefonun girişten yaklaşık 10 saat sonra ya da vardiyan bittikten 30 dakika sonra sana hatırlatır.</string>
     <string name="settings_timer">Kilit ekranında sayaç göster</string>
     <string name="settings_notifications_off">Telefonunun Ayarlar\'ında Taptime bildirimleri kapalı.</string>
     <string name="missing_label">Eksik saatler</string>
@@ -220,6 +220,7 @@
     <string name="claim_skip">Bunu atlayabilirsin.</string>
     <string name="claim_sent">Gönderildi — müdürün inceleyecek.</string>
     <string name="claim_enter_time">Saati yaz, sonra gönder.</string>
+    <string name="claim_window_hint">Şu aralıkta olmalı: %1$s.</string>
     <string name="claim_outside">Bu saat bu kayda uymuyor. Şu aralıkta olmalı: %1$s.</string>
     <string name="claim_window_after_before">%1$s sonrası ve %2$s öncesi</string>
     <string name="claim_window_from_before">en erken %1$s ve %2$s öncesi</string>

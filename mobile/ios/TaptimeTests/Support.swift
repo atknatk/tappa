@@ -256,6 +256,8 @@ final class FakeAppServer {
     /// Answer 401 to the next n nonce'd requests.
     var refuseNonced = 0
     var devicesSignedOut = Set<String>()
+    /// claims/send's result word ("sent", "outside_window", …).
+    var claimResult = "sent"
 
     // M16-23: the phone that cannot tap.
     /// The live QR queries complete accepted as `liveQR`, and the one it refuses (one code, §4.7).
@@ -454,7 +456,7 @@ final class FakeAppServer {
             guard noncedVerifies(method, path, body, headers) else {
                 return reply(401)
             }
-            return reply(200, object: ["result": "sent"])
+            return reply(200, object: ["result": claimResult])
         case AppClient.Path.revoke:
             guard noncedVerifies(method, path, body, headers) else {
                 return reply(401)

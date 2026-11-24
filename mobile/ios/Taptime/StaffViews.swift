@@ -540,8 +540,8 @@ private struct ClaimSheet: View {
                         .environment(\.locale, Locale(identifier: "en_GB"))
                         .frame(maxWidth: .infinity)
                 } footer: {
-                    Text(staff.claimProblem ?? StaffCopy.outside(StaffCopy.window(from: claim.windowFrom, to: claim.windowTo)))
-                        .foregroundColor(staff.claimProblem != nil ? Palette.tomato : nil)
+                    let hint = staff.claimHint(claim, picked: Self.hm(time))
+                    Text(hint.text).foregroundColor(hint.problem ? Palette.tomato : nil)
                 }
                 Section {
                     Button(StaffCopy.skip) { staff.skip() }.disabled(staff.claimBusy)

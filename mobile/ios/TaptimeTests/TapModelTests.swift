@@ -654,6 +654,29 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(counter.live.count, 1)
     }
 
+    // MARK: The missing-time sheet's hint
+
+    /// Before a time is sent the hint names the window alone; "does not fit" is the server's
+    /// answer to a sent time and stands only while the wheel still shows that time.
+    func testTheClaimHintNamesTheWindowUntilASentTimeIsRefused() async {
+        await app.launch()
+        let staff = app.staff
+        let window = StaffCopy.window(from: openClaim.windowFrom, to: openClaim.windowTo)
+        let before = staff.claimHint(openClaim, picked: "18:00")
+        XCTAssertEqual(before.text, StaffCopy.windowHint(window))
+        XCTAssertFalse(before.problem)
+        XCTAssertFalse(before.text.contains("does not fit"))
+
+        server.claimResult = "outside_window"
+        await staff.send(openClaim, at: "17:00")
+        let refused = staff.claimHint(openClaim, picked: "17:00")
+        XCTAssertEqual(refused.text, StaffCopy.outside(window))
+        XCTAssertTrue(refused.problem)
+        let moved = staff.claimHint(openClaim, picked: "19:30")
+        XCTAssertEqual(moved.text, StaffCopy.windowHint(window), "a new pick has not been refused")
+        XCTAssertFalse(moved.problem)
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".
