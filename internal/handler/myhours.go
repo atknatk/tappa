@@ -10,8 +10,10 @@ package handler
 //
 //	no live session (none, or revoked)   a plain page, 200, nothing read: "Open this on the phone
 //	                                     you clock in with."
-//	the business's setting is off        the router's own 404 -- the same bytes as any unrouted path
-//	                                     under /me, so the page does not say the feature exists
+//	the business's setting is off        the router's own 404 -- the same status and body as any
+//	                                     unrouted path under /me, so the page does not say the
+//	                                     feature exists; its headers add Cache-Control: no-store,
+//	                                     which the router's own 404 does not set
 //	a week or a cursor the read refuses  400, a problem page
 //
 // Cache-Control: no-store on every answer (render). No logo, no accent: the page is Taptime's

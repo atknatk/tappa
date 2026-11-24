@@ -179,7 +179,7 @@ func TestMyHoursDB_TheSettingOffIsTheRoutersOwn404(t *testing.T) {
 	f.write(t, f.h.tenantID, f.h.employeeID, f.h.locationID, time.Now().UTC().Add(-time.Minute), 1)
 	w := f.get(t, MyHoursPath, f.h.cookieForEmployee(t, f.h.employeeID))
 	if w.Code != http.StatusNotFound || w.Body.String() != "404 page not found\n" {
-		t.Fatalf("off = %d %q, want the router's own 404", w.Code, w.Body.String())
+		t.Fatalf("off = %d %q, want the router's own 404 status and body", w.Code, w.Body.String())
 	}
 }
 
