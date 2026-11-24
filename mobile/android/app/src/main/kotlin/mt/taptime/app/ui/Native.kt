@@ -238,14 +238,39 @@ fun Banner(textValue: String, tone: Tone) {
 
 enum class Tab { TODAY, HOURS, SETTINGS }
 
-/** A tab's page: a scrolling column under the status bar, the tab bar under it. */
+/**
+ * The app's top bar, the same on every tab: the wordmark (and the business beside it), and the
+ * person's initials. It stays put while the page scrolls under it; a hairline appears once it does.
+ */
 @Composable
-fun StaffShell(tab: Tab, labels: Map<Tab, String>, onTab: (Tab) -> Unit, overlay: @Composable BoxScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+fun TopBar(wordmark: String, business: String?, initials: String, scrolled: Boolean) {
+    Column(Modifier.fillMaxWidth().background(Palette.Porcelain).statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            BasicText(wordmark, style = text(20.sp, FontWeight.Bold, Palette.TappaGreen).copy(letterSpacing = (-0.4).sp))
+            if (!business.isNullOrEmpty()) {
+                Box(Modifier.width(1.dp).height(18.dp).background(Palette.Line))
+                BasicText(business, Modifier.weight(1f), style = text(14.sp, FontWeight.SemiBold, Muted), maxLines = 1)
+            } else Spacer(Modifier.weight(1f))
+            Avatar(initials, 34.dp)
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(if (scrolled) Palette.Line else Color.Transparent))
+    }
+}
+
+/** A tab's page: the top bar, a scrolling column, the tab bar. */
+@Composable
+fun StaffShell(
+    tab: Tab, labels: Map<Tab, String>, onTab: (Tab) -> Unit, wordmark: String, business: String?, initials: String,
+    overlay: @Composable BoxScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit,
+) {
+    val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize().background(Palette.Porcelain)) {
         Column(Modifier.fillMaxSize()) {
+            TopBar(wordmark, business, initials, scroll.value > 0)
             Column(
-                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).statusBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 content = content,
             )

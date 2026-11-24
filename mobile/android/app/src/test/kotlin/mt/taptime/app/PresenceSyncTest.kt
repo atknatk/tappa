@@ -20,7 +20,7 @@ class PresenceSyncTest {
         var reminderWords: Pair<String, String?>? = null
         var timerSpan: Pair<Long, Long>? = null
         var reminderSets = 0
-        override fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?) {
+        override fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?, lastLocalMs: Long) {
             reminderAt = atLocalMs; reminderWords = inSinceLocal to shiftEndsAtLocal; reminderSets++
         }
         override fun cancel() { reminderAt = null }

@@ -14,6 +14,7 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
@@ -41,6 +42,7 @@ import mt.taptime.app.staff.ClaimWords
 import mt.taptime.app.staff.OngoingTimer
 import mt.taptime.app.staff.PrefsStaffSwitches
 import mt.taptime.app.staff.PresenceSync
+import mt.taptime.app.staff.PresenceWidget
 import mt.taptime.app.staff.StaffChannels
 import mt.taptime.app.staff.StaffFlow
 import mt.taptime.app.staff.TimerDismissals
@@ -53,6 +55,7 @@ import mt.taptime.app.ui.SettingsContent
 import mt.taptime.app.ui.StaffShell
 import mt.taptime.app.ui.Tab
 import mt.taptime.app.ui.TodayContent
+import mt.taptime.app.ui.initialsOf
 import mt.taptime.app.ui.tabLabels
 import mt.taptime.app.ui.BlockedScreen
 import mt.taptime.app.ui.CodeScreen
@@ -217,7 +220,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        // The app is drawn light (porcelain) whatever the phone's theme, so the system bars are told
+        // so: dark icons on a transparent bar. auto() would give a dark-themed phone light icons
+        // on our light page -- the clock and battery vanish and the top reads as empty.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
         val client = AppClient(HttpUrlTransport(BuildConfig.BASE_URL), ServerClock(), OrgJsonDecoder)
         val keys = KeystoreKeys(applicationContext)
@@ -338,7 +347,7 @@ class MainActivity : ComponentActivity() {
             is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
             is Screen.Home -> {
                 BackHandler(enabled = s.claims != null && !s.busy) { screen = s.copy(claims = null, notice = null, problem = null) }
-                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, overlay = {
+                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName), overlay = {
                     val list = s.claims
                     if (list != null && s.index < list.size) {
                         ClaimSheet(list[s.index], s.index, list.size, s.notice, s.problem, s.busy,
@@ -354,7 +363,7 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Hours -> {
                 BackHandler { goHome(s.me) }
-                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }) {
+                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName)) {
                     HoursContent(s.me.hoursWeeks, s.reply, s.records, s.busy, s.network,
                         onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
                         onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
@@ -364,7 +373,7 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Settings -> {
                 BackHandler(enabled = !s.busy) { if (s.confirmSignOut) screen = s.copy(confirmSignOut = false) else goHome(s.me) }
-                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, overlay = {
+                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.brand.name, initials = initialsOf(s.me.employeeName), overlay = {
                     if (s.confirmSignOut) ConfirmDialog(
                         getString(R.string.signout_title),
                         if (s.failed) getString(R.string.signout_failed) else getString(R.string.signout_body),
@@ -417,8 +426,11 @@ class MainActivity : ComponentActivity() {
     // The reminder and the timer follow /me; a signed-out phone keeps neither.
     private fun applyPresence(r: ActivationFlow.HomeResult) {
         when (r) {
-            is ActivationFlow.HomeResult.SetUp -> r.me?.let { presence.apply(it.presence, appClient.clock.offsetMillis(), System.currentTimeMillis()) }
-            ActivationFlow.HomeResult.SignedOut, ActivationFlow.HomeResult.NotActivated -> presence.clear()
+            is ActivationFlow.HomeResult.SetUp -> r.me?.let {
+                presence.apply(it.presence, appClient.clock.offsetMillis(), System.currentTimeMillis())
+                PresenceWidget.publish(applicationContext, it.presence, appClient.clock.offsetMillis())
+            }
+            ActivationFlow.HomeResult.SignedOut, ActivationFlow.HomeResult.NotActivated -> clearPresence()
             else -> Unit // a failed read leaves the last answer standing
         }
     }
@@ -490,13 +502,19 @@ class MainActivity : ComponentActivity() {
                     syncPresence()
                     Screen.Hours(s.me.copy(hoursWeeks = 0), busy = false)
                 }
-                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> busy.copy(busy = false, network = true)
             }
         }
     }
 
     // --- the tabs and the missing-time sheet (the native shell, 2026-11-24) ---
+
+    // A signed-out phone keeps neither the reminder, the timer nor the widget's count.
+    private fun clearPresence() {
+        presence.clear()
+        PresenceWidget.clear(applicationContext)
+    }
 
     private fun homeOf(me: MeReply) = Screen.Home(me, weekLoading = me.hoursWeeks > 0)
 
@@ -539,7 +557,7 @@ class MainActivity : ComponentActivity() {
             screen = when (r) {
                 is StaffFlow.Answer.Ok -> if (r.value.open.isEmpty()) now.copy(busy = false, me = now.me.copy(missingTimes = 0))
                     else now.copy(claims = r.value.open, index = 0, busy = false)
-                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> now.copy(busy = false, notice = ClaimNotice.NETWORK)
             }
         }
@@ -560,7 +578,7 @@ class MainActivity : ComponentActivity() {
                     if (r.value.open.isEmpty()) s.copy(me = me, claims = null, busy = false, notice = notice, problem = null)
                     else s.copy(me = me, claims = r.value.open, index = 0, busy = false, notice = notice.takeIf { it != ClaimNotice.SENT }, problem = null)
                 }
-                StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(Problem.SIGNED_OUT) }
+                StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> s.copy(busy = false, notice = ClaimNotice.NETWORK)
             }
             if (notice == ClaimNotice.SENT) syncPresence()
@@ -586,7 +604,7 @@ class MainActivity : ComponentActivity() {
                     else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
                 }
                 StaffFlow.Answer.Stale -> reloadClaims(busy, null)
-                StaffFlow.Answer.SignedOut -> { presence.clear(); screen = activationEntry(Problem.SIGNED_OUT) }
+                StaffFlow.Answer.SignedOut -> { clearPresence(); screen = activationEntry(Problem.SIGNED_OUT) }
                 else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
             }
         }
@@ -608,7 +626,7 @@ class MainActivity : ComponentActivity() {
         screen = s.copy(busy = true, failed = false)
         work({ staff.signOut() }, failed = { s.copy(busy = false, failed = true) }) { r ->
             screen = when (r) {
-                is StaffFlow.Answer.Ok, StaffFlow.Answer.SignedOut -> { presence.clear(); activationEntry(null) }
+                is StaffFlow.Answer.Ok, StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(null) }
                 else -> s.copy(busy = false, failed = true)
             }
         }

@@ -99,15 +99,7 @@ fun TodayContent(
             delay(1000 - (now % 1000))
         }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Avatar(initialsOf(me.employeeName))
-        Column(Modifier.weight(1f)) {
-            BasicText(stringResource(R.string.today_hello, firstName(me.employeeName)), style = text(20.sp, FontWeight.Bold))
-            val sub = listOfNotNull(me.brand.name, me.shift?.venue?.takeIf { it.isNotEmpty() }).joinToString(" · ")
-            if (sub.isNotEmpty()) BasicText(sub, style = text(13.sp, color = Muted))
-        }
-        BasicText(stringResource(R.string.wordmark), style = text(15.sp, FontWeight.Bold, Palette.TappaGreen))
-    }
+    LargeTitle(stringResource(R.string.today_hello, firstName(me.employeeName)))
     if (notice == ClaimNotice.SENT) Banner(stringResource(R.string.claim_sent), Tone.OK)
     if (notice == ClaimNotice.NETWORK) Banner(stringResource(R.string.p_network_title), Tone.ALERT)
 

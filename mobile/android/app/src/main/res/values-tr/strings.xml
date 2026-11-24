@@ -337,4 +337,8 @@
     <string name="cancel">Vazgeç</string>
     <string name="settings_privacy">Konumun yalnız plakete dokunduğun anda okunur. Parmak izi ya da yüz kullanılmaz.</string>
     <string name="settings_version">Sürüm %1$s</string>
+    <string name="remind_snooze">1 saat sonra hatırlat</string>
+    <string name="remind_open">Taptime\'ı aç</string>
+    <string name="widget_description">İşte misin, ne zamandan beri</string>
+    <string name="widget_tap_out">çıkış için plakete dokun</string>
 </resources>
