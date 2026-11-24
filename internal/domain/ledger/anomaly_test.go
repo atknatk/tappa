@@ -334,7 +334,8 @@ func anomalyBannedKind(rt reflect.Type) string {
 			"ledger.AnomalyTotals", "ledger.MaskedOpenTally", "ledger.Anomalies",
 			"ledger.AnomalyPerson", "ledger.AnomalyVenue", "ledger.AnomalyPlaque",
 			"ledger.AnomalyPair", "ledger.AnomalyOpen", "ledger.AnomalyPolicyRule",
-			"ledger.AnomalyLostPlaque", "ledger.AnomalyScreen", "ledger.AnomalyInMissing":
+			"ledger.AnomalyLostPlaque", "ledger.AnomalyScreen", "ledger.AnomalyInMissing",
+			"ledger.AnomalyDeletionRequest":
 			return ""
 		}
 		return "is a struct type this section does not own, so what it can hold is not " +

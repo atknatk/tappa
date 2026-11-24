@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -716,5 +717,113 @@ func TestPanelAnomaliesDB_ATrainingTapIsNotAnOpenCheckIn(t *testing.T) {
 	if !strings.Contains(body, "1 still on the list above") {
 		t.Error("the retrospective tally does not report the one entry with a training tap " +
 			"after it")
+	}
+}
+
+// TestPanelAnomaliesDB_ListsTheLastNinetyDaysDeletionRequests (M16-37): the screen lists the staff app's
+// "delete my account" requests of the last 90 days by the person's name and the day in the business's
+// zone -- whatever week is picked -- and nothing else: not another business's request (§4.5), not an
+// older one, not another trail action of the same person.
+func TestPanelAnomaliesDB_ListsTheLastNinetyDaysDeletionRequests(t *testing.T) {
+	p := newPanelHarness(t)
+	week, _ := anomalyWeek(t)
+	label := strings.ReplaceAll(uuid.NewString()[:8], "-", "")
+	asker, old, other := "Asker "+label, "Older Asker "+label, "Other Action "+label
+
+	person := func(tenantID uuid.UUID, name string) uuid.UUID {
+		id := uuid.New()
+		if err := p.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `INSERT INTO employees (id, tenant_id, full_name, status, external_ref) VALUES ($1, $2, $3, 'deactivated', $4)`,
+				id, tenantID, name, "ref-"+id.String())
+			return e
+		}); err != nil {
+			t.Fatalf("employee %s: %v", name, err)
+		}
+		return id
+	}
+	trail := func(tenantID, employee uuid.UUID, action string) {
+		if err := p.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `INSERT INTO audit_log (tenant_id, action, target, detail) VALUES ($1, $2, $3::text, '{}'::jsonb)`, tenantID, action, employee)
+			return e
+		}); err != nil {
+			t.Fatalf("trail %s: %v", action, err)
+		}
+	}
+
+	askerID := person(p.tenantID, asker)
+	trail(p.tenantID, askerID, "employee.deletion_requested")
+	trail(p.tenantID, person(p.tenantID, other), "employee.phones_signed_out")
+
+	bTenant := uuid.New()
+	if err := p.data.WithTenant(context.Background(), bTenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
+		                      VALUES ($1, 'Deletion Bravo Ltd', $2, 'bar', 'single')`, bTenant, "VAT-"+bTenant.String())
+		return e
+	}); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	bAsker := "Bravo Asker " + label
+	bID := person(bTenant, bAsker)
+	trail(bTenant, bID, "employee.deletion_requested")
+
+	// An older request needs a stated `at`, which tappa_app may not write (00053): the owner role does.
+	oldPlanted := false
+	if ownerDSN := os.Getenv("DATABASE_MIGRATE_URL"); ownerDSN != "" {
+		oldID := person(p.tenantID, old)
+		conn, err := pgx.Connect(context.Background(), ownerDSN)
+		if err != nil {
+			t.Fatalf("owner connect: %v", err)
+		}
+		defer conn.Close(context.Background())
+		if _, err := conn.Exec(context.Background(),
+			`INSERT INTO audit_log (tenant_id, action, target, detail, at)
+			 VALUES ($1, 'employee.deletion_requested', $2::text, '{}'::jsonb, now() - interval '91 days')`, p.tenantID, oldID); err != nil {
+			t.Fatalf("plant the older request: %v", err)
+		}
+		oldPlanted = true
+	} else {
+		t.Log("DATABASE_MIGRATE_URL not set: the 90-day bound is not exercised")
+	}
+
+	var (
+		at   time.Time
+		zone string
+	)
+	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT a.at, t.timezone FROM audit_log a JOIN tenants t ON t.id = a.tenant_id
+		                         WHERE a.tenant_id = $1 AND a.target = $2::text AND a.action = 'employee.deletion_requested'`,
+			p.tenantID, askerID).Scan(&at, &zone)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.signIn(t)
+	// A week far from today: the list is the last 90 days whatever week is shown.
+	res, body := p.get(t, anomaliesHref+anomalyWeekParam(week))
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET the anomalies page: %d, want 200", res.StatusCode)
+	}
+	i := strings.Index(body, `id="odd-deletions"`)
+	if i < 0 {
+		t.Fatalf("the page has no deletion request list:\n%s", body)
+	}
+	section := body[i:]
+	section = section[:strings.Index(section, "</section>")]
+	flat := strings.Join(strings.Fields(section), " ")
+	// POSITIVE CONTROL: A's own request, by name and by its day in the business's zone.
+	if want := asker + "</span> <span class=\"font-mono text-xs text-ink/70\">Asked " + at.In(loc).Format("Mon 2 Jan 2006"); !strings.Contains(flat, want) {
+		t.Fatalf("the list does not say %q:\n%s", want, flat)
+	}
+	for _, never := range []string{bAsker, bID.String(), other} {
+		if strings.Contains(body, never) {
+			t.Errorf("the page shows %q, which is not this business's deletion request", never)
+		}
+	}
+	if oldPlanted && strings.Contains(body, old) {
+		t.Errorf("the page lists a request of 91 days ago")
 	}
 }

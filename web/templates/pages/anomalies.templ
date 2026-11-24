@@ -57,7 +57,7 @@ templ AdminAnomalies(v AnomaliesView) {
 		@PanelShell(v.PanelChrome) {
 			@templ.Join(businessDayRelease(v.Release), anomalyWeekBar(v))
 			if v.Queried {
-				@templ.Join(anomalyTotals(v), anomalyLostPlaques(v))
+				@templ.Join(anomalyTotals(v), anomalyLostPlaques(v), anomalyDeletionRequests(v))
 				@anomalyMissingSources()
 				<div class="flex flex-col gap-4">
 					@anomalyVenues(v)
@@ -749,6 +749,36 @@ templ anomalyLostPlaques(v AnomaliesView) {
 				}
 			</ul>
 		</div>
+	}
+}
+
+// anomalyDeletionRequests is the staff app's "delete my account" requests of the last 90 days (M16-37),
+// JOINED after anomalyLostPlaques for its reason: a business nobody asked renders its page byte for
+// byte. It is not a signal of the week -- the window is the database's clock, whatever week is
+// picked -- and nothing on it answers a request: the records stay (§4.3) and the answer is the
+// employer's, from the person's card in People. A thing to look at, so the saffron edge.
+templ anomalyDeletionRequests(v AnomaliesView) {
+	if len(v.DeletionRequests) > 0 {
+		<section class="odd-callout odd-callout--warn" aria-labelledby="odd-deletions">
+			<h2 class="font-display text-[15px] font-bold" id="odd-deletions">Asked to delete their account</h2>
+			<p class="text-sm">
+				People who asked in the staff app to delete their account, in the last { itoa(v.DeletionDays) } days. Their
+				clock-in records are kept: they are legal records you control. Decide what to do with their data and
+				reply to them within one month.
+			</p>
+			if v.MoreDeletionRequests {
+				// NOT anomalyShortened: no count at the top of the page covers these.
+				<p class="font-mono text-xs leading-normal text-ink/80">This list is shortened · More requests match than one page lists, so this list stops at { itoa(v.ListCap) }, newest first.</p>
+			}
+			<ul class="flex flex-col">
+				for _, d := range v.DeletionRequests {
+					<li class="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-dashed border-line pt-2.5">
+						<span class="text-sm font-bold">{ d.Who }</span>
+						<span class="font-mono text-xs text-ink/70">Asked { d.On }</span>
+					</li>
+				}
+			</ul>
+		</section>
 	}
 }
 

@@ -5452,6 +5452,17 @@ type Querier interface {
 	// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
 	// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
 	ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error)
+	// M16-37: the business's "delete my account" requests of the last @window_days days, newest first,
+	// for the list beside the week's signals (it is not a signal of the week: the window is the
+	// database's clock, not the week picked). From the trail itself -- the request writes no other row.
+	// It reads audit_log, not transactions: no evidence column is anywhere near it.
+	//
+	// The person is named as the business stores them now (a LEFT JOIN: the trail row stands even if
+	// the name cannot be read; employees rows are never deleted, ADR 0010). The join compares the id
+	// as TEXT, the trail's own spelling, so no target is ever cast to a uuid. TENANT SCOPE (section
+	// 4.5): explicit tenant_id on both tables beside RLS. Rides audit_log_tenant_at_idx (tenant_id, at
+	// DESC). @row_limit is the screen's cap plus one (ledger.anomalyReadLimit).
+	ListRecentDeletionRequests(ctx context.Context, arg ListRecentDeletionRequestsParams) ([]ListRecentDeletionRequestsRow, error)
 	// ONE person's last seven records (M12-19, panel redesign D3): the People card's strip of
 	// mini dockets -- day, direction, time, the engine's verdict word and, when a manager has
 	// since decided a flag, the decision.

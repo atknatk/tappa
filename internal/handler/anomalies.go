@@ -336,6 +336,17 @@ func fillAnomaliesView(v *pages.AnomaliesView, s ledger.AnomalyScreen, now time.
 		})
 	}
 
+	// M16-37: the deletion requests of the last 90 days -- not of the week, so the day is printed
+	// with its year.
+	v.MoreDeletionRequests = s.MoreDeletionRequests
+	v.DeletionDays = ledger.DeletionRequestWindow
+	for _, d := range s.DeletionRequests {
+		v.DeletionRequests = append(v.DeletionRequests, pages.AnomalyDeletionRequestView{
+			Who: personName(d.EmployeeName),
+			On:  d.At.In(zone).Format("Mon 2 Jan 2006"),
+		})
+	}
+
 	v.MorePlaques = s.MorePlaques
 	v.Plaques = make([]pages.AnomalyPlaqueView, 0, len(s.Plaques))
 	for _, p := range s.Plaques {

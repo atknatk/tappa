@@ -98,6 +98,12 @@ type AnomaliesView struct {
 	// touched (M11 API-1c). Empty for a business in no holding -- the block is then absent.
 	LostPlaques []AnomalyLostPlaqueView
 	MoreLost    bool
+	// DeletionRequests and MoreDeletionRequests: the staff app's "delete my account" requests of
+	// the last DeletionDays days, newest first (M16-37), whatever week is shown. Empty -- the block
+	// is then absent.
+	DeletionRequests     []AnomalyDeletionRequestView
+	MoreDeletionRequests bool
+	DeletionDays         int
 
 	// The six "…and there are more" flags. Each is set when its listing hit the cap.
 	MorePeople   bool
@@ -248,6 +254,13 @@ type AnomalyLostPlaqueView struct {
 	LocationName string
 	Refusals     string
 	Last         string
+}
+
+// AnomalyDeletionRequestView is one "delete my account" request (M16-37): the person's name and the
+// day it was recorded, in the business's zone.
+type AnomalyDeletionRequestView struct {
+	Who string
+	On  string
 }
 
 // AnomalyPlaqueView is one wall tag's counter gaps.
