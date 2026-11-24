@@ -654,6 +654,68 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(counter.live.count, 1)
     }
 
+    // MARK: My hours' pages
+
+    private func hoursPage(_ date: String, next: String?) -> [String: Any] {
+        let days: [[String: Any]] = (16...22).map { ["date": "2026-11-\($0)", "workedMinutes": $0 <= 17 ? 480 : 0] }
+        let rec: (String, String) -> [String: Any] = { at, dir in
+            ["date": date, "at": at, "venue": "V", "direction": dir, "channel": "nfc", "state": "approved"]
+        }
+        var p: [String: Any] = [
+            "week": "2026-11-16", "weeksVisible": 4, "hasPrev": true, "hasNext": false,
+            "totals": ["workedMinutes": 960, "awaitingMinutes": 0, "openEntries": 0, "checkInMissing": 0,
+                       "truncated": false, "complete": true],
+            "days": days, "records": [rec("09:00", "in"), rec("17:00", "out")],
+            "waiting": ["records": 0, "claims": 0],
+        ]
+        if let n = next {
+            p["nextCursor"] = n
+        }
+        return p
+    }
+
+    private func twoPages() {
+        server.meBody["hoursWeeks"] = 4
+        server.hoursPages = ["": hoursPage("2026-11-16", next: "own_c1"), "own_c1": hoursPage("2026-11-17", next: nil)]
+    }
+
+    /// "Show more" with a cursor the server refuses (400: an older shape, another walk): page one of
+    /// the same week again, replacing the list, and no "can't reach" -- not a dead button.
+    func testARefusedShowMoreReadsPageOneOfTheSameWeekQuietly() async {
+        twoPages()
+        await app.launch()
+        let staff = app.staff
+        await staff.loadHours(week: "2026-11-16", after: nil)
+        XCTAssertEqual(staff.records.count, 2)
+        await staff.loadHours(week: "2026-11-16", after: "own_old_unbound")
+        XCTAssertEqual(server.hoursBodies.map { $0["after"] as? String }, [nil, "own_old_unbound", nil])
+        XCTAssertEqual(server.hoursBodies.map { $0["week"] as? String }, ["2026-11-16", "2026-11-16", "2026-11-16"])
+        XCTAssertFalse(staff.hoursFailed)
+        XCTAssertEqual(staff.records.map(\.date), ["2026-11-16", "2026-11-16"], "replaced, not appended")
+        XCTAssertEqual(staff.hours?.nextCursor, "own_c1", "Show more works again")
+        XCTAssertEqual(activation.screen, .activated)
+    }
+
+    func testAGoodShowMoreAppendsTheNextPage() async {
+        twoPages()
+        await app.launch()
+        let staff = app.staff
+        await staff.loadHours(week: "2026-11-16", after: nil)
+        await staff.loadHours(week: "2026-11-16", after: "own_c1")
+        XCTAssertEqual(server.hoursBodies.count, 2)
+        XCTAssertEqual(staff.records.map(\.date), ["2026-11-16", "2026-11-16", "2026-11-17", "2026-11-17"])
+        XCTAssertNil(staff.hours?.nextCursor)
+    }
+
+    /// Page one refused is no cursor's fault: it is not read again, and it fails as before.
+    func testARefusedFirstPageIsNotReadAgain() async {
+        twoPages()
+        await app.launch()
+        await app.staff.loadHours(week: "2026-11-09", after: nil)
+        XCTAssertEqual(server.hoursBodies.count, 1)
+        XCTAssertTrue(app.staff.hoursFailed)
+    }
+
     // MARK: The missing-time sheet's hint
 
     /// Before a time is sent the hint names the window alone; "does not fit" is the server's

@@ -258,6 +258,11 @@ final class FakeAppServer {
     var devicesSignedOut = Set<String>()
     /// claims/send's result word ("sent", "outside_window", …).
     var claimResult = "sent"
+    /// My hours (M16-31): the one week this twin knows and its pages by cursor ("" is page one).
+    /// Empty keeps the 404 (My hours off). Another week, or a cursor not issued, is 400.
+    var hoursWeek = "2026-11-16"
+    var hoursPages: [String: [String: Any]] = [:]
+    private(set) var hoursBodies: [[String: Any]] = []
 
     // M16-23: the phone that cannot tap.
     /// The live QR queries complete accepted as `liveQR`, and the one it refuses (one code, §4.7).
@@ -451,7 +456,18 @@ final class FakeAppServer {
             guard readVerifies(method, path, body, headers) else {
                 return reply(401)
             }
-            return path == AppClient.Path.claims ? reply(200, object: ["open": [Any]()]) : reply(404, error: "not_found")
+            if path == AppClient.Path.claims {
+                return reply(200, object: ["open": [Any]()])
+            }
+            guard !hoursPages.isEmpty else {
+                return reply(404, error: "not_found")
+            }
+            let j = json(body)
+            hoursBodies.append(j)
+            guard j["week"] as? String == hoursWeek, let page = hoursPages[j["after"] as? String ?? ""] else {
+                return reply(400, error: "bad_request")
+            }
+            return reply(200, object: page)
         case AppClient.Path.claimsSend:
             guard noncedVerifies(method, path, body, headers) else {
                 return reply(401)

@@ -507,6 +507,7 @@ class MainActivity : ComponentActivity() {
                     week = r.value.week, reply = r.value,
                     records = if (append) busy.records + r.value.records else r.value.records, busy = false,
                 )
+                is StaffFlow.Answer.Restarted -> busy.copy(week = r.value.week, reply = r.value, records = r.value.records, busy = false)
                 StaffFlow.Answer.Off -> {
                     android.widget.Toast.makeText(this, R.string.hours_off, android.widget.Toast.LENGTH_LONG).show()
                     syncPresence()

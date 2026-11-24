@@ -19,6 +19,12 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         data object Server : Answer<Nothing>
         /** M16-31: the business has My hours turned off (not_found). */
         data object Off : Answer<Nothing>
+        /**
+         * "Show more" refused (400): the cursor is no longer this person's and week's (an older
+         * shape, another walk). [value] is page one of the same week, read again: it replaces the
+         * list, and no network problem is said.
+         */
+        data class Restarted<T>(val value: T) : Answer<T>
     }
 
     /**
@@ -54,7 +60,16 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         val device = state.active() ?: return Answer.SignedOut
         val key = keys.load(device.keyAlias) ?: return Answer.SignedOut
         return when (val r = client.hours(device.deviceId, key, week, after)) {
-            is Outcome.Refused -> if (r.code == mt.taptime.app.wire.AppErrorCode.NOT_FOUND) Answer.Off else answer(r)
+            is Outcome.Refused -> when {
+                r.code == mt.taptime.app.wire.AppErrorCode.NOT_FOUND -> Answer.Off
+                // Only a cursor is retried: page one refused is no cursor's fault, and once more
+                // would be the same 400.
+                after != null && r.status == 400 -> when (val first = hours(week, null)) {
+                    is Answer.Ok -> Answer.Restarted(first.value)
+                    else -> first
+                }
+                else -> answer(r)
+            }
             else -> answer(r)
         }
     }

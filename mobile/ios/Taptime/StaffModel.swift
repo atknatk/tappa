@@ -95,8 +95,18 @@ final class StaffModel: ObservableObject {
         hoursFailed = false
         defer { hoursBusy = false }
         do {
-            let r = try await tap.api.hours(id, week: week, after: after)
-            records = after == nil ? r.records : records + r.records
+            var cursor = after
+            let r: HoursResponse
+            do {
+                r = try await tap.api.hours(id, week: week, after: cursor)
+            } catch let e as AppAPIError where cursor != nil && StaffModel.cursorRefused(e) {
+                // "Show more" refused: the cursor is no longer this person's and week's (an older
+                // shape, another walk). Page one of the same week again, quietly, replacing the list
+                // -- the same cursor again would be the same 400.
+                cursor = nil
+                r = try await tap.api.hours(id, week: week, after: nil)
+            }
+            records = cursor == nil ? r.records : records + r.records
             hours = r
         } catch AppAPIError.refused(.notFound, _) {
             hoursOff = true
@@ -105,6 +115,15 @@ final class StaffModel: ObservableObject {
             signedOut()
         } catch {
             hoursFailed = true
+        }
+    }
+
+    /// A 400 to a signed read: bad_request, or a code this version does not know.
+    nonisolated static func cursorRefused(_ e: AppAPIError) -> Bool {
+        switch e {
+        case .refused(let code, _): return code == .badRequest
+        case .unexpected(status: 400): return true
+        default: return false
         }
     }
 
