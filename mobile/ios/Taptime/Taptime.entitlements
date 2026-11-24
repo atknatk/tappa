@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  The whole entitlement list of the staff app (ADR 0045, M16-15). Two entries and no more:
+  The whole entitlement list of the staff app (ADR 0045, M16-15; M16-47). Three entries and no more:
     associated-domains     the plaque URL opens the app (Universal Link, M16-08 serves the file)
     nfc.readersession      Core NFC, NDEF only: the app reads the URL the chip writes; it never
                            talks to the chip below NDEF and never holds a plaque key (CLAUDE.md 4.7)
+    application-groups     group.mt.taptime.app, shared with the TaptimeWidgets extension: the app
+                           writes the open check-in's instants there (Shared/PresenceShare.swift)
+                           and the home-screen widget reads them. No name, place or total crosses.
+  No aps-environment: the lock-screen counter is local, with no push (M16-46 [G46-e], M16-47).
   App Attest (com.apple.developer.devicecheck.appattest-environment) stays OUT until Phase E
   (ADR 0045 2.7): adding it is that phase's decision, not a default of this scaffold.
 -->
@@ -17,6 +21,10 @@
 	<key>com.apple.developer.nfc.readersession.formats</key>
 	<array>
 		<string>NDEF</string>
+	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.mt.taptime.app</string>
 	</array>
 </dict>
 </plist>

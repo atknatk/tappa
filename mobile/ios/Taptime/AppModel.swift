@@ -35,11 +35,20 @@ final class AppModel: ObservableObject {
         self.tap = tap
         self.staff = StaffModel(tap: tap)
         self.browser = browser
-        staff.onForgotten = { [weak activation] in activation?.forgetDevice() }
-        tap.onMe = { [weak tap] me in
-            StaffNotifier.shared.apply(me, offset: tap?.api.clock.currentOffset ?? 0)
+        staff.onForgotten = { [weak activation] in
+            PresenceSync.shared.clear()
+            activation?.forgetDevice()
         }
-        tap.onSignedOut = { [weak activation] in activation?.signedOut() }
+        tap.onMe = { [weak tap] me in
+            let offset = tap?.api.clock.currentOffset ?? 0
+            StaffNotifier.shared.apply(me, offset: offset)
+            // The widget and the lock-screen counter (M16-47) follow the same answer.
+            PresenceSync.shared.apply(me, offset: offset)
+        }
+        tap.onSignedOut = { [weak activation] in
+            PresenceSync.shared.clear()
+            activation?.signedOut()
+        }
         tap.onStartAgain = { [weak activation] in activation?.startAgain() }
         activation.onRelaunch = { [weak self] in
             Task { await self?.boot() }

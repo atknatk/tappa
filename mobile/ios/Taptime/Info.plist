@@ -26,6 +26,8 @@
 	<string>Taptime reads the plaque at your workplace to record when you clock in and out.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Taptime checks your location once, only at the moment you tap, as proof that you are at work. It never tracks you in the background.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

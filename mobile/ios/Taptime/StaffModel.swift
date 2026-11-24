@@ -27,6 +27,10 @@ final class StaffModel: ObservableObject {
     // Settings
     @Published var remind = StaffNotifier.enabled
     @Published private(set) var notificationsOff = false
+    /// The lock-screen counter's switch (M16-47; iOS 16.2+ only) and whether the system's own
+    /// Live Activities switch for Taptime is off.
+    @Published var counter = LiveCounter.enabled
+    @Published private(set) var activitiesOff = false
     @Published var confirm: Confirm?
     @Published private(set) var confirmBusy = false
     @Published private(set) var confirmFailed = false
@@ -194,6 +198,17 @@ final class StaffModel: ObservableObject {
     func refreshNotificationState() async {
         remind = StaffNotifier.enabled
         notificationsOff = StaffNotifier.enabled ? !(await StaffNotifier.shared.notificationsAllowed()) : false
+        counter = LiveCounter.enabled
+        activitiesOff = LiveCounter.supported && !PresenceSync.shared.counterAllowed
+    }
+
+    /// No permission prompt: a local Live Activity has none -- the system's per-app switch is the
+    /// person's, and the row says when it is off.
+    func setCounter(_ on: Bool) {
+        LiveCounter.enabled = on
+        counter = on
+        activitiesOff = LiveCounter.supported && !PresenceSync.shared.counterAllowed
+        PresenceSync.shared.counterSwitched()
     }
 
     func perform(_ c: Confirm) async {

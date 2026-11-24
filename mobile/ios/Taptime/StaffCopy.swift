@@ -123,6 +123,13 @@ enum StaffCopy {
         t("If you may have forgotten, your phone reminds you once.", "Çıkışı unutmuş olabilirsen telefonun bir kez hatırlatır.")
     }
     static var notificationsOff: String { t("Notifications are off for Taptime in Settings.", "Taptime bildirimleri telefon ayarlarında kapalı.") }
+    // The lock-screen counter (M16-47): the title is the Android app's settings_timer, the
+    // subtitle the design's (ios/Settings).
+    static var counter: String { t("Show a timer on the lock screen", "Kilit ekranında sayaç göster") }
+    static var counterSub: String { t("A live counter while you're in", "İşteyken canlı sayaç") }
+    static var activitiesOff: String {
+        t("Live Activities are off for Taptime in Settings.", "Taptime için Canlı Etkinlikler telefon ayarlarında kapalı.")
+    }
     static var shift: String { t("Shift", "Vardiya") }
     static var usualShift: String { t("Usual shift", "Her zamanki vardiya") }
     static var thisPhone: String { t("This phone", "Bu telefon") }

@@ -46,4 +46,30 @@ final class InfoPlistTests: XCTestCase {
         XCTAssertNil(info["UIBackgroundModes"])
         XCTAssertEqual(info.keys.filter { $0.hasPrefix("NSLocation") }, ["NSLocationWhenInUseUsageDescription"])
     }
+
+    // M16-47 [G47-c]: the lock-screen counter is a Live Activity the app starts itself. The key is
+    // the only addition; no usage description comes with it (the allow-list above still holds).
+    func testLiveActivitiesAreDeclared() {
+        XCTAssertEqual(info["NSSupportsLiveActivities"] as? Bool, true)
+    }
+
+    // M16-47 [G47-c]: the one embedded extension is the widget, its Info.plist is the WidgetKit
+    // extension point and nothing else -- no background mode, no usage description -- and it runs
+    // where the app runs (15.0; its Live Activity is behind iOS 16.2 in code).
+    func testTheOnlyExtensionIsTheWidget() throws {
+        let plugins = try XCTUnwrap(Bundle.main.builtInPlugInsURL)
+        // The test bundle itself is injected there too (it is not shipped); the app's own are the .appex.
+        let found = try FileManager.default.contentsOfDirectory(atPath: plugins.path).filter { $0.hasSuffix(".appex") }.sorted()
+        XCTAssertEqual(found, ["TaptimeWidgets.appex"])
+        let ext = try XCTUnwrap(Bundle(url: plugins.appendingPathComponent("TaptimeWidgets.appex")))
+        let plist = ext.infoDictionary ?? [:]
+        XCTAssertEqual(ext.bundleIdentifier, "mt.taptime.app.widgets")
+        XCTAssertEqual(plist["MinimumOSVersion"] as? String, "15.0")
+        let nsext = try XCTUnwrap(plist["NSExtension"] as? [String: Any])
+        XCTAssertEqual(Set(nsext.keys), ["NSExtensionPointIdentifier"])
+        XCTAssertEqual(nsext["NSExtensionPointIdentifier"] as? String, "com.apple.widgetkit-extension")
+        XCTAssertNil(plist["UIBackgroundModes"])
+        XCTAssertTrue(plist.keys.filter { $0.hasSuffix("UsageDescription") }.isEmpty)
+        XCTAssertTrue(plist.keys.filter { $0.hasPrefix("NSLocation") }.isEmpty)
+    }
 }

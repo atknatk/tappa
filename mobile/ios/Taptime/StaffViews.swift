@@ -609,10 +609,26 @@ private struct SettingsView: View {
                 Toggle(isOn: Binding(get: { staff.remind }, set: { v in Task { await staff.setRemind(v) } })) {
                     Label { Text(StaffCopy.remind) } icon: { IconSquare(symbol: "bell.fill") }
                 }
+                // M16-47: only where a Live Activity can run (iOS 16.2+); an iPhone 7 has no row.
+                if LiveCounter.supported {
+                    Toggle(isOn: Binding(get: { staff.counter }, set: { v in staff.setCounter(v) })) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(StaffCopy.counter)
+                                Text(StaffCopy.counterSub).font(.caption).foregroundColor(.secondary)
+                            }
+                        } icon: { IconSquare(symbol: "lock.fill") }
+                    }
+                }
             } header: {
                 Text(StaffCopy.notifications)
             } footer: {
-                Text(staff.notificationsOff ? StaffCopy.notificationsOff : StaffCopy.remindHint)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(staff.notificationsOff ? StaffCopy.notificationsOff : StaffCopy.remindHint)
+                    if LiveCounter.supported, staff.activitiesOff {
+                        Text(StaffCopy.activitiesOff)
+                    }
+                }
             }
             if let s = me?.shift {
                 Section(StaffCopy.shift) {
