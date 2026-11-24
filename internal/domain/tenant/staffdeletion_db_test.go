@@ -50,6 +50,9 @@ func TestStaffDB_ADeletionRequestSignsOutAndTellsTheEmployer(t *testing.T) {
 	if err != nil || sum.DeletionRequested == nil {
 		t.Fatalf("the card does not see the request: %+v %v", sum.DeletionRequested, err)
 	}
+	if !sum.DeletionSignedOut || sum.DeletionWhileDeactivated {
+		t.Fatalf("the card reads signed out %v, deactivated %v from the trail row; want true, false", sum.DeletionSignedOut, sum.DeletionWhileDeactivated)
+	}
 	if st := f.statusOf(t, f.tenantID, f.employeeID); st != "active" {
 		t.Fatalf("status %q: the request neither deletes nor deactivates the person", st)
 	}
@@ -75,7 +78,7 @@ func TestStaffDB_ADeactivatedPersonsDeletionRequestRevokesNothing(t *testing.T) 
 
 // TestStaffDB_ADeactivatedPersonsRepeatWritesNothing: a deactivated person keeps their device (T59), so
 // they can ask again; a repeat inside DeletionRepeatWindow answers Repeat and writes no second trail
-// row.
+// row. The card reads "nothing was signed out" from the row (not from the status now).
 func TestStaffDB_ADeactivatedPersonsRepeatWritesNothing(t *testing.T) {
 	f := newStaffFixture(t)
 	if _, err := f.staff.Deactivate(context.Background(), DeactivateCommand{TenantID: f.tenantID, EmployeeID: f.employeeID, ActorID: f.actorID}); err != nil {
@@ -92,6 +95,10 @@ func TestStaffDB_ADeactivatedPersonsRepeatWritesNothing(t *testing.T) {
 	}
 	if rows := f.auditRows(t, f.tenantID, ActionEmployeeDeletionRequested, f.employeeID); rows != 1 {
 		t.Fatalf("%d trail rows after a repeat, want 1", rows)
+	}
+	sum, err := f.staff.Summary(context.Background(), f.tenantID, f.employeeID)
+	if err != nil || sum.DeletionRequested == nil || sum.DeletionSignedOut || !sum.DeletionWhileDeactivated {
+		t.Fatalf("summary %+v %v, want the request read as deactivated and nothing signed out", sum, err)
 	}
 	// CONTROL: an ACTIVE person's request is not a repeat, whatever came before (here: the same
 	// person's deactivated request, reactivated since).

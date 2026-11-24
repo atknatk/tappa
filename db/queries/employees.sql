@@ -1422,7 +1422,16 @@ WHERE e.tenant_id = @tenant_id
 -- card: at most one instant, none when they never asked. From the trail itself -- the request
 -- writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
 -- employee id as the trail writes it.
-SELECT a.at
+--
+-- WHAT IT CLOSED comes from the row's own detail (tenant.deletionDetail), never from the person's
+-- status now: a person deactivated when they asked kept their credentials, and one deactivated
+-- since was signed out when they asked. signed_out is "a revoked count is not 0" -- compared as
+-- text, so a detail of another shape reads false instead of failing the cast (ListAPIBudgetAlerts'
+-- lesson); deactivated is the detail's flag.
+SELECT a.at,
+       (coalesce(a.detail->>'revoked_sessions', '0') <> '0'
+        OR coalesce(a.detail->>'revoked_devices', '0') <> '0')::boolean AS signed_out,
+       (coalesce(a.detail->>'deactivated', '') = 'true')::boolean AS deactivated
 FROM audit_log a
 WHERE a.tenant_id = @tenant_id
   AND a.action = 'employee.deletion_requested'

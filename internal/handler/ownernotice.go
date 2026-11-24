@@ -101,6 +101,7 @@ var ownerNoticeLetters = map[ownerNoticeKind]ownerNoticeLetter{
 		render: func(ctx context.Context, baseURL string, n OwnerNotice) (mail.Message, error) {
 			return email.RenderDeletionRequested(ctx, signInLink(baseURL), email.DeletionRequestedView{
 				BaseURL: baseURL, EmployeeName: n.EmployeeName, RequestedAt: n.At, Zone: n.Zone,
+				Deactivated: n.Deactivated,
 			})
 		},
 	},
@@ -137,6 +138,9 @@ type OwnerNotice struct {
 	// At is when the event happened; Zone the business's zone (nil reads UTC).
 	At   time.Time
 	Zone *time.Location
+	// Deactivated says the employee was deactivated when the event happened (a deletion request then
+	// revokes nothing -- T59), so the letter must not say they were signed out.
+	Deactivated bool
 }
 
 // ownerNoticeDirectory is what the job reads, declared at the consumer (§7). *adminauth.Resets is it.

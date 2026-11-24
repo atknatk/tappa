@@ -1592,7 +1592,7 @@ func TestRender_TheTwoPartsSayTheSameWords(t *testing.T) {
 		"address change, taken":            emailChangeTakenLetter(),
 		"address changed, undo":            emailChangedLetter(emailChangedWhen, "7 days"),
 		"address changed, no undo":         emailChangedLetter(emailChangedWhen, ""),
-		"deletion requested":               deletionRequestedLetter("Maria Borg", emailChangedAt.UTC().Format("2 January 2006")),
+		"deletion requested":               deletionRequestedLetter("Maria Borg", emailChangedAt.UTC().Format("2 January 2006"), false),
 	}
 	r := renderEach(t, "Maria Borg", "Kebab Factory Ltd.")
 	if len(r) != len(letters) {
@@ -1960,5 +1960,30 @@ func TestDeletionRequested_SaysTheDayInTheBusinessZoneAndNamesThroughTheGate(t *
 	}
 	if _, err := RenderDeletionRequested(ctx, sin+"?t=x", DeletionRequestedView{BaseURL: testBase, RequestedAt: at}); err == nil {
 		t.Error("a link with a query was accepted")
+	}
+}
+
+// TestDeletionRequested_ADeactivatedPersonWasNotSignedOut (M16-37): a person deactivated when they asked
+// keeps their credentials (T59), so their owners' notice says nothing was signed out -- in both parts --
+// and never that their phones are signed out; an active person's says they are.
+func TestDeletionRequested_ADeactivatedPersonWasNotSignedOut(t *testing.T) {
+	ctx := context.Background()
+	sin := testBase + signInPath
+	at := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	const signedOut, switchedOff = "Their phones are signed out.", "Their account was already switched off, so nothing was signed out."
+	for _, deactivated := range []bool{false, true} {
+		m, err := RenderDeletionRequested(ctx, sin, DeletionRequestedView{BaseURL: testBase, EmployeeName: "Maria Borg", RequestedAt: at, Deactivated: deactivated})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, not := signedOut, switchedOff
+		if deactivated {
+			want, not = switchedOff, signedOut
+		}
+		for part, body := range map[string]string{"text": m.Text, "html": visibleText(t, m.HTML)} {
+			if !strings.Contains(body, want) || strings.Contains(body, not) {
+				t.Errorf("deactivated=%v, %s part: want %q and not %q:\n%s", deactivated, part, want, not, body)
+			}
+		}
 	}
 }

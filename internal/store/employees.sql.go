@@ -1410,7 +1410,10 @@ func (q *Queries) ListAPIEmployees(ctx context.Context, arg ListAPIEmployeesPara
 }
 
 const listEmployeeDeletionRequests = `-- name: ListEmployeeDeletionRequests :many
-SELECT a.at
+SELECT a.at,
+       (coalesce(a.detail->>'revoked_sessions', '0') <> '0'
+        OR coalesce(a.detail->>'revoked_devices', '0') <> '0')::boolean AS signed_out,
+       (coalesce(a.detail->>'deactivated', '') = 'true')::boolean AS deactivated
 FROM audit_log a
 WHERE a.tenant_id = $1
   AND a.action = 'employee.deletion_requested'
@@ -1424,23 +1427,35 @@ type ListEmployeeDeletionRequestsParams struct {
 	EmployeeTarget *string
 }
 
+type ListEmployeeDeletionRequestsRow struct {
+	At          time.Time
+	SignedOut   bool
+	Deactivated bool
+}
+
 // The person's latest "delete my account" request from the staff app (M16-37), for the People
 // card: at most one instant, none when they never asked. From the trail itself -- the request
 // writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
 // employee id as the trail writes it.
-func (q *Queries) ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]time.Time, error) {
+//
+// WHAT IT CLOSED comes from the row's own detail (tenant.deletionDetail), never from the person's
+// status now: a person deactivated when they asked kept their credentials, and one deactivated
+// since was signed out when they asked. signed_out is "a revoked count is not 0" -- compared as
+// text, so a detail of another shape reads false instead of failing the cast (ListAPIBudgetAlerts'
+// lesson); deactivated is the detail's flag.
+func (q *Queries) ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]ListEmployeeDeletionRequestsRow, error) {
 	rows, err := q.db.Query(ctx, listEmployeeDeletionRequests, arg.TenantID, arg.EmployeeTarget)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []time.Time{}
+	items := []ListEmployeeDeletionRequestsRow{}
 	for rows.Next() {
-		var at time.Time
-		if err := rows.Scan(&at); err != nil {
+		var i ListEmployeeDeletionRequestsRow
+		if err := rows.Scan(&i.At, &i.SignedOut, &i.Deactivated); err != nil {
 			return nil, err
 		}
-		items = append(items, at)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

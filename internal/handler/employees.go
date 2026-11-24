@@ -932,6 +932,7 @@ func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, 
 	v.AppLine = appLine(s.LiveAppDevices)
 	if s.DeletionRequested != nil {
 		v.DeletionLine = "Asked to delete their account on " + rosterDate(s.DeletionRequested, zone)
+		v.DeletionClosed = deletionClosed(s.DeletionSignedOut, s.DeletionWhileDeactivated)
 	}
 	switch s.Status {
 	case ledger.StatusActive:
@@ -944,6 +945,20 @@ func fillPersonSummary(v *components.RosterActionsView, s tenant.PersonSummary, 
 		}
 	}
 	v.LinkLine = linkLine(s.Status, s.Link, zone, now)
+}
+
+// deletionClosed is the card's sentence for what a deletion request closed, read from its trail row
+// (M16-37): a deactivated person keeps their credentials (T59), so "signed out" would be false for
+// them, and a row that says neither gets no sentence.
+func deletionClosed(signedOut, deactivated bool) string {
+	switch {
+	case signedOut:
+		return "Their phones were signed out."
+	case deactivated:
+		return "Their account was already switched off, so nothing was signed out."
+	default:
+		return ""
+	}
 }
 
 // linkLine says whether an activation link is outstanding. It says "created", never

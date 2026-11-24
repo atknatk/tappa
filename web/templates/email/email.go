@@ -589,6 +589,9 @@ type DeletionRequestedView struct {
 	// the day is printed.
 	RequestedAt time.Time
 	Zone        *time.Location
+	// Deactivated says the person was deactivated when they asked: their credentials are not revoked
+	// (T59), so the letter does not say their phones are signed out.
+	Deactivated bool
 }
 
 // RenderDeletionRequested renders the owners' notice for the sign-in page's address. The returned
@@ -601,7 +604,7 @@ func RenderDeletionRequested(ctx context.Context, link string, v DeletionRequest
 	if zone == nil {
 		zone = time.UTC
 	}
-	return render(ctx, deletionRequestedLetter(v.EmployeeName, v.RequestedAt.In(zone).Format("2 January 2006")), link)
+	return render(ctx, deletionRequestedLetter(v.EmployeeName, v.RequestedAt.In(zone).Format("2 January 2006"), v.Deactivated), link)
 }
 
 // AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).

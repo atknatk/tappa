@@ -77,6 +77,7 @@ func (a *App) AccountDelete(w http.ResponseWriter, r *http.Request) {
 		a.owners.Submit(ctx, OwnerNotice{
 			Kind: ownerNoticeDeletionRequest, TenantID: dev.TenantID, EmployeeID: dev.EmployeeID,
 			EmployeeName: done.EmployeeName, At: done.At, Zone: ownerZone(done.Timezone),
+			Deactivated: done.Deactivated,
 		})
 	}
 	setAppHeaders(w)

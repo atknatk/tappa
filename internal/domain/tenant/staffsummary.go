@@ -78,8 +78,12 @@ type PersonSummary struct {
 	// Link is the outstanding activation link, read in its own savepoint.
 	Link ActivationLink
 	// DeletionRequested is the person's latest "delete my account" request from the staff app
-	// (M16-37), nil when they never asked.
-	DeletionRequested *time.Time
+	// (M16-37), nil when they never asked. DeletionSignedOut and DeletionWhileDeactivated are what
+	// that request's own trail row says it closed -- never the person's status now, which may have
+	// changed since: a revoked count above 0, and the person deactivated (nothing revoked).
+	DeletionRequested        *time.Time
+	DeletionSignedOut        bool
+	DeletionWhileDeactivated bool
 }
 
 // Since is the lifecycle stamp that matches Status, nil when it was never written -- the
@@ -139,7 +143,10 @@ func (s *Staff) Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (Pe
 			FirstSignedIn:  row.FirstSessionAt,
 			LastUsed:       row.SessionLastUsedAt,
 		}
-		out.DeletionRequested = s.deletionRequested(ctx, tx, tenantID, employeeID)
+		if d := s.deletionRequested(ctx, tx, tenantID, employeeID); d != nil {
+			at := d.At
+			out.DeletionRequested, out.DeletionSignedOut, out.DeletionWhileDeactivated = &at, d.SignedOut, d.Deactivated
+		}
 		out.Link = s.activationLink(ctx, tx, tenantID, employeeID)
 		return nil
 	})
@@ -157,8 +164,8 @@ func (s *Staff) Summary(ctx context.Context, tenantID, employeeID uuid.UUID) (Pe
 
 // deletionRequested reads the person's latest deletion request inside a savepoint, so its failure
 // costs the line and never the summary (activationLink's rule).
-func (s *Staff) deletionRequested(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID) *time.Time {
-	at, err := func() (*time.Time, error) {
+func (s *Staff) deletionRequested(ctx context.Context, tx pgx.Tx, tenantID, employeeID uuid.UUID) *store.ListEmployeeDeletionRequestsRow {
+	at, err := func() (*store.ListEmployeeDeletionRequestsRow, error) {
 		sp, err := tx.Begin(ctx) // SAVEPOINT
 		if err != nil {
 			return nil, fmt.Errorf("savepoint: %w", err)

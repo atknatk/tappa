@@ -4420,7 +4420,13 @@ type Querier interface {
 	// card: at most one instant, none when they never asked. From the trail itself -- the request
 	// writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
 	// employee id as the trail writes it.
-	ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]time.Time, error)
+	//
+	// WHAT IT CLOSED comes from the row's own detail (tenant.deletionDetail), never from the person's
+	// status now: a person deactivated when they asked kept their credentials, and one deactivated
+	// since was signed out when they asked. signed_out is "a revoked count is not 0" -- compared as
+	// text, so a detail of another shape reads false instead of failing the cast (ListAPIBudgetAlerts'
+	// lesson); deactivated is the detail's flag.
+	ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]ListEmployeeDeletionRequestsRow, error)
 	// One page of the queue, newest first.
 	//
 	// THE COLUMN LIST IS ListPanelTransactions' LIST, and the reason is section 4.7:

@@ -185,8 +185,12 @@ templ RosterActions(v RosterActionsView) {
 				// M16-37: the request goes to the employer; nothing of the records was deleted.
 				<div class="flex flex-col gap-1.5 border-l-4 border-saffron bg-paper px-4 py-3 md:col-span-2 desk:col-span-1">
 					<p class="text-sm font-bold text-ink">{ v.DeletionLine }</p>
+					// What the request closed is its own trail row's word, never assumed.
 					<p class="text-xs text-ink/70">
-						Their phones were signed out. Their clock-in records are kept: they are legal records you control. Decide what to do with their data and reply to them within one month.
+						if v.DeletionClosed != "" {
+							{ v.DeletionClosed + " " }
+						}
+						Their clock-in records are kept: they are legal records you control. Decide what to do with their data and reply to them within one month.
 					</p>
 				</div>
 			}

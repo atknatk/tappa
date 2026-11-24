@@ -194,6 +194,9 @@ func TestAppAccountDeleteDB_TheOwnersAreEMailedWhileTheBreakerRefuses(t *testing
 		if strings.Contains(m.Text, "@") || strings.Contains(m.HTML, "@") {
 			t.Errorf("a notice's body carries an '@'")
 		}
+		if !strings.Contains(m.Text, "Their phones are signed out.") {
+			t.Errorf("an active person's notice does not say their phones are signed out:\n%s", m.Text)
+		}
 	}
 	rows := h.noticeRows(t, h.employeeID)
 	got := map[string]bool{}
@@ -212,7 +215,8 @@ func TestAppAccountDeleteDB_TheOwnersAreEMailedWhileTheBreakerRefuses(t *testing
 }
 
 // TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners: the deactivated person keeps
-// their credentials (T59) and the owners are still e-mailed. Their SECOND request inside tenant.DeletionRepeatWindow answers the same 204
+// their credentials (T59) and the owners are still e-mailed -- with a letter that does not claim their
+// phones were signed out. Their SECOND request inside tenant.DeletionRepeatWindow answers the same 204
 // and adds nothing: one trail row and one notice in total (the device still signs, so without the rule
 // every press is a row and an e-mail per owner).
 func TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners(t *testing.T) {
@@ -232,6 +236,12 @@ func TestAppAccountDeleteDB_ADeactivatedPersonsRequestStillTellsTheOwners(t *tes
 	drainNow(t, q)
 	if p.count() != 1 {
 		t.Fatalf("%d e-mails, want 1", p.count())
+	}
+	p.mu.Lock()
+	text := p.sent[0].Text
+	p.mu.Unlock()
+	if !strings.Contains(text, "Their account was already switched off, so nothing was signed out.") || strings.Contains(text, "phones are signed out") {
+		t.Errorf("the letter for a deactivated person does not say nothing was signed out:\n%s", text)
 	}
 	if n := h.countWhere(t, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = 'employee.deletion_requested' AND target = $2::text`, gone); n != 1 {
 		t.Fatalf("%d trail rows after a repeat, want 1", n)
