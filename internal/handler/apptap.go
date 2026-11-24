@@ -88,6 +88,9 @@ type appMeResponse struct {
 	// MissingTimes is how many records take a claim now (M16-43): the app shows "Missing times"
 	// only when it is above 0, and reads the list only when that screen opens.
 	MissingTimes int `json:"missingTimes"`
+	// HoursWeeks is the owner's My hours window (M16-30): 0 when off -- the app shows the My
+	// hours link only above 0.
+	HoursWeeks int `json:"hoursWeeks"`
 }
 
 // appPresence carries instants (RFC 3339, UTC) for the phone's scheduling and the business's
@@ -180,6 +183,7 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 		Presence:     appPresenceOf(facts.Presence),
 		Shift:        appShiftOf(facts.Shift),
 		MissingTimes: a.missingTimes(ctx, dev.TenantID, dev.EmployeeID),
+		HoursWeeks:   a.hoursWeeksOf(facts.HoursWeeks),
 	})
 }
 
@@ -641,4 +645,12 @@ func (a *App) Revoke(w http.ResponseWriter, r *http.Request) {
 type appDeviceDetail struct {
 	AppDeviceID string `json:"app_device_id"`
 	Outcome     string `json:"outcome"`
+}
+
+// hoursWeeksOf is /me's hoursWeeks: the owner's window, 0 while this server serves no My hours.
+func (a *App) hoursWeeksOf(weeks int) int {
+	if a.hours == nil {
+		return 0
+	}
+	return weeks
 }

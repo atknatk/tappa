@@ -57,6 +57,8 @@ import (
 //	POST /app/v1/claims             read-signed  the records that take a claim now + the person's
 //	                                             own claims (M16-43)
 //	POST /app/v1/claims/send        nonce-signed one claim -> a result word (POST /api/claim's twin)
+//	POST /app/v1/hours              read-signed  the person's own week: totals, records, waiting
+//	                                             count, inside the owner's window (M16-31)
 //	POST /app/v1/revoke             nonce-signed the device's own sign-out
 //
 // THE TWO UNSIGNED ROUTES AND THE ONE WITHOUT A NONCE are the card's two named exceptions plus
@@ -138,6 +140,8 @@ type App struct {
 	// contexts for a device.
 	claims        appClaims
 	claimContexts claimContexts
+	// hours serves My hours (M16-31): nil until ServeHours.
+	hours appHours
 }
 
 // ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the
@@ -208,6 +212,8 @@ const (
 	// "Missing times" (M16-43): the list (a signed read) and one claim (nonce-signed).
 	AppClaimsPath     = "/app/v1/claims"
 	AppClaimsSendPath = "/app/v1/claims/send"
+	// My hours (M16-31): the person's own week (a signed read).
+	AppHoursPath = "/app/v1/hours"
 )
 
 // appPrefix is the surface's root; every App*Path starts with it.
@@ -236,6 +242,7 @@ func (a *App) Mount(r chi.Router) {
 		r.Get(sub(AppMePath), a.Me)
 		r.Post(sub(AppClaimsPath), a.Claims)
 		r.Post(sub(AppClaimsSendPath), a.ClaimsSend)
+		r.Post(sub(AppHoursPath), a.Hours)
 		r.Post(sub(AppRevokePath), a.Revoke)
 	})
 }

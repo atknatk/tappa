@@ -39,6 +39,8 @@ type AppHomeFacts struct {
 	// ShiftErr says why it is nil after a failed read (the caller logs it; the rest stands).
 	Shift    *UsualShift
 	ShiftErr error
+	// HoursWeeks is the owner's My hours window (00117, M16-30): 0 when off or unread.
+	HoursWeeks int
 }
 
 // AppHome reads the app's home screen for one device's person (tenantID and employeeID come from
@@ -110,6 +112,9 @@ func (d *Directory) AppHome(ctx context.Context, tenantID, employeeID uuid.UUID)
 			return errShiftRollback
 		}
 		out.Shift = usualShiftOf(row)
+		if row.StaffHoursWeeks != nil {
+			out.HoursWeeks = int(*row.StaffHoursWeeks)
+		}
 		if f.prediction.Direction == tap.TypeOut && f.open != nil {
 			p := presenceOf(f.open.OccurredAt, frozenShiftOf(f.open), row.StaffShiftVisible, f.cutoff, f.cutoff.Timezone)
 			out.Presence = &p

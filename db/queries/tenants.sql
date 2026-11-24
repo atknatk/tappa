@@ -118,7 +118,7 @@ RETURNING id, name, vat_number, business_type, structure, plan, timezone,
 -- staff_shift_visible (00116, M16-45) is the owner's "these are my staff's real shifts" switch,
 -- drawn on this screen beside the business's other facts.
 SELECT id, name, vat_number, business_type, timezone,
-       vat_verified, vat_checked_at, created_at, staff_shift_visible
+       vat_verified, vat_checked_at, created_at, staff_shift_visible, staff_hours_weeks
 FROM tenants
 WHERE id = @tenant_id;
 
@@ -134,6 +134,26 @@ FOR UPDATE;
 -- The owner's switch (M16-45, ADR 0050 (iv)). The one column 00116 grants.
 UPDATE tenants
 SET staff_shift_visible = @staff_shift_visible
+WHERE id = @tenant_id;
+
+-- name: GetTenantStaffHoursWeeksForUpdate :one
+-- The My hours window BEFORE an owner's change, locked, for the trail's "before" (M16-30).
+SELECT staff_hours_weeks
+FROM tenants
+WHERE id = @tenant_id
+FOR UPDATE;
+
+-- name: SetTenantStaffHoursWeeks :execrows
+-- The owner's My hours setting (M16-30): NULL is off, else 1, 2, 4 or 13 whole weeks (00117's CHECK).
+UPDATE tenants
+SET staff_hours_weeks = sqlc.narg('staff_hours_weeks')::smallint
+WHERE id = @tenant_id;
+
+-- name: GetTenantStaffHours :one
+-- What the staff app's My hours read needs about the business (M16-31): the window and the zone
+-- (the window is whole weeks in the business's zone).
+SELECT staff_hours_weeks, timezone
+FROM tenants
 WHERE id = @tenant_id;
 
 -- name: UpdateTenantAccount :one

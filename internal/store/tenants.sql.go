@@ -143,7 +143,7 @@ func (q *Queries) GetAPIBusiness(ctx context.Context, tenantID uuid.UUID) (GetAP
 
 const getTenantAccount = `-- name: GetTenantAccount :one
 SELECT id, name, vat_number, business_type, timezone,
-       vat_verified, vat_checked_at, created_at, staff_shift_visible
+       vat_verified, vat_checked_at, created_at, staff_shift_visible, staff_hours_weeks
 FROM tenants
 WHERE id = $1
 `
@@ -158,6 +158,7 @@ type GetTenantAccountRow struct {
 	VatCheckedAt      *time.Time
 	CreatedAt         time.Time
 	StaffShiftVisible bool
+	StaffHoursWeeks   *int16
 }
 
 // The business's own facts, for the account settings screen (M7-05).
@@ -194,6 +195,7 @@ func (q *Queries) GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (Get
 		&i.VatCheckedAt,
 		&i.CreatedAt,
 		&i.StaffShiftVisible,
+		&i.StaffHoursWeeks,
 	)
 	return i, err
 }
@@ -255,6 +257,41 @@ func (q *Queries) GetTenantClock(ctx context.Context, tenantID uuid.UUID) (GetTe
 	var i GetTenantClockRow
 	err := row.Scan(&i.ID, &i.Name, &i.Timezone)
 	return i, err
+}
+
+const getTenantStaffHours = `-- name: GetTenantStaffHours :one
+SELECT staff_hours_weeks, timezone
+FROM tenants
+WHERE id = $1
+`
+
+type GetTenantStaffHoursRow struct {
+	StaffHoursWeeks *int16
+	Timezone        string
+}
+
+// What the staff app's My hours read needs about the business (M16-31): the window and the zone
+// (the window is whole weeks in the business's zone).
+func (q *Queries) GetTenantStaffHours(ctx context.Context, tenantID uuid.UUID) (GetTenantStaffHoursRow, error) {
+	row := q.db.QueryRow(ctx, getTenantStaffHours, tenantID)
+	var i GetTenantStaffHoursRow
+	err := row.Scan(&i.StaffHoursWeeks, &i.Timezone)
+	return i, err
+}
+
+const getTenantStaffHoursWeeksForUpdate = `-- name: GetTenantStaffHoursWeeksForUpdate :one
+SELECT staff_hours_weeks
+FROM tenants
+WHERE id = $1
+FOR UPDATE
+`
+
+// The My hours window BEFORE an owner's change, locked, for the trail's "before" (M16-30).
+func (q *Queries) GetTenantStaffHoursWeeksForUpdate(ctx context.Context, tenantID uuid.UUID) (*int16, error) {
+	row := q.db.QueryRow(ctx, getTenantStaffHoursWeeksForUpdate, tenantID)
+	var staff_hours_weeks *int16
+	err := row.Scan(&staff_hours_weeks)
+	return staff_hours_weeks, err
 }
 
 const getTenantStaffShiftVisibleForUpdate = `-- name: GetTenantStaffShiftVisibleForUpdate :one
@@ -339,6 +376,26 @@ func (q *Queries) SetTenantDayCutoff(ctx context.Context, arg SetTenantDayCutoff
 	var i SetTenantDayCutoffRow
 	err := row.Scan(&i.ID, &i.DayCutoff)
 	return i, err
+}
+
+const setTenantStaffHoursWeeks = `-- name: SetTenantStaffHoursWeeks :execrows
+UPDATE tenants
+SET staff_hours_weeks = $1::smallint
+WHERE id = $2
+`
+
+type SetTenantStaffHoursWeeksParams struct {
+	StaffHoursWeeks *int16
+	TenantID        uuid.UUID
+}
+
+// The owner's My hours setting (M16-30): NULL is off, else 1, 2, 4 or 13 whole weeks (00117's CHECK).
+func (q *Queries) SetTenantStaffHoursWeeks(ctx context.Context, arg SetTenantStaffHoursWeeksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setTenantStaffHoursWeeks, arg.StaffHoursWeeks, arg.TenantID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setTenantStaffShiftVisible = `-- name: SetTenantStaffShiftVisible :execrows

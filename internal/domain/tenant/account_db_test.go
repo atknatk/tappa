@@ -567,7 +567,7 @@ func TestAccountDB_ReadsTheFourVATStates(t *testing.T) {
 // also makes the second half assert the grant is there; every other column stays derived-closed.
 func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T) {
 	f := newAccountFixture(t)
-	open := []string{"name", "business_type", "timezone", "day_cutoff", "staff_shift_visible"} // 00116 (M16-45): the owner's "real shifts" switch, configuration
+	open := []string{"name", "business_type", "timezone", "day_cutoff", "staff_shift_visible", "staff_hours_weeks"} // 00116 (M16-45): the owner's "real shifts" switch, configuration
 	var closed []string
 	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx,

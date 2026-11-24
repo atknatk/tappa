@@ -1394,9 +1394,12 @@ RETURNING id, day_cutoff;
 --
 -- staff_shift_visible is the owner's statement that these values are real shifts (00116); with it
 -- off the caller shows nothing and uses no shift. The predicate is on every table (§4.5).
+-- staff_hours_weeks (00117, M16-30) rides here for /me's hoursWeeks: the owner's My hours window,
+-- NULL when off -- the app shows the My hours link only when it is set.
 -- A person with no home venue (K-14) still gets a row: the location's three columns are NULL, so
 -- only a department's shift can apply, and the line names no venue.
 SELECT t.staff_shift_visible,
+       t.staff_hours_weeks,
        d.shift_start AS department_shift_start,
        d.shift_end   AS department_shift_end,
        d.overnight   AS department_overnight,

@@ -205,6 +205,49 @@ func (q *Queries) CountOnTheFloorByVenue(ctx context.Context, arg CountOnTheFloo
 	return items, nil
 }
 
+const countOwnWaiting = `-- name: CountOwnWaiting :one
+SELECT
+  (SELECT count(*) FROM transactions t
+     WHERE t.tenant_id = $1 AND t.employee_id = $2
+       AND NOT t.practice AND t.verdict = 'flag'
+       AND t.occurred_at >= $3 AND t.occurred_at < $4
+       AND NOT EXISTS (SELECT 1 FROM transaction_reviews rv
+                        WHERE rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id))::int AS records,
+  (SELECT count(*) FROM punch_claims c
+     JOIN transactions a ON a.tenant_id = c.tenant_id AND a.id = c.anchor_transaction_id
+     WHERE c.tenant_id = $1 AND c.employee_id = $2
+       AND a.occurred_at >= $3 AND a.occurred_at < $4
+       AND NOT EXISTS (SELECT 1 FROM punch_claim_decisions cd
+                        WHERE cd.tenant_id = c.tenant_id AND cd.claim_id = c.id))::int AS claims
+`
+
+type CountOwnWaitingParams struct {
+	TenantID   uuid.UUID
+	EmployeeID *uuid.UUID
+	FromAt     time.Time
+	ToAt       time.Time
+}
+
+type CountOwnWaitingRow struct {
+	Records int32
+	Claims  int32
+}
+
+// The staff app's "waiting for your manager" line (M16-31): in the window [from_at, to_at), the
+// person's flagged records nobody has decided and their claims with no decision (anchored in the
+// window). Practice rows excluded. TENANT AND PERSON SCOPE (section 4.5): explicit predicates.
+func (q *Queries) CountOwnWaiting(ctx context.Context, arg CountOwnWaitingParams) (CountOwnWaitingRow, error) {
+	row := q.db.QueryRow(ctx, countOwnWaiting,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.FromAt,
+		arg.ToAt,
+	)
+	var i CountOwnWaitingRow
+	err := row.Scan(&i.Records, &i.Claims)
+	return i, err
+}
+
 const countPanelTransactionsByVerdict = `-- name: CountPanelTransactionsByVerdict :one
 WITH matched_employees AS MATERIALIZED (
     SELECT e2.id
@@ -1390,6 +1433,109 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 	return i, err
 }
 
+const listOwnRecords = `-- name: ListOwnRecords :many
+SELECT t.id, t.occurred_at, t.type, t.channel, t.verdict,
+       rv.outcome AS review_outcome,
+       l.name AS location_name,
+       t.site_location_id,
+       c.id AS claim_id,
+       cd.outcome AS claim_outcome
+FROM transactions t
+LEFT JOIN transaction_reviews rv
+       ON rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id
+LEFT JOIN locations l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
+LEFT JOIN punch_claims c
+       ON c.tenant_id = t.tenant_id AND c.anchor_transaction_id = t.id
+LEFT JOIN punch_claim_decisions cd
+       ON cd.tenant_id = c.tenant_id AND cd.claim_id = c.id
+WHERE t.tenant_id = $1
+  AND t.employee_id = $2
+  AND NOT t.practice
+  AND t.occurred_at >= $3
+  AND t.occurred_at <  $4
+  AND ($5::timestamptz IS NULL
+       OR (t.occurred_at, t.id) > ($5::timestamptz, $6::uuid))
+ORDER BY t.occurred_at, t.id
+LIMIT $7::int
+`
+
+type ListOwnRecordsParams struct {
+	TenantID   uuid.UUID
+	EmployeeID *uuid.UUID
+	FromAt     time.Time
+	ToAt       time.Time
+	AfterAt    *time.Time
+	AfterID    *uuid.UUID
+	RowLimit   int32
+}
+
+type ListOwnRecordsRow struct {
+	ID             uuid.UUID
+	OccurredAt     time.Time
+	Type           *string
+	Channel        string
+	Verdict        string
+	ReviewOutcome  *string
+	LocationName   *string
+	SiteLocationID *uuid.UUID
+	ClaimID        *uuid.UUID
+	ClaimOutcome   *string
+}
+
+// The staff app's My hours list (M16-31): every one of the person's records in a week, refusals
+// and ignored repeats included (their type may be NULL -- 00014), in time order, one page.
+//
+// 🔴 SECTION 4.7 -- WHAT IT DOES NOT SELECT: gps_lat, gps_lng, source_ip, policy_context (the
+// ledger docket's rule), trust_score and the record's note (the employee screens' rule of
+// 2026-11-02: no trust number, no rule note), the review's note and the claim decision's note (a
+// manager's free text), entered_by (a typed record does not name the manager).
+//
+// The venue is the tapped location's name; a tap at a holding peer's venue carries
+// site_location_id, which the caller names through holding_site_locations (ledger.siteVenuesFor,
+// the ledger's own naming). A claim anchored on the row: its decision, if any (00068: one claim per
+// anchor, one decision per claim).
+//
+// Keyset page: (occurred_at, id) after the cursor. TENANT AND PERSON SCOPE (section 4.5): explicit
+// predicates beside RLS, every JOIN restating the tenant.
+func (q *Queries) ListOwnRecords(ctx context.Context, arg ListOwnRecordsParams) ([]ListOwnRecordsRow, error) {
+	rows, err := q.db.Query(ctx, listOwnRecords,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.AfterAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOwnRecordsRow{}
+	for rows.Next() {
+		var i ListOwnRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.Type,
+			&i.Channel,
+			&i.Verdict,
+			&i.ReviewOutcome,
+			&i.LocationName,
+			&i.SiteLocationID,
+			&i.ClaimID,
+			&i.ClaimOutcome,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPanelTransactions = `-- name: ListPanelTransactions :many
 WITH matched_employees AS MATERIALIZED (
     -- Empty, cheaply, when no name was typed: the guard below is a one-time filter
@@ -2198,6 +2344,130 @@ func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShift
 	items := []ListWorkedShiftEventsRow{}
 	for rows.Next() {
 		var i ListWorkedShiftEventsRow
+		if err := rows.Scan(
+			&i.EmployeeID,
+			&i.OccurredAt,
+			&i.Type,
+			&i.Verdict,
+			&i.Channel,
+			&i.LocationID,
+			&i.SiteLocationID,
+			&i.CreatedAt,
+			&i.BusinessDayStart,
+			&i.ShiftSource,
+			&i.ShiftStart,
+			&i.ShiftEnd,
+			&i.ShiftOvernight,
+			&i.ShiftTimezone,
+			&i.ReviewOutcome,
+			&i.EmployeeName,
+			&i.LocationName,
+			&i.LocationShiftStart,
+			&i.LocationShiftEnd,
+			&i.LocationOvernight,
+			&i.DepartmentShiftStart,
+			&i.DepartmentShiftEnd,
+			&i.DepartmentOvernight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkedShiftEventsForEmployee = `-- name: ListWorkedShiftEventsForEmployee :many
+SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
+       t.site_location_id,
+       t.created_at, t.business_day_start,
+       t.shift_source, t.shift_start, t.shift_end, t.shift_overnight, t.shift_timezone,
+       rv.outcome AS review_outcome,
+       e.full_name AS employee_name,
+       l.name AS location_name,
+       l.shift_start AS location_shift_start,
+       l.shift_end   AS location_shift_end,
+       l.overnight   AS location_overnight,
+       d.shift_start AS department_shift_start,
+       d.shift_end   AS department_shift_end,
+       d.overnight   AS department_overnight
+FROM transactions t
+LEFT JOIN transaction_reviews rv
+       ON rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id
+LEFT JOIN employees   e ON e.tenant_id = t.tenant_id AND e.id = t.employee_id
+LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
+LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
+WHERE t.tenant_id = $1
+  AND t.employee_id = $2
+  AND t.type IS NOT NULL
+  AND NOT t.practice
+  AND t.occurred_at >= $3
+  AND t.occurred_at <  $4
+ORDER BY t.occurred_at, t.id
+LIMIT $5::int
+`
+
+type ListWorkedShiftEventsForEmployeeParams struct {
+	TenantID   uuid.UUID
+	EmployeeID *uuid.UUID
+	FromAt     time.Time
+	UntilAt    time.Time
+	RowLimit   int32
+}
+
+type ListWorkedShiftEventsForEmployeeRow struct {
+	EmployeeID           *uuid.UUID
+	OccurredAt           time.Time
+	Type                 *string
+	Verdict              string
+	Channel              string
+	LocationID           *uuid.UUID
+	SiteLocationID       *uuid.UUID
+	CreatedAt            time.Time
+	BusinessDayStart     *time.Time
+	ShiftSource          *string
+	ShiftStart           pgtype.Time
+	ShiftEnd             pgtype.Time
+	ShiftOvernight       *bool
+	ShiftTimezone        *string
+	ReviewOutcome        *string
+	EmployeeName         *string
+	LocationName         *string
+	LocationShiftStart   pgtype.Time
+	LocationShiftEnd     pgtype.Time
+	LocationOvernight    *bool
+	DepartmentShiftStart pgtype.Time
+	DepartmentShiftEnd   pgtype.Time
+	DepartmentOvernight  *bool
+}
+
+// The staff app's My hours totals (M16-31): ListWorkedShiftEvents for ONE PERSON.
+//
+// 🔴 THE COLUMN LIST IS ListWorkedShiftEvents' OWN, COLUMN FOR COLUMN -- ledger converts each row to
+// a store.ListWorkedShiftEventsRow (a Go type conversion that compiles only while the two generated
+// types match) and hands it to the same events() and accumulate() the panel's report runs. One
+// arithmetic: what ListWorkedShiftEvents' block says about the columns NOT selected, the LEFT JOINs,
+// NOT practice, type IS NOT NULL and the window's edges holds here unchanged.
+//
+// TENANT AND PERSON SCOPE (section 4.5): the explicit tenant_id AND employee_id predicates beside
+// RLS; both come from the verified device row, never from the request.
+func (q *Queries) ListWorkedShiftEventsForEmployee(ctx context.Context, arg ListWorkedShiftEventsForEmployeeParams) ([]ListWorkedShiftEventsForEmployeeRow, error) {
+	rows, err := q.db.Query(ctx, listWorkedShiftEventsForEmployee,
+		arg.TenantID,
+		arg.EmployeeID,
+		arg.FromAt,
+		arg.UntilAt,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkedShiftEventsForEmployeeRow{}
+	for rows.Next() {
+		var i ListWorkedShiftEventsForEmployeeRow
 		if err := rows.Scan(
 			&i.EmployeeID,
 			&i.OccurredAt,

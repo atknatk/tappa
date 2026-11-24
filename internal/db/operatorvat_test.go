@@ -682,7 +682,7 @@ func TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber(t *testing.T) {
 		{"tappa_operator", "audit_log", "SELECT", ""},
 		{"tappa_operator", "audit_log", "INSERT", ""},
 		// 00024's three columns, and 00064's business-day cutoff (M15-02) -- none of the VAT ones.
-		{"tappa_app", "tenants", "UPDATE", "name,business_type,timezone,day_cutoff,staff_shift_visible"}, // + 00116 (M16-45)
+		{"tappa_app", "tenants", "UPDATE", "name,business_type,timezone,day_cutoff,staff_shift_visible,staff_hours_weeks"}, // + 00116 (M16-45)
 	} {
 		if got := opColumns(t, ctx, tx, c.role, c.table, c.priv); got != c.want {
 			t.Errorf("%s %s on %s = (%s), want (%s)", c.role, c.priv, c.table, got, c.want)

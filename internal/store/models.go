@@ -580,6 +580,7 @@ type Tenant struct {
 	SuspensionReason      *string
 	DayCutoff             pgtype.Time
 	StaffShiftVisible     bool
+	StaffHoursWeeks       *int16
 }
 
 type TenantBranding struct {

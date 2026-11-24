@@ -207,7 +207,10 @@ type Settings struct {
 	// with it on, the staff app shows the usual shift and its reminder and lock-screen timer use
 	// the shift's end.
 	StaffShiftVisible bool
-	Name              string
+	// StaffHoursWeeks is the owner's My hours window (00117, M16-30): 0 when off, else 1, 2, 4
+	// or 13 whole weeks.
+	StaffHoursWeeks int
+	Name            string
 	// VATNumber is read-only on this screen. It is carried because the customer must
 	// be able to SEE what the invoice will say, and because the VAT verdict below is
 	// meaningless without the number it is about.
@@ -300,6 +303,9 @@ func (a *Accounts) Settings(ctx context.Context, tenantID uuid.UUID) (Settings, 
 		out = settingsOf(row.Name, row.VatNumber, row.BusinessType,
 			row.Timezone, row.VatVerified, row.VatCheckedAt, row.CreatedAt)
 		out.StaffShiftVisible = row.StaffShiftVisible
+		if row.StaffHoursWeeks != nil {
+			out.StaffHoursWeeks = int(*row.StaffHoursWeeks)
+		}
 		return nil
 	})
 	if err != nil {
