@@ -64,6 +64,9 @@
 		0A0000000000000000000256 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014B /* WidgetKit.framework */; };
 		0A0000000000000000000257 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014C /* SwiftUI.framework */; };
 		0A0000000000000000000255 /* TaptimeWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014A /* TaptimeWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0A00000000000000000002B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A0 /* Assets.xcassets */; };
+		0A00000000000000000002B1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */; };
+		0A00000000000000000002B2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -152,6 +155,9 @@
 		0A000000000000000000014A /* TaptimeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TaptimeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A000000000000000000014B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		0A000000000000000000014C /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		0A00000000000000000002A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -236,6 +242,8 @@
 				0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */,
 				0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */,
 				0A0000000000000000000188 /* OFL-IBMPlexMono.txt */,
+				0A00000000000000000002A0 /* Assets.xcassets */,
+				0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */,
 				0A0000000000000000000013 /* Info.plist */,
 				0A0000000000000000000014 /* Taptime.entitlements */,
 			);
@@ -274,6 +282,7 @@
 			isa = PBXGroup;
 			children = (
 				0A0000000000000000000145 /* TaptimeWidgets.swift */,
+				0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */,
 				0A0000000000000000000146 /* Info.plist */,
 				0A0000000000000000000147 /* TaptimeWidgets.entitlements */,
 			);
@@ -401,6 +410,8 @@
 				0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */,
 				0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */,
 				0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */,
+				0A00000000000000000002B0 /* Assets.xcassets in Resources */,
+				0A00000000000000000002B1 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -421,6 +432,7 @@
 				0A000000000000000000024F /* ibm-plex-mono-v20-latin-700.woff2 in Resources */,
 				0A0000000000000000000251 /* OFL-SpaceGrotesk.txt in Resources */,
 				0A0000000000000000000252 /* OFL-IBMPlexMono.txt in Resources */,
+				0A00000000000000000002B2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -524,7 +536,7 @@
 					"$(inherited)",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -547,7 +559,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -558,6 +570,7 @@
 		0A0000000000000000000072 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = P6PM935BK2;
@@ -582,6 +595,7 @@
 		0A0000000000000000000073 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = P6PM935BK2;
