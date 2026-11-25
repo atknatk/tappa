@@ -3594,7 +3594,7 @@ numara yazılmaz.
 
 | Kapı | İlk bloklandığı |
 |---|---|
-| Q55 … Q59, ADR 0051 kabulü, **`identity_erase_member` = beşinci adlandırılmış istisna** (CLAUDE.md §4.5(3) farkı + ADR 0031 §6.1 metni + `claudemdidentity_test.go` dizgeleri + tanımcıya `admin_invites` `UPDATE (email, full_name, cancelled_at)`), **ADR 0010 istisnası** (*"an erased business's staff are signed out"*), CLAUDE.md §5'in iki cümlesi (AskUserQuestion) | M16-50 |
+| Q55 … Q59, ADR 0051 kabulü, **`identity_erase_member` ve `identity_erase_tenant_invites` = beşinci adlandırılmış istisna** (CLAUDE.md §4.5(3) farkı + ADR 0031 §6.1 metni + `claudemdidentity_test.go` dizgeleri + tanımcıya `admin_invites` `UPDATE (email, full_name, cancelled_at)`), **ADR 0010 istisnası** (*"an erased business's staff are signed out"*), CLAUDE.md §5'in iki cümlesi (AskUserQuestion) | M16-50 |
 | Metin / mockup onayları (ilk ekran — §9; giriş, parola, uygulama modu, `/staff/password`, `/account-deletion`, panel ayarı, onay listesi uyarısı) | M16-51, -53, -54, -55 |
 | Silme envanteri (ADR 0051 §2.9.9) — M16-55'in metin onayından önce | M16-55 |
 | Q13 + hukukçunun K-A onayı + K-D sorusu | M16-61, M16-58 |
@@ -3617,7 +3617,7 @@ numara yazılmaz.
   başlamaz → AskUserQuestion.
 - **Soru ve kapı adımı** (AskUserQuestion, adıyla):
   - Q55 … Q59.
-  - **`identity_erase_member` = CLAUDE.md §4.5(3)'ün BEŞİNCİ adlandırılmış istisnası** *[B4-Y1]*: (1) CLAUDE.md §4.5(3) farkı — *"adlandırılmış dört istisna"* →
+  - **`identity_erase_member` ve `identity_erase_tenant_invites` = CLAUDE.md §4.5(3)'ün BEŞİNCİ adlandırılmış istisnası** *[B4-Y1, B7-M3a]*: (1) CLAUDE.md §4.5(3) farkı — *"adlandırılmış dört istisna"* →
     *"adlandırılmış beş istisna"*, listeye **şu birebir metin** (ADR 0051 §2.9.8'deki metinle bayt bayt aynı) *[B5-low5]*: *"`identity_erase_member` ve `identity_erase_tenant_invites` (yalnız işletmenin kendi bağlamında, o işletmede onaylanmış ve açık bir silme talebi varken ve yalnız o işletmenin satırları için; Go tipiyle bağlı silici çağırır)"*, *"adlandırılmış dört istisnanın dışında"* → *"beş"*; (2) **ADR 0031 §6.1'in birebir metni** aynı farkla (test iki metnin bayt bayt eşitliğini
     ister — `cmd/tappa/claudemdidentity_test.go:40-46`); (3) `claudemdidentity_test.go:48`'in aradığı dizgelerin güncellenmesi; (4) **`tappa_identitydefiner`'a `UPDATE (email, full_name,
     cancelled_at) ON admin_invites`** (ADR 0051 §2.9.8) *[B5-Y1]*. Kullanıcı dördünü birlikte onaylar.
@@ -3635,7 +3635,7 @@ numara yazılmaz.
   - **ADR 0021:** §1'in sır sütunlarına `employee_passwords.digest`, `employee_password_links.token_hash`; `tappa_opdefiner`'ın *"Tutar"* hücresine
     `business_deletion_requests (SELECT; UPDATE (approved_at, cancelled_at))` ve — yalnız Q55 (b) — `store_review_flags (SELECT, INSERT, UPDATE (disabled_at))`; *"operatör yüzeyi uygulama tarafına bir `(tenant_id, request_id)` çifti bildirir,
     yazma yetkisi ve havuz almaz"* (ADR 0051 §2.9.7).
-  - **ADR 0031:** `identity_erase_member` — kapalı listeye ek, beşinci istisna, §6.1 metni.
+  - **ADR 0031:** `identity_erase_member` ve `identity_erase_tenant_invites` — kapalı listeye iki ek, tek beşinci istisna, §6.1 metni.
   - **ADR 0002 md. 7:** bu fazda yeni anahtarsız çözümleyici **yoktur** (süpürücü önerisi geri çekildi).
   - **ADR 0048:** `admin_users.password_hash`'in `tappa_readonly`'ce okunur olması adlandırılmış bedel; iki yeni tablonun kalıcı istisnası.
   - ADR 0026, ADR 0039 (beşinci bcrypt servisi), ADR 0045 §2.3 (taşıyıcı token yok — değişmez), ADR 0022 (yeni gönderimler, `personNotices`, özet).
@@ -3957,8 +3957,8 @@ INSERT tutmaz.
 - **Commit:** `feat(account): complete a business deletion`
 
 **Kabul kriterleri** (ADR 0051 §2.9.7–§2.9.10; her kural bir kez — altıncı turda yerinde yeniden yazıldı *[A6-D3]*).
-- **Migration** (commit anındaki ilk serbest numara): **`identity_erase_member(p_tenant_id uuid, p_admin_user_id uuid)`** — sahibi `tappa_identitydefiner`, `EXECUTE` yalnız
-  `tappa_app`.
+- **Migration** (commit anındaki ilk serbest numara): **`identity_erase_member(p_tenant_id uuid, p_admin_user_id uuid)`** ve **`identity_erase_tenant_invites(p_tenant_id uuid)`** —
+  ikisinin de sahibi `tappa_identitydefiner`, `EXECUTE` yalnız `tappa_app`; yapısal yüklemler ikisinde aynı.
   - **Yapısal yüklemler:** tenant bağlamı = parametre; o tenant'ta onaylanmış açık talep **kilitsiz, düz bir `SELECT`** ile yeniden sınanır (tanımcının yalnız sütun `SELECT`'i
     var — `FOR UPDATE` `UPDATE` yetkisi isterdi; kilit Go silicisindedir) *[B5-O1]*; satır o tenant'ın.
   - **Kilit sırası:** üye başına kimlik `FOR UPDATE` → bütün üyelikler `FOR UPDATE` (`00072:985-990`) → karar; işletme düzeyinde bütün üyelik satırları → davetler *[B5-O3, B7-M3a]*.
@@ -3996,9 +3996,10 @@ INSERT tutmaz.
 
 *Testler.* [H61-a] envanterin her satırı (tablo başına bir vaka; `external_ref` yer tutucusu regex'i, tekilliği ve `home_or_external_ref`'i geçer) · [H61-b] başka bağlı üyeliği
 olan kimlik anonimleşmez, yalnız bu üyelik kapanır · [H61-c] ekleme-yalnız tablolar aynı · [H61-d] onay e-postası tamamlamadan sonra, adres logda yok; başarıda `confirm_to`
-`NULL` · [H61-e] operatör rolleri `identity_erase_member`'ı çalıştıramaz · [H61-f] yer tutucular CHECK'leri geçer · [H61-g] `To` `x@deleted.invalid` reddedilir · [H61-h] aynı
+`NULL` · [H61-e] operatör rolleri (`tappa_operator`, `tappa_opdefiner`, öteki tanımcılar, `PUBLIC`) `identity_erase_member` ve `identity_erase_tenant_invites`'ı çalıştıramaz · [H61-f] yer tutucular CHECK'leri geçer · [H61-g] `To` `x@deleted.invalid` reddedilir · [H61-h] aynı
 bildirim iki kez (iki pod) → ikincisi hiçbir şey yazmaz · [H61-i] silmeden önce basılmış bir davet sonra tüketilemez *[B4-O4]* · [H61-j] yapılandırma testleri
-`probe@relay.invalid` ile yeşil · [H61-k] `identity_erase_member` onaylanmış açık talep yokken, başka tenant'ın bağlamında ya da başka tenant'ın satırıyla hiçbir şey yazmaz ·
+`probe@relay.invalid` ile yeşil · [H61-k] `identity_erase_member` ve `identity_erase_tenant_invites`: onaylanmış açık talep yokken hiçbir şey değişmez; başka tenant'ın bağlamında (parametre ≠ `app.tenant_id`) hiçbir şey yazmaz; `identity_erase_member` başka
+tenant'ın satırıyla hiçbir şey yazmaz ·
 [H61-l] silinmiş işletmede `op_reinstate_tenant` sessiz no-op (askı kalır) *[B6-M1]* · [H61-m] yalnız-gönderim yolu: tamamlanmış satırda silici hiçbir tabloya yazmaz, e-posta
 yeniden denenir, 5. denemeden sonra durur ve `confirm_to` `NULL` · [H61-n] eşzamanlı bir yönetici daveti kabulü silmeyle yarışır — **iki ön-yazma varyantıyla** (silici önce
 `identity_erase_member`'ı çağırır; ters sıra da denenir ve reddedilmiş bir varyant olarak kilitlenme ölçülür): doğru sırada kilitlenme yok, kimlik yanlışlıkla anonimleşmez,

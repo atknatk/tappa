@@ -1824,7 +1824,7 @@ yazılır.
 | M16-58 | Mağaza beyanları ve gizlilik taslağı (M16-27 / M16-41'in revizyonu) | todo | kullanıcı + hukukçu |
 | M16-59 | Faz H kapanışı | todo | yalnız demo işletme; büyük testler bir kez |
 | M16-60 | Operatör yüzeyinden KDV'siz işletme | dropped | **2026-11-25: düştü — K-C2** (demo `/signup`'tan; şema değişikliği ve operatör yolu yok) |
-| M16-61 | İşletme silmesinin tamamlanması — uygulama tarafı | todo | K-A, K-D; `identity_erase_member` = **beşinci adlandırılmış istisna** (CLAUDE.md §4.5(3) farkı); anahtarlı bildirim, süpürücü yok; numara commit anında; **Q13 + hukukçu + K-D sorusu ön koşul** |
+| M16-61 | İşletme silmesinin tamamlanması — uygulama tarafı | todo | K-A, K-D; `identity_erase_member` ve `identity_erase_tenant_invites` = **beşinci adlandırılmış istisna** (CLAUDE.md §4.5(3) farkı); anahtarlı bildirim, süpürücü yok; numara commit anında; **Q13 + hukukçu + K-D sorusu ön koşul** |
 | M16-62 | Taban ölçümü ve SigNoz kuralları (Faz H birleştirmesinden önce) | todo | kapı WARN'u, kesici hacmi, owner bildirimi `undelivered` oranı; kurallar *"tappa 10"*, *"tappa 11"* (bu kartın) |
 
 ## Oturum günlüğü

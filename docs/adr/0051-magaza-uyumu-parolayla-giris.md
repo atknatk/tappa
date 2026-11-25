@@ -288,7 +288,7 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
    FOR UPDATE` — satır yoksa geri alır; satır kilidi aynı bildirimi iki pod'da (rolling update — `replicas: 1`, `maxSurge: 1`) seri yapar, ikincisi tamamlanmış satırı
    bulur ve hiçbir şey yazmaz. Bitince tenant'ın `audit_log`'una `tenant.deletion_completed` satırı. **Hiçbir operatör rolü kimlik fonksiyonu ya da tablosuna dokunmaz;**
    `identitycatalog_test.go:408-415`, `adminidentity_test.go:179`, `:283` değişmez.
-8. **Kimlik tarafı — `identity_erase_member` = BEŞİNCİ adlandırılmış istisna** *[B4-Y1, B4-O1]*. Sırsız bir kimlik yazarıdır; CLAUDE.md §4.5(3) bugün
+8. **Kimlik tarafı — `identity_erase_member` ve `identity_erase_tenant_invites` = BEŞİNCİ adlandırılmış istisna** *[B4-Y1, B4-O1]*. Sırsız bir kimlik yazarıdır; CLAUDE.md §4.5(3) bugün
    *"adlandırılmış dört istisna"* der (`CLAUDE.md:240-252`) ve `cmd/tappa/claudemdidentity_test.go:40-48` iki belgeyi karşılaştırıp dizgeleri arar. **M16-50'nin kullanıcı
    kapısı:** beşinci istisna + CLAUDE.md §4.5(3)'ün metin farkı (*"dört"* → *"beş"*, listeye **şu birebir metin** *[B5-low5]*: *"`identity_erase_member` ve `identity_erase_tenant_invites` (yalnız işletmenin kendi bağlamında, o işletmede onaylanmış ve açık bir silme talebi varken ve yalnız o işletmenin satırları için; Go tipiyle bağlı silici çağırır)"*) + ADR 0031 §6.1'in aynı metni +
    `claudemdidentity_test.go`'nun dizgeleri + tanımcının yeni yetkileri.
@@ -370,7 +370,7 @@ ve **owner panelden açar** (M16-57 adım 7). İnceleyici *"Create a business ac
 - Kod kartları PR #49'dan sonra `main`'den açılan `m16-store` dalında; Faz H PR'ı o daldır. **Faz H PR'ı Q13 / hukukçu beklerken birleşirse M16-61 sonraki bir
   dalda ve PR'da gelir** (öneri dal `m16-store-erasure`, `main`'den; numarası commit anında) *[A4-D18]*.
 - **Migration'lar yürütme sırasıyla, commit anında:** öneri **00118, 00119, 00120** (M16-51) → **00121** (M16-55: `business_deletion_requests`, `op_*`, iki tür
-  CHECK'i, `op_reinstate_tenant`'ın yeni tanımı) → commit anındaki ilk serbest: M16-61 (`identity_erase_member`), M16-56 (koşullu). goose `-allow-missing`'siz.
+  CHECK'i, `op_reinstate_tenant`'ın yeni tanımı) → commit anındaki ilk serbest: M16-61 (`identity_erase_member` ve `identity_erase_tenant_invites`), M16-56 (koşullu). goose `-allow-missing`'siz.
 - `Down`: 00121 açık ya da tamamlanmış talep varken reddeder ve `op_*`'ların önceki tanımlarını birebir geri koyar; **M16-61'inki onaylanmış ve tamamlanmamış bir talep varken
   reddeder**, yoksa iki fonksiyonu ve yetkileri düşürür *[B4-rollback]*; M16-56'nınki **açık bir bayrak** (`store_review_flags`, `disabled_at IS NULL`) varken reddeder ve
   `op_read_tenant_detail`'in önceki tanımını geri koyar.
@@ -389,7 +389,7 @@ ve **owner panelden açar** (M16-57 adım 7). İnceleyici *"Create a business ac
 | İşverenin eski davetiyle ikinci bağ | tüketimde kardeş iptali | — |
 | Pencere dışına itme | en eski önce, süzgeçler `LIMIT`'ten önce | > 3 işletmeli kişi |
 | Silme talebinin kötüye kullanımı | aktif owner, kanıt, ad yazdırma, e-postalar, operatör onayı ve iptali | tek owner'ın talebi işletmeyi siler |
-| Operatörün kimlik verisine erişimi | **yok** — silici `tappa_app`, tek yeni `identity_*` yalnız `tappa_app`; operatör yalnız bir kimlik çifti bildirir | **beşinci adlandırılmış istisna** (`identity_erase_member`, yapısal yüklemlerle) — CLAUDE.md §4.5(3) değişir |
+| Operatörün kimlik verisine erişimi | **yok** — silici `tappa_app`, iki yeni `identity_*` fonksiyonu (`identity_erase_member` ve `identity_erase_tenant_invites`) yalnız `tappa_app`'ça çalıştırılır; operatör yalnız bir kimlik çifti bildirir | **beşinci adlandırılmış istisna** (`identity_erase_member` ve `identity_erase_tenant_invites`, yapısal yüklemlerle) — CLAUDE.md §4.5(3) değişir |
 | BYPASSRLS rollerinin özet okuması | migration `DO` bloğu `REVOKE` eder, `scoped-access.sql` istisnası | **`ALTER DEFAULT PRIVILEGES` yeni tabloyu oluştuğu an açar** — `REVOKE` aynı migration'da olmazsa özet okunur; `admin_users.password_hash` bugün okunur (adlandırılmış bedel) |
 | Yer tutucu adrese posta | dışa açık `ValidRecipient` ve `Send`'in `To` yolu `.invalid`'i reddeder; iç `validRecipient` (gönderen) değişmez | — |
 | Ingress log'unda token | erişim log'suz yol, token'sız 303, `no-referrer` | nginx hata log'u |
@@ -401,7 +401,7 @@ ve **owner panelden açar** (M16-57 adım 7). İnceleyici *"Create a business ac
 account"*'ta KDV adımında durur** (gerçek AB KDV numarası ister; K-C2 demo işletmeyi kullanıcı açar). 12. Davetli kişi 24 saatte tamamlamazsa yeni davet.
 13. Owner-çalışan yönetici adresiyle parola kullanamaz. 14. Operatöre e-posta yok. 15. Parola davetinde Wi-Fi ipucu yok. 16. Çalışanın silme talebinden sonra
 parolalı giriş yeni işveren daveti ister. 17. Holding kayıtlarında ad kalır (K-D). 18. `admin_users.password_hash` `tappa_readonly`'ce okunur (ADR 0048; değişmez).
-19. Kimlik kapalı listesine bir fonksiyon ve **CLAUDE.md §4.5(3)'e beşinci istisna** (`identity_erase_member`). 20. Süreç onay ile silme arasında ölürse silme
+19. Kimlik kapalı listesine **iki fonksiyon** (`identity_erase_member` ve `identity_erase_tenant_invites`) ve **CLAUDE.md §4.5(3)'e beşinci istisna**. 20. Süreç onay ile silme arasında ölürse silme
     operatörün *"Run the erasure"* düğmesine dek bekler (K-19'un bedeli). 21. Onay e-postasının adresi gönderilene dek tabloda **düz metin** kalır (en çok 5 deneme). 22. Tenant'ın **her** yönetici daveti satırının adresi ve adı yer tutucuya çevrilir (`identity_erase_tenant_invites` — B5-Y1, B7-M3a, [H61-p]); satırlar DELETE edilmez (yalnız `tappa_owner`).
 
 ## 5. Kırmızı çizgiler
@@ -421,7 +421,7 @@ Q55 … Q59; hukukçuya Q13 ve K-D sorusu. *Sonra:* tarayıcıda parolayla giri�
 
 ## 8. Uygulama
 
-M16-50 (kabul; ADR 0049 / 0010 / 0021 (sır sütunları; `Tutar` hücresi; kimlik çifti bildirimi) / 0026 / 0031 (`identity_erase_member` — beşinci istisna, §6.1 metni) /
+M16-50 (kabul; ADR 0049 / 0010 / 0021 (sır sütunları; `Tutar` hücresi; kimlik çifti bildirimi) / 0026 / 0031 (`identity_erase_member` ve `identity_erase_tenant_invites` — beşinci istisna, §6.1 metni) /
 0039 / 0045 / 0022 / 0048 / 0002 notları; ADR 0005 risk eki; CLAUDE.md §5'in iki cümlesi ve §4.5(3)'ün farkı) · M16-51 · M16-52 · M16-53 · M16-54 · M16-55 · M16-56 (koşullu) · M16-57 · M16-58 · M16-59 · **M16-60 düştü (K-C2)** · M16-61 ·
 M16-62 (taban). ADR 0049 notu: *"YYYY-MM-DD: §2'nin link mekanizması ADR 0051'le yerini aldı; bütçeler, görünürlük ve iki kapı devredildi; 7 günlük bekleme
 devralınmadı; metin silinmez"*.
