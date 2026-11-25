@@ -1786,47 +1786,58 @@ yazılır.
 | M16-20 | Canlı QR ekran sayfası ve panelden eşleme | done | dal `m16-20-liveqr-screen` (taban `41d6fcfa`), `feat(liveqr): pair a venue screen and rotate its code`; `internal/liveqr` (65 bit kod, HMAC özetler, imzalı token), `/screen` sayfası, panel bloğu; `TAPPA_LIVE_QR_KEY` isteğe bağlı; kart düzeltmesi + M16-21 token sözleşmesi kartta; düzeltme turu (üçüncü göz RED, güvenlik ORTA×2): migration **00114** `last_seen_at` (sonraki ayırmalar birer kaydı), 180 günlük ekran oturumu, askıda kod yok; yeniden denetim bekliyor |
 | M16-21 | `qr_live` karar motorunda | done | dal `m16-21-liveqr-decide` (taban `c57e8ba2`), `feat(tap): accept a live QR as a channel`; kullanıcı kararı 2026-11-19: `qr_live` + yalnız GPS → `flag` (`base:live-qr-requires-ip`, ayrı belge, `BaselineVersion` 2026-11-19); dört guardrail (11 → 15), üç bağlam anahtarı; `GET /q` (tap ekranı aynen); `/v1` `qrKind`; parite matrisi; migration yok (00115 M16-23'te kalır); iki mercek bekliyor |
 | M16-22 | Uygulamada QR okuma (statik + canlı) | done | dal `m16-22-app-qr` (taban `ab5a380a`), `feat(mobile): read plaque and live QR codes`; önce ayrı `f6a07f5b` (`test(tap): hold the panel tables lock…`, CI düzeltmesi); `tap/start`'a `liveQR` alanı (yeni uç yok), `GET /q`'nun okuyucusu ortak (`liveQRTap.open`); Android `/q` App Link filtresi; iOS `TapLink`; yeni metin yok; tek mercek bekliyor |
-| M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | review | dal `m16-23-nfcless-activation` (taban `b580cb9d`), `feat(activate): activate a phone that cannot tap`; migration 00115 (`activation_requests`); canlı QR aktivasyonu (tarayıcı `GET /q`, uygulama `complete.liveQR`) + müdür onayı (sihirbaz, `/app/v1/activate/approval*`, panel *People* kartı); §9 metinleri TASLAK (kullanıcıya); iki mercek bekliyor |
+| M16-23 | NFC'siz aktivasyon: canlı QR ve müdür onayı | review | kod **`main`'de** (PR #46, `d7993e83`; migration 00115) — denetim durumu bu satırda ölçülmedi (2026-11-25 ledger eşitlemesi) |
 | M16-24 | Faz D kapanışı | todo |  |
 | M16-25 | Attestation — yalnız kanıt | todo |  |
 | M16-26 | Raporlar ve panelde cihaz listesi; Faz E kapanışı | todo |  |
 | M16-27 | Gizlilik: `/legal/privacy`, mağaza etiketleri | todo |  |
 | M16-28 | İmza, iç test dağıtımı, sürüm süreci | todo |  |
 | M16-29 | KF/KM pilotu ve M16 kapanışı | todo |  |
-| M16-30 | Saatlerim ayarı: işletmenin aç/kapa ve görünürlük penceresi (şema + panel) | todo | Faz G (2026-11-18); sıra D, E, **G**, F; migration 00117 (öneri); Q48 |
-| M16-31 | Saatlerim: kişinin kendi kayıtlarının okuması + `/app/v1/hours` (M9-05'i karşılar) | todo | ayar sunucuda zorlanır (kapalı → 404) |
-| M16-32 | Saatlerim: tarayıcı sayfası | todo | §9 sorusu önce |
-| M16-33 | Uygulama ana ekranı ve Saatlerim — iOS + Android | todo | §9 onayı kartın ilk adımı |
+| M16-30 | Saatlerim ayarı: işletmenin aç/kapa ve görünürlük penceresi (şema + panel) | review | kod **`main`'de** (PR #47; migration **00117**) — denetim durumu bu satırda ölçülmedi |
+| M16-31 | Saatlerim: kişinin kendi kayıtlarının okuması + `/app/v1/hours` (M9-05'i karşılar) | review | kod **`main`'de** (`5fef28a9`, `AppHoursPath`) — denetim durumu bu satırda ölçülmedi |
+| M16-32 | Saatlerim: tarayıcı sayfası | review | kod **dalda** `m16-native-ui` (`242f60d3`, `internal/handler/myhours.go`) — denetim durumu bu satırda ölçülmedi |
+| M16-33 | Uygulama ana ekranı ve Saatlerim — iOS + Android | review | Android **`main`'de** (`1b7aecfc`), iOS **dalda** (`ed61b410`, `6fdeaced`) — denetim durumu bu satırda ölçülmedi |
 | M16-34 | ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-50** (uygulanmadı) |
 | M16-35 | E-postayla giriş: sunucu | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-51, M16-52**; 00118/00119 Faz H'ye geçti |
 | M16-36 | E-postayla giriş: uygulama ekranları (+ tarayıcı) | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-53** |
-| M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
-| M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
-| M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
+| M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | review | kod **dalda** (`786bd004`, `13f24033`, `cca8bad8`, `b35f30e4`; `AppAccountDeletePath`) — PR #49; denetim durumu bu satırda ölçülmedi (denetim B-D8) |
+| M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | review | taslak bölüm 12 **dalda** (`59d21bf0`, `af0c591f`, `f951d55c`, `828ce9b1`); **yayım adımı M16-58'e geçti** (2026-11-25) |
+| M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | review | kod **dalda** (`62c6d6d1`, `6fdeaced`; *Delete my account* yalnız dalda) — denetim durumu bu satırda ölçülmedi |
 | M16-42 | Faz G ekleri: canlı taban ölçümü, Q50–Q54, ADR 0050 ve §9 kararları | todo | kullanıcı kararı 6 (2026-11-19); belge kartı, M16-30 … M16-38 ile paralel; ölçüm sorulardan önce, soru adımı M16-33'ün §9'undan önce; ADR 0050 (öneri) |
-| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | todo | Q50; aynı `claim.Service.Submit`, migration yok; hâlâ açık girişe talep yok (`still_open`); Android `ContractPinTest` aynı commit'te |
-| M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | todo | §9 (M16-42) |
-| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | todo | Q51, Q52; koşullu migration 00120 (Q52 (2) (c)) / 00121 (Q51 (3) (b)); vardiyasız yol birincil (üretimde vardiya yok — denetim); açık giriş sınırı `tap.OpenUntil` (iş günü sonu ya da 18 sa) |
-| M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | todo | push yok, konum yok; R2'ye `UNLocationNotificationTrigger` |
-| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; iOS 16.2+; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
-| M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
-| M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı ve dil listesi ön koşul; CLAUDE.md §7 + §9 değişikliği; koşullu 00122; onaycı yoksa yayından sonraya |
-| M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı · **2026-11-25: M16-57 revize eder** (demo çalışan girişi; Q55) |
-| M16-40 | Faz G kapanışı | todo |  |
+| M16-43 | Unutulan çıkış talebi: sunucu (`/app/v1/claims`, `/app/v1/claims/send`) | review | kod **`main`'de** (`AppClaimsPath`) — denetim durumu bu satırda ölçülmedi |
+| M16-44 | Unutulan çıkış talebi: uygulama ekranı — iOS + Android | review | *Missing times* metni **`main`'de** (mobil) — denetim durumu bu satırda ölçülmedi |
+| M16-45 | `/app/v1/me`: içeride durumu, hatırlatma anı ve vardiyam (sunucu) | review | kod **`main`'de** (`6ef5be6f`; migration **00116** `staff_shift_visible` — 00120 önerisinin yerine) — denetim durumu bu satırda ölçülmedi |
+| M16-46 | "Hâlâ içeridesin" hatırlatması — yerel bildirim (iOS + Android) | review | *Still at work* **`main`'de** (mobil), eylemler dalda (`62c6d6d1`) — denetim durumu bu satırda ölçülmedi |
+| M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | review | Android süren bildirim **`main`'de**; iOS Live Activity **dalda** (`250bd852`) — denetim durumu bu satırda ölçülmedi |
+| M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | review | *Usual shift* **`main`'de** (Android) ve dalda (iOS) — denetim durumu bu satırda ölçülmedi |
+| M16-49 | Dil: personel uygulamasının metinleri | review | Türkçe: Android `values-tr` **`main`'de**, iOS dalda — denetim durumu bu satırda ölçülmedi; Q54 (3) (a) |
+| M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | replaced | **2026-11-25: yerini aldı — M16-57, ayrıca koşmaz** (ADR 0051; demo işletme operatörden, K-C) |
+| M16-40 | Faz G kapanışı | todo | **2026-11-25:** e-postayla giriş turu düştü (→ M16-59), M16-39 bağımlılığı kalktı; Faz H'nin M16-57/M16-59'u bunu bekler |
 | M16-50 | ADR 0051'in kabulü, ADR 0049'un yerini alması, Q55–Q59 ve canlı taban ölçümü | todo | **Faz H** (kullanıcı kararları 2026-11-25); belge kartı; her Faz H kartı ona bağlı |
-| M16-51 | Çalışan parolası: şema, parola linki isteği ve `/staff/password` sayfası | todo | migration 00118 + 00119 (öneri); env `TAPPA_STAFF_PASSWORD_TENANTS` boş doğar; Q56, Q59 |
-| M16-52 | Parolayla giriş: `POST /app/v1/signin` → aktivasyon daveti | todo | oturum/cihaz yaratmaz; `origin='password'` davet; K = 3 (M16-50 ölçer) |
+| M16-51 | Çalışan parolası: şema, parola linki isteği ve `/staff/password` sayfası | todo | migration 00118 + 00119 (VALIDATE) + 00120 (indeks); env `TAPPA_STAFF_PASSWORD_TENANTS` boş, sır `TAPPA_STAFF_PASSWORD_HMAC_KEY`; Q56, Q59 |
+| M16-52 | Parolayla giriş: `POST /app/v1/signin`, tüketimde kardeş iptali | todo | oturum/cihaz yaratmaz; `origin='password'` davet 24 sa; `CountRecentInvites` `employer`'a daralır |
 | M16-53 | Uygulama ekranları: giriş, parola, işyeri seçici, işletme kaydı ve silme girişleri — iOS + Android | todo | §9 onayı önce; Q58 |
 | M16-54 | Kayıt sihirbazının ve yasal sayfaların uygulama modu | todo | `?client=app` yalnız sunum; kapalı `href` kümesi |
-| M16-55 | İşletme hesabını silme talebi: sayfa, kayıt, owner'lar ve operatör | todo | migration 00120; Q57 |
-| M16-56 | İnceleme işletmesinde statik QR'la bağ | todo | **yalnız Q55 (b)**; migration 00121 (koşullu) |
-| M16-57 | Demo işletme ve inceleyici runbook'u (M16-39'un revizyonu) | todo | kullanıcı: demo işletme `/signup`'tan, demo çalışan parolaları, config PR 1 |
+| M16-55 | İşletme hesabını silme talebi: sayfa, kayıt, bildirimler, operatör listesi | todo | migration 00121; Q57; K-A (30 gün) |
+| M16-56 | İnceleme işletmesinde statik QR'la bağ | todo | **yalnız Q55 (b)**; migration 00124 (koşullu) |
+| M16-57 | Demo işletme ve inceleyici runbook'u (M16-39'un yerine) | todo | demo işletme operatörden KDV'siz (M16-60); PR #49 + Faz H PR'ı `main`'de; config PR 1 |
 | M16-58 | Mağaza beyanları ve gizlilik taslağı (M16-27 / M16-41'in revizyonu) | todo | kullanıcı + hukukçu |
 | M16-59 | Faz H kapanışı | todo | yalnız demo işletme; büyük testler bir kez |
+| M16-60 | Operatör yüzeyinden KDV'siz işletme açma | todo | K-C; migration 00122; `op_create_business` |
+| M16-61 | İşletme silmesinin tamamlanması: askı, anonimleştirme, onay e-postası | todo | K-A; migration 00123; **Q13 + hukukçu onayı ön koşul** |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-25 (M16, dal `m16-native-ui`, taban `3eeb91f0`) — Faz H düzeltme turu (iki denetim NO-GO), yalnız belge
+
+- **Ne:** ADR 0051 ve Faz H iki denetimin (B: fizibilite/güvenlik, A: sıfır hafızalı yürüyüş) bulgularıyla yeniden yazıldı; yeni kullanıcı kararları
+  **K-A** (silme 30 günde tamamlanır, anonimleştirme, onay e-postası; Q13 + hukukçu kapı), **K-B** (*"Built by"* uygulama modunda kalır), **K-C**
+  (demo işletme operatörden, KDV'siz) bağlandı. Kartlar **M16-50 … M16-61** (yeni M16-60 operatörden işletme, M16-61 silmenin tamamlanması); migration
+  önerisi **00118 … 00124**; tüketimde kardeş davet iptali (Y1), en eski önce çözümleme (Y2), M16-40/M16-39 kapanış zinciri (Y3); ledger kodla
+  eşitlendi (M16-23 … M16-49 `review`: kodun yeri ölçüldü, denetim durumu ölçülmedi).
+- **Sıradaki:** M16-50.
 
 ### 2026-11-25 (M16, dal `m16-native-ui`, taban `828ce9b1`) — Faz H planlandı (mağaza uyumu), yalnız belge
 
