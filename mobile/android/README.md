@@ -48,10 +48,15 @@ JAVA_HOME=/usr/local/opt/openjdk@21 ANDROID_HOME=/usr/local/share/android-comman
 Neither target is part of `make check`. Memory caps are the relay's
 (`gradle.properties`: `-Xmx2g`, no parallel build, two workers).
 
-**Signing.** No `signingConfig` is declared: the debug build is signed with Gradle's own
-per-machine debug key (`~/.android/debug.keystore`). Release signing is M16-28. This
-repository is public; `.gitignore` here ignores `*.keystore` / `*.jks`, and
-`scripts/redline-check.sh` S2 fails if such a file is tracked anyway.
+**Signing.** The debug build is signed with Gradle's own per-machine debug key
+(`~/.android/debug.keystore`). The release build is signed with the **upload key** only
+when the environment names it (M16-28, 2026-11-25): `TAPTIME_UPLOAD_KEYSTORE` (the path of
+a PKCS12 keystore outside this repository, alias `upload`) and `TAPTIME_UPLOAD_PASSWORD`.
+With either missing the release is unsigned and Play refuses it; nothing falls back to a
+key in the tree. Play App Signing holds the app signing key, so a lost upload key is reset
+through Play support, not by re-publishing. This repository is public; `.gitignore` here
+ignores `*.keystore` / `*.jks`, and `scripts/redline-check.sh` S2 fails if such a file is
+tracked anyway. Release steps: [docs/store/google-play.md](../../docs/store/google-play.md).
 
 Debug APK size, first clean build (2026-11-18): **9 027 870 B** (no minification; the
 relay is ~0.9 MB because it has no runtime library at all).
@@ -202,9 +207,11 @@ No Google Play services artefact, no network client library, no analytics.
 ## Permissions — the merged manifest, not the source
 
 `src/main/AndroidManifest.xml` asks for **NFC, INTERNET, ACCESS_FINE_LOCATION,
-ACCESS_COARSE_LOCATION** and nothing else (CLAUDE.md §4.2: the location permissions
-serve a one-shot, foreground reading at the press, M16-13; they are requested at the press,
-not at start). What a phone grants is the **merged** manifest, every library's folded
+ACCESS_COARSE_LOCATION, POST_NOTIFICATIONS** and nothing else (CLAUDE.md §4.2: the location
+permissions serve a one-shot, foreground reading at the press, M16-13; they are requested at
+the press, not at start. POST_NOTIFICATIONS came with the local reminder and lock-screen
+timer, M16-46/47, and is asked only when the user turns one of them on). The paragraphs below
+were measured when there were four; `MergedManifestTest`'s allow-list is the current one. What a phone grants is the **merged** manifest, every library's folded
 in, so that is what is measured:
 
 - **`MergedManifestTest`** (JVM, `make mobile-android-test`) reads the variant's

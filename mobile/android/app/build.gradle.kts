@@ -35,6 +35,13 @@ gradle.taskGraph.whenReady {
     }
 }
 
+// Release signing with the UPLOAD key (M16-28). Play App Signing holds the app signing key; the
+// upload key lives outside this public repository, and its path and password reach the build only
+// from the environment of the machine that uploads. With either missing, the release build is
+// unsigned and Play refuses it -- nothing here falls back to a key in the tree.
+val uploadKeystore: String? = providers.environmentVariable("TAPTIME_UPLOAD_KEYSTORE").orNull
+val uploadPassword: String? = providers.environmentVariable("TAPTIME_UPLOAD_PASSWORD").orNull
+
 android {
     // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
     // after the first release and is written into /.well-known/assetlinks.json (M16-08).
@@ -46,7 +53,18 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        if (uploadKeystore != null && uploadPassword != null) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = uploadPassword
+                keyAlias = "upload"
+                keyPassword = uploadPassword
+            }
+        }
     }
 
     buildTypes {
@@ -63,11 +81,13 @@ android {
             buildConfigField("String", "BASE_URL", javaString(debugBaseUrl))
             manifestPlaceholders["plaqueHost"] = hostOf(debugBaseUrl)
         }
-        // No signingConfig anywhere: the debug build signs with Gradle's default debug key
-        // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
-        // repository is public; no keystore and no signing secret ever enters it.
+        // The debug build signs with Gradle's default debug key (per machine,
+        // ~/.android/debug.keystore); release signs with the upload key above when the
+        // environment names it. This repository is public; no keystore and no signing secret
+        // ever enters it.
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
             buildConfigField("String", "BASE_URL", javaString(PRODUCTION_BASE_URL))
             manifestPlaceholders["plaqueHost"] = hostOf(PRODUCTION_BASE_URL)
         }
