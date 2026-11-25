@@ -111,6 +111,7 @@ measured 2026-11-25 from `mobile/android/app/src/main/kotlin/mt/taptime/app/wire
 
 - Encrypted in transit: **Yes**.
 - Users can request deletion: **Yes** — Settings → *Delete my account* (`POST /app/v1/account/delete`). Clock-in records are kept by the employer as legal records (§4.3); the request is passed to the employer.
+- **Deletion web resource** (Play asks for a URL that works without the app): `https://taptime.mt/legal/privacy`, once the approved text with section 12's *"Without the app"* paragraph is published (`docs/legal/privacy-draft.md`, M16-41). The live page has no such paragraph today, so the field stays empty for internal testing — a **production prerequisite**, with PR #49 and the reviewer's demo invitation (M16-39).
 - Accounts: created by the employer outside the app; the app binds a device to an invitation.
 - `User-Agent`: the app sets none; Android's default one (OS version, phone model) goes with each request — **not measured** on the wire.
 

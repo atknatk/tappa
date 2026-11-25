@@ -181,6 +181,8 @@ Deleting your account. The app's settings also offer "Delete my account". Your c
 
 If your employer has already switched your account off, nothing is signed out (attempts with a switched-off account stay refused and recorded), but your request still reaches your employer.
 
+Without the app. If you no longer have the app or the phone, you can still ask for your account to be deleted: send the request to your employer, or write to Taptime at [DOĞRULA: iletişim adresi — bölüm 1 ve 10 ile aynı] and name the business you clock in for. Taptime signs you out on every phone and browser and passes your request to your employer; from there it is handled as described above. [DOĞRULA: Google Play'in "hesap silme web kaynağı" şartı (Data safety → Data deletion) bu paragrafın adresini ister — https://taptime.mt/legal/privacy; uygulamasız yolun operatör tarafı (oturumları kapatma) bugün operatör panelinden elle yapılır, ölçülmedi.]
+
 What the app does not collect. The app collects no biometric data: it never asks for finger scans or face recognition, and none is needed to sign a request. It does not read your location in the background, keeps no location history and uses no geofence. It has no advertising identifier, no analytics or crash-reporting service, no push-notification service and no push token, and no code from another company that tracks you. It does not use the camera: a QR code is read by your phone's own camera app. The permissions it asks for are NFC, internet access, location while you use the app (asked when you tap) and notifications, if you turn on the reminder (on Android also the timer, which is shown as a notification; on iPhone the timer needs no permission).
 
 13. Changes to this notice
