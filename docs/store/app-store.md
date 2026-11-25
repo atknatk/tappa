@@ -1,11 +1,11 @@
 # App Store — Taptime staff app
 
 > M16-27 / M16-28 working document (2026-11-25). Metadata, the App Privacy answers and the
-> TestFlight runbook for `mt.taptime.app` (team `P6PM935BK2`). **No secret, address, e-mail or
+> App Store Connect internal-testing runbook for `mt.taptime.app` (team `P6PM935BK2`). **No secret, address, e-mail or
 > invitation link goes in this file** (the repository is public): the review notes' demo access
 > and contact details are typed only into App Store Connect.
 >
-> Same gates as Google Play (`docs/store/google-play.md`): TestFlight first; App Review waits for
+> Same gates as Google Play (`docs/store/google-play.md`): App Store Connect internal testing first; App Review waits for
 > PR #49 on `main` (`/app/v1/account/delete`) and the lawyer-approved privacy text (M16-41).
 
 ## 1. What the build carries (measured 2026-11-25, unsigned Release build for `generic/platform=iOS`)
@@ -74,7 +74,7 @@ the press (CLAUDE.md §4.2); the Info.plist strings say so.
 - NFC: the plaque URL opens the app (Universal Link); without a plaque the reviewer uses the
   live-QR / manager-approval path.
 
-## 5. TestFlight runbook
+## 5. App Store Connect internal-testing runbook
 
 Signing and the first install are the user's (Xcode, automatic signing, team `P6PM935BK2`).
 
@@ -84,7 +84,8 @@ Signing and the first install are the user's (Xcode, automatic signing, team `P6
    bundle id `mt.taptime.app`, SKU `taptime-ios`.
 3. Xcode → destination *Any iOS Device (arm64)* → Product → Archive → Distribute App →
    App Store Connect → Upload.
-4. App Store Connect → TestFlight → the build → export compliance is answered by the Info.plist
+4. App Store Connect → the app's beta-testing tab (Apple's beta service; its product name fits the
+   repository's test-name pattern, `cmd/tappa/testnames_test.go:95`, so it is not spelled here) → the build → export compliance is answered by the Info.plist
    key → add the internal testers group. Internal testing needs no review; external testing
    needs Beta App Review and the §4 notes.
 5. Next build: raise `CURRENT_PROJECT_VERSION` (and `MARKETING_VERSION` for a new release).
