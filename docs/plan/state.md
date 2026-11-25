@@ -1831,6 +1831,14 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-25 (M16, dal `m16-native-ui`, taban `5948d260`) — Faz H beşinci düzeltme turu, yalnız belge
+
+- **Ne:** eklemeli düzeltmeler — `admin_invites`'in her satırı `identity_erase_member`'da yer tutucuya (tanımcıya yeni `UPDATE`); tanımcı talebi kilitsiz sınar, kilit Go
+  silicisinde; ADR 0010'a *"silinen işletmenin personeli çıkarılır"* istisnası; kimlik kilit sırası; doğrulama satırları `cancelled_at` (DELETE yok); `store_review_flags` ayrı
+  tablo; `.invalid` dışa açık `ValidRecipient` + `To`; M16-57 yer tutucuları ve §1.17 birebir alıntılar geri; ön koşullar K-C2'ye göre yeniden yazıldı; hukuk ve KF/KM
+  etki tabloları.
+- **Sıradaki:** M16-50.
+
 ### 2026-11-25 (M16, dal `m16-native-ui`, taban `5be3da5e`) — Faz H dördüncü düzeltme turu, yalnız belge
 
 - **Ne:** üçüncü turun sıkıştırmada sildiği içerik geri getirildi (M16-50'nin canlı SQL'i, ADR 0005 / 0010 not metinleri, M16-55'in [H55-a … k] testleri ve owner formu
