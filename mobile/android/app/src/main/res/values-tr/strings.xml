@@ -345,7 +345,7 @@
     <string name="settings_delete">Hesabımı sil</string>
     <string name="settings_delete_sub">Her yerde oturumu kapatır ve işverenine bildirir</string>
     <string name="delete_title">Hesabın silinsin mi?</string>
-    <string name="delete_body">Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine iletilir: %1$s. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.</string>
+    <string name="delete_body">Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine (%1$s) iletilir. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.</string>
     <string name="delete_confirm">Talebi gönder</string>
     <string name="delete_your_employer">işletmen</string>
 </resources>

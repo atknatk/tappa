@@ -180,7 +180,7 @@ enum StaffCopy {
     static func deleteBody(_ business: String) -> String {
         let b = business.isEmpty ? t("your employer", "işletmen") : business
         return t("This signs you out on every phone and removes this phone's key. Your clock-in records are not deleted: they are legal records \(b) keeps, and your request goes to them. If you still work there, you can be invited again later.",
-                 "Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine iletilir: \(b). Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
+                 "Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine (\(b)) iletilir. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
     }
     static var deleteConfirm: String { t("Send the request", "Talebi gönder") }
     static var cancel: String { t("Cancel", "Vazgeç") }
