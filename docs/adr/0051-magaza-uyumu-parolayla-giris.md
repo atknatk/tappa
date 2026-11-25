@@ -146,7 +146,7 @@ uygulama modunda biter. 5. İşletme silme owner'ın uygulama içi talebi. 6. De
    güncel adres), link `used_at`, öteki linkler `revoked_at`, **kişinin bekleyen `origin='password'` davetleri** — yeni sorgu
    **`CancelPendingPasswordInvitesForEmployee`** (`WHERE origin = 'password'`) — ve kilit: **`LockTenantForInviteLimits`** (parolalı giriş basımıyla
    aynı kilit → eşzamanlı bir basım ya önce biter ve iptal edilir ya sonra gelir ve yeni özeti görür) *[A2-A18]*. Kişiye *"password set"*.
-6. **Bildirimler** `personNotices` (kişiye; kuyruk 32, `SendExempt`, kişi + tür başına günde 5). **Bütün yeni e-postalar `TenantVerified`
+6. **Bildirimler** `personNotices` (kişiye; kuyruk 32, 2 işçi, `SendExempt`, kişi + tür başına günde 5). **Bütün yeni e-postalar `TenantVerified`
    kuralına uyar:** işletmenin adı yalnız KDV'si VIES doğrulanmışsa yazılır, aksi hâlde nötr metin (oltalama yolu) *[B2-O-d]*. 
 
 ### 2.4 Giriş: parola → aktivasyon daveti → ilk dokunuşta cihaz
@@ -208,7 +208,7 @@ Her bütçe karşılaştırmadan önce `TryCharge` ile ayrılır.
 ### 2.7 İnceleyici bağı — Q55
 
 Öneri (b): operatörün işaretlediği işletmede statik QR bağlar (bayrak **`tenants`'ta değil, kendi tenant kapsamlı tablosunda** — `store_review_flags` (`tenant_id`, `enabled_at`,
-`disabled_at`, `set_by`; §6 beşlisi; `tappa_opdefiner`'a yalnız bu tabloda `SELECT, INSERT, UPDATE (disabled_at)`; `tappa_app`'a `SELECT`), yalnız `op_set_store_review` —
+`disabled_at`, `set_by uuid` — operatörün `platform_admins.id`'si, `operator_audit_log`'un deseninde FK'siz; §6 beşlisi; `tappa_opdefiner`'a yalnız bu tabloda `SELECT, INSERT, UPDATE (disabled_at)`; `tappa_app`'a `SELECT`), yalnız `op_set_store_review` —
 böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` premisi (`holdingops_test.go:743`, `operatorsuspend_test.go:92`) değişmez; silme talebinin deseni
 *[A5-N12]*); (a) manager girişi;
 (c) canlı QR; (d) reddedildi.
@@ -216,7 +216,7 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
 ### 2.8 Açılış — Q56, ve birleştirmede ne canlıya çıkar
 
 Öneri (b): env `TAPPA_STAFF_PASSWORD_TENANTS` + owner ayarı (eski kapalı, yeni açık; `signup.Provision` aynı transaction'da
-`UPDATE` ile). **Birleştirmede env'den bağımsız canlıya çıkan** *[B2-removal]*: (1) bütün migration'lar (yeni tablolar, sütunlar, çözümleyiciler,
+`UPDATE` ile; `GRANT UPDATE (staff_password_signin) ON tenants TO tappa_app`). **Birleştirmede env'den bağımsız canlıya çıkan** *[B2-removal]*: (1) bütün migration'lar (yeni tablolar, sütunlar, çözümleyiciler,
 ~~`vat_number`'ın `NULL` olabilmesi~~ — K-C2'yle düştü); (2) Ingress'in yeni erişim log'suz yolları; (3) `CountRecentInvites`'in daralması ve tüketimdeki kardeş iptali
 (**her işletmede** davranış: tüketim artık kalan davetleri iptal eder); (4) panelin owner ayarı; (5)
 `/account-deletion`'ın çalışan bölümü. **Env'e bağlı:** `/app/v1/password/request`, `/app/v1/signin`, `/staff/password`. **Ayrı bayrağa bağlı:**
@@ -236,7 +236,8 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
 4. **Talep yeni, tenant kapsamlı bir tabloda** *[B3, A3-N7, B4-O3]*: **`business_deletion_requests`** — `id`, `tenant_id`, `requested_by` (owner'ın
    `admin_users.id`'si), `requested_at`, `approved_at`, `completed_at`, `cancelled_at`, **`confirm_to citext`** (onay e-postasının alıcısı — madde 10), **`confirm_attempts
    smallint`** (≤ 5); §6 beşlisi; işletme başına tek açık talep (kısmi `UNIQUE (tenant_id) WHERE completed_at IS NULL AND cancelled_at IS NULL`). Önceki turun
-   `prior_suspended_at` / `prior_suspension_reason` sütunları **kalktı** — B6-M3'ün kuralı (madde 6) onlara ihtiyaç duymaz.
+   `prior_suspended_at` / `prior_suspension_reason` sütunları **kalktı**: onay askıyı **yalnız `suspended_at IS NULL` iken** koyar ve iptal askıyı **yalnız güncel neden
+   `customer_request` ise** kaldırır (madde 6), bu yüzden önceki durum saklanmaz *[B7-M2]*.
    **Durum makinesi:** `tappa_app`'a **sütun düzeyi** `INSERT (id, tenant_id, requested_by, requested_at, confirm_to)`; `BEFORE INSERT` tetikleyicisi üç zaman damgasının
    `NULL` olmasını ister; `BEFORE UPDATE` tetikleyicisi: her zaman damgası yalnız `NULL` → değer; `approved_at` yalnız `cancelled_at IS NULL`; `completed_at` yalnız
    `approved_at IS NOT NULL AND cancelled_at IS NULL`; `cancelled_at` yalnız `completed_at IS NULL`; **`confirm_to` yalnız değer → `NULL`** (hiçbir zaman yeniden yazılmaz)
@@ -249,21 +250,30 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
    (`admins.sql:203` — var olan sorgu; yeni bir `RevokeMembershipSessions` **yok**) *[A3-N20]*. **`identity_revoke_sessions` kullanılmaz** *[B4-O2]*: canlı bir oturum
    özeti ister ve kişiyi **bütün** işletmelerinden çıkarır (`00085:294-340`; `internal/adminauth/membership.go:66-67`). Kapanan oturumlar: **isteyen owner'ın bu
    işletmedeki** panel oturumları — öteki owner'ların, personelin ve kişinin öteki işletmelerdeki oturumları kapanmaz. Sonra isteyene ve öteki owner'lara e-posta.
-6. **Operatör** *[B4-D6, A4-D12, B6-M1, B6-M3]*. **Bütün yazma `op_*`'ları ADR 0021'in kuralına uyar** (`docs/adr/0021-*.md:558-565`): **yalnız `void`** döndürür; önceden
-   var olan duruma bağlı hiçbir dönüş ya da hata yoktur (pin: `internal/db/operatorschema_test.go:383-386`, `operatorsuspendcalls_test.go:242-248`). **`FOUND` deseni:**
-   durum uygun değilse tenant'ta hiçbir şey değişmez, yalnız operatörün satırı yazılır. Handler `(tenant_id, request_id)` çiftini **biletli** okumadan alır.
-   - `op_read_deletion_requests(p_session, p_ticket)` (yeni; en eski önce, kalan gün, `confirm_to IS NOT NULL` bayrağı — adres asla; `operator_read_tickets_kind_check`'e yeni
-     değer **`deletion_requests`**; `op_begin_read` ve `op_read_audit` yeni türleri tanıyacak biçimde yeniden tanımlanır — `00107`'nin koşullu `ADD` + ön koşul deseni,
-     `00107:144-151`; `00029:137-139`) *[B6-low1]*.
-   - `op_approve_business_deletion(p_session, p_request_id)` → `void`: açık bir talep varsa **aynı transaction'da** `approved_at` + `op_suspend_tenant`'ın gövdesindeki askı
-     (`customer_request`, `00063:354`); yoksa yalnız operatör satırı.
-   - `op_cancel_business_deletion(p_session, p_request_id)` → `void`: `cancelled_at`; talep **onaylanmışsa ve tenant'ın güncel askı nedeni hâlâ `customer_request` ise**
-     (onayın kendi askısı) askı kalkar (`op_reinstate_tenant`'ın gövdesi); **neden başkaysa** (arada başka bir askı — `op_suspend_tenant` nedeni ezer, `00063:960-975`) güncel
-     durum **olduğu gibi kalır** ve operatör ekranı bunu söyler *[B6-M3]*.
-   - `op_renotify_business_deletion(p_session, p_request_id)` → `void` *[A5-N11]*: onaylı, iptal edilmemiş talepte yalnız operatör satırı (`business_deletion_renotified`); handler
-     çifti biletli okumadan alır ve bildirimi yeniden verir.
-   - `op_reinstate_tenant` (`00063:1015`) yeniden tanımlanır: `approved_at IS NOT NULL AND cancelled_at IS NULL` bir talep varken **sessiz no-op** — aynı `void`, tenant'ta değişiklik
-     yok, yalnız operatör satırı *[B6-M1]*.
+6. **Operatör** *[B4-D6, A4-D12, B6-M1, B6-M3, B7-M1, B7-M2, B7-M3b]*. **Bütün yazma `op_*`'ları ADR 0021'in kuralına uyar** (`docs/adr/0021-*.md:558-565`): **yalnız
+   `void`** döndürür; önceden var olan duruma bağlı hiçbir dönüş ya da hata yoktur (pin: `internal/db/operatorschema_test.go:383-386`, `operatorsuspendcalls_test.go:242-248`).
+   **İmza** `(p_session, p_tenant_id, p_request_id)`; satır `id = p_request_id AND tenant_id = p_tenant_id` ile eşlenir. **`FOUND` deseni:** **her** kabul edilen çağrıda,
+   `p_tenant_id`'yi adlandıran bir operatör satırı yazılır (`operatorsuspendcalls_test.go:245-246`'nın emsali — bilinmeyen id'de de); yalnız **etki** duruma bağlıdır.
+   Durum filtreleri `op_*`'ın `WHERE`'indedir, bu yüzden tek yönlü tetikleyici bu çağrılarda **hiçbir zaman** hata vermez. Handler çifti biletli okumadan alır. **Kilit sırası:**
+   talep satırı → `tenants`.
+   - `op_read_deletion_requests(p_session, p_ticket)` (yeni) döndürür: `id`, `tenant_id`, `tenant_name`, `requested_at`, `approved_at`, `completed_at`, `cancelled_at`,
+     `confirm_pending boolean` (`confirm_to IS NOT NULL` — adres asla), `confirm_attempts`, `days_left`; en eski önce. Okuma bileti türü **`deletion_requests`**
+     (`operator_read_tickets_kind_check`); `op_begin_read` ve `op_read_audit` yeni türleri tanıyacak biçimde yeniden tanımlanır — `00107`'nin koşullu `ADD` + ön koşul deseni,
+     `00107:144-151`; `00029:137-139` *[B6-low1]*.
+   - `op_approve_business_deletion(p_session, p_tenant_id, p_request_id)` → `void`: açık talepte `approved_at`; **tenant askıda değilse** (`suspended_at IS NULL`) aynı
+     transaction'da `op_suspend_tenant`'ın gövdesindeki askı (`customer_request`, `00063:354`); **askıdaysa iki sütuna da dokunmaz** *[B7-M2]*. Zaten onaylanmış, iptal
+     edilmiş ya da tamamlanmış talepte etki yok, yalnız operatör satırı.
+   - `op_cancel_business_deletion(p_session, p_tenant_id, p_request_id)` → `void`: tamamlanmamış talepte `cancelled_at`; talep onaylanmışsa ve **güncel neden hâlâ
+     `customer_request` ise** askı kalkar (`op_reinstate_tenant`'ın gövdesi); neden başkaysa (arada başka bir askı — `op_suspend_tenant` nedeni ezer, `00063:975-978`) durum
+     **olduğu gibi kalır** ve operatör ekranı söyler *[B6-M3]*. **Kalan iki bedel** *[B7-M2]*: (i) onaydan önce **zaten `customer_request` ile** askıda olan bir işletme iptalde
+     açılır; (ii) onaydan sonra operatörün **ayrıca `customer_request` ile** koyduğu bir askı iptalde kalkar.
+   - `op_renotify_business_deletion(p_session, p_tenant_id, p_request_id)` → `void` *[A5-N11, B7-M1]*: **her** çağrıda operatör satırı `business_deletion_renotified`; handler
+     **etkiyi** biletli okumadaki duruma göre seçer — onaylı, iptal edilmemiş ve tamamlanmamış → silme bildirimi; tamamlanmış ve `confirm_pending` → yalnız-gönderim bildirimi;
+     başka her durum → bildirim yok.
+   - `op_reinstate_tenant` (`00063:1015`) yeniden tanımlanır: `tenants` kilidinden **sonra** silme talebini **düz bir okumayla** sınar; `approved_at IS NOT NULL AND cancelled_at IS
+     NULL` bir talep varken **sessiz no-op** — aynı `void`, tenant'ta değişiklik yok, yalnız operatör satırı *[B6-M1, B7-M3b]*. Bu, K15-11'in *"satır uygulandığını söyler, gövde
+     önceki durumu okumaz"* kuralından (`00063:1011-1013`) **adlandırılmış bir sapmadır**; bugünkü pinli testler (`operatorsuspendcalls_test.go:227-240`) silme satırı olmayan
+     tenant'larla koştuğu için **yeşil kalır**.
    - Yeni `operator_audit_log` türleri: `business_deletion_read`, `business_deletion_approved`, `business_deletion_cancelled`, `business_deletion_renotified` —
      `operator_audit_log_kind_check` `00107`'nin deseniyle genişler; tenant'a yazan üçü `operator_audit_log_tenant_write_shape`'e (`00063:423-428`) girer *[B6-low1]*.
 7. **Anonimleştirme uygulama tarafında, anahtarlı tetikle** *[B3, B4-O5, B4-D8]*: **süpürücü YOK** — `resolve_pending_business_erasures()` önerisi **geri çekildi**
@@ -280,23 +290,26 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
    `identitycatalog_test.go:408-415`, `adminidentity_test.go:179`, `:283` değişmez.
 8. **Kimlik tarafı — `identity_erase_member` = BEŞİNCİ adlandırılmış istisna** *[B4-Y1, B4-O1]*. Sırsız bir kimlik yazarıdır; CLAUDE.md §4.5(3) bugün
    *"adlandırılmış dört istisna"* der (`CLAUDE.md:240-252`) ve `cmd/tappa/claudemdidentity_test.go:40-48` iki belgeyi karşılaştırıp dizgeleri arar. **M16-50'nin kullanıcı
-   kapısı:** beşinci istisna + CLAUDE.md §4.5(3)'ün metin farkı (*"dört"* → *"beş"*, listeye **şu birebir metin** *[B5-low5]*: *"`identity_erase_member` (yalnız işletmenin kendi bağlamında, o işletmede onaylanmış ve açık bir silme talebi varken ve yalnız o işletmenin satırları için; Go tipiyle bağlı silici çağırır)"*) + ADR 0031 §6.1'in aynı metni +
+   kapısı:** beşinci istisna + CLAUDE.md §4.5(3)'ün metin farkı (*"dört"* → *"beş"*, listeye **şu birebir metin** *[B5-low5]*: *"`identity_erase_member` ve `identity_erase_tenant_invites` (yalnız işletmenin kendi bağlamında, o işletmede onaylanmış ve açık bir silme talebi varken ve yalnız o işletmenin satırları için; Go tipiyle bağlı silici çağırır)"*) + ADR 0031 §6.1'in aynı metni +
    `claudemdidentity_test.go`'nun dizgeleri + tanımcının yeni yetkileri.
    **Yapısal yüklemler** (`identity_create_for_signup`'ın emsali, ADR 0031 `:309`): (1) `p_tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`;
    (2) `business_deletion_requests`'te o tenant'ın `approved_at IS NOT NULL AND cancelled_at IS NULL AND completed_at IS NULL` bir satırı **kilitsiz, düz bir `SELECT`**
    ile yeniden sınanır — `FOR UPDATE` / `FOR SHARE` `UPDATE` yetkisi ister, sütun `SELECT`'i yetmez (denetimin PG17 ölçümü) *[B5-O1]*; **kilit Go silicisinin aynı
    transaction'daki `FOR UPDATE`'idir**, son bekçi `completed_at` tetikleyicisidir; (3) `p_admin_user_id`'nin satırı `p_tenant_id`'ye aittir.
-   **Kilit sırası** *[B5-O3]*: kimlik `FOR UPDATE` → kimliğin **bütün** üyelik satırları `FOR UPDATE` (`00072:985-990`) → tenant'ın `admin_invites` satırları → karar.
+   **Kilit sırası** *[B5-O3, B7-M3a]*: üye başına kimlik `FOR UPDATE` → kimliğin **bütün** üyelik satırları `FOR UPDATE` (`00072:985-990`) → karar; işletme düzeyinde **bütün
+   üyelik satırları → davetler** (davetler ancak bütün üyeler işlendikten sonra).
    **Sözleşme** (`tappa_app` `admin_users.email`'i yazamaz — `00069:251` — ve bağlı satırların e-posta / özetini yalnız `tappa_identitydefiner` yazar — `00069:264-301`):
    satırın `email` → `deleted-<admin_users id>@deleted.invalid`, `password_hash` → `00102:565`'in rastgele bcrypt özeti, `status` → `disabled`, **`unlinked_at` → `now()`**
    (üyeliği kapatmak = bağı koparmak; `identity_id` tarih için kalır; bağ koptuğu için K-14 aynası artık bu satıra yazmaz — `00102:405-412`, `:575`). **"Başka bağlı
    üyelik"** = aynı `identity_id`'li, `unlinked_at IS NULL` herhangi bir satır, durumu ne olursa olsun *[A4-D9]*; yoksa kimlik anonimleşir: `admin_identities.email` →
    `deleted-<identity id>@deleted.invalid`, `password_hash` → rastgele özet, canlı `admin_identity_resets` ve `admin_identity_verifications` → **`cancelled_at`** (tanımcının var
    olan `UPDATE (used_at, cancelled_at)`'ları — `privcatalog_test.go:295`, `:299`; **DELETE yok**, ADR 0031 §5.1'e istisna ve `identityPersonTableDeleters` değişikliği
-   gerekmez) *[A5-N2]*. **Tenant'ın her `admin_invites` satırı** (kullanılmış, iptal edilmiş, bekleyen) `email` → `deleted-<invite id>@deleted.invalid`, `full_name` →
-   `Deleted person` (`email_ascii`, `filled`, `≤ 120` — `00077:154-163`), bekleyenler `cancelled_at` *[B5-Y1]*; tanımcıya **`UPDATE (email, full_name, cancelled_at) ON
-   admin_invites`** (bugün yalnız `used_at` — `privcatalog_test.go:305`); **`tappa_app`'a verilmez** (`identity_accept_invite` davet adresini kimlik adresiyle eşler —
-   `00085:676`, `:712`). Fonksiyon tenant'ın `audit_log`'una `admin.erased` yazar; `detail` kimliğin anonimleşip anonimleşmediğini söylemez *[B5-low3]*.
+   gerekmez) *[A5-N2]*. **Yönetici davetleri ayrı bir adımdır** *[B7-M3a]*: üye başına fonksiyon davetlere **dokunmaz**; bütün `admin_users` satırları işlendikten sonra
+   **ikinci tanımcı fonksiyon `identity_erase_tenant_invites(p_tenant_id uuid) RETURNS void`** (aynı beşinci istisnanın sözleşmesi, aynı yüklemler 1–2) tenant'ın **her**
+   `admin_invites` satırını (kullanılmış, iptal edilmiş, bekleyen) `email` → `deleted-<invite id>@deleted.invalid`, `full_name` → `Deleted person` yapar (`email_ascii`,
+   `filled`, `≤ 120` — `00077:154-163`), bekleyenleri `cancelled_at` ile kapatır *[B5-Y1]*; tanımcıya **`UPDATE (email, full_name, cancelled_at) ON admin_invites`** (bugün yalnız
+   `used_at` — `privcatalog_test.go:305`); **`tappa_app`'a verilmez** (`identity_accept_invite` davet adresini kimlik adresiyle eşler — `00085:676`, `:712`).
+   `identity_erase_member(p_tenant_id uuid, p_admin_user_id uuid) RETURNS void`. Fonksiyon tenant'ın `audit_log`'una `admin.erased` yazar; `detail` kimliğin anonimleşip anonimleşmediğini söylemez *[B5-low3]*.
    **Fonksiyondan SONRA, aynı transaction'da, `tappa_app`** *[B6-M2]*: satırın `full_name` → `Deleted person` (tanımcının `full_name` yetkisi yok — `privcatalog_test.go:321`;
    `tappa_app`'ınki var — `:318`) ve `RevokeAdminSessionsForAdmin`. Önce fonksiyon, sonra yazmalar: ters sıra (önce `tappa_app` yazması) kimlik → üyelik kilit sırasıyla
    çakışır ve PG17'de **kilitlenme** ölçüldü. `admin_identity_events` ekleme-yalnız değildir — tanımcı 90 günde süpürür, satırlar `detail`'de tenant'ı 90 gün taşır; silme
@@ -315,7 +328,7 @@ böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` prem
    | `app_devices` | iptal; `device_label` kalır | `appactivate.go:37` |
    | `admin_users` (her satır) | önce `identity_erase_member` (`email`, `password_hash`, `status`, `unlinked_at`), **sonra** `tappa_app` `full_name` `Deleted person` (madde 8, B6-M2) | `00069:251`, `:264-301`; `privcatalog_test.go:318`, `:321` |
    | `admin_users` oturumları | her satır için, fonksiyondan **sonra** `RevokeAdminSessionsForAdmin` | `admins.sql:203` |
-   | `admin_invites` (**her satır**) | `email` `deleted-<invite id>@deleted.invalid`, `full_name` `Deleted person`; bekleyenler `cancelled_at` — `identity_erase_member`'da (madde 8) | DELETE yalnız `tappa_owner`'da; `00077:154-163` |
+   | `admin_invites` (**her satır**) | `email` `deleted-<invite id>@deleted.invalid`, `full_name` `Deleted person`; bekleyenler `cancelled_at` — **`identity_erase_tenant_invites`**, bütün üyelerden sonra (madde 8) | DELETE yalnız `tappa_owner`'da; `00077:154-163` |
    | `admin_identities`, `admin_identity_resets`, `admin_identity_verifications` | madde 8 — kimlik yalnız başka bağlı üyelik yoksa; resets ve verifications `cancelled_at` (DELETE yok) | `privcatalog_test.go:295`, `:299` |
    | `api_keys` | iptal | askı kesmez |
    | `oauth_grants`, `oauth_tokens` | her grant için `DisconnectOAuthGrant`, aktör `requested_by` (`revoked_by` FK'si — `00104:209`) | |
@@ -358,8 +371,9 @@ ve **owner panelden açar** (M16-57 adım 7). İnceleyici *"Create a business ac
   dalda ve PR'da gelir** (öneri dal `m16-store-erasure`, `main`'den; numarası commit anında) *[A4-D18]*.
 - **Migration'lar yürütme sırasıyla, commit anında:** öneri **00118, 00119, 00120** (M16-51) → **00121** (M16-55: `business_deletion_requests`, `op_*`, iki tür
   CHECK'i, `op_reinstate_tenant`'ın yeni tanımı) → commit anındaki ilk serbest: M16-61 (`identity_erase_member`), M16-56 (koşullu). goose `-allow-missing`'siz.
-- `Down`: 00121 açık ya da tamamlanmış talep varken reddeder; **M16-61'inki onaylanmış ve tamamlanmamış bir talep varken reddeder**, yoksa fonksiyonu düşürür
-  *[B4-rollback]*; M16-56'nınki dolu sütunda reddeder.
+- `Down`: 00121 açık ya da tamamlanmış talep varken reddeder ve `op_*`'ların önceki tanımlarını birebir geri koyar; **M16-61'inki onaylanmış ve tamamlanmamış bir talep varken
+  reddeder**, yoksa iki fonksiyonu ve yetkileri düşürür *[B4-rollback]*; M16-56'nınki **açık bir bayrak** (`store_review_flags`, `disabled_at IS NULL`) varken reddeder ve
+  `op_read_tenant_detail`'in önceki tanımını geri koyar.
 - **Taban ölçümü** ayrı bir kart (M16-62), Faz H birleştirmesinden **önce**; SigNoz kurallarının sahibi de M16-62'dir.
 - **Geri alma:** config PR → `git revert`; yasal yayım → önceki sürüm; `TAPPA_BUSINESS_DELETION` boşaltılır (onaylanmış talepleri durdurmaz); anonimleştirilmiş veri geri
   gelmez; M16-61 `Down`'ı yukarıdaki kuralla.
@@ -388,12 +402,12 @@ account"*'ta KDV adımında durur** (gerçek AB KDV numarası ister; K-C2 demo i
 13. Owner-çalışan yönetici adresiyle parola kullanamaz. 14. Operatöre e-posta yok. 15. Parola davetinde Wi-Fi ipucu yok. 16. Çalışanın silme talebinden sonra
 parolalı giriş yeni işveren daveti ister. 17. Holding kayıtlarında ad kalır (K-D). 18. `admin_users.password_hash` `tappa_readonly`'ce okunur (ADR 0048; değişmez).
 19. Kimlik kapalı listesine bir fonksiyon ve **CLAUDE.md §4.5(3)'e beşinci istisna** (`identity_erase_member`). 20. Süreç onay ile silme arasında ölürse silme
-    operatörün *"Run the erasure"* düğmesine dek bekler (K-19'un bedeli). 21. Onay e-postasının adresi gönderilene dek tabloda **düz metin** kalır (en çok 5 deneme). 22. Tenant'ın **her** yönetici daveti satırının adresi ve adı yer tutucuya çevrilir (`identity_erase_member` — B5-Y1, [H61-p]); satırlar DELETE edilmez (yalnız `tappa_owner`).
+    operatörün *"Run the erasure"* düğmesine dek bekler (K-19'un bedeli). 21. Onay e-postasının adresi gönderilene dek tabloda **düz metin** kalır (en çok 5 deneme). 22. Tenant'ın **her** yönetici daveti satırının adresi ve adı yer tutucuya çevrilir (`identity_erase_tenant_invites` — B5-Y1, B7-M3a, [H61-p]); satırlar DELETE edilmez (yalnız `tappa_owner`).
 
 ## 5. Kırmızı çizgiler
 
 §4.1, §4.2 değişmez. §4.3: ekleme-yalnız tabloların hiçbiri değişmez; anonimleştirme yalnız ekleme-yalnız olmayan kişi sütunlarında. §4.4: plaket bağı
-`sun.Verify`. §4.5: yeni tablolar §6 beşlisiyle; operatör yalnız `op_*` ve **yalnız `business_deletion_requests`'te**; kimlik yüzeyine operatör dokunmaz.
+`sun.Verify`. §4.5: yeni tablolar §6 beşlisiyle; operatör yalnız `op_*` ve yeni yetkiyi **yalnız `business_deletion_requests`'te** (Q55 (b) ise ayrıca `store_review_flags`'te) alır; kimlik yüzeyine operatör dokunmaz.
 §4.6: talep personeli durdurmaz. §4.7 + §7: parola, adres, link token'ı, kod, çerez hiçbir log / hata / `detail`'de yok; yeni sır yok.
 
 ## 6. Mağaza ve gizlilik

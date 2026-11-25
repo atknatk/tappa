@@ -1831,6 +1831,14 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-11-25 (M16, dal `m16-native-ui`, taban `d11e5d98`) — Faz H kapanış düzeltme turu, yalnız belge
+
+- **Ne:** kullanıcı kararıyla son düzeltme turu (sonrası dar doğrulama; kalan eşzamanlılık ayrıntıları M16-55 / M16-61'in adlandırılmış DB testlerinde). Yazma `op_*`'ları
+  `(p_session, p_tenant_id, p_request_id)`, `void`, her çağrıda operatör satırı; onay askıyı yalnız `suspended_at IS NULL` iken koyar (iki kalan bedel adlandırıldı); yönetici
+  davetleri ikinci tanımcı fonksiyonla (`identity_erase_tenant_invites`) bütün üyelerden sonra — beşinci istisnanın metni iki fonksiyonu anar (ADR ve plan bayt bayt aynı);
+  kilit sırası talep → `tenants`; `op_reinstate_tenant`'ın K15-11 sapması adlandırıldı; silici adımları envanterin tamamını anar; demo plaketi M16-40'tan önce.
+- **Sıradaki:** dar doğrulama, sonra M16-50.
+
 ### 2026-11-25 (M16, dal `m16-native-ui`, taban `5948d260`) — Faz H beşinci düzeltme turu, yalnız belge
 
 - **Ne:** eklemeli düzeltmeler — `admin_invites`'in her satırı `identity_erase_member`'da yer tutucuya (tanımcıya yeni `UPDATE`); tanımcı talebi kilitsiz sınar, kilit Go
