@@ -533,3 +533,7 @@ iptal edilmiş anahtarı sunucu zaten reddeder. Tek silme: anahtar platform depo
 - **Bedel — Android NDEF filtresi doğrulanamaz.** `autoVerify` yalnız VIEW filtresine işler; başka bir uygulama aynı `https://taptime.mt/t` NDEF filtresini tanımlarsa NFC dağıtımı seçici gösterir ve seçilen uygulama harcanmamış SUN'u alır. Uygulama hiç kurulu değilken bu zaten böyleydi (kötüleşmez). `assetlinks.json` boşken (bugün canlıda — `TAPPA_ANDROID_CERT_SHA256` uygulama `/t`'yi karşılayana dek boş) App Link doğrulanmaz: Android 12+ linki tarayıcıya verir, 8–11 seçici gösterir.
 - **Bedel — bekletilen bildirim.** XS+'ın arka plan okuma bildirimi geç açılırsa ya da iki bildirim ters sırayla açılırsa harcanmış bir URL uygulamaya ulaşır; `tap/start` sayaca bakmadığı için ekran normal düğmeyi çizer, basılırsa §5 satır 2'nin kayıtlı reject'i yazılır ve debounce başlar. Tarayıcının `GET /t`'siyle aynıdır; M16-18 ölçer.
 - Logo ve M15 talep kartı uygulamada yok: ikisi de `/app/v1` tel sözleşmesine bir yol/alan ister (logo için eş işletme `?tag=` ayrımı dahil) — ayrı kart.
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+§2.3 **değişmez**: uygulamada taşıyıcı token yoktur; parolayla giriş oturum ya da cihaz yaratmaz, yalnız bir aktivasyon daveti basar — cihaz ilk dokunuşta doğar.

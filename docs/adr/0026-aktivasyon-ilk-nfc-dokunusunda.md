@@ -363,3 +363,9 @@ telefon da *"already set up"* görür ve satır yazmaz. Testler: `TestPage_Finis
 `TestPage_FinishHereLogIsBounded`, `TestPage_FinishHereSetUpPhoneIsNotLogged`,
 `TestSubmit_ConsentNamesTheBrowser`; `TestTap_CompletesAConsentedActivation` ve `TestFailures_AreAudited` öteki
 satırlarda `embedded_browser` olmadığını sabitler.
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+Uygulamada e-posta + parolayla giriş bir aktivasyon daveti (`origin='password'`, 24 sa) basar; **tamamlanma değişmez** — plaket, canlı QR ya da müdür onayı. Q55 (b) seçildiği
+için operatörün işaretlediği inceleme işletmesinde (`store_review_flags`) basılı statik QR da tamamlar; başka hiçbir işletmede QR aktive etmez (M16-56). Her tüketim kişinin
+öteki bekleyen davetlerini iptal eder (ADR 0051 §2.4.5).

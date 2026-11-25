@@ -3755,3 +3755,9 @@ akışına ikinci bir giriş ekler:
   `email_unavailable` (K-24).
 - **§10'un log kuralı** kuyruk işçisi için de geçerlidir; ek olarak API anahtarı, `Authorization`
   başlığı ve webhook URL'si log'a asla (CLAUDE.md §7).
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+Yeni gönderimler: parola linki (çıkış kutusu), *"password set"*, *"a new phone was set up"*, işletme silme talebi alındı / tamamlandı — kişiye `personNotices` (yeni; kuyruk 32,
+2 işçi, `SendExempt`, kişi + tür başına günde 5), owner'lara `ownerNotices` (parolalı aktivasyon saatlik özetle). Hepsi `TenantVerified` kuralına uyar; §10 gereği adres, link
+token'ı ve parola log'a asla.

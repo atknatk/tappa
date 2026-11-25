@@ -1,9 +1,8 @@
 # ADR 0051 — Mağaza uyumu: çalışanın e-posta + parolayla girişi, uygulamadan işletme kaydı, işletme hesabını silme
 
-- **Durum:** Önerildi (2026-11-25; aynı gün beş denetim turunun bulgularıyla beş kez yeniden yazıldı — kimlikler köşeli parantezde:
-  *[B…]* fizibilite/güvenlik, *[A…]* sıfır hafızalı yürüyüş; üçüncü tur *[B3-…]*, *[A3-N…]*) — kabul M16-50'de, kullanıcının. Açık sorular
-  **Q55 … Q59**; önerilmeyen bir cevap planı yeniden yazdırır ve yeniden denetletir (§7). Kabul edilince **ADR 0049 §2'nin link mekanizmasının
-  yerini alır**.
+- **Durum:** **Kabul edildi (2026-11-25)** — kullanıcı, AskUserQuestion, M16-50 (*Kabul notu* aşağıda, §9). Yazımı: aynı gün sekiz denetim turunun bulgularıyla
+  yeniden yazıldı (kimlikler köşeli parantezde: *[B…]* fizibilite/güvenlik, *[A…]* sıfır hafızalı yürüyüş). **ADR 0049 §2'nin link mekanizmasının yerini aldı**
+  (ADR 0049'un durum satırı ve notu, 2026-11-25).
 - **Tarih:** 2026-11-25 · **Dal:** `m16-native-ui` (PR #49, `main` dışı; yalnız belge) · **Plan:** [m16-mobil.md](../plan/m16-mobil.md) → *Faz H*
 - **Karar veren:** kullanıcı, 2026-11-25, AskUserQuestion — §2.1'in maddeleri (**1–7**, **K-A, K-B, K-C2, K-D**) sabittir; **K-C2, K-C'nin yerini
   aldı** (demo işletme operatörden değil, `/signup`'tan). Geri kalan öneridir.
@@ -425,3 +424,27 @@ M16-50 (kabul; ADR 0049 / 0010 / 0021 (sır sütunları; `Tutar` hücresi; kimli
 0039 / 0045 / 0022 / 0048 / 0002 notları; ADR 0005 risk eki; CLAUDE.md §5'in iki cümlesi ve §4.5(3)'ün farkı) · M16-51 · M16-52 · M16-53 · M16-54 · M16-55 · M16-56 (koşullu) · M16-57 · M16-58 · M16-59 · **M16-60 düştü (K-C2)** · M16-61 ·
 M16-62 (taban). ADR 0049 notu: *"YYYY-MM-DD: §2'nin link mekanizması ADR 0051'le yerini aldı; bütçeler, görünürlük ve iki kapı devredildi; 7 günlük bekleme
 devralınmadı; metin silinmez"*.
+
+## 9. Kabul notu (2026-11-25, M16-50)
+
+**Karar veren:** kullanıcı, AskUserQuestion, 2026-11-25 — her soruda **önerilen seçenek**. Önerilmeyen cevap olmadığı için plan yeniden yazılmadı (§7'nin kuralı).
+
+- **Q55 = (b)** operatörün işaretlediği inceleme işletmesinde statik QR (`store_review_flags`) · **Q56 = (b)** env `TAPPA_STAFF_PASSWORD_TENANTS` + owner ayarı (var olan işletmeler
+  kapalı, yeniler açık doğar) · **Q57 = (a)** tek sayfa `/account-deletion` (çalışan bölümü + owner formu), `ProveOwnership`, ek doğrulama yok · **Q58 = (b)** kütüphanesiz
+  Custom Tabs, yedeği sistem tarayıcısı · **Q59 = (b)** aktif + işverenin canlı davetini taşıyan davetli.
+- **Beşinci adlandırılmış istisna onaylandı** — dört parça birlikte: CLAUDE.md §4.5(3)'ün *"dört → beş"* farkı ve §2.9.8'deki birebir cümle; ADR 0031 §6.1'in aynı farkı;
+  `claudemdidentity_test.go`'nun dizgeleri; `tappa_identitydefiner`'a `UPDATE (email, full_name, cancelled_at) ON admin_invites`. **Uygulama M16-61'de** (CLAUDE.md, §6.1 ve
+  test dizgeleri aynı commit'te — bu kabul CLAUDE.md'yi değiştirmez).
+- **ADR 0010 istisnası onaylandı** (birebir not ADR 0010'da). **ADR 0005 risk 11 kabul edildi** (birebir metin ADR 0005'te).
+- **CLAUDE.md §5'in iki cümlesi onaylandı** (M16-50 kartındaki metin): (1) M16-52 ile, (2) M16-56 ile — kodla aynı commit'te.
+- **Notlar düşüldü:** ADR 0049 (yerini aldı), 0010, 0021, 0031, 0002 md. 7, 0026, 0039, 0045, 0022, 0005. **ADR 0048'in notu bu dalda düşülemedi:** dosya
+  `origin/ops/tappa-scoped-access` dalındadır, bu dalda yoktur (ölçüldü: `ls docs/adr`); not metni — *"`admin_users.password_hash`'in `tappa_readonly`'ce okunur olması
+  adlandırılmış bedeldir; `employee_passwords` ve `employee_password_links` için kalıcı istisna"* — `scoped-access.sql`'in yeniden koşusu kapısıyla o dalda düşülür.
+- **Canlı ölçüm** (koordinatör, 2026-11-25; üretim; `kubectl exec` + `psql` ile **`tappa_owner`** olarak — kartın önerdiği `tappa_readonly` değil; `BEGIN READ ONLY … ROLLBACK`;
+  kartın dört sorgusu; çıktı yalnız sayı): (1) bir adresin işletme sayısı — n = 1 → 32 adres; **en büyük 1 ≤ K = 3, kapı geçti**; (2) aktif 20 kişi / 3 işletme, davetli 12 kişi
+  / 4 işletme; (3) bir işletmedeki en çok aktif owner sayısı **1** — `ownerNotices` FIFO'su (32) ve saatlik özet için geniş pay; (4) kimlik başına bağlı üyelik — n = 1 → 2
+  kimlik, n = 2 → 1 kimlik: *"başka bağlı üyelik"* dalı üretimde vardır, [H61-b]'nin fikstürü gerçekçidir.
+- **Mağaza sayfaları:** Apple *"Offering account deletion in your app"* ve Google `answer/13327111`, `answer/10787469` 2026-11-25'te okundu (§1.17); bu kabul turunda
+  **yeniden açılmadı**. App Review Guidelines'ın öteki maddeleri ana oturumun okumasıdır.
+- **Açık kalan kapılar:** **Q13** (saklama süresi) ve hukukçunun **K-A onayı** ile **K-D sorusu** (*"adı olmayan bir kayıt hâlâ delil midir?"*) — M16-55'in owner metni, M16-58 ve
+  M16-61 bunları bekler.

@@ -1,10 +1,9 @@
 # ADR 0049 — Çalışanın iş e-postasıyla girişi
 
-- **Durum:** Önerildi (2026-11-18; aynı gün iki plan denetiminin bulgularıyla yeniden yazıldı) — kabul M16-34'te,
-  kullanıcının. Bu belge kullanıcının açık kararlarını ve ana oturumun **bir** kararını kaydeder (aşağıda). **Açık sorular
-  2026-11-19'da cevaplandı** (kullanıcı, AskUserQuestion, her soruda önerilen seçenek): Q44 (a) 24 saat · Q45 (b) istek yalnız
-  uygulamada · Q49 (a) owner ayarı, varsayılan kapalı · T59 tersine çevirmesi (a) evet. Durum M16-34'ün kabul düzenlemeleriyle
-  *Kabul edildi*'ye geçer.
+- **Durum:** **Yerini aldı (2026-11-25) — [ADR 0051](0051-magaza-uyumu-parolayla-giris.md).** *(Önceki durum: Önerildi, 2026-11-18; açık soruları 2026-11-19'da cevaplandı;
+  hiç uygulanmadı.)*
+- **Yerini alma notu (2026-11-25, kullanıcı kararı — M16-50):** *"2026-11-25: §2'nin link mekanizması ADR 0051'le yerini aldı; §2.4 bütçeleri parola linkine, §2.6
+  görünürlüğü `origin='password'`'e, §2.7'nin iki kapısı ADR 0051 §2.8'e devredildi; 7 günlük bekleme devralınmadı; metin silinmez"*.
 - **Tarih:** 2026-11-18 · **Dal:** `plan/m16-mobil` (yalnız belge) · **Plan:** [docs/plan/m16-mobil.md](../plan/m16-mobil.md)
   → *Faz G* (M16-34, M16-35, M16-36)
 - **Karar veren:** kullanıcı (ürün sahibi), 2026-11-18, AskUserQuestion: giriş *"sign in with your work email"*dir — çalışan

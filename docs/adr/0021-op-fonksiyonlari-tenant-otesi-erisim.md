@@ -6106,3 +6106,11 @@ Bu ADR'nin sözleşmesi (§1–§6) `op_*` için aynen geçerlidir. Değişenler
 - **Sahip testi:** operatör `op_*` sahip listesi beş adla genişledi; ters yön (`op_%` adlı her fonksiyonun
   sahibi `tappa_opdefiner`) değişmedi. `op_begin_read`/`op_read_audit` `00107`'de yeni türlerle yeniden
   tanımlandı (`TestOperator00107_TheBodiesAre00063sWithTheirEdits`).
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+- **§1'in sır sütunlarına:** `employee_passwords.digest`, `employee_password_links.token_hash`.
+- **`tappa_opdefiner`'ın *"Tutar"* hücresine:** `business_deletion_requests (SELECT; UPDATE (approved_at, cancelled_at))` ve — Q55 (b) seçildiği için — `store_review_flags
+  (SELECT, INSERT, UPDATE (disabled_at))`. `tenants`'taki *"ASLA"* hücresi **değişmez**.
+- *"Operatör yüzeyi uygulama tarafına bir `(tenant_id, request_id)` çifti bildirir, yazma yetkisi ve havuz almaz"* (ADR 0051 §2.9.7). Yeni yazma `op_*`'ları §2 v 7'ye uyar:
+  yalnız `void`, her çağrıda operatör satırı (ADR 0051 §2.9.6). Uygulama M16-55 / M16-56'dadır.
