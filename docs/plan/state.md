@@ -1818,17 +1818,27 @@ yazılır.
 | M16-52 | Parolayla giriş: `POST /app/v1/signin`, tüketimde kardeş iptali | todo | oturum/cihaz yaratmaz; `origin='password'` davet 24 sa; `CountRecentInvites` `employer`'a daralır |
 | M16-53 | Uygulama ekranları: giriş, parola, işyeri seçici, işletme kaydı ve silme girişleri — iOS + Android | todo | §9 onayı önce; Q58 |
 | M16-54 | Kayıt sihirbazının ve yasal sayfaların uygulama modu | todo | `?client=app` yalnız sunum; kapalı `href` kümesi |
-| M16-55 | İşletme hesabını silme talebi: sayfa, kayıt, bildirimler, operatör listesi | todo | migration 00122; owner formu `TAPPA_BUSINESS_DELETION` arkasında; Q57; K-A, K-D |
+| M16-55 | İşletme hesabını silme talebi: tablo, sayfa, bildirimler, operatör onayı | todo | migration 00121 (`business_deletion_requests`); owner formu `TAPPA_BUSINESS_DELETION` arkasında; Q57; K-A, K-D |
 | M16-56 | İnceleme işletmesinde statik QR'la bağ | todo | **yalnız Q55 (b)**; migration numarası commit anında (seçilmezse hiç yazılmaz) |
-| M16-57 | Demo işletme ve inceleyici runbook'u (M16-39'un yerine) | todo | demo işletme operatörden KDV'siz (M16-60); PR #49 + Faz H PR'ı `main`'de; config PR 1 |
+| M16-57 | Demo işletme ve inceleyici runbook'u (M16-39'un yerine) | todo | demo işletme web `/signup`'tan, grup şirketinin gerçek KDV'siyle (K-C2); PR #49 + Faz H PR'ı `main`'de; config PR 1 |
 | M16-58 | Mağaza beyanları ve gizlilik taslağı (M16-27 / M16-41'in revizyonu) | todo | kullanıcı + hukukçu |
 | M16-59 | Faz H kapanışı | todo | yalnız demo işletme; büyük testler bir kez |
-| M16-60 | Operatör yüzeyinden KDV'siz işletme: owner kaydı | todo | K-C; migration 00121; operatörün bastığı owner kaydı → `signup.Provision`; ADR 0021/0031 eki |
-| M16-61 | İşletme silmesinin tamamlanması | todo | K-A, K-D; migration numarası commit anında; **Q13 + hukukçu + K-D sorusu ön koşul** |
+| M16-60 | Operatör yüzeyinden KDV'siz işletme | dropped | **2026-11-25: düştü — K-C2** (demo `/signup`'tan; şema değişikliği ve operatör yolu yok) |
+| M16-61 | İşletme silmesinin tamamlanması — uygulama tarafı | todo | K-A, K-D; `identity_erase_member` (ADR 0031 kapalı listesine ek); numara commit anında; **Q13 + hukukçu + K-D sorusu ön koşul** |
+| M16-62 | Taban ölçümü (Faz H birleştirmesinden önce) | todo | kapı WARN'u, kesici hacmi, owner bildirimi `undelivered` oranı; SigNoz eşikleri *"tappa 10"*, *"tappa 11"* |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-25 (M16, dal `m16-native-ui`, taban `f9b972a5`) — Faz H üçüncü düzeltme turu, yalnız belge
+
+- **Ne:** kullanıcı kararı **K-C2** (K-C'nin yerine: demo işletme web `/signup`'tan, grup şirketinin gerçek KDV'siyle) → **M16-60 düştü**, operatör yolu ve
+  şema değişikliği kalktı. İşletme silme yeniden tasarlandı: talep yeni tenant kapsamlı `business_deletion_requests`'te (operatöre yalnız bu tabloda yetki,
+  `tenants` *ASLA* hücresi değişmez), anonimleştirme uygulama tarafında (`tappa_app`, tenant bağlamı), kimlik tarafı için tek yeni fonksiyon `identity_erase_member`
+  (yalnız `tappa_app`; ADR 0031 listesine ek); envanter sütun sütun; BYPASSRLS rollerinden `REVOKE` (`scoped-access.sql` varsayılan yetkileri); yeni M16-62 taban
+  kartı. Migration önerisi 00118 … 00121 + commit anında iki.
+- **Sıradaki:** M16-50.
 
 ### 2026-11-25 (M16, dal `m16-native-ui`, taban `c14cb652`) — Faz H ikinci düzeltme turu, yalnız belge
 

@@ -22,7 +22,7 @@
 > **Sıra (kullanıcı kararı, 2026-11-14):** Faz 0'dan sonra **A → B + C paralel** (ayrı worktree'ler), ardından
 > **D, E, F**. **2026-11-18 (kullanıcı kararı):** Faz F'den (yayın) **önce** Faz G (personel self-servis, M16-30 …
 > M16-40) gelir — sıra **D, E, G, F**. Faz G'nin kartları numarada F'den sonra, dosyada ve uygulamada F'den öncedir.
-> **2026-11-25 (kullanıcı kararları, aşağıda):** **Faz H** (mağaza uyumu, M16-50 … M16-61) Faz G'den sonra ve Faz F'nin
+> **2026-11-25 (kullanıcı kararları, aşağıda):** **Faz H** (mağaza uyumu, M16-50 … M16-62) Faz G'den sonra ve Faz F'nin
 > **üretim** adımından önce gelir — sıra **D, E, G, H, F**; Play iç testi (M16-28'in iç test kanalı) Faz H'yi beklemez.
 
 ## Kullanıcı kararları (2026-11-12/13) — bağlayıcı
@@ -111,8 +111,8 @@ Ana oturumun AskUserQuestion'ıyla alındı (araştırmadan sonra yön değişik
    fiyatlandırmaya, panele ya da Billing'e yol yok (3.1.1).
 5. **İşletme hesabını silme** (5.1.1(v)): owner'ın uygulama içi **talebi** — oturumlar kapanır, talep platform operatörüne
    ulaşır, kayıtlar kalır (CLAUDE.md §4.3; çalışan talebinin deseni).
-6. **Demo işletme "Taptime Demo"** — **K-C ile değişti (2026-11-25): operatör yüzeyinden, KDV'siz** açılır (M16-60; `/signup`'tan değil);
-   parolaları kullanıcı yazar, depoya asla; inceleyici demo bir çalışanın e-postası + parolasını **yalnız** App Store Connect / Play Console'da alır.
+6. **Demo işletme "Taptime Demo"** — **K-C2 (2026-11-25):** normal web `/signup`'tan, kullanıcının grup şirketlerinden birinin **gerçek AB KDV
+   numarasıyla** açılır (KF/KM değil; numara depoya asla); inceleyici demo bir çalışanın e-postası + parolasını **yalnız** konsollarda alır.
 7. (Önceden, geçerli) Önce Play iç testi; üretim PR #49'un `main`'e girmesini, hukukçu onaylı gizlilik metnini ve
    `TAPPA_APP_ANDROID_SIGNER_SHA256`'yı bekler; mağaza ekran görüntüleri yalnız demo işletmeden.
 8. **K-A — işletme silme talebi 30 gün içinde tamamlanır.** Sayfa *"within 30 days"* der; operatör işletmeyi askıya alır (ADR 0025) ve
@@ -121,8 +121,9 @@ Ana oturumun AskUserQuestion'ıyla alındı (araştırmadan sonra yön değişik
    ikisi kapıdır (M16-61, M16-58).
 9. **K-B — "Built by" altbilgi bağlantısı** (`layout.CreditURL`, `web/templates/pages/publicchrome.templ:277`) uygulama modunda **kalır**; satın
    alma yolu değildir (2026-10-23 kararı) (M16-54).
-10. **K-C — "Taptime Demo" operatör yüzeyinden, KDV numarasız** açılır; `/signup`'a sahte KDV girmez. Operatör yolu bugün yoktur (ölçüldü:
-   `internal/db/operatorpool.go:496-706`) → **M16-60** yaratır (`op_*` SECURITY DEFINER, ADR 0021, `operator_audit_log`).
+10. ~~**K-C** — demo işletme operatör yüzeyinden, KDV'siz~~ → **yerini aldı: K-C2 (2026-11-25, kullanıcı):** demo işletme **web `/signup`'tan**, grubun
+   başka bir şirketinin gerçek AB KDV numarasıyla (`vat_number` tekil — `00001:15`; KF ya da KM değil); numarayı kullanıcı yazar, depoya asla; **şema değişikliği ve
+   operatör yolu yok** — M16-60 düştü. İnceleyici *"Create a business account"*'ta yine KDV adımında durur (ADR 0051 bedel 11).
 11. **K-D — holding kayıtlarındaki adlar kalır.** Silme tamamlanınca holding sitesinin ekleme-yalnız kayıtlarındaki çalışan adları
    (`site_punches.employee_name` — `00046:130`, `site_punches_no_mutation` `:178-186`; `punch_events.employee_ref`, `employee_code`, `location_name` — `00048`)
    **kalır**; ekleme-yalnız kuralı bozulmaz. Sayfa ve onay e-postası bunu ve yedeklerin adı 30 günde düşürdüğünü (`scripts/pg-backup-ship.sh:40`) söyler.
@@ -246,9 +247,8 @@ oldu; tablodaki sonraki öneriler de dört kaydı. ADR'ler: `main` 0046 (timeshe
 | 00118 | **M16-51** (Faz H) | `employee_passwords` (`set_email`) + `employee_password_links` (`link_email`) (§6 beşlisi; `tappa_app`'a `DELETE` dahil) + `employees.app_signin_revoked_at` + `employee_invites.origin` + `CHECK … NOT VALID` + `tenants.staff_password_signin` + iki çözümleyici (süzgeçler, yönetici dışlaması ve `set_email` `JOIN`'i `LIMIT`'ten önce; en eski önce) + yalnız yeni sütunların yetkileri | dolu satırda reddeder; yalnız verdiği yetkileri geri alır |
 | 00119 | **M16-51** | `VALIDATE CONSTRAINT` | `NOT VALID` hâline döner |
 | 00120 | **M16-51** | `DROP INDEX CONCURRENTLY IF EXISTS` + `CREATE INDEX CONCURRENTLY employees_email_idx` (`NO TRANSACTION`) | `DROP INDEX CONCURRENTLY` |
-| 00121 | **M16-60** | `tenants.created_by_operator` + `vat_number DROP NOT NULL` + doğrulanmış `CHECK` + `admin_signup_claims.kind` + `identity_open_operator_claim` + `op_mint_business_claim` | operatörün açtığı işletme varken reddeder |
-| 00122 | **M16-55** | `deletion_requested_at`, `deletion_requested_by`, `deletion_completed_at` + tetikleyici + `op_cancel_business_deletion` + `op_read_deletion_requests` + `op_read_tenant_detail` | dolu talep varken reddeder; önceki tanımları geri koyar |
-| (sırası gelince) | **M16-61** | `op_complete_business_deletion` — numara commit anında | dolu `deletion_completed_at` varken reddeder |
+| 00121 | **M16-55** | `business_deletion_requests` (§6 beşlisi, tek yönlü tetikleyici; `tappa_opdefiner`'a **yalnız bu tabloda** `SELECT` + `UPDATE (approved_at, cancelled_at)`) + `op_read_deletion_requests` / `op_approve_business_deletion` / `op_cancel_business_deletion` + `operator_audit_log_kind_check` genişlemesi + `resolve_pending_business_erasures` — `tenants`'a sütun yok | açık ya da tamamlanmış talep varken reddeder |
+| (sırası gelince) | **M16-61** | `identity_erase_member` (`tappa_identitydefiner`, `EXECUTE` yalnız `tappa_app`) — numara commit anında; silici uygulama tarafında | fonksiyonu düşürür |
 | (sırası gelince) | **M16-56** | **koşullu (Q55 (b))**: `store_review_at` + `op_set_store_review` — numara commit anında, seçilmezse hiç yazılmaz | dolu sütunda reddeder |
 
 **Sıra kısıtı (M16-04 denetimi, 2026-11-14):** M16-03 (00108) `main`'e M16-04'ten (00109/00110) **önce ya da onunla
@@ -282,10 +282,10 @@ Koşulsuz ekler migration istemez: talep okuması `punch_claims` (00068), içeri
 do git ls-tree --name-only $b db/migrations/; done | sort -u`):** son migration **00117** (`00117_add_the_staff_hours_window` =
 M16-30; **`00116_add_the_staff_shift_switch`** = M16-45'in Q52 (2) (c) sütunu — tablodaki **00120** önerisi **00116** olarak
 uygulandı, M16-25'in 00116 önerisi bir sonraki serbest numarayı alır); Q51 (3) (a) ve Q54 (3) (a) seçildiği için 00121/00122'nin
-koşullu satırları **kullanılmaz**; M16-35'in 00118/00119'u ADR 0051'le serbest. → Faz H **00118 … 00122** + iki numarası commit anında verilecek kart (M16-61; koşullu M16-56) — **yürütme sırası numara sırasıdır** (goose
+koşullu satırları **kullanılmaz**; M16-35'in 00118/00119'u ADR 0051'le serbest. → Faz H **00118 … 00121** (üçüncü tur: K-C2 M16-60'ı düşürdü) + iki numarası commit anında verilecek kart (M16-61; koşullu M16-56) — **yürütme sırası numara sırasıdır** (goose
 `-allow-missing`'siz; ikinci düzeltme turu 2026-11-25). ADR'ler: dosyası olan
 son ADR **0049**, **0050** Faz G eklerine ayrılmış (dosya yok) → Faz H'nin ADR'si **0051**. Q'lar: bütün dallarda son **Q54** →
-Faz H **Q55 … Q59**. M16 kartları: son **M16-49** → Faz H **M16-50 … M16-61**. Kural aynı: her kart açılırken yeniden ölçülür.
+Faz H **Q55 … Q59**. M16 kartları: son **M16-49** → Faz H **M16-50 … M16-62** (M16-60 düştü). Kural aynı: her kart açılırken yeniden ölçülür.
 
 ADR: **0045** bu milestone'un karar belgesi. Attestation'ı karar verici yapmak ya da çevrimdışı kuyruk **ayrı ADR**dir.
 Faz G'nin e-postayla girişi **ayrı ADR**dir: [0049](../adr/0049-calisanin-e-postayla-girisi.md) (*Önerildi*, M16-34'te
@@ -320,7 +320,7 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | **Her ek dil için anadili konuşan bir onaycı** (adı repoya yazılmaz) | makine taslağı onaysız yayımlanmaz | M16-49 (M16-42'yi bloklamaz) |
 | **CLAUDE.md'nin iki cümlesinin değişikliği** — §7 (`:528-529`, kullanıcı metni TR/EN) ve §9 *"Uygulama ekranları"* (`:571`, *"aynı metin"*); sözcükler M16-42'de onaylanır, M16-49'da uygulanır | CLAUDE.md değişikliği kullanıcı onayı ister | M16-42 (onay), M16-49 |
 | **Üretimde vardiya değerlerinin anlamı** (salt okuma: vardiyalı lokasyon/departman sayısı; değer açılış penceresi mi kişi vardiyası mı) — kullanıcı ya da ana oturum | Q52 (2)'nin gerekçesi | M16-42 |
-| **Faz H'nin kapıları** (2026-11-25): Q55–Q59, ADR 0051 kabulü, metin/mockup onayları, PR #49 → `main`, iki config PR'ı (`TAPPA_STAFF_PASSWORD_TENANTS`), demo işletme **operatörden, KDV'siz** (K-C) + demo çalışanların parolaları, (Q55 (b)) operatör bayrağı, **Q13 + hukukçunun K-A onayı**, `scoped-access.sql`'in yeniden koşusu, taban ölçümü (Faz H birleştirmesinden önce), `TAPPA_BUSINESS_DELETION` açılışı, KF/KM owner kararı, `TAPPA_APP_ANDROID_SIGNER_SHA256`, hukukçu onaylı metin, konsol formları — tablo **Faz H** başlığında | ADR 0051 | M16-50 … M16-61 |
+| **Faz H'nin kapıları** (2026-11-25): Q55–Q59, ADR 0051 kabulü, metin/mockup onayları, PR #49 → `main`, iki config PR'ı (`TAPPA_STAFF_PASSWORD_TENANTS`), demo işletme **`/signup`'tan, grup şirketinin gerçek KDV'siyle** (K-C2) + demo çalışanların parolaları, (Q55 (b)) operatör bayrağı, **Q13 + hukukçunun K-A onayı**, `scoped-access.sql`'in yeniden koşusu, taban ölçümü (Faz H birleştirmesinden önce), `TAPPA_BUSINESS_DELETION` açılışı, KF/KM owner kararı, `TAPPA_APP_ANDROID_SIGNER_SHA256`, hukukçu onaylı metin, konsol formları — tablo **Faz H** başlığında | ADR 0051 | M16-50 … M16-62 |
 
 ## Kart listesi
 
@@ -377,13 +377,14 @@ Bunlar ajanın yapamayacağı işlerdir; ilgili kart bunlar olmadan başlamaz.
 | H | M16-52 | Parolayla giriş: `POST /app/v1/signin`, tüketimde kardeş iptali | iki |
 | H | M16-53 | Uygulama ekranları: giriş, parola, işyeri seçici, işletme kaydı ve işletme silme girişleri — iOS + Android | iki |
 | H | M16-54 | Kayıt sihirbazının ve yasal sayfaların uygulama modu | tek |
-| H | M16-55 | İşletme hesabını silme talebi: sayfa, kayıt, bildirimler, operatör listesi (00122) | iki |
+| H | M16-55 | İşletme hesabını silme talebi: tablo, sayfa, bildirimler, operatör onayı (00121) | iki |
 | H | M16-56 | İnceleme işletmesinde statik QR'la bağ — **yalnız Q55 (b)** (numara commit anında) | iki |
 | H | M16-57 | Demo işletme ve inceleyici runbook'u (**M16-39'un yerine**) | tek |
 | H | M16-58 | Mağaza beyanları ve gizlilik taslağı (M16-27 / M16-41'in yayım ve etiket adımlarının yerine) | tek |
 | H | M16-59 | Faz H kapanışı | iki |
-| H | M16-60 | Operatör yüzeyinden KDV'siz işletme: owner kaydı (K-C; 00121) | iki |
-| H | M16-61 | İşletme silmesinin tamamlanması (K-A, K-D; numara commit anında) | iki |
+| H | M16-60 | ~~Operatör yüzeyinden KDV'siz işletme~~ — **düştü (2026-11-25, K-C2)** | — |
+| H | M16-61 | İşletme silmesinin tamamlanması — uygulama tarafı (K-A, K-D; numara commit anında) | iki |
+| H | M16-62 | Taban ölçümü (Faz H birleştirmesinden önce) | tek |
 | F | M16-27 | Gizlilik: `/legal/privacy`, mağaza etiketleri | tek |
 | F | M16-28 | İmza, iç test dağıtımı, sürüm süreci | iki |
 | F | M16-29 | KF/KM pilotu ve M16 kapanışı | tek |
@@ -3381,8 +3382,8 @@ sınırlar (`CLAUDE.md:528-529`); §9 *"Uygulama ekranları"* tap ve sonuç ekra
 
 ## M16-39 — App Review hazırlığı: inceleme notu, basılabilir QR, inceleyicinin aktivasyonu
 
-> **2026-11-25 — yerini aldı: M16-57 (ADR 0051, Faz H kullanıcı kararları 6 ve K-C). Bu kart ayrıca KOŞMAZ** (düzeltme turu, denetim
-> A-25 / B-Y3): inceleyici davet linki değil demo bir çalışanın e-postası + parolasını alır, demo işletme operatörden KDV'siz açılır, bağ yolu
+> **2026-11-25 — yerini aldı: M16-57 (ADR 0051, Faz H kullanıcı kararları 6 ve K-C2). Bu kart ayrıca KOŞMAZ** (düzeltme turu, denetim
+> A-25 / B-Y3): inceleyici davet linki değil demo bir çalışanın e-postası + parolasını alır, demo işletme `/signup`'tan grup şirketinin gerçek KDV'siyle açılır (K-C2), bağ yolu
 > **Q55**'tedir (Q47'nin cevabı Q55 cevaplanana dek geçerli). Bu kartın değişmeyen maddeleri M16-57'nin kriterleridir. Metin geçmiş için kalır;
 > M16-40'ın bu karta bağımlılığı kalktı.
 
@@ -3454,6 +3455,12 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 
 ## M16-40 — Faz G kapanışı
 
+> **2026-11-25 — madde madde (denetim A3-N17):** (1) *"Ortam: üretim, yalnız Taptime Demo … Ön koşul: M16-35'in config PR'ı"* → ortam **kalır**, ön koşul
+> **değişir:** demo işletme `/signup`'tan açılmış olmalı (K-C2; Faz H kapanış sırası adım 4) ve PR #49 `main`'de; (2) *"E-postayla giriş — iki demo çalışan"* →
+> **düşer**, yerine M16-59'un parola turu; (3) *"Demo durumunu geri yükle"* → `email_signin = true` ölçüsü **düşer**, geri kalanı (Saatlerim 4 hafta, ekran eşlemesi,
+> cihazlar) **kalır**; (4) *"İnceleyici provası"* (`mobile/README.md`) → **M16-59'a taşınır** (notu M16-57 yazar); (5) *"ADR 0049'a Uygulandı notu"* → **düşer**; (6)
+> fazın büyük testleri **kalır**.
+>
 > **2026-11-25 — düzeltme (ADR 0051; denetim B-Y3).** Bu kartın **e-postayla giriş maddeleri düştü**: M16-35'in config PR'ı ön koşulu, *"E-postayla
 > giriş — iki demo çalışan"* turu ve geri yüklemedeki `email_signin = true` ölçüsü uygulanmaz (ADR 0049 uygulanmadı); parolalı girişin turu
 > **M16-59**'dadır. **M16-39'a bağımlılık kalktı** (M16-39 → M16-57, Faz H). Kart yalnız Faz G'nin yapılmış işlerini (Saatlerim, ayarlar, silme
@@ -3520,103 +3527,82 @@ kurulmuş, tekrarlanabilir bir inceleme düzeni (kullanıcı kararı 3; 2.1(a)).
 
 # Faz H — Mağaza uyumu
 
-> **Neden bu faz** (kullanıcı kararları 2026-11-25, yukarıda; [ADR 0051](../adr/0051-magaza-uyumu-parolayla-giris.md)): çalışan e-posta +
-> parolayla girer; ilk ekran işletme kaydını sunar (fiyata yol yok); owner işletme hesabının silinmesini ister, silme 30 günde tamamlanır
-> (K-A, K-D); inceleyici demo bir çalışanın kimliğiyle plaketsiz geçer; demo işletme operatörden KDV'siz açılır (K-C).
+> **Neden** (kullanıcı kararları 2026-11-25; [ADR 0051](../adr/0051-magaza-uyumu-parolayla-giris.md)): e-posta + parolayla giriş, uygulamadan işletme
+> kaydı (fiyata yol yok), işletme silme talebi ve 30 günde tamamlanması (K-A, K-D), demo işletme web `/signup`'tan grubun başka bir şirketinin gerçek KDV
+> numarasıyla (**K-C2**, K-C'nin yerine).
 >
-> **Başlama koşulu ve dal** *[A-1, A2-S2]*: **M16-50 (belge) bugün başlayabilir.** **Kod kartları (M16-51, -52, -53, -54, -55, -56, -60, -61) PR #49
-> `main`'e girdikten sonra** `main`'den açılan **`m16-store`** dalında yazılır; Faz H PR'ı o daldır. M16-57 ve M16-59 ayrıca **M16-40**'ı ve Faz H PR'ının
-> `main`'e girmesini bekler.
+> **Dal ve başlama** *[A2-S2]*: M16-50 (belge) bugün başlar. Kod kartları (M16-51 … -56, -61) PR #49 `main`'e girdikten sonra `main`'den açılan **`m16-store`**
+> dalında; Faz H PR'ı o daldır.
 >
-> **Kapanış sırası** *[B-Y3, A2-S25]*: (1) **M16-42**'nin kalan işi — ADR 0050'yi cevaplanmış Q50–Q54'ten yazmak (belge; hiçbir dalda dosyası yok —
-> ölçüldü) · (2) Faz G'nin `review` satırları (M16-23, -30 … -33, -37, -38, -41, -43 … -49) **tek bir iki mercekli denetim turuyla** PR #49 üzerinde
-> kapanır (kart grubu başına bir bulgu listesi; ONAY → `done`) · (3) **M16-40** (e-postayla giriş turu düştü; M16-39'a bağımlılığı kalktı) · (4) PR #49 →
-> `main` (kullanıcı) · (5) Faz H kod kartları `m16-store`'da · (6) Faz H PR'ı → `main` (kullanıcı; Ingress de bu deploy'la uygulanır) · (7) config PR 1 ·
-> (8) **M16-57** · (9) **M16-59** · (10) Faz F'nin üretim adımı. **M16-39 ayrıca koşmaz** (M16-57 yapar); **M16-41'in yayım adımı ve M16-27'nin etiket
-> adımı ayrıca koşmaz** (M16-58 yazar, kullanıcı yayımlar).
+> **Kapanış sırası** *[B-Y3, A2-S25, A3-N17]*: (1) M16-42 — ADR 0050'yi yazmak · (2) Faz G `review` satırlarının tek iki mercekli denetimi (PR #49) · (3) PR #49 →
+> `main` (kullanıcı) · (4) **demo işletme** — kullanıcı web `/signup`'ı grup şirketinin KDV'siyle doldurur ve e-postadan onaylar (K-C2; Faz H'ye ihtiyacı yok,
+> M16-40'ın üretim turu için şimdi gerekir) · (5) **M16-40** (demo işletmede Faz G turu) · (6) **M16-62** taban ölçümü · (7) Faz H kod kartları · (8) Faz H PR'ı →
+> `main` (kullanıcı; Ingress aynı deploy'la) · (9) config PR 1 · (10) **M16-57** · (11) **M16-59** · (12) Faz F'nin üretim adımı. M16-39, M16-41'in yayım adımı ve
+> M16-27'nin etiket adımı ayrıca koşmaz.
 >
-> **Ortak kurallar:** Faz G'nin (1)–(7)'si aynen (mockup önce · büyük testler yalnız M16-59 · testler `[H<kart>-<harf>]` kimliğiyle tarif edilir · KF/KM'de
-> yazma yok · Android yol pini aynı commit'te). Önerilmeyen bir Q cevabı ⇒ ADR + kartlar yeniden yazılır ve yeniden denetlenir; o olana dek M16-51 açılmaz.
-> **Atıf:** `m16-native-ui` `c14cb652`.
->
-> **Canlı ölçümlerin yolu:** veritabanı — `tappa_readonly` (ADR 0048), kullanıcının kubeconfig'iyle `tappa-viewer` + Tailscale, `kubectl -n tappa
-> port-forward` + `psql`, her oturum `BEGIN READ ONLY; … ROLLBACK;`, **çıktı yalnız sayı** (tenant id'si, ad, adres yok); log — SigNoz'un `tappa`
-> sorgusu (Q28 (a)'nın kurulumu; 15 günlük pencere), sonuç yalnız sayı.
+> **Ortak kurallar:** Faz G'nin (1)–(7)'si; önerilmeyen Q cevabı ⇒ yeniden yazım + yeniden denetim, M16-51 açılmaz. **Atıf:** `m16-native-ui` `f9b972a5`.
+> **Ölçüm yolu:** `tappa_readonly` + `tappa-viewer` + Tailscale + `kubectl -n tappa port-forward` + `psql`, `BEGIN READ ONLY; … ROLLBACK;`, çıktı yalnız sayı;
+> log için SigNoz (Q28 (a), 15 gün).
 
-**Q cevaplarının kartlara etkisi** (önerilmeyen her dal yeniden yazımı tetikler):
+**Q cevaplarının etkisi:**
 
 | Soru | Öneri | Başka dal seçilirse |
 |---|---|---|
-| Q55 | (b) işaretli işletmede statik QR | (a): M16-56 açılmaz (numara hiç yazılmaz), M16-57 manager girişini alır; (c): M16-57 canlı QR ekranı eşler |
-| Q56 | (b) env + owner, eski kapalı / yeni açık | (a): `signup.Provision` ve operatör kaydı sütunu yazmaz, owner elle açar; (c): 00118'de varsayılan `true`; (d): owner ayarı yok |
-| Q57 | (a) web sayfası + panel parolası | (b): M16-53'e yerel form + imzasız `/app/v1/business/delete`; (c): M16-55'e e-posta onay linki — Apple'ın *"should not require … send an email"* cümlesiyle çatışır, M16-50 durur |
-| Q58 | (b) kütüphanesiz Custom Tabs | (a): `androidx.browser` (§1 onayı); (c): `ACTION_VIEW` |
-| Q59 | (b) aktif + canlı işveren davetli | (a): çözümleyicilerde `status = 'active'`, `origin` yetkisi yok; (c): canlılık süzgeci yok |
+| Q55 | (b) işaretli işletmede statik QR | (a): M16-56 açılmaz, M16-57 manager girişini alır; (c): M16-57 canlı QR ekranı eşler |
+| Q56 | (b) env + owner, eski kapalı / yeni açık | (a): `signup.Provision` sütunu yazmaz; (c): 00118'de varsayılan `true`; (d): owner ayarı yok |
+| Q57 | (a) web sayfası + panel parolası | (b): yerel form + imzasız `/app/v1/business/delete`; (c): e-posta onay linki — Apple'la çatışır, M16-50 durur |
+| Q58 | (b) kütüphanesiz Custom Tabs | (a): `androidx.browser`; (c): `ACTION_VIEW` |
+| Q59 | (b) aktif + canlı işveren davetli | (a): `status = 'active'`; (c): canlılık süzgeci yok |
 
 **Sıra:**
 
 | Adım | Kart | Bağımlılık | Migration (öneri, yürütme sırası) |
 |---|---|---|---|
 | 1 | M16-50 | — | — |
-| 2 | M16-54 | M16-50, PR #49 | — |
-| 3 | M16-51 | M16-50, M16-54 | 00118, 00119, 00120 |
-| 4 | M16-60 | M16-51 (00118'in sütunu) | 00121 |
-| 5 | M16-55 | M16-50, **M16-51** (`personNotices`), M16-54 | 00122 |
+| 2 | M16-62 — taban | PR #49 `main`'de | — |
+| 3 | M16-54 | M16-50, PR #49 | — |
+| 4 | M16-51 | M16-50, M16-54 | 00118, 00119, 00120 |
+| 5 | M16-55 | M16-50, M16-51, M16-54 | 00121 |
 | 6 | M16-52 | M16-51 | — |
-| 7 | M16-61 | M16-55, Q13 + hukukçu | commit anındaki ilk serbest |
-| 8 | M16-56 | M16-52, Q55 = (b) | commit anındaki ilk serbest |
+| 7 | M16-61 | M16-55, Q13 + hukukçu + K-D sorusu | commit anında |
+| 8 | M16-56 | M16-52, Q55 = (b) | commit anında |
 | 9 | M16-53 | M16-52, M16-54, M16-55, Q58 | — |
-| 10 | M16-58 | M16-53, M16-55, M16-61 (metin) | — |
-| 11 | M16-57 | M16-40, Faz H PR'ı `main`'de, M16-60 | — |
+| 10 | M16-58 | M16-53, M16-55, M16-61 | — |
+| 11 | M16-57 | M16-40, Faz H PR'ı `main`'de | — |
 | 12 | M16-59 | hepsi | — |
 
-**Numara kuralı** *[A2-S5]*: goose `-allow-missing` olmadan koşar (`deploy/README.md:3085`, `db/migrations/00067_*.sql:70`). Numara **commit anında,
-o anki ilk serbest numaradan** alınır ve **yürütme sırası numara sırasıdır**; M16-61 Q13'ü beklerken M16-56 önce gelirse M16-56 küçük numarayı alır.
-Koşullu bir kart açılmazsa numara hiç yazılmaz, boşluk oluşmaz. Her kart açılırken bütün dalların ve `main`'in son numarası yeniden ölçülür.
+**Numara kuralı:** goose `-allow-missing`'siz (`deploy/README.md:3085`, `00067:70`) — numara commit anında, yürütme sırası numara sırasıdır; koşullu kart açılmazsa
+numara yazılmaz.
 
 **Kullanıcının kapıları:**
 
 | Kapı | İlk bloklandığı |
 |---|---|
-| Q55 … Q59, ADR 0051 kabulü, CLAUDE.md §5 cümleleri (AskUserQuestion) | M16-50 |
-| Metin / mockup onayları (ilk ekran — §9; giriş, parola, uygulama modu, `/staff/password`, `/account-deletion`, panel ayarı, onay listesi uyarısı, operatör *"New business"*) | M16-51, -53, -54, -55, -60 |
-| **Silme envanteri** (ADR 0051 §2.9.7) — **M16-55'in metin onayından önce** sabitlenir | M16-55 |
-| **Q13 + hukukçunun K-A onayı + K-D sorusu** (*"adsız kayıt delil midir?"*) | M16-61, M16-58 |
-| Q58 (a) ise `androidx.browser` | M16-53 |
-| **PR #49 → `main`** · **Faz H PR'ı → `main`** (deploy; Ingress `deploy.yml:934-935` ile aynı deploy'da uygulanır — ayrı onay yok) | kod kartları · M16-57 |
-| **Taban ölçümü Faz H birleştirmesinden önce** (15 günlük log penceresi) | Faz H PR'ı |
-| **`scoped-access.sql`'in sütun istisnasıyla yeniden koşusu** (ADR 0048 dalı) | Faz H PR'ı sonrası |
-| Operatörden demo işletme + owner linkinin açılması + demo plaketi | M16-57 |
-| Config PR 1 (demo), config PR 2 (`*`) · **`TAPPA_BUSINESS_DELETION` açılışı (M16-61 üretimde çalışınca)** | M16-57, üretim |
-| KF/KM owner kararı · `TAPPA_APP_ANDROID_SIGNER_SHA256` · hukukçu onaylı metin + yayım · konsol formları · 3.2 kararı | üretim |
+| Q55 … Q59, ADR 0051 kabulü, **ADR 0031 kapalı listesine `identity_erase_member`**, CLAUDE.md §5'in iki cümlesi (AskUserQuestion) | M16-50 |
+| Metin / mockup onayları (ilk ekran — §9; giriş, parola, uygulama modu, `/staff/password`, `/account-deletion`, panel ayarı, onay listesi uyarısı) | M16-51, -53, -54, -55 |
+| Silme envanteri (ADR 0051 §2.9.9) — M16-55'in metin onayından önce | M16-55 |
+| Q13 + hukukçunun K-A onayı + K-D sorusu | M16-61, M16-58 |
+| PR #49 → `main` · demo işletme `/signup`'tan (grup şirketinin gerçek KDV'si; numara depoya asla) · Faz H PR'ı → `main` (Ingress aynı deploy'da) | kod kartları · M16-40 · M16-57 |
+| **`scoped-access.sql`'e iki tablonun kalıcı istisnası** + yeniden koşu (ADR 0048 dalı) | Faz H PR'ı |
+| Config PR 1 (demo), config PR 2 (`*`) · `TAPPA_BUSINESS_DELETION=on` (M16-61 üretimde çalışınca) | M16-57, üretim |
+| KF/KM owner kararı · `TAPPA_APP_ANDROID_SIGNER_SHA256` · hukukçu onaylı metin + yayım · konsol formları · 3.2 kararı · Q58 (a) ise `androidx.browser` | üretim |
 
 ## M16-50 — ADR 0051'in kabulü, ADR 0049'un yerini alması, Q55–Q59, mağaza okuması ve canlı ölçüm
 
-- **Bağımlılık:** — · **Kırmızı çizgi:** §4.3–§4.7, §5 · **Mercek: iki** · **Commit:** `docs(adr): accept password sign-in and the store-compliance phase`
-- **Araç:** yapıcı belgeleri yazar; ana oturum AskUserQuestion; canlı ölçüm kullanıcı ya da ana oturum (`tappa_readonly`)
+- **Bağımlılık:** — · **Mercek: iki** · **Commit:** `docs(adr): accept password sign-in and the store-compliance phase`
 
 **Kabul kriterleri.**
-- **Okuma** — Apple ve Google'ın silme sayfaları 2026-11-25'te okundu (ADR 0051 §1.18'in tırnakları); kart yeniden okur ve tarihi günceller. Ayrıca
-  `https://developer.apple.com/app-store/review/guidelines/` (2.1(a), 3.1.1, 3.1.3(c), 3.2, 4.2, 4.8, 5.1.1(v)),
-  `https://developer.apple.com/app-store/app-privacy-details/`, `https://developer.apple.com/support/unlisted-app-distribution/`, Play *Data safety*
-  yardım sayfası (URL'yi okuyan yazar). **Durma dalı:** K-A / K-D biçimi Apple'a ya da Google'a uymuyorsa M16-55 ve M16-61 başlamaz → AskUserQuestion.
-- Soru adımı (Q55 … Q59); CLAUDE.md §5'in iki cümlesi onaylanır.
-- ADR 0051 *Kabul edildi*; **notlar:** ADR 0049 (ADR 0051 §8'in metni), **ADR 0010** (*"listedeki ve parolalı girişi açık işletmelerde imzası çıkmış
-  telefonun dokunuşu bir `tap.signed_out_phone` satırı yazar — ADR 0051, M16-52"*) *[A2-S17]*, ADR 0021 + ADR 0031 (tek definer-definer çağrısı,
-  ADR 0051 §2.10), ADR 0026, ADR 0039, ADR 0045 §2.3, ADR 0022; **ADR 0005 risk eki** (kimlik ele geçirme + plaketsiz `businessName` / `employeeName`).
-- **Canlı ölçüm (yalnız sayı)** *[A2-low]*:
-  ```sql
-  BEGIN READ ONLY;
-  SELECT n, count(*) AS addresses FROM (
-    SELECT lower(email::text) AS e, count(DISTINCT tenant_id) AS n FROM employees
-    WHERE email IS NOT NULL AND status IN ('active','invited') GROUP BY 1) s GROUP BY n ORDER BY n;
-  SELECT status, count(*) AS people, count(DISTINCT tenant_id) AS businesses FROM employees
-    WHERE email IS NOT NULL AND status IN ('active','invited') GROUP BY 1;
-  SELECT max(c) FROM (SELECT count(*) AS c FROM admin_users WHERE role = 'owner' AND status = 'active' GROUP BY tenant_id) s;
-  SELECT count(*) FROM tenants;
-  ROLLBACK;
-  ```
-  İlk sorgunun en büyüğü > 3 ⇒ durulur ve sorulur. Son sorgu M16-60'ın `tenants` `CHECK`'inin (doğrulanmış, aynı dosya) maliyetini söyler.
+- **Okuma:** Apple *"Offering account deletion in your app"*, Google `support.google.com/googleplay/android-developer/answer/13327111` ve `…/answer/10787469`
+  (2026-11-25'te okundu; kart tarihi günceller), App Review Guidelines, `app-privacy-details`, `unlisted-app-distribution`. Uymazsa M16-55 / M16-61 başlamaz.
+- **Soru adımı:** Q55 … Q59; **`identity_erase_member`'ın ADR 0031 kapalı listesine eklenmesi** (adıyla); **CLAUDE.md §5'in iki cümlesi** *[A3-N23]*: (1)
+  *"Aktivasyon dokunuşu"* maddesine: *"Uygulamada e-posta + parolayla giriş bir aktivasyon daveti basar; parola tek başına cihaz bağlamaz — tamamlanma işverenin
+  plaketine, canlı QR'ına ya da müdür onayına ilk dokunuştadır (ADR 0051)."* (M16-52); (2) yalnız Q55 (b): *"Operatörün işaretlediği inceleme işletmesinde basılı
+  statik QR da aktivasyonu tamamlar; başka hiçbir işletmede QR aktive etmez (ADR 0051)."* (M16-56).
+- ADR 0051 *Kabul edildi*; **notlar:** ADR 0049 (ADR 0051 §8), ADR 0010 (`tap.signed_out_phone`), **ADR 0021 §1'in sır sütunlarına `employee_passwords.digest`,
+  `employee_password_links.token_hash`**, ADR 0031 (`identity_erase_member`), ADR 0048 (`admin_users.password_hash`'in okunurluğu adlandırılmış bedel; iki yeni
+  tablonun istisnası), ADR 0026, ADR 0039, ADR 0045, ADR 0022; **ADR 0005 risk eki**.
+- **Canlı ölçüm (yalnız sayı):** bir adresin işletme sayısı dağılımı (> 3 ⇒ dur), durum başına kişi ve işletme sayısı, en çok owner sayısı (M16-50'nin önceki
+  SQL'i, `tenant_id` döndürmeden).
 - `GOTOOLCHAIN=go1.26.11 go test -run 'TestEveryNamedTestExists|TestADR0005_' ./cmd/tappa/` yeşil.
 
 ## M16-51 — Çalışan parolası: şema, parola linki isteği ve `/staff/password` sayfası
@@ -3630,19 +3616,21 @@ Koşullu bir kart açılmazsa numara hiç yazılmaz, boşluk oluşmaz. Her kart 
   **`DELETE`** (iki tabloda; RLS altında) *[B2-H1]*; `employees.app_signin_revoked_at timestamptz` (`NULL`, varsayılansız — katalog değişikliği);
   `employee_invites.origin` + `CHECK … NOT VALID`; `tenants.staff_password_signin` + `GRANT UPDATE`; iki çözümleyici (ADR 0051 §2.3.3, §2.4.2: süzgeçler
   — **yönetici adresi dışlaması dahil** — ve `set_email = email` `JOIN`'i `LIMIT`'ten önce; sıra `t.created_at, e.created_at, e.id`; `LIMIT 3`)
-  *[B2-H2, A2-A10]*; `tappa_resolver`'a yalnız yeni sütunlar (`employees (…, app_signin_revoked_at)`, `employee_passwords (tenant_id, employee_id, digest,
+  *[B2-H2, A2-A10]*; **rol varlığına bağlı `DO` bloğu:** `tappa_readonly` / `tappa_readwrite` varsa iki tablodan `REVOKE ALL` (dev'de roller yok —
+  `scripts/db-init/01-roles.sql`; `scoped-access.sql:274-275`'in varsayılan yetkileri yeni tabloyu oluştuğu an açar) *[B3-N11]*; `privCatalogAllowed` güncellenir *[A3-N25]*; `tappa_resolver`'a yalnız yeni sütunlar (`employees (…, app_signin_revoked_at)`, `employee_passwords (tenant_id, employee_id, digest,
   set_email)`, `tenants (suspended_at, staff_password_signin, created_at)`, Q59 (b) ise `employee_invites (origin)`); `00009`/`00012`'nin `employee_invites`
   sütunlarına, `admin_users`'ın `00011`/`00017`/`00071`/`00081` sütunlarına ve `tenants.id`'ye **dokunulmaz**. `Down`: dolu satırda reddeder.
 - **00119** `VALIDATE`; **00120** `DROP INDEX CONCURRENTLY IF EXISTS` + `CREATE INDEX CONCURRENTLY employees_email_idx`, `NO TRANSACTION`, `lock_timeout` yok.
 - Kod `internal/adminauth`'ta; wiring testi; bcrypt importu ölçüsü (`git grep -ln '"golang.org/x/crypto/bcrypt"' -- '*.go' ':!*_test.go'`).
 - **Ret listesi** ADR 0051 §2.2'nin seçim kuralıyla; kaynak, lisans, boyut ve SHA-256 dosya başında *[A2-S11]*.
 - **Env:** `TAPPA_STAFF_PASSWORD_TENANTS` (boş / UUID listesi `[]uuid.UUID` / `*` → `all`). **Yeni sır yok:** link HMAC anahtarı `SessionHMACKey`'den
-  `deriveInviteKey`'in deseniyle, etiket `staff-password-link` (`internal/adminauth/admininvite.go:136-142`); rotasyon `TAPPA_SESSION_HMAC_KEY`'inkidir
+  `deriveInviteKey`'in deseniyle, etiket **`"tappa/staff-password-link/v1/key-derivation"`** (`admininvite.go:64`, `signupclaim.go:68`'in biçimi) (`internal/adminauth/admininvite.go:136-142`); rotasyon `TAPPA_SESSION_HMAC_KEY`'inkidir
   (rotasyonda canlı linkler ölür — 1 saatlik ömür) *[B2-LOW]*.
 - Panel ayarı + audit; Q56 (b) ise `signup.Provision` aynı transaction'da `UPDATE`.
+- **Link basımı** önce kişinin süresi dolmuş canlı linklerini `revoked_at = now()` ile kapatır (tek canlı link indeksi süresi dolmuşu da tutar) *[A3-N22]*.
 - **Uç** `POST /app/v1/password/request` (ADR 0051 §2.3): tek cevap, bant, `TryCharge`, `LockTenantForStaffPasswordLimits`, çıkış kutusu, e-posta
   **`TenantVerified`** kuralıyla *[B2-O-d]*.
-- **Sayfa** `GET/POST /staff/password`: GET token'ı çereze alır ve token'sız adrese 303; her cevap `Referrer-Policy: no-referrer` *[B2-O1]*; POST tek
+- **Sayfa** `GET/POST /staff/password`: GET token'ı çereze alır ve token'sız adrese 303; her cevap `Referrer-Policy: no-referrer` (`adminreset.go:909`) *[B2-O1]*; POST tek
   transaction'da (`LockTenantForInviteLimits` altında) özet (`set_email` = güncel adres; bağlantı `link_email = employees.email` değilse ret), linkler,
   **`CancelPendingPasswordInvitesForEmployee`** (yeni sorgu, `origin = 'password'`) *[A2-A18]*; `personNotices` *"password set"*. Kabuk M16-54'ünkü.
 - **Ingress:** `40-ingress.yaml`'ın `tappa-panel` kuralına `/staff`; pin testi; Faz H deploy'u uygular (ayrı onay yok).
@@ -3656,7 +3644,7 @@ bilinmeyen yol. **[H51-l] K+1 saldırgan işletme:** kurbanın adresiyle 4 yeni 
 Q59 (b)) → link gerçek işletmeye gider; aynı vaka yönetici adresli 3 eski işletmeyle (pencerede yer kaplamaz) *[B2-H2, A2-A10]*. Boz: sırayı `ORDER BY
 tenant_id` ya da `(status <> 'active')` öncelikli yap → düşer. [H51-m] Parola belirlenince bekleyen parola davetleri `cancelled_at`, işveren davetleri
 dokunulmaz. **[H51-n] Adres değişimi:** parola belirlenmiş kişinin adresi panelden, API'den ve içe aktarmadan değişince giriş 401 verir; eski adrese
-basılmış link tüketilemez *[B2-H2]*.
+basılmış link tüketilemez *[B2-H2]*. **[H51-o]** rol varken (test rolü yaratır) migration'dan sonra `tappa_readonly`'nin iki tabloda yetkisi yok. **[H51-p]** süresi dolmuş canlı link yeni basımı engellemez.
 
 ## M16-52 — Parolayla giriş: `POST /app/v1/signin`, `IssueParams` genişlemesi, tüketimde kardeş iptali
 
@@ -3665,14 +3653,16 @@ basılmış link tüketilemez *[B2-H2]*.
 **Kabul kriterleri.**
 - Sıra ADR 0051 §2.4.1; tel sözleşmesi `200 {"workplaces":[…]}` / `401 signin_failed` / 429 / 503 / env boşken 404.
 - **`IssueParams` genişler** *[B2-O2, A2-S16]*: `Origin string` (`"employer"` varsayılan, `"password"`) ve `Gate func(context.Context, *store.Queries) error`
-  (basım transaction'ında `LockTenantForInviteLimits`'ten sonra); `CreateInvite` (`db/queries/invites.sql:66-71`) `origin`'i yazar; `make gen`. Basımdaki
+  (basım transaction'ında `LockTenantForInviteLimits`'ten sonra); `CreateInvite` (`db/queries/invites.sql:66-71`) `origin`'i yazar; `make gen`. Yeni hata kodları `signin_failed` (401) ve `busy` (503) `appErrorStatus`'a; `workplaces[].code` 43 karakter base64url
+  (`internal/invite/code.go:55-57`) *[A3-N18]*. Basımdaki
   iptal kuralı (`CancelPendingInvitesForEmployee`, iki köken) **değişmez**. Parola yolu kilidi `Gate`'te alır, kişi başına 5 / sa sayar.
 - `CountRecentInvites` `origin = 'employer'`'a daralır.
+- **`RequestDeletion` değişikliği bu kartındır** *[A3-N12, B3-N-M2]* (`internal/domain/tenant/staffdeletion.go`): aynı transaction'da kişinin parola ve link satırlarını siler, `app_signin_revoked_at`'i yazar, **`CancelPendingPasswordInvitesForEmployee`**'yi çağırır. **`app_signin_revoked_at` doluyken `origin='password'` bir davet tüketilemez** (`consume` reddeder).
 - **Tüketimde kardeş iptali** (`consume`, `internal/invite/manager.go:873`) + işveren kökenli tüketimde `app_signin_revoked_at` temizlenir.
 - **Lookup daralması:** `origin = 'password'` davette `locationName` ve `wifiSsid` dönmez *[B2-O5]*.
 - Görünürlük (owner saatlik özet, `personNotices`, onay listesi uyarısı), SigNoz kural tanımları — **eşik M16-59'un ölçtüğü tabandan türetilir** *[A2-S18]*.
 - **T59 (a) — M16-35'in metninden taşındı** *[A2-S17]* (atıflar `6ab423eb`'ye göreydi, yapıcı yeniden okur): `GET /t`'nin iptal edilmiş oturum dalında
-  (`internal/handler/tap.go:440`) bu sırayla — (1) işletme `TAPPA_STAFF_PASSWORD_TENANTS`'ta mı (bellekte), (2) `staff_password_signin` açık mı, (3)
+  (`internal/handler/tap.go:508-512`) bu sırayla — (1) işletme `TAPPA_STAFF_PASSWORD_TENANTS`'ta mı (bellekte), (2) `staff_password_signin` açık mı, (3)
   ilerletmeyen SUN ön kontrolü; plaketin ve oturumun tenant'ı eşit olmalı. Üçü de geçerse WARN'un yanına `audit_log` `tap.signed_out_phone` (`target`
   çalışan, `detail` yalnız kanal; kişi başına 10 dk'da bir). Listede olmayan işletme (KF/KM) bayt bayt bugünkü gibi; `POST /api/checkin`'in WARN'u ve
   aktivasyon yönlendirmesi yazmaz; uygulama yolu değişmez.
@@ -3684,7 +3674,7 @@ ve saatlik özet. [H52-h] Bütçeler, `TryCharge` (40 eşzamanlı ≤ 10 karşı
 [H52-k] `CountRecentInvites` parola satırlarını saymaz. [H52-l] 6. parola daveti / sa ret. [H52-m] T59 (a) satırı yalnız listedeki ve açık işletmede.
 **[H52-n] Statik test — yalnız kardeş iptali** *[A2-S19]*: `consume`'u çağıran her dışa açık yöntem `CancelPendingInvitesForEmployee`'nin koştuğu ortak
 adımdan geçer. **[H52-o]** *[B2-H1]*: çalışanın *Delete my account* talebinden sonra `POST /app/v1/signin` 401, `/app/v1/password/request` e-posta
-göndermez; yeni bir işveren davetinin tüketiminden sonra ikisi de yeniden çalışır. [H52-p] Parola davetinin lookup'ında `locationName` ve `wifiSsid` yok.
+göndermez; **talepten önce basılmış bir parola kodu tamamlanamaz**; yeni bir işveren davetinin tüketiminden sonra hepsi yeniden çalışır. [H52-p] Parola davetinin lookup'ında `locationName` ve `wifiSsid` yok.
 
 ## M16-53 — Uygulama ekranları — iOS + Android
 
@@ -3707,37 +3697,29 @@ göndermez; yeni bir işveren davetinin tüketiminden sonra ikisi de yeniden ça
 - **Bağımlılık:** M16-50, PR #49 · **Mercek: tek** · **Commit:** `feat(signup): draw the wizard without the site's links when the app opens it`
 
 **Kabul kriterleri.**
-- Kaybolan / kalan bağlantılar ADR 0051 §2.6'nın tam listesi — **`signup.templ:290` ve `:840` dahil** *[A2-S10]*; `/account-deletion?client=app` uygulama
+- Kaybolan / kalan bağlantılar ADR 0051 §2.6'nın tam listesi — **`signup.templ:290`, `:840` ve `:697` kaybolur; `:765` (onay linki, yalnız e-posta gönderimi kapalı sandbox/dev) kalır** *[A2-S10, A3-N13]*; bayrak sihirbazın **imzalı durum çerezinde** taşınır (form alanı ya da sorgu dizgesi değil) ve taslağa geçer; e-postadaki onay linki **sistem tarayıcısında**, uygulamanın dışında açılır — 3.1.1 için uygulama modu gerekmez; `/account-deletion?client=app` uygulama
   modunda *[A2-S12]*; K-B.
 
 *Testler.* [H54-a] Kapalı `href` kümesi — her sihirbaz adımı, `/signup/sent`, `SignupDone`, her yasal sayfa **ve `/account-deletion?client=app`**: yalnız
 `/signup*`, `/legal/*?client=app`, `/account-deletion?client=app`, `layout.CreditURL`, dış yasal bağlantılar, `mailto:`, çapalar. [H54-b] Bayraksız bayt bayt
-aynı. [H54-c] Bayrak kontrol gevşetmez. [H54-d] `appLinkPaths` tam `{/t, /q}`.
+aynı. [H54-c] Bayrak kontrol gevşetmez. [H54-d] `appLinkPaths` tam `{/t, /q}`. **[H54-e]** bayrak bir adımdan ötekine çerezle taşınır.
 
-## M16-55 — İşletme hesabını silme talebi: sayfa, kayıt, bildirimler, operatör listesi
+## M16-55 — İşletme hesabını silme talebi: tablo, sayfa, bildirimler, operatör onayı
 
-- **Bağımlılık:** M16-50 (Q57, okuma), **M16-51** (`personNotices`) *[A2-S15]*, M16-54 · **silme envanteri ve metin onayı** · **Mercek: iki**
-- **Kırmızı çizgi:** §4.3, §4.5, §4.6, §4.7 + §7 · **Commit:** `feat(account): let an owner ask to delete their business`
+- **Bağımlılık:** M16-50 (Q57, okuma), M16-51 (`personNotices`), M16-54 · envanter ve metin onayı · **Mercek: iki** · **Commit:** `feat(account): let an owner ask to delete their business`
 
-**Kabul kriterleri.**
-- **00122:** `tenants.deletion_requested_at`, **`deletion_requested_by uuid`** (owner'ın `admin_users.id`'si) *[A2-S20]*, `deletion_completed_at` (yalnız
-  sütun; M16-61 yazar); `GRANT UPDATE (deletion_requested_at, deletion_requested_by)` `tappa_app`'a; tetikleyici `BEFORE UPDATE OF deletion_requested_at,
-  deletion_requested_by` (dolu değer yalnız `tappa_opdefiner` sahipli kodda değişir — **asıl kapı `GRANT`'tır**, `privCatalogAllowed` pinler) *[B2-O8]*;
-  `op_cancel_business_deletion(p_session, p_tenant_id)`; **`op_read_deletion_requests(p_session, p_ticket)`** (en eski önce, kalan gün) *[A2-S13]*;
-  `op_read_tenant_detail`'in yeni tanımı (`created_by_operator`, `deletion_requested_at`, `deletion_completed_at`); `opDefinerTenantsUpd63`'nin premisi
-  güncellenir (`internal/db/holdingops_test.go:743`). **`Down`:** dolu `deletion_requested_at` varken reddeder; önceki tanımları birebir geri koyar
-  *[A2-S14]*.
-- **Bayrak `TAPPA_BUSINESS_DELETION`** (boş = owner formu kapalı, bcrypt ucu bağlanmaz; sayfa çalışan bölümünü çizer) *[B2-H/O-a, B2-O6]*.
-- **Sayfa** `GET/POST /account-deletion`: iki bölüm; owner formu — adım 1 e-posta + parola, adım 2 işletme + ad; adımlar arası HMAC'li 10 dakikalık çerez
-  (kanıtın kimliği + izinli tenant'lar), senkronizasyon token'ı, Origin; `no-referrer`; **loglanmayanlar:** e-posta, parola, çerez, token *[B2-O-e]*.
-  Kanıt `adminauth.Manager.ProveOwnership`. Metin ADR 0051 §2.9.8 (K-A + K-D).
-- **Tek transaction:** iki sütun + audit + `RevokeMembershipSessions`; sonra isteyene ve öteki owner'lara e-posta (`TenantVerified`).
-- Operatör yüzeyinde liste ve iptal; Ingress'e `/account-deletion`.
+**Kabul kriterleri** (ADR 0051 §2.9).
+- **00121:** `business_deletion_requests` (§6 beşlisi, tek açık talep indeksi, tek yönlü tetikleyici); `tappa_app`'a `SELECT, INSERT, UPDATE (completed_at)`;
+  `tappa_opdefiner`'a **yalnız bu tabloda** `SELECT, UPDATE (approved_at, cancelled_at)`; `op_read_deletion_requests`, `op_approve_business_deletion`,
+  `op_cancel_business_deletion`; `operator_audit_log_kind_check`'e `business_deletion_read`, `business_deletion_approved`, `business_deletion_cancelled` (`00107:236-245`
+  deseni) *[A3-N21]*; `resolve_pending_business_erasures()` (`tappa_resolver`). `tenants`'a sütun yok; `opDefinerTenantsUpd63` değişmez. `Down`: açık ya da
+  tamamlanmış talep varken reddeder.
+- Bayrak `TAPPA_BUSINESS_DELETION` (boş / `on`; başka değer açılışı reddeder) *[A3-N19]*.
+- Sayfa, kanıt (`ProveOwnership`), çok adımlı çerez; talep transaction'ı (`RevokeAdminSessionsForAdmin` — `admins.sql:203`, var olan — ve `identity_revoke_sessions`)
+  *[A3-N20]*; e-postalar; operatör listesi + onay (onayda `op_suspend_tenant(…, 'customer_request')`) + iptal; Ingress `/account-deletion`.
 
-*Testler.* [H55-a] Manager / disabled / yanlış parola → aynı cevap. [H55-b] Owner: sütunlar, audit, isteyenin oturumları iptal, ötekiler duruyor,
-`transactions` ve `billing_periods` aynı. [H55-c] Tekrar: yazım yok. [H55-d] `tappa_app` dolu değeri değiştiremez; `op_cancel_business_deletion` değiştirir.
-[H55-e] RLS. [H55-f] `op_read_*` ve `Down`. [H55-g] Logda adres yok. [H55-h] Tek owner'lı işletme. [H55-i] Askıdaki işletmenin owner'ı. [H55-j] Bayrak
-kapalı: owner formu ve POST'u yok, bcrypt yok. [H55-k] Adım 2 çerezi olmadan ya da süresi geçmiş çerezle ret.
+*Testler.* [H55-a] … [H55-k] + **[H55-l]** operatör rolü `business_deletion_requests` dışında hiçbir tabloya yeni yetki almaz; `identitycatalog_test.go:408-415` ve
+`adminidentity_test.go:179`, `:283` aynen yeşil.
 
 ## M16-56 — İnceleme işletmesinde statik QR'la bağ (yalnız Q55 (b))
 
@@ -3750,23 +3732,21 @@ kardeş iptali; aksi hâlde `no_sun` bayt bayt. CLAUDE.md §5 cümlesi ve ADR 00
 
 ## M16-57 — Demo işletme ve inceleyici runbook'u (M16-39'un yerine)
 
-- **Bağımlılık:** M16-40, Faz H PR'ı `main`'de, M16-53, M16-55, M16-60, (M16-56 ya da Q55 (a)) · **Mercek: tek** · **Commit:** `docs(mobile): prepare the store review with a demo employee's sign-in`
+- **Bağımlılık:** M16-40, Faz H PR'ı `main`'de, M16-53, M16-55, (M16-56 ya da Q55 (a)) · **Mercek: tek** · **Commit:** `docs(mobile): prepare the store review with a demo employee's sign-in`
 
-**Hüküm:** M16-39 ayrıca koşmaz; değişmeyen maddeleri bu kartındır.
+**Üretim kurulum sırası** (kullanıcı; değerler depoya asla) *[K-C2]*:
+1. PR #49 `main`'de.
+2. Kullanıcı web `/signup`'ı doldurur: *"Taptime Demo"*, grubun başka bir şirketinin **gerçek AB KDV numarası** (KF/KM değil), bir mekân, owner olarak kendisi.
+3. E-postadaki onay linkiyle işletme doğar (bu adım M16-40'tan önce yapılır — kapanış sırası adım 4).
+4. Faz H PR'ı `main`'de.
+5. UUID: `BEGIN READ ONLY; SELECT count(*) FROM tenants WHERE name = 'Taptime Demo'; ROLLBACK;` → 1; UUID'yi kullanıcı panel adresinden ya da aynı sorgunun `id`'sinden
+   okur ve **yalnız** config PR'ına yazar (sır değildir).
+6. Config PR 1. 7. Panelde demo plaketi, Saatlerim 4 hafta, parolalı giriş (yeni işletme açık doğar — Q56 (b)). 8. Üç demo çalışan (biri inceleyici, biri prova, biri
+   **tek kullanımlık yıkıcı adımlar için** — M16-40 emsali) + davet. 9. Uygulamada *"First time here?"* → link → parola. 10. (Q55 (b)) `op_set_store_review`. 11. Konsollara yer
+   tutucular.
 
-**Üretim kurulum sırası** (kullanıcı; değerler depoya asla):
-1. PR #49 ve Faz H PR'ı `main`'de.
-2. Operatör *"New business"*: ad *"Taptime Demo"*, `business_type` `other`, `structure` `single`, owner adresi kullanıcınınki (K-C; ADR 0051 §2.10).
-3. Ekranda bir kez gösterilen owner linki kullanıcının tarayıcısında açılır → parola seçilir → işletme doğar.
-4. UUID: `BEGIN READ ONLY; SELECT count(*), min(id::text) FROM tenants WHERE created_by_operator; ROLLBACK;` — sayı 1 olmalı; UUID yalnız config PR'ına girer.
-5. Config PR 1 (`TAPPA_STAFF_PASSWORD_TENANTS` = o UUID).
-6. Panelde lokasyon, demo plaketi, Saatlerim 4 hafta, parolalı giriş (açık doğar).
-7. İki demo çalışan (kullanıcının kutuları, panel adresinden farklı) + davet.
-8. Her biri için uygulamada *"First time here?"* → link → parola.
-9. (Q55 (b)) `op_set_store_review`. 10. Konsollara yer tutucular (`<DEMO_EMPLOYEE_EMAIL>`, `<DEMO_EMPLOYEE_PASSWORD>`, `<QR_ATTACHMENT>`).
-
-**Kabul kriterleri.** `mobile/README.md` *"Store review"* (yol, KDV adımı uyarısı, *Delete a business account* reddi), *"Rejection risks"* (3.2 + hazır
-Resolution Center cevabı), runbook, `git grep` ölçüsü; `state.md` M16-39 `replaced`.
+**Kabul kriterleri.** `mobile/README.md` *"Store review"* (yol, **KDV adımı uyarısı** — bedel 11, *Delete a business account* reddi), *"Rejection risks"* (3.2 + Resolution
+Center cevabı), runbook; `state.md` M16-39 `replaced`.
 
 ## M16-58 — Mağaza beyanları ve gizlilik taslağı
 
@@ -3775,21 +3755,28 @@ Resolution Center cevabı), runbook, `git grep` ölçüsü; `state.md` M16-39 `r
 **Kabul kriterleri.**
 - `docs/legal/privacy-draft.md` bölüm 12: parola paragrafı, işletme kaydı, işletme silme (30 gün, envanter, K-D, yedekler, onay e-postası); kaynak tablosu.
 - `docs/store/app-store.md` + **`mobile/ios/Taptime/PrivacyInfo.xcprivacy`** (*Email Address*; `mobile/ios/TaptimeWidgets/PrivacyInfo.xcprivacy` değişmez —
-  widget e-posta görmez) *[A2-S24]*; `docs/store/google-play.md` (*Email address*, tek URL `/account-deletion`, *App access*, tanıtım metni).
+  widget e-posta görmez) *[A2-S24]*; `docs/store/google-play.md` (*Email address*, tek URL `/account-deletion`, *Data safety* (`support.google.com/googleplay/android-developer/answer/10787469`, okundu 2026-11-25) silme sorusu *"Yes"*, *App access*, tanıtım metni).
 - **Yayım:** hukukçu → `/operator/legal` (kullanıcı) → `curl -s https://taptime.mt/legal/privacy` çıktısında *"The Taptime staff app"* başlığı **ve**
   bölüm 12'nin parola cümlesinin onaylı metninden bir parça (ör. *"a password you choose"*) var, *"Not in force yet"* yok *[A2-S24]*; geri alma: önceki sürüm.
 - `go test -run 'TestEveryNamedTestExists' ./cmd/tappa/` yeşil.
 
-## M16-59 — Faz H kapanışı
+## M16-59 — Faz H kapanışı: büyük testler ve cihaz turu
 
-- **Bağımlılık:** hepsi · **Mercek: iki** · **Commit:** `test(mobile): close the store-compliance phase`
+- **Bağımlılık:** hepsi, M16-62 · **Mercek: iki** · **Commit:** `test(mobile): close the store-compliance phase`
 
-**Kabul kriterleri.** Büyük testler ve iki mercek birleştirmeden önce (`m16-store`); cihaz turu sonra, yalnız demo işletmede (parola linki, giriş, bağ,
-adres değişimi → giriş düşer, çalışan silme talebi → giriş düşer, Custom Tabs, uygulama modu, KDV adımı, silme sayfası); silme talebi ve tamamlama yalnız
-yerel / şerit DB'de. **Taban** (SigNoz + `tappa_readonly`, yalnız sayı): kapı WARN / gün, kesici saatlik hacmi, owner bildirimi `undelivered` oranı — SigNoz
-eşikleri buradan *[A2-S18]*. Canlı salt okuma öncesi/sonrası sayılar. ADR 0051 *"Uygulandı"*.
+**Kabul kriterleri.** Büyük testler ve iki mercek `m16-store`'da birleştirmeden **önce**; cihaz turu birleştirmeden **sonra**, yalnız demo işletmede. **Yıkıcı adımlar**
+(adres değişimi, *Delete my account*, deaktivasyon) **yalnız tek kullanımlık üçüncü demo çalışanla**; tur bitince **geri yükleme:** inceleyici ve prova çalışanlarının
+parolası çalışıyor (giriş 200), cihazları panelden çıkarılmış, Saatlerim 4 hafta, (Q55 (b)) bayrak açık — salt okuma sayılarla *[A3-N16]*. Silme talebi ve tamamlama
+yalnız yerel / şerit DB'de. İnceleyici provası (`mobile/README.md`). ADR 0051 *"Uygulandı"*.
 
-## M16-60 — Operatör yüzeyinden KDV'siz işletme: owner kaydı (K-C)
+## M16-60 — Operatör yüzeyinden KDV'siz işletme — **düştü (2026-11-25, K-C2)**
+
+> **2026-11-25 — düştü (kullanıcı kararı K-C2, K-C'nin yerine).** Demo işletme web `/signup`'tan grubun başka bir şirketinin gerçek KDV numarasıyla açılır; şema
+> değişikliği ve operatör yolu yoktur. Bu kartın tarifi (owner kaydı, `op_mint_business_claim`, `identity_open_operator_claim`, `created_by_operator`,
+> `vat_number`'ın `NULL` olabilmesi, `admin_signup_claims.kind`, definer'dan definer'a çağrı, ADR 0021/0031 ekleri, `NULL` KDV geri alma tehlikesi ve KDV'siz
+> bedeller) **uygulanmaz**; numara (M16-60) kullanılmaz. Metnin ayrıntısı `f9b972a5`'teki bu karttadır.
+
+*(Düşen tarif, geçmiş için:)*
 
 - **Bağımlılık:** M16-50 (ADR 0021/0031 eki), M16-51 · **Kırmızı çizgi:** §4.5 · **Araç:** yapıcı + `tappa-db-migrator` + `tappa-security-auditor` · **Mercek: iki**
 - **Commit:** `feat(operator): open a business without a VAT number`
@@ -3811,24 +3798,39 @@ eşikleri buradan *[A2-S18]*. Canlı salt okuma öncesi/sonrası sayılar. ADR 0
 tam olarak *"No VAT number (opened by Taptime)"* çizer. [H60-e] Operatör linkinin ikinci kullanımı reddedilir. [H60-f] `tappa_opdefiner` `tenants`'ta hâlâ
 INSERT tutmaz.
 
-## M16-61 — İşletme silmesinin tamamlanması (K-A, K-D)
+## M16-61 — İşletme silmesinin tamamlanması (K-A, K-D) — uygulama tarafı
 
-- **Bağımlılık:** M16-55 · **Q13 + hukukçu onayı + K-D sorusunun cevabı** · M16-50'nin okuması uyuyor · **Mercek: iki** (+ `tappa-security-auditor`, kimlik tabloları)
-- **Commit:** `feat(operator): complete a business deletion`
+- **Bağımlılık:** M16-55 · Q13 + hukukçu + K-D sorusu · M16-50 (`identity_erase_member` onayı) · **Mercek: iki** (+ `tappa-security-auditor`, kimlik yüzeyi)
+- **Commit:** `feat(account): complete a business deletion`
+
+**Kabul kriterleri** (ADR 0051 §2.9.7–§2.9.10).
+- Migration (commit anında): **`identity_erase_member(p_tenant_id, p_admin_user_id)`** — sahibi `tappa_identitydefiner`, `EXECUTE` yalnız `tappa_app`; kimlik
+  fonksiyonları test listesine girer (`tappa_app` true); operatör rolleri için olan kontroller (`identitycatalog_test.go:408-415`, `adminidentity_test.go:179`, `:283`)
+  **değişmeden** yeşil. `Down` fonksiyonu düşürür.
+- **Silici** `internal/domain/tenant` (`BusinessEraser`; operatör handler'ı tüketici tarafı arayüzle çağırır, `cmd/tappa` bağlar): `tappa_app` havuzu, `SET LOCAL
+  app.tenant_id`; envanter tablosunun her satırı (değerler ADR 0051 §2.9.9); `api_keys`, `oauth_grants` / `oauth_tokens`, `webhook_endpoints` var olan panel
+  iptal sorgularıyla; `completed_at`; açılış süpürücüsü `resolve_pending_business_erasures()`.
+- **`mail.ValidRecipient` `.invalid`'i reddeder** (`internal/mail/compose.go:60`) *[B3-N-L2]*.
+- Onay e-postası `personNotices` (adres silmeden önce okunur).
+
+*Testler.* [H61-a] envanterin her satırı (tablo başına bir vaka; `external_ref` yer tutucusu biçim regex'ini ve tekilliği geçer, `home_or_external_ref` tutar) ·
+[H61-b] başka işletmede üyeliği olan kimlik anonimleşmez · [H61-c] ekleme-yalnız tablolar aynı · [H61-d] onay e-postası, logda adres yok · [H61-e] operatör rolleri
+`identity_erase_member`'ı çalıştıramaz · [H61-f] yer tutucular CHECK'leri geçer · [H61-g] `ValidRecipient("x@deleted.invalid")` false · [H61-h] süreç onay ile
+tamamlama arasında ölürse süpürücü işi bitirir.
+
+## M16-62 — Taban ölçümü (Faz H birleştirmesinden ÖNCE)
+
+- **Bağımlılık:** PR #49 `main`'de · **Araç:** ana oturum ya da kullanıcı (salt okuma) · **Mercek: tek** · **Commit:** `docs(plan): record the store-phase baseline`
+
+**Amaç.** Faz H'nin yükünü ve uyarı eşiklerini ölçülmüş bir tabana bağlamak; log'lar 15 gün yaşadığı için birleştirmeden önce *[A3-N15, B2-O6]*.
 
 **Kabul kriterleri.**
-- Migration (commit anındaki ilk serbest numara): `op_complete_business_deletion(p_session, p_tenant_id)` — askı (`customer_request`, `00063:354`),
-  ADR 0051 §2.9.7'nin **envanteri** (değer kuralı: NULL olabiliyorsa NULL, değilse `deleted-<id>@deleted.invalid` / `Deleted person`), parola satırlarının
-  silinmesi, oturum ve cihaz iptali, `deletion_completed_at`; `operator_audit_log`. **Dokunulmayan** ekleme-yalnız tablolar: `transactions`,
-  `transaction_reviews`, `punch_claims`, `site_punches`, `punch_events`, `audit_log`; ayrıca `billing_periods`, `tags`. **`Down`:** dolu
-  `deletion_completed_at` varken reddeder.
-- **Onay e-postası:** operatör paketi tüketici tarafı `DeletionNotifier` arayüzünü çağırır; uygulaması `internal/handler`'ın `personNotices`'ı (`cmd/tappa`
-  bağlar); alıcı `deletion_requested_by`'ın adresi, anonimleştirmeden **önce** aynı definer'dan okunur, yalnız bellekte; metin K-D'yi söyler.
-- Operatör runbook'u `docs/`'ta.
-
-*Testler.* [H61-a] Envanterin her satırı (tablo başına bir vaka). [H61-b] Başka işletmede üyeliği olan kimlik anonimleşmez. [H61-c] Ekleme-yalnız tabloların
-satır sayısı ve içeriği aynı. [H61-d] Onay e-postası tamamlamadan sonra, adres logda yok. [H61-e] `tappa_app` çağıramaz. [H61-f] `admin_identities.email`
-yer tutucusu `NOT NULL`'ı ve `admin_invites`'in ASCII `CHECK`'ini geçer.
+- SigNoz'dan (15 günlük pencere; yalnız sayı): `"panel bcrypt work at capacity, refusing"` WARN satırı / gün (`workgate.go:279`); kesicinin saatlik gönderim hacmi (audit
+  `*.emailed` / `*.sent` / `*.undelivered` satırları saat başına, `tappa_readonly` ile); owner bildirimi `undelivered` oranı.
+- **Eşik türetme kuralı** — `deploy/observability/signoz-alert-rules.json`'a iki kural (*"tappa 10"*, *"tappa 11"*): (1) kapı retleri: eşik = tabanın günlük en büyüğünün
+  **2 katı**, en az **saatte 1**; (2) `staff.signin.failed` — tabanı yoktur (özellik yok): ilk eşik **10 dakikada 50** (süreç geneli), M16-59'dan 14 gün sonra canlı
+  veriyle yeniden türetilir ve karta yazılır.
+- Sayılar bu karta ve `state.md`'ye.
 
 ---
 
