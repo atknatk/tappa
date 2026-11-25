@@ -3833,20 +3833,23 @@ aynı. [H54-c] Bayrak kontrol gevşetmez. [H54-d] `appLinkPaths` tam `{/t, /q}`.
 
 - **Bağımlılık:** M16-50 (Q55 = (b)), M16-52 · aksi hâlde açılmaz ve numara yazılmaz · **Mercek: iki** · **Commit:** `feat(activate): let a flagged review business finish activation with its printed QR`
 
-**Kabul kriterleri.** Migration (commit anındaki ilk serbest numara): **`store_review_flags`** — `tenant_id`, `enabled_at`, `disabled_at`, `set_by uuid` (operatörün `platform_admins.id`'si, FK'siz); §6 beşlisi; **tenant başına tek açık
+**Kabul kriterleri.** Migration (commit anındaki ilk serbest numara): **`store_review_flags`** — `tenant_id`, `enabled_at`, **`expires_at` (= `enabled_at + 14 gün`, CHECK)**, `disabled_at`, `set_by uuid` (operatörün `platform_admins.id`'si,
+FK'siz); §6 beşlisi; **tenant başına tek açık
 bayrak** (kısmi `UNIQUE (tenant_id) WHERE disabled_at IS NULL`); **`REVOKE ALL … FROM tappa_app`**, sonra `tappa_app`'a yalnız `SELECT` (tamamlama kuralının okuması);
 `tappa_opdefiner`'a **yalnız bu tabloda** `SELECT, INSERT, UPDATE (disabled_at)`; `privCatalogAllowed` satırları; **`tenants`'a sütun yok** — ADR 0021'in *"ASLA"* hücresi ve
 `opDefinerTenantsUpd63` (`holdingops_test.go:743`, `operatorsuspend_test.go:92`) değişmez, ADR 0021 §1'in *"Tutar"* hücresine `store_review_flags` eklenir *[A6-D6]*;
-`op_set_store_review(p_session, p_tenant_id, p_on)` → `void` (`FOUND` deseni) ve yeni `operator_audit_log` türü **`tenant_store_review_set`** — `00107`'nin deseniyle
+`op_set_store_review(p_session, p_tenant_id, p_on)` → `void` (`FOUND` deseni; açarken `expires_at = enabled_at + 14 gün` yazar) ve yeni `operator_audit_log` türü **`tenant_store_review_set`** — `00107`'nin deseniyle
 (`operator_audit_log_kind_check`, `operator_audit_log_tenant_write_shape` `00063:423-428`, `op_read_audit` yeni türü tanır) *[B6-low1]*; operatör bayrağı **işletme ayrıntısında**
 görür — `op_read_tenant_detail` (`00063:864`) `store_review_open boolean` döndürecek biçimde yeniden tanımlanır — ve ayrıntıdaki *"Store review: on / off"* düğmesi
 `op_set_store_review`'u çağırır. **`Down`** açık bayrak
-varken reddeder; `op_read_tenant_detail`'in önceki tanımını geri koyar. Kural iki tamamlamada da; kardeş iptali; aksi hâlde `no_sun` bayt bayt. CLAUDE.md §5 cümlesi ve ADR 0026
+varken reddeder; `op_read_tenant_detail`'in önceki tanımını geri koyar. Kural iki tamamlamada da: statik QR bağı yalnız açık bayrak, **`now() < expires_at`** ve işletmenin **en çok 5 aktif çalışanı** varken (yapısal sınır — koordinatör
+kararı 2026-11-25, güvenlik merceği R2.4); kardeş iptali; aksi hâlde `no_sun` bayt bayt. CLAUDE.md §5 cümlesi ve ADR 0026
 notu aynı commit.
 *Testler.* [H56-a] işaretsiz işletmede statik QR'la tamamlama bugünkü `no_sun` koduyla reddedilir (KF/KM fikstürü). [H56-b] işaretli işletmede tamamlanır, cihaz etkin, davet
 bir kez tüketildi, `transactions` sayısı aynı; aynı kodla ikinci deneme reddedilir. [H56-c] işaretli işletmenin QR'ı + başka işletmenin daveti → ret. [H56-d] `tappa_app`'ın
 `store_review_flags`'e INSERT/UPDATE'i → yetki hatası. [H56-e] `op_set_store_review` bir `operator_audit_log` satırı yazar. [H56-f] bağdan sonraki statik QR dokunuşu
-`flag`, kural `base:qr-requires-ip`. [H56-g] ikinci açık bayrak kısmi `UNIQUE`'e takılır. [H56-h] `Down` açık bayrak varken reddeder ve `op_read_tenant_detail`'in önceki tanımını
+`flag`, kural `base:qr-requires-ip`. [H56-g] ikinci açık bayrak kısmi `UNIQUE`'e takılır. [H56-i] süresi dolmuş bayrak (`now() ≥ expires_at`) → statik QR bağı reddedilir (`no_sun`). [H56-j] 6. aktif
+çalışan eklendikten sonra statik QR bağı reddedilir. [H56-h] `Down` açık bayrak varken reddeder ve `op_read_tenant_detail`'in önceki tanımını
 geri koyar.
 
 ## M16-57 — Demo işletme ve inceleyici runbook'u (M16-39'un yerine)
@@ -3914,7 +3917,8 @@ geri koyar.
   8. **Yıkıcı adımlar — yalnız tek kullanımlık üçüncü demo çalışanla** *[A3-N16]*: adres değişimi → giriş 401; *Delete my account* → giriş 401 ve talepten önce basılmış
      kod tamamlanamaz; deaktivasyon.
   9. **Geri yükleme:** inceleyici ve prova çalışanlarının girişi 200, cihazları panelden çıkarılmış, Saatlerim 4 hafta, parolalı giriş açık, (Q55 (b)) bayrak açık.
-- Kayıt yazan adım DB satırıyla, yazmayan adım sayının değişmediğiyle kanıtlanır: `BEGIN READ ONLY; SELECT origin, count(*) FROM employee_invites WHERE tenant_id = '<demo>'
+- Kayıt yazan adım DB satırıyla, yazmayan adım sayının değişmediğiyle kanıtlanır — **erişim `tappa_readonly` ile** (M16-50'nin ölçümü `tappa_owner`'la yapılmıştı; sonraki
+  üretim ölçümü salt okuma rolüyle): `BEGIN READ ONLY; SELECT origin, count(*) FROM employee_invites WHERE tenant_id = '<demo>'
   GROUP BY 1; SELECT count(*) FROM transactions WHERE tenant_id = '<demo>'; ROLLBACK;` — öncesi / sonrası, yalnız sayı (`<demo>` yalnız oturumda, depoya yazılmaz).
 - Silme talebi ve tamamlama **yalnız yerel / şerit DB'de** (üretimde demo işletmenin silinmesi geri alınamaz).
 - **İnceleyici provası** *[A4-D17]*: kullanıcı (ya da notu yazmamış biri) `mobile/README.md`'nin *"Store review"* notunu sıfır kurulu bir telefonda harfiyen izler; takıldığı her

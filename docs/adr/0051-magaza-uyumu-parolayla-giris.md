@@ -85,7 +85,7 @@
       retention practices"*.
     - Google *"Provide information for Google Play's Data safety section"* (`…/answer/10787469`): *"Collect" means transmitting data from your app off a user's device*;
       formda *"Does your app provide a way for users to request deletion of their data?"*.
-    - Ana oturumun okuması (M16-50 yeniden okur): 2.1(a), 3.1.1, 3.1.3(c), 3.2 (forum retleri, topluluk kaynağı), 4.8.
+    - Ana oturumun okuması (yeniden okuma M16-55'in başlangıcında — §9): 2.1(a), 3.1.1, 3.1.3(c), 3.2 (forum retleri, topluluk kaynağı), 4.8.
 
 ## 2. Karar
 
@@ -209,7 +209,8 @@ Her bütçe karşılaştırmadan önce `TryCharge` ile ayrılır.
 Öneri (b): operatörün işaretlediği işletmede statik QR bağlar (bayrak **`tenants`'ta değil, kendi tenant kapsamlı tablosunda** — `store_review_flags` (`tenant_id`, `enabled_at`,
 `disabled_at`, `set_by uuid` — operatörün `platform_admins.id`'si, `operator_audit_log`'un deseninde FK'siz; §6 beşlisi; `tappa_opdefiner`'a yalnız bu tabloda `SELECT, INSERT, UPDATE (disabled_at)`; `tappa_app`'a `SELECT`), yalnız `op_set_store_review` —
 böylece ADR 0021'in `tenants` *"ASLA"* hücresi ve `opDefinerTenantsUpd63` premisi (`holdingops_test.go:743`, `operatorsuspend_test.go:92`) değişmez; silme talebinin deseni
-*[A5-N12]*); (a) manager girişi;
+*[A5-N12]*); **yapısal sınır** (koordinatör kararı, 2026-11-25, güvenlik merceği R2.4): bayrağın `expires_at = enabled_at + 14 gün`'ü vardır ve statik QR bağı yalnız
+`now() < expires_at` **ve** işletmenin **en çok 5 aktif çalışanı** varken kabul edilir — Q55'in *"yalnız demo verisi"* bedeli böylece yapısal olarak doğrudur. (a) manager girişi;
 (c) canlı QR; (d) reddedildi.
 
 ### 2.8 Açılış — Q56, ve birleştirmede ne canlıya çıkar
@@ -391,7 +392,7 @@ ve **owner panelden açar** (M16-57 adım 7). İnceleyici *"Create a business ac
 | Operatörün kimlik verisine erişimi | **yok** — silici `tappa_app`, iki yeni `identity_*` fonksiyonu (`identity_erase_member` ve `identity_erase_tenant_invites`) yalnız `tappa_app`'ça çalıştırılır; operatör yalnız bir kimlik çifti bildirir | **beşinci adlandırılmış istisna** (`identity_erase_member` ve `identity_erase_tenant_invites`, yapısal yüklemlerle) — CLAUDE.md §4.5(3) değişir |
 | BYPASSRLS rollerinin özet okuması | migration `DO` bloğu `REVOKE` eder, `scoped-access.sql` istisnası | **`ALTER DEFAULT PRIVILEGES` yeni tabloyu oluştuğu an açar** — `REVOKE` aynı migration'da olmazsa özet okunur; `admin_users.password_hash` bugün okunur (adlandırılmış bedel) |
 | Yer tutucu adrese posta | dışa açık `ValidRecipient` ve `Send`'in `To` yolu `.invalid`'i reddeder; iç `validRecipient` (gönderen) değişmez | — |
-| Ingress log'unda token | erişim log'suz yol, token'sız 303, `no-referrer` | nginx hata log'u |
+| Ingress log'unda token | erişim log'suz yol, token'sız 303, `no-referrer` | nginx **hata** log'u: yukarı akış hatasında istek satırı sorguyla yazılır (`deploy/k8s/40-ingress.yaml:216-221`) — **panelin sıfırlama linkiyle (`/admin/reset/new?t=`, `internal/handler/adminreset.go:37`) aynı sınıf** kabul edilmiş bedel: 1 saat ömür, tek kullanım |
 
 ## 4. Bedeller
 
@@ -406,8 +407,11 @@ parolalı giriş yeni işveren daveti ister. 17. Holding kayıtlarında ad kalı
 ## 5. Kırmızı çizgiler
 
 §4.1, §4.2 değişmez. §4.3: ekleme-yalnız tabloların hiçbiri değişmez; anonimleştirme yalnız ekleme-yalnız olmayan kişi sütunlarında. §4.4: plaket bağı
-`sun.Verify`. §4.5: yeni tablolar §6 beşlisiyle; operatör yalnız `op_*` ve yeni yetkiyi **yalnız `business_deletion_requests`'te** (Q55 (b) ise ayrıca `store_review_flags`'te) alır; kimlik yüzeyine operatör dokunmaz.
-§4.6: talep personeli durdurmaz. §4.7 + §7: parola, adres, link token'ı, kod, çerez hiçbir log / hata / `detail`'de yok; yeni sır yok.
+`sun.Verify`; **istisna Q55 (b)**: operatörün işaretlediği inceleme işletmesinde (≤ 14 gün, ≤ 5 aktif çalışan) statik QR bağı `ctr` taşımaz, koruma davetin tek ifadeli
+tüketimidir. §4.5: yeni tablolar §6 beşlisiyle; operatör yalnız `op_*` ve yeni yetkiyi **yalnız `business_deletion_requests`'te** (Q55 (b) ise ayrıca `store_review_flags`'te) alır; kimlik yüzeyine operatör dokunmaz.
+§4.6: talep personeli durdurmaz; **tamamlanmış silmeden sonra** eski personelin dokunuşu §5 satır 4'ten satır 3'e geçer (kayıt yazılmaz) — ADR 0010'un
+adlandırılmış istisnası, kullanıcı onaylı. §4.7 + §7: parola, adres, link token'ı, kod, çerez **uygulamanın** hiçbir log / hata / `detail`'inde yok; tek istisna ingress-nginx'in **hata** log'udur (§3 — panelin
+sıfırlama linkiyle aynı sınıf kabul edilmiş bedel, 1 saat ömür, tek kullanım); yeni sır yok.
 
 ## 6. Mağaza ve gizlilik
 
@@ -416,7 +420,7 @@ işletme kaydı, işletme silme (30 gün, envanter, K-D, yedekler, onay).
 
 ## 7. Karar verilmedi
 
-Q55 … Q59; hukukçuya Q13 ve K-D sorusu. *Sonra:* tarayıcıda parolayla giriş, *Change password*, panelden *"Send app sign-in e-mail"*, iOS `webcredentials:`.
+Q55 … Q59 (**cevaplandı 2026-11-25, §9**); hukukçuya Q13 ve K-D sorusu. *Sonra:* tarayıcıda parolayla giriş, *Change password*, panelden *"Send app sign-in e-mail"*, iOS `webcredentials:`.
 
 ## 8. Uygulama
 
@@ -444,7 +448,11 @@ devralınmadı; metin silinmez"*.
   kartın dört sorgusu; çıktı yalnız sayı): (1) bir adresin işletme sayısı — n = 1 → 32 adres; **en büyük 1 ≤ K = 3, kapı geçti**; (2) aktif 20 kişi / 3 işletme, davetli 12 kişi
   / 4 işletme; (3) bir işletmedeki en çok aktif owner sayısı **1** — `ownerNotices` FIFO'su (32) ve saatlik özet için geniş pay; (4) kimlik başına bağlı üyelik — n = 1 → 2
   kimlik, n = 2 → 1 kimlik: *"başka bağlı üyelik"* dalı üretimde vardır, [H61-b]'nin fikstürü gerçekçidir.
-- **Mağaza sayfaları:** Apple *"Offering account deletion in your app"* ve Google `answer/13327111`, `answer/10787469` 2026-11-25'te okundu (§1.17); bu kabul turunda
-  **yeniden açılmadı**. App Review Guidelines'ın öteki maddeleri ana oturumun okumasıdır.
-- **Açık kalan kapılar:** **Q13** (saklama süresi) ve hukukçunun **K-A onayı** ile **K-D sorusu** (*"adı olmayan bir kayıt hâlâ delil midir?"*) — M16-55'in owner metni, M16-58 ve
+- **Mağaza sayfaları — bu turda yeniden açılmadı** (kartın altı URL'si; gerekçe: aynı gün, 2026-11-25, okunmuştu): `developer.apple.com/support/offering-account-deletion-in-your-app/`,
+  `developer.apple.com/app-store/review/guidelines/` (2.1(a), 3.1.1, 3.1.3(c), 3.2, **4.2**, 4.8, **5.1.1(v)**), `developer.apple.com/app-store/app-privacy-details/`,
+  `developer.apple.com/support/unlisted-app-distribution/`, `support.google.com/googleplay/android-developer/answer/13327111`, `…/answer/10787469`. **Durma dalının sonucu:**
+  K-A / K-D biçimi **uyuyor** — §1.17'nin aynı gün okunan birebir alıntılarına göre (süre bildirimi, tamamlanınca onay, saklananı söyleme, ek destek akışı yok). §1.17'nin
+  *"M16-50 yeniden okur"* şartı bu turda **karşılanmadı**; yeniden okuma **M16-55'in başlangıcına** taşındı — M16-55 ve M16-61'in ön koşuludur. (`app-privacy-details` ve
+  `unlisted-app-distribution` hiç açılmadı; M16-55'in başlangıcında ilk kez okunur.)
+- **Açık kalan kapılar:** **KF/KM owner kararı** (mağaza üretim gönderiminden önce; Faz H başlığındaki tablo); **Q13** (saklama süresi) ve hukukçunun **K-A onayı** ile **K-D sorusu** (*"adı olmayan bir kayıt hâlâ delil midir?"*) — M16-55'in owner metni, M16-58 ve
   M16-61 bunları bekler.

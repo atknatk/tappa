@@ -1611,6 +1611,7 @@ metne geri döner; yeni kullanıcı sorusu yoktur. Aşağıda her karar, seçile
 
 - **Beşinci adlandırılmış istisna onaylandı** (2026-11-25, kullanıcı, AskUserQuestion): `identity_erase_member` ve `identity_erase_tenant_invites` — kapalı listeye **iki ek, tek
   istisna**. Onaylanan dört parça birlikte: (1) CLAUDE.md §4.5(3)'ün *"dört → beş"* farkı ve ADR 0051 §2.9.8'deki birebir cümle; (2) bu ADR'nin §6.1 metninin aynı farkı;
-  (3) `cmd/tappa/claudemdidentity_test.go`'nun dizgeleri; (4) `tappa_identitydefiner`'a `UPDATE (email, full_name, cancelled_at) ON admin_invites`.
+  (3) `cmd/tappa/claudemdidentity_test.go`'nun dizgeleri; (4) `tappa_identitydefiner`'a `UPDATE (email, full_name, cancelled_at) ON admin_invites`; (5) `tappa_identitydefiner`'a
+  `SELECT (id, tenant_id, approved_at, completed_at, cancelled_at) ON business_deletion_requests` (yapısal yüklemin kilitsiz okuması).
 - **§6.1 bu notla DEĞİŞMEZ:** `claudemdidentity_test.go` CLAUDE.md §4.5(3)'ü §6.1'le bayt bayt karşılaştırır; iki metin, test dizgeleri ve fonksiyonlar **aynı commit'te**,
   M16-61'de değişir.
