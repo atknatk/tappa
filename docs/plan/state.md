@@ -1797,9 +1797,9 @@ yazılır.
 | M16-31 | Saatlerim: kişinin kendi kayıtlarının okuması + `/app/v1/hours` (M9-05'i karşılar) | todo | ayar sunucuda zorlanır (kapalı → 404) |
 | M16-32 | Saatlerim: tarayıcı sayfası | todo | §9 sorusu önce |
 | M16-33 | Uygulama ana ekranı ve Saatlerim — iOS + Android | todo | §9 onayı kartın ilk adımı |
-| M16-34 | ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü | todo | ADR 0049 *Önerildi*; cevapsız kabul yok |
-| M16-35 | E-postayla giriş: sunucu | todo | migration 00118 + 00119 (öneri); varsayılan kapalı (`TAPPA_EMAIL_SIGNIN_TENANTS`), açılış kullanıcının config PR'ı |
-| M16-36 | E-postayla giriş: uygulama ekranları (+ tarayıcı) | todo |  |
+| M16-34 | ADR 0049'un kabulü, Q44/Q45/Q49 ve canlı taban ölçümü | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-50** (uygulanmadı) |
+| M16-35 | E-postayla giriş: sunucu | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-51, M16-52**; 00118/00119 Faz H'ye geçti |
+| M16-36 | E-postayla giriş: uygulama ekranları (+ tarayıcı) | replaced | **2026-11-25: yerini aldı — ADR 0051 → M16-53** |
 | M16-37 | Hesabı silme talebi: sunucu ve işverene iletim | todo | Q46 |
 | M16-41 | Gizlilik bildirimi: uygulama paragrafı ve yayım (M16-38'den önce) | todo | kullanıcı + hukukçu; mağaza gönderimini de bloklar |
 | M16-38 | Ayarlar ve gizlilik ekranı — iOS + Android | todo |  |
@@ -1811,12 +1811,37 @@ yazılır.
 | M16-47 | Kilit ekranında "içeride" sayacı — iOS Live Activity, Android süren bildirim | todo | Q53; iOS 16.2+; yeni iOS Widget Extension hedefi (kullanıcı: bundle kimliği) |
 | M16-48 | Vardiyam: olağan vardiya satırı — iOS + Android | todo | Q52 |
 | M16-49 | Dil: personel uygulamasının metinleri | todo | **Q54 cevapsız başlamaz**; onaycı ve dil listesi ön koşul; CLAUDE.md §7 + §9 değişikliği; koşullu 00122; onaycı yoksa yayından sonraya |
-| M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı |
+| M16-39 | App Review hazırlığı: demo işletme, inceleme notu, basılabilir QR | todo | Q47; M16-22 + M16-23'e bağlı · **2026-11-25: M16-57 revize eder** (demo çalışan girişi; Q55) |
 | M16-40 | Faz G kapanışı | todo |  |
+| M16-50 | ADR 0051'in kabulü, ADR 0049'un yerini alması, Q55–Q59 ve canlı taban ölçümü | todo | **Faz H** (kullanıcı kararları 2026-11-25); belge kartı; her Faz H kartı ona bağlı |
+| M16-51 | Çalışan parolası: şema, parola linki isteği ve `/staff/password` sayfası | todo | migration 00118 + 00119 (öneri); env `TAPPA_STAFF_PASSWORD_TENANTS` boş doğar; Q56, Q59 |
+| M16-52 | Parolayla giriş: `POST /app/v1/signin` → aktivasyon daveti | todo | oturum/cihaz yaratmaz; `origin='password'` davet; K = 3 (M16-50 ölçer) |
+| M16-53 | Uygulama ekranları: giriş, parola, işyeri seçici, işletme kaydı ve silme girişleri — iOS + Android | todo | §9 onayı önce; Q58 |
+| M16-54 | Kayıt sihirbazının ve yasal sayfaların uygulama modu | todo | `?client=app` yalnız sunum; kapalı `href` kümesi |
+| M16-55 | İşletme hesabını silme talebi: sayfa, kayıt, owner'lar ve operatör | todo | migration 00120; Q57 |
+| M16-56 | İnceleme işletmesinde statik QR'la bağ | todo | **yalnız Q55 (b)**; migration 00121 (koşullu) |
+| M16-57 | Demo işletme ve inceleyici runbook'u (M16-39'un revizyonu) | todo | kullanıcı: demo işletme `/signup`'tan, demo çalışan parolaları, config PR 1 |
+| M16-58 | Mağaza beyanları ve gizlilik taslağı (M16-27 / M16-41'in revizyonu) | todo | kullanıcı + hukukçu |
+| M16-59 | Faz H kapanışı | todo | yalnız demo işletme; büyük testler bir kez |
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-11-25 (M16, dal `m16-native-ui`, taban `828ce9b1`) — Faz H planlandı (mağaza uyumu), yalnız belge
+
+- **Ne:** kullanıcının 2026-11-25 kararlarıyla (AskUserQuestion; Apple/Google araştırmasından sonra) **ADR 0051** (*Önerildi* —
+  çalışanın e-posta + parolayla girişi, uygulamadan işletme kaydı, işletme hesabını silme talebi) ve `m16-mobil.md`'ye **Faz H**
+  (M16-50 … M16-59; sıra D, E, G, **H**, F). M16-34/35/36 `replaced` (ADR 0049'un linki hiç uygulanmadı — `git grep -n
+  "signin/request" -- '*.go'` → 0); M16-39'u M16-57, M16-27/M16-41'i M16-58 revize eder. Açık sorular **Q55** (inceleyicinin bağı —
+  öneri: operatörün işaretlediği inceleme işletmesinde statik QR), **Q56** (hangi işletmeler — öneri: env + owner ayarı, var olan
+  kapalı / yeni açık), **Q57** (işletme silme — öneri: web sayfası + panel parolası, talep işletmeyi durdurmaz), **Q58** (Android
+  uygulama içi tarayıcı — öneri: kütüphanesiz Custom Tabs), **Q59** (davetli parola belirler mi — öneri: canlı işveren davetiyle evet).
+- **Ölçülen:** kayıt sihirbazı onaydan sonra paneli **açmaz** — işletme e-postadaki onay linkiyle doğar, `SignupDone` giriş
+  sayfasına düğme verir (`signupconfirm.go:562-571`); sihirbazın ve yasal sayfaların kabuğu *Pricing*'e bağlanır, uygulamanın
+  bugünkü gizlilik/şartlar linkleri o sayfalara gider (ADR 0051 §1.8). Numaralar: migration son 00117 (bütün dallar) → Faz H
+  00118–00121; ADR son dosya 0049, 0050 ayrılmış → 0051; Q son Q54 → Q55–Q59; kart son M16-49 → M16-50.
+- **Sıradaki:** M16-50 — Q55–Q59 kullanıcıya, ADR 0051 kabulü.
 
 ### 2026-11-20 (M16, dal `m16-23-nfcless-activation`, taban `b580cb9d`) — M16-23 yapıldı, `review`
 
