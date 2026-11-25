@@ -81,7 +81,7 @@ Produced from the brand palette (`tappa-brand`), not committed (binary):
 
 - App icon 512 × 512 — the launcher plaque (`res/drawable/ic_launcher_foreground.xml`) on tappa-green, drawn at 512 px.
 - Feature graphic 1024 × 500 — plaque mark + "taptime" + "PUNCHLESS TIME & ATTENDANCE".
-- Phone screenshots 1080 × 2160 (Play: the long side at most twice the short side; the device's 1080 × 2340 is cropped by the status and navigation bars): Today, Missing times, My hours, Settings — English.
+- Phone screenshots 1080 × 2160 (Play: the long side at most twice the short side; the device's 1080 × 2340 is cropped by the status and navigation bars): Today, Missing times, My hours, Settings — English. Taken with a **demo business**, never a real employee or venue (user decision 2026-11-25); the first internal-testing upload carries none.
 
 ## 2. App content declarations
 
@@ -103,10 +103,10 @@ measured 2026-11-25 from `mobile/android/app/src/main/kotlin/mt/taptime/app/wire
 | Data type | Collected | Shared | Required / optional | Purpose | Where |
 |---|---|---|---|---|---|
 | Location — precise | Yes | No | Optional (the tap is recorded without it, for review) | App functionality, fraud prevention / security | `lat`, `lng` on `POST /app/v1/tap`, one foreground reading at the press; `mockLocation` only when true |
-| Location — approximate | Yes | No | Optional | same | same (when only coarse is granted) |
-| Personal info — name | Yes (processed: received from the employer's records and shown) | No | Required | App functionality, account management | `GET /app/v1/me` |
+| Location — approximate | Yes | No | **Required** | App functionality, fraud prevention / security | the **server** stores each tap's source IP linked to the person and matches it to the workplace network (`internal/handler/apptap.go` `SourceIP` → `transactions.source_ip`, decision row 6) — independent of any permission; also `lat`/`lng` when only coarse is granted |
 | App activity — other actions | Yes | No | Required | App functionality | clock in/out (`want`), forgotten clock-out time (`at` on `/app/v1/claims/send`), hours viewed |
 | Device or other IDs | Yes | No | Required | App functionality, security | server-issued device id and the device's P-256 public key (`App-Device-Id`, `publicKey`) |
+| Personal info — name | No — the app only **receives** the employer's record of the name (`GET /app/v1/me`) and sends none; same answer as the App Store label | — | — | — | |
 | E-mail, phone, contacts, photos, files, audio, health, financial, messages, web history, crash logs, diagnostics, advertising ID | No | — | — | — | not found in the app's code |
 
 - Encrypted in transit: **Yes**.
@@ -125,12 +125,14 @@ secret store.
    ```bash
    cd mobile/android
    export JAVA_HOME=/usr/local/opt/openjdk@21 ANDROID_HOME=/usr/local/share/android-commandlinetools
-   export TAPTIME_UPLOAD_KEYSTORE=<path to the upload keystore>
-   # TAPTIME_UPLOAD_PASSWORD comes from the keychain, for this one command only:
-   #   security find-generic-password -a upload -s taptime-android-upload -w
-   gradle bundleRelease
+   export TAPTIME_UPLOAD_KEYSTORE=<absolute path to the upload keystore, outside the repository>
+   gradle --no-daemon bundleRelease   # with TAPTIME_UPLOAD_PASSWORD set for this command only (below)
    jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # "jar verified."
    ```
+   The password goes into `TAPTIME_UPLOAD_PASSWORD` as a prefix of that one `gradle` command,
+   its value read from the keychain by `security find-generic-password -a upload -s taptime-android-upload -w`
+   — never exported, never typed, so it stays out of the shell history; `--no-daemon` keeps it out of a
+   long-lived Gradle daemon's environment. Without it the bundle is unsigned and `jarsigner` says so.
    The release `BASE_URL` is pinned to `https://taptime.mt`; `-Ptaptime.baseUrl` stops a release build.
 3. Play Console → Testing → Internal testing → Create release → upload `app-release.aab`.
 4. **First upload only:** Play Console → Setup → App integrity → App signing → copy the **app signing key** SHA-256. Production's `TAPPA_APP_ANDROID_SIGNER_SHA256` takes that one value only (M16-08; the upload key's digest never goes to production). Setting it is a deploy — user decision. Until then `/.well-known/assetlinks.json` answers 404 and a plaque tap opens the browser instead of the app.

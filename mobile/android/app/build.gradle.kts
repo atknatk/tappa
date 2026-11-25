@@ -42,6 +42,17 @@ gradle.taskGraph.whenReady {
 val uploadKeystore: String? = providers.environmentVariable("TAPTIME_UPLOAD_KEYSTORE").orNull
 val uploadPassword: String? = providers.environmentVariable("TAPTIME_UPLOAD_PASSWORD").orNull
 
+// A relative path would resolve under app/, inside the repository, where a key must never live;
+// an absolute one inside the repository is refused for the same reason.
+uploadKeystore?.let { path ->
+    val f = File(path)
+    if (!f.isAbsolute) throw GradleException("TAPTIME_UPLOAD_KEYSTORE must be an absolute path outside the repository")
+    val repo = rootDir.parentFile.parentFile.canonicalFile
+    if (f.canonicalFile.startsWith(repo)) {
+        throw GradleException("TAPTIME_UPLOAD_KEYSTORE points inside the repository; keep the upload key outside it")
+    }
+}
+
 android {
     // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
     // after the first release and is written into /.well-known/assetlinks.json (M16-08).
