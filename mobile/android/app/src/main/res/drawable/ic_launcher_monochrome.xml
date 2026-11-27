@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon (Android 13+) layer: the mark's silhouette; the launcher tints it, only alpha counts. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="30.944"
+        android:translateY="76.570"
+        android:scaleX="0.069447"
+        android:scaleY="0.069447">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M260.0 0.0Q211.0 0.0 180.5 -30.5Q150.0 -61.0 150.0 -112.0V-392.0H26.0V-496.0H150.0V-650.0H276.0V-496.0H412.0V-392.0H276.0V-134.0Q276.0 -104.0 304.0 -104.0H400.0V0.0Z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M516 -300H592C617.41 -300 638 -279.41 638 -254V-46C638 -20.59 617.41 0 592 0H516C490.59 0 470 -20.59 470 -46V-254C470 -279.41 490.59 -300 516 -300ZM498 -220A56 56 0 1 0 610 -220A56 56 0 1 0 498 -220ZM520 -220A34 34 0 1 0 588 -220A34 34 0 1 0 520 -220Z" />
+    </group>
+</vector>

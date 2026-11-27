@@ -41,6 +41,7 @@
 		0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */; };
 		0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */; };
 		0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000188 /* OFL-IBMPlexMono.txt */; };
+		0A0000000000000000000289 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000189 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,6 +93,7 @@
 		0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-ext-700.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-ext-700.woff2; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-SpaceGrotesk.txt; path = ../../web/static/fonts/OFL-SpaceGrotesk.txt; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000188 /* OFL-IBMPlexMono.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-IBMPlexMono.txt; path = ../../web/static/fonts/OFL-IBMPlexMono.txt; sourceTree = SOURCE_ROOT; };
+		0A0000000000000000000189 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -159,6 +161,7 @@
 				0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */,
 				0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */,
 				0A0000000000000000000188 /* OFL-IBMPlexMono.txt */,
+				0A0000000000000000000189 /* Assets.xcassets */,
 				0A0000000000000000000013 /* Info.plist */,
 				0A0000000000000000000014 /* Taptime.entitlements */,
 			);
@@ -269,6 +272,7 @@
 				0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */,
 				0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */,
 				0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */,
+				0A0000000000000000000289 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -383,6 +387,7 @@
 		0A0000000000000000000072 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -409,6 +414,7 @@
 		0A0000000000000000000073 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
