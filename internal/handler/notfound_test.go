@@ -31,7 +31,7 @@ import (
 var publicNotFoundPaths = []string{
 	"/no-such-page", "/pricing/", "/pricing/nothing", "/legal/no-such-document", "/for/nothing",
 	"/docs/nothing", "/signup/nothing", "/product/x/y", "/security.html", "/x?y=1",
-	"/administrator", "/terms", "/brandx", "/staticx", "/v2/x", "/tx",
+	"/administrator", "/terms", "/brandx", "/staticx", "/v2/x", "/tx", "/favicon.icox", "/favicon.png",
 }
 
 // plainNotFoundPaths keep the router's plain answer: every root of plainNotFoundRoots, and
@@ -39,7 +39,7 @@ var publicNotFoundPaths = []string{
 var plainNotFoundPaths = []string{
 	"/admin/no-such-screen", "/admin", "/admin/brand/logo/", "/t/no-such-thing", "/t/logo/",
 	"/activate/no-such-step", "/api/no-such-endpoint", "/brand/no-such-asset",
-	"/brand/theme/a/b", "/brand", "/static", "/operator/no-such-screen", "/v1/no-such-resource",
+	"/brand/theme/a/b", "/brand", "/static", "/favicon.ico/x", "/FAVICON.ICO/x", "/operator/no-such-screen", "/v1/no-such-resource",
 	"/healthz/x", "/readyz/x", "/dev/no-such-tool", "/oauth/no-such-endpoint", "/.well-known/no-such-file",
 	"/.well-known/apple-app-site-association", "/.well-known/assetlinks.json",
 	"/app/no-such-route",

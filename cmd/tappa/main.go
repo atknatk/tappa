@@ -949,7 +949,8 @@ func run() error {
 
 	// The PUBLIC surface (M7-01): the landing page at / and the four legal documents
 	// under /legal. Until this line the root of the site answered 404 — the router
-	// registered /healthz and /static/* at the top level and nothing else.
+	// registered /healthz and /static/* at the top level and nothing else (2026-11-27:
+	// and /favicon.ico, the same asset handler — internal/httpx.FaviconPath).
 	//
 	// 🔴 IT TAKES NO POOL, NO SESSION MANAGER AND NO AUDIT SINK, AND THAT IS THE
 	// SECURITY DECISION RATHER THAN A CONVENIENCE. Every other feature above is handed

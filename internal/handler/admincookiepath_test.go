@@ -156,8 +156,9 @@ func employeeRoutes() []string {
 	// round). router.go registers `/static/*` and `/healthz` on the ROOT router — public,
 	// outside adminauth.CookiePath, and invisible to a glob of this package. The net was
 	// asserting "no panel cookie reaches an employee-facing route" while two such routes
-	// were not in the list. Harmless today for the same reason /legal/* was harmless —
-	// the cookie is Path=/admin — but that is the argument the net exists to PROVE
+	// were not in the list. (A third, `/favicon.ico`, joined on 2026-11-27 under the
+	// named constant FaviconPath, which pass one below resolves.) Harmless today for the
+	// same reason /legal/* was harmless — the cookie is Path=/admin — but that is the argument the net exists to PROVE
 	// rather than to assume, and it was the wrong argument once already.
 	more, err := filepath.Glob(filepath.Join("..", "httpx", "*.go"))
 	if err != nil {

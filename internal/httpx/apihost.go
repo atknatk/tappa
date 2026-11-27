@@ -36,8 +36,8 @@ func OnAPIPath(r *http.Request) bool {
 
 // apiHostOnly is the NON-API half of the two-way gate. On the API host (OnHost) it passes APIPrefix
 // and the paths under it to the router and answers every other path -- the panel, the tap, the
-// landing page, the static assets, the probes, the operator surface -- with http.NotFound, the
-// router's own 404. Off the API host it passes the request on unchanged (the /v1 half of the gate
+// landing page, the static assets and /favicon.ico, the probes, the operator surface -- with
+// http.NotFound, the router's own 404. Off the API host it passes the request on unchanged (the /v1 half of the gate
 // is the surface's hostGate). NewRouter mounts it when TAPPA_API_HOST is set.
 func apiHostOnly(host string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

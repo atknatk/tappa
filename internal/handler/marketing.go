@@ -37,7 +37,9 @@ import (
 // 🔴 UNTIL THIS TYPE EXISTED THE ROOT OF THE SITE WAS A 404. The router registered
 // exactly two things at the top level — /healthz and /static/* — and everything
 // else lived under /t, /activate or /admin. This is the first route in the product
-// that a stranger is MEANT to arrive at.
+// that a stranger is MEANT to arrive at. (That sentence is history: the router's own
+// top level is three routes since 2026-11-27, /favicon.ico being /static's handler
+// under the name browsers ask for — internal/httpx.FaviconPath.)
 //
 // 🔴 IT HAS NO IDENTITY, AND THAT IS WHY NONE OF THE PANEL'S PROTECTIONS APPLY TO
 // IT. AdminAuth.Protect, ProtectWriting, the per-session budget and requireAdmin
@@ -62,7 +64,9 @@ import (
 // none of them. A request here renders a fixed component tree and returns; it
 // touches no pool, takes no lock and appends to no table. The two routes already in
 // this class — /healthz and /static/* — are unmetered for the same reason and have
-// been since M0.
+// been since M0. One more joined on 2026-11-27: /favicon.ico, which is /static's own
+// handler over the same embedded file (internal/httpx.FaviconPath), so it is in this
+// class by construction rather than by a second argument.
 //
 // ⚠️ M8-01 ADDED A THIRD UNMETERED ROUTE THAT IS **NOT** IN THIS CLASS, AND SAYING
 // SO HERE IS THE POINT. /readyz does touch the pool — that is what readiness means —
@@ -71,8 +75,8 @@ import (
 // limiter either, for the memory reason argued below; what bounds it instead is a
 // cached outcome, so any number of callers cost at most one query per second and at
 // most two log lines per outage. The argument lives with the endpoint
-// (internal/handler/health.go), and the class this paragraph describes still has
-// exactly two members.
+// (internal/handler/health.go), and the class this paragraph describes does not
+// include it: its members are /healthz, /static/* and, since 2026-11-27, /favicon.ico.
 //
 // 🔴 THE PROCESS LOG IS THE FOURTH SCARCE THING AND THIS PARAGRAPH USED TO OMIT IT,
 // WHILE NAMING IT TWO LINES ABOVE AS SOMETHING THE ACTIVATION BUDGET PROTECTS. A

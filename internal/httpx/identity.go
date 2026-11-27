@@ -142,8 +142,8 @@ type identityKey struct{}
 // the context.
 //
 // IT IS NOT MOUNTED GLOBALLY, on purpose: it costs one database query, so it
-// belongs on the routes that need an identity and not on /healthz, /static or
-// the activation flow (which resolves sessions itself, for a different question
+// belongs on the routes that need an identity and not on /healthz, /static,
+// /favicon.ico or the activation flow (which resolves sessions itself, for a different question
 // — whose phone is this). Mount it on a route group; see TapLimiter for the
 // order the tap routes need.
 func Identify(codec session.Cookies, v SessionVerifier) func(http.Handler) http.Handler {
