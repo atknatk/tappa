@@ -86,6 +86,13 @@ func TestPanelHead_EmptySlotsAreTheShellAsItWas(t *testing.T) {
 			continue
 		}
 		got := string(renderUnbranded(t, r))
+		// The Taptime mark (2026-11-27) changed the unbranded header, which is the shell's but
+		// not the h1's: it is put back first, exactly once, so the digests below still hold
+		// every other byte of the shell.
+		if c := strings.Count(got, wordmarkHTML(t)); c != 1 {
+			t.Fatalf("%s: the unbranded header appears %d times, want 1", r.name, c)
+		}
+		got = strings.Replace(got, wordmarkHTML(t), panelWordmarkBeforeMark, 1)
 		if r.name == "AdminDashboard, owner, reports" {
 			// M12-09 moved this section's BODY to components.PanelEmpty. The body is not the
 			// shell, so its old markup is put back too -- each piece exactly once -- and the

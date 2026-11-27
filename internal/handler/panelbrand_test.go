@@ -505,13 +505,14 @@ func aBrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 			if strings.Contains(chrome, wordmark) {
 				t.Errorf("%s: the wordmark is still drawn beside the business's header", where)
 			}
-			// Without a logo the rail's mark is the business's initial, never Taptime's "t."
-			// (2026-10-20 audit); with one, there is no mark at all.
+			// Without a logo the rail's mark is the business's initial, never Taptime's mark
+			// (2026-10-20 audit; since 2026-11-27 the mark is pages.TaptimeSign, the "t" and
+			// its plaque, where it was the text "t."); with one, there is no mark at all.
 			mark := `<span class="side-mark" aria-hidden="true">T</span>`
 			if got := strings.Contains(chrome, mark); got == v.logo {
 				t.Errorf("%s: the rail draws the business's initial = %v, want %v", where, got, !v.logo)
 			}
-			if strings.Contains(chrome, `aria-hidden="true">t.</span>`) {
+			if strings.Contains(chrome, `class="side-sign"`) || strings.Contains(chrome, `class="side-stop"`) {
 				t.Errorf("%s: a branded rail draws Taptime's mark", where)
 			}
 			header := brandHeadRE.FindAllString(chrome, -1)
@@ -1049,6 +1050,11 @@ func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
 // golden, and only inside the notice link's class attribute -- "underline" became
 // "hit-link underline". Checked before replacing: the first 5827 and the last 7142 bytes are the
 // old golden's; the 9 bytes between are "hit-link ". 12969 -> 12978 bytes; "zero" unchanged.
+//
+// RE-RENDERED FOR THE TAPTIME MARK (2026-11-27, user decision): both goldens, and only the
+// unbranded header (pages.PanelWordmark -- the ringless plaque after the word, the mark alone on the
+// rail). Checked before replacing: the previous wordmark's bytes put back give the old golden
+// byte for byte. zero 12033 -> 12531, plaques 12978 -> 13476 bytes.
 func TestKeyBudgetBanner_AbsentAddsNothing(t *testing.T) {
 	render := func(v pages.TransactionsView) string {
 		t.Helper()

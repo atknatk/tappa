@@ -36,6 +36,8 @@ package handler
 // template golden (web/templates/pages/holdingless_golden_test.go has the measurement): deleting
 // the added class tokens gives back the previous golden byte for byte. The reports-view golden is
 // unchanged.
+// The Taptime mark (2026-11-27, user decision) replaced BOTH goldens, measured the same way as
+// the template goldens: only pages.PanelWordmark's bytes differ (+498 B each).
 
 import (
 	"bytes"

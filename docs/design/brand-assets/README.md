@@ -12,7 +12,8 @@ tek renkli ve ters sürümler bu sayede ek bir renge ihtiyaç duymadan doğru ç
 Neden bu yön:
 
 - Ürünün zaten taşıdığı iki parçayı tek işarete bağlar: panelin dar rayındaki `t.` (`PanelWordmark`)
-  ve landing'deki halkalı yeşil disk (`.lp-markDot`). Yeni bir şekil öğretmez.
+  ve landing'deki halkalı yeşil disk (`.lp-markDot`). Yeni bir şekil öğretmez. (İkisi de 2026-11-27'de
+  bu işarete geçti; aşağıda "Türevler".)
 - Ürünü anlatır ama klişeye düşmez: NFC dalgası, telefon, parmak izi, saat ve tik işareti yoktur.
   "Duvarda bir plaket, ona dokunulur" bilgisi plakette ve halkada durur.
 - 16 px'te `t.` diye okunur, plaket nokta olarak görünür.
@@ -85,7 +86,12 @@ Saffron ve tomato durum renkleridir, işarete girmez. Gradient, gölge, cam ve 3
 
 Türevler: `web/static/` favicon seti, `mobile/ios/Taptime/Assets.xcassets` (AppIcon, LaunchMark,
 LaunchBackground), `mobile/android` ve `android` adaptive + monochrome ikon, `mobile/android` Android 12+
-splash.
+splash. Public site başlığı ve footer'ı ile panelin markasız başlığı (`PanelWordmark`) da işareti
+taşır (2026-11-27, kullanıcı kararı): kelime gerçek metin kalır, nokta yerine plaket satır içi SVG'dir
+(`web/templates/pages/taptimemark.templ`, köşeler yay, koordinatlar tam sayı); footer ve panelin dar
+rayı işaretin kendisini çizer. Hepsi küçük boy kuralına uyar ve **halkasızdır**: 20–24 px yazıda plaket
+6–7,2 px'tir, halka bandı yarım piksele düşer. Renk tablosu aynen: porselende ink + yeşil plaket, ink zeminde tamamı
+paper. Tap, sonuç ve aktivasyon ekranlarının `taptime` yazısı değişmedi (§9).
 
 Üretim zinciri **repo dışında**, yerel bir çalışma klasöründe durur. Kullanılanlar: Python fontTools ve
 HarfBuzz ile glif dış hatları, `rsvg-convert` ile PNG/PDF, Pillow ile ICO. **Node kullanılmadı.** Fontlar
