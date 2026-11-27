@@ -148,7 +148,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Venue)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 56, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `result.templ`, Line: 56, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -161,7 +161,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Headline())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 58, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `result.templ`, Line: 58, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -179,7 +179,7 @@ func result(v ResultView, logo layout.Logo, card *ClaimCardView) templ.Component
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.At)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 60, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `result.templ`, Line: 60, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {

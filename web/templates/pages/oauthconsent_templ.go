@@ -82,7 +82,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.AppName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 38, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 38, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -95,7 +95,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 38, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 38, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -108,7 +108,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.ReturnHost)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 41, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 41, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -127,7 +127,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.AppName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 47, Col: 74}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 47, Col: 74}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -140,7 +140,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 47, Col: 102}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 47, Col: 102}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -158,7 +158,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var8 string
 					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(s.Label)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 51, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 51, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
@@ -171,7 +171,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(s.Word)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 52, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 52, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -189,7 +189,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 57, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 57, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -211,7 +211,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(v.Digest)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 63, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 63, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -233,7 +233,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Digest)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 69, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 69, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -255,7 +255,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(v.Digest)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 74, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 74, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -285,7 +285,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var18 string
 					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 80, Col: 44}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 80, Col: 44}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -298,7 +298,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(v.AppName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 80, Col: 108}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 80, Col: 108}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -342,7 +342,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var21 string
 					templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 85, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 85, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 					if templ_7745c5c3_Err != nil {
@@ -386,7 +386,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(v.BusinessName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 90, Col: 54}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 90, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -461,7 +461,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 							var templ_7745c5c3_Var27 string
 							templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(v.SwitchCSRF)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 103, Col: 63}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 103, Col: 63}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 							if templ_7745c5c3_Err != nil {
@@ -474,7 +474,7 @@ func OAuthConsent(v OAuthConsentView) templ.Component {
 							var templ_7745c5c3_Var28 string
 							templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(b.TenantID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 104, Col: 66}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 104, Col: 66}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 							if templ_7745c5c3_Err != nil {
@@ -563,7 +563,7 @@ func oauthConsentBack(v OAuthConsentView) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(v.Digest)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 121, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 121, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -576,7 +576,7 @@ func oauthConsentBack(v OAuthConsentView) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(v.AppName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/oauthconsent.templ`, Line: 122, Col: 93}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `oauthconsent.templ`, Line: 122, Col: 93}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 		if templ_7745c5c3_Err != nil {

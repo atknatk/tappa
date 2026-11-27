@@ -86,7 +86,7 @@ func AdminSwitch(v AdminSwitchView) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.Current)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminswitch.templ`, Line: 36, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `adminswitch.templ`, Line: 36, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -125,7 +125,7 @@ func AdminSwitch(v AdminSwitchView) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.Current)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminswitch.templ`, Line: 50, Col: 19}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `adminswitch.templ`, Line: 50, Col: 19}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -192,7 +192,7 @@ func AdminSwitch(v AdminSwitchView) templ.Component {
 							var templ_7745c5c3_Var8 string
 							templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminswitch.templ`, Line: 65, Col: 61}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `adminswitch.templ`, Line: 65, Col: 61}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 							if templ_7745c5c3_Err != nil {
@@ -205,7 +205,7 @@ func AdminSwitch(v AdminSwitchView) templ.Component {
 							var templ_7745c5c3_Var9 string
 							templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(b.TenantID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/adminswitch.templ`, Line: 66, Col: 65}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `adminswitch.templ`, Line: 66, Col: 65}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 							if templ_7745c5c3_Err != nil {

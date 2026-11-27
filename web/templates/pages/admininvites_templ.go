@@ -84,7 +84,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.Problem)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 27, Col: 19}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 27, Col: 19}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -121,7 +121,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Done)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 32, Col: 16}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 32, Col: 16}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -204,7 +204,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var8 string
 					templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(row.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 69, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 69, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 					if templ_7745c5c3_Err != nil {
@@ -217,7 +217,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(row.State)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 70, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 70, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -230,7 +230,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var10 string
 					templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(row.Email)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 72, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 72, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 					if templ_7745c5c3_Err != nil {
@@ -243,7 +243,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var11 string
 					templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(row.SentOn)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 73, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 73, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 					if templ_7745c5c3_Err != nil {
@@ -256,7 +256,7 @@ func AdminManagers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(row.EndsOn)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 73, Col: 95}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 73, Col: 95}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -283,7 +283,7 @@ func AdminManagers(v ManagersView) templ.Component {
 						var templ_7745c5c3_Var14 string
 						templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(row.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 77, Col: 62}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 77, Col: 62}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 						if templ_7745c5c3_Err != nil {
@@ -296,7 +296,7 @@ func AdminManagers(v ManagersView) templ.Component {
 						var templ_7745c5c3_Var15 string
 						templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(" the invitation of " + row.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 78, Col: 118}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 78, Col: 118}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 						if templ_7745c5c3_Err != nil {
@@ -401,7 +401,7 @@ func managersMembers(v ManagersView) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(row.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 116, Col: 88}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 116, Col: 88}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 				if templ_7745c5c3_Err != nil {
@@ -424,7 +424,7 @@ func managersMembers(v ManagersView) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(row.Role)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 120, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 120, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -437,7 +437,7 @@ func managersMembers(v ManagersView) templ.Component {
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(row.Status)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 121, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 121, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -450,7 +450,7 @@ func managersMembers(v ManagersView) templ.Component {
 				var templ_7745c5c3_Var21 string
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(row.Email)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 123, Col: 69}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 123, Col: 69}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -502,7 +502,7 @@ func managersMembers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var24 string
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(row.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 140, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 140, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
@@ -515,7 +515,7 @@ func managersMembers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var25 string
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + row.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 145, Col: 122}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 145, Col: 122}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -561,7 +561,7 @@ func managersMembers(v ManagersView) templ.Component {
 					var templ_7745c5c3_Var27 string
 					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(row.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 159, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 159, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 					if templ_7745c5c3_Err != nil {
@@ -629,7 +629,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 179, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 179, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -647,7 +647,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 181, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 181, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -660,7 +660,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 181, Col: 113}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 181, Col: 113}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -678,7 +678,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 183, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 183, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -691,7 +691,7 @@ func memberPress(href, id string, danger bool, label, name string) templ.Compone
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(" — " + name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 183, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 183, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -748,7 +748,7 @@ func managersInviteForm(v ManagersView) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.NameMaxLength))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 194, Col: 119}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 194, Col: 119}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
@@ -891,7 +891,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 							var templ_7745c5c3_Var44 string
 							templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 238, Col: 20}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 238, Col: 20}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 							if templ_7745c5c3_Err != nil {
@@ -915,7 +915,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 					var templ_7745c5c3_Var45 string
 					templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 242, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 242, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 					if templ_7745c5c3_Err != nil {
@@ -963,7 +963,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 					var templ_7745c5c3_Var48 string
 					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.MinPasswordChars))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 253, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 253, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
@@ -993,7 +993,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 							var templ_7745c5c3_Var50 string
 							templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(v.Error)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 258, Col: 20}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 258, Col: 20}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 							if templ_7745c5c3_Err != nil {
@@ -1017,7 +1017,7 @@ func AdminInviteAccept(v InviteAcceptView) templ.Component {
 					var templ_7745c5c3_Var51 string
 					templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admininvites.templ`, Line: 262, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `admininvites.templ`, Line: 262, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 					if templ_7745c5c3_Err != nil {

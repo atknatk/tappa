@@ -85,7 +85,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(v.WindowEnds)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 40, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 40, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -115,7 +115,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.WindowNotice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 44, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 44, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -152,7 +152,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.WindowProblem)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 49, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 49, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -190,7 +190,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(businessLabel(row.Name))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 60, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 60, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -203,7 +203,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(row.Role)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 61, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 61, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -267,7 +267,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 					var templ_7745c5c3_Var12 string
 					templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(row.Error)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 76, Col: 21}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 76, Col: 21}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 					if templ_7745c5c3_Err != nil {
@@ -300,7 +300,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(row.TenantID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 80, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 80, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
@@ -313,7 +313,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(windowFieldID(i))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 82, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 82, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -326,7 +326,7 @@ func accountWindowCard(v AccountIdentityView) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(windowFieldID(i))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 85, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 85, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -428,7 +428,7 @@ func accountBusinessesCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(businessLabel(b.Name))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 118, Col: 100}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 118, Col: 100}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 				if templ_7745c5c3_Err != nil {
@@ -441,7 +441,7 @@ func accountBusinessesCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(b.Role)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 119, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 119, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -513,7 +513,7 @@ func accountBusinessesCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(v.VerifyNotice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 143, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 143, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
@@ -550,7 +550,7 @@ func accountBusinessesCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(v.VerifyProblem)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 148, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 148, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -661,7 +661,7 @@ func accountEmailCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(v.EmailNotice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 188, Col: 22}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 188, Col: 22}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -698,7 +698,7 @@ func accountEmailCard(v AccountIdentityView) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(v.EmailProblem)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/accountidentity.templ`, Line: 193, Col: 23}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `accountidentity.templ`, Line: 193, Col: 23}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 				if templ_7745c5c3_Err != nil {
