@@ -4,8 +4,13 @@
       Platform theme for the window only: Compose draws every pixel inside it, and there is
       no material3 (Q36). Light only (tappa-brand: no dark theme). The bars are left to
       edge-to-edge (MainActivity), which targetSdk 36 enforces anyway.
+      Base.Theme.Taptime holds every item; Theme.Taptime is what the manifest names, and
+      values-v31 redefines only that one to add the splash, so an item added here reaches
+      every API level.
     -->
-    <style name="Theme.Taptime" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Base.Theme.Taptime" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/porcelain</item>
     </style>
+
+    <style name="Theme.Taptime" parent="Base.Theme.Taptime" />
 </resources>

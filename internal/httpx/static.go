@@ -57,6 +57,44 @@ const (
 	cacheRevalidate = "no-cache"
 )
 
+// FaviconPath is the one embedded asset served OUTSIDE /static (user decision, 2026-11-27).
+//
+// A browser asks for /favicon.ico on its own whenever a page names no icon, and no page
+// here names one: a <link rel=icon> in layout's documentHead would change the head of the
+// tap, activation and result screens (CLAUDE.md §9, their byte goldens), and every page's
+// CSP falls back to default-src 'none' for images, which blocks such a link in Chrome
+// (measured; docs/design/brand-assets/PLAN.md §5). The browser's own request is not a
+// page load and names no policy, so answering it at the root gives every tab its icon
+// with no page, policy or golden changing. Until this route the request reached the
+// public 404 page on the customer host (a render and an access record per tab) and
+// http.NotFound on the operator host.
+//
+// IT IS THE SAME FILE AND THE SAME HANDLER AS /static/favicon.ico, so it answers every
+// method, every conditional request and every refusal exactly as the asset route does,
+// and it is unmetered for the same reason: it touches no pool, takes no lock and writes
+// nothing. Its cache rule is cacheRule's, unchanged: the bare URL -- the one a browser
+// asks for -- is cacheRevalidate, since the name carries no version and a new icon must
+// reach a browser that already holds the old one; /favicon.ico?v=<this binary's version>
+// is cacheImmutable exactly as /static/favicon.ico?v=<version> is. No page writes that
+// URL today.
+const FaviconPath = "/favicon.ico"
+
+// statedType is the Content-Type this server states for name rather than leaving it to
+// http.ServeContent, or "" for none.
+//
+// .ico is the one entry, because ServeContent's answer for it is not ours to rely on: the
+// standard library's own table says image/vnd.microsoft.icon, and mime reads the host's
+// mime.types over that table, so the type would depend on the image the binary runs in.
+// image/x-icon is the type browsers name it by and the one the MIME sniffing standard
+// assigns these bytes. A stated type is sent with nosniff, so the browser takes it as
+// stated.
+func statedType(name string) string {
+	if path.Ext(name) == ".ico" {
+		return "image/x-icon"
+	}
+	return ""
+}
+
 // immutableName reports whether the asset at name (a path relative to web/static,
 // no leading slash) is pinned by its name alone, with no ?v=.
 func immutableName(name string) bool {
@@ -114,7 +152,13 @@ func (s *staticFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
 			h.Set("ETag", `"`+sum+`"`)
 			h.Set("Cache-Control", s.cacheRule(name, r.URL.RawQuery, r.URL.ForceQuery))
-			w = &assetStatus{ResponseWriter: w}
+			stated := statedType(name)
+			if stated != "" {
+				// Set before ServeContent runs, which then uses it instead of deducing one.
+				h.Set("Content-Type", stated)
+				h.Set("X-Content-Type-Options", "nosniff")
+			}
+			w = &assetStatus{ResponseWriter: w, statedType: stated}
 		}
 	}
 	s.next.ServeHTTP(w, r)
@@ -130,9 +174,14 @@ func (s *staticFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 2026-10-21). A refusal is not the file and must not be cached as it. The ETag goes with
 // Cache-Control, which is the contract serveError already applies to the 416.
 // TestStatic_VersionedURLsArePinnedOnlyWhenTheVersionMatches holds both statuses.
+//
+// A stated Content-Type (statedType) goes with them on a refusal: it names the file, and a
+// 412 written with no body would otherwise announce an image it does not carry. A type a
+// refusal set for itself (http.Error's text/plain on the 416) is a different value and stays.
 type assetStatus struct {
 	http.ResponseWriter
 	wroteHeader bool
+	statedType  string
 }
 
 func (a *assetStatus) WriteHeader(code int) {
@@ -149,6 +198,9 @@ func (a *assetStatus) WriteHeader(code int) {
 			h := a.Header()
 			h.Del("Cache-Control")
 			h.Del("ETag")
+			if a.statedType != "" && h.Get("Content-Type") == a.statedType {
+				h.Del("Content-Type")
+			}
 		}
 	}
 	a.ResponseWriter.WriteHeader(code)

@@ -419,7 +419,15 @@ golden'ı); panel yalnız kendi `Panel*` bileşenlerini kullanır.
 Tek DOM, her genişlik: header (`.lp-head` › `.lp-headIn` › `.lp-mark` + `.lp-headNav` içinde
 `.navlink` ×3, `.lp-signin`, `.hbtn`), telefon menüsü (`details.menu`, `.mopen`/`.mclose`, `.mlink`;
 betik yok, 768 px'ten itibaren gizli), telefonun alt çubuğu (`.mbar` › `.hbtn`), footer (`.lp-foot`,
-`.fcol` Product + Legal), skip link (`.lp-skip` → `#main`). Bağlantılar **tek tablodan**:
+`.fcol` Product + Legal), skip link (`.lp-skip` → `#main`). **Marka işareti** (2026-11-27, kullanıcı
+kararı — master'lar `docs/design/brand-assets/`): header'da `.lp-markName` gerçek metin "taptime"dir,
+noktası plakettir (`pages.PlaqueStop` → `.lp-markStop`: satır içi `aria-hidden` SVG, 0,168 × 0,3 em,
+tabanı taban çizgisinde, "e"den 0,058 em sonra — master'ın 28 birimi + "e"nin taşıdığı −0,03 em
+harf aralığı; **halkasız** — küçük boy kuralı: 20–24 px yazıda plaket 6–7,2 px, halka bandı yarım
+piksel, deliği gri leke çiziyordu (bağımsız gözden geçirme ölçtü); porselende yeşil, hover/basılıyken kelime yeşile
+döner, plaket yeşil kalır). Footer'da eski disk yerine yalnız işaret (`pages.TaptimeSign` →
+`.lp-footSign`, 22 px, halkasız: ink `t` + yeşil plaket). Eski `.lp-markDot` (halkalı yeşil disk)
+kaldırıldı — geri getirme; `<img>` yok, CSP değişmedi. Bağlantılar **tek tablodan**:
 `LandingNav`, `MountedPublicLinks(PublicProductLinks)`, `LegalPages` — yol elle yazılmaz;
 `Current` eşleşen girdi `aria-current="page"` alır. Seçenekler:
 - `OwnRoots` — gövdesi ürünün Tailwind yardımcılarıyla yazılmış sayfalar (signup, legal, API rehberi).
@@ -724,8 +732,13 @@ handler'da `mayEditAccount`, domain'de ikinci kez, rol ve durum DB'den
   içindedir (logolar açık zemin için çizilir), rayda yalnız küçülebilir. Ad ve co-brand
   `side-name` / `side-coline` sınıflarında: porselende ink (14,32:1) ve ink/70 (5,70:1), ink
   üzerinde paper (16,2:1) ve paper/70 (8,5:1); rayda ad görsel olarak gizli ama okunur.
-  Markasız kilit `pages.PanelWordmark` (ink üzerinde paper "taptime"/"punchless", rayda "t.").
-  Logosuz markalı işletmede rayın işareti adın ilk harfidir ("t." yalnız markasızda).
+  Markasız kilit `pages.PanelWordmark` (ink üzerinde paper "taptime"/"punchless"; 2026-11-27'den
+  beri — kullanıcı kararı — kelime halkasız plaket noktasıyla biter (küçük boy kuralı): `.side-stop`, telefonun porselen
+  çubuğunda ink harf + yeşil plaket, ink kenar çubuğunda tamamı paper; harf aralığı master'ın
+  −0,03 em'i. Rayda eski "t." metni yerine halkasız işaret `pages.TaptimeSign` → `.side-sign`,
+  20 px, tamamı paper, üst/alt 3 px ile eski 26 px satırı tutar — ray kaymaz).
+  Logosuz markalı işletmede rayın işareti adın ilk harfidir (`.side-mark`; Taptime işareti
+  yalnız markasızda — `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`).
   Aşağıdaki maddeler (karar 3, 6, 9) aynen geçerlidir; "porcelain'de" diyen kontrast sayıları
   yalnız telefon üst çubuğu içindir, ink üzerindeki sayılar bu maddededir.
 - *Markalı* = kapıdan **bugün** geçen accent **ya da** logo (karar 3). Markalıda

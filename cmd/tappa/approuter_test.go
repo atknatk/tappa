@@ -447,12 +447,14 @@ func walkOf(t *testing.T, h http.Handler) []string {
 //	                    and the integration API's /v1 routes (its own host, its own key
 //	                    identity and its OWN suspension checkpoint -- ADR 0028 §10,
 //	                    internal/handler/api's WriteClass, API-4b's to measure).
-//	4 methodless, no    /static/* (the embedded read-only file server), and /operator
-//	  writes            and /operator/* while the operator surface is off (503 to every
-//	                    method) -- by name, and required to answer EVERY method.
+//	4 methodless, no    /static/* and /favicon.ico (the embedded read-only file server,
+//	  writes            one handler under two patterns), and /operator and /operator/*
+//	                    while the operator surface is off (503 to every method) -- by
+//	                    name, and required to answer EVERY method.
 //
 // The walked routes must also be exactly the union of what each feature mounts on its
-// own plus the router's own (/healthz, /static/*), so a route with no owner is red.
+// own plus the router's own (/healthz, /static/*, /favicon.ico), so a route with no
+// owner is red.
 // A route in no class is red; a name in a class that the walk does not report is red.
 //
 // PART II -- what it catches: a POST (or PUT, DELETE...) added to any feature outside
@@ -543,7 +545,9 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 		// known before it resolves), so no panel chain applies; only with TAPPA_LIVE_QR_KEY set.
 		"POST " + handler.LiveScreenPairPath: "livescreen",
 	}
-	methodless := map[string]string{"/static/*": "router", "/operator": "operator", "/operator/*": "operator"}
+	methodless := map[string]string{"/static/*": "router", httpx.FaviconPath: "router", "/operator": "operator", "/operator/*": "operator"}
+	// The router's own methodless routes are methodless in both walks; the operator's only while it is off.
+	routerMethodless := func(route string) bool { return methodless[route] == "router" }
 	// chi's own method list, less the two reads: what a methodless route is reported under.
 	allWrites := []string{"CONNECT", "DELETE", "OPTIONS", "PATCH", "POST", "PUT", "QUERY", "TRACE"}
 
@@ -631,7 +635,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 				case who == "api" && on && strings.HasPrefix(route, "/v1"):
 					counts[3]++
 					api++
-				case methodless[route] == who && (route == "/static/*" || !on):
+				case methodless[route] == who && (routerMethodless(route) || !on):
 					counts[4]++
 					methodlessSeen[route] = append(methodlessSeen[route], method)
 				default:
@@ -650,7 +654,7 @@ func TestAppRoutes_EveryNonReadRouteHasOneOfFourClasses(t *testing.T) {
 				}
 			}
 			for route := range methodless {
-				if route != "/static/*" && on {
+				if !routerMethodless(route) && on {
 					continue
 				}
 				got := methodlessSeen[route]

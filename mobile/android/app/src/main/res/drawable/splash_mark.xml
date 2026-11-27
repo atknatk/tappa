@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ splash icon: the colour mark on porcelain, inside the 2/3 circle (192dp of 288dp). No animation. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+    <group
+        android:translateX="74.831"
+        android:translateY="211.710"
+        android:scaleX="0.208340"
+        android:scaleY="0.208340">
+        <path
+            android:fillColor="#152219"
+            android:pathData="M260.0 0.0Q211.0 0.0 180.5 -30.5Q150.0 -61.0 150.0 -112.0V-392.0H26.0V-496.0H150.0V-650.0H276.0V-496.0H412.0V-392.0H276.0V-134.0Q276.0 -104.0 304.0 -104.0H400.0V0.0Z" />
+        <path
+            android:fillColor="#1F5C41"
+            android:fillType="evenOdd"
+            android:pathData="M516 -300H592C617.41 -300 638 -279.41 638 -254V-46C638 -20.59 617.41 0 592 0H516C490.59 0 470 -20.59 470 -46V-254C470 -279.41 490.59 -300 516 -300ZM498 -220A56 56 0 1 0 610 -220A56 56 0 1 0 498 -220ZM520 -220A34 34 0 1 0 588 -220A34 34 0 1 0 520 -220Z" />
+    </group>
+</vector>

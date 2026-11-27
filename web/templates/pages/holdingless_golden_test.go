@@ -44,6 +44,10 @@ package pages
 // card-flow-col and desk:contents on its two column wrappers, panel-prose on nine paragraphs)
 // gives back the previous golden byte for byte; no text, tag or order changed. The reports
 // golden is unchanged (byte for byte).
+// The Taptime mark (2026-11-27, user decision) replaced BOTH goldens: the unbranded panel
+// header, pages.PanelWordmark, now ends the word in the ringless plaque and draws the mark alone on the
+// rail. Measured: putting the previous wordmark's 226 bytes back in place of the new one gives
+// back the previous golden byte for byte in each file (+498 B each); nothing else changed.
 
 import (
 	"bytes"

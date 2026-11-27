@@ -178,8 +178,11 @@ templ publicHeader(c PublicChromeOpts) {
 	<header class="lp-head" aria-label="Site">
 		<div class="lp-headIn">
 			<a class="lp-mark" href="/">
-				<span class="lp-markDot" aria-hidden="true"></span>
-				<span class="lp-markWords"><span class="lp-markName">taptime</span><span class="lp-markTag">punchless</span></span>
+				<span class="lp-markWords">
+					<span class="lp-markName">
+						{ "taptime" }@PlaqueStop("lp-markStop")
+					</span><span class="lp-markTag">punchless</span>
+				</span>
 			</a>
 			<div class="lp-headEnd">
 				<nav class="lp-headNav" aria-label="Primary">
@@ -264,7 +267,10 @@ templ publicFooter(c PublicChromeOpts) {
 	<footer class="lp-foot">
 		<div class="lp-footIn">
 			<div class="lp-footAbout">
-				<span class="lp-footMark"><span class="lp-markDot lp-markDot--sm" aria-hidden="true"></span><span class="lp-footCopy">© 2026 Taptime · Malta</span></span>
+				<span class="lp-footMark">
+					@TaptimeSign("lp-footSign")
+					<span class="lp-footCopy">© 2026 Taptime · Malta</span>
+				</span>
 				<span class="lp-footLine">tap in · tap out · that's it</span>
 				<div class="lp-footNote">
 					<span class="lp-lbl">Taptime</span>

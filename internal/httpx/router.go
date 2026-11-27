@@ -136,13 +136,18 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 
 	// /static/* is served by staticFiles (static.go): noListing's directory refusal plus a
 	// strong ETag and a Cache-Control per file. The operator host reaches this same route
-	// (operatorHostOnly passes staticPrefix), so both hosts get the same headers.
+	// (operatorHostOnly passes staticPrefix), so both hosts get the same headers. With
+	// /healthz these are the router's own top-level routes; every other route is a feature's.
 	assets, err := newStaticFiles(web.Static())
 	if err != nil {
 		// The tree is embedded at compile time; a walk that fails here is a broken build.
 		panic(err)
 	}
 	r.Handle("/static/*", http.StripPrefix(staticPrefix, assets))
+	// /favicon.ico is the same handler over the same tree with no prefix to strip, so it is
+	// web/static/favicon.ico under every rule above (static.go, FaviconPath). The operator host
+	// reaches it too (operatorHostOnly passes FaviconPath); the API host does not, like /static.
+	r.Handle(FaviconPath, assets)
 
 	for _, f := range features {
 		if f != nil {
@@ -157,9 +162,10 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	//
 	// The tap routes arrive with their OWN middleware group — the identity
 	// resolver and the two-sided rate limit — and not from here: both cost
-	// something (a database query, a counter) that /healthz and /static must not
-	// pay. handler.Tap.Mount applies them in the order TapLimiter's doc fixes as
-	// a contract (ByAddress -> Identify -> BySession), and POST /api/checkin
+	// something (a database query, a counter) that /healthz, /static and
+	// /favicon.ico must not pay. handler.Tap.Mount applies them in the order
+	// TapLimiter's doc fixes as a contract (ByAddress -> Identify -> BySession),
+	// and POST /api/checkin
 	// belongs in that same group when it lands.
 
 	return r

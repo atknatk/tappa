@@ -23,9 +23,9 @@ import (
 // below exists to bound what that costs.
 //
 // 🔴 WHY IT NEEDS AN ARGUMENT AT ALL: internal/handler/marketing.go states, in
-// writing, why /healthz and /static/* are unmetered — "a request here renders a
-// fixed component tree and returns; it touches no pool, takes no lock and appends to
-// no table". A readiness endpoint that queries the database BREAKS that sentence for
+// writing, why /healthz, /static/* and /favicon.ico are unmetered — "a request here
+// renders a fixed component tree and returns; it touches no pool, takes no lock and
+// appends to no table". A readiness endpoint that queries the database BREAKS that sentence for
 // its own URL: it is unauthenticated, and it would put a pool acquisition on a path
 // any stranger can drive as fast as they like — the same pool a check-in shares.
 // Measured on the shipped pgx pool: pgxpool.Ping acquires a connection and executes
