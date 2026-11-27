@@ -17,14 +17,14 @@
 | App icon | `Taptime/Assets.xcassets/AppIcon.appiconset`, one 1024 px universal image, no alpha — the launcher plaque on tappa-green | product: `Assets.car`, `CFBundleIconName = AppIcon` |
 | Privacy manifests | `Taptime/PrivacyInfo.xcprivacy`, `TaptimeWidgets/PrivacyInfo.xcprivacy` | both copied into the product |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` — HTTPS and the device-key signature only (authentication, exempt) | `Taptime/Info.plist` |
-| Entitlements | associated domains `applinks:taptime.mt`, NFC NDEF, App Group `group.mt.taptime.app`; no push | `Taptime/Taptime.entitlements` |
+| Entitlements | associated domains `applinks:taptime.mt`, NFC reader formats `TAG` (App Store Connect refuses `NDEF` for a 15.0 target, ITMS-90778, measured 2026-11-27; the app opens only the NDEF reader session), App Group `group.mt.taptime.app`; no push | `Taptime/Taptime.entitlements` |
 | AASA | live: `P6PM935BK2.mt.taptime.app`, paths `/t`, `/q` | `https://taptime.mt/.well-known/apple-app-site-association` |
 
 ## 2. Metadata
 
 | Field | Value |
 |---|---|
-| Name (≤ 30) | Taptime |
+| Name (≤ 30) | Taptime: Clock In — "Taptime" is taken on the App Store (measured 2026-11-27, user decision the same day); the home-screen name stays Taptime |
 | Subtitle (≤ 30) | Tap the plaque. You're in. |
 | Primary language | English (U.K.); Turkish localisation |
 | Category | Business |
@@ -80,10 +80,17 @@ Signing and the first install are the user's (Xcode, automatic signing, team `P6
 
 1. Xcode → both targets (Taptime, TaptimeWidgets) → Signing & Capabilities: team `P6PM935BK2`,
    *Automatically manage signing*, App Groups `group.mt.taptime.app` ticked.
-2. App Store Connect → Apps → **+** → New App: iOS, name Taptime, primary language English (U.K.),
-   bundle id `mt.taptime.app`, SKU `taptime-ios`.
+2. App Store Connect → Apps → **+** → New App: iOS, name *Taptime: Clock In*, primary language English (U.K.),
+   bundle id `mt.taptime.app`, SKU `taptime-ios`. **Done 2026-11-27** (Apple ID 6840191846, team
+   Everva Bilişim Anonim Şirketi).
 3. Xcode → destination *Any iOS Device (arm64)* → Product → Archive → Distribute App →
-   App Store Connect → Upload.
+   App Store Connect → Upload. From the command line (how build 1.0.0 (1) went up, 2026-11-27):
+   `xcodebuild archive` then `xcodebuild -exportArchive` with an export options plist
+   (`method` app-store-connect, `destination` upload, `teamID` P6PM935BK2, automatic signing), both
+   with `-allowProvisioningUpdates` and the team's App Store Connect API key
+   (`-authenticationKeyPath/-KeyID/-KeyIssuerID`). The key is team-wide and lives in Infisical
+   (project `optiway`, `prod`, `/brands/optiway/ios`: `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`,
+   `ASC_API_ISSUER_ID`); the `.p8` is written to a private temporary file only for the command.
 4. App Store Connect → the app's beta-testing tab (Apple's beta service; its product name fits the
    repository's test-name pattern, `cmd/tappa/testnames_test.go:95`, so it is not spelled here) → the build → export compliance is answered by the Info.plist
    key → add the internal testers group. Internal testing needs no review; external testing

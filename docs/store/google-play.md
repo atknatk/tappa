@@ -5,7 +5,8 @@
 > this file** (the repository is public): reviewer access and contact details are typed only into
 > Play Console.
 >
-> Status: internal testing first (user decision, 2026-11-25). Production waits for two user
+> Status: internal testing first (user decision, 2026-11-25). On the internal-testing track:
+> `1 (1.0.0)` 2026-11-25, `2 (1.0.0)` 2026-11-27 (Taptime mark from `main`). Production waits for two user
 > decisions: PR #49 to `main` (the account-deletion endpoint `/app/v1/account/delete` exists only
 > there) and the lawyer-approved privacy text (`docs/legal/privacy-draft.md`, M16-41).
 
@@ -13,7 +14,7 @@
 
 | Field | Value |
 |---|---|
-| App name | Taptime |
+| App name | Taptime: Clock In — the App Store name (user decision 2026-11-27: "Taptime" is taken there; one name for both stores) |
 | Default language | English (United Kingdom) — Malta market; Turkish added as a translation |
 | App or game | App |
 | Free or paid | Free |
@@ -118,14 +119,21 @@ measured 2026-11-25 from `mobile/android/app/src/main/kotlin/mt/taptime/app/wire
 ## 3. Release runbook
 
 Prerequisites on the uploading machine (never in the repository): the upload keystore
-(PKCS12, alias `upload`) and its password, kept in the machine's keychain and in the team's
-secret store.
+(PKCS12, alias `upload`, certificate SHA-256 `8B:BD:17:14:B0:85:C8:CD:58:E2:6B:9E:63:3B:35:90:5C:6B:4C:BE:F5:D4:67:75:42:94:09:B8:28:3D:AC:58`,
+the value Play Console shows under App signing → Upload key) and its password. **The source of
+truth is Infisical** (user rule, 2026-11-27): project `shared-infra`, env `prod`, folder
+`/tappa-mobile`, keys `TAPTIME_ANDROID_UPLOAD_KEYSTORE_B64` and `TAPTIME_ANDROID_UPLOAD_PASSWORD`
+(that folder, not `/tappa`, which feeds the cluster). A machine keeps a working copy only: the
+keystore at `~/.taptime-signing/taptime-upload.jks` and the password in the keychain (service
+`taptime-android-upload`, account `upload`).
 
 1. Raise `versionCode` (and `versionName`) in `mobile/android/app/build.gradle.kts`. Play refuses a code it has already seen.
 2. Build the bundle:
    ```bash
    cd mobile/android
    export JAVA_HOME=/usr/local/opt/openjdk@21 ANDROID_HOME=/usr/local/share/android-commandlinetools
+   # Apple silicon: JAVA_HOME=/opt/homebrew/opt/openjdk@21 ANDROID_HOME=$HOME/Library/Android/sdk
+   # (versionCode 2 was built that way with Homebrew Gradle 9.9.2, 2026-11-27)
    export TAPTIME_UPLOAD_KEYSTORE=<absolute path to the upload keystore, outside the repository>
    gradle --no-daemon bundleRelease   # with TAPTIME_UPLOAD_PASSWORD set for this command only (below)
    jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # "jar verified."
@@ -136,6 +144,6 @@ secret store.
    long-lived Gradle daemon's environment. Without it the bundle is unsigned and `jarsigner` says so.
    The release `BASE_URL` is pinned to `https://taptime.mt`; `-Ptaptime.baseUrl` stops a release build.
 3. Play Console → Testing → Internal testing → Create release → upload `app-release.aab`.
-4. **First upload only:** Play Console → Setup → App integrity → App signing → copy the **app signing key** SHA-256. Production's `TAPPA_APP_ANDROID_SIGNER_SHA256` takes that one value only (M16-08; the upload key's digest never goes to production). Setting it is a deploy — user decision. Until then `/.well-known/assetlinks.json` answers 404 and a plaque tap opens the browser instead of the app.
+4. **First upload only:** Play Console → Setup → App integrity → App signing → copy the **app signing key** SHA-256 (read 2026-11-27 from that page's Digital Asset Links block: `B9:F1:82:3F:20:76:55:43:2B:60:98:0D:EF:DE:BD:4C:94:E7:AD:FC:85:E5:89:1C:67:6C:A8:6F:5F:63:D2:73`; a public value, `assetlinks.json` serves it). Production's `TAPPA_APP_ANDROID_SIGNER_SHA256` takes that one value only (M16-08; the upload key's digest never goes to production). Setting it is a deploy — user decision. Until then `/.well-known/assetlinks.json` answers 404 and a plaque tap opens the browser instead of the app.
 5. Promote internal → production only after the server the app needs is live (`/app/v1` is backwards compatible: an older app keeps working against a newer server; a newer app needs every endpoint it calls).
 6. Roll back: Play cannot un-publish a version code. Halt the staged rollout, or ship the previous code base with a higher `versionCode`.
