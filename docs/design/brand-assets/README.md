@@ -90,3 +90,13 @@ splash.
 Üretim zinciri **repo dışında**, yerel bir çalışma klasöründe durur. Kullanılanlar: Python fontTools ve
 HarfBuzz ile glif dış hatları, `rsvg-convert` ile PNG/PDF, Pillow ile ICO. **Node kullanılmadı.** Fontlar
 OFL'dir; dış hatları alınmış harfler bir logo olarak kullanılabilir.
+
+## Mağaza (PLAN #10, #11)
+
+- `store/play-feature-graphic.{svg,png}`: Play Store öne çıkan görseli, 1024×500, alfa yok. Yeşil zemin,
+  solda paper `taptime▯` + `PUNCHLESS`, sağda büyük paper plaket (halka delik). Düz bir marka
+  kompozisyonudur, fotoğraf ve AI içermez. Mağaza yayını (M16 Faz F) ayrı bir karardır.
+- `store/frame.html`: App Store ve Play tanıtım görselleri için çerçeve ve başlık bandı şablonu. İçine
+  **yalnız gerçek uygulama ekran görüntüsü** konur (Apple 2.3.3); AI görseli ya da maket konmaz. Başlık
+  ve ekran görüntüsü URL parametresiyle verilir. Headless Chrome ile çizilir; komut dosyanın başındaki
+  yorumda. Fontlar ürünün kendi dosyalarından (`web/static/fonts`) gelir.
