@@ -773,6 +773,17 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   `TestTenantScreen_RefusesToRenderWithoutItsTabs`, `TestEnrollQR_OnlyOnTheFirstLoad` (imzalı
   render'da tam beş SVG — gezinmenin ikonları). Tasarım: `docs/design/operator-redesign/README.md`
   §2 OP-1; marka kuralı değişmedi (ADR 0023 operatör satırı).
+- **Favicon notu (2026-11-27) — müşteri yarısının geçirdiği küme bir yol büyüdü.** Kullanıcı
+  kararı (2026-11-27): Taptime ikonu kökte `/favicon.ico` rotasıyla verilir — `<link rel=icon>`,
+  manifest ve CSP değişikliği yok. Rota `internal/httpx.NewRouter`'ın kendisidir ve `/static/*`'ın
+  **aynı** handler'ı (`web/static/favicon.ico`; `httpx.FaviconPath`). OP-8 notunun (ii)'sindeki
+  *"operatör host'unda `/operator…` ve `/static/` geçer"* artık *"`/operator…`, `/static/` ve
+  **tam olarak** `/favicon.ico` geçer"*dir: tarayıcı operatör host'undan da ikonunu ister ve cevap
+  `/static`'in verdiği varlıktır — müşteri sayfası değil, betik değil, kimlik ve sayaç yok;
+  `Content-Type: image/x-icon` + `nosniff`. Altındaki ve yanındaki yollar (`/favicon.ico/…`,
+  `/favicon.icox`, `/favicon.ico/../admin`) 404 kalır
+  (`TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide`'ın yeni beş satırı). API host'u
+  `/static` gibi bunu da vermez (`apiHostOnly`, değişmedi).
 
 ### 5. Audit
 

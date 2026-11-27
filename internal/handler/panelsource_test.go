@@ -73,6 +73,9 @@ var panelTemplates = map[string]bool{
 	"pages/review.templ":             true,
 	"pages/claimqueue.templ":         true,
 	"pages/transactions.templ":       true,
+	// The Taptime mark (2026-11-27): the unbranded panel header draws it, and so does the
+	// public site's chrome. It is a drawing and nothing else -- no press target.
+	"pages/taptimemark.templ": true,
 }
 
 // nonPanelTemplates are the templates outside the panel, each with the reason.

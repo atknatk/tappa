@@ -225,7 +225,7 @@ outside `@layer`; a board name is kept where nothing in the product owned it, ot
 | `details.menu`, `.mopen`/`.mclose`, `.mlink` | same, + `.lp-menuHead`, `.lp-menuList` | native `<details>`, no script; hidden from 768 px; lists the Product column (`MountedPublicLinks(PublicProductLinks)`) |
 | `.mbar` | `.mbar` | every public phone page except Signup (`NoPhoneBar`); on `OwnRoots` pages inside `.lp.lp-dock` |
 | `.fcol`, `.flink` | `.fcol` (+ `.fcol a`, `.lp-fcolHead`), `.flink` | footer link 44 px (board 40) |
-| — (header/footer frame) | `.lp-head`, `.lp-headIn`, `.lp-mark`, `.lp-markDot`, `.lp-signin`, `.lp-skip`, `.lp-foot`, `.lp-footIn` | the chrome's own classes (LP-02); roots `.lp.lp-top` / `.lp-topStill` / `.lp-instant` / `.lp-dock` for `OwnRoots` pages (LP-11) |
+| — (header/footer frame) | `.lp-head`, `.lp-headIn`, `.lp-mark`, `.lp-markStop` (was `.lp-markDot` until the 2026-11-27 Taptime mark), `.lp-footSign`, `.lp-signin`, `.lp-skip`, `.lp-foot`, `.lp-footIn` | the chrome's own classes (LP-02); roots `.lp.lp-top` / `.lp-topStill` / `.lp-instant` / `.lp-dock` for `OwnRoots` pages (LP-11) |
 | `.band--paper`, `.band--ink`, `.band--porcelain` | `.band` + `.band--paper/--ink/--porcelain`; green box `.ondark` | `--ring` turns paper in `.band--ink` and `.ondark` |
 | `.card`, `.fitcard`, `.ico` | `.card`, `.fitcard` (with `.lp-fit`), `.lp-ico` | `.ico` → prefixed (the reference's step emoji slot was `.ico`) |
 | `.more` | `.more` (+ `.lp-moreAfter` under the price card) | |

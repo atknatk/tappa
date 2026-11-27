@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Android 12+ (API 31) splash, platform attributes only: no core-splashscreen library. The
+      mark in colour on porcelain, inside the system's 2/3 circle; no animation duration and no
+      icon background, so the system shows it still. Every other item comes from
+      Base.Theme.Taptime (values/themes.xml).
+    -->
+    <style name="Theme.Taptime" parent="Base.Theme.Taptime">
+        <item name="android:windowSplashScreenBackground">@color/porcelain</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+    </style>
+</resources>

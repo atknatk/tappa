@@ -118,7 +118,7 @@ func TestAppRouter_EveryNonPublicRouteIsUnderAPlainRoot(t *testing.T) {
 			}
 			plainSegs[firstSegment(pattern)] = true
 		}
-		want := []string{"activate", "admin", "api", "app", "brand", "healthz", "oauth", "operator", "readyz", "static", "t"}
+		want := []string{"activate", "admin", "api", "app", "brand", "favicon.ico", "healthz", "oauth", "operator", "readyz", "static", "t"}
 		if on {
 			want = append(want, "dev", "v1", "q", "screen")
 		}
@@ -181,6 +181,7 @@ func TestAppRouter_UnknownPathsAnswerByHostAndPrefix(t *testing.T) {
 		"/brand/no-such-asset", "/brand/theme/no-such-file.css", "/brand/theme/808080.css",
 		"/admin/no-such-screen", "/t/logo/", "/activate/no-such-step", "/api/no-such-endpoint",
 		"/operator/no-such-screen", "/v1/no-such-resource", "/static/no-such-file.css", "/static",
+		"/favicon.ico/no-such-file",
 	}
 	plain := wireAnswer{http.StatusNotFound,
 		http.Header{"Content-Type": {"text/plain; charset=utf-8"}, "X-Content-Type-Options": {"nosniff"}},

@@ -1,0 +1,49 @@
+<!doctype html>
+<!--
+  #11 store frame template (docs/design/brand-assets/README.md, "Mağaza"). Only the frame and the
+  title band are designed; the picture inside is ALWAYS a real screenshot of the app (Apple 2.3.3),
+  never AI, never a mock-up. Render with headless Chrome, one frame per call:
+    chrome --headless=new --hide-scrollbars --allow-file-access-from-files --window-size=W,H \
+      --screenshot=out.png "file://…/frame.html?w=W&h=H&title=…&shot=/abs/path/screen.png"
+  Sizes: App Store 6.9" 1320×2868, 6.5" 1284×2778; Google Play phone 1080×1920.
+  Fonts come from the product's own files (web/static/fonts), so the template needs no install.
+-->
+<meta charset="utf-8">
+<style>
+@font-face{font-family:SG;src:url(../../../../web/static/fonts/space-grotesk-v22-latin-wght.woff2) format('woff2');font-weight:300 700}
+html,body{margin:0;background:#EDF0EA;color:#152219}
+.f{position:relative;overflow:hidden;background:#EDF0EA}
+.mark{position:absolute;left:8%;top:5%;height:calc(var(--u)*4.2)}
+.title{position:absolute;left:8%;right:8%;top:calc(5% + var(--u)*9);margin:0;
+       font:700 calc(var(--u)*7.6)/1.02 SG;letter-spacing:-.03em;max-width:14ch}
+.shot{position:absolute;left:11%;right:11%;bottom:0;top:var(--top);overflow:hidden;
+      border-radius:calc(var(--u)*3.4) calc(var(--u)*3.4) 0 0;background:#FFFDF4;
+      border:calc(var(--u)*.35) solid #152219;border-bottom:0}
+.shot img{display:block;width:100%;height:auto}
+.empty{display:flex;align-items:center;justify-content:center;height:100%;padding:0 10%;
+       font:400 calc(var(--u)*2) SG;opacity:.45;text-align:center}
+</style>
+<div class="f" id="f">
+  <img class="mark" src="../svg/taptime-wordmark.svg" alt="">
+  <h1 class="title" id="t"></h1>
+  <div class="shot" id="s"><div class="empty">real app screenshot goes here</div></div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const w = Number(q.get('w')) || 1320;
+const h = Number(q.get('h')) || 2868;
+const f = document.getElementById('f');
+f.style.width = w + 'px';
+f.style.height = h + 'px';
+f.style.setProperty('--u', (w / 100) + 'px');
+f.style.setProperty('--top', h / w > 2 ? '27%' : '30%');
+document.getElementById('t').textContent = q.get('title') || 'Title of this frame';
+const shot = q.get('shot');
+if (shot) {
+  const img = document.createElement('img');
+  img.alt = '';
+  img.src = 'file://' + shot;
+  const s = document.getElementById('s');
+  s.replaceChildren(img);
+}
+</script>

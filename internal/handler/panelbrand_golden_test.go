@@ -165,25 +165,35 @@ var unbrandedBeforeWL8 = map[string]unbrandedDigest{
 // tab (no h1) unchanged. That claim is not left to this comment --
 // TestPanelHead_EmptySlotsAreTheShellAsItWas (panelhead_test.go) keeps the 022ba3c digests
 // and puts the old class back into every render before comparing.
+//
+// RE-RENDERED FOR THE TAPTIME MARK (2026-11-27, user decision), and for nothing else: the
+// unbranded header, pages.PanelWordmark, ends its word in the plaque and draws the mark
+// alone on the rail, both ringless, 498 bytes longer in every panel render. Checked before replacing: each
+// render with panelWordmarkBeforeMark put back in place of the new header is its previous
+// digest. TestPanelHead_EmptySlotsAreTheShellAsItWas puts it back on every run.
 var unbrandedPanelShell = map[string]unbrandedDigest{
-	"PanelShell, owner, tab transactions":            {11577, "2475ba759ba9f173c8225c221f0f1a08428ac7dfa53bc4f9b1acf0c1456c835a"},
-	"PanelShell, owner, tab review":                  {11578, "53cb35e94a9c3cb857ecb2607e107a6bdb457df6eec8e87c0119e162c48de554"},
-	"PanelShell, owner, tab employees":               {11575, "73d43d30cea577609c9b6b8172b6135242d1f4e2042b3b5d61331189fd777580"},
-	"PanelShell, owner, tab locations":               {11669, "1a6c4bc7114f8cf3154227bb0b0cf1cbeca8170044ab6b746398cb7e3c8e977d"},
-	"PanelShell, owner, tab reports":                 {11577, "91ba07ac0d6c6d2c41819a28552bd7c003892b5bcc15f1e54dd60b59dd88a04d"},
-	"PanelShell, owner, tab anomalies":               {11649, "a8f5998243a327bc2d703d4afb8b2be66ca1a72c793021c461f98e323f66cf55"},
-	"PanelShell, owner, tab policies":                {11639, "34cf35533789b395ce2ac325c16deb67986b313e825e235f777688b88253e975"},
-	"PanelShell, owner, tab billing":                 {11643, "d581c336e2943a436e758bb5a53d506259df8ad3d67612b95587626eae93b343"},
-	"PanelShell, owner, tab account":                 {11643, "b5b6c8041d8ebde78b7e19c31606349708c2523f34b18a40986049af4dd1fdcc"},
-	"PanelShell, owner, tab developers":              {11649, "6aedb5ba0a1af99bf946956192a649a6c5c66b3ea059535f26b2323f77733751"},
-	"PanelShell, manager, review, capped badge":      {9973, "f1b49c2665869e081e051d902d8a646a760d9a4385aed079180ef9c9f6e290c6"},
-	"PanelShell, owner, transactions, unknown badge": {11615, "dd6f78eb537fe19c612c1e86119d11f0d499ae059fd14aef6931d076845eb2ab"},
-	"PanelShell, owner, transactions, empty queue":   {11429, "c0ec49b3cb98e86b1baefdda9a8f551a93ff1c4e15816d8bb73d0e67920c8b44"},
-	"PanelShell, owner, an undeclared tab":           {11366, "c1c3be44486d86147aa4f0a0c82bb4a28b198b4807d70b3a0a951ae3e17ffc67"},
-	"PanelShell, a name to escape":                   {11713, "565ca51ba1456bf10107752e272cee24d4a5a9418ff67e5c35f277d469408778"},
-	"PanelShellWithScript, owner, transactions":      {11633, "74ea319110482256a23cab1278ed24febfefd6610153c8980bdf5a058bf01eb1"},
-	"AdminDashboard, owner, reports":                 {12006, "3ab084771685b2fb4dc817e7abaa69dc357e1824fdc3c810e46ff064d1dcc703"},
+	"PanelShell, owner, tab transactions":            {12075, "dba6cc9e32a6e1476d72fe8269e795b33de907ea3126caacad4cdeee27296860"},
+	"PanelShell, owner, tab review":                  {12076, "4d2afa3f8b5205615e6edb001ef51f41565a6c0331826676ee855c54df1f1897"},
+	"PanelShell, owner, tab employees":               {12073, "9bead6009446f2f01fdd63c9235dd17a2eec6aa9a04822a552d19284591344de"},
+	"PanelShell, owner, tab locations":               {12167, "6f423f99913a5c4ec742a0468da01968d3d2a068ca3e7b352ad58f5fea5ef369"},
+	"PanelShell, owner, tab reports":                 {12075, "905531342a711c2ab51b501952120d6ff8e395cf06422be4b1850e00c6ceae22"},
+	"PanelShell, owner, tab anomalies":               {12147, "db0ae68813cb37b85faefc7a6ccc0c7432ddcc4c444d5bd269733ba90b7ac8c3"},
+	"PanelShell, owner, tab policies":                {12137, "74bcd82cd40054a5878959740d6ace64c3bfec179e0babf05778cb46d716f0a6"},
+	"PanelShell, owner, tab billing":                 {12141, "25900bb8f16b91de6dc4845f46f52893a526e1aa6d7bf91efcf507c1bbd37197"},
+	"PanelShell, owner, tab account":                 {12141, "db36603a881f60d3ec01886f48b9e12635e9e9cc5e4d98a2c3fb2e2449aced2a"},
+	"PanelShell, owner, tab developers":              {12147, "adf6113eb9c2de1e68a5a84ea38c84bf339cfe2b8ae989643b055a82275bc221"},
+	"PanelShell, manager, review, capped badge":      {10471, "7adb78ba3f508ffec5a806899315a13325f17facfc1929942253f9fa0eb6615d"},
+	"PanelShell, owner, transactions, unknown badge": {12113, "af13afb00f6909b11f821014cdb5ab19f7398ce26dfe5588a1fb43f10384e9d8"},
+	"PanelShell, owner, transactions, empty queue":   {11927, "f62ffa1c45096fefb3a14d9c1a254722daf20bbb15db345ede23f627237de3e2"},
+	"PanelShell, owner, an undeclared tab":           {11864, "7bcc81c329530870f9097e6389389f96388b41ad8a39d20fffe8095975628dbe"},
+	"PanelShell, a name to escape":                   {12211, "21f7163d832e238c6ba26379d8a32d9738df7bee2aa00ab4d03bd3ddec033556"},
+	"PanelShellWithScript, owner, transactions":      {12131, "dc2a8af4feae4f7cb9b6c8022fd95d5efe0ff25fa9c2315eb6bcc32596f74713"},
+	"AdminDashboard, owner, reports":                 {12504, "0e74c31a5fa7c24f302e5cbbbbadf8f22eb9cd52f063ecaf4a569d5c61a52cdd"},
 }
+
+// panelWordmarkBeforeMark is pages.PanelWordmark as it rendered before the Taptime mark
+// (2026-11-27): the text "t." on the rail and the word without its plaque.
+const panelWordmarkBeforeMark = `<header class="side-head"><div class="side-lockup"><span class="side-mark" aria-hidden="true">t.</span><div class="side-words"><span class="side-word">taptime</span> <span class="side-tag">punchless</span></div></div></header>`
 
 // isPanelRender says which corpus entries render the panel shell (and so are held to
 // unbrandedPanelShell) rather than one of the layouts df544c1 still pins.

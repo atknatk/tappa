@@ -516,11 +516,28 @@
            md:min-h-0 md:flex-col md:items-center md:gap-1 md:px-2 md:pt-5 md:pb-0
            desk:flex-row desk:items-center desk:gap-3 desk:px-7 desk:pt-6;
   }
+  /* THE UNBRANDED LOCKUP CARRIES THE TAPTIME MARK (2026-11-27, user decision; masters in
+     docs/design/brand-assets). The word keeps its text and takes the master's -0.03em
+     tracking; its full stop is the ringless plaque (pages.PlaqueStop, .side-stop; the
+     README's small-size rule -- the ring is gone at 32 px and under): 0.168em by 0.3em,
+     its foot on the baseline, 0.058em after the "e" (the master's 28 units plus the
+     tracking the "e" also carries). Tappa-green on the phone's porcelain bar, paper on the
+     ink sidebar -- the README's colour table puts no green plaque on ink. */
   .side-word {
-    @apply font-display text-xl font-bold leading-none tracking-tight md:hidden desk:inline desk:text-2xl;
+    @apply font-display text-xl font-bold leading-none tracking-[-0.03em] md:hidden desk:inline desk:text-2xl;
   }
+  .side-stop {
+    @apply ml-[0.058em] inline-block h-[0.3em] w-[0.168em] fill-tappa-green align-baseline md:fill-paper;
+  }
+  /* A branded business's rail mark: its initial. */
   .side-mark {
     @apply hidden font-display text-[26px] font-bold leading-none tracking-tight md:inline desk:hidden;
+  }
+  /* The unbranded rail's mark is the Taptime mark alone (pages.TaptimeSign), all paper on
+     the ink rail and ringless (32 px and under). 20 px tall with 3 px above and below, so
+     it takes the 26 px line the old "t." text took and the rail below it does not move. */
+  .side-sign {
+    @apply my-[3px] hidden h-5 w-auto fill-paper md:block desk:hidden;
   }
   .side-tag {
     @apply font-mono text-[10px] uppercase tracking-widest text-ink/70
@@ -2722,9 +2739,17 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 /* Sticky, and positioned for the open menu's panel to hang from (top: 60px). */
 .lp .lp-head { position: sticky; top: 0; z-index: 5; background: rgb(var(--porcelain-ch) / .94); border-bottom: 1px solid var(--line); }
 .lp .lp-headIn { display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 60px; padding: 0 12px 0 16px; }
-.lp .lp-mark { display: flex; align-items: center; gap: 9px; min-height: 44px; min-width: 0; color: var(--ink); text-decoration: none; }
-.lp .lp-markDot { flex: none; position: relative; display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--green); }
-.lp .lp-markDot::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; border: 2px solid var(--paper); opacity: .92; }
+.lp .lp-mark { display: flex; align-items: center; min-height: 44px; min-width: 0; color: var(--ink); text-decoration: none; }
+/* THE WORDMARK'S FULL STOP IS THE PLAQUE (2026-11-27, user decision; the master is
+   docs/design/brand-assets/svg/taptime-wordmark.svg). The word is the page's text; the
+   plaque is pages.PlaqueStop's inline drawing, sized in em so it follows the word at
+   every width: 0.168em by 0.3em, its foot on the baseline. The master sets it 28 units
+   after the "e"'s advance, and the word's -0.03em tracking is applied after the "e" as
+   well, so the gap here is 0.028 + 0.03 = 0.058em. The plaque is RINGLESS: the README's
+   small-size rule drops the ring at 32 px and under, and at 20/24px type the plaque is
+   6-7.2px tall with a half-pixel ring band (review measured its hole as grey). Tappa-green on the porcelain bar, 6.85:1 -- the README's colour table for a light
+   ground; it keeps its colour on hover and press, where the word turns green beside it. */
+.lp .lp-markStop { display: inline-block; width: .168em; height: .3em; margin-left: .058em; vertical-align: baseline; fill: var(--green); }
 .lp .lp-markWords { display: flex; flex-direction: column; gap: 1px; }
 .lp .lp-markName { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
 .lp .lp-markTag { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; line-height: 1.4; text-transform: uppercase; color: rgb(var(--ink-ch) / .7); }
@@ -2742,7 +2767,7 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-signin:focus-visible,
 .lp .lp-mark:focus-visible { border-radius: 6px; }
 /* The home link (States-Public, LP-14): hover turns the word green, pressed green and
-   underlined; the dot and the tag line keep their colours. Green on porcelain 6.85:1. */
+   underlined; the plaque and the tag line keep their colours. Green on porcelain 6.85:1. */
 .lp .lp-mark:hover .lp-markName { color: var(--green); }
 .lp .lp-mark:active .lp-markName { color: var(--green); text-decoration: underline; text-underline-offset: 4px; }
 /* The phone's header button is the slimmer one the board draws. */
@@ -2754,9 +2779,6 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-head .hbtn:active { box-shadow: inset 0 0 0 2px var(--green); }
 @media (min-width: 768px) {
   .lp .lp-headIn { height: auto; min-height: 68px; gap: 12px; padding: 0 40px; }
-  .lp .lp-mark { gap: 10px; }
-  .lp .lp-markDot { width: 28px; height: 28px; }
-  .lp .lp-markDot::after { inset: 6px; }
   .lp .lp-markWords { flex-direction: row; align-items: center; gap: 10px; }
   .lp .lp-markName { font-size: 24px; line-height: 1.2; }
   .lp .lp-markTag { font-size: 11px; letter-spacing: .14em; padding-top: 4px; }
@@ -2783,8 +2805,10 @@ html:has(.lp .mbar) { scroll-padding-bottom: 80px; }
 .lp .lp-footIn { display: flex; flex-direction: column; gap: 28px; padding: 40px 16px; }
 .lp .lp-footAbout { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .lp .lp-footMark { display: flex; align-items: center; gap: 10px; }
-.lp .lp-markDot.lp-markDot--sm { width: 22px; height: 22px; }
-.lp .lp-markDot.lp-markDot--sm::after { inset: 4px; }
+/* The footer's sign is the mark alone (pages.TaptimeSign): 22px tall, the old dot's
+   height, so the ringless cut (32px and under); ink letter, tappa-green plaque. */
+.lp .lp-footSign { flex: none; display: block; width: auto; height: 22px; fill: var(--ink); }
+.lp .lp-footSign path:last-child { fill: var(--green); }
 .lp .lp-footCopy { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .8); }
 .lp .lp-footLine { font-family: var(--mono); font-size: 12px; color: rgb(var(--ink-ch) / .7); }
 .lp .lp-footNote { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 460px; }

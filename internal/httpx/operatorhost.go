@@ -35,7 +35,8 @@ const OperatorPrefix = "/operator"
 
 // staticPrefix is the asset route NewRouter registers ("/static/*"). The operator's
 // screens load their stylesheet, the brand faces and their script from it; operatorHostOnly
-// lets it through on the operator host.
+// lets it through on the operator host, and FaviconPath (static.go) with it: a browser asks
+// the operator host for its icon like any other, and the answer is the same asset.
 const staticPrefix = "/static/"
 
 // OnHost reports whether r was addressed to host. operatorHostOnly here and hostGate in
@@ -86,8 +87,8 @@ func routingPath(r *http.Request) string {
 }
 
 // operatorHostOnly is the CUSTOMER half of the two-way host gate. On the operator host
-// (OnHost) it passes OperatorPrefix, the paths under it and staticPrefix's paths to the
-// router, redirects GET and HEAD of "/" to the surface, and answers the other paths with
+// (OnHost) it passes OperatorPrefix, the paths under it, staticPrefix's paths and
+// FaviconPath (exactly that path) to the router, redirects GET and HEAD of "/" to the surface, and answers the other paths with
 // http.NotFound -- the handler the router uses for a path it has no route for. When OnHost
 // is false it passes the request on unchanged. Measured on the rows of
 // TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide.
@@ -110,7 +111,8 @@ func operatorHostOnly(host string) func(http.Handler) http.Handler {
 			}
 			p := routingPath(r)
 			switch {
-			case p == OperatorPrefix, strings.HasPrefix(p, OperatorPrefix+"/"), strings.HasPrefix(p, staticPrefix):
+			case p == OperatorPrefix, strings.HasPrefix(p, OperatorPrefix+"/"), strings.HasPrefix(p, staticPrefix),
+				p == FaviconPath:
 				next.ServeHTTP(w, r)
 			case p == "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 				// Somebody typed the bare host. The landing page is a customer route, so

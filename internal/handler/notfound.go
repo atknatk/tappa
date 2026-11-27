@@ -35,16 +35,16 @@ import (
 //  1. the method is GET or HEAD. Nothing else on this surface reads a page;
 //  2. the path's first segment is not one of plainNotFoundRoots below: the panel, the
 //     tap and activation flows, their JSON endpoints, the brand assets, the static
-//     tree, the operator surface, the integration API, the probes and the dev tools.
-//     Those surfaces keep the plain answer under their whole prefix, so a path that
-//     starts inside the panel never shows the public chrome, and a probe of /brand/…
+//     tree and /favicon.ico, the operator surface, the integration API, the probes and
+//     the dev tools. Those surfaces keep the plain answer under their whole prefix, so
+//     a path that starts inside the panel never shows the public chrome, and a probe of /brand/…
 //     sees one answer whatever comes after it.
 //
 // The HOST is not read here, and that is a property of where the request can come
 // from rather than an omission: on the operator host operatorHostOnly answers every
-// path but /operator… and /static/… before the router routes (and "/" with its
-// redirect), on the API host apiHostOnly answers every path but /v1…, and those three
-// prefixes are on the list. cmd/tappa's TestAppRouter_UnknownPathsAnswerByHostAndPrefix
+// path but /operator…, /static/… and /favicon.ico before the router routes (and "/"
+// with its redirect), on the API host apiHostOnly answers every path but /v1…, and
+// those four roots are on the list. cmd/tappa's TestAppRouter_UnknownPathsAnswerByHostAndPrefix
 // drives both hosts through the composed router.
 //
 // THE PAGE IS THE SAME BYTES FOR EVERY PATH AND EVERY VISITOR: it prints neither the
@@ -79,6 +79,7 @@ var plainNotFoundRoots = []string{
 	firstPathSegment(apiCheckinPath),       // api: /api/checkin and /api/activate
 	firstPathSegment(brandThemeRoute),      // brand: the theme stylesheets
 	firstPathSegment(staticRoot),           // static: the embedded asset tree
+	firstPathSegment(httpx.FaviconPath),    // favicon.ico: the tree's icon at the root (2026-11-27)
 	firstPathSegment(httpx.OperatorPrefix), // operator: the operator surface
 	firstPathSegment(httpx.APIPrefix),      // v1: the integration API
 	firstPathSegment(httpx.HealthPath),     // healthz

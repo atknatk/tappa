@@ -1,0 +1,50 @@
+package pages
+
+// THE TAPTIME MARK ON THE PUBLIC SITE AND THE UNBRANDED PANEL (2026-11-27, user decision):
+// a Space Grotesk 700 "t" whose full stop is the wall PLAQUE -- a rounded upright
+// rectangle with the ring the phone touches cut out of it. The masters and the geometry
+// are docs/design/brand-assets (README, "Geometri"); these paths are the same numbers.
+//
+// THE WORD STAYS TEXT. The wordmark "taptime" is the page's own type, so it is read,
+// copied, coloured on hover and drawn in the font the rest of the page uses; only the
+// plaque that ends it is drawn, by PlaqueStop, inline, aria-hidden. Its box is sized in
+// em by the stylesheet (0.168 by 0.3, its foot on the baseline, 0.058 after the last
+// letter), so it follows the word's size at every width. No image request: the
+// pages admit no img-src for this, and a drawing in the markup needs none.
+//
+// NO RING ANYWHERE HERE. The README's small-size rule: at 32 px and under the ring is
+// dropped. At the 20-24 px the headers set the word in, the plaque is 6-7.2 px tall and
+// the ring's band half a pixel -- measured in review, its hole drew as grey (112-154 of
+// 255), the smudge the rule forbids. So both drawings are the master's ringless cut.
+//
+// THE MARK ALONE (TaptimeSign) is a decoration beside words that already say Taptime,
+// so it is one aria-hidden drawing: the master's outline of the "t" and the plaque.
+//
+// COLOUR IS THE STYLESHEET'S. The paths carry no colour; each surface sets the letter
+// and the plaque (the drawing's last path) by the README's colour table: ink letters
+// and a tappa-green plaque on a light ground, all paper on ink. The coordinates are
+// whole numbers (the corners are arcs, not the master's curve approximation), so
+// nothing here looks like a decimal degree to the panel's coordinate scan.
+
+const (
+	// plaqueStop is the ringless plaque in its own 168 x 300 box.
+	plaqueStop = "M46 0H122A46 46 0 0 1 168 46V254A46 46 0 0 1 122 300H46A46 46 0 0 1 0 254V46A46 46 0 0 1 46 0Z"
+	// signLetter is the master's outline of the "t" (font units, baseline at 0).
+	signLetter = "M260 0Q211 0 180.5 -30.5Q150 -61 150 -112V-392H26V-496H150V-650H276V-496H412V-392H276V-134Q276 -104 304 -104H400V0Z"
+	// signPlaque is the ringless plaque 58 units after the letter's edge.
+	signPlaque = "M516 -300H592A46 46 0 0 1 638 -254V-46A46 46 0 0 1 592 0H516A46 46 0 0 1 470 -46V-254A46 46 0 0 1 516 -300Z"
+)
+
+// PlaqueStop is the plaque that ends the wordmark, ringless.
+templ PlaqueStop(class string) {
+	<svg class={ class } viewBox="0 0 168 300" aria-hidden="true" focusable="false">
+		<path d={ plaqueStop }></path>
+	</svg>
+}
+
+// TaptimeSign is the mark alone, ringless: the letter, then the plaque.
+templ TaptimeSign(class string) {
+	<svg class={ class } viewBox="26 -650 612 650" aria-hidden="true" focusable="false">
+		<path d={ signLetter }></path><path d={ signPlaque }></path>
+	</svg>
+}

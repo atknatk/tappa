@@ -622,16 +622,19 @@ templ panelHead(c PanelChrome, actions templ.Component) {
 }
 
 // PanelWordmark is the chrome's header when the business has no brand: the product's
-// lockup, "taptime" over "punchless" — ink on the phone's porcelain top bar, paper on
-// the ink sidebar (16.2:1; the tagline at 70%, 8.5:1) — and the "t." mark on the
-// tablet's rail, where the word does not fit. It is exported so the brand tests can
-// render the unbranded opening they compare against.
+// lockup, "taptime" ending in the ringless plaque over "punchless" — ink with a tappa-green
+// plaque on the phone's porcelain top bar, all paper on the ink sidebar (16.2:1; the
+// tagline at 70%, 8.5:1) — and the mark alone (the "t" and its plaque, ringless) on
+// the tablet's rail, where the word does not fit (taptimemark.templ, 2026-11-27). It
+// is exported so the brand tests can render the unbranded opening they compare against.
 templ PanelWordmark() {
 	<header class="side-head">
 		<div class="side-lockup">
-			<span class="side-mark" aria-hidden="true">t.</span>
+			@TaptimeSign("side-sign")
 			<div class="side-words">
-				<span class="side-word">taptime</span>
+				<span class="side-word">
+					{ "taptime" }@PlaqueStop("side-stop")
+				</span>
 				<span class="side-tag">punchless</span>
 			</div>
 		</div>

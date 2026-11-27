@@ -123,8 +123,9 @@ func outcome(w *httptest.ResponseRecorder) string {
 
 // TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide is the CUSTOMER half of the
 // two-way host gate (ADR 0020 §4; M10 OP-8), through the shipped router: on the operator
-// host, the rows below serve the operator prefix and the static assets, send the bare
-// root to the operator's front door, and answer the customer route rows with 404. Each
+// host, the rows below serve the operator prefix, the static assets and /favicon.ico,
+// send the bare root to the operator's front door, and answer the customer route rows
+// with 404 (a path under or beside /favicon.ico among them). Each
 // row is a spelling somebody could try to reach a customer page on the operator host --
 // or to make the gate mistake one host for the other; the name's "every" is these rows.
 // CONTROL: the same customer routes answer on the customer host, and with no operator
@@ -139,6 +140,11 @@ func TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide(t *testing.T) {
 		{"the prefix, trailing slash", "GET /operator/ HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "operator"},
 		{"under the prefix", "GET /operator/login HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "operator"},
 		{"a static asset", "GET /static/css/app.css HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "static"},
+		{"the favicon", "GET /favicon.ico HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "static"},
+		{"the favicon, HEAD", "HEAD /favicon.ico HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "static"},
+		{"under the favicon", "GET /favicon.ico/admin HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "404"},
+		{"a look-alike favicon", "GET /favicon.icox HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "404"},
+		{"a dot-dot from the favicon", "GET /favicon.ico/../admin HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "404"},
 		{"the bare root", "GET / HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "303 /operator"},
 		{"the bare root, HEAD", "HEAD / HTTP/1.1\r\nHost: ops.taptime.mt\r\n\r\n", "303 /operator"},
 		{"the bare root, POST", "POST / HTTP/1.1\r\nHost: ops.taptime.mt\r\nContent-Length: 0\r\n\r\n", "404"},
