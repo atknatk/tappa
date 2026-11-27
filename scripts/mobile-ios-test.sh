@@ -47,7 +47,8 @@ BUNDLE_ID=mt.taptime.app
 MIN_OS=15.0
 ALLOWED_USAGE=$'NFCReaderUsageDescription\nNSLocationWhenInUseUsageDescription'
 ALLOWED_LOCATION=NSLocationWhenInUseUsageDescription
-# The entitlements the card allows (associated domains, NFC NDEF, and since M16-47 the App
+# The entitlements the card allows (associated domains, NFC reading -- value TAG, sources NDEF
+# only -- and since M16-47 the App
 # Group the widget reads) plus the three Xcode adds by itself when it processes them. App
 # Attest is absent until Phase E (ADR 0045 2.7); aps-environment is absent for good (no push,
 # M16-46 [G46-e]) -- an allow-list, so neither needs naming.
@@ -58,6 +59,17 @@ ALLOWED_WIDGET_SOURCE_ENTITLEMENTS=com.apple.security.application-groups
 ALLOWED_WIDGET_BUILT_ENTITLEMENTS=$'application-identifier\ncom.apple.developer.team-identifier\ncom.apple.security.application-groups\nget-task-allow'
 
 fail() { echo "mobile-ios-test: FAIL: $*" >&2; exit 1; }
+
+# The app reads the plaque's NDEF URL and nothing below it (CLAUDE.md 4.7): the TAG entitlement
+# would allow a raw tag session (ISO 7816, MIFARE), so no Swift source may open one.
+check_nfc_sources() {
+  local hits
+  hits=$(grep -rn -E 'NFCTagReaderSession|NFCISO7816Tag|NFCMiFareTag|NFCFeliCaTag|NFCISO15693Tag' \
+    --include='*.swift' mobile/ios || true)
+  [[ -z $hits ]] || fail "a Swift source goes below NDEF:"$'\n'"$hits"
+  echo "  NFC sources: NDEF reader session only"
+}
+check_nfc_sources
 
 command -v xcodebuild >/dev/null || fail "xcodebuild not found (Xcode is required; the iOS build runs locally, Q36 d)"
 
@@ -100,8 +112,11 @@ check_entitlements() { # check_entitlements <label> <plist> <allowed-keys>
   json=$(plutil -convert json -o - "$plist")
   [[ $json == *'"com.apple.developer.associated-domains":["applinks:taptime.mt"]'* ]] \
     || fail "$label: associated domains are not exactly applinks:taptime.mt"
-  [[ $json == *'"com.apple.developer.nfc.readersession.formats":["NDEF"]'* ]] \
-    || fail "$label: NFC reader formats are not exactly NDEF"
+  # TAG, not NDEF: App Store Connect refuses NDEF for a 15.0 target (ITMS-90778, measured
+  # 2026-11-27). TAG would also allow a raw tag session, so the sources are held to the NDEF
+  # reader session below (check_nfc_sources).
+  [[ $json == *'"com.apple.developer.nfc.readersession.formats":["TAG"]'* ]] \
+    || fail "$label: NFC reader formats are not exactly TAG"
   [[ $json == *'"com.apple.security.application-groups":["'"$APP_GROUP"'"]'* ]] \
     || fail "$label: the App Group is not exactly $APP_GROUP"
   echo "  $label entitlements: $(tr '\n' ' ' <<<"$keys")"

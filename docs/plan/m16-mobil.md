@@ -1220,8 +1220,11 @@ ağ) — zamanlayıcılar ayrı bir görünüm dosyasında yaşar.
 > çalıştırır ama Core NFC okuyamaz ve `UIRequiredDeviceCapabilities`'te `nfc` **bilerek yok** (Faz D canlı QR onlara
 > açık) → okuma başlatmadan önce `NFCNDEFReaderSession.readingAvailable` kontrolü, yoksa QR/tarayıcı yolu. (2) Wordmark
 > bugün sistem fontu (`RootView.swift:12,15`); tap ekranı Space Grotesk + IBM Plex Mono'yu gömer (skill `tappa-brand`).
-> (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçülmedi**;
-> M16-18'in App Store Connect'e ilk beta yüklemesi ölçer.
+> (3) Yalnız `NDEF` içeren NFC yetki listesinin App Store yüklemesinde ITMS-90778 verdiği raporlanıyor — **ölçüldü
+> (2026-11-27, ilk App Store Connect yüklemesi, Xcode 27.2 SDK, hedef 15.0):** yükleme iki hatayla reddedildi,
+> *"NDEF is disallowed"* ve *"TAG is missing in the entitlement"*. Değer `TAG` oldu; kod yine yalnız
+> `NFCNDEFReaderSession` açar ve `scripts/mobile-ios-test.sh` Swift kaynaklarında ham etiket oturumunu
+> (`NFCTagReaderSession`, `NFCISO7816Tag` …) reddeder.
 
 > **M16-16 devirleri (yeniden denetim, 2026-11-18).** (1) **Tap ekranı dokunuştan önce kişinin adını gösterir** — ADR
 > 0045 kabul edilmiş riskin hafifletmesi (kullanıcı kararı 2026-11-18). (2) Kurulu ama aktive edilmemiş uygulama plaket
