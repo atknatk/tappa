@@ -2774,6 +2774,7 @@ alınır; M16-27 mağaza etiketleri ve pazarlama cümleleriyle kalır.
 > **2026-11-25 — kapanış yolu (denetim A2-S25).** Q50–Q54 cevaplandı ve eklerin kodu yazıldı (ledger), ama **ADR 0050'nin dosyası hiçbir dalda yoktur**
 > (ölçüldü). Kartın kalan işi: ADR 0050'yi cevaplanmış Q50–Q54'ten ve yazılmış koddan belge olarak yazmak ve kabul ettirmek — M16-40'tan önce
 > (Faz H başlığındaki kapanış sırası, adım 1).
+> **2026-11-28:** [ADR 0050](../adr/0050-personel-uygulamasinin-yerel-yuzeyleri.md) yazıldı, durumu *Önerildi* — kalan: kabul (ve madde 5'in ADR 0032 notu).
 
 - **Bağımlılık:** — (M16-30 … M16-38 ile paralel yürüyebilir; **soru adımı M16-33'ün §9 adımından önce** biter — Q50'nin cevabı
   M16-33'ün ana ekran sorusuna girer; kartın tamamı M16-41'in metninden ve M16-43'ten önce biter) · kullanıcı: Q50–Q54
