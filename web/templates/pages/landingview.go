@@ -1594,6 +1594,11 @@ type LegalPageView struct {
 	// "" when there is none. It is shown because a legal document with no date is a
 	// legal document nobody can cite.
 	PublishedAt string
+	// App is the native app's in-app browser (?client=app on this URL -- appmode.go):
+	// the chrome without the site's links, and the document links carrying the flag.
+	// It depends on the URL alone, so the page is still the same bytes for every
+	// visitor of that URL and the public Cache-Control still holds.
+	App bool
 }
 
 // Robots decides whether this page asks to be indexed, and it DERIVES the answer

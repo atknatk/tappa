@@ -1,0 +1,282 @@
+status: 200
+content-security-policy: default-src 'none'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="index, follow">
+<meta name="referrer" content="no-referrer">
+<title>Company details — Taptime
+</title>
+<meta name="author" content="Codevera Labs">
+<link rel="author" href="https://codeveralabs.com">
+<meta name="description" content="Who runs Taptime: the registered company, where it is registered and how to reach it.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Company details — Taptime">
+<meta property="og:description" content="Who runs Taptime: the registered company, where it is registered and how to reach it.">
+<meta property="og:image" content="https://panel.example.test/static/og/legal.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Company details — Taptime">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image:alt" content="Company details — Taptime">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="min-h-screen bg-porcelain text-ink antialiased">
+<div class="lp lp-top">
+<a class="lp-skip" href="#main">Skip to content
+</a>
+<header class="lp-head" aria-label="Site">
+<div class="lp-headIn">
+<a class="lp-mark" href="/">
+<span class="lp-markWords">
+<span class="lp-markName">taptime
+<svg class="lp-markStop" viewBox="0 0 168 300" aria-hidden="true" focusable="false">
+<path d="M46 0H122A46 46 0 0 1 168 46V254A46 46 0 0 1 122 300H46A46 46 0 0 1 0 254V46A46 46 0 0 1 46 0Z">
+</path>
+</svg>
+</span>
+<span class="lp-markTag">punchless
+</span>
+</span>
+</a>
+<div class="lp-headEnd">
+<nav class="lp-headNav" aria-label="Primary">
+<a class="navlink" href="/product">Product
+</a> 
+<a class="navlink" href="/security">Security
+</a> 
+<a class="navlink" href="/pricing">Pricing
+</a> 
+<span class="lp-headSep" aria-hidden="true">
+</span> 
+<a class="lp-signin" href="/admin/login">Sign in
+</a> 
+<a class="hbtn" href="/signup">Start free
+</a>
+</nav>
+<details class="menu">
+<summary>
+<span class="mopen">Menu
+</span>
+<span class="mclose">Close
+</span>
+</summary>
+<nav aria-label="Menu">
+<span class="lp-lbl lp-menuHead">Pages
+</span>
+<div class="lp-menuList">
+<a class="mlink" href="/product">
+<span>Product tour
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/security">
+<span>Security
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/pricing">
+<span>Pricing
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/restaurants">
+<span>For restaurants &amp; bars
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/production">
+<span>For production &amp; facilities
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/docs/api">
+<span>API docs
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+</div>
+</nav>
+</details>
+</div>
+</div>
+</header>
+</div>
+<main id="main">
+<div class="mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)] [&amp;_:focus-visible]:outline [&amp;_:focus-visible]:outline-2 [&amp;_:focus-visible]:outline-offset-2 [&amp;_:focus-visible]:outline-ink pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10">
+<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,260px)_minmax(0,820px)] desk:items-start desk:gap-10">
+<nav aria-label="Legal documents" class="flex flex-col gap-2.5">
+<p class="lbl hidden desk:block">Legal
+</p>
+<ul class="grid grid-cols-2 gap-2 md:grid-cols-4 desk:flex desk:flex-col desk:gap-1.5">
+<li class="min-w-0">
+<a href="/legal/privacy" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Privacy
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Privacy policy
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/privacy
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/terms" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Terms
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Terms of service
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/terms
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/imprint" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border-2 border-ink bg-paper px-3 py-2.5 desk:px-4 desk:py-3.5" aria-current="page">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Company details
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Company details
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/imprint
+</span> 
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/cookies" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Cookies
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Cookies
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/cookies
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+</ul>
+</nav>
+<article class="flex min-w-0 flex-col gap-7">
+<div class="flex flex-col gap-2.5">
+<p class="lbl">Legal
+<span class="desk:hidden"> · /legal/imprint
+</span>
+</p>
+<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-4xl desk:text-[44px]">Company details
+</h1>
+<p class="max-w-[620px] text-[15px] leading-normal text-ink md:text-[17px]">Who runs Taptime: the registered company, where it is registered and how to reach it.
+</p>
+</div>
+<section class="flex flex-col gap-6">
+<div class="flex max-w-[680px] flex-col gap-4 text-base leading-relaxed text-ink/85">
+<p>Taptime is operated by a registered company.
+</p>
+<p>Contact: 
+<a href="mailto:info@taptime.mt" class="hit-link break-words font-bold text-ink underline underline-offset-4 hover:text-tappa-green">info@taptime.mt
+</a> or 
+<a href="tel:+35699310184" class="hit-link break-words font-bold text-ink underline underline-offset-4 hover:text-tappa-green">+356 9931 0184
+</a>.
+</p>
+<p>
+<a href="https://codeveralabs.com" rel="noopener noreferrer" class="hit-link break-words font-bold text-ink underline underline-offset-4 hover:text-tappa-green">https://codeveralabs.com
+</a>
+</p>
+</div>
+<p class="border-t border-line pt-4 text-xs text-ink/70">Published 
+<span class="font-mono">14 August 2026
+</span>.
+</p>
+</section>
+</article>
+</div>
+</div>
+</main>
+<div class="lp">
+<footer class="lp-foot">
+<div class="lp-footIn">
+<div class="lp-footAbout">
+<span class="lp-footMark">
+<svg class="lp-footSign" viewBox="26 -650 612 650" aria-hidden="true" focusable="false">
+<path d="M260 0Q211 0 180.5 -30.5Q150 -61 150 -112V-392H26V-496H150V-650H276V-496H412V-392H276V-134Q276 -104 304 -104H400V0Z">
+</path>
+<path d="M516 -300H592A46 46 0 0 1 638 -254V-46A46 46 0 0 1 592 0H516A46 46 0 0 1 470 -46V-254A46 46 0 0 1 516 -300Z">
+</path>
+</svg>
+<span class="lp-footCopy">© 2026 Taptime · Malta
+</span>
+</span> 
+<span class="lp-footLine">tap in · tap out · that's it
+</span>
+<div class="lp-footNote">
+<span class="lp-lbl">Taptime
+</span>
+<p>Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.
+</p>
+</div>
+<p class="lp-footLine">Built by 
+<a href="https://codeveralabs.com" rel="noopener" class="flink">Codevera Labs
+</a>
+</p>
+</div>
+<nav class="fcol" aria-label="Product">
+<span class="lp-lbl lp-fcolHead">Product
+</span> 
+<a href="/product">Product tour
+</a>
+<a href="/security">Security
+</a>
+<a href="/pricing">Pricing
+</a>
+<a href="/for/restaurants">For restaurants &amp; bars
+</a>
+<a href="/for/production">For production &amp; facilities
+</a>
+<a href="/docs/api">API docs
+</a>
+</nav>
+<nav class="fcol" aria-label="Legal">
+<span class="lp-lbl lp-fcolHead">Legal
+</span> 
+<a href="/legal/privacy">Privacy
+</a>
+<a href="/legal/terms">Terms
+</a>
+<a href="/legal/imprint" aria-current="page">Company details
+</a>
+<a href="/legal/cookies">Cookies
+</a>
+</nav>
+</div>
+</footer>
+</div>
+<div class="lp lp-dock">
+<div class="mbar">
+<a class="hbtn" href="/signup">Start free
+</a>
+</div>
+</div>
+</body>
+</html>

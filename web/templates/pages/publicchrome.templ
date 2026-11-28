@@ -75,6 +75,13 @@ type PublicChromeOpts struct {
 	// one press of a link in its table of contents into seconds of text sliding past. A decision of the
 	// orchestrator's (LP-11 review); the rule is input.css's.
 	InstantScroll bool
+	// App draws the chrome for the native app's in-app browser (M16-54, ADR 0051 §2.6;
+	// appmode.go): the header keeps the wordmark, as text rather than the home link, and
+	// loses the page links, Sign in, Start free and the Menu; the footer keeps its two
+	// red-line sentences, Built by (K-B) and the Legal column, whose links carry the flag,
+	// and loses the Product column; there is no phone bar. False draws every page exactly
+	// as before.
+	App bool
 }
 
 // PublicChrome wraps a public page's content in the shared header and footer.
@@ -159,9 +166,9 @@ func publicTopRoot(c PublicChromeOpts) string {
 }
 
 // publicPhoneBarShown says whether the phone's Start free bar is drawn: there is a
-// wizard to start and the page has not left the bar out.
+// wizard to start, the page has not left the bar out, and it is not the app's.
 func publicPhoneBarShown(c PublicChromeOpts) bool {
-	return c.SignupHref != "" && !c.NoPhoneBar
+	return c.SignupHref != "" && !c.NoPhoneBar && !c.App
 }
 
 // publicPhoneBar is the phone's Start free bar, pinned to the bottom.
@@ -173,64 +180,82 @@ templ publicPhoneBar(c PublicChromeOpts) {
 
 // publicHeader is the bar at the top. Its first <nav> carries the page links, Sign
 // in and Start free — TestPublicNav_EveryEntryResolvesAndMarksItsOwnPage reads that
-// element as the bar.
+// element as the bar. In the app (c.App) the bar is the wordmark alone, and the
+// wordmark is not a link: the home page is the site the app must not lead to.
 templ publicHeader(c PublicChromeOpts) {
 	<header class="lp-head" aria-label="Site">
 		<div class="lp-headIn">
-			<a class="lp-mark" href="/">
-				<span class="lp-markWords">
-					<span class="lp-markName">
-						{ "taptime" }@PlaqueStop("lp-markStop")
-					</span><span class="lp-markTag">punchless</span>
+			if c.App {
+				<span class="lp-mark">
+					@publicMarkWords()
 				</span>
-			</a>
-			<div class="lp-headEnd">
-				<nav class="lp-headNav" aria-label="Primary">
-					for _, l := range LandingNav {
+			} else {
+				<a class="lp-mark" href="/">
+					@publicMarkWords()
+				</a>
+				@publicHeadEnd(c)
+			}
+		</div>
+	</header>
+}
+
+// publicMarkWords is the wordmark: the name ending in the plaque, and the tag line.
+templ publicMarkWords() {
+	<span class="lp-markWords">
+		<span class="lp-markName">
+			{ "taptime" }@PlaqueStop("lp-markStop")
+		</span><span class="lp-markTag">punchless</span>
+	</span>
+}
+
+// publicHeadEnd is the header's right-hand side: the page links, Sign in, Start free and
+// the phone's Menu. The app's header has none of it.
+templ publicHeadEnd(c PublicChromeOpts) {
+	<div class="lp-headEnd">
+		<nav class="lp-headNav" aria-label="Primary">
+			for _, l := range LandingNav {
+				<a
+					class="navlink"
+					href={ templ.URL(l.Href) }
+					if l.Href == c.Current {
+						aria-current="page"
+					}
+				>{ l.Label }</a>
+			}
+			<span class="lp-headSep" aria-hidden="true"></span>
+			if c.SignInPrompt {
+				<span class="lp-signinPair">
+					<span class="lp-signinAsk">Already with Taptime?</span>
+					<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
+				</span>
+			} else {
+				<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
+			}
+			if c.SignupHref != "" {
+				<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
+			}
+		</nav>
+		<details class="menu">
+			<summary><span class="mopen">Menu</span><span class="mclose">Close</span></summary>
+			<nav aria-label="Menu">
+				<span class="lp-lbl lp-menuHead">Pages</span>
+				<div class="lp-menuList">
+					for _, l := range MountedPublicLinks(PublicProductLinks) {
 						<a
-							class="navlink"
+							class="mlink"
 							href={ templ.URL(l.Href) }
 							if l.Href == c.Current {
 								aria-current="page"
 							}
-						>{ l.Label }</a>
+						>
+							<span>{ l.Label }</span>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
+						</a>
 					}
-					<span class="lp-headSep" aria-hidden="true"></span>
-					if c.SignInPrompt {
-						<span class="lp-signinPair">
-							<span class="lp-signinAsk">Already with Taptime?</span>
-							<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
-						</span>
-					} else {
-						<a class="lp-signin" href={ templ.URL(c.SignInHref) }>Sign in</a>
-					}
-					if c.SignupHref != "" {
-						<a class="hbtn" href={ templ.URL(c.SignupHref) }>Start free</a>
-					}
-				</nav>
-				<details class="menu">
-					<summary><span class="mopen">Menu</span><span class="mclose">Close</span></summary>
-					<nav aria-label="Menu">
-						<span class="lp-lbl lp-menuHead">Pages</span>
-						<div class="lp-menuList">
-							for _, l := range MountedPublicLinks(PublicProductLinks) {
-								<a
-									class="mlink"
-									href={ templ.URL(l.Href) }
-									if l.Href == c.Current {
-										aria-current="page"
-									}
-								>
-									<span>{ l.Label }</span>
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"></path></svg>
-								</a>
-							}
-						</div>
-					</nav>
-				</details>
-			</div>
-		</div>
-	</header>
+				</div>
+			</nav>
+		</details>
+	</div>
 }
 
 // publicFooter is the brand, the red-line sentence and the two link columns.
@@ -261,6 +286,11 @@ templ publicHeader(c PublicChromeOpts) {
 // nothing else (withoutCreditHref, pageLinkProblems). It wears .flink, the public
 // site's mono legal link, so its drawn states are that row of the States-Public matrix.
 // Not a word here says "report", "export" or "notification" (sign-up renders this).
+// IT STAYS IN THE APP (ADR 0051 decision K-B): it is no road to a purchase.
+//
+// IN THE APP (c.App) the Product column goes -- every entry in it is the site -- and
+// the Legal column stays, its links carrying the flag so the document opens in app mode
+// too (ADR 0051 §2.6).
 //
 // No emoji: the old landing footer's flag is not on the boards.
 templ publicFooter(c PublicChromeOpts) {
@@ -282,22 +312,24 @@ templ publicFooter(c PublicChromeOpts) {
 				</div>
 				<p class="lp-footLine">Built by <a href={ templ.URL(layout.CreditURL) } rel="noopener" class="flink">{ layout.CreditName }</a></p>
 			</div>
-			<nav class="fcol" aria-label="Product">
-				<span class="lp-lbl lp-fcolHead">Product</span>
-				for _, l := range MountedPublicLinks(PublicProductLinks) {
-					<a
-						href={ templ.URL(l.Href) }
-						if l.Href == c.Current {
-							aria-current="page"
-						}
-					>{ l.Label }</a>
-				}
-			</nav>
+			if !c.App {
+				<nav class="fcol" aria-label="Product">
+					<span class="lp-lbl lp-fcolHead">Product</span>
+					for _, l := range MountedPublicLinks(PublicProductLinks) {
+						<a
+							href={ templ.URL(l.Href) }
+							if l.Href == c.Current {
+								aria-current="page"
+							}
+						>{ l.Label }</a>
+					}
+				</nav>
+			}
 			<nav class="fcol" aria-label="Legal">
 				<span class="lp-lbl lp-fcolHead">Legal</span>
 				for _, p := range LegalPages {
 					<a
-						href={ templ.URL(p.Path) }
+						href={ templ.URL(legalHref(c.App, p.Path)) }
 						if p.Path == c.Current {
 							aria-current="page"
 						}

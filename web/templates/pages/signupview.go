@@ -69,6 +69,11 @@ type SignupBusinessView struct {
 	// empty on every other render, so the wizard does not offer a sign-in link to
 	// somebody who is halfway through creating an account.
 	SignInHref string
+
+	// App is the native app's in-app browser (M16-54, appmode.go): the public chrome
+	// without the site's links, and no sign-in link in the answer above either (ADR 0051
+	// §2.6). internal/handler reads it from the wizard's signed state.
+	App bool
 }
 
 // SignupPlacesView is step two: the doors.
@@ -94,6 +99,10 @@ type SignupPlacesView struct {
 	// BackHref returns to step one. The wizard's steps are plain links backwards and
 	// posts forwards, so a back button behaves.
 	BackHref string
+
+	// App is the native app's in-app browser (M16-54, appmode.go): the public chrome
+	// without the site's links. internal/handler reads it from the wizard's signed state.
+	App bool
 }
 
 // SignupAccountView is step three: the first operator.
@@ -120,6 +129,10 @@ type SignupAccountView struct {
 	Email    string
 
 	Errors map[string]string
+
+	// App is the native app's in-app browser (M16-54, appmode.go): the public chrome
+	// without the site's links. internal/handler reads it from the wizard's signed state.
+	App bool
 }
 
 // SignupDoneView is the confirmation — the APPROVED docket the M7-02 card asks for.
@@ -168,6 +181,11 @@ type SignupSentView struct {
 	ScreenLink string
 	// LinkLife is how long the link lasts, as its letter says it (email.Lifetime of the draft's TTL).
 	LinkLife string
+
+	// App is the native app's in-app browser (M16-54, appmode.go): the public chrome
+	// without the site's links; the on-screen link above stays, it is the wizard's own next
+	// step (ADR 0051 §2.6). internal/handler reads it from the wizard's signed state.
+	App bool
 }
 
 // SignupConfirmView is the registration link's page (GET, which spends nothing -- R19)
@@ -280,6 +298,11 @@ type SignupProblemView struct {
 	// Retry is the path to start again, or "" when starting again is not the answer
 	// (a rate-limited caller must not be handed a button that spends more budget).
 	Retry string
+
+	// App is the native app's in-app browser (M16-54, appmode.go): the public chrome
+	// without the site's links. internal/handler reads it from the wizard's signed state
+	// and then points Retry at the wizard with the flag.
+	App bool
 }
 
 // signupProgress is where the wizard stands, for the progress docket beside the form

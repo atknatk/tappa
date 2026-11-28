@@ -1,0 +1,318 @@
+status: 200
+content-security-policy: default-src 'none'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>You&#39;re set up — Taptime
+</title>
+<meta name="author" content="Codevera Labs">
+<link rel="author" href="https://codeveralabs.com">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="min-h-screen bg-porcelain text-ink antialiased">
+<div class="lp lp-topStill">
+<a class="lp-skip" href="#main">Skip to content
+</a>
+<header class="lp-head" aria-label="Site">
+<div class="lp-headIn">
+<a class="lp-mark" href="/">
+<span class="lp-markWords">
+<span class="lp-markName">taptime
+<svg class="lp-markStop" viewBox="0 0 168 300" aria-hidden="true" focusable="false">
+<path d="M46 0H122A46 46 0 0 1 168 46V254A46 46 0 0 1 122 300H46A46 46 0 0 1 0 254V46A46 46 0 0 1 46 0Z">
+</path>
+</svg>
+</span>
+<span class="lp-markTag">punchless
+</span>
+</span>
+</a>
+<div class="lp-headEnd">
+<nav class="lp-headNav" aria-label="Primary">
+<a class="navlink" href="/product">Product
+</a> 
+<a class="navlink" href="/security">Security
+</a> 
+<a class="navlink" href="/pricing">Pricing
+</a> 
+<span class="lp-headSep" aria-hidden="true">
+</span> 
+<span class="lp-signinPair">
+<span class="lp-signinAsk">Already with Taptime?
+</span> 
+<a class="lp-signin" href="/admin/login">Sign in
+</a>
+</span> 
+</nav>
+<details class="menu">
+<summary>
+<span class="mopen">Menu
+</span>
+<span class="mclose">Close
+</span>
+</summary>
+<nav aria-label="Menu">
+<span class="lp-lbl lp-menuHead">Pages
+</span>
+<div class="lp-menuList">
+<a class="mlink" href="/product">
+<span>Product tour
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/security">
+<span>Security
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/pricing">
+<span>Pricing
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/restaurants">
+<span>For restaurants &amp; bars
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/production">
+<span>For production &amp; facilities
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/docs/api">
+<span>API docs
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+</div>
+</nav>
+</details>
+</div>
+</div>
+</header>
+</div>
+<main id="main">
+<section class="mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)] [&amp;_:focus-visible]:outline [&amp;_:focus-visible]:outline-2 [&amp;_:focus-visible]:outline-offset-2 [&amp;_:focus-visible]:outline-ink pb-10 md:pb-12 md:pt-7 desk:pb-16 desk:pt-10">
+<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,360px)_minmax(0,680px)] desk:items-start desk:gap-10">
+<div class="sticky top-0 z-10 -mx-4 flex flex-col gap-2 border-b border-line bg-porcelain px-4 pb-2.5 pt-3 md:hidden">
+<div class="flex items-baseline justify-between gap-2">
+<p class="font-mono text-[13px] font-bold text-ink">Registration
+</p>
+<p class="font-mono text-xs text-ink/70">set up
+</p>
+</div>
+<div role="progressbar" aria-label="Registration progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3" aria-valuetext="Registration: set up" class="grid grid-cols-3 gap-1">
+<span class="h-1.5 rounded-sm bg-tappa-green">
+</span>
+<span class="h-1.5 rounded-sm bg-tappa-green">
+</span>
+<span class="h-1.5 rounded-sm bg-tappa-green">
+</span>
+</div>
+</div> 
+<nav aria-label="Registration progress" class="hidden md:block">
+<div class="docket flex items-center gap-2.5 px-4 py-3.5 desk:flex-col desk:items-stretch desk:gap-[18px] desk:px-[22px] desk:pb-[22px] desk:pt-6">
+<div class="order-last flex flex-none items-start justify-between gap-2.5 desk:order-none">
+<div class="hidden min-w-0 flex-col gap-1 desk:flex">
+<p class="lbl">Registration
+</p>
+<p class="break-words font-display text-lg font-bold tracking-tight text-ink">Kebab Factory Ltd
+</p>
+</div>
+<span class="stamp stamp--approved">APPROVED
+</span>
+</div>
+<ol class="grid min-w-0 flex-1 grid-cols-3 gap-2.5 desk:flex desk:flex-col desk:gap-0 desk:border-t desk:border-dashed desk:border-line">
+<li class="flex min-w-0 items-center gap-2.5 desk:gap-3.5 desk:border-b desk:border-dashed desk:border-line desk:py-3.5">
+<span class="inline-flex size-9 flex-none items-center justify-center rounded-[10px] bg-tappa-green font-mono text-xs font-bold text-paper" aria-hidden="true">✓
+</span> 
+<span class="flex min-w-0 flex-col">
+<span class="truncate font-display text-sm font-bold text-ink desk:text-[15px]">Business
+</span> 
+<span class="font-mono text-[11px] text-ink/70">done
+</span>
+</span>
+</li>
+<li class="flex min-w-0 items-center gap-2.5 desk:gap-3.5 desk:border-b desk:border-dashed desk:border-line desk:py-3.5">
+<span class="inline-flex size-9 flex-none items-center justify-center rounded-[10px] bg-tappa-green font-mono text-xs font-bold text-paper" aria-hidden="true">✓
+</span> 
+<span class="flex min-w-0 flex-col">
+<span class="truncate font-display text-sm font-bold text-ink desk:text-[15px]">Places
+</span> 
+<span class="font-mono text-[11px] text-ink/70">done
+</span>
+</span>
+</li>
+<li class="flex min-w-0 items-center gap-2.5 desk:gap-3.5 desk:border-b desk:border-dashed desk:border-line desk:py-3.5">
+<span class="inline-flex size-9 flex-none items-center justify-center rounded-[10px] bg-tappa-green font-mono text-xs font-bold text-paper" aria-hidden="true">✓
+</span> 
+<span class="flex min-w-0 flex-col">
+<span class="truncate font-display text-sm font-bold text-ink desk:text-[15px]">Your sign-in
+</span> 
+<span class="font-mono text-[11px] text-ink/70">done
+</span>
+</span>
+</li>
+</ol>
+</div>
+</nav>
+<div class="flex min-w-0 flex-col gap-6 md:rounded-[18px] md:border md:border-line md:bg-paper md:px-8 md:py-[30px] desk:gap-[26px] desk:p-10">
+<div class="flex flex-col gap-2">
+<p class="lbl hidden md:block">Registration
+</p>
+<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[30px] desk:text-[34px]">Kebab Factory Ltd is set up
+</h1>
+</div>
+<div class="docket-print pb-2">
+<article class="docket flex flex-col gap-3 px-[18px] py-[18px] md:px-[22px] md:py-5">
+<div class="flex items-start justify-between gap-3">
+<div class="flex min-w-0 flex-col gap-0.5">
+<p class="lbl">Business
+</p>
+<p class="break-words font-display text-base font-bold tracking-tight text-ink">Kebab Factory Ltd
+</p>
+<p class="lbl mt-2">VAT
+</p>
+<p class="font-mono text-sm uppercase text-ink">MT12345678
+</p>
+</div>
+<div class="shrink-0 text-right">
+<span class="stamp stamp--approved">APPROVED
+</span>
+</div>
+</div>
+<p class="lbl">Places
+</p>
+<ul class="flex flex-col gap-0.5">
+<li class="break-words font-mono text-sm text-ink">St Julians
+</li>
+<li class="break-words font-mono text-sm text-ink">Sliema
+</li>
+</ul>
+</article>
+</div>  
+<p class="rounded-xl border border-tappa-green bg-tappa-green/10 px-3.5 py-3 text-[13px] leading-normal text-ink">We checked this number against the EU VAT register and it came back valid.
+</p>
+<section class="flex flex-col gap-3.5 border-t border-line pt-5 md:pt-[22px]">
+<h2 class="lbl">What happens next
+</h2>
+<ol class="flex flex-col gap-3 md:gap-3.5">
+<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
+<span class="font-mono font-bold" aria-hidden="true">01
+</span> 
+<span>
+<span class="font-display font-bold tracking-tight">Sign in.
+</span> Use this email address and the password you chose.
+</span>
+</li>
+<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
+<span class="font-mono font-bold" aria-hidden="true">02
+</span> 
+<span>
+<span class="font-display font-bold tracking-tight">Invite your team.
+</span> Each person opens their own link once, on their own phone.
+</span>
+</li>
+<li class="grid grid-cols-[28px_1fr] gap-2.5 text-sm leading-normal text-ink md:grid-cols-[34px_1fr] md:gap-3 md:text-[15px]">
+<span class="font-mono font-bold" aria-hidden="true">03
+</span>
+<span>
+<span class="font-display font-bold tracking-tight">Your plaques.
+</span> Taptime encodes each one and loads it into your dashboard; ask us for the ones you need. Until one is mounted there is nothing to tap at.
+</span>
+</li>
+</ol>
+</section>
+<div>
+<a href="/admin/login" class="btn btn--primary w-full rounded-xl px-6 md:w-auto focus:ring-0 active:bg-ink active:shadow-[inset_0_0_0_2px_theme(colors.tappa-green)] active:translate-y-px">Sign in to your dashboard
+</a>
+</div>
+</div>
+</div>
+</section>
+</main>
+<div class="lp">
+<footer class="lp-foot">
+<div class="lp-footIn">
+<div class="lp-footAbout">
+<span class="lp-footMark">
+<svg class="lp-footSign" viewBox="26 -650 612 650" aria-hidden="true" focusable="false">
+<path d="M260 0Q211 0 180.5 -30.5Q150 -61 150 -112V-392H26V-496H150V-650H276V-496H412V-392H276V-134Q276 -104 304 -104H400V0Z">
+</path>
+<path d="M516 -300H592A46 46 0 0 1 638 -254V-46A46 46 0 0 1 592 0H516A46 46 0 0 1 470 -46V-254A46 46 0 0 1 516 -300Z">
+</path>
+</svg>
+<span class="lp-footCopy">© 2026 Taptime · Malta
+</span>
+</span> 
+<span class="lp-footLine">tap in · tap out · that's it
+</span>
+<div class="lp-footNote">
+<span class="lp-lbl">Taptime
+</span>
+<p>Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.
+</p>
+</div>
+<p class="lp-footLine">Built by 
+<a href="https://codeveralabs.com" rel="noopener" class="flink">Codevera Labs
+</a>
+</p>
+</div>
+<nav class="fcol" aria-label="Product">
+<span class="lp-lbl lp-fcolHead">Product
+</span> 
+<a href="/product">Product tour
+</a>
+<a href="/security">Security
+</a>
+<a href="/pricing">Pricing
+</a>
+<a href="/for/restaurants">For restaurants &amp; bars
+</a>
+<a href="/for/production">For production &amp; facilities
+</a>
+<a href="/docs/api">API docs
+</a>
+</nav>
+<nav class="fcol" aria-label="Legal">
+<span class="lp-lbl lp-fcolHead">Legal
+</span> 
+<a href="/legal/privacy">Privacy
+</a>
+<a href="/legal/terms">Terms
+</a>
+<a href="/legal/imprint">Company details
+</a>
+<a href="/legal/cookies">Cookies
+</a>
+</nav>
+</div>
+</footer>
+</div>
+</body>
+</html>
