@@ -351,7 +351,7 @@ func (s *Signup) Sent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cookies.clear(w, signupStateCookieName)
 	s.cookies.clear(w, signupCookieName)
-	view := pages.SignupSentView{BusinessName: d.Name, LinkLife: signupLinkLife}
+	view := pages.SignupSentView{BusinessName: d.Name, LinkLife: signupLinkLife, App: d.App}
 	if s.delivery == signupOnScreen {
 		view.ScreenLink = d.Link
 	}

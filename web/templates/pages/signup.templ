@@ -41,9 +41,15 @@ import (
 // signupPage is the frame every wizard screen shares: the public chrome (with the
 // "Already with Taptime?" prompt), the progress when the screen has one, and the card
 // the screen's own content goes in.
-templ signupPage(title string, p signupProgress, share layout.Share) {
+//
+// app is the native app's in-app browser (M16-54, ADR 0051 §2.6): the chrome then
+// draws no road to the site, the panel or a price (PublicChromeOpts.App). The link's
+// page and the done page always pass false -- they live under /admin, where the
+// wizard's cookie, and with it the flag, never arrives, and the e-mailed link opens in
+// the system browser.
+templ signupPage(title string, p signupProgress, share layout.Share, app bool) {
 	@layout.Marketing(title, layout.RobotsPrivate, share) {
-		@PublicChrome(PublicChromeOpts{SignInHref: AdminLoginPath, SignInPrompt: true, NoPhoneBar: true, OwnRoots: true, StaticHeader: true}) {
+		@PublicChrome(PublicChromeOpts{SignInHref: AdminLoginPath, SignInPrompt: true, NoPhoneBar: true, OwnRoots: true, StaticHeader: true, App: app}) {
 			<section class={ signupSectionClass(p.shown()) }>
 				<div class={ signupGridClass(p.shown()) }>
 					if p.shown() {
@@ -120,8 +126,8 @@ func signupGridClass(progress bool) string {
 // ("Step 2 of 3") and a number typed into prose are two sources of truth, and the
 // second one drifts the moment a step is added. On a phone the counter is the
 // progress bar's own label, so the card's copy is drawn from the tablet width up.
-templ signupShell(title string, p signupProgress, heading, blurb string, share layout.Share) {
-	@signupPage(title, p, share) {
+templ signupShell(title string, p signupProgress, heading, blurb string, share layout.Share, app bool) {
+	@signupPage(title, p, share, app) {
 		<div class="flex flex-col gap-2">
 			<p class="lbl hidden md:block">{ p.barLabel() }</p>
 			<h1 class="font-display text-[28px] font-bold leading-[1.1] tracking-tight md:text-[30px] desk:text-[34px]">
@@ -277,18 +283,24 @@ templ signupAlert(heading string) {
 
 // SignupBusiness is step one: the business name, the VAT number, the trade and
 // whether there is one place or several.
+//
+// In the app (v.App) the "already with Taptime" answer keeps its sentence and loses
+// its "Go to sign in" link: that link is the panel's door, which the app must not open
+// (ADR 0051 §2.6).
 templ SignupBusiness(v SignupBusinessView) {
 	@signupShell("Start free — Taptime", signupProgress{Step: 1, Name: v.Name}, "Tell us about the business",
-		"Three short steps. Nothing is created until the last one, and you can go back at any point.", v.Share) {
+		"Three short steps. Nothing is created until the last one, and you can go back at any point.", v.Share, v.App) {
 		if v.SignInHref != "" {
 			@signupAlert("This business is already with Taptime") {
 				<p>
 					Sign in with the address you registered, or use a different VAT number if this is
 					a second company.
 				</p>
-				<p>
-					<a href={ templ.URL(v.SignInHref) } class="inline-flex min-h-11 items-center font-bold underline underline-offset-4">Go to sign in</a>
-				</p>
+				if !v.App {
+					<p>
+						<a href={ templ.URL(v.SignInHref) } class="inline-flex min-h-11 items-center font-bold underline underline-offset-4">Go to sign in</a>
+					</p>
+				}
 			}
 		}
 		<form method="post" action="/signup" class="flex flex-col gap-6">
@@ -437,7 +449,7 @@ templ structureCard(current, value, title, body string) {
 // wrong proof-of-place is what turns a good tap into a FLAGGED one.
 templ SignupPlaces(v SignupPlacesView) {
 	@signupShell("Your places — Taptime", signupProgress{Step: 2, Name: v.BusinessName}, "Where does your team tap?",
-		"One line per door. You can rename them and add the rest from your dashboard.", layout.Share{}) {
+		"One line per door. You can rename them and add the rest from your dashboard.", layout.Share{}, v.App) {
 		<form method="post" action="/signup/places" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 			<div class="grid gap-3.5 md:grid-cols-2 md:gap-x-5 desk:grid-cols-1">
@@ -503,7 +515,7 @@ templ signupActions(submit, backHref string) {
 // have. TestSignupSurface_PromisesNoManagerInvite holds it out.
 templ SignupAccount(v SignupAccountView) {
 	@signupShell("Your account — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, "Create your sign-in",
-		"This is the account you will manage "+v.BusinessName+" with.", layout.Share{}) {
+		"This is the account you will manage "+v.BusinessName+" with.", layout.Share{}, v.App) {
 		<form method="post" action="/signup/account" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
 			// THE HONEYPOT. It is hidden from people three ways at once — off-screen,
@@ -622,7 +634,7 @@ templ SignupAccount(v SignupAccountView) {
 // THE DOCKET MOTIF IS THE PRODUCT'S SIGNATURE and this is the first record the
 // customer ever sees. Every card in the panel will look like this one.
 templ SignupDone(v SignupDoneView) {
-	@signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "", layout.Share{}) {
+	@signupShell("You're set up — Taptime", signupProgress{Done: true, Name: v.BusinessName}, v.BusinessName+" is set up", "", layout.Share{}, false) {
 		<div class="docket-print pb-2">
 			<article class="docket flex flex-col gap-3 px-[18px] py-[18px] md:px-[22px] md:py-5">
 				<div class="flex items-start justify-between gap-3">
@@ -718,7 +730,7 @@ func signupVATNoteClass(v SignupDoneView) string {
 // IT DRAWS NO PROGRESS: a problem screen does not know how far the visitor got (the
 // state that would say so is what failed), so it claims nothing about the steps.
 templ SignupProblem(v SignupProblemView) {
-	@signupPage("Taptime", signupProgress{}, layout.Share{}) {
+	@signupPage("Taptime", signupProgress{}, layout.Share{}, v.App) {
 		<div role="alert" class="flex flex-col gap-2 rounded-[14px] border-2 border-tomato bg-tomato/5 px-4 py-4 md:px-5 md:py-[18px]">
 			<h1 class="font-display text-[21px] font-bold tracking-tight text-ink md:text-[22px]">{ v.Title }</h1>
 			<p class="text-[15px] leading-normal text-ink">{ v.Message }</p>
@@ -743,7 +755,7 @@ templ SignupProblem(v SignupProblemView) {
 // 🔴 THE SAME PAGE FOR EVERY ADDRESS (R18). It says "the address you gave", never the
 // address and never whether it already has a sign-in.
 templ SignupSent(v SignupSentView) {
-	@signupShell("Check your inbox — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupSentHeading(v), signupSentBlurb(v), layout.Share{}) {
+	@signupShell("Check your inbox — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupSentHeading(v), signupSentBlurb(v), layout.Share{}, v.App) {
 		<div class="flex flex-col gap-3 text-sm leading-normal text-ink md:text-[15px]">
 			<p>
 				Nothing has been created yet: the business exists only once the link is used. The link
@@ -780,7 +792,7 @@ templ SignupSent(v SignupSentView) {
 //   - A SIGN-IN WITH NO ACTIVE BUSINESS LEFT (M14-17b): it cannot sign in, so the page asks
 //     for that sign-in's password; a wrong one creates nothing.
 templ SignupConfirm(v SignupConfirmView) {
-	@signupShell("Finish registering — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupConfirmHeading(v.KnownAddress), "", layout.Share{}) {
+	@signupShell("Finish registering — Taptime", signupProgress{Step: 3, Name: v.BusinessName}, signupConfirmHeading(v.KnownAddress), "", layout.Share{}, false) {
 		<div class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper px-4 py-3.5 md:bg-porcelain md:px-[18px] md:py-4">
 			<p class="lbl">You are creating</p>
 			<p class="break-words font-display text-base font-bold tracking-tight text-ink">{ v.BusinessName }</p>

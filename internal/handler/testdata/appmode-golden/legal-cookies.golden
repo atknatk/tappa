@@ -1,0 +1,812 @@
+status: 200
+content-security-policy: default-src 'none'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Cookies — Taptime
+</title>
+<meta name="author" content="Codevera Labs">
+<link rel="author" href="https://codeveralabs.com">
+<meta name="description" content="Every cookie Taptime sets, what it is for and how long it lasts. Taptime sets no advertising or analytics cookie and embeds nothing from another site.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Cookies — Taptime">
+<meta property="og:description" content="Every cookie Taptime sets, what it is for and how long it lasts. Taptime sets no advertising or analytics cookie and embeds nothing from another site.">
+<meta property="og:image" content="https://panel.example.test/static/og/legal.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Cookies — Taptime">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image:alt" content="Cookies — Taptime">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="min-h-screen bg-porcelain text-ink antialiased">
+<div class="lp lp-top">
+<a class="lp-skip" href="#main">Skip to content
+</a>
+<header class="lp-head" aria-label="Site">
+<div class="lp-headIn">
+<a class="lp-mark" href="/">
+<span class="lp-markWords">
+<span class="lp-markName">taptime
+<svg class="lp-markStop" viewBox="0 0 168 300" aria-hidden="true" focusable="false">
+<path d="M46 0H122A46 46 0 0 1 168 46V254A46 46 0 0 1 122 300H46A46 46 0 0 1 0 254V46A46 46 0 0 1 46 0Z">
+</path>
+</svg>
+</span>
+<span class="lp-markTag">punchless
+</span>
+</span>
+</a>
+<div class="lp-headEnd">
+<nav class="lp-headNav" aria-label="Primary">
+<a class="navlink" href="/product">Product
+</a> 
+<a class="navlink" href="/security">Security
+</a> 
+<a class="navlink" href="/pricing">Pricing
+</a> 
+<span class="lp-headSep" aria-hidden="true">
+</span> 
+<a class="lp-signin" href="/admin/login">Sign in
+</a> 
+<a class="hbtn" href="/signup">Start free
+</a>
+</nav>
+<details class="menu">
+<summary>
+<span class="mopen">Menu
+</span>
+<span class="mclose">Close
+</span>
+</summary>
+<nav aria-label="Menu">
+<span class="lp-lbl lp-menuHead">Pages
+</span>
+<div class="lp-menuList">
+<a class="mlink" href="/product">
+<span>Product tour
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/security">
+<span>Security
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/pricing">
+<span>Pricing
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/restaurants">
+<span>For restaurants &amp; bars
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/for/production">
+<span>For production &amp; facilities
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+<a class="mlink" href="/docs/api">
+<span>API docs
+</span> 
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+<path d="M9 6l6 6-6 6">
+</path>
+</svg>
+</a>
+</div>
+</nav>
+</details>
+</div>
+</div>
+</header>
+</div>
+<main id="main">
+<div class="mx-auto w-full px-4 md:px-10 desk:max-w-[1180px] desk:px-[clamp(16px,3vw,40px)] [&amp;_:focus-visible]:outline [&amp;_:focus-visible]:outline-2 [&amp;_:focus-visible]:outline-offset-2 [&amp;_:focus-visible]:outline-ink pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10">
+<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,260px)_minmax(0,820px)] desk:items-start desk:gap-10">
+<nav aria-label="Legal documents" class="flex flex-col gap-2.5">
+<p class="lbl hidden desk:block">Legal
+</p>
+<ul class="grid grid-cols-2 gap-2 md:grid-cols-4 desk:flex desk:flex-col desk:gap-1.5">
+<li class="min-w-0">
+<a href="/legal/privacy" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Privacy
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Privacy policy
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/privacy
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/terms" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Terms
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Terms of service
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/terms
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/imprint" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border border-line px-3 py-2.5 hover:border-ink active:border-ink active:bg-paper desk:px-4 desk:py-3.5">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Company details
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Company details
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/imprint
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+<li class="min-w-0">
+<a href="/legal/cookies" class="flex h-full min-h-14 flex-col gap-1.5 rounded-[14px] border-2 border-ink bg-paper px-3 py-2.5 desk:px-4 desk:py-3.5" aria-current="page">
+<span class="font-display text-sm font-bold text-ink desk:hidden">Cookies
+</span> 
+<span class="hidden font-display text-[15px] font-bold text-ink desk:inline">Cookies
+</span> 
+<span class="hidden font-mono text-[11px] text-ink/70 desk:block">/legal/cookies
+</span> 
+<span class="self-start rounded-md border border-dashed border-saffron bg-saffron/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">Not in force yet
+</span>
+</a>
+</li>
+</ul>
+</nav>
+<article class="flex min-w-0 flex-col gap-7">
+<div class="flex flex-col gap-2.5">
+<p class="lbl">Legal
+<span class="desk:hidden"> · /legal/cookies
+</span>
+</p>
+<h1 class="font-display text-3xl font-bold leading-none tracking-tight md:text-4xl desk:text-[44px]">Cookies
+</h1>
+<p class="max-w-[620px] text-[15px] leading-normal text-ink md:text-[17px]">Every cookie Taptime sets, what it is for and how long it lasts. Taptime sets no advertising or analytics cookie and embeds nothing from another site.
+</p>
+</div>
+<section class="order-2 flex flex-col gap-3 desk:order-none">
+<h2 class="font-display text-[21px] font-bold tracking-tight md:text-2xl">The cookies Taptime sets
+</h2>
+<p class="max-w-[640px] text-sm leading-normal text-ink">All of them are necessary to sign in and to record a shift. There is no advertising cookie, no analytics cookie and nothing embedded from another site — every stylesheet, typeface and script this product loads is served from this domain, so no third party is contacted by opening a page.
+</p>
+<div class="hidden overflow-x-auto rounded-2xl border border-line bg-paper md:block">
+<table class="w-full min-w-[42rem] text-left text-sm">
+<caption class="sr-only">Cookie name, purpose, lifetime, scope and attributes
+</caption> 
+<thead>
+<tr class="border-b border-line">
+<th scope="col" class="px-4 py-3 docket-label">Name
+</th>
+<th scope="col" class="px-4 py-3 docket-label">What it is for
+</th>
+<th scope="col" class="px-4 py-3 docket-label">Lifetime
+</th>
+<th scope="col" class="px-4 py-3 docket-label">Sent to
+</th>
+</tr>
+</thead> 
+<tbody>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_session
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Remembers which employee this phone belongs to, so a tap at a plaque knows who tapped. Set once, when the personal invitation link is opened.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">365 days
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_activation
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries the invitation while the phone is being set up, so the code stays out of the address bar, out of browser history and out of any link that leaves this site. Once the privacy notice is accepted it also marks this browser as the one that accepted it, so only this browser&#39;s first tap on a plaque can finish setup. Cleared as soon as the invitation is used.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">until the invitation expires (at most 30 days)
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_activated
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Set for a few minutes right after a phone finishes setup, so the setup page that is still open in another tab can tell that it was THIS setup that finished. It holds no password and no code.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">15 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_session
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Keeps a manager signed in to the dashboard. A separate cookie from the employee one, sent only to the dashboard, so neither can be used in the other&#39;s place.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">12 hours
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_login
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Protects the dashboard sign-in form against being submitted from another site. Exists only while somebody is on the sign-in page.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">15 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_choice
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Set only when one person manages more than one organisation: it carries the choice being offered, signed by this server, between the password step and the pick-a-business step.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">5 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_confirm
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Set for a moment when a manager is asked to confirm something that cannot be undone, so the confirmation belongs to that manager, that session and that one action.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">10 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_reset
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Protects the &#39;I cannot get in&#39; form against being submitted from another site. Exists only while somebody is on that page.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">15 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_verify
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries an email confirmation link from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_link
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries the link that adds your other businesses to your sign-in, from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_email_change
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries the link that changes your sign-in email, from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_email_undo
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries the link that undoes a change of your sign-in email while you decide, so the link stays out of the address bar and out of browser history, and protects that page against being submitted from another site. Cleared when the button is pressed.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin/undo-email-change
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_oauth_request
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries an app&#39;s request to connect to your business -- which app, what it asks for and where it returns -- from the app to the page where you allow or refuse it, signed by this server, while you sign in or pick a business. It holds no password and grants nothing. Cleared when you answer.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">10 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_screen
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Set on a venue&#39;s screen (a tablet or TV, not a person&#39;s phone) once it is paired from the dashboard, so the screen can keep showing the venue&#39;s changing QR code. It names the screen and nobody else, and it stops working when the screen is removed in the dashboard.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">180 days
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/screen
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_invite
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries an invitation link while it is being accepted, so the link stays out of the address bar and out of browser history, and protects that page against being submitted from another site. Cleared as soon as the invitation is accepted or found unusable.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin/invite
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_admin_reset_link
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries a recovery link while a new password is being chosen, so the link stays out of the address bar and out of browser history. Cleared as soon as the link is used or refused.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">1 hour
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin/reset/new
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_signup
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Protects the registration form against being submitted from another site. Exists only while somebody is filling the form in.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/signup
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_signup_state
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries the answers already given — the business name, the VAT number and the places — from one step of the registration form to the next, signed by this server. It never holds a password or an email address. Cleared once the &#34;check your inbox&#34; page has been shown.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/signup
+</td>
+</tr>
+<tr class="border-b border-dashed border-line last:border-b-0">
+<th scope="row" class="whitespace-nowrap px-4 py-3 align-top font-mono font-bold text-ink">tappa_signup_claim
+</th>
+<td class="px-4 py-3 align-top leading-normal text-ink">Carries a registration link while it is being confirmed, so the link stays out of the address bar and out of browser history. Cleared as soon as the registration is finished or the link is refused.
+</td>
+<td class="px-4 py-3 align-top font-mono text-ink">30 minutes
+</td>
+<td class="whitespace-nowrap px-4 py-3 align-top font-mono text-ink">/admin/signup/confirm
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<ul class="flex flex-col gap-2.5 md:hidden">
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_session
+</p>
+<p class="text-[13px] leading-normal text-ink">Remembers which employee this phone belongs to, so a tap at a plaque knows who tapped. Set once, when the personal invitation link is opened.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">365 days
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_activation
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries the invitation while the phone is being set up, so the code stays out of the address bar, out of browser history and out of any link that leaves this site. Once the privacy notice is accepted it also marks this browser as the one that accepted it, so only this browser&#39;s first tap on a plaque can finish setup. Cleared as soon as the invitation is used.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">until the invitation expires (at most 30 days)
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_activated
+</p>
+<p class="text-[13px] leading-normal text-ink">Set for a few minutes right after a phone finishes setup, so the setup page that is still open in another tab can tell that it was THIS setup that finished. It holds no password and no code.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">15 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_session
+</p>
+<p class="text-[13px] leading-normal text-ink">Keeps a manager signed in to the dashboard. A separate cookie from the employee one, sent only to the dashboard, so neither can be used in the other&#39;s place.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">12 hours
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_login
+</p>
+<p class="text-[13px] leading-normal text-ink">Protects the dashboard sign-in form against being submitted from another site. Exists only while somebody is on the sign-in page.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">15 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_choice
+</p>
+<p class="text-[13px] leading-normal text-ink">Set only when one person manages more than one organisation: it carries the choice being offered, signed by this server, between the password step and the pick-a-business step.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">5 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_confirm
+</p>
+<p class="text-[13px] leading-normal text-ink">Set for a moment when a manager is asked to confirm something that cannot be undone, so the confirmation belongs to that manager, that session and that one action.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">10 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_reset
+</p>
+<p class="text-[13px] leading-normal text-ink">Protects the &#39;I cannot get in&#39; form against being submitted from another site. Exists only while somebody is on that page.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">15 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_verify
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries an email confirmation link from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_link
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries the link that adds your other businesses to your sign-in, from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_email_change
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries the link that changes your sign-in email, from the email to the button that confirms it, so the link stays out of the address bar and out of browser history. Cleared when the button is pressed.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_email_undo
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries the link that undoes a change of your sign-in email while you decide, so the link stays out of the address bar and out of browser history, and protects that page against being submitted from another site. Cleared when the button is pressed.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin/undo-email-change
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_oauth_request
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries an app&#39;s request to connect to your business -- which app, what it asks for and where it returns -- from the app to the page where you allow or refuse it, signed by this server, while you sign in or pick a business. It holds no password and grants nothing. Cleared when you answer.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">10 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_screen
+</p>
+<p class="text-[13px] leading-normal text-ink">Set on a venue&#39;s screen (a tablet or TV, not a person&#39;s phone) once it is paired from the dashboard, so the screen can keep showing the venue&#39;s changing QR code. It names the screen and nobody else, and it stops working when the screen is removed in the dashboard.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">180 days
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/screen
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_invite
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries an invitation link while it is being accepted, so the link stays out of the address bar and out of browser history, and protects that page against being submitted from another site. Cleared as soon as the invitation is accepted or found unusable.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin/invite
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_admin_reset_link
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries a recovery link while a new password is being chosen, so the link stays out of the address bar and out of browser history. Cleared as soon as the link is used or refused.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">1 hour
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin/reset/new
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_signup
+</p>
+<p class="text-[13px] leading-normal text-ink">Protects the registration form against being submitted from another site. Exists only while somebody is filling the form in.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/signup
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_signup_state
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries the answers already given — the business name, the VAT number and the places — from one step of the registration form to the next, signed by this server. It never holds a password or an email address. Cleared once the &#34;check your inbox&#34; page has been shown.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/signup
+</dd>
+</dl>
+</li>
+<li class="flex flex-col gap-2 rounded-[14px] border border-line bg-paper p-3.5">
+<p class="break-all font-mono text-sm font-bold text-ink">tappa_signup_claim
+</p>
+<p class="text-[13px] leading-normal text-ink">Carries a registration link while it is being confirmed, so the link stays out of the address bar and out of browser history. Cleared as soon as the registration is finished or the link is refused.
+</p>
+<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-dashed border-line pt-2 font-mono text-xs">
+<dt class="text-ink/70">Lifetime
+</dt>
+<dd class="text-ink">30 minutes
+</dd>
+<dt class="text-ink/70">Sent to
+</dt>
+<dd class="text-ink">/admin/signup/confirm
+</dd>
+</dl>
+</li>
+</ul>
+<p class="text-xs leading-normal text-ink/70">Every cookie is 
+<span class="font-mono">HttpOnly · SameSite=Lax · Secure
+</span>. Secure is set whenever Taptime is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.
+</p>
+</section>
+<section class="flex flex-col gap-3 rounded-[14px] border-2 border-dashed border-saffron bg-saffron-lite px-4 py-4 md:rounded-2xl md:px-6 md:py-[22px]">
+<h2 class="font-display text-lg font-bold tracking-tight md:text-xl">This text has not been published yet
+</h2>
+<p class="text-sm leading-normal text-ink">Nothing on this page is in force. It is a placeholder so the document has an address before it has a text, and it will be replaced with the real one — no part of it should be relied on in the meantime.
+</p>
+<p class="mt-1 font-mono text-[11px] uppercase tracking-[0.12em] text-ink">Waiting on
+</p>
+<ol class="flex flex-col gap-2">
+<li class="grid grid-cols-[26px_1fr] gap-1.5 text-sm leading-normal text-ink md:grid-cols-[30px_1fr] md:gap-2">
+<span class="font-mono font-bold" aria-hidden="true">01
+</span> 
+<span>The controller and contact point, as for the privacy policy.
+</span>
+</li>
+<li class="grid grid-cols-[26px_1fr] gap-1.5 text-sm leading-normal text-ink md:grid-cols-[30px_1fr] md:gap-2">
+<span class="font-mono font-bold" aria-hidden="true">02
+</span> 
+<span>Confirmation of the legal basis: these cookies are the ones without which the service cannot be delivered, which is the basis this document will state.
+</span>
+</li>
+</ol>
+</section>
+</article>
+</div>
+</div>
+</main>
+<div class="lp">
+<footer class="lp-foot">
+<div class="lp-footIn">
+<div class="lp-footAbout">
+<span class="lp-footMark">
+<svg class="lp-footSign" viewBox="26 -650 612 650" aria-hidden="true" focusable="false">
+<path d="M260 0Q211 0 180.5 -30.5Q150 -61 150 -112V-392H26V-496H150V-650H276V-496H412V-392H276V-134Q276 -104 304 -104H400V0Z">
+</path>
+<path d="M516 -300H592A46 46 0 0 1 638 -254V-46A46 46 0 0 1 592 0H516A46 46 0 0 1 470 -46V-254A46 46 0 0 1 516 -300Z">
+</path>
+</svg>
+<span class="lp-footCopy">© 2026 Taptime · Malta
+</span>
+</span> 
+<span class="lp-footLine">tap in · tap out · that's it
+</span>
+<div class="lp-footNote">
+<span class="lp-lbl">Taptime
+</span>
+<p>Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.
+</p>
+</div>
+<p class="lp-footLine">Built by 
+<a href="https://codeveralabs.com" rel="noopener" class="flink">Codevera Labs
+</a>
+</p>
+</div>
+<nav class="fcol" aria-label="Product">
+<span class="lp-lbl lp-fcolHead">Product
+</span> 
+<a href="/product">Product tour
+</a>
+<a href="/security">Security
+</a>
+<a href="/pricing">Pricing
+</a>
+<a href="/for/restaurants">For restaurants &amp; bars
+</a>
+<a href="/for/production">For production &amp; facilities
+</a>
+<a href="/docs/api">API docs
+</a>
+</nav>
+<nav class="fcol" aria-label="Legal">
+<span class="lp-lbl lp-fcolHead">Legal
+</span> 
+<a href="/legal/privacy">Privacy
+</a>
+<a href="/legal/terms">Terms
+</a>
+<a href="/legal/imprint">Company details
+</a>
+<a href="/legal/cookies" aria-current="page">Cookies
+</a>
+</nav>
+</div>
+</footer>
+</div>
+<div class="lp lp-dock">
+<div class="mbar">
+<a class="hbtn" href="/signup">Start free
+</a>
+</div>
+</div>
+</body>
+</html>

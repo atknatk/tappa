@@ -66,7 +66,9 @@ import (
 //
 // So the signed value carries a company name, a VAT number, a business type, a
 // structure, a venue list and one VIES verdict — the things the visitor typed into
-// steps one and two, which are already on their screen.
+// steps one and two, which are already on their screen — and, when the native app
+// opened the wizard, that one fact (signupDraft.App, M16-54), which decides how the
+// pages are drawn and nothing else.
 
 const (
 	// signupCookieName carries "<csrf>.<bind>": the synchronizer token every wizard
@@ -221,9 +223,29 @@ type signupDraft struct {
 	// 2 after the venues step, signupDoneStep once the business EXISTS. A caller
 	// cannot jump to the account form without having produced a state that says 2,
 	// and cannot produce one without posting step two, which itself needs a state
-	// that says 1.
+	// that says 1. signupAppOnlyStep (0) is the state the app's first page writes before
+	// anything is answered: it carries App and nothing else, and every step refuses it.
 	Step int `json:"s"`
+
+	// App is the native app's in-app browser (M16-54, ADR 0051 §2.6): the wizard was
+	// opened with GET /signup?client=app, and every later step draws without the site's
+	// links. IT IS PRESENTATION ONLY -- nothing that decides reads it -- and it travels
+	// here and nowhere else: not in a form field, not in a later query, and not in the
+	// registration draft (signup.EncodeDraft has no field for it, and
+	// admin_signup_claims_draft_closed would refuse one).
+	//
+	// NO VERSION BUMP, AND WHY: the field is additive and omitted when false, so a blob
+	// minted before it reads as "not the app's", which is what it was; the one new shape,
+	// a state at signupAppOnlyStep, is refused by a reader that predates it (it requires
+	// step >= 1), which is the fail-closed direction. Bumping would instead have ended
+	// every half-finished registration in flight at the deploy.
+	App bool `json:"a,omitempty"`
 }
+
+// signupAppOnlyStep is the step of a state that carries only the app's flag: the one GET
+// /signup?client=app writes, before step one is answered. readState's "at least step N"
+// (N >= 1) refuses it, so it opens no form a state that says 1 would not.
+const signupAppOnlyStep = 0
 
 // signupState mints and parses the signed draft.
 //
@@ -326,6 +348,36 @@ func (s signupState) mint(d signupDraft, bind string) (string, error) {
 // same reason in miniature. This is tapcontext.go's and logincontext.go's order,
 // kept deliberately identical so the three are read as one pattern.
 func (s signupState) parse(v, bind string) (signupDraft, error) {
+	d, err := s.open(v, bind)
+	if err != nil {
+		return signupDraft{}, err
+	}
+	issuedAt := time.Unix(d.Issued, 0).UTC()
+	now := s.clock()
+	if now.Sub(issuedAt) > s.ttl || issuedAt.Sub(now) > signupFutureSkew {
+		return signupDraft{}, errSignupExpired
+	}
+	// A state at signupAppOnlyStep is valid only as the app's flag (it is written for
+	// nothing else); readState's step rule then refuses it like an absent state.
+	if d.Step < signupAppOnlyStep || d.Step > signupDoneStep || (d.Step == signupAppOnlyStep && !d.App) {
+		return signupDraft{}, errSignupMalformed
+	}
+	if len(d.Venues) > signup.MaxVenues {
+		// A bound the domain also applies. It is repeated HERE because this is the
+		// parser: the domain's bound protects a WRITE, and this one protects the
+		// allocation that happens before any domain code runs.
+		return signupDraft{}, errSignupMalformed
+	}
+	return d, nil
+}
+
+// open is parse's first half: shape, SIGNATURE and layout -- no expiry, no step. It is
+// parse's own path and, apart from it, read for ONE thing: the app's flag
+// (Signup.appMode), which only chooses how a page is drawn. A value this deployment did
+// not sign for this browser never gets this far; a value that is ours but past its half
+// hour still says truthfully that the app opened the wizard, so the page that tells the
+// person to start again is still the app's page.
+func (s signupState) open(v, bind string) (signupDraft, error) {
 	if s.key.Len() == 0 {
 		return signupDraft{}, errors.New("handler: signup state was not configured")
 	}
@@ -362,20 +414,6 @@ func (s signupState) parse(v, bind string) (signupDraft, error) {
 		return signupDraft{}, errSignupMalformed
 	}
 	if d.Version != signupStateVersion {
-		return signupDraft{}, errSignupMalformed
-	}
-	issuedAt := time.Unix(d.Issued, 0).UTC()
-	now := s.clock()
-	if now.Sub(issuedAt) > s.ttl || issuedAt.Sub(now) > signupFutureSkew {
-		return signupDraft{}, errSignupExpired
-	}
-	if d.Step < 1 || d.Step > signupDoneStep {
-		return signupDraft{}, errSignupMalformed
-	}
-	if len(d.Venues) > signup.MaxVenues {
-		// A bound the domain also applies. It is repeated HERE because this is the
-		// parser: the domain's bound protects a WRITE, and this one protects the
-		// allocation that happens before any domain code runs.
 		return signupDraft{}, errSignupMalformed
 	}
 	return d, nil

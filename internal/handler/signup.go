@@ -274,6 +274,8 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 	if s.flooded(w, r, "signup_business") || s.closed(w, r) {
 		return
 	}
+	// Read from THIS request, before its cookies are replaced below.
+	app := s.appMode(r)
 	// A FRESH synchronizer pair on every render of the FIRST step, and only there. It
 	// costs 64 bytes of randomness and it means a token left in a shared browser is
 	// superseded the moment anybody opens the wizard again. Re-minting it on a LATER
@@ -288,8 +290,20 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cookies.setLogin(w, st)
 	// Any state from an abandoned attempt is dead the moment a new wizard starts:
-	// leaving it would let a stale draft survive into a new registration.
-	s.cookies.clear(w, signupStateCookieName)
+	// leaving it would let a stale draft survive into a new registration. The app's
+	// wizard gets a NEW state in its place that carries the flag and nothing else
+	// (signupAppOnlyStep), so the steps after this one know whose browser they are in.
+	if app {
+		blob, err := s.state.mint(signupDraft{Step: signupAppOnlyStep, App: true}, st.bind)
+		if err != nil {
+			s.log.Error("signup: minting the wizard state failed", "err", err)
+			s.problem(w, r, http.StatusInternalServerError, problemSignupServer)
+			return
+		}
+		s.cookies.set(w, signupStateCookieName, blob)
+	} else {
+		s.cookies.clear(w, signupStateCookieName)
+	}
 	s.render(w, r, http.StatusOK, pages.SignupBusiness(pages.SignupBusinessView{
 		// The share card is the wizard's first screen only: it is the address a link
 		// to sign-up names, and the later steps and the refused re-renders are
@@ -297,6 +311,7 @@ func (s *Signup) Business(w http.ResponseWriter, r *http.Request) {
 		Share:     layout.Share{Description: pages.SignOffLine(foundingFreeMonths), Image: s.shareImage},
 		CSRFToken: st.csrf,
 		Types:     businessTypeOptions(),
+		App:       app,
 	}))
 }
 
@@ -327,6 +342,7 @@ func (s *Signup) SubmitBusiness(w http.ResponseWriter, r *http.Request) {
 		BusinessType: r.PostFormValue("business_type"),
 		Structure:    r.PostFormValue("structure"),
 	}
+	app := s.appMode(r)
 	b, errs := signup.ValidateBusiness(typed)
 	if errs.Any() {
 		s.render(w, r, http.StatusUnprocessableEntity, pages.SignupBusiness(pages.SignupBusinessView{
@@ -340,6 +356,7 @@ func (s *Signup) SubmitBusiness(w http.ResponseWriter, r *http.Request) {
 			BusinessType: b.BusinessType,
 			Structure:    b.Structure,
 			Errors:       map[string]string(errs),
+			App:          app,
 		}))
 		return
 	}
@@ -356,6 +373,12 @@ func (s *Signup) SubmitBusiness(w http.ResponseWriter, r *http.Request) {
 	// THE ISSUED STAMP IS CARRIED TOO, so correcting a field does not extend the
 	// wizard's overall lifetime — signupTTL bounds the whole registration, not the
 	// current step.
+	//
+	// 🔴 BUT NOT FROM THE APP'S FLAG-ONLY STATE (signupAppOnlyStep). That one was minted
+	// when the first PAGE LOADED, and the minimum fill time (signupratelimit.go) reads
+	// the stamp: carried forward, it would start the app's clock earlier than every
+	// browser's and let a script that waited on the empty form post the rest at machine
+	// speed. The stamp is taken from the first POST for everybody ([H54-c]).
 	prior, hasPrior := s.priorDraft(r, st)
 	next := signupDraft{
 		Name:         b.Name,
@@ -364,8 +387,9 @@ func (s *Signup) SubmitBusiness(w http.ResponseWriter, r *http.Request) {
 		Structure:    b.Structure,
 		VATCheck:     b.VAT.String(),
 		Step:         1,
+		App:          app,
 	}
-	if hasPrior {
+	if hasPrior && prior.Step >= 1 {
 		next.Venues = prior.Venues
 		next.Issued = prior.Issued
 	}
@@ -491,6 +515,7 @@ func (s *Signup) Account(w http.ResponseWriter, r *http.Request) {
 		BusinessName:  d.Name,
 		Venues:        d.Venues,
 		HoneypotField: signupHoneypotField,
+		App:           d.App,
 	}))
 }
 
@@ -574,6 +599,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 			FullName:      echoSafe(account.FullName),
 			Email:         echoSafe(account.Email.Reveal()),
 			Errors:        map[string]string(errs),
+			App:           d.App,
 		}))
 		return
 	}
@@ -631,6 +657,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 			FullName:      echoSafe(account.FullName),
 			Email:         echoSafe(account.Email.Reveal()),
 			Errors:        map[string]string{"email": "We cannot send email to that address. Use one written in plain letters, without accents."},
+			App:           d.App,
 		}))
 		return
 	case err != nil:
@@ -656,6 +683,8 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 		Step:      signupDoneStep,
 		// A FRESH stamp: from here it measures how long "Check your inbox" stays readable.
 		Issued: 0,
+		// "Check your inbox" is the app's last page (ADR 0051 §2.6), so it is drawn as one.
+		App: d.App,
 	}
 	blob, err := s.state.mint(sent, st.bind)
 	if err != nil {
@@ -875,6 +904,12 @@ func (s *Signup) placesView(st signupLoginState, d signupDraft, venues []signup.
 		// would be a screen contradicting itself.
 		names = []string{""}
 	}
+	back := signupPath
+	if d.App {
+		// Back starts the wizard again (Business mints a fresh pair), so it says whose
+		// wizard it is in so many words rather than leaning on a state it replaces.
+		back = pages.AppHref(signupPath)
+	}
 	return pages.SignupPlacesView{
 		CSRFToken:    st.csrf,
 		BusinessName: d.Name,
@@ -882,8 +917,42 @@ func (s *Signup) placesView(st signupLoginState, d signupDraft, venues []signup.
 		MaxVenues:    signup.MaxVenues,
 		Venues:       names,
 		Errors:       map[string]string(errs),
-		BackHref:     signupPath,
+		BackHref:     back,
+		App:          d.App,
 	}
+}
+
+// appMode reports whether this request belongs to a wizard the native app opened (M16-54,
+// ADR 0051 §2.6). IT CHOOSES HOW A PAGE IS DRAWN AND NOTHING ELSE: no check in this file
+// reads it, and a forged or stale answer costs only the chrome around a page ([H54-c]).
+//
+// TWO SOURCES, NO THIRD. The first step's own query (GET /signup?client=app, the URL the
+// app opens) -- no later step reads a query; and the wizard's signed state, through
+// signupState.open: a value this deployment signed for this browser, its flag believed
+// even past the half hour (so the "start again" page an expired wizard gets is still the
+// app's, and its Retry keeps the flag). Never a form field, never the registration draft.
+//
+// ONLY UNDER /signup, the wizard cookies' own path: the link's page and the done page live
+// under /admin and a browser never sends them these cookies, so they are never the app's
+// (the e-mailed link opens in the system browser -- ADR 0051 §2.6). Spelled out here so a
+// client that ignores cookie paths cannot make it otherwise.
+func (s *Signup) appMode(r *http.Request) bool {
+	if r.URL.Path != signupCookiePath && !strings.HasPrefix(r.URL.Path, signupCookiePath+"/") {
+		return false
+	}
+	if r.Method == http.MethodGet && r.URL.Path == signupPath && pages.AppClientRequested(r.URL.Query()) {
+		return true
+	}
+	st, ok := s.cookies.readLogin(r)
+	if !ok {
+		return false
+	}
+	ck, err := r.Cookie(signupStateCookieName)
+	if err != nil || ck.Value == "" {
+		return false
+	}
+	d, err := s.state.open(ck.Value, st.bind)
+	return err == nil && d.App
 }
 
 // businessTypeOptions maps the domain's chip set to the view's.
@@ -929,7 +998,17 @@ func (s *Signup) render(w http.ResponseWriter, r *http.Request, status int, c te
 	}
 }
 
+// problem draws one of the wizard's problem screens. In the app's wizard it is the app's
+// page, and its "Start again" restarts the app's wizard: Retry is the bare wizard path on
+// every problem that offers one, and the state that carried the flag may be the very thing
+// that just failed (readState clears it).
 func (s *Signup) problem(w http.ResponseWriter, r *http.Request, status int, v pages.SignupProblemView) {
+	if s.appMode(r) {
+		v.App = true
+		if v.Retry == signupPath {
+			v.Retry = pages.AppHref(signupPath)
+		}
+	}
 	s.render(w, r, status, pages.SignupProblem(v))
 }
 

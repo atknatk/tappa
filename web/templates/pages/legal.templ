@@ -60,7 +60,7 @@ import (
 // Legal renders one document.
 templ Legal(v LegalPageView) {
 	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots(), v.Share) {
-		@PublicChrome(PublicChromeOpts{Current: v.Page.Path, SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true}) {
+		@PublicChrome(PublicChromeOpts{Current: v.Page.Path, SignInHref: v.SignInHref, SignupHref: v.SignupHref, OwnRoots: true, App: v.App}) {
 			<div class={ PublicBodyFrame + " " + PublicBodyRing + " pb-12 pt-5 md:pb-14 md:pt-7 desk:pb-16 desk:pt-10" }>
 				<div class="flex flex-col gap-6 desk:grid desk:grid-cols-[minmax(0,260px)_minmax(0,820px)] desk:items-start desk:gap-10">
 					@legalNav(v)
@@ -90,7 +90,8 @@ templ Legal(v LegalPageView) {
 // come from). Two columns on a phone, one row on a tablet, a column beside the text
 // from the desk width. The current document is marked with aria-current and a heavier
 // frame; a document with no published text carries the words "Not in force yet" —
-// the words carry it, the saffron frame only repeats them.
+// the words carry it, the saffron frame only repeats them. In the app (v.App) each link
+// carries the flag, so the next document is in app mode too (ADR 0051 §2.6).
 templ legalNav(v LegalPageView) {
 	<nav aria-label="Legal documents" class="flex flex-col gap-2.5">
 		<p class="lbl hidden desk:block">Legal</p>
@@ -98,7 +99,7 @@ templ legalNav(v LegalPageView) {
 			for _, p := range LegalPages {
 				<li class="min-w-0">
 					<a
-						href={ templ.URL(p.Path) }
+						href={ templ.URL(legalHref(v.App, p.Path)) }
 						class={ legalNavLinkClass(v.IsCurrent(p.Path)) }
 						if v.IsCurrent(p.Path) {
 							aria-current="page"

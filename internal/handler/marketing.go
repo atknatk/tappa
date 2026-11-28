@@ -717,6 +717,10 @@ func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalP
 		Share:      layout.Share{Description: p.Lede, Image: m.share.Legal},
 		SignInHref: adminLoginPath,
 		SignupHref: m.signupHref,
+		// The native app's in-app browser (M16-54, ADR 0051 §2.6): read from this URL's
+		// query and from nothing about the visitor, so a URL is still the same bytes for
+		// everybody and stays cacheable; the page's document links carry it on.
+		App: pages.AppClientRequested(r.URL.Query()),
 	}
 	if p.Path == cookieNoticePath {
 		v.Cookies = cookieNotice()
