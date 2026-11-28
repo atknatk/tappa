@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
         // "Start again"), and the quiet /me after a tap.
         tap.onSignedOut = { [weak self, weak activation] in
             self?.forgetPresence()
+            self?.staff.forgetPerson() // M16-38: the next activation may be another person
             activation?.signedOut()
         }
         tap.onPresenceGone = { [weak self] in self?.forgetPresence() }

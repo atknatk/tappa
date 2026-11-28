@@ -39,11 +39,8 @@ enum StaffCopy {
     }
 
     // My hours
-    static var hoursOffTitle: String { t("My hours isn't on yet", "Saatlerim henüz açık değil") }
-    static var hoursOffBody: String {
-        t("Your employer can turn it on in Taptime. Until then your manager has your records.",
-          "İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.")
-    }
+    /// Said on Today when the employer turned My hours off while it was open (M16-33).
+    static var hoursOff: String { t("Your employer has turned My hours off.", "İşvereniniz Saatlerim özelliğini kapattı.") }
     static func openChip(_ n: Int) -> String { t("\(n) open", "Açık giriş: \(n)") }
     static func awaiting(_ d: String) -> String { t("Waiting for your manager, not counted yet: \(d).", "Müdür onayı bekleyen, henüz sayılmayan: \(d).") }
     static func openNote(_ n: Int) -> String {
@@ -127,19 +124,45 @@ enum StaffCopy {
     static var send: String { t("Send to my manager", "Müdürüme gönder") }
     static var sending: String { t("Sending…", "Gönderiliyor…") }
     static var sendShort: String { t("Send", "Gönder") }
-    static var skip: String { t("Not now", "Şimdilik geç") }
+    /// The browser card's line under the send button (claim.templ), here also the control that
+    /// moves to the next record (M16-44).
+    static var skip: String { t("You can skip this.", "Bunu atlayabilirsin.") }
     static var sent: String { t("Sent — your manager will review it.", "Gönderildi — müdürün inceleyecek.") }
-    // The outcomes are the Android app's banners: a title, " — ", and its line.
+    // The outcomes are the Android app's banners: a title, " — ", then the card's lines (M16-44:
+    // the browser's, without "Your tap itself is recorded." -- there is no tap on this screen).
+    private static var tellManager: String { t("Tell your manager what time it was.", "Müdürüne saatin kaç olduğunu söyle.") }
     static var expired: String {
-        t("This question has expired", "Bu sorunun süresi doldu") + " — " + t("Tell your manager what time it was.", "Müdürüne saatin kaç olduğunu söyle.")
+        t("This question has expired", "Bu sorunun süresi doldu") + " — "
+            + t("Nothing was sent to your manager.", "Müdürüne hiçbir şey gönderilmedi.") + " " + tellManager
     }
     static var resolved: String {
         t("Already resolved", "Zaten çözülmüş") + " — "
             + t("That record no longer needs this time, so nothing was sent.", "Bu kayıt artık bu saate ihtiyaç duymuyor, bu yüzden hiçbir şey gönderilmedi.")
+            + " " + t("Tell your manager if that looks wrong.", "Yanlış görünüyorsa müdürüne söyle.")
     }
-    static var notActive: String { t("Your account can't send this", "Hesabın bunu gönderemez") }
+    static var notActive: String {
+        t("Your account can't send this", "Hesabın bunu gönderemez") + " — "
+            + t("Only an active employee can send a time to their manager. Nothing was sent.",
+                "Müdürüne saati yalnız aktif bir çalışan gönderebilir. Hiçbir şey gönderilmedi.")
+            + " " + tellManager
+    }
     static var stillOpen: String {
         t("You're still clocked in", "Hâlâ girişlisin") + " — " + t("Nothing was sent. Tap the plaque when you leave.", "Hiçbir şey gönderilmedi. Çıkarken plakete dokun.")
+    }
+    // The person's own claims, under the record (M16-44): Android's missing_sent_* and claim_state_*.
+    static var sentLabel: String { t("Sent", "Gönderilenler") }
+    static func sentRow(date: String, kind: String, at: String) -> String { t("\(date) · \(kind) \(at)", "\(date) · \(kind) \(at)") }
+    static func sentKind(_ kind: String) -> String { kind == "in" ? t("in", "giriş") : t("out", "çıkış") }
+    /// A sent claim's state: approvedAt is the clock the manager approved, which may differ from
+    /// the one asked for (ADR 0032 §C.2); without it, just "Approved".
+    static func claimState(_ state: String, approvedAt: String?) -> String {
+        switch state {
+        case "approved":
+            if let at = approvedAt { return t("Approved at \(at)", "Onaylandı: \(at)") }
+            return t("Approved", "Onaylandı")
+        case "rejected": return t("Not approved", "Onaylanmadı")
+        default: return t("Waiting for your manager", "Müdürün bekleniyor")
+        }
     }
     static var network: String { t("Can't reach Taptime. Check your connection.", "Taptime'a ulaşılamıyor. İnternetini kontrol et.") }
 
@@ -163,6 +186,18 @@ enum StaffCopy {
     }
     static var shift: String { t("Shift", "Vardiya") }
     static var usualShift: String { t("Usual shift", "Her zamanki vardiya") }
+    /// The usual shift as a sentence (M16-48; Android's shift_usual*): the server's clocks and
+    /// venue; a night shift says "(next day)" after its end; no home venue (K-14), no " · ".
+    static func usualShiftLine(_ s: UsualShift) -> String {
+        switch (s.overnight, s.venue.isEmpty) {
+        case (true, false): return t("Usual shift: \(s.start)–\(s.end) (next day) · \(s.venue)", "Olağan vardiya: \(s.start)–\(s.end) (ertesi gün) · \(s.venue)")
+        case (false, false): return t("Usual shift: \(s.start)–\(s.end) · \(s.venue)", "Olağan vardiya: \(s.start)–\(s.end) · \(s.venue)")
+        case (true, true): return t("Usual shift: \(s.start)–\(s.end) (next day)", "Olağan vardiya: \(s.start)–\(s.end) (ertesi gün)")
+        case (false, true): return t("Usual shift: \(s.start)–\(s.end)", "Olağan vardiya: \(s.start)–\(s.end)")
+        }
+    }
+    /// Settings' row: "(next day)" under the clocks, for a night shift only.
+    static func nextDay(_ s: UsualShift) -> String? { s.overnight ? t("(next day)", "(ertesi gün)") : nil }
     static var thisPhone: String { t("This phone", "Bu telefon") }
     static var language: String { t("Language", "Dil") }
     static var languageSub: String { t("The phone's language, or one you choose", "Telefonun dili ya da seçtiğin bir dil") }
@@ -177,8 +212,14 @@ enum StaffCopy {
     static var delete: String { t("Delete my account", "Hesabımı sil") }
     static var deleteSub: String { t("Signs you out everywhere and tells your employer", "Her yerde oturumu kapatır ve işverenine bildirir") }
     static var deleteTitle: String { t("Delete your account?", "Hesabın silinsin mi?") }
-    static func deleteBody(_ business: String) -> String {
+    /// M16-38: a deactivated person's request signs nothing out (the server keeps their phones,
+    /// M16-37), so their first sentence is "Your request goes to <Business>." instead.
+    static func deleteBody(_ business: String, deactivated: Bool = false) -> String {
         let b = business.isEmpty ? t("your employer", "işletmen") : business
+        if deactivated {
+            return t("Your request goes to \(b). Your clock-in records are not deleted: they are legal records \(b) keeps, and your request goes to them. If you still work there, you can be invited again later.",
+                     "Talebin işverenine (\(b)) iletilir. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
+        }
         return t("This signs you out on every phone and removes this phone's key. Your clock-in records are not deleted: they are legal records \(b) keeps, and your request goes to them. If you still work there, you can be invited again later.",
                  "Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine (\(b)) iletilir. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
     }
@@ -188,6 +229,8 @@ enum StaffCopy {
         t("Your location is read only at the moment you tap a plaque. No finger scans, no face scans.",
           "Konumun yalnız plakete dokunduğun anda okunur. Parmak izi ya da yüz kullanılmaz.")
     }
+    /// The privacy notice's link (M16-38; App Store 5.1.1(i)): opens /legal/privacy in Safari.
+    static var privacyPolicy: String { t("Privacy policy", "Gizlilik politikası") }
     static func version(_ v: String) -> String { t("Version \(v)", "Sürüm \(v)") }
 
     // The reminder

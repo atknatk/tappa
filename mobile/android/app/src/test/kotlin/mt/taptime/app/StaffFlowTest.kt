@@ -105,6 +105,17 @@ class StaffFlowTest {
         assertFalse(StaffFlow.saysNoRecords(on("2026-11-16"), second))
     }
 
+    /** M16-33: not_found is "My hours is off" (the screen closes), never a network problem or a retry. */
+    @Test
+    fun notFoundIsMyHoursOff() {
+        activated()
+        twoPages()
+        server.hoursOff = true
+        assertEquals(Answer.Off, flow.hours(week, null))
+        assertEquals(Answer.Off, flow.hours(week, "own_c1"))
+        assertEquals("no page-one retry after not_found", 2, server.hoursBodies.size)
+    }
+
     @Test
     fun aRestartRefusedInTurnIsThatAnswer() {
         activated()

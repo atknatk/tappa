@@ -136,13 +136,16 @@ struct StaffRootView: View {
             .tabItem { Label(StaffCopy.tabToday, systemImage: "house") }
             .tag(StaffModel.Tab.today)
 
-            NavigationView {
-                HoursView(staff: staff)
-                    .navigationTitle(StaffCopy.tabHours)
+            // M16-33: with My hours off (hoursWeeks 0) there is no way into it at all.
+            if StaffModel.hoursOn(me) {
+                NavigationView {
+                    HoursView(staff: staff)
+                        .navigationTitle(StaffCopy.tabHours)
+                }
+                .navigationViewStyle(.stack)
+                .tabItem { Label(StaffCopy.tabHours, systemImage: "clock") }
+                .tag(StaffModel.Tab.hours)
             }
-            .navigationViewStyle(.stack)
-            .tabItem { Label(StaffCopy.tabHours, systemImage: "clock") }
-            .tag(StaffModel.Tab.hours)
 
             NavigationView {
                 SettingsView(staff: staff, me: me, name: name)
@@ -154,6 +157,10 @@ struct StaffRootView: View {
         }
         .tint(Palette.green)
         .preferredColorScheme(.light)
+        // My hours turned off while its tab was showing (a fresh /me): the tab is gone, so is the screen.
+        .onChange(of: StaffModel.hoursOn(me)) { on in
+            if !on { staff.hoursTurnedOff() }
+        }
         .sheet(isPresented: Binding(get: { staff.claims != nil }, set: { if !$0 { staff.closeSheet() } })) {
             if let list = staff.claims, staff.claimIndex < list.count {
                 ClaimSheet(staff: staff, claim: list[staff.claimIndex], index: staff.claimIndex, count: list.count)
@@ -225,7 +232,7 @@ private struct TodayView: View {
                     }
                 } else {
                     Text(StaffCopy.notInBody).font(Typeface.display(22, .bold))
-                    if let s = me?.shift { Text("\(s.start)–\(s.end)" + (s.venue.isEmpty ? "" : " · \(s.venue)")).font(Typeface.display(13)).opacity(0.75) }
+                    if let s = me?.shift { Text(StaffCopy.usualShiftLine(s)).font(Typeface.display(13)).opacity(0.75) }
                 }
             }
             .foregroundColor(Palette.paper)
@@ -340,16 +347,7 @@ private struct HoursView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if staff.hoursOff {
-            Card {
-                VStack(alignment: .leading, spacing: 8) {
-                    IconSquare(symbol: "clock")
-                    Text(StaffCopy.hoursOffTitle).font(Typeface.display(18, .bold))
-                    Text(StaffCopy.hoursOffBody).font(Typeface.display(14)).foregroundColor(muted)
-                }
-                .padding(20)
-            }
-        } else if let h = staff.hours {
+        if let h = staff.hours {
             Text(weekLabel(h)).font(Typeface.mono(13, bold: true)).foregroundColor(muted).padding(.horizontal, 4).padding(.top, -6)
             summary(h)
             dayChips(h)
@@ -546,6 +544,20 @@ private struct ClaimSheet: View {
                 Section {
                     Button(StaffCopy.skip) { staff.skip() }.disabled(staff.claimBusy)
                 }
+                // M16-44: the person's own claims under the record -- waiting, approved (at the
+                // manager's clock when My hours shows it), not approved.
+                if !staff.sent.isEmpty {
+                    Section(StaffCopy.sentLabel) {
+                        ForEach(Array(staff.sent.enumerated()), id: \.offset) { _, s in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(StaffCopy.sentRow(date: weekday(s.anchorDate, "EEEdMMM"), kind: StaffCopy.sentKind(s.kind), at: s.claimedAt))
+                                    .font(Typeface.mono(14))
+                                Text(StaffCopy.claimState(s.state, approvedAt: s.approvedAt)).font(Typeface.display(13)).foregroundColor(muted)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
             }
             .navigationTitle(count > 1 ? "\(index + 1)/\(count)" : "")
             .navigationBarTitleDisplayMode(.inline)
@@ -630,13 +642,23 @@ private struct SettingsView: View {
                     }
                 }
             }
+            // M16-48: only while the owner marked shifts real (`shift` set) -- whatever My hours says.
             if let s = me?.shift {
                 Section(StaffCopy.shift) {
                     HStack {
-                        Label { Text(StaffCopy.usualShift) } icon: { IconSquare(symbol: "clock.fill") }
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(StaffCopy.usualShift)
+                                if !s.venue.isEmpty { Text(s.venue).font(.caption).foregroundColor(.secondary) }
+                            }
+                        } icon: { IconSquare(symbol: "clock.fill") }
                         Spacer()
-                        Text("\(s.start)–\(s.end)").font(Typeface.mono(15)).foregroundColor(.secondary)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(s.start)–\(s.end)").font(Typeface.mono(15)).foregroundColor(.secondary)
+                            if let n = StaffCopy.nextDay(s) { Text(n).font(.caption).foregroundColor(.secondary) }
+                        }
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
             Section(StaffCopy.thisPhone) {
@@ -653,6 +675,18 @@ private struct SettingsView: View {
                     Label { Text(StaffCopy.signOut) } icon: { IconSquare(symbol: "rectangle.portrait.and.arrow.right", fill: Palette.tomato) }
                 }
             }
+            // App Store 5.1.1(i): the privacy notice is reachable inside the app (M16-38), in Safari.
+            Section {
+                Link(destination: staff.privacyURL) {
+                    HStack {
+                        Label { Text(StaffCopy.privacyPolicy).foregroundColor(Palette.ink) } icon: { IconSquare(symbol: "hand.raised.fill", fill: Palette.ink.opacity(0.7)) }
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.system(size: 14, weight: .semibold)).foregroundColor(Color(UIColor.tertiaryLabel))
+                    }
+                }
+            } footer: {
+                Text(StaffCopy.privacy)
+            }
             Section {
                 Button(role: .destructive) { staff.confirm = .delete } label: {
                     Text(StaffCopy.delete).frame(maxWidth: .infinity)
@@ -660,7 +694,6 @@ private struct SettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(StaffCopy.deleteSub)
-                    Text(StaffCopy.privacy)
                     if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String { Text(StaffCopy.version(v)) }
                 }
             }
@@ -678,7 +711,7 @@ private struct SettingsView: View {
             Button(StaffCopy.deleteConfirm, role: .destructive) { Task { await staff.perform(.delete) } }
             Button(StaffCopy.cancel, role: .cancel) { staff.confirm = nil }
         } message: {
-            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.deleteBody(me?.business ?? ""))
+            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.deleteBody(me?.business ?? "", deactivated: staff.notActive))
         }
     }
 }

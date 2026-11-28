@@ -196,6 +196,9 @@
     <string name="home_settings">Ayarlar</string>
     <string name="shift_usual">Olağan vardiya: %1$s–%2$s · %3$s</string>
     <string name="shift_usual_overnight">Olağan vardiya: %1$s–%2$s (ertesi gün) · %3$s</string>
+    <string name="shift_usual_no_venue">Olağan vardiya: %1$s–%2$s</string>
+    <string name="shift_usual_overnight_no_venue">Olağan vardiya: %1$s–%2$s (ertesi gün)</string>
+    <string name="shift_next_day">(ertesi gün)</string>
     <string name="shift_today_ends">Bugünkü vardiyanın bitişi: %1$s</string>
     <string name="settings_label">Ayarlar</string>
     <string name="settings_remind">Çıkışı bana hatırlat</string>
@@ -317,11 +320,8 @@
     <string name="today_week">Bu hafta sayılan</string>
     <string name="hours_chip_open">Açık giriş: %1$d</string>
     <string name="hours_day_empty">Bu gün kayıt yok.</string>
-    <string name="hours_off_title">Saatlerim henüz açık değil</string>
-    <string name="hours_off_body">İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.</string>
     <string name="sheet_hour">Saat</string>
     <string name="sheet_minute">Dakika</string>
-    <string name="sheet_skip">Şimdilik geç</string>
     <string name="sheet_sending">Gönderiliyor…</string>
     <string name="settings_connected">Bu telefon bağlı</string>
     <string name="settings_notifications">Bildirimler</string>
@@ -337,6 +337,7 @@
     <string name="signout_failed">Bağlantı kaldırılamadı. İnternetini kontrol edip yeniden dene.</string>
     <string name="cancel">Vazgeç</string>
     <string name="settings_privacy">Konumun yalnız plakete dokunduğun anda okunur. Parmak izi ya da yüz kullanılmaz.</string>
+    <string name="settings_privacy_policy">Gizlilik politikası</string>
     <string name="settings_version">Sürüm %1$s</string>
     <string name="remind_snooze">1 saat sonra hatırlat</string>
     <string name="remind_open">Taptime\'ı aç</string>
@@ -346,6 +347,7 @@
     <string name="settings_delete_sub">Her yerde oturumu kapatır ve işverenine bildirir</string>
     <string name="delete_title">Hesabın silinsin mi?</string>
     <string name="delete_body">Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine (%1$s) iletilir. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.</string>
+    <string name="delete_body_deactivated">Talebin işverenine (%1$s) iletilir. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.</string>
     <string name="delete_confirm">Talebi gönder</string>
     <string name="delete_your_employer">işletmen</string>
 </resources>

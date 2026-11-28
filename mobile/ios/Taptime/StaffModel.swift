@@ -14,6 +14,8 @@ final class StaffModel: ObservableObject {
     // Today
     @Published private(set) var week: HoursResponse?
     @Published private(set) var claims: [ClaimsResponse.Open]?
+    /// The person's own claims, shown under the record (M16-44); read with the list, never kept.
+    @Published private(set) var sent: [ClaimsResponse.Sent] = []
     @Published private(set) var claimIndex = 0
     @Published private(set) var claimBusy = false
     @Published private(set) var claimProblem: String?
@@ -26,7 +28,6 @@ final class StaffModel: ObservableObject {
     @Published private(set) var records: [HoursResponse.Record] = []
     @Published private(set) var hoursBusy = false
     @Published private(set) var hoursFailed = false
-    @Published private(set) var hoursOff = false
     // Settings
     @Published var remind = StaffNotifier.enabled
     @Published private(set) var notificationsOff = false
@@ -37,6 +38,14 @@ final class StaffModel: ObservableObject {
     @Published var confirm: Confirm?
     @Published private(set) var confirmBusy = false
     @Published private(set) var confirmFailed = false
+    /// The device a claim was answered "not_active" for in this session: that person is
+    /// deactivated, so their deletion request signs nothing out and its words say so (M16-38). /me
+    /// carries no such fact, so this is the one signal the app has; it is held in memory only.
+    /// It belongs to ONE person: cleared when this phone is signed out or the account deletion is
+    /// sent (forgetPerson), and bound to the device, so a new activation -- a new device id, maybe
+    /// another person on a shared phone -- never inherits it.
+    @Published private(set) var notActiveDevice: String?
+    var notActive: Bool { notActiveDevice != nil && notActiveDevice == tap.identity?.deviceID }
 
     let tap: TapModel
     /// The person's own sign-out (either act): back to activation.
@@ -50,7 +59,12 @@ final class StaffModel: ObservableObject {
 
     // MARK: Tabs
 
+    /// M16-33: My hours exists only while the employer has it on (hoursWeeks > 0); off, the app has
+    /// no way into it -- no tab, no card.
+    nonisolated static func hoursOn(_ me: MeResponse?) -> Bool { (me?.hoursWeeks ?? 0) > 0 }
+
     func show(_ t: Tab) {
+        if t == .hours && !StaffModel.hoursOn(me) { return }
         tab = t
         switch t {
         case .today: Task { await refreshToday() }
@@ -78,19 +92,29 @@ final class StaffModel: ObservableObject {
     /// was signed out" (the Android twin: StaffFlow.Answer.SignedOut -> clearPresence +
     /// activationEntry(SIGNED_OUT)). Nothing of the sheet survives into the next activation.
     private func signedOut() {
+        forgetPerson()
+        tap.staffReadSignedOut()
+    }
+
+    /// The person leaves this phone (signed out by the server, or by themselves, or the deletion
+    /// request sent): nothing of theirs stays for whoever activates next.
+    func forgetPerson() {
         claims = nil
+        sent = []
         claimIndex = 0
         claimProblem = nil
         claimRefusedAt = nil
-        tap.staffReadSignedOut()
+        notActiveDevice = nil
     }
 
     // MARK: My hours
 
     func loadHours(week: String?, after: String?) async {
         guard let id = tap.identity else { return }
-        hoursOff = (me?.hoursWeeks ?? 0) <= 0
-        guard !hoursOff else { return }
+        guard StaffModel.hoursOn(me) else {
+            hoursTurnedOff()
+            return
+        }
         hoursBusy = true
         hoursFailed = false
         defer { hoursBusy = false }
@@ -109,12 +133,25 @@ final class StaffModel: ObservableObject {
             records = cursor == nil ? r.records : records + r.records
             hours = r
         } catch AppAPIError.refused(.notFound, _) {
-            hoursOff = true
-            hours = nil
+            // The employer turned My hours off while it was open (M16-33): the screen closes, it
+            // says why, and /me is read again so the tab goes too.
+            hoursTurnedOff()
+            notice = StaffCopy.hoursOff
+            await tap.syncPresence()
         } catch AppAPIError.unauthenticated {
             signedOut()
         } catch {
             hoursFailed = true
+        }
+    }
+
+    /// My hours is off: nothing of it is kept and its screen, if showing, gives way to Today.
+    func hoursTurnedOff() {
+        hours = nil
+        records = []
+        week = nil
+        if tab == .hours {
+            tab = .today
         }
     }
 
@@ -168,6 +205,7 @@ final class StaffModel: ObservableObject {
         do {
             let r = try await tap.api.claims(id)
             claims = r.open.isEmpty ? nil : r.open
+            sent = r.sent ?? []
             claimIndex = 0
             claimProblem = nil
             claimRefusedAt = nil
@@ -221,7 +259,9 @@ final class StaffModel: ObservableObject {
             claimRefusedAt = at
         case "expired": await reloadClaims(notice: StaffCopy.expired)
         case "resolved": await reloadClaims(notice: StaffCopy.resolved)
-        case "not_active": claimProblem = StaffCopy.notActive
+        case "not_active":
+            claimProblem = StaffCopy.notActive
+            notActiveDevice = id.deviceID
         case "still_open": await reloadClaims(notice: StaffCopy.stillOpen)
         default: claimProblem = StaffCopy.network
         }
@@ -249,12 +289,18 @@ final class StaffModel: ObservableObject {
         }
         let open = r?.open ?? []
         claims = open.isEmpty ? nil : open
+        if let r = r {
+            sent = r.sent ?? []
+        }
         claimIndex = 0
         self.notice = notice
         await tap.home() // /me again: the missing-times count and the presence follow
     }
 
     // MARK: Settings
+
+    /// The privacy notice (M16-38), opened in Safari: the same server the app talks to.
+    var privacyURL: URL { tap.api.baseURL.appendingPathComponent("legal/privacy") }
 
     func setRemind(_ on: Bool) async {
         if on {
@@ -306,6 +352,7 @@ final class StaffModel: ObservableObject {
         }
         StaffNotifier.shared.cancel()
         confirm = nil
+        forgetPerson()
         onForgotten?()
     }
 }

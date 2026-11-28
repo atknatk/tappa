@@ -184,6 +184,8 @@ func TestRedline_M16_MobileBackgroundLocation(t *testing.T) {
 		"mobile/ios/r2_tuist.swift":           "let info: [String: Plist.Value] = [\n    \"UIBackground~~Modes\": [\n        \"location\",\n    ],\n]\n",
 		m16iOS + "r2_commented.plist":         "<key>UIBackground~~Modes</key>\n<!-- for the tap -->\n<array>\n\t<!-- fetch first -->\n\t<string>fetch</string>\n\t<string>location</string>\n</array>\n",
 		"mobile/ios/r2_quoted.yml":            "info:\n  properties:\n    UIBackground~~Modes:\n      - \"fetch\"\n      - \"location\"\n",
+		// M16-46: a local notification fired by entering a region is region monitoring (§4.2).
+		m16iOS + "r2_locnotif.swift": "let trigger = UNLocation~~NotificationTrigger(region: region, repeats: false)\n",
 	}
 	green := map[string]string{
 		m16iOS + "Locate.swift": "manager.requestWhenInUseAuthorization()\nmanager.requestLocation()\n" +
@@ -203,6 +205,8 @@ func TestRedline_M16_MobileBackgroundLocation(t *testing.T) {
 		// A Tuist dictionary whose modes array lacks location, followed by another key that has it.
 		"mobile/ios/Project.swift": "let info: [String: Plist.Value] = [\n    \"UIBackgroundModes\": [\n        \"remote-notification\",\n" +
 			"    ],\n    \"TTExample\": [\"location\"],\n]\n",
+		// M16-46: the reminder's own trigger -- a time interval, no region.
+		m16iOS + "Remind.swift": "let trigger = UNTimeIntervalNotificationTrigger(timeInterval: wait, repeats: false)\n",
 	}
 	m16RedGreen(t, "R2", red, green)
 }
@@ -260,6 +264,14 @@ func TestRedline_M16_MobileLogCalls(t *testing.T) {
 		m16iOS + "r7_first.swift":            "pri~~nt(locations.first)\n",
 		m16Android + "kotlin/r7_lastcall.kt": "Lo~~g.d(TAG, \"fix=${result.locations.last()}\")\n",
 		m16Android + "kotlin/r7_fmtloc.kt":   "Lo~~g.d(TAG, \"%s\".format(location))\n",
+		// M16-33: the person's hours, venue, name and records (My hours, Settings, the shift line).
+		m16iOS + "r7_worked.swift":          "log~~ger.info(\"week \\(totals.worked~~Minutes)\")\n",
+		m16Android + "kotlin/r7_venue.kt":   "Lo~~g.d(TAG, \"tap at ${r.ven~~ue}\")\n",
+		m16iOS + "r7_name.swift":            "pri~~nt(\"hello \\(me.employee~~Name)\")\n",
+		m16Android + "kotlin/r7_records.kt": "print~~ln(\"page ${reply.rec~~ords}\")\n",
+		// M16-44: the claimed time and the clock of the record it is for.
+		m16iOS + "r7_claimed.swift":        "log~~ger.debug(\"sent \\(s.claimed~~At)\")\n",
+		m16Android + "kotlin/r7_anchor.kt": "Lo~~g.i(TAG, \"record ${c.anchor~~At}\")\n",
 	}
 	green := map[string]string{
 		m16iOS + "Tap.swift": "logger.info(\"tap sent, verdict \\(verdict)\")\nprint(\"exchanges \\(count)\")\n" +

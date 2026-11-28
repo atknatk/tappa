@@ -159,7 +159,19 @@ struct ClaimsResponse: Decodable, Equatable {
         // The context is signed for this device: never printed (§7).
         var description: String { "Open(kind: \(kind), day: \(day))" }
     }
+    /// One of the person's own claims (M16-44's "Sent" list): the business's date and clocks.
+    /// approvedAt is null while pending or refused, and when My hours is off (M16-43).
+    struct Sent: Decodable, Equatable {
+        let kind: String
+        let anchorDate: String
+        let anchorAt: String
+        let claimedAt: String
+        let state: String
+        let approvedAt: String?
+    }
     let open: [Open]
+    /// An older server omits it: read as none.
+    let sent: [Sent]?
 }
 
 struct ClaimSendResponse: Decodable, Equatable {

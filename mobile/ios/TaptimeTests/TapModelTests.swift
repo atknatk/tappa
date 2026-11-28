@@ -753,6 +753,225 @@ final class TapModelTests: XCTestCase {
         XCTAssertFalse(moved.problem)
     }
 
+    // MARK: Settings (M16-38)
+
+    /// [G38-b]: after "Sign this phone out" the Keychain record -- the Secure Enclave key's only
+    /// handle -- is gone, no device is held, and the code screen shows.
+    func testSigningThisPhoneOutLeavesNoKeyHandle() async {
+        await app.launch()
+        XCTAssertNotNil(store.record)
+        await app.staff.perform(.signOut)
+        XCTAssertEqual(server.forgets, [AppClient.Path.revoke])
+        XCTAssertNil(store.record, "the key's handle is cleared")
+        XCTAssertNil(activation.device)
+        XCTAssertNil(tap.identity)
+        XCTAssertEqual(activation.screen, .code(notice: nil))
+    }
+
+    /// [G38-b]: the same after "Delete my account".
+    func testTheDeletionRequestLeavesNoKeyHandle() async {
+        await app.launch()
+        await app.staff.perform(.delete)
+        XCTAssertEqual(server.forgets, [AppClient.Path.accountDelete])
+        XCTAssertNil(store.record, "the key's handle is cleared")
+        XCTAssertNil(activation.device)
+        XCTAssertNil(tap.identity)
+        XCTAssertEqual(activation.screen, .code(notice: nil))
+    }
+
+    /// No answer forgets nothing: the record stays for another try and the dialog says it failed.
+    func testAnUnansweredDeletionRequestKeepsTheKeyHandle() async {
+        await app.launch()
+        offline(paths: [AppClient.Path.nonce])
+        await app.staff.perform(.delete)
+        XCTAssertNotNil(store.record)
+        XCTAssertNotNil(activation.device)
+        XCTAssertTrue(app.staff.confirmFailed)
+        XCTAssertEqual(app.staff.confirm, .delete)
+    }
+
+    /// A deactivated person's request signs nothing out (M16-37): once the server said
+    /// "not_active", the deletion words lead with "Your request goes to <Business>." instead.
+    func testNotActiveTurnsTheDeletionWordsToTheDeactivatedOnes() async {
+        await app.launch()
+        XCTAssertFalse(app.staff.notActive)
+        server.claimResult = "not_active"
+        await app.staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(app.staff.notActive)
+        XCTAssertEqual(app.staff.claimHint(openClaim, picked: "22:00").text, StaffCopy.notActive)
+        let active = StaffCopy.deleteBody("Kebab Factory")
+        let deactivated = StaffCopy.deleteBody("Kebab Factory", deactivated: true)
+        XCTAssertNotEqual(active, deactivated)
+        XCTAssertTrue(deactivated.contains("Kebab Factory"))
+        if !StaffCopy.turkish {
+            XCTAssertTrue(active.hasPrefix("This signs you out on every phone"))
+            XCTAssertTrue(deactivated.hasPrefix("Your request goes to Kebab Factory. Your clock-in records are not deleted"))
+        }
+    }
+
+    /// A new activation while the app keeps running: a fresh device id, as the server issues one.
+    private func activateAnotherDevice() async {
+        let k = SoftwareDeviceKey()
+        deviceID = server.register(k)
+        store.record = ActivationRecord(deviceId: deviceID, employeeName: "Joe Camilleri", keyHandle: k.persistentHandle)
+        await activation.start()
+        guard let d = activation.device else {
+            return XCTFail("no device after the new activation")
+        }
+        tap.enter(d)
+    }
+
+    /// The "not_active" answer is ONE person's (M16-38 re-audit): signing this phone out, the
+    /// deletion request, a server sign-out and a new activation each clear it -- on a shared phone
+    /// the next person's deletion words still say "This signs you out on every phone".
+    func testNotActiveIsClearedWhenThePersonLeaves() async {
+        await app.launch()
+        let staff = app.staff
+        server.claimResult = "not_active"
+
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await staff.perform(.signOut)
+        XCTAssertFalse(staff.notActive, "sign-out")
+        XCTAssertNil(staff.notActiveDevice)
+
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await staff.perform(.delete)
+        XCTAssertFalse(staff.notActive, "the deletion request")
+        XCTAssertNil(staff.notActiveDevice)
+
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        server.devicesSignedOut.insert(deviceID)
+        await staff.openMissing() // 401: the server signed this phone out
+        XCTAssertEqual(activation.screen, .code(notice: Copy.Problems.signedOut))
+        XCTAssertNil(staff.notActiveDevice, "a server sign-out")
+
+        // No sign-out at all: the next activation is another device, so not this person's flag.
+        server.devicesSignedOut.removeAll()
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await activateAnotherDevice()
+        XCTAssertFalse(staff.notActive, "a new activation")
+    }
+
+    /// App Store 5.1.1(i): the privacy notice is the app's own server's /legal/privacy.
+    func testThePrivacyLinkIsTheServersNotice() {
+        XCTAssertEqual(app.staff.privacyURL.absoluteString, "https://taptime.mt/legal/privacy")
+    }
+
+    // MARK: The person's own claims under the record (M16-44)
+
+    /// The sheet's list read brings the sent claims with it (Android's twin draws them the same
+    /// way); an older server without the key is read as none.
+    func testTheSentClaimsComeWithTheList() async {
+        let open: [String: Any] = [
+            "context": "claim-context-1", "kind": "out", "anchorDate": "2026-11-14", "anchorAt": "18:00", "day": "yesterday",
+            "windowFrom": ["at": "18:00", "inclusive": false], "windowTo": ["at": "23:59", "inclusive": true],
+        ]
+        let sent: [[String: Any]] = [
+            ["kind": "out", "anchorDate": "2026-11-12", "anchorAt": "09:00", "claimedAt": "17:30", "state": "pending", "approvedAt": NSNull()],
+            ["kind": "in", "anchorDate": "2026-11-10", "anchorAt": "18:00", "claimedAt": "08:55", "state": "approved", "approvedAt": "09:00"],
+            ["kind": "out", "anchorDate": "2026-11-09", "anchorAt": "08:00", "claimedAt": "16:00", "state": "approved", "approvedAt": NSNull()],
+            ["kind": "out", "anchorDate": "2026-11-08", "anchorAt": "08:00", "claimedAt": "16:00", "state": "rejected", "approvedAt": NSNull()],
+        ]
+        server.claimsBody = ["open": [open], "sent": sent]
+        await app.launch()
+        let staff = app.staff
+        await staff.openMissing()
+        XCTAssertEqual(staff.claims?.count, 1)
+        XCTAssertEqual(staff.sent.map(\.state), ["pending", "approved", "approved", "rejected"])
+        XCTAssertEqual(staff.sent.map(\.approvedAt), [nil, "09:00", nil, nil])
+        let words = staff.sent.map { StaffCopy.claimState($0.state, approvedAt: $0.approvedAt) }
+        XCTAssertEqual(words, [StaffCopy.t("Waiting for your manager", "Müdürün bekleniyor"), StaffCopy.t("Approved at 09:00", "Onaylandı: 09:00"),
+                               StaffCopy.t("Approved", "Onaylandı"), StaffCopy.t("Not approved", "Onaylanmadı")])
+        XCTAssertEqual(StaffCopy.sentRow(date: "Thu 12 Nov", kind: StaffCopy.sentKind("out"), at: "17:30"),
+                       StaffCopy.t("Thu 12 Nov · out 17:30", "Thu 12 Nov · çıkış 17:30"))
+
+        server.claimsBody = ["open": [open]]
+        await staff.openMissing()
+        XCTAssertEqual(staff.sent, [], "an older server's answer has no sent claims")
+    }
+
+    // MARK: My hours off (M16-33)
+
+    /// With hoursWeeks 0 there is no way into My hours: the tab cannot be chosen and nothing is read.
+    func testMyHoursOffHasNoWayIn() async throws {
+        server.meBody["hoursWeeks"] = 0
+        await app.launch()
+        XCTAssertFalse(StaffModel.hoursOn(tap.me))
+        let staff = app.staff
+        staff.show(.hours)
+        XCTAssertEqual(staff.tab, .today)
+        await staff.loadHours(week: nil, after: nil)
+        XCTAssertTrue(server.hoursBodies.isEmpty, "nothing is read")
+        XCTAssertFalse(server.seen.contains { $0.path == AppClient.Path.hours })
+        XCTAssertFalse(StaffModel.hoursOn(nil), "an older server's /me: off")
+    }
+
+    /// The employer turns it off while it is open: not_found closes the screen, Today says why, and
+    /// /me is read again so the tab goes too.
+    func testNotFoundClosesMyHoursAndReadsMeAgain() async {
+        server.meBody["hoursWeeks"] = 4
+        await app.launch()
+        let staff = app.staff
+        staff.tab = .hours
+        server.meBody["hoursWeeks"] = 0 // what the next /me says; hoursPages empty = 404 not_found
+        let mes = mePaths
+        await staff.loadHours(week: nil, after: nil)
+        XCTAssertEqual(staff.tab, .today)
+        XCTAssertNil(staff.hours)
+        XCTAssertFalse(staff.hoursFailed, "not a network problem")
+        XCTAssertEqual(staff.notice, StaffCopy.hoursOff)
+        XCTAssertEqual(mePaths, mes + 1, "/me read again")
+        XCTAssertFalse(StaffModel.hoursOn(tap.me))
+        XCTAssertEqual(activation.screen, .activated)
+    }
+
+    // MARK: The usual shift (M16-48)
+
+    /// [G48-d]: a night shift says "(next day)" -- Today's sentence and Settings' row -- and a day
+    /// shift never does; no home venue (K-14) names none and leaves no separator.
+    func testANightShiftSaysNextDay() {
+        let day = UsualShift(start: "09:00", end: "17:00", overnight: false, venue: "St Julians")
+        let night = UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "St Julians")
+        XCTAssertEqual(StaffCopy.usualShiftLine(night), StaffCopy.t("Usual shift: 18:00–02:00 (next day) · St Julians",
+                                                                    "Olağan vardiya: 18:00–02:00 (ertesi gün) · St Julians"))
+        XCTAssertEqual(StaffCopy.usualShiftLine(day), StaffCopy.t("Usual shift: 09:00–17:00 · St Julians", "Olağan vardiya: 09:00–17:00 · St Julians"))
+        XCTAssertEqual(StaffCopy.nextDay(night), StaffCopy.t("(next day)", "(ertesi gün)"))
+        XCTAssertNil(StaffCopy.nextDay(day))
+        let bare = UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "")
+        XCTAssertEqual(StaffCopy.usualShiftLine(bare), StaffCopy.t("Usual shift: 18:00–02:00 (next day)", "Olağan vardiya: 18:00–02:00 (ertesi gün)"))
+    }
+
+    /// [G48-c]: /me's shift is read as given -- null when the owner has not marked shifts real,
+    /// set whatever My hours says (the Settings row needs `shift` alone).
+    func testTheShiftIsReadWhateverMyHoursSays() async {
+        server.meBody["shift"] = ["start": "18:00", "end": "02:00", "overnight": true, "venue": "St Julians"]
+        server.meBody["hoursWeeks"] = 0
+        await app.launch()
+        XCTAssertEqual(tap.me?.shift, UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "St Julians"))
+        XCTAssertEqual(tap.me?.hoursWeeks, 0)
+        server.meBody["shift"] = nil
+        await tap.home()
+        XCTAssertNil(tap.me?.shift)
+    }
+
+    /// The card's line under the send button, and every outcome's full words (M16-44).
+    func testTheSheetSaysTheCardsWords() {
+        XCTAssertEqual(StaffCopy.skip, StaffCopy.t("You can skip this.", "Bunu atlayabilirsin."))
+        guard !StaffCopy.turkish else { return }
+        XCTAssertEqual(StaffCopy.notActive, "Your account can't send this — Only an active employee can send a time to their manager. "
+                       + "Nothing was sent. Tell your manager what time it was.")
+        XCTAssertEqual(StaffCopy.resolved, "Already resolved — That record no longer needs this time, so nothing was sent. "
+                       + "Tell your manager if that looks wrong.")
+        XCTAssertEqual(StaffCopy.expired, "This question has expired — Nothing was sent to your manager. Tell your manager what time it was.")
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".
@@ -1088,13 +1307,22 @@ final class TapSourceGuardTests: XCTestCase {
         }
     }
 
-    /// CLAUDE.md §7: the files that hold a context, a nonce, a signature or a coordinate log nothing.
+    /// CLAUDE.md §7: the files that hold a context, a nonce, a signature or a coordinate log nothing
+    /// -- and (M16-33/38/44/48 [G33-b], [G38-d], [G44-b], [G48-b]) neither do the staff screens'
+    /// files, which hold the person's hours, venue, name, employer, claims and shift.
     func testTheTapFilesLogNothing() throws {
-        for (name, src) in try appSources() where ["TapFlow.swift", "AppClient.swift", "AppModel.swift"].contains(name) {
+        let staff = try appSources().map(\.0).filter { $0.hasPrefix("Staff") }
+        XCTAssertEqual(Set(staff), ["StaffCopy.swift", "StaffModel.swift", "StaffViews.swift"],
+                       "CONTROL: the staff files are found (a new one is added here deliberately)")
+        let held = Set(["TapFlow.swift", "AppClient.swift", "AppModel.swift"] + staff)
+        var scanned = 0
+        for (name, src) in try appSources() where held.contains(name) {
+            scanned += 1
             for f in ["pri" + "nt(", "NS" + "Log", "os" + "_log", "Log" + "ger", "dump" + "("] {
                 XCTAssertEqual(count(f, in: src), 0, "\(name): \(f)")
             }
         }
+        XCTAssertEqual(scanned, held.count)
     }
 }
 

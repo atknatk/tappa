@@ -96,6 +96,7 @@ object Icons {
     const val CHECK = "M5 12l5 5 9-10"
     const val LOGOUT = "M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"
     const val TRASH = "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"
+    const val SHIELD = "M12 3l7 3v5c0 4.5-3 8.5-7 10c-4-1.5-7-5.5-7-10V6z"
 }
 
 @Composable
@@ -286,7 +287,7 @@ private fun TabBar(tab: Tab, labels: Map<Tab, String>, onTab: (Tab) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Palette.Paper)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
-            for (t in Tab.entries) {
+            for (t in labels.keys) { // the tabs given, in their order (M16-33: My hours may be absent)
                 val on = t == tab
                 val path = when (t) { Tab.TODAY -> Icons.HOME; Tab.HOURS -> Icons.CLOCK; Tab.SETTINGS -> Icons.GEAR }
                 Column(

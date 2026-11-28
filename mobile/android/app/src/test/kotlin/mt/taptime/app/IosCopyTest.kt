@@ -114,20 +114,28 @@ class IosCopyTest {
         "hours_dir_in", "hours_dir_out", "hours_state_approved", "hours_state_waiting", "hours_state_rejected",
         "hours_state_repeat", "hours_channel_manual", "hours_channel_qr", "hours_channel_qr_live",
         "hours_claim_pending", "hours_claim_approved", "hours_claim_rejected", "hours_prev", "hours_next",
-        "hours_more", "hours_off_title", "hours_off_body", "hours_chip_open",
+        "hours_more", "hours_off", "hours_chip_open",
         "claim_lead_out_today", "claim_lead_out_yesterday", "claim_lead_out_earlier",
         "claim_lead_in_today", "claim_lead_in_yesterday", "claim_lead_in_earlier",
         "claim_question_out", "claim_question_in", "claim_send", "claim_sent", "claim_window_hint", "claim_outside",
         "claim_window_after_before", "claim_window_from_before", "claim_window_after_upto", "claim_window_from_upto",
         "claim_expired_title", "claim_tell_manager", "claim_resolved_title", "claim_resolved_message",
         "claim_not_active_title", "claim_still_open_title", "claim_still_open_message",
-        "sheet_skip", "sheet_sending",
+        "sheet_sending",
+        // M16-44: the card's skip line, the outcomes' full lines, and the person's own claims.
+        "claim_skip", "claim_expired_message", "claim_resolved_hint", "claim_not_active_message",
+        "missing_sent_label", "missing_sent_row", "missing_kind_in", "missing_kind_out",
+        "claim_state_pending", "claim_state_approved", "claim_state_approved_at", "claim_state_rejected",
         "settings_connected", "settings_notifications", "settings_remind", "settings_remind_hint",
         "settings_notifications_off", "settings_timer", "settings_shift_label", "settings_usual",
         "settings_account", "settings_language", "settings_language_sub", "settings_signout",
         "signout_title", "signout_body", "signout_confirm", "cancel", "settings_privacy", "settings_version",
         "settings_delete", "settings_delete_sub", "delete_title", "delete_body", "delete_confirm",
         "delete_your_employer",
+        // M16-38: the privacy notice's row and the deactivated person's deletion words.
+        "settings_privacy_policy", "delete_body_deactivated",
+        // M16-48: the usual shift's sentence, with and without a venue, and Settings' "(next day)".
+        "shift_usual", "shift_usual_overnight", "shift_usual_no_venue", "shift_usual_overnight_no_venue", "shift_next_day",
         "remind_title", "remind_body", "remind_body_shift", "remind_snooze",
     )
 

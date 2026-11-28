@@ -71,6 +71,19 @@ check_nfc_sources() {
 }
 check_nfc_sources
 
+# No push (M16-46 [G46-e]): the reminder is the phone's own local notification, so no source
+# under mobile/ registers for remote notifications or adds a notification service extension.
+# The entitlement half (no aps-environment) is the allow-lists below, on the built bundles too.
+# Build output (mobile/ios/build, Gradle's build/ and .gradle/) is SDK and generated text, not ours.
+check_push_sources() {
+  local hits
+  hits=$(grep -rn -E 'registerForRemoteNotifications|UNNotificationServiceExtension' \
+    --exclude-dir=build --exclude-dir=.gradle mobile || true)
+  [[ -z $hits ]] || fail "a source under mobile/ reaches for push:"$'\n'"$hits"
+  echo "  push sources: none (no remote-notification registration, no service extension)"
+}
+check_push_sources
+
 command -v xcodebuild >/dev/null || fail "xcodebuild not found (Xcode is required; the iOS build runs locally, Q36 d)"
 
 # top_keys <plist>: the top-level keys, one per line, sorted. `plutil -p` indents the first
