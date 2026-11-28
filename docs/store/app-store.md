@@ -65,14 +65,49 @@ Mirrors `Taptime/PrivacyInfo.xcprivacy`. Every answer: **not used for tracking**
 No third-party SDK, no analytics, one host (`taptime.mt`). Location is one foreground reading at
 the press (CLAUDE.md §4.2); the Info.plist strings say so.
 
-## 4. App Review notes (outline — values only in App Store Connect)
+## 4. App Review notes (draft 2026-11-28 — values only in App Store Connect)
 
-- The app needs an employer invitation; the reviewer gets a **demo business** invitation link
-  and the steps (open the link → consent → the review path without a plaque, M16-23/M16-39).
-  Creating that invitation in production is a user decision.
-- Account deletion: Settings → *Delete my account* (Guideline 5.1.1(v)).
-- NFC: the plaque URL opens the app (Universal Link); without a plaque the reviewer uses the
-  live-QR / manager-approval path.
+The Phase H path (ADR 0051; Q55 (b); M16-52, M16-53, M16-56). M16-57 moves the final text into
+`mobile/README.md` → *Store review* once the demo business exists, and checks every step on a device.
+`<…>` are placeholders: the real values are typed only into App Store Connect.
+
+**Notes field (English, as pasted):**
+
+```
+Taptime is a commercial time-and-attendance service that businesses subscribe to on the web
+(Guideline 3.1.3(c)). It is not an internal app for one organisation: any business can open an
+account at taptime.mt/signup, and its staff then use this app. There is nothing to buy in the app.
+
+Review path (one iPhone, no NFC plaque needed):
+1. Open the app and tap Sign in. E-mail: <DEMO_EMPLOYEE_EMAIL>  Password: <DEMO_EMPLOYEE_PASSWORD>
+2. Read the short notice and continue.
+3. The app asks you to tap your workplace's plaque. Instead, scan the attached QR image
+   (<QR_ATTACHMENT>) with the iPhone Camera. This demo business is flagged for review, so its
+   printed QR can link a phone; at a real workplace only the plaque, a live venue screen or a
+   manager's approval can.
+4. Tap Clock in. The record is saved as "flagged" for the manager to check, because a printed QR
+   does not prove that you are at the venue. That is the expected result.
+5. My hours shows your record. Settings > Delete my account sends a deletion request
+   (Guideline 5.1.1(v)).
+
+"Create a business account" opens the web sign-up inside the app. It checks a real EU VAT number,
+so it may stop at that step; you do not need it to review the staff app.
+Location is read once, at the moment you tap Clock in. The app never reads it in the background.
+```
+
+**If App Review answers under Guideline 3.2 (*"limited audience"* / *"intended for a specific
+business"*) — Resolution Center reply (draft):**
+
+```
+Taptime is not built for one organisation. It is a multi-tenant product that any business can buy:
+employers sign up at taptime.mt/signup and invite their own staff. Accounts are created by each
+employer, which
+Guideline 3.1.3(c) allows for services sold directly to organisations; there are no purchases in
+the app. The review account belongs to our demo business; we are happy to set up another one.
+```
+
+If the rejection stands after the reply, the next options (Apple's *Unlisted App Distribution*, or
+Apple Business Manager custom apps) are a user decision (M16-57 → *Rejection risks*).
 
 ## 5. App Store Connect internal-testing runbook
 
