@@ -113,8 +113,26 @@ measured 2026-11-25 from `mobile/android/app/src/main/kotlin/mt/taptime/app/wire
 - Encrypted in transit: **Yes**.
 - Users can request deletion: **Yes** — Settings → *Delete my account* (`POST /app/v1/account/delete`). Clock-in records are kept by the employer as legal records (§4.3); the request is passed to the employer.
 - **Deletion web resource** (Play asks for a URL that works without the app): `https://taptime.mt/legal/privacy`, once the approved text with section 12's *"Without the app"* paragraph is published (`docs/legal/privacy-draft.md`, M16-41). The live page has no such paragraph today, so the field stays empty for internal testing — a **production prerequisite**, with PR #49 and the reviewer's demo invitation (M16-39).
-- Accounts: created by the employer outside the app; the app binds a device to an invitation.
+- Accounts: created by the employer outside the app; the app binds a device to an invitation. Play
+  answer: *"My app does not allow users to create an account"* + *"Users can sign in with accounts
+  created outside the app"* → *"through workplace or business accounts"*.
 - `User-Agent`: the app sets none; Android's default one (OS version, phone model) goes with each request — **not measured** on the wire.
+
+### Play Console state (read 2026-11-28)
+
+- **Done (2026-11-25):** trader status (yes, a trader — the company details come from the developer
+  account), content rating, health apps (*"My app has no health features"*), financial features,
+  government apps, advertising ID, ads, privacy policy.
+- **Data safety:** the answers above, saved as a draft. Data types, required/optional and purposes match the
+  table. The optional deletion question is left blank: answering *Yes* makes Play ask for the deletion
+  URL, which waits for the approved privacy text (above).
+- **Blocked, in this order:** *App access* (needs the reviewer's demo-business invitation, M16-39) →
+  *Target audience and content* (Play opens it only after App access; answer 16–17 and 18+) →
+  submitting *Data safety* (Play requires the target audience first). Until all three are done, *Send for review*
+  on the Publishing overview stays locked. Managed publishing is off.
+- The store listing's app name is still *Taptime* (draft, not sent); the decided name is *Taptime: Clock In* (§1).
+- Internal track: `2 (1.0.0)` is available to internal testers without review (Play shows *Not reviewed* and the
+  temporary name *mt.taptime.app (unreviewed)*).
 
 ## 3. Release runbook
 

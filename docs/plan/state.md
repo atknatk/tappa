@@ -1846,6 +1846,7 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
   Infisical'da → `shared-infra/prod/tappa-mobile` (`TAPTIME_ANDROID_UPLOAD_KEYSTORE_B64`, `TAPTIME_ANDROID_UPLOAD_PASSWORD`).
   (2) ITMS-90778 gerçek: yalnız-`NDEF` NFC listesi reddedildi → `TAG` (`acdd38f6`; `mobile-ios-test.sh` ham etiket
   oturumunu reddeder). (3) Play App Signing SHA-256 `B9:F1:82:3F…D2:73` (`docs/store/google-play.md` §3 adım 4).
+- **Play incelemesi (2026-11-28 okundu):** veri güvenliği taslağı belgeyle aynı, kaydedildi; düğmeyi kilitleyen zincir *Oturum açma bilgileri* (demo daveti, M16-39) → *Hedef kitle* → veri güvenliğinin gönderimi (`docs/store/google-play.md` → Play Console state).
 - **Açık:** `TAPPA_APP_ANDROID_SIGNER_SHA256`
   canlıya (deploy, kullanıcı kararı); ekran görüntüleri yalnız demo işletmeyle (bağlı telefon gerçek işletmeye aktive);
   Play kurulumu 8/12 (mağaza girişi, veri güvenliği, hedef kitle, uygulama erişimi); production için Faz H + M16-57/58
