@@ -753,6 +753,67 @@ final class TapModelTests: XCTestCase {
         XCTAssertFalse(moved.problem)
     }
 
+    // MARK: Settings (M16-38)
+
+    /// [G38-b]: after "Sign this phone out" the Keychain record -- the Secure Enclave key's only
+    /// handle -- is gone, no device is held, and the code screen shows.
+    func testSigningThisPhoneOutLeavesNoKeyHandle() async {
+        await app.launch()
+        XCTAssertNotNil(store.record)
+        await app.staff.perform(.signOut)
+        XCTAssertEqual(server.forgets, [AppClient.Path.revoke])
+        XCTAssertNil(store.record, "the key's handle is cleared")
+        XCTAssertNil(activation.device)
+        XCTAssertNil(tap.identity)
+        XCTAssertEqual(activation.screen, .code(notice: nil))
+    }
+
+    /// [G38-b]: the same after "Delete my account".
+    func testTheDeletionRequestLeavesNoKeyHandle() async {
+        await app.launch()
+        await app.staff.perform(.delete)
+        XCTAssertEqual(server.forgets, [AppClient.Path.accountDelete])
+        XCTAssertNil(store.record, "the key's handle is cleared")
+        XCTAssertNil(activation.device)
+        XCTAssertNil(tap.identity)
+        XCTAssertEqual(activation.screen, .code(notice: nil))
+    }
+
+    /// No answer forgets nothing: the record stays for another try and the dialog says it failed.
+    func testAnUnansweredDeletionRequestKeepsTheKeyHandle() async {
+        await app.launch()
+        offline(paths: [AppClient.Path.nonce])
+        await app.staff.perform(.delete)
+        XCTAssertNotNil(store.record)
+        XCTAssertNotNil(activation.device)
+        XCTAssertTrue(app.staff.confirmFailed)
+        XCTAssertEqual(app.staff.confirm, .delete)
+    }
+
+    /// A deactivated person's request signs nothing out (M16-37): once the server said
+    /// "not_active", the deletion words lead with "Your request goes to <Business>." instead.
+    func testNotActiveTurnsTheDeletionWordsToTheDeactivatedOnes() async {
+        await app.launch()
+        XCTAssertFalse(app.staff.notActive)
+        server.claimResult = "not_active"
+        await app.staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(app.staff.notActive)
+        XCTAssertEqual(app.staff.claimHint(openClaim, picked: "22:00").text, StaffCopy.notActive)
+        let active = StaffCopy.deleteBody("Kebab Factory")
+        let deactivated = StaffCopy.deleteBody("Kebab Factory", deactivated: true)
+        XCTAssertNotEqual(active, deactivated)
+        XCTAssertTrue(deactivated.contains("Kebab Factory"))
+        if !StaffCopy.turkish {
+            XCTAssertTrue(active.hasPrefix("This signs you out on every phone"))
+            XCTAssertTrue(deactivated.hasPrefix("Your request goes to Kebab Factory. Your clock-in records are not deleted"))
+        }
+    }
+
+    /// App Store 5.1.1(i): the privacy notice is the app's own server's /legal/privacy.
+    func testThePrivacyLinkIsTheServersNotice() {
+        XCTAssertEqual(app.staff.privacyURL.absoluteString, "https://taptime.mt/legal/privacy")
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".

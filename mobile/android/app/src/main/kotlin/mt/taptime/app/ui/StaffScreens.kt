@@ -499,11 +499,15 @@ private fun TimelineRow(r: HoursRecord) {
 
 // --- Settings ------------------------------------------------------------------------------
 
-/** Settings: the person, the two switches, the usual shift, the language, and this phone's sign-out. */
+/**
+ * Settings: the person, the two switches, the usual shift, the language, this phone's sign-out,
+ * the account deletion request and the privacy notice (M16-38; App Store 5.1.1(i)).
+ */
 @Composable
 fun SettingsContent(
     me: MeReply, remind: Boolean, timer: Boolean, notificationsOff: Boolean, version: String, canPickLanguage: Boolean,
     onRemind: (Boolean) -> Unit, onTimer: (Boolean) -> Unit, onLanguage: () -> Unit, onSignOut: () -> Unit, onDelete: () -> Unit,
+    onPrivacy: () -> Unit,
 ) {
     LargeTitle(stringResource(R.string.tab_settings))
     Surface(radius = 22.dp) {
@@ -550,6 +554,11 @@ fun SettingsContent(
         RowDivider()
         ListRow(Icons.TRASH, stringResource(R.string.settings_delete), stringResource(R.string.settings_delete_sub), titleColor = Palette.Tomato,
             iconTint = Palette.Tomato, iconFill = Palette.Tomato.copy(alpha = 0.1f), onClick = onDelete)
+    }
+    Surface(radius = 22.dp) {
+        ListRow(Icons.SHIELD, stringResource(R.string.settings_privacy_policy), null, onClick = onPrivacy) {
+            Icon(Icons.CHEVRON_RIGHT, size = 18.dp)
+        }
     }
     BasicText(stringResource(R.string.settings_privacy), Modifier.padding(horizontal = 8.dp), style = text(12.sp, color = Muted))
     BasicText(stringResource(R.string.settings_version, version), Modifier.padding(horizontal = 8.dp), style = text(12.sp, color = Muted, mono = true))

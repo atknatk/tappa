@@ -83,6 +83,7 @@ class FakeAppServer(
             "POST /app/v1/tap/start" -> tapStart(ex, body)
             "POST /app/v1/tap" -> tap(ex, body)
             "POST /app/v1/hours" -> hours(ex, body)
+            "POST /app/v1/revoke", "POST /app/v1/account/delete" -> forget(ex, body, path)
             else -> error(ex, 404, "not_found")
         }
     }
@@ -286,6 +287,37 @@ class FakeAppServer(
         if (m["week"] != hoursWeek) return error(ex, 400, "bad_request")
         val page = hoursPages[(m["after"] as? String) ?: ""] ?: return error(ex, 400, "bad_request")
         json(ex, page)
+    }
+
+    // --- Settings (M16-38): this phone's sign-out and the account deletion request ------------
+
+    /** The path of every revoke / account/delete whose nonce'd signature verified, in order. */
+    val forgets = mutableListOf<String>()
+    /** When set, the next revoke / account/delete answers this status and error code, once. */
+    var forgetFailsOnce: Pair<Int, String>? = null
+
+    /** apptap.go's revoke and appaccount.go's delete: nonce'd, 204, the device gone afterwards. */
+    private fun forget(ex: HttpExchange, body: ByteArray, path: String) {
+        val id = noncedSigned(ex, path, body) ?: return unauthenticated(ex)
+        forgetFailsOnce?.let { (status, code) ->
+            forgetFailsOnce = null
+            return error(ex, status, code)
+        }
+        forgets += path
+        devices.remove(id)
+        ex.sendResponseHeaders(204, -1)
+    }
+
+    /** The nonce'd request's check (appdevice.VerifyRequest): the device id, or null for a 401. */
+    private fun noncedSigned(ex: HttpExchange, path: String, body: ByteArray): String? {
+        val id = ex.requestHeaders.getFirst("App-Device-Id")
+        val n = ex.requestHeaders.getFirst("App-Nonce")
+        val sig = ex.requestHeaders.getFirst("App-Signature")?.let(::unb64)
+        val point = id?.let { devices[it] }
+        if (n == null || sig == null || point == null || ex.requestHeaders.getFirst("App-Timestamp") != null) return null
+        if (!verifies(point, text("tappa-app-request-v1", "POST", path, body, n, id), sig)) return null
+        if (!liveNonces.remove(n)) return null // spent or never issued
+        return id
     }
 
     // --- the tap (M16-13) ---------------------------------------------------------------------

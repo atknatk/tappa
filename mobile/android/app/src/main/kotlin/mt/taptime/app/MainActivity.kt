@@ -192,6 +192,10 @@ class MainActivity : ComponentActivity() {
     // The first onResume follows onCreate's own /me; every later one syncs (M16-46: each return to
     // the front reads /me again, apart from what the screen shows).
     private var resumedOnce = false
+    // The server answered a claim "not_active" in this process: the person is deactivated, so the
+    // deletion request signs nothing out and its words say so (M16-38). /me carries no such fact;
+    // this is the one signal the app has, held in memory only.
+    private var notActive = false
 
     // The notification permission (Android 13+) is asked when a switch is turned on in Settings,
     // never at the tap, the result or activation (CLAUDE.md §9). [afterNotify] gets the answer.
@@ -384,7 +388,8 @@ class MainActivity : ComponentActivity() {
                             onConfirm = { forget(s) { staff.signOut() } }, onDismiss = { screen = s.copy(confirm = null, failed = false) })
                         "delete" -> ConfirmDialog(
                             getString(R.string.delete_title),
-                            if (s.failed) getString(R.string.signout_failed) else getString(R.string.delete_body, business),
+                            if (s.failed) getString(R.string.signout_failed)
+                            else getString(if (notActive) R.string.delete_body_deactivated else R.string.delete_body, business),
                             getString(R.string.delete_confirm), getString(R.string.cancel), s.busy,
                             onConfirm = { forget(s) { staff.deleteAccount() } }, onDismiss = { screen = s.copy(confirm = null, failed = false) })
                     }
@@ -395,7 +400,8 @@ class MainActivity : ComponentActivity() {
                         onTimer = { on -> setSwitch(s, on) { switches.timer = it } },
                         onLanguage = ::openLanguage,
                         onSignOut = { screen = s.copy(confirm = "signout", failed = false) },
-                        onDelete = { screen = s.copy(confirm = "delete", failed = false) })
+                        onDelete = { screen = s.copy(confirm = "delete", failed = false) },
+                        onPrivacy = ::openPrivacy)
                 }
             }
             is Screen.Blocked -> BlockedScreen(s.problem)
@@ -610,7 +616,10 @@ class MainActivity : ComponentActivity() {
                     }
                     "expired" -> reloadClaims(busy, ClaimNotice.EXPIRED)
                     "resolved" -> reloadClaims(busy, ClaimNotice.RESOLVED)
-                    "not_active" -> screen = s.copy(busy = false, notice = ClaimNotice.NOT_ACTIVE)
+                    "not_active" -> {
+                        notActive = true
+                        screen = s.copy(busy = false, notice = ClaimNotice.NOT_ACTIVE)
+                    }
                     "still_open" -> reloadClaims(busy, ClaimNotice.STILL_OPEN)
                     else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
                 }
@@ -618,6 +627,15 @@ class MainActivity : ComponentActivity() {
                 StaffFlow.Answer.SignedOut -> { clearPresence(); screen = activationEntry(Problem.SIGNED_OUT) }
                 else -> screen = s.copy(busy = false, notice = ClaimNotice.NETWORK)
             }
+        }
+    }
+
+    // The privacy notice (M16-38; App Store 5.1.1(i)): the same server's /legal/privacy, in the
+    // browser (a plain VIEW: the app's App Links are /t and /q only). No browser: nowhere to go.
+    private fun openPrivacy() {
+        try {
+            open("/legal/privacy")
+        } catch (_: ActivityNotFoundException) {
         }
     }
 

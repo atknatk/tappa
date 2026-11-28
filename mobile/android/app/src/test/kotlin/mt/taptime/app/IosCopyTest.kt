@@ -128,6 +128,8 @@ class IosCopyTest {
         "signout_title", "signout_body", "signout_confirm", "cancel", "settings_privacy", "settings_version",
         "settings_delete", "settings_delete_sub", "delete_title", "delete_body", "delete_confirm",
         "delete_your_employer",
+        // M16-38: the privacy notice's row and the deactivated person's deletion words.
+        "settings_privacy_policy", "delete_body_deactivated",
         "remind_title", "remind_body", "remind_body_shift", "remind_snooze",
     )
 

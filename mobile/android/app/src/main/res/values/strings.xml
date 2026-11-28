@@ -428,6 +428,7 @@
     <string name="signout_failed">Couldn\'t sign out. Check your connection and try again.</string>
     <string name="cancel">Cancel</string>
     <string name="settings_privacy">Your location is read only at the moment you tap a plaque. No finger scans, no face scans.</string>
+    <string name="settings_privacy_policy">Privacy policy</string>
     <string name="settings_version">Version %1$s</string>
     <string name="remind_snooze">Remind me in an hour</string>
     <string name="remind_open">Open Taptime</string>
@@ -437,6 +438,7 @@
     <string name="settings_delete_sub">Signs you out everywhere and tells your employer</string>
     <string name="delete_title">Delete your account?</string>
     <string name="delete_body">This signs you out on every phone and removes this phone\'s key. Your clock-in records are not deleted: they are legal records %1$s keeps, and your request goes to them. If you still work there, you can be invited again later.</string>
+    <string name="delete_body_deactivated">Your request goes to %1$s. Your clock-in records are not deleted: they are legal records %1$s keeps, and your request goes to them. If you still work there, you can be invited again later.</string>
     <string name="delete_confirm">Send the request</string>
     <string name="delete_your_employer">your employer</string>
 </resources>

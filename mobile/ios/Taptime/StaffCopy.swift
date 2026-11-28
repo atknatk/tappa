@@ -177,8 +177,14 @@ enum StaffCopy {
     static var delete: String { t("Delete my account", "Hesabımı sil") }
     static var deleteSub: String { t("Signs you out everywhere and tells your employer", "Her yerde oturumu kapatır ve işverenine bildirir") }
     static var deleteTitle: String { t("Delete your account?", "Hesabın silinsin mi?") }
-    static func deleteBody(_ business: String) -> String {
+    /// M16-38: a deactivated person's request signs nothing out (the server keeps their phones,
+    /// M16-37), so their first sentence is "Your request goes to <Business>." instead.
+    static func deleteBody(_ business: String, deactivated: Bool = false) -> String {
         let b = business.isEmpty ? t("your employer", "işletmen") : business
+        if deactivated {
+            return t("Your request goes to \(b). Your clock-in records are not deleted: they are legal records \(b) keeps, and your request goes to them. If you still work there, you can be invited again later.",
+                     "Talebin işverenine (\(b)) iletilir. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
+        }
         return t("This signs you out on every phone and removes this phone's key. Your clock-in records are not deleted: they are legal records \(b) keeps, and your request goes to them. If you still work there, you can be invited again later.",
                  "Bu işlem bütün telefonlarda oturumunu kapatır ve bu telefonun anahtarını siler. Giriş-çıkış kayıtların silinmez: bunlar işverenin tuttuğu hukuki kayıtlardır. Talebin işverenine (\(b)) iletilir. Orada çalışmaya devam ediyorsan sonra yeniden davet edilebilirsin.")
     }
@@ -188,6 +194,8 @@ enum StaffCopy {
         t("Your location is read only at the moment you tap a plaque. No finger scans, no face scans.",
           "Konumun yalnız plakete dokunduğun anda okunur. Parmak izi ya da yüz kullanılmaz.")
     }
+    /// The privacy notice's link (M16-38; App Store 5.1.1(i)): opens /legal/privacy in Safari.
+    static var privacyPolicy: String { t("Privacy policy", "Gizlilik politikası") }
     static func version(_ v: String) -> String { t("Version \(v)", "Sürüm \(v)") }
 
     // The reminder

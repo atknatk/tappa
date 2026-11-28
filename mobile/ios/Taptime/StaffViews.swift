@@ -653,6 +653,18 @@ private struct SettingsView: View {
                     Label { Text(StaffCopy.signOut) } icon: { IconSquare(symbol: "rectangle.portrait.and.arrow.right", fill: Palette.tomato) }
                 }
             }
+            // App Store 5.1.1(i): the privacy notice is reachable inside the app (M16-38), in Safari.
+            Section {
+                Link(destination: staff.privacyURL) {
+                    HStack {
+                        Label { Text(StaffCopy.privacyPolicy).foregroundColor(Palette.ink) } icon: { IconSquare(symbol: "hand.raised.fill", fill: Palette.ink.opacity(0.7)) }
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(.system(size: 14, weight: .semibold)).foregroundColor(Color(UIColor.tertiaryLabel))
+                    }
+                }
+            } footer: {
+                Text(StaffCopy.privacy)
+            }
             Section {
                 Button(role: .destructive) { staff.confirm = .delete } label: {
                     Text(StaffCopy.delete).frame(maxWidth: .infinity)
@@ -660,7 +672,6 @@ private struct SettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(StaffCopy.deleteSub)
-                    Text(StaffCopy.privacy)
                     if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String { Text(StaffCopy.version(v)) }
                 }
             }
@@ -678,7 +689,7 @@ private struct SettingsView: View {
             Button(StaffCopy.deleteConfirm, role: .destructive) { Task { await staff.perform(.delete) } }
             Button(StaffCopy.cancel, role: .cancel) { staff.confirm = nil }
         } message: {
-            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.deleteBody(me?.business ?? ""))
+            Text(staff.confirmFailed ? StaffCopy.failed : StaffCopy.deleteBody(me?.business ?? "", deactivated: staff.notActive))
         }
     }
 }

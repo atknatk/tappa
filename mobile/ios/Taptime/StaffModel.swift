@@ -37,6 +37,10 @@ final class StaffModel: ObservableObject {
     @Published var confirm: Confirm?
     @Published private(set) var confirmBusy = false
     @Published private(set) var confirmFailed = false
+    /// The server answered a claim "not_active" in this session: the person is deactivated, so
+    /// the deletion request signs nothing out and its words say so (M16-38). /me carries no such
+    /// fact, so this is the one signal the app has; it is held in memory only.
+    @Published private(set) var notActive = false
 
     let tap: TapModel
     /// The person's own sign-out (either act): back to activation.
@@ -221,7 +225,9 @@ final class StaffModel: ObservableObject {
             claimRefusedAt = at
         case "expired": await reloadClaims(notice: StaffCopy.expired)
         case "resolved": await reloadClaims(notice: StaffCopy.resolved)
-        case "not_active": claimProblem = StaffCopy.notActive
+        case "not_active":
+            claimProblem = StaffCopy.notActive
+            notActive = true
         case "still_open": await reloadClaims(notice: StaffCopy.stillOpen)
         default: claimProblem = StaffCopy.network
         }
@@ -255,6 +261,9 @@ final class StaffModel: ObservableObject {
     }
 
     // MARK: Settings
+
+    /// The privacy notice (M16-38), opened in Safari: the same server the app talks to.
+    var privacyURL: URL { tap.api.baseURL.appendingPathComponent("legal/privacy") }
 
     func setRemind(_ on: Bool) async {
         if on {
