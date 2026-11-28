@@ -1,8 +1,8 @@
 # ADR 0050 — Personel uygulamasının yerel yüzeyleri: eksik saat talebi, hatırlatma, kilit ekranı, vardiyam ve dil
 
-- **Durum:** **Önerildi (2026-11-28)** — kullanıcının kabulünü bekler (M16-42 kabul kriteri 4). *Kabul edildi* değildir; kabul §11'e
-  tarihli not olarak yazılır. Yazımı: cevaplanmış Q50–Q54'ten (2026-11-19), bu dalda **önceden yazılmış** koddan (M16-43 … M16-49) ve
-  M16-42'nin kabul kriterlerinden. Kod belgeden önce yazıldığı için cevaplarla kodun ayrıldığı yerler gizlenmedi: **§7 Açık / çelişki**.
+- **Durum:** **Kabul edildi (2026-11-28)** — kullanıcı kabul etti (M16-42 kabul kriteri 4); kabul notu §11'de. Yazımı: cevaplanmış
+  Q50–Q54'ten (2026-11-19), bu dalda **önceden yazılmış** koddan (M16-43 … M16-49) ve M16-42'nin kabul kriterlerinden. Kod belgeden
+  önce yazıldığı için cevaplarla kodun ayrıldığı yerler gizlenmedi: **§7 Açık / çelişki**.
 - **Tarih:** 2026-11-28 · **Dal:** `m16-native-ui` (PR #49, `main` dışı; yalnız belge) · **Plan:** [m16-mobil.md](../plan/m16-mobil.md) → M16-42
   (*Faz G ekleri*)
 - **Karar veren:** kullanıcı (ürün sahibi) — **kullanıcı kararı 6** (2026-11-19, AskUserQuestion: personel uygulamasına altı ek) ve
@@ -299,5 +299,11 @@ yanıtının talep kartını taşıması (M16-07 devri (3), *Sonra*) · §3'ün 
 
 ## 11. Kabul
 
-*(Kullanıcının kabulünden sonra tarihli not olarak yazılır: kabul edilen K-maddeleri, §3'ün üç eki için kararlar, §7'nin her çelişkisi
-için seçilen yol ve K-17'nin onaylanan sözcükleri.)*
+**2026-11-28 — kullanıcı kabul etti** (ana oturumun sorusu: *"ADR 0050'yi kodda zaten olan üç ekle birlikte kabul ediyor musun?"* → *"kabul ediyorum"*).
+
+- **K-1 … K-17** olduğu gibi kabul edildi; K-17'nin iki CLAUDE.md cümlesi §2 (v)'deki sözcüklerle onaylandı ve M16-49'un commit'inde uygulanır.
+- **§3'ün üç eki kabul edildi:** E-1 (hatırlatmanın *"Remind me in an hour"* / *"Open Taptime"* eylemleri), E-2 (iki platformda ana ekran
+  widget'ı), E-3 (iOS'ta kapatılan Live Activity'nin bir sonraki `/me`'de geri gelmesi).
+- **§7'nin çelişkileri:** soru cevabı koddan üstündür — her biri §10'daki sahip kartta koda düzeltilir (Ç1, Ç5 → M16-43; Ç2, Ç7 → M16-47;
+  Ç3, Ç4, Ç6 → M16-49); kabul bunlardan hiçbirini bedel olarak kabul etmez.
+- ADR 0032'ye §10'daki append notu aynı gün yazıldı.

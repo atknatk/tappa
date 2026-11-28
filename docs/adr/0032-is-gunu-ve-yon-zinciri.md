@@ -1115,3 +1115,5 @@ alınır.
 deploy notu (migration sırası, `main`'in en büyük migration'ının yeniden ölçümü, M14 dallarının durumu, geri
 dönüş) `docs/plan/state.md`'nin 2026-10-26 M15-19 kaydındadır. Bu not yazıldığında M15-19'un iki merceği
 (genel + `tappa-security-auditor`) henüz karar vermemişti; kart onlarla kapanır.
+
+- **Uygulama girişi (ADR 0050, 2026-11-28):** K4 sonuç ekranının sorma sınırıdır ve uygulamanın kendi açılan ekranına uygulanmaz; K4'ün ilk gösterimin bir sonraki kayıt olmasıyla dolaylı sağladığı koruma — hâlâ açık girişe talep yok — `Open` ve `Submit`'te açıkça kurulur.
