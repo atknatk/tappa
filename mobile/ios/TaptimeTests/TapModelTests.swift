@@ -809,6 +809,56 @@ final class TapModelTests: XCTestCase {
         }
     }
 
+    /// A new activation while the app keeps running: a fresh device id, as the server issues one.
+    private func activateAnotherDevice() async {
+        let k = SoftwareDeviceKey()
+        deviceID = server.register(k)
+        store.record = ActivationRecord(deviceId: deviceID, employeeName: "Joe Camilleri", keyHandle: k.persistentHandle)
+        await activation.start()
+        guard let d = activation.device else {
+            return XCTFail("no device after the new activation")
+        }
+        tap.enter(d)
+    }
+
+    /// The "not_active" answer is ONE person's (M16-38 re-audit): signing this phone out, the
+    /// deletion request, a server sign-out and a new activation each clear it -- on a shared phone
+    /// the next person's deletion words still say "This signs you out on every phone".
+    func testNotActiveIsClearedWhenThePersonLeaves() async {
+        await app.launch()
+        let staff = app.staff
+        server.claimResult = "not_active"
+
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await staff.perform(.signOut)
+        XCTAssertFalse(staff.notActive, "sign-out")
+        XCTAssertNil(staff.notActiveDevice)
+
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await staff.perform(.delete)
+        XCTAssertFalse(staff.notActive, "the deletion request")
+        XCTAssertNil(staff.notActiveDevice)
+
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        server.devicesSignedOut.insert(deviceID)
+        await staff.openMissing() // 401: the server signed this phone out
+        XCTAssertEqual(activation.screen, .code(notice: Copy.Problems.signedOut))
+        XCTAssertNil(staff.notActiveDevice, "a server sign-out")
+
+        // No sign-out at all: the next activation is another device, so not this person's flag.
+        server.devicesSignedOut.removeAll()
+        await activateAnotherDevice()
+        await staff.send(openClaim, at: "22:00")
+        XCTAssertTrue(staff.notActive)
+        await activateAnotherDevice()
+        XCTAssertFalse(staff.notActive, "a new activation")
+    }
+
     /// App Store 5.1.1(i): the privacy notice is the app's own server's /legal/privacy.
     func testThePrivacyLinkIsTheServersNotice() {
         XCTAssertEqual(app.staff.privacyURL.absoluteString, "https://taptime.mt/legal/privacy")

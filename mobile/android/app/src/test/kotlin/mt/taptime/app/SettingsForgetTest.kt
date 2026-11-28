@@ -10,6 +10,7 @@ import mt.taptime.app.wire.HttpUrlTransport
 import mt.taptime.app.wire.ServerClock
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -68,6 +69,40 @@ class SettingsForgetTest {
         assertEquals(Answer.Ok(Unit), flow.deleteAccount())
         assertEquals(emptyList<String>(), server.forgets)
         assertForgotten(alias)
+    }
+
+    /**
+     * The "not_active" answer is ONE person's (M16-38 re-audit): signing this phone out, the
+     * deletion request, a server sign-out and a new activation each clear it -- on a shared phone
+     * the next person's deletion words still say "This signs you out on every phone".
+     */
+    @Test
+    fun theNotActiveAnswerIsClearedWhenThePersonLeaves() {
+        server.claimResult = "not_active"
+        fun deactivatedPerson() {
+            activated()
+            assertFalse("a fresh device starts without it", flow.notActive())
+            assertEquals(Answer.Ok("not_active"), flow.send("ctx", "22:00"))
+            assertTrue(flow.notActive())
+        }
+
+        deactivatedPerson()
+        assertEquals(Answer.Ok(Unit), flow.signOut())
+        assertFalse("sign-out", flow.notActive())
+
+        deactivatedPerson()
+        assertEquals(Answer.Ok(Unit), flow.deleteAccount())
+        assertFalse("the deletion request", flow.notActive())
+
+        deactivatedPerson()
+        server.devices.clear() // the server signed the phone out: the next read is 401
+        assertEquals(Answer.SignedOut, flow.hours(server.hoursWeek, null))
+        assertNotNull("the device is still stored", state.active())
+        assertFalse("a server sign-out", flow.notActive())
+
+        deactivatedPerson()
+        activated() // a new activation, no sign-out in between: another device id
+        assertFalse("a new activation", flow.notActive())
     }
 
     @Test

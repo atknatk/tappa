@@ -84,6 +84,7 @@ class FakeAppServer(
             "POST /app/v1/tap" -> tap(ex, body)
             "POST /app/v1/hours" -> hours(ex, body)
             "POST /app/v1/revoke", "POST /app/v1/account/delete" -> forget(ex, body, path)
+            "POST /app/v1/claims/send" -> claimSend(ex, body)
             else -> error(ex, 404, "not_found")
         }
     }
@@ -308,6 +309,14 @@ class FakeAppServer(
         forgets += path
         devices.remove(id)
         ex.sendResponseHeaders(204, -1)
+    }
+
+    /** claims/send's result word ("sent", "not_active", …), M16-43. */
+    var claimResult = "sent"
+
+    private fun claimSend(ex: HttpExchange, body: ByteArray) {
+        noncedSigned(ex, "/app/v1/claims/send", body) ?: return unauthenticated(ex)
+        json(ex, """{"result":"$claimResult"}""")
     }
 
     /** The nonce'd request's check (appdevice.VerifyRequest): the device id, or null for a 401. */

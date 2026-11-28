@@ -28,6 +28,27 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
     }
 
     /**
+     * The device a claim was answered "not_active" for (M16-38): that person is deactivated, so
+     * their deletion request signs nothing out and its words say so. /me carries no such fact, so
+     * this is the one signal the app has; it is held in memory only. It belongs to ONE person:
+     * cleared when the phone is signed out (by the server or the person) or the deletion request
+     * is sent, and bound to the device, so a new activation -- a new device id, maybe another person
+     * on a shared phone -- never inherits it. Written on the worker, read on the main thread.
+     */
+    @Volatile private var notActiveDevice: String? = null
+
+    /** True while the stored device is the one the server answered "not_active" for. */
+    fun notActive(): Boolean {
+        val d = notActiveDevice ?: return false
+        return d == state.active()?.deviceId
+    }
+
+    /** The person leaves this phone: nothing of theirs stays for whoever activates next. */
+    fun forgetPerson() {
+        notActiveDevice = null
+    }
+
+    /**
      * Signs this phone out (POST /app/v1/revoke): the server revokes the device, then the phone
      * forgets it -- the key leaves the Keystore and the stored device is cleared. A device the
      * server no longer knows (401) is forgotten as well; a network failure forgets nothing.
@@ -41,7 +62,7 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
     fun deleteAccount(): Answer<Unit> = forget { id, key -> client.deleteAccount(id, key) }
 
     private fun forget(call: (String, mt.taptime.app.wire.Signer) -> Outcome<Unit>): Answer<Unit> {
-        val device = state.active() ?: return Answer.SignedOut
+        val device = state.active() ?: return signedOut()
         val key = keys.load(device.keyAlias)
         if (key != null) {
             when (call(device.deviceId, key)) {
@@ -52,13 +73,19 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
         }
         keys.delete(device.keyAlias)
         state.clear()
+        forgetPerson()
         return Answer.Ok(Unit)
+    }
+
+    private fun signedOut(): Answer<Nothing> {
+        forgetPerson()
+        return Answer.SignedOut
     }
 
     /** My hours (M16-31): one page of a week; [week] null is this week, [after] the next page's cursor. */
     fun hours(week: String?, after: String?): Answer<HoursReply> {
-        val device = state.active() ?: return Answer.SignedOut
-        val key = keys.load(device.keyAlias) ?: return Answer.SignedOut
+        val device = state.active() ?: return signedOut()
+        val key = keys.load(device.keyAlias) ?: return signedOut()
         return when (val r = client.hours(device.deviceId, key, week, after)) {
             is Outcome.Refused -> when {
                 r.code == mt.taptime.app.wire.AppErrorCode.NOT_FOUND -> Answer.Off
@@ -75,16 +102,18 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
     }
 
     fun claims(): Answer<ClaimsReply> {
-        val device = state.active() ?: return Answer.SignedOut
-        val key = keys.load(device.keyAlias) ?: return Answer.SignedOut
+        val device = state.active() ?: return signedOut()
+        val key = keys.load(device.keyAlias) ?: return signedOut()
         return answer(client.claims(device.deviceId, key))
     }
 
     /** One claim: the server's result word ("sent", "already_sent", "outside_window", …). */
     fun send(context: String, at: String): Answer<String> {
-        val device = state.active() ?: return Answer.SignedOut
-        val key = keys.load(device.keyAlias) ?: return Answer.SignedOut
-        return answer(client.claimSend(device.deviceId, key, context, at))
+        val device = state.active() ?: return signedOut()
+        val key = keys.load(device.keyAlias) ?: return signedOut()
+        val r = answer(client.claimSend(device.deviceId, key, context, at))
+        if (r is Answer.Ok && r.value == "not_active") notActiveDevice = device.deviceId
+        return r
     }
 
     companion object {
@@ -98,7 +127,7 @@ class StaffFlow(private val client: AppClient, private val keys: DeviceKeys, pri
 
     private fun <T> answer(r: Outcome<T>): Answer<T> = when (r) {
         is Outcome.Ok -> Answer.Ok(r.value)
-        Outcome.Unauthenticated -> Answer.SignedOut
+        Outcome.Unauthenticated -> signedOut()
         is Outcome.Failed -> Answer.Network
         is Outcome.Refused -> if (r.code == mt.taptime.app.wire.AppErrorCode.STALE_CONTEXT) Answer.Stale else Answer.Server
     }

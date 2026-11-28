@@ -38,10 +38,14 @@ final class StaffModel: ObservableObject {
     @Published var confirm: Confirm?
     @Published private(set) var confirmBusy = false
     @Published private(set) var confirmFailed = false
-    /// The server answered a claim "not_active" in this session: the person is deactivated, so
-    /// the deletion request signs nothing out and its words say so (M16-38). /me carries no such
-    /// fact, so this is the one signal the app has; it is held in memory only.
-    @Published private(set) var notActive = false
+    /// The device a claim was answered "not_active" for in this session: that person is
+    /// deactivated, so their deletion request signs nothing out and its words say so (M16-38). /me
+    /// carries no such fact, so this is the one signal the app has; it is held in memory only.
+    /// It belongs to ONE person: cleared when this phone is signed out or the account deletion is
+    /// sent (forgetPerson), and bound to the device, so a new activation -- a new device id, maybe
+    /// another person on a shared phone -- never inherits it.
+    @Published private(set) var notActiveDevice: String?
+    var notActive: Bool { notActiveDevice != nil && notActiveDevice == tap.identity?.deviceID }
 
     let tap: TapModel
     /// The person's own sign-out (either act): back to activation.
@@ -88,11 +92,19 @@ final class StaffModel: ObservableObject {
     /// was signed out" (the Android twin: StaffFlow.Answer.SignedOut -> clearPresence +
     /// activationEntry(SIGNED_OUT)). Nothing of the sheet survives into the next activation.
     private func signedOut() {
+        forgetPerson()
+        tap.staffReadSignedOut()
+    }
+
+    /// The person leaves this phone (signed out by the server, or by themselves, or the deletion
+    /// request sent): nothing of theirs stays for whoever activates next.
+    func forgetPerson() {
         claims = nil
+        sent = []
         claimIndex = 0
         claimProblem = nil
         claimRefusedAt = nil
-        tap.staffReadSignedOut()
+        notActiveDevice = nil
     }
 
     // MARK: My hours
@@ -249,7 +261,7 @@ final class StaffModel: ObservableObject {
         case "resolved": await reloadClaims(notice: StaffCopy.resolved)
         case "not_active":
             claimProblem = StaffCopy.notActive
-            notActive = true
+            notActiveDevice = id.deviceID
         case "still_open": await reloadClaims(notice: StaffCopy.stillOpen)
         default: claimProblem = StaffCopy.network
         }
@@ -340,6 +352,7 @@ final class StaffModel: ObservableObject {
         }
         StaffNotifier.shared.cancel()
         confirm = nil
+        forgetPerson()
         onForgotten?()
     }
 }
