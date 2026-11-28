@@ -1257,13 +1257,22 @@ final class TapSourceGuardTests: XCTestCase {
         }
     }
 
-    /// CLAUDE.md §7: the files that hold a context, a nonce, a signature or a coordinate log nothing.
+    /// CLAUDE.md §7: the files that hold a context, a nonce, a signature or a coordinate log nothing
+    /// -- and (M16-33/38/44/48 [G33-b], [G38-d], [G44-b], [G48-b]) neither do the staff screens'
+    /// files, which hold the person's hours, venue, name, employer, claims and shift.
     func testTheTapFilesLogNothing() throws {
-        for (name, src) in try appSources() where ["TapFlow.swift", "AppClient.swift", "AppModel.swift"].contains(name) {
+        let staff = try appSources().map(\.0).filter { $0.hasPrefix("Staff") }
+        XCTAssertEqual(Set(staff), ["StaffCopy.swift", "StaffModel.swift", "StaffViews.swift"],
+                       "CONTROL: the staff files are found (a new one is added here deliberately)")
+        let held = Set(["TapFlow.swift", "AppClient.swift", "AppModel.swift"] + staff)
+        var scanned = 0
+        for (name, src) in try appSources() where held.contains(name) {
+            scanned += 1
             for f in ["pri" + "nt(", "NS" + "Log", "os" + "_log", "Log" + "ger", "dump" + "("] {
                 XCTAssertEqual(count(f, in: src), 0, "\(name): \(f)")
             }
         }
+        XCTAssertEqual(scanned, held.count)
     }
 }
 
