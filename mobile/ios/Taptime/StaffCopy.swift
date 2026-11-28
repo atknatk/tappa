@@ -127,19 +127,45 @@ enum StaffCopy {
     static var send: String { t("Send to my manager", "Müdürüme gönder") }
     static var sending: String { t("Sending…", "Gönderiliyor…") }
     static var sendShort: String { t("Send", "Gönder") }
-    static var skip: String { t("Not now", "Şimdilik geç") }
+    /// The browser card's line under the send button (claim.templ), here also the control that
+    /// moves to the next record (M16-44).
+    static var skip: String { t("You can skip this.", "Bunu atlayabilirsin.") }
     static var sent: String { t("Sent — your manager will review it.", "Gönderildi — müdürün inceleyecek.") }
-    // The outcomes are the Android app's banners: a title, " — ", and its line.
+    // The outcomes are the Android app's banners: a title, " — ", then the card's lines (M16-44:
+    // the browser's, without "Your tap itself is recorded." -- there is no tap on this screen).
+    private static var tellManager: String { t("Tell your manager what time it was.", "Müdürüne saatin kaç olduğunu söyle.") }
     static var expired: String {
-        t("This question has expired", "Bu sorunun süresi doldu") + " — " + t("Tell your manager what time it was.", "Müdürüne saatin kaç olduğunu söyle.")
+        t("This question has expired", "Bu sorunun süresi doldu") + " — "
+            + t("Nothing was sent to your manager.", "Müdürüne hiçbir şey gönderilmedi.") + " " + tellManager
     }
     static var resolved: String {
         t("Already resolved", "Zaten çözülmüş") + " — "
             + t("That record no longer needs this time, so nothing was sent.", "Bu kayıt artık bu saate ihtiyaç duymuyor, bu yüzden hiçbir şey gönderilmedi.")
+            + " " + t("Tell your manager if that looks wrong.", "Yanlış görünüyorsa müdürüne söyle.")
     }
-    static var notActive: String { t("Your account can't send this", "Hesabın bunu gönderemez") }
+    static var notActive: String {
+        t("Your account can't send this", "Hesabın bunu gönderemez") + " — "
+            + t("Only an active employee can send a time to their manager. Nothing was sent.",
+                "Müdürüne saati yalnız aktif bir çalışan gönderebilir. Hiçbir şey gönderilmedi.")
+            + " " + tellManager
+    }
     static var stillOpen: String {
         t("You're still clocked in", "Hâlâ girişlisin") + " — " + t("Nothing was sent. Tap the plaque when you leave.", "Hiçbir şey gönderilmedi. Çıkarken plakete dokun.")
+    }
+    // The person's own claims, under the record (M16-44): Android's missing_sent_* and claim_state_*.
+    static var sentLabel: String { t("Sent", "Gönderilenler") }
+    static func sentRow(date: String, kind: String, at: String) -> String { t("\(date) · \(kind) \(at)", "\(date) · \(kind) \(at)") }
+    static func sentKind(_ kind: String) -> String { kind == "in" ? t("in", "giriş") : t("out", "çıkış") }
+    /// A sent claim's state: approvedAt is the clock the manager approved, which may differ from
+    /// the one asked for (ADR 0032 §C.2); without it, just "Approved".
+    static func claimState(_ state: String, approvedAt: String?) -> String {
+        switch state {
+        case "approved":
+            if let at = approvedAt { return t("Approved at \(at)", "Onaylandı: \(at)") }
+            return t("Approved", "Onaylandı")
+        case "rejected": return t("Not approved", "Onaylanmadı")
+        default: return t("Waiting for your manager", "Müdürün bekleniyor")
+        }
     }
     static var network: String { t("Can't reach Taptime. Check your connection.", "Taptime'a ulaşılamıyor. İnternetini kontrol et.") }
 

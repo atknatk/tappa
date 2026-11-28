@@ -121,7 +121,11 @@ class IosCopyTest {
         "claim_window_after_before", "claim_window_from_before", "claim_window_after_upto", "claim_window_from_upto",
         "claim_expired_title", "claim_tell_manager", "claim_resolved_title", "claim_resolved_message",
         "claim_not_active_title", "claim_still_open_title", "claim_still_open_message",
-        "sheet_skip", "sheet_sending",
+        "sheet_sending",
+        // M16-44: the card's skip line, the outcomes' full lines, and the person's own claims.
+        "claim_skip", "claim_expired_message", "claim_resolved_hint", "claim_not_active_message",
+        "missing_sent_label", "missing_sent_row", "missing_kind_in", "missing_kind_out",
+        "claim_state_pending", "claim_state_approved", "claim_state_approved_at", "claim_state_rejected",
         "settings_connected", "settings_notifications", "settings_remind", "settings_remind_hint",
         "settings_notifications_off", "settings_timer", "settings_shift_label", "settings_usual",
         "settings_account", "settings_language", "settings_language_sub", "settings_signout",

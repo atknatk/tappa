@@ -14,6 +14,8 @@ final class StaffModel: ObservableObject {
     // Today
     @Published private(set) var week: HoursResponse?
     @Published private(set) var claims: [ClaimsResponse.Open]?
+    /// The person's own claims, shown under the record (M16-44); read with the list, never kept.
+    @Published private(set) var sent: [ClaimsResponse.Sent] = []
     @Published private(set) var claimIndex = 0
     @Published private(set) var claimBusy = false
     @Published private(set) var claimProblem: String?
@@ -172,6 +174,7 @@ final class StaffModel: ObservableObject {
         do {
             let r = try await tap.api.claims(id)
             claims = r.open.isEmpty ? nil : r.open
+            sent = r.sent ?? []
             claimIndex = 0
             claimProblem = nil
             claimRefusedAt = nil
@@ -255,6 +258,9 @@ final class StaffModel: ObservableObject {
         }
         let open = r?.open ?? []
         claims = open.isEmpty ? nil : open
+        if let r = r {
+            sent = r.sent ?? []
+        }
         claimIndex = 0
         self.notice = notice
         await tap.home() // /me again: the missing-times count and the presence follow

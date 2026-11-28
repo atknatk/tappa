@@ -81,6 +81,7 @@ import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
 import mt.taptime.app.wire.OpenClaim
 import mt.taptime.app.wire.OrgJsonDecoder
+import mt.taptime.app.wire.SentClaim
 import mt.taptime.app.wire.ServerClock
 import mt.taptime.app.wire.TapReply
 
@@ -138,12 +139,13 @@ class MainActivity : ComponentActivity() {
         // --- the staff app's own screens (M16-44/46/47/48) ---
         /**
          * The Today tab. [week] is this week's My hours for the summary card (only while the owner
-         * has My hours on); [claims] non-null is the missing-time sheet, showing [index].
+         * has My hours on); [claims] non-null is the missing-time sheet, showing [index], with the
+         * person's own [sent] claims under it (M16-44) -- read with the list, never kept.
          */
         data class Home(
             val me: MeReply, val week: HoursReply? = null, val weekLoading: Boolean = false,
             val claims: List<OpenClaim>? = null, val index: Int = 0, val busy: Boolean = false,
-            val notice: ClaimNotice? = null, val problem: String? = null,
+            val notice: ClaimNotice? = null, val problem: String? = null, val sent: List<SentClaim> = emptyList(),
         ) : Screen
         data class Settings(
             val me: MeReply, val remind: Boolean, val timer: Boolean, val notificationsOff: Boolean = false,
@@ -355,7 +357,7 @@ class MainActivity : ComponentActivity() {
                 StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
                     val list = s.claims
                     if (list != null && s.index < list.size) {
-                        ClaimSheet(list[s.index], s.index, list.size, s.notice, s.problem, s.busy,
+                        ClaimSheet(list[s.index], s.index, list.size, s.sent, s.notice, s.problem, s.busy,
                             onSend = { at -> sendClaim(s, list[s.index], at) },
                             onSkip = { nextClaim(s) },
                             onDismiss = { screen = s.copy(claims = null, notice = null, problem = null) })
@@ -572,8 +574,8 @@ class MainActivity : ComponentActivity() {
         work({ staff.claims() }, failed = { s.copy(busy = false) }) { r ->
             val now = screen as? Screen.Home ?: return@work
             screen = when (r) {
-                is StaffFlow.Answer.Ok -> if (r.value.open.isEmpty()) now.copy(busy = false, me = now.me.copy(missingTimes = 0))
-                    else now.copy(claims = r.value.open, index = 0, busy = false)
+                is StaffFlow.Answer.Ok -> if (r.value.open.isEmpty()) now.copy(busy = false, me = now.me.copy(missingTimes = 0), sent = r.value.sent)
+                    else now.copy(claims = r.value.open, index = 0, busy = false, sent = r.value.sent)
                 StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> now.copy(busy = false, notice = ClaimNotice.NETWORK)
             }
@@ -592,8 +594,9 @@ class MainActivity : ComponentActivity() {
             screen = when (r) {
                 is StaffFlow.Answer.Ok -> {
                     val me = s.me.copy(missingTimes = r.value.open.size)
-                    if (r.value.open.isEmpty()) s.copy(me = me, claims = null, busy = false, notice = notice, problem = null)
-                    else s.copy(me = me, claims = r.value.open, index = 0, busy = false, notice = notice.takeIf { it != ClaimNotice.SENT }, problem = null)
+                    if (r.value.open.isEmpty()) s.copy(me = me, claims = null, busy = false, notice = notice, problem = null, sent = r.value.sent)
+                    else s.copy(me = me, claims = r.value.open, index = 0, busy = false, notice = notice.takeIf { it != ClaimNotice.SENT },
+                        problem = null, sent = r.value.sent)
                 }
                 StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> s.copy(busy = false, notice = ClaimNotice.NETWORK)

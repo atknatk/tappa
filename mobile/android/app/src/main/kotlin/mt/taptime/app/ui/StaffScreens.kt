@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +51,7 @@ import mt.taptime.app.wire.HoursRecord
 import mt.taptime.app.wire.HoursReply
 import mt.taptime.app.wire.MeReply
 import mt.taptime.app.wire.OpenClaim
+import mt.taptime.app.wire.SentClaim
 import mt.taptime.app.wire.UsualShift
 
 // The staff app's own screens (M16-44/46/47/48/33; the user's native design of 2026-11-24): three
@@ -101,8 +104,8 @@ fun TodayContent(
         }
     }
     LargeTitle(stringResource(R.string.today_hello, firstName(me.employeeName)))
-    if (notice == ClaimNotice.SENT) Banner(stringResource(R.string.claim_sent), Tone.OK)
-    if (notice == ClaimNotice.NETWORK) Banner(stringResource(R.string.p_network_title), Tone.ALERT)
+    // The sheet closed with the list's last record: its answer is said here (iOS's Today banner).
+    notice?.let { ClaimBanner(it) }
 
     // The status card: ink above, a paper stub with the plaque's instruction below.
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))) {
@@ -216,10 +219,33 @@ private fun parseHM(v: String?): Pair<Int, Int>? {
     return if (h in 0..23 && m in 0..59) h to m else null
 }
 
-/** One record that takes a claim: the record, the question, a wheel for the time, send or skip. */
+/**
+ * A claim's answer as one banner: the title, " — ", then the card's lines (M16-44: the browser's,
+ * without "Your tap itself is recorded." -- there is no tap on this screen). iOS says the same
+ * (StaffCopy.expired / resolved / notActive / stillOpen).
+ */
+@Composable
+private fun ClaimBanner(notice: ClaimNotice) {
+    val tell = stringResource(R.string.claim_tell_manager)
+    when (notice) {
+        ClaimNotice.SENT -> Banner(stringResource(R.string.claim_sent), Tone.OK)
+        ClaimNotice.EXPIRED -> Banner(stringResource(R.string.claim_expired_title) + " — " + stringResource(R.string.claim_expired_message) + " " + tell, Tone.ALERT)
+        ClaimNotice.RESOLVED -> Banner(stringResource(R.string.claim_resolved_title) + " — " + stringResource(R.string.claim_resolved_message) + " " +
+            stringResource(R.string.claim_resolved_hint), Tone.WARN)
+        ClaimNotice.NOT_ACTIVE -> Banner(stringResource(R.string.claim_not_active_title) + " — " + stringResource(R.string.claim_not_active_message) + " " + tell, Tone.ALERT)
+        ClaimNotice.STILL_OPEN -> Banner(stringResource(R.string.claim_still_open_title) + " — " + stringResource(R.string.claim_still_open_message), Tone.WARN)
+        ClaimNotice.NETWORK -> Banner(stringResource(R.string.p_network_title), Tone.ALERT)
+    }
+}
+
+/**
+ * One record that takes a claim: the record, the question, a wheel for the time, send or skip --
+ * and under it the person's own [sent] claims (M16-44: waiting, approved, approved at the manager's
+ * clock, not approved).
+ */
 @Composable
 fun BoxScope.ClaimSheet(
-    c: OpenClaim, index: Int, count: Int, notice: ClaimNotice?, problem: String?, busy: Boolean,
+    c: OpenClaim, index: Int, count: Int, sent: List<SentClaim>, notice: ClaimNotice?, problem: String?, busy: Boolean,
     onSend: (String) -> Unit, onSkip: () -> Unit, onDismiss: () -> Unit,
 ) {
     val locale = LocalConfiguration.current.locales[0]
@@ -228,9 +254,9 @@ fun BoxScope.ClaimSheet(
     var minute by remember(c.context) { mutableIntStateOf(start.second) }
     // The time last sent: the server's "does not fit" is about THAT time, so it stands only while
     // the wheels still show it; before a send, and once they move, the hint just names the window.
-    var sent by remember(c.context) { mutableStateOf<String?>(null) }
+    var sentAt by remember(c.context) { mutableStateOf<String?>(null) }
     val picked = "%02d:%02d".format(hour, minute)
-    val refusal = problem?.takeIf { sent == picked }
+    val refusal = problem?.takeIf { sentAt == picked }
     BottomSheet(busy, onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -256,20 +282,29 @@ fun BoxScope.ClaimSheet(
             Modifier.fillMaxWidth(), style = text(13.sp, if (refusal != null) FontWeight.SemiBold else FontWeight.Normal,
                 if (refusal != null) Palette.Tomato else Muted, align = TextAlign.Center),
         )
-        when (notice) {
-            ClaimNotice.EXPIRED -> Banner(stringResource(R.string.claim_expired_title) + " — " + stringResource(R.string.claim_tell_manager), Tone.ALERT)
-            ClaimNotice.RESOLVED -> Banner(stringResource(R.string.claim_resolved_title) + " — " + stringResource(R.string.claim_resolved_message), Tone.WARN)
-            ClaimNotice.NOT_ACTIVE -> Banner(stringResource(R.string.claim_not_active_title), Tone.ALERT)
-            ClaimNotice.STILL_OPEN -> Banner(stringResource(R.string.claim_still_open_title) + " — " + stringResource(R.string.claim_still_open_message), Tone.WARN)
-            ClaimNotice.NETWORK -> Banner(stringResource(R.string.p_network_title), Tone.ALERT)
-            else -> Unit
-        }
+        if (notice != null && notice != ClaimNotice.SENT) ClaimBanner(notice)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ActionButton(stringResource(if (busy) R.string.sheet_sending else R.string.claim_send), enabled = !busy) {
-                sent = picked
+                sentAt = picked
                 onSend(picked)
             }
-            TextAction(stringResource(R.string.sheet_skip), enabled = !busy, onClick = onSkip)
+            // The browser card's "You can skip this." (claim.templ), here the control that moves on.
+            TextAction(stringResource(R.string.claim_skip), enabled = !busy, onClick = onSkip)
+        }
+        if (sent.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                BasicText(stringResource(R.string.missing_sent_label), style = text(13.sp, FontWeight.SemiBold, Muted))
+                for (s in sent) {
+                    val kind = stringResource(if (s.kind == "in") R.string.missing_kind_in else R.string.missing_kind_out)
+                    val state = ClaimWords.state(s.state, s.approvedAt)
+                    Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        BasicText(stringResource(R.string.missing_sent_row, ClaimWords.date(s.anchorDate, locale), kind, s.claimedAt),
+                            style = text(14.sp, mono = true))
+                        BasicText(stringResource(state.id, *state.args.toTypedArray()), style = text(13.sp, color = Muted))
+                    }
+                }
+            }
         }
     }
 }

@@ -814,6 +814,50 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(app.staff.privacyURL.absoluteString, "https://taptime.mt/legal/privacy")
     }
 
+    // MARK: The person's own claims under the record (M16-44)
+
+    /// The sheet's list read brings the sent claims with it (Android's twin draws them the same
+    /// way); an older server without the key is read as none.
+    func testTheSentClaimsComeWithTheList() async {
+        let open: [String: Any] = [
+            "context": "claim-context-1", "kind": "out", "anchorDate": "2026-11-14", "anchorAt": "18:00", "day": "yesterday",
+            "windowFrom": ["at": "18:00", "inclusive": false], "windowTo": ["at": "23:59", "inclusive": true],
+        ]
+        let sent: [[String: Any]] = [
+            ["kind": "out", "anchorDate": "2026-11-12", "anchorAt": "09:00", "claimedAt": "17:30", "state": "pending", "approvedAt": NSNull()],
+            ["kind": "in", "anchorDate": "2026-11-10", "anchorAt": "18:00", "claimedAt": "08:55", "state": "approved", "approvedAt": "09:00"],
+            ["kind": "out", "anchorDate": "2026-11-09", "anchorAt": "08:00", "claimedAt": "16:00", "state": "approved", "approvedAt": NSNull()],
+            ["kind": "out", "anchorDate": "2026-11-08", "anchorAt": "08:00", "claimedAt": "16:00", "state": "rejected", "approvedAt": NSNull()],
+        ]
+        server.claimsBody = ["open": [open], "sent": sent]
+        await app.launch()
+        let staff = app.staff
+        await staff.openMissing()
+        XCTAssertEqual(staff.claims?.count, 1)
+        XCTAssertEqual(staff.sent.map(\.state), ["pending", "approved", "approved", "rejected"])
+        XCTAssertEqual(staff.sent.map(\.approvedAt), [nil, "09:00", nil, nil])
+        let words = staff.sent.map { StaffCopy.claimState($0.state, approvedAt: $0.approvedAt) }
+        XCTAssertEqual(words, [StaffCopy.t("Waiting for your manager", "Müdürün bekleniyor"), StaffCopy.t("Approved at 09:00", "Onaylandı: 09:00"),
+                               StaffCopy.t("Approved", "Onaylandı"), StaffCopy.t("Not approved", "Onaylanmadı")])
+        XCTAssertEqual(StaffCopy.sentRow(date: "Thu 12 Nov", kind: StaffCopy.sentKind("out"), at: "17:30"),
+                       StaffCopy.t("Thu 12 Nov · out 17:30", "Thu 12 Nov · çıkış 17:30"))
+
+        server.claimsBody = ["open": [open]]
+        await staff.openMissing()
+        XCTAssertEqual(staff.sent, [], "an older server's answer has no sent claims")
+    }
+
+    /// The card's line under the send button, and every outcome's full words (M16-44).
+    func testTheSheetSaysTheCardsWords() {
+        XCTAssertEqual(StaffCopy.skip, StaffCopy.t("You can skip this.", "Bunu atlayabilirsin."))
+        guard !StaffCopy.turkish else { return }
+        XCTAssertEqual(StaffCopy.notActive, "Your account can't send this — Only an active employee can send a time to their manager. "
+                       + "Nothing was sent. Tell your manager what time it was.")
+        XCTAssertEqual(StaffCopy.resolved, "Already resolved — That record no longer needs this time, so nothing was sent. "
+                       + "Tell your manager if that looks wrong.")
+        XCTAssertEqual(StaffCopy.expired, "This question has expired — Nothing was sent to your manager. Tell your manager what time it was.")
+    }
+
     // MARK: Problems
 
     /// Two 401s on the home read: the activation screens, "This phone was signed out".

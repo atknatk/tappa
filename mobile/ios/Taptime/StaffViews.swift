@@ -546,6 +546,20 @@ private struct ClaimSheet: View {
                 Section {
                     Button(StaffCopy.skip) { staff.skip() }.disabled(staff.claimBusy)
                 }
+                // M16-44: the person's own claims under the record -- waiting, approved (at the
+                // manager's clock when My hours shows it), not approved.
+                if !staff.sent.isEmpty {
+                    Section(StaffCopy.sentLabel) {
+                        ForEach(Array(staff.sent.enumerated()), id: \.offset) { _, s in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(StaffCopy.sentRow(date: weekday(s.anchorDate, "EEEdMMM"), kind: StaffCopy.sentKind(s.kind), at: s.claimedAt))
+                                    .font(Typeface.mono(14))
+                                Text(StaffCopy.claimState(s.state, approvedAt: s.approvedAt)).font(Typeface.display(13)).foregroundColor(muted)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
             }
             .navigationTitle(count > 1 ? "\(index + 1)/\(count)" : "")
             .navigationBarTitleDisplayMode(.inline)

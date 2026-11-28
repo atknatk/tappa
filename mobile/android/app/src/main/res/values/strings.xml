@@ -412,7 +412,6 @@
     <string name="hours_off_body">Your employer can turn it on in Taptime. Until then your manager has your records.</string>
     <string name="sheet_hour">Hour</string>
     <string name="sheet_minute">Minute</string>
-    <string name="sheet_skip">Not now</string>
     <string name="sheet_sending">Sending…</string>
     <string name="settings_connected">This phone is connected</string>
     <string name="settings_notifications">Notifications</string>

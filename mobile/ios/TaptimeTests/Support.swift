@@ -258,6 +258,8 @@ final class FakeAppServer {
     var devicesSignedOut = Set<String>()
     /// claims/send's result word ("sent", "outside_window", …).
     var claimResult = "sent"
+    /// GET claims' answer (M16-43): nothing open and, with the "sent" key absent, an older server.
+    var claimsBody: [String: Any] = ["open": [Any]()]
     /// The paths of every revoke / account/delete whose nonce'd signature verified (M16-38).
     private(set) var forgets: [String] = []
     /// My hours (M16-31): the one week this twin knows and its pages by cursor ("" is page one).
@@ -459,7 +461,7 @@ final class FakeAppServer {
                 return reply(401)
             }
             if path == AppClient.Path.claims {
-                return reply(200, object: ["open": [Any]()])
+                return reply(200, object: claimsBody)
             }
             guard !hoursPages.isEmpty else {
                 return reply(404, error: "not_found")

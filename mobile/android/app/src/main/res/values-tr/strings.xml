@@ -321,7 +321,6 @@
     <string name="hours_off_body">İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.</string>
     <string name="sheet_hour">Saat</string>
     <string name="sheet_minute">Dakika</string>
-    <string name="sheet_skip">Şimdilik geç</string>
     <string name="sheet_sending">Gönderiliyor…</string>
     <string name="settings_connected">Bu telefon bağlı</string>
     <string name="settings_notifications">Bildirimler</string>
