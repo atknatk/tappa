@@ -33,6 +33,10 @@ cd "$(dirname "$0")/.."
 PROJECT=mobile/ios/Taptime.xcodeproj
 SCHEME=Taptime
 SRC_ENTITLEMENTS=mobile/ios/Taptime/Taptime.entitlements
+# The widget extension (M16-47): the home-screen widget and the lock-screen Live Activity.
+WIDGET_SRC_ENTITLEMENTS=mobile/ios/TaptimeWidgets/TaptimeWidgets.entitlements
+WIDGET_BUNDLE_ID=mt.taptime.app.widgets
+APP_GROUP=group.mt.taptime.app
 DD=${IOS_DERIVED_DATA:-mobile/ios/build}
 
 BUNDLE_ID=mt.taptime.app
@@ -43,12 +47,29 @@ BUNDLE_ID=mt.taptime.app
 MIN_OS=15.0
 ALLOWED_USAGE=$'NFCReaderUsageDescription\nNSLocationWhenInUseUsageDescription'
 ALLOWED_LOCATION=NSLocationWhenInUseUsageDescription
-# The entitlements the card allows (associated domains, NFC NDEF) plus the three Xcode adds
-# by itself when it processes them. App Attest is absent until Phase E (ADR 0045 2.7).
-ALLOWED_SOURCE_ENTITLEMENTS=$'com.apple.developer.associated-domains\ncom.apple.developer.nfc.readersession.formats'
-ALLOWED_BUILT_ENTITLEMENTS=$'application-identifier\ncom.apple.developer.associated-domains\ncom.apple.developer.nfc.readersession.formats\ncom.apple.developer.team-identifier\nget-task-allow'
+# The entitlements the card allows (associated domains, NFC reading -- value TAG, sources NDEF
+# only -- and since M16-47 the App
+# Group the widget reads) plus the three Xcode adds by itself when it processes them. App
+# Attest is absent until Phase E (ADR 0045 2.7); aps-environment is absent for good (no push,
+# M16-46 [G46-e]) -- an allow-list, so neither needs naming.
+ALLOWED_SOURCE_ENTITLEMENTS=$'com.apple.developer.associated-domains\ncom.apple.developer.nfc.readersession.formats\ncom.apple.security.application-groups'
+ALLOWED_BUILT_ENTITLEMENTS=$'application-identifier\ncom.apple.developer.associated-domains\ncom.apple.developer.nfc.readersession.formats\ncom.apple.developer.team-identifier\ncom.apple.security.application-groups\nget-task-allow'
+# The extension: the App Group and nothing else.
+ALLOWED_WIDGET_SOURCE_ENTITLEMENTS=com.apple.security.application-groups
+ALLOWED_WIDGET_BUILT_ENTITLEMENTS=$'application-identifier\ncom.apple.developer.team-identifier\ncom.apple.security.application-groups\nget-task-allow'
 
 fail() { echo "mobile-ios-test: FAIL: $*" >&2; exit 1; }
+
+# The app reads the plaque's NDEF URL and nothing below it (CLAUDE.md 4.7): the TAG entitlement
+# would allow a raw tag session (ISO 7816, MIFARE), so no Swift source may open one.
+check_nfc_sources() {
+  local hits
+  hits=$(grep -rn -E 'NFCTagReaderSession|NFCISO7816Tag|NFCMiFareTag|NFCFeliCaTag|NFCISO15693Tag' \
+    --include='*.swift' mobile/ios || true)
+  [[ -z $hits ]] || fail "a Swift source goes below NDEF:"$'\n'"$hits"
+  echo "  NFC sources: NDEF reader session only"
+}
+check_nfc_sources
 
 command -v xcodebuild >/dev/null || fail "xcodebuild not found (Xcode is required; the iOS build runs locally, Q36 d)"
 
@@ -91,13 +112,62 @@ check_entitlements() { # check_entitlements <label> <plist> <allowed-keys>
   json=$(plutil -convert json -o - "$plist")
   [[ $json == *'"com.apple.developer.associated-domains":["applinks:taptime.mt"]'* ]] \
     || fail "$label: associated domains are not exactly applinks:taptime.mt"
-  [[ $json == *'"com.apple.developer.nfc.readersession.formats":["NDEF"]'* ]] \
-    || fail "$label: NFC reader formats are not exactly NDEF"
+  # TAG, not NDEF: App Store Connect refuses NDEF for a 15.0 target (ITMS-90778, measured
+  # 2026-11-27). TAG would also allow a raw tag session, so the sources are held to the NDEF
+  # reader session below (check_nfc_sources).
+  [[ $json == *'"com.apple.developer.nfc.readersession.formats":["TAG"]'* ]] \
+    || fail "$label: NFC reader formats are not exactly TAG"
+  [[ $json == *'"com.apple.security.application-groups":["'"$APP_GROUP"'"]'* ]] \
+    || fail "$label: the App Group is not exactly $APP_GROUP"
   echo "  $label entitlements: $(tr '\n' ' ' <<<"$keys")"
+}
+
+check_widget_entitlements() { # check_widget_entitlements <label> <plist> <allowed-keys>
+  local label=$1 plist=$2 allowed=$3 keys extra json
+  [[ -f $plist ]] || fail "$label: no entitlements at $plist"
+  keys=$(top_keys "$plist")
+  extra=$(LC_ALL=C comm -23 <(printf '%s\n' "$keys") <(printf '%s\n' "$allowed"))
+  [[ -z $extra ]] || fail "$label: entitlements outside the allow-list:"$'\n'"$extra"
+  json=$(plutil -convert json -o - "$plist")
+  [[ $json == *'"com.apple.security.application-groups":["'"$APP_GROUP"'"]'* ]] \
+    || fail "$label: the App Group is not exactly $APP_GROUP"
+  echo "  $label entitlements: $(tr '\n' ' ' <<<"$keys")"
+}
+
+# The extension's compiled Info.plist: the WidgetKit extension point and nothing else of note --
+# no background mode, no usage description, the app's deployment target.
+check_widget_plist() { # check_widget_plist <label> <Info.plist>
+  local label=$1 plist=$2 keys
+  [[ -f $plist ]] || fail "$label: no widget extension at $plist (not embedded?)"
+  plutil -lint -s "$plist" || fail "$label: widget Info.plist does not parse"
+  if plutil -extract UIBackgroundModes raw "$plist" >/dev/null 2>&1; then
+    fail "$label: UIBackgroundModes is present in the widget's Info.plist (CLAUDE.md 4.2)"
+  fi
+  keys=$(top_keys "$plist")
+  [[ -z $(grep -e 'UsageDescription$' -e '^NSLocation' <<<"$keys" || true) ]] \
+    || fail "$label: the widget declares a usage description or a location key"
+  [[ $(plutil -extract NSExtension.NSExtensionPointIdentifier raw "$plist") == com.apple.widgetkit-extension ]] \
+    || fail "$label: the extension point is not com.apple.widgetkit-extension"
+  [[ $(plutil -extract CFBundleIdentifier raw "$plist") == "$WIDGET_BUNDLE_ID" ]] \
+    || fail "$label: the widget's CFBundleIdentifier is not $WIDGET_BUNDLE_ID"
+  [[ $(plutil -extract MinimumOSVersion raw "$plist") == "$MIN_OS" ]] \
+    || fail "$label: the widget's MinimumOSVersion is not $MIN_OS"
+  # App Store validation refuses an extension whose versions are not its app's. Both come from
+  # the PROJECT-level MARKETING_VERSION / CURRENT_PROJECT_VERSION; a target-level copy that
+  # drifts fails here, on the built bundles.
+  local app_plist key
+  app_plist="$(dirname "$plist")/../../Info.plist"
+  for key in CFBundleShortVersionString CFBundleVersion; do
+    [[ -n $(plutil -extract "$key" raw "$app_plist") && \
+       $(plutil -extract "$key" raw "$plist") == $(plutil -extract "$key" raw "$app_plist") ]] \
+      || fail "$label: the widget's $key is not the app's"
+  done
+  echo "  $label widget Info.plist: widgetkit extension point; no UIBackgroundModes; no usage keys; the app's versions"
 }
 
 # --- 0. source entitlements (cheap, before any build) ---------------------------------
 check_entitlements source "$SRC_ENTITLEMENTS" "$ALLOWED_SOURCE_ENTITLEMENTS"
+check_widget_entitlements widget-source "$WIDGET_SRC_ENTITLEMENTS" "$ALLOWED_WIDGET_SOURCE_ENTITLEMENTS"
 
 # --- 1. unit tests on a throwaway simulator ---------------------------------------------
 runtimes=$(xcrun simctl list runtimes -j)
@@ -153,10 +223,15 @@ echo "  device build (Release, unsigned): built"
 # --- 3. the built bundles ----------------------------------------------------------------
 check_info_plist simulator "$DD/Build/Products/Debug-iphonesimulator/Taptime.app/Info.plist"
 check_info_plist device "$DD/Build/Products/Release-iphoneos/Taptime.app/Info.plist"
+check_widget_plist simulator "$DD/Build/Products/Debug-iphonesimulator/Taptime.app/PlugIns/TaptimeWidgets.appex/Info.plist"
+check_widget_plist device "$DD/Build/Products/Release-iphoneos/Taptime.app/PlugIns/TaptimeWidgets.appex/Info.plist"
 # The simulator build signs locally and writes the entitlements Xcode processed; the
 # unsigned device build writes none, so this is the one built list there is.
 check_entitlements simulator-built \
   "$DD/Build/Intermediates.noindex/Taptime.build/Debug-iphonesimulator/Taptime.build/Taptime.app-Simulated.xcent" \
   "$ALLOWED_BUILT_ENTITLEMENTS"
+check_widget_entitlements widget-simulator-built \
+  "$DD/Build/Intermediates.noindex/Taptime.build/Debug-iphonesimulator/TaptimeWidgets.build/TaptimeWidgets.appex-Simulated.xcent" \
+  "$ALLOWED_WIDGET_BUILT_ENTITLEMENTS"
 
 echo "mobile-ios-test: OK"

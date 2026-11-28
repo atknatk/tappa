@@ -1001,3 +1001,29 @@ WHERE o.tenant_id = @tenant_id
   AND c.class IN ('other_day', 'orphan')
 ORDER BY o.occurred_at, o.id
 LIMIT @row_limit;
+
+-- name: ListRecentDeletionRequests :many
+-- M16-37: the business's "delete my account" requests of the last @window_days days, newest first,
+-- for the list beside the week's signals (it is not a signal of the week: the window is the
+-- database's clock, not the week picked). From the trail itself -- the request writes no other row.
+-- It reads audit_log, not transactions: no evidence column is anywhere near it.
+--
+-- The person is named as the business stores them now (a LEFT JOIN: the trail row stands even if
+-- the name cannot be read; employees rows are never deleted, ADR 0010). The join compares the id
+-- as TEXT, the trail's own spelling, so no target is ever cast to a uuid. TENANT SCOPE (section
+-- 4.5): explicit tenant_id on both tables beside RLS. Rides audit_log_tenant_at_idx (tenant_id, at
+-- DESC). @row_limit is the screen's cap plus one (ledger.anomalyReadLimit).
+SELECT a.id,
+       a.at,
+       e.id        AS employee_id,
+       e.full_name AS employee_name
+FROM audit_log a
+LEFT JOIN employees e
+       ON e.tenant_id = a.tenant_id
+      AND e.tenant_id = @tenant_id
+      AND e.id::text = a.target
+WHERE a.tenant_id = @tenant_id
+  AND a.action = 'employee.deletion_requested'
+  AND a.at > now() - make_interval(days => @window_days::int)
+ORDER BY a.at DESC, a.id DESC
+LIMIT @row_limit;

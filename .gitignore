@@ -81,4 +81,5 @@ coverage.*
 /mobile/ios/build/
 xcuserdata/
 *.p12
+*.pfx
 *.mobileprovision

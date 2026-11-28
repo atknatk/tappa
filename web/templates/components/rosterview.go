@@ -220,6 +220,13 @@ type RosterActionsView struct {
 	// "None signed in" beside a live app device cannot read as "nothing is signed in".
 	LiveAppDevices int
 	AppLine        string
+	// DeletionLine is the person's own "delete my account" request from the staff app (M16-37),
+	// "" when they never asked: the employer decides what to do with their data and answers them.
+	DeletionLine string
+	// DeletionClosed is what that request closed, from its own trail row: "Their phones were signed
+	// out.", "Their account was already switched off, so nothing was signed out." for a person
+	// deactivated when they asked, or "" when the row says neither.
+	DeletionClosed string
 	// LinkLine says whether an activation link is outstanding ("A link was created
 	// 3 days ago and works until 27 Oct", "No working link yet"), "" when it was not
 	// read. It says "created", never "sent": the product does not know delivery.

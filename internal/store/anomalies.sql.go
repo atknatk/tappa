@@ -1294,6 +1294,71 @@ func (q *Queries) ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsPara
 	return items, nil
 }
 
+const listRecentDeletionRequests = `-- name: ListRecentDeletionRequests :many
+SELECT a.id,
+       a.at,
+       e.id        AS employee_id,
+       e.full_name AS employee_name
+FROM audit_log a
+LEFT JOIN employees e
+       ON e.tenant_id = a.tenant_id
+      AND e.tenant_id = $1
+      AND e.id::text = a.target
+WHERE a.tenant_id = $1
+  AND a.action = 'employee.deletion_requested'
+  AND a.at > now() - make_interval(days => $2::int)
+ORDER BY a.at DESC, a.id DESC
+LIMIT $3
+`
+
+type ListRecentDeletionRequestsParams struct {
+	TenantID   uuid.UUID
+	WindowDays int32
+	RowLimit   int32
+}
+
+type ListRecentDeletionRequestsRow struct {
+	ID           uuid.UUID
+	At           time.Time
+	EmployeeID   *uuid.UUID
+	EmployeeName *string
+}
+
+// M16-37: the business's "delete my account" requests of the last @window_days days, newest first,
+// for the list beside the week's signals (it is not a signal of the week: the window is the
+// database's clock, not the week picked). From the trail itself -- the request writes no other row.
+// It reads audit_log, not transactions: no evidence column is anywhere near it.
+//
+// The person is named as the business stores them now (a LEFT JOIN: the trail row stands even if
+// the name cannot be read; employees rows are never deleted, ADR 0010). The join compares the id
+// as TEXT, the trail's own spelling, so no target is ever cast to a uuid. TENANT SCOPE (section
+// 4.5): explicit tenant_id on both tables beside RLS. Rides audit_log_tenant_at_idx (tenant_id, at
+// DESC). @row_limit is the screen's cap plus one (ledger.anomalyReadLimit).
+func (q *Queries) ListRecentDeletionRequests(ctx context.Context, arg ListRecentDeletionRequestsParams) ([]ListRecentDeletionRequestsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentDeletionRequests, arg.TenantID, arg.WindowDays, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentDeletionRequestsRow{}
+	for rows.Next() {
+		var i ListRecentDeletionRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.At,
+			&i.EmployeeID,
+			&i.EmployeeName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTapsTakenTogether = `-- name: ListTapsTakenTogether :many
 WITH ordered AS (
     SELECT

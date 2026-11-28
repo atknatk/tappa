@@ -471,6 +471,10 @@ func run() error {
 	if err := app.ServeHours(records); err != nil {
 		return err
 	}
+	// The browser's My hours (M16-32): the same reader, on the tap surface (GET /me/hours).
+	if err := tap.ServeMyHours(records); err != nil {
+		return err
+	}
 	// The panel's WRITE side (M6-04): the FLAGGED approval queue. It takes the SAME
 	// audit recorder every other service does, because the review row and its audit
 	// row have to share one transaction — internal/domain/review says why that is
@@ -794,6 +798,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// "Delete my account" in the staff app (M16-37): the panel's own staff service, so the request
+	// revokes in SignOutPhones' order and the People card reads its trail row, and the owners' notices
+	// (Q46 (b)) -- a bounded background queue of its own around the ONE breaker, sending only under
+	// TAPPA_RESET_DELIVERY=email (the switch of every letter to an administrator's own address), the
+	// owners and their addresses read by the recovery flow's resets. It is drained beside the reset
+	// outbox at shutdown (drainers, below).
+	ownerNotices, err := handler.NewEmailOwnerNotices(breaker, cfg.ResetDelivery == config.ResetDeliveryEmail, resets, cfg.BaseURL, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	if err := app.ServeDeletion(staff, ownerNotices); err != nil {
+		return err
+	}
 
 	// THE PANEL IS GIVEN THE RECOVERY FLOW AS ITS CHANGE NOTIFIER (M10 EM-9), which is
 	// why the recovery flow is wired ABOVE it: a change of one's own password from the
@@ -1111,7 +1128,7 @@ func run() error {
 		// attendance record, and records are never lost (CLAUDE.md §4). The reset
 		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work, panelAuth}, handler.ResetDrainGrace)
+		return shutdown(srv, httpShutdownGrace, drainers{resetFlow, signupFlow, work, panelAuth, ownerNotices}, handler.ResetDrainGrace)
 	}
 }
 

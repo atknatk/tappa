@@ -468,6 +468,23 @@ func (r *Resets) NoticeRecipient(ctx context.Context, tenantID, adminUserID uuid
 	return r.recipient(ctx, tenantID, adminUserID)
 }
 
+// NoticeOwners is who the owners' notices go to (M16-37, internal/handler's ownerNotices): the business's
+// active owners that can still get a session -- resolve_admin_owners_by_tenant (00081), read inside the
+// business's own tenant context, in id order, at most 200. Ids only; each one's address is then
+// NoticeRecipient's, the password notice's one path to an administrator's address.
+func (r *Resets) NoticeOwners(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error) {
+	var owners []uuid.UUID
+	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		ids, e := db.SignInOwners(ctx, tx, tenantID)
+		owners = ids
+		return e
+	})
+	if err != nil {
+		return nil, fmt.Errorf("adminauth: read the business's owners: %w", err)
+	}
+	return owners, nil
+}
+
 // recipient reads one administrator's own address inside their own tenant. It
 // returns "" when the row is gone or no longer active, which the caller treats as
 // "no link for this identity" rather than as an error.

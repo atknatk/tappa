@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 30 minutes is the floor the platform allows; the app redraws the widget itself whenever it
+     reads /me (PresenceWidget.publish), so the period only catches a business day's end. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_presence"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:previewLayout="@layout/widget_presence"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

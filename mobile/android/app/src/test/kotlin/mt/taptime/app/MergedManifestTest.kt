@@ -194,6 +194,16 @@ class MergedManifestTest {
         val receivers = merged.elements("receiver")
         val staff = receivers.single { it.getAttributeNS(androidNs, "name") == "mt.taptime.app.staff.StaffReceiver" }
         assertEquals("false", staff.getAttributeNS(androidNs, "exported"))
+        // The home-screen widget (2026-11-24) is the one exported receiver: the launcher delivers
+        // its update, and it listens for that action alone.
+        val widget = receivers.single { it.getAttributeNS(androidNs, "name") == "mt.taptime.app.staff.PresenceWidget" }
+        val actions = (0 until widget.getElementsByTagName("action").length).map {
+            (widget.getElementsByTagName("action").item(it) as org.w3c.dom.Element).getAttributeNS(androidNs, "name")
+        }
+        assertEquals(listOf("android.appwidget.action.APPWIDGET_UPDATE"), actions)
+        assertEquals("exported receivers", listOf("mt.taptime.app.staff.PresenceWidget"),
+            receivers.filter { it.getAttributeNS(androidNs, "exported") == "true" }.map { it.getAttributeNS(androidNs, "name") }
+                .filter { it.startsWith("mt.taptime") })
         val asked = merged.names("uses-permission")
         for (p in listOf("android.permission.RECEIVE_BOOT_COMPLETED", "android.permission.SCHEDULE_EXACT_ALARM",
             "android.permission.USE_EXACT_ALARM", "com.google.android.c2dm.permission.RECEIVE")) {

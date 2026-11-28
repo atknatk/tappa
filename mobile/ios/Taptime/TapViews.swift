@@ -22,6 +22,7 @@ import SwiftUI
 
 struct TapRootView: View {
     @ObservedObject var model: TapModel
+    let staff: StaffModel
 
     var body: some View {
         switch model.screen {
@@ -29,6 +30,10 @@ struct TapRootView: View {
             ScreenFrame(look: BrandLook(.taptime)) {
                 ProgressView().frame(maxWidth: .infinity)
             }
+        case .tap(let view, let problem) where view.source == .home:
+            // The app's own home (/me): the staff shell, whose Today tab holds the plaque button.
+            StaffRootView(staff: staff, tap: model, view: view, problem: problem)
+                .task { await staff.refreshToday() }
         case .tap(let view, let problem):
             TapScreen(model: model, view: view, problem: problem)
         case .result(let r):

@@ -90,6 +90,7 @@ var plainNotFoundRoots = []string{
 	firstPathSegment(AppTapPath),           // app: the native app's signed surface (M16-07)
 	firstPathSegment(LiveScreenPath),       // screen: the live QR screen page (M16-20)
 	firstPathSegment(liveqr.LiveQRTapPath), // q: the live QR tap page (M16-21)
+	firstPathSegment(MyHoursPath),          // me: the browser's My hours (M16-32)
 }
 
 // oauthTokenPath is internal/handler/oauthapi's token endpoint (TokenPath), named here for its root:

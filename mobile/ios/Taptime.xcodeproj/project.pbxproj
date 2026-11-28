@@ -32,6 +32,9 @@
 		0A0000000000000000000212 /* TapFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000112 /* TapFlow.swift */; };
 		0A0000000000000000000213 /* TapViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000113 /* TapViews.swift */; };
 		0A0000000000000000000214 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000114 /* AppModel.swift */; };
+		0A0000000000000000000217 /* StaffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000117 /* StaffViews.swift */; };
+		0A0000000000000000000216 /* StaffModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000116 /* StaffModel.swift */; };
+		0A0000000000000000000215 /* StaffCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000115 /* StaffCopy.swift */; };
 		0A000000000000000000020F /* TapModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000010F /* TapModelTests.swift */; };
 		0A0000000000000000000281 /* space-grotesk-v22-latin-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */; };
 		0A0000000000000000000282 /* space-grotesk-v22-latin-ext-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */; };
@@ -41,7 +44,29 @@
 		0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */; };
 		0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */; };
 		0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000188 /* OFL-IBMPlexMono.txt */; };
-		0A0000000000000000000289 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000189 /* Assets.xcassets */; };
+		0A0000000000000000000240 /* PresenceShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000140 /* PresenceShare.swift */; };
+		0A0000000000000000000241 /* TimerActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000141 /* TimerActivity.swift */; };
+		0A0000000000000000000242 /* LiveCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000142 /* LiveCopy.swift */; };
+		0A0000000000000000000243 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000143 /* LiveViews.swift */; };
+		0A0000000000000000000244 /* PresenceSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000144 /* PresenceSync.swift */; };
+		0A0000000000000000000245 /* PresenceShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000140 /* PresenceShare.swift */; };
+		0A0000000000000000000246 /* TimerActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000141 /* TimerActivity.swift */; };
+		0A0000000000000000000247 /* LiveCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000142 /* LiveCopy.swift */; };
+		0A0000000000000000000248 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000143 /* LiveViews.swift */; };
+		0A0000000000000000000249 /* TaptimeWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000145 /* TaptimeWidgets.swift */; };
+		0A000000000000000000024B /* space-grotesk-v22-latin-wght.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */; };
+		0A000000000000000000024D /* ibm-plex-mono-v20-latin-400.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */; };
+		0A000000000000000000024F /* ibm-plex-mono-v20-latin-700.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000185 /* ibm-plex-mono-v20-latin-700.woff2 */; };
+		0A0000000000000000000251 /* OFL-SpaceGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */; };
+		0A0000000000000000000252 /* OFL-IBMPlexMono.txt in Resources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000188 /* OFL-IBMPlexMono.txt */; };
+		0A0000000000000000000253 /* PresenceSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000148 /* PresenceSyncTests.swift */; };
+		0A0000000000000000000254 /* LiveViewsRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000000000000000000149 /* LiveViewsRenderTests.swift */; };
+		0A0000000000000000000256 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014B /* WidgetKit.framework */; };
+		0A0000000000000000000257 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014C /* SwiftUI.framework */; };
+		0A0000000000000000000255 /* TaptimeWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0A000000000000000000014A /* TaptimeWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0A00000000000000000002B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A0 /* Assets.xcassets */; };
+		0A00000000000000000002B1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */; };
+		0A00000000000000000002B2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,7 +77,28 @@
 			remoteGlobalIDString = 0A0000000000000000000030;
 			remoteInfo = Taptime;
 		};
+		0A0000000000000000000085 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A0000000000000000000080;
+			remoteInfo = TaptimeWidgets;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0A0000000000000000000084 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0A0000000000000000000255 /* TaptimeWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0A0000000000000000000010 /* TaptimeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaptimeApp.swift; sourceTree = "<group>"; };
@@ -84,6 +130,9 @@
 		0A0000000000000000000112 /* TapFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapFlow.swift; sourceTree = "<group>"; };
 		0A0000000000000000000113 /* TapViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapViews.swift; sourceTree = "<group>"; };
 		0A0000000000000000000114 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		0A0000000000000000000117 /* StaffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffViews.swift; sourceTree = "<group>"; };
+		0A0000000000000000000116 /* StaffModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffModel.swift; sourceTree = "<group>"; };
+		0A0000000000000000000115 /* StaffCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaffCopy.swift; sourceTree = "<group>"; };
 		0A000000000000000000010F /* TapModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapModelTests.swift; sourceTree = "<group>"; };
 		0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-wght.woff2; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = space-grotesk-v22-latin-ext-wght.woff2; path = ../../web/static/fonts/space-grotesk-v22-latin-ext-wght.woff2; sourceTree = SOURCE_ROOT; };
@@ -93,7 +142,22 @@
 		0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */ = {isa = PBXFileReference; lastKnownFileType = file; name = ibm-plex-mono-v20-latin-ext-700.woff2; path = ../../web/static/fonts/ibm-plex-mono-v20-latin-ext-700.woff2; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-SpaceGrotesk.txt; path = ../../web/static/fonts/OFL-SpaceGrotesk.txt; sourceTree = SOURCE_ROOT; };
 		0A0000000000000000000188 /* OFL-IBMPlexMono.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = OFL-IBMPlexMono.txt; path = ../../web/static/fonts/OFL-IBMPlexMono.txt; sourceTree = SOURCE_ROOT; };
-		0A0000000000000000000189 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0A0000000000000000000140 /* PresenceShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceShare.swift; sourceTree = "<group>"; };
+		0A0000000000000000000141 /* TimerActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerActivity.swift; sourceTree = "<group>"; };
+		0A0000000000000000000142 /* LiveCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCopy.swift; sourceTree = "<group>"; };
+		0A0000000000000000000143 /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
+		0A0000000000000000000144 /* PresenceSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSync.swift; sourceTree = "<group>"; };
+		0A0000000000000000000145 /* TaptimeWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaptimeWidgets.swift; sourceTree = "<group>"; };
+		0A0000000000000000000146 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A0000000000000000000147 /* TaptimeWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TaptimeWidgets.entitlements; sourceTree = "<group>"; };
+		0A0000000000000000000148 /* PresenceSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceSyncTests.swift; sourceTree = "<group>"; };
+		0A0000000000000000000149 /* LiveViewsRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewsRenderTests.swift; sourceTree = "<group>"; };
+		0A000000000000000000014A /* TaptimeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TaptimeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A000000000000000000014B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		0A000000000000000000014C /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		0A00000000000000000002A0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +175,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0A0000000000000000000082 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A0000000000000000000256 /* WidgetKit.framework in Frameworks */,
+				0A0000000000000000000257 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -118,7 +191,10 @@
 			isa = PBXGroup;
 			children = (
 				0A0000000000000000000004 /* Taptime */,
+				0A0000000000000000000090 /* Shared */,
+				0A0000000000000000000091 /* TaptimeWidgets */,
 				0A0000000000000000000005 /* TaptimeTests */,
+				0A0000000000000000000092 /* Frameworks */,
 				0A0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -128,6 +204,7 @@
 			children = (
 				0A0000000000000000000016 /* Taptime.app */,
 				0A0000000000000000000017 /* TaptimeTests.xctest */,
+				0A000000000000000000014A /* TaptimeWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,6 +230,10 @@
 				0A0000000000000000000112 /* TapFlow.swift */,
 				0A0000000000000000000113 /* TapViews.swift */,
 				0A0000000000000000000114 /* AppModel.swift */,
+				0A0000000000000000000117 /* StaffViews.swift */,
+				0A0000000000000000000116 /* StaffModel.swift */,
+				0A0000000000000000000115 /* StaffCopy.swift */,
+				0A0000000000000000000144 /* PresenceSync.swift */,
 				0A0000000000000000000181 /* space-grotesk-v22-latin-wght.woff2 */,
 				0A0000000000000000000182 /* space-grotesk-v22-latin-ext-wght.woff2 */,
 				0A0000000000000000000183 /* ibm-plex-mono-v20-latin-400.woff2 */,
@@ -161,7 +242,8 @@
 				0A0000000000000000000186 /* ibm-plex-mono-v20-latin-ext-700.woff2 */,
 				0A0000000000000000000187 /* OFL-SpaceGrotesk.txt */,
 				0A0000000000000000000188 /* OFL-IBMPlexMono.txt */,
-				0A0000000000000000000189 /* Assets.xcassets */,
+				0A00000000000000000002A0 /* Assets.xcassets */,
+				0A00000000000000000002A1 /* PrivacyInfo.xcprivacy */,
 				0A0000000000000000000013 /* Info.plist */,
 				0A0000000000000000000014 /* Taptime.entitlements */,
 			);
@@ -178,9 +260,42 @@
 				0A000000000000000000010D /* AppClientTests.swift */,
 				0A000000000000000000010E /* ActivationModelTests.swift */,
 				0A000000000000000000010F /* TapModelTests.swift */,
+				0A0000000000000000000148 /* PresenceSyncTests.swift */,
+				0A0000000000000000000149 /* LiveViewsRenderTests.swift */,
 				0A0000000000000000000180 /* appdevice_vectors.json */,
 			);
 			path = TaptimeTests;
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000090 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				0A0000000000000000000140 /* PresenceShare.swift */,
+				0A0000000000000000000141 /* TimerActivity.swift */,
+				0A0000000000000000000142 /* LiveCopy.swift */,
+				0A0000000000000000000143 /* LiveViews.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000091 /* TaptimeWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				0A0000000000000000000145 /* TaptimeWidgets.swift */,
+				0A00000000000000000002A2 /* PrivacyInfo.xcprivacy */,
+				0A0000000000000000000146 /* Info.plist */,
+				0A0000000000000000000147 /* TaptimeWidgets.entitlements */,
+			);
+			path = TaptimeWidgets;
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000092 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0A000000000000000000014B /* WidgetKit.framework */,
+				0A000000000000000000014C /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -193,10 +308,12 @@
 				0A0000000000000000000031 /* Sources */,
 				0A0000000000000000000032 /* Frameworks */,
 				0A0000000000000000000033 /* Resources */,
+				0A0000000000000000000084 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				0A0000000000000000000086 /* PBXTargetDependency */,
 			);
 			name = Taptime;
 			productName = Taptime;
@@ -221,6 +338,23 @@
 			productReference = 0A0000000000000000000017 /* TaptimeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		0A0000000000000000000080 /* TaptimeWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A0000000000000000000087 /* Build configuration list for PBXNativeTarget "TaptimeWidgets" */;
+			buildPhases = (
+				0A0000000000000000000081 /* Sources */,
+				0A0000000000000000000082 /* Frameworks */,
+				0A0000000000000000000083 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TaptimeWidgets;
+			productName = TaptimeWidgets;
+			productReference = 0A000000000000000000014A /* TaptimeWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -237,6 +371,9 @@
 					0A0000000000000000000040 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = 0A0000000000000000000030;
+					};
+					0A0000000000000000000080 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -255,6 +392,7 @@
 			targets = (
 				0A0000000000000000000030 /* Taptime */,
 				0A0000000000000000000040 /* TaptimeTests */,
+				0A0000000000000000000080 /* TaptimeWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -272,7 +410,8 @@
 				0A0000000000000000000286 /* ibm-plex-mono-v20-latin-ext-700.woff2 in Resources */,
 				0A0000000000000000000287 /* OFL-SpaceGrotesk.txt in Resources */,
 				0A0000000000000000000288 /* OFL-IBMPlexMono.txt in Resources */,
-				0A0000000000000000000289 /* Assets.xcassets in Resources */,
+				0A00000000000000000002B0 /* Assets.xcassets in Resources */,
+				0A00000000000000000002B1 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,6 +420,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				0A0000000000000000000280 /* appdevice_vectors.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A0000000000000000000083 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A000000000000000000024B /* space-grotesk-v22-latin-wght.woff2 in Resources */,
+				0A000000000000000000024D /* ibm-plex-mono-v20-latin-400.woff2 in Resources */,
+				0A000000000000000000024F /* ibm-plex-mono-v20-latin-700.woff2 in Resources */,
+				0A0000000000000000000251 /* OFL-SpaceGrotesk.txt in Resources */,
+				0A0000000000000000000252 /* OFL-IBMPlexMono.txt in Resources */,
+				0A00000000000000000002B2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,6 +461,14 @@
 				0A0000000000000000000212 /* TapFlow.swift in Sources */,
 				0A0000000000000000000213 /* TapViews.swift in Sources */,
 				0A0000000000000000000214 /* AppModel.swift in Sources */,
+				0A0000000000000000000217 /* StaffViews.swift in Sources */,
+				0A0000000000000000000216 /* StaffModel.swift in Sources */,
+				0A0000000000000000000215 /* StaffCopy.swift in Sources */,
+				0A0000000000000000000240 /* PresenceShare.swift in Sources */,
+				0A0000000000000000000241 /* TimerActivity.swift in Sources */,
+				0A0000000000000000000242 /* LiveCopy.swift in Sources */,
+				0A0000000000000000000243 /* LiveViews.swift in Sources */,
+				0A0000000000000000000244 /* PresenceSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -323,6 +483,20 @@
 				0A000000000000000000020D /* AppClientTests.swift in Sources */,
 				0A000000000000000000020E /* ActivationModelTests.swift in Sources */,
 				0A000000000000000000020F /* TapModelTests.swift in Sources */,
+				0A0000000000000000000253 /* PresenceSyncTests.swift in Sources */,
+				0A0000000000000000000254 /* LiveViewsRenderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A0000000000000000000081 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A0000000000000000000245 /* PresenceShare.swift in Sources */,
+				0A0000000000000000000246 /* TimerActivity.swift in Sources */,
+				0A0000000000000000000247 /* LiveCopy.swift in Sources */,
+				0A0000000000000000000248 /* LiveViews.swift in Sources */,
+				0A0000000000000000000249 /* TaptimeWidgets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -334,6 +508,11 @@
 			target = 0A0000000000000000000030 /* Taptime */;
 			targetProxy = 0A0000000000000000000050 /* PBXContainerItemProxy */;
 		};
+		0A0000000000000000000086 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0A0000000000000000000080 /* TaptimeWidgets */;
+			targetProxy = 0A0000000000000000000085 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -344,6 +523,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -356,6 +536,7 @@
 					"$(inherited)",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -371,12 +552,14 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -390,7 +573,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = P6PM935BK2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Taptime/Info.plist;
@@ -398,7 +580,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -417,7 +598,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Taptime/Taptime.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = P6PM935BK2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Taptime/Info.plist;
@@ -425,7 +605,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -443,10 +622,8 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = P6PM935BK2;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -462,10 +639,8 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = P6PM935BK2;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -473,6 +648,62 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Taptime.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Taptime";
+			};
+			name = Release;
+		};
+		0A0000000000000000000088 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TaptimeWidgets/TaptimeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = P6PM935BK2;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TaptimeWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0A0000000000000000000089 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TaptimeWidgets/TaptimeWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = P6PM935BK2;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TaptimeWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = mt.taptime.app.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -502,6 +733,15 @@
 			buildConfigurations = (
 				0A0000000000000000000074 /* Debug */,
 				0A0000000000000000000075 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A0000000000000000000087 /* Build configuration list for PBXNativeTarget "TaptimeWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A0000000000000000000088 /* Debug */,
+				0A0000000000000000000089 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -240,6 +240,9 @@ const (
 	subjectEmailChange      = "Confirm your new Taptime sign-in email"
 	subjectEmailChangeTaken = "Someone tried to use this address on Taptime"
 	subjectEmailChanged     = "Your Taptime sign-in email was changed"
+	// subjectDeletionRequested is the owners' notice of an employee's "Delete my account" (M16-37,
+	// Q46 (b)).
+	subjectDeletionRequested = "An employee asked to delete their Taptime account"
 )
 
 // Where each link must point, relative to the configured BaseURL. They are the
@@ -567,6 +570,41 @@ func RenderEmailChanged(ctx context.Context, link string, v EmailChangedView) (m
 		return mail.Message{}, err
 	}
 	return render(ctx, emailChangedLetter(when, life), link)
+}
+
+// DeletionRequestedView is what the owners' notice of an employee's deletion request says besides its
+// link (M16-37, Q46 (b)): who asked and on which day.
+//
+// THE NAME GOES THROUGH nameShown AND NOTHING ELSE -- NO VIES GATE, unlike the invitation. The
+// invitation reaches any address a manager typed, so a name there is text a stranger may read; this
+// notice reaches only the OWNERS of the business whose own staff typed the name, who see the same name
+// on the People page. A withheld name reads "An employee". It carries no address of anybody: the
+// employee's is not a field, and the recipient's is the caller's mail.Message.To.
+type DeletionRequestedView struct {
+	// BaseURL is cfg.BaseURL; the link must be exactly BaseURL + "/admin/login".
+	BaseURL string
+	// EmployeeName is the person's name as the business stores it.
+	EmployeeName string
+	// RequestedAt is when the request was recorded; Zone is the business's zone (nil reads UTC). Only
+	// the day is printed.
+	RequestedAt time.Time
+	Zone        *time.Location
+	// Deactivated says the person was deactivated when they asked: their credentials are not revoked
+	// (T59), so the letter does not say their phones are signed out.
+	Deactivated bool
+}
+
+// RenderDeletionRequested renders the owners' notice for the sign-in page's address. The returned
+// Message has Subject, Text and HTML; the caller sets To and Ref.
+func RenderDeletionRequested(ctx context.Context, link string, v DeletionRequestedView) (mail.Message, error) {
+	if err := checkSignInLink(v.BaseURL, link); err != nil {
+		return mail.Message{}, err
+	}
+	zone := v.Zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	return render(ctx, deletionRequestedLetter(v.EmployeeName, v.RequestedAt.In(zone).Format("2 January 2006"), v.Deactivated), link)
 }
 
 // AdminInvitationView is what the manager invitation says besides its link (M14-15, ADR 0031 §5.14).

@@ -80,3 +80,8 @@ Kaynak = istemci adres kovası, `httpx.RateKey` (IPv4 adresi, IPv6 /64). Her abu
 - Linux CI'da kuyruk süreleri.
 - Saldırının kendisi (§3 ve §5'teki kaynak sayıları hesaptır).
 - Kaynak kuralının IPv6 /64 dışındaki NAT biçimlerine etkisi.
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+Beşinci bcrypt servisi: personel parolası (`adminauth.StaffPasswords`, `WithWorkGate`) — giriş, `/staff/password` ve `/account-deletion`'ın owner formu (`ProveOwnership`) aynı
+tek kapıdan geçer. §5'in 503 listesine bu üçü eklenir; tap etkilenmez.

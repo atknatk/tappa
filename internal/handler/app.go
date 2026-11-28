@@ -57,6 +57,8 @@ import (
 //	POST /app/v1/claims             read-signed  the records that take a claim now + the person's
 //	                                             own claims (M16-43)
 //	POST /app/v1/claims/send        nonce-signed one claim -> a result word (POST /api/claim's twin)
+//	POST /app/v1/account/delete     nonce-signed the person's deletion request: signed out everywhere,
+//	                                             the employer told; no record is deleted (M16-37)
 //	POST /app/v1/hours              read-signed  the person's own week: totals, records, waiting
 //	                                             count, inside the owner's window (M16-31)
 //	POST /app/v1/revoke             nonce-signed the device's own sign-out
@@ -142,6 +144,10 @@ type App struct {
 	claimContexts claimContexts
 	// hours serves My hours (M16-31): nil until ServeHours.
 	hours appHours
+	// deletion serves "Delete my account" (M16-37) and owners tells the business's owners: both nil
+	// until ServeDeletion.
+	deletion appDeletion
+	owners   ownerNotifier
 }
 
 // ServeLiveQR turns the app's live QR read on (M16-22): tap/start's `liveQR` field, opened by the
@@ -214,6 +220,8 @@ const (
 	AppClaimsSendPath = "/app/v1/claims/send"
 	// My hours (M16-31): the person's own week (a signed read).
 	AppHoursPath = "/app/v1/hours"
+	// "Delete my account" (M16-37): nonce-signed, 204.
+	AppAccountDeletePath = "/app/v1/account/delete"
 )
 
 // appPrefix is the surface's root; every App*Path starts with it.
@@ -243,6 +251,7 @@ func (a *App) Mount(r chi.Router) {
 		r.Post(sub(AppClaimsPath), a.Claims)
 		r.Post(sub(AppClaimsSendPath), a.ClaimsSend)
 		r.Post(sub(AppHoursPath), a.Hours)
+		r.Post(sub(AppAccountDeletePath), a.AccountDelete)
 		r.Post(sub(AppRevokePath), a.Revoke)
 	})
 }

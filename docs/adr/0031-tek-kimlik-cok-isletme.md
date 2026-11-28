@@ -1606,3 +1606,12 @@ metne geri döner; yeni kullanıcı sorusu yoktur. Aşağıda her karar, seçile
 | K-13 | §4.5 sınıflandırması | **(b) — üçüncü açık istisna** | **Değişti (2026-10-21, denetimden sonra).** Gerekçe: güvenlik denetimi, yazan ve tenant sınırını geçen fonksiyonları "md.7 çözümleyicisi" saymanın md.7'nin "salt okuma, bağlam üreten" tanımını genişlettiğini ve sınırı görünmez kıldığını gösterdi; kullanıcı istisnanın **adıyla** yazılmasını seçti. md.7'de yalnız salt okuma çözümleyiciler kalır; yazanlar §6.1'deki kapalı listedir |
 | K-14 | `admin_users.email` ayna, `full_name` üyelikte | (a) | **Sıkılaştı** (bulgu 21): `tappa_app`'ın `UPDATE (email)`'i expand'de kapanır |
 | K-15 | **Yeni (bulgu 12):** e-posta değiştirme | **(a) — M14'ün dışında** (kullanıcı, 2026-10-22) | Var olan kimliğin adresini değiştirmek mevcut parola + yeni adresin doğrulanması + eski adrese bildirim + çakışmada aynı "gelen kutunu kontrol et" + aynanın bütün işletmelerde definer ile güncellenmesini ister; kendi kartı ve kararıyla gelir. Kullanıcıya M14-01'de soruldu, (a)'yı seçti (2026-10-22) |
+
+## Not — ADR 0051 (2026-11-25, M16-50; kullanıcı onayı)
+
+- **Beşinci adlandırılmış istisna onaylandı** (2026-11-25, kullanıcı, AskUserQuestion): `identity_erase_member` ve `identity_erase_tenant_invites` — kapalı listeye **iki ek, tek
+  istisna**. Onaylanan dört parça birlikte: (1) CLAUDE.md §4.5(3)'ün *"dört → beş"* farkı ve ADR 0051 §2.9.8'deki birebir cümle; (2) bu ADR'nin §6.1 metninin aynı farkı;
+  (3) `cmd/tappa/claudemdidentity_test.go`'nun dizgeleri; (4) `tappa_identitydefiner`'a `UPDATE (email, full_name, cancelled_at) ON admin_invites`; (5) `tappa_identitydefiner`'a
+  `SELECT (id, tenant_id, approved_at, completed_at, cancelled_at) ON business_deletion_requests` (yapısal yüklemin kilitsiz okuması).
+- **§6.1 bu notla DEĞİŞMEZ:** `claudemdidentity_test.go` CLAUDE.md §4.5(3)'ü §6.1'le bayt bayt karşılaştırır; iki metin, test dizgeleri ve fonksiyonlar **aynı commit'te**,
+  M16-61'de değişir.

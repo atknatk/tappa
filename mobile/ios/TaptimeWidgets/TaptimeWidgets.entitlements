@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The whole entitlement list of the widget extension (M16-47). One entry:
+    application-groups   group.mt.taptime.app, the suite the app writes PresenceShare into and
+                         this extension only reads (instants and one flag -- Shared/PresenceShare.swift)
+  No aps-environment: the Live Activity is started and ended locally, with no push (M16-46 [G46-e]).
+  A local Live Activity needs no entitlement of its own; NSSupportsLiveActivities is in the APP's
+  Info.plist.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.mt.taptime.app</string>
+	</array>
+</dict>
+</plist>

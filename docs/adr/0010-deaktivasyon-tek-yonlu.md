@@ -238,3 +238,10 @@ ve en az bir oturum iptal edildiyse `employee.phones_signed_out` audit satırın
   iptal edilmiş satır durdukça `sessions_token_hash_key` (UNIQUE) durdurur (23505), ve o satır artık
   yerinden oynatılamaz (DELETE 00003'ten beri yok, `token_hash` UPDATE'i yok).
 - **Askıda açık (2026-11-09, kullanıcı kararı):** ADR 0025 §3'ün istisna listesinde, ADR 0025'in T59 notu.
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+- *"Listedeki ve parolalı girişi açık işletmelerde imzası çıkmış telefonun dokunuşu bir `tap.signed_out_phone` satırı yazar — ADR 0051, M16-52."*
+- **Adlandırılmış istisna (kullanıcı onayı, 2026-11-25):** *"Bir işletmenin silinmesi tamamlanınca (ADR 0051, M16-61) personelinin tarayıcı oturumları ve uygulama cihazları
+  iptal edilir; bu, deaktivasyonun hiçbir şeyi iptal etmediği kuralının tek adlandırılmış istisnasıdır. Sonraki dokunuş iptal edilmiş oturum dalına düşer, kayıt ve uyarı
+  yazmaz."*

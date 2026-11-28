@@ -27,6 +27,9 @@ private const val ACTION_REMIND = "mt.taptime.app.action.REMIND"
 private const val ACTION_TIMER_DISMISSED = "mt.taptime.app.action.TIMER_DISMISSED"
 private const val EXTRA_IN = "in"
 private const val EXTRA_SHIFT_END = "shiftEnd"
+private const val EXTRA_LAST = "last"
+private const val ACTION_SNOOZE = "mt.taptime.app.action.SNOOZE"
+private const val SNOOZE_MS = 60L * 60 * 1000
 
 /** The person's two switches, in the app's private preferences: two booleans. */
 class PrefsStaffSwitches(context: Context) : StaffSwitches {
@@ -58,21 +61,25 @@ object StaffChannels {
 class AlarmReminder(private val context: Context) : ReminderPort {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
-    private fun pending(inLocal: String?, shiftEnd: String?, flags: Int): PendingIntent? =
+    private fun pending(inLocal: String?, shiftEnd: String?, lastMs: Long, flags: Int): PendingIntent? =
         PendingIntent.getBroadcast(context, ID_REMINDER,
             Intent(context, StaffReceiver::class.java).setAction(ACTION_REMIND)
-                .apply { if (inLocal != null) putExtra(EXTRA_IN, inLocal); if (shiftEnd != null) putExtra(EXTRA_SHIFT_END, shiftEnd) },
+                .apply {
+                    if (inLocal != null) putExtra(EXTRA_IN, inLocal)
+                    if (shiftEnd != null) putExtra(EXTRA_SHIFT_END, shiftEnd)
+                    putExtra(EXTRA_LAST, lastMs)
+                },
             flags or PendingIntent.FLAG_IMMUTABLE)
 
-    override fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?) {
-        val p = pending(inSinceLocal, shiftEndsAtLocal, PendingIntent.FLAG_UPDATE_CURRENT) ?: return
+    override fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?, lastLocalMs: Long) {
+        val p = pending(inSinceLocal, shiftEndsAtLocal, lastLocalMs, PendingIntent.FLAG_UPDATE_CURRENT) ?: return
         // Inexact: Android 12+ may deliver it up to about an hour late, later under Doze (M16-46's
         // named cost); the words carry the check-in's clock, not "now".
         alarms?.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atLocalMs, p)
     }
 
     override fun cancel() {
-        pending(null, null, PendingIntent.FLAG_NO_CREATE)?.let { alarms?.cancel(it); it.cancel() }
+        pending(null, null, 0L, PendingIntent.FLAG_NO_CREATE)?.let { alarms?.cancel(it); it.cancel() }
         context.getSystemService(NotificationManager::class.java)?.cancel(ID_REMINDER)
     }
 }
@@ -116,18 +123,37 @@ class StaffReceiver : BroadcastReceiver() {
             ACTION_REMIND -> {
                 val inLocal = intent.getStringExtra(EXTRA_IN) ?: return
                 val shiftEnd = intent.getStringExtra(EXTRA_SHIFT_END)
+                val last = intent.getLongExtra(EXTRA_LAST, 0L)
                 val nm = context.getSystemService(NotificationManager::class.java) ?: return
                 StaffChannels.ensure(context)
                 val body = if (shiftEnd != null) context.getString(R.string.remind_body_shift, shiftEnd)
                 else context.getString(R.string.remind_body, inLocal)
-                nm.notify(ID_REMINDER, Notification.Builder(context, CHANNEL_REMINDERS)
+                val b = Notification.Builder(context, CHANNEL_REMINDERS)
                     .setSmallIcon(R.drawable.ic_stat_taptime)
                     .setContentTitle(context.getString(R.string.remind_title))
                     .setContentText(body)
                     .setStyle(Notification.BigTextStyle().bigText(body))
                     .setAutoCancel(true)
                     .setContentIntent(StaffChannels.openApp(context))
-                    .build())
+                    .addAction(Notification.Action.Builder(null, context.getString(R.string.remind_open), StaffChannels.openApp(context)).build())
+                // "Remind me in an hour" only while an hour from now is still before the business
+                // day's end: after it, a tap is a new check-in and the question would be false.
+                if (System.currentTimeMillis() + SNOOZE_MS <= last) {
+                    val snooze = PendingIntent.getBroadcast(context, ID_REMINDER + 10,
+                        Intent(context, StaffReceiver::class.java).setAction(ACTION_SNOOZE)
+                            .putExtra(EXTRA_IN, inLocal).putExtra(EXTRA_LAST, last)
+                            .apply { if (shiftEnd != null) putExtra(EXTRA_SHIFT_END, shiftEnd) },
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                    b.addAction(Notification.Action.Builder(null, context.getString(R.string.remind_snooze), snooze).build())
+                }
+                nm.notify(ID_REMINDER, b.build())
+            }
+            ACTION_SNOOZE -> {
+                val inLocal = intent.getStringExtra(EXTRA_IN) ?: return
+                val last = intent.getLongExtra(EXTRA_LAST, 0L)
+                context.getSystemService(NotificationManager::class.java)?.cancel(ID_REMINDER)
+                val at = System.currentTimeMillis() + SNOOZE_MS
+                if (at <= last) AlarmReminder(context).schedule(at, inLocal, intent.getStringExtra(EXTRA_SHIFT_END), last)
             }
             ACTION_TIMER_DISMISSED -> TimerDismissals.key = intent.getLongExtra("key", 0L)
         }

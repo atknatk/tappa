@@ -91,6 +91,8 @@ type appMeResponse struct {
 	// HoursWeeks is the owner's My hours window (M16-30): 0 when off -- the app shows the My
 	// hours link only above 0.
 	HoursWeeks int `json:"hoursWeeks"`
+	// BusinessName is the employer's name, always set (M16-37).
+	BusinessName string `json:"businessName"`
 }
 
 // appPresence carries instants (RFC 3339, UTC) for the phone's scheduling and the business's
@@ -184,6 +186,7 @@ func (a *App) Me(w http.ResponseWriter, r *http.Request) {
 		Shift:        appShiftOf(facts.Shift),
 		MissingTimes: a.missingTimes(ctx, dev.TenantID, dev.EmployeeID),
 		HoursWeeks:   a.hoursWeeksOf(facts.HoursWeeks),
+		BusinessName: facts.BusinessName,
 	})
 }
 

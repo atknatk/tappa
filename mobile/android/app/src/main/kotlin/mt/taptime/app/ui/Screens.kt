@@ -89,7 +89,7 @@ fun CodeScreen(problem: Problem?, notALink: Boolean, busy: Boolean, onContinue: 
             onValueChange = { input = it },
             enabled = !busy,
             singleLine = true,
-            textStyle = TextStyle(color = Palette.Ink, fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+            textStyle = TextStyle(color = Palette.Ink, fontFamily = MonoFamily, fontSize = 14.sp),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).background(Palette.Paper)
                 .border(1.dp, if (notALink) Palette.Tomato else Palette.Line).padding(horizontal = 12.dp, vertical = 14.dp),
         )
@@ -168,7 +168,7 @@ fun ReadyScreen(facts: LookupReply, onReady: () -> Unit, onBack: () -> Unit) {
         }
         Panel(docket = true) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                BasicText("01", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                BasicText("01", style = TextStyle(fontFamily = MonoFamily, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     color = if (accent != null) Palette.Ink else Palette.TappaGreen))
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     BasicText(stringResource(R.string.ready_wifi), style = TextStyle(color = Palette.Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold))

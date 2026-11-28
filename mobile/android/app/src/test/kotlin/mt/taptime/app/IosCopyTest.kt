@@ -16,19 +16,30 @@ import org.w3c.dom.Element
  *
  * SKIPPED, NOT PASSED, when the Swift files are not in this checkout (build.gradle.kts hands them
  * over only when present): the two apps are built on separate branches until they merge.
+ *
+ * M16-47: the staff screens (StaffCopy.swift) and the lock screen and widget (Shared/LiveCopy.swift)
+ * are held the same way and in BOTH languages -- values-tr's line must be the Turkish half of the
+ * same Swift pair (`%1$d` and `%2$02d` are holes too). LiveCopy is held both ways: each of
+ * its literals is one of Android's lines or is named in [liveIosOnly].
  */
 class IosCopyTest {
     private fun file(property: String): File? = System.getProperty(property)?.let(::File)?.takeIf { it.isFile }
 
-    private val strings: Map<String, String> by lazy {
-        val f = File(System.getProperty("taptime.mainSrc")!!, "res/values/strings.xml")
+    private val strings: Map<String, String> by lazy { read("res/values/strings.xml") }
+    private val turkish: Map<String, String> by lazy { read("res/values-tr/strings.xml") }
+
+    private fun read(path: String): Map<String, String> {
+        val f = File(System.getProperty("taptime.mainSrc")!!, path)
         val doc = DocumentBuilderFactory.newInstance().apply {
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
         }.newDocumentBuilder().parse(f)
         val nodes = doc.getElementsByTagName("string")
-        (0 until nodes.length).map { nodes.item(it) as Element }
+        return (0 until nodes.length).map { nodes.item(it) as Element }
             .associate { it.getAttribute("name") to it.textContent.replace("\\'", "'").replace("\\\"", "\"") }
     }
+
+    /** A format string's holes (`%1$s`, `%1$d`, `%2$02d`) as Swift's "{}". */
+    private fun holes(s: String): String = s.replace(Regex("""%\d\$0?\d*[sd]"""), "{}")
 
     /** Every Swift string literal, interpolation as "{}", "iPhone" as "phone". */
     private fun literals(vararg files: File): Set<String> = files.flatMap { f ->
@@ -83,7 +94,7 @@ class IosCopyTest {
         val ios = literals(tap!!, activation!!)
         val missing = shared.filter { key ->
             val mine = strings[key] ?: throw AssertionError("strings.xml has no $key")
-            mine.replace("%1\$s", "{}") !in ios
+            holes(mine) !in ios
         }.map { "$it = \"${strings[it]}\"" }
         assertEquals("tap lines with no character-for-character iOS twin", emptyList<String>(), missing)
         for (key in composed) {
@@ -91,5 +102,82 @@ class IosCopyTest {
                 assertEquals("$key: \"$part\"", true, ios.any { it.contains(part) })
             }
         }
+    }
+
+    /** The staff screens' lines with an iOS twin in StaffCopy.swift (the native shell, 2026-11-24). */
+    private val staff = listOf(
+        "tab_today", "tab_hours", "tab_settings",
+        "today_hello", "today_at_work", "today_not_in", "today_in_at", "today_not_in_body", "today_shift_until",
+        "today_left", "today_over", "today_tap_out", "today_tap_in", "today_missing_one", "today_missing_many",
+        "today_missing_sub", "today_week",
+        "hours_counted_label", "hours_duration", "hours_awaiting", "hours_truncated", "hours_day_empty",
+        "hours_dir_in", "hours_dir_out", "hours_state_approved", "hours_state_waiting", "hours_state_rejected",
+        "hours_state_repeat", "hours_channel_manual", "hours_channel_qr", "hours_channel_qr_live",
+        "hours_claim_pending", "hours_claim_approved", "hours_claim_rejected", "hours_prev", "hours_next",
+        "hours_more", "hours_off_title", "hours_off_body", "hours_chip_open",
+        "claim_lead_out_today", "claim_lead_out_yesterday", "claim_lead_out_earlier",
+        "claim_lead_in_today", "claim_lead_in_yesterday", "claim_lead_in_earlier",
+        "claim_question_out", "claim_question_in", "claim_send", "claim_sent", "claim_window_hint", "claim_outside",
+        "claim_window_after_before", "claim_window_from_before", "claim_window_after_upto", "claim_window_from_upto",
+        "claim_expired_title", "claim_tell_manager", "claim_resolved_title", "claim_resolved_message",
+        "claim_not_active_title", "claim_still_open_title", "claim_still_open_message",
+        "sheet_skip", "sheet_sending",
+        "settings_connected", "settings_notifications", "settings_remind", "settings_remind_hint",
+        "settings_notifications_off", "settings_timer", "settings_shift_label", "settings_usual",
+        "settings_account", "settings_language", "settings_language_sub", "settings_signout",
+        "signout_title", "signout_body", "signout_confirm", "cancel", "settings_privacy", "settings_version",
+        "settings_delete", "settings_delete_sub", "delete_title", "delete_body", "delete_confirm",
+        "delete_your_employer",
+        "remind_title", "remind_body", "remind_body_shift", "remind_snooze",
+    )
+
+    /** Built by `+` on iOS ("Waiting for your manager: " + parts + "."): held by its literal parts. */
+    private val staffComposed = listOf("hours_waiting_line")
+
+    /** The lock screen's and the widget's lines (Android's timer notification and PresenceWidget). */
+    private val live = listOf(
+        "timer_title", "timer_shift_ends", "today_at_work", "today_not_in", "today_in_at", "today_tap_in",
+        "widget_description", "wordmark", "app_name",
+    )
+
+    /**
+     * LiveCopy's literals Android has no line for: the stale Live Activity's "Open Taptime to
+     * check" (Android's timer notification is simply taken away at showUntil, M16-47 O3), and the
+     * language codes the file reads the phone's language and capitalises with.
+     */
+    private val liveIosOnly = setOf("Open Taptime to check", "Kontrol için Taptime'ı aç", "tr", "en")
+
+    /** Each key's English line and, where values-tr has one, its Turkish line, missing from [ios]. */
+    private fun missingIn(ios: Set<String>, keys: List<String>): List<String> = keys.flatMap { key ->
+        val en = strings[key] ?: throw AssertionError("strings.xml has no $key")
+        listOfNotNull("en" to en, turkish[key]?.let { "tr" to it })
+            .filter { (_, line) -> holes(line) !in ios }
+            .map { (lang, line) -> "$key [$lang] = \"$line\"" }
+    }
+
+    @Test
+    fun everyStaffLineIsTheIosAppsLineInBothLanguages() {
+        val f = file("taptime.ios.staffCopy")
+        assumeTrue("the iOS app's staff copy is not in this checkout", f != null)
+        val ios = literals(f!!)
+        assertEquals("staff lines with no character-for-character iOS twin", emptyList<String>(), missingIn(ios, staff))
+        for (key in staffComposed) {
+            for (line in listOfNotNull(strings.getValue(key), turkish[key])) {
+                for (part in line.split("%1\$s").filter { it.isNotEmpty() }) {
+                    assertEquals("$key: \"$part\"", true, ios.any { it.contains(part) })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun theLockScreenAndTheWidgetSayWhatAndroidSays() {
+        val f = file("taptime.ios.liveCopy")
+        assumeTrue("the iOS app's lock-screen copy is not in this checkout", f != null)
+        val ios = literals(f!!)
+        assertEquals("lock-screen lines with no character-for-character iOS twin", emptyList<String>(), missingIn(ios, live))
+        val android = live.flatMap { listOfNotNull(strings[it], turkish[it]) }.map(::holes).toSet()
+        assertEquals("LiveCopy lines Android has not got (name them in liveIosOnly)", emptySet<String>(),
+            ios - android - liveIosOnly)
     }
 }

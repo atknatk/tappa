@@ -1416,3 +1416,60 @@ LEFT JOIN departments d
   ON d.tenant_id = e.tenant_id AND d.id = e.department_id AND d.tenant_id = @tenant_id
 WHERE e.tenant_id = @tenant_id
   AND e.id = @employee_id;
+
+-- name: ListEmployeeDeletionRequests :many
+-- The person's latest "delete my account" request from the staff app (M16-37), for the People
+-- card: at most one instant, none when they never asked. From the trail itself -- the request
+-- writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
+-- employee id as the trail writes it.
+--
+-- WHAT IT CLOSED comes from the row's own detail (tenant.deletionDetail), never from the person's
+-- status now: a person deactivated when they asked kept their credentials, and one deactivated
+-- since was signed out when they asked. signed_out is "a revoked count is not 0" -- compared as
+-- text, so a detail of another shape reads false instead of failing the cast (ListAPIBudgetAlerts'
+-- lesson); deactivated is the detail's flag.
+SELECT a.at,
+       (coalesce(a.detail->>'revoked_sessions', '0') <> '0'
+        OR coalesce(a.detail->>'revoked_devices', '0') <> '0')::boolean AS signed_out,
+       (coalesce(a.detail->>'deactivated', '') = 'true')::boolean AS deactivated
+FROM audit_log a
+WHERE a.tenant_id = @tenant_id
+  AND a.action = 'employee.deletion_requested'
+  AND a.target = @employee_target
+ORDER BY a.at DESC
+LIMIT 1;
+
+-- name: LockEmployeeForDeletionRequest :one
+-- SERIALISE ONE PERSON'S DELETION REQUESTS (M16-37's repeat rule). A deactivated person keeps their
+-- app device (T59), so they can ask again and again; a repeat inside RecentDeletionRequestExists'
+-- window writes nothing. That is a READ-THEN-DECIDE, and without a lock two concurrent requests both
+-- read "none yet" and both write (LockAPIDeactivationBudget's argument: READ COMMITTED takes a fresh
+-- snapshot per statement, and a transaction-scoped advisory lock is released only after its COMMIT
+-- is visible). It is the transaction's FIRST statement, before the revokes' row locks.
+--
+-- THE KEY IS NAMESPACED ('deletion-request:' keeps it apart from LockEmployeeForTap's bare
+-- "<tenant>:<employee>" and every other key) and taken by this statement alone, so it joins no lock
+-- cycle; a hash collision serialises two unrelated requests and mixes nothing.
+--
+-- IT READS THE PERSON'S ROW and takes the lock in the SELECT LIST (LockAPIDeactivationBudget's §4.5
+-- shape): explicit tenant_id beside RLS, and a person not on this business's roster returns NO ROW
+-- and takes no lock.
+SELECT e.id,
+       (pg_advisory_xact_lock(hashtextextended('deletion-request:' || e.tenant_id::text || ':' || e.id::text, 0)) IS NULL)::boolean AS unlocked
+FROM employees e
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @employee_id;
+
+-- name: RecentDeletionRequestExists :one
+-- Did this person already ask, in the last @window_seconds (the repeat rule's window)? Read under
+-- LockEmployeeForDeletionRequest, after it, so a request committed by the holder before is seen.
+-- `at` is the database's clock (00005's DEFAULT) and so is now(). TENANT SCOPE (section 4.5):
+-- explicit predicate beside RLS; rides audit_log_tenant_target_idx.
+SELECT EXISTS (
+    SELECT 1
+    FROM audit_log a
+    WHERE a.tenant_id = @tenant_id
+      AND a.action = 'employee.deletion_requested'
+      AND a.target = @employee_target::text
+      AND a.at > now() - make_interval(secs => @window_seconds::int)
+) AS recent;

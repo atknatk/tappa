@@ -219,6 +219,49 @@ func TestPeopleCard_ADeactivatedPersonKeepsTheirSignedInBrowsers(t *testing.T) {
 	}
 }
 
+// TestPeopleCard_TheDeletionLineSaysWhatTheRequestClosed (M16-37): the card's sentence after "Asked to
+// delete their account on" comes from the request's own trail row -- "signed out" only when it revoked
+// something, "already switched off" for a person deactivated when they asked, and neither when the row
+// says neither. The person's status NOW is not the source: here a deactivated person asked while active.
+func TestPeopleCard_TheDeletionLineSaysWhatTheRequestClosed(t *testing.T) {
+	asked := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	const signedOut, switchedOff = "Their phones were signed out.", "Their account was already switched off, so nothing was signed out."
+	for _, c := range []struct {
+		name                   string
+		signedOut, deactivated bool
+		want, not              []string
+	}{
+		{"revoked", true, false, []string{signedOut}, []string{switchedOff}},
+		{"deactivated when asked", false, true, []string{switchedOff}, []string{signedOut}},
+		{"neither", false, false, nil, []string{signedOut, switchedOff}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			staff := &fakeStaff{
+				person: &tenant.Person{Name: "Dragan Nikolic", Status: ledger.StatusDeactivated, LocationID: &panelTestLocation, LocationName: "KF St Julians"},
+				summary: tenant.PersonSummary{
+					State: tenant.Measured, Status: ledger.StatusDeactivated,
+					DeletionRequested: &asked, DeletionSignedOut: c.signedOut, DeletionWhileDeactivated: c.deactivated,
+				},
+			}
+			card := strings.Join(strings.Fields(cardOf(t, htmlOf(t, peopleCardBrowser(t, newFakeLedger(), staff).
+				do(http.MethodGet, managedRosterHref(uuid.New()), nil)))), " ")
+			for _, want := range append(c.want, "Asked to delete their account on 20 Nov 2026", "Their clock-in records are kept") {
+				if !strings.Contains(card, want) {
+					t.Errorf("the card does not say %q.\ncard:\n%s", want, card)
+				}
+			}
+			for _, never := range c.not {
+				if strings.Contains(card, never) {
+					t.Errorf("the card says %q", never)
+				}
+			}
+			if c.signedOut && !strings.Contains(card, signedOut+" Their clock-in records") {
+				t.Errorf("the two sentences are not one space apart.\ncard:\n%s", card)
+			}
+		})
+	}
+}
+
 func TestPeopleCard_TheStripIsFourWordsPerRecord(t *testing.T) {
 	want := []string{"Day", "Direction", "Time", "Verdict", "Word"}
 	rt := reflect.TypeOf(components.MiniTapView{})

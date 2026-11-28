@@ -35,6 +35,24 @@ gradle.taskGraph.whenReady {
     }
 }
 
+// Release signing with the UPLOAD key (M16-28). Play App Signing holds the app signing key; the
+// upload key lives outside this public repository, and its path and password reach the build only
+// from the environment of the machine that uploads. With either missing, the release build is
+// unsigned and Play refuses it -- nothing here falls back to a key in the tree.
+val uploadKeystore: String? = providers.environmentVariable("TAPTIME_UPLOAD_KEYSTORE").orNull
+val uploadPassword: String? = providers.environmentVariable("TAPTIME_UPLOAD_PASSWORD").orNull
+
+// A relative path would resolve under app/, inside the repository, where a key must never live;
+// an absolute one inside the repository is refused for the same reason.
+uploadKeystore?.let { path ->
+    val f = File(path)
+    if (!f.isAbsolute) throw GradleException("TAPTIME_UPLOAD_KEYSTORE must be an absolute path outside the repository")
+    val repo = rootDir.parentFile.parentFile.canonicalFile
+    if (f.canonicalFile.startsWith(repo)) {
+        throw GradleException("TAPTIME_UPLOAD_KEYSTORE points inside the repository; keep the upload key outside it")
+    }
+}
+
 android {
     // Q35 (2026-11-14): store name Taptime, package mt.taptime.app. The package cannot change
     // after the first release and is written into /.well-known/assetlinks.json (M16-08).
@@ -45,8 +63,19 @@ android {
         applicationId = "mt.taptime.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        if (uploadKeystore != null && uploadPassword != null) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = uploadPassword
+                keyAlias = "upload"
+                keyPassword = uploadPassword
+            }
+        }
     }
 
     buildTypes {
@@ -63,11 +92,13 @@ android {
             buildConfigField("String", "BASE_URL", javaString(debugBaseUrl))
             manifestPlaceholders["plaqueHost"] = hostOf(debugBaseUrl)
         }
-        // No signingConfig anywhere: the debug build signs with Gradle's default debug key
-        // (per machine, ~/.android/debug.keystore) and release signing is M16-28's. This
-        // repository is public; no keystore and no signing secret ever enters it.
+        // The debug build signs with Gradle's default debug key (per machine,
+        // ~/.android/debug.keystore); release signs with the upload key above when the
+        // environment names it. This repository is public; no keystore and no signing secret
+        // ever enters it.
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
             buildConfigField("String", "BASE_URL", javaString(PRODUCTION_BASE_URL))
             manifestPlaceholders["plaqueHost"] = hostOf(PRODUCTION_BASE_URL)
         }
@@ -157,11 +188,17 @@ tasks.withType<Test>().configureEach {
     inputs.dir(mainSrc).withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("taptime.mainSrc", mainSrc.asFile.absolutePath)
     // M16-13: the iOS twin's tap copy (mobile/ios/Taptime/TapCopy.swift, ActivationCopy.swift), held
-    // line for line by IosCopyTest. The files exist on a branch that carries both apps; on a branch
-    // without them the test is SKIPPED, not passed. -Ptaptime.iosRoot=<dir> reads another checkout's
-    // (a measurement, never a build input of release).
+    // line for line by IosCopyTest; M16-47 adds the staff screens' (StaffCopy.swift) and the lock
+    // screen's and widget's (Shared/LiveCopy.swift), in both languages. The files exist on a branch
+    // that carries both apps; on a branch without them the test is SKIPPED, not passed.
+    // -Ptaptime.iosRoot=<dir> reads another checkout's (a measurement, never a build input of release).
     val iosRoot = providers.gradleProperty("taptime.iosRoot").orNull?.let { file(it) } ?: rootProject.file("../ios")
-    for ((property, name) in mapOf("taptime.ios.tapCopy" to "Taptime/TapCopy.swift", "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift")) {
+    for ((property, name) in mapOf(
+        "taptime.ios.tapCopy" to "Taptime/TapCopy.swift",
+        "taptime.ios.activationCopy" to "Taptime/ActivationCopy.swift",
+        "taptime.ios.staffCopy" to "Taptime/StaffCopy.swift",
+        "taptime.ios.liveCopy" to "Shared/LiveCopy.swift",
+    )) {
         val f = File(iosRoot, name)
         if (f.isFile) {
             inputs.file(f).withPathSensitivity(PathSensitivity.RELATIVE)

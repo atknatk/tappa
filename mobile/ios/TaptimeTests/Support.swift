@@ -101,6 +101,40 @@ final class FakePlaqueReader: PlaqueReading {
     }
 }
 
+/// The system's Live Activities, in memory: what is running and every set of operations asked for.
+final class FakeCounter: CounterDriving {
+    var allowed = true
+    var live: [RunningCounter] = []
+    private(set) var performed: [[CounterOp]] = []
+    private var next = 0
+
+    func running() -> [RunningCounter] { live }
+
+    func perform(_ ops: [CounterOp]) {
+        performed.append(ops)
+        for op in ops {
+            switch op {
+            case let .start(s, staleAt):
+                next += 1
+                live.append(RunningCounter(id: "a\(next)", state: s, staleAt: staleAt))
+            case let .update(id, s, staleAt):
+                live = live.map { $0.id == id ? RunningCounter(id: id, state: s, staleAt: staleAt) : $0 }
+            case let .end(id):
+                live.removeAll { $0.id == id }
+            }
+        }
+    }
+}
+
+/// The reminder, counted.
+final class FakeReminder: ReminderScheduling {
+    private(set) var applied: [MeResponse?] = []
+    private(set) var cancels = 0
+
+    func apply(_ me: MeResponse?, offset: TimeInterval) { applied.append(me) }
+    func cancel() { cancels += 1 }
+}
+
 // MARK: - URLProtocol
 
 /// Routes every request of a session made with AppClient.makeSession(protocolClasses:) to
@@ -222,6 +256,13 @@ final class FakeAppServer {
     /// Answer 401 to the next n nonce'd requests.
     var refuseNonced = 0
     var devicesSignedOut = Set<String>()
+    /// claims/send's result word ("sent", "outside_window", …).
+    var claimResult = "sent"
+    /// My hours (M16-31): the one week this twin knows and its pages by cursor ("" is page one).
+    /// Empty keeps the 404 (My hours off). Another week, or a cursor not issued, is 400.
+    var hoursWeek = "2026-11-16"
+    var hoursPages: [String: [String: Any]] = [:]
+    private(set) var hoursBodies: [[String: Any]] = []
 
     // M16-23: the phone that cannot tap.
     /// The live QR queries complete accepted as `liveQR`, and the one it refuses (one code, §4.7).
@@ -409,6 +450,29 @@ final class FakeAppServer {
             let n = Base64URL.encode(Data((0..<32).map { _ in UInt8.random(in: 0...255) }))
             liveNonces.insert(n)
             return reply(200, object: ["nonce": n, "expiresAt": "2026-11-18T10:00:00Z"])
+        // The staff screens' reads and the one claim write (M16-43, M16-31): only their signature
+        // is checked here -- the tests drive the 401 path: verified, My hours is off and nothing is missing.
+        case AppClient.Path.hours, AppClient.Path.claims:
+            guard readVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            if path == AppClient.Path.claims {
+                return reply(200, object: ["open": [Any]()])
+            }
+            guard !hoursPages.isEmpty else {
+                return reply(404, error: "not_found")
+            }
+            let j = json(body)
+            hoursBodies.append(j)
+            guard j["week"] as? String == hoursWeek, let page = hoursPages[j["after"] as? String ?? ""] else {
+                return reply(400, error: "bad_request")
+            }
+            return reply(200, object: page)
+        case AppClient.Path.claimsSend:
+            guard noncedVerifies(method, path, body, headers) else {
+                return reply(401)
+            }
+            return reply(200, object: ["result": claimResult])
         case AppClient.Path.revoke:
             guard noncedVerifies(method, path, body, headers) else {
                 return reply(401)

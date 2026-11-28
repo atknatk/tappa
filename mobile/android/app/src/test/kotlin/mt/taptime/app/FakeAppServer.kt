@@ -82,6 +82,7 @@ class FakeAppServer(
             "POST /app/v1/nonce" -> nonce(ex, body)
             "POST /app/v1/tap/start" -> tapStart(ex, body)
             "POST /app/v1/tap" -> tap(ex, body)
+            "POST /app/v1/hours" -> hours(ex, body)
             else -> error(ex, 404, "not_found")
         }
     }
@@ -268,6 +269,23 @@ class FakeAppServer(
         if (abs(t - nowSeconds()) > 60) return null
         if (!verifies(point, text("tappa-app-read-v1", method, path, body, ts, id), sig)) return null
         return id
+    }
+
+    // --- My hours (M16-31) --------------------------------------------------------------------
+
+    /** The one week this twin knows, its pages by cursor ("" is page one), and every body sent. */
+    var hoursWeek = "2026-11-16"
+    val hoursPages = LinkedHashMap<String, String>()
+    val hoursBodies = mutableListOf<String>()
+
+    /** apphours.go's boundary: another week is 400; a cursor not issued for this walk is 400. */
+    private fun hours(ex: HttpExchange, body: ByteArray) {
+        signedRead(ex, "POST", "/app/v1/hours", body) ?: return unauthenticated(ex)
+        hoursBodies += String(body)
+        val m = MiniJson.decodeObject(String(body))
+        if (m["week"] != hoursWeek) return error(ex, 400, "bad_request")
+        val page = hoursPages[(m["after"] as? String) ?: ""] ?: return error(ex, 400, "bad_request")
+        json(ex, page)
     }
 
     // --- the tap (M16-13) ---------------------------------------------------------------------

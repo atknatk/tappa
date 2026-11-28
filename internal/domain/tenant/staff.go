@@ -293,6 +293,10 @@ type Staff struct {
 	// revoke and the app-device revoke (staffsignout.go) -- a test's meeting point, to cross a
 	// concurrent transaction's locks and measure the 40P01 retry. nil in production.
 	afterSessionsRevoked func(ctx context.Context)
+	// afterDeletionChecked, when set, runs inside a deactivated person's deletion request between the
+	// repeat check and the trail write (staffdeletion.go) -- a test's window for a concurrent
+	// request to reach the same check. nil in production.
+	afterDeletionChecked func(ctx context.Context)
 }
 
 // NewStaff wires it. A nil database or a nil trail is REFUSED rather than

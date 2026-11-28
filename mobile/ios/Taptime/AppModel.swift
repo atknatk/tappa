@@ -19,7 +19,11 @@ import SwiftUI
 final class AppModel: ObservableObject {
     let activation: ActivationModel
     let tap: TapModel
+    /// The staff screens (the native shell, 2026-11-24): Today, My hours, Settings.
+    let staff: StaffModel
     private let browser: BrowserOpening
+    private let presence: PresenceSync
+    private let reminder: ReminderScheduling
     private var launched = false
     private var queued: URL?
     private var returnHome = false
@@ -28,12 +32,37 @@ final class AppModel: ObservableObject {
     /// return to the front wins whichever of the two Tasks the main actor runs first.
     private var links = 0
 
-    init(activation: ActivationModel, tap: TapModel, browser: BrowserOpening) {
+    init(activation: ActivationModel, tap: TapModel, browser: BrowserOpening,
+         presence: PresenceSync, reminder: ReminderScheduling) {
         self.activation = activation
         self.tap = tap
+        self.staff = StaffModel(tap: tap)
         self.browser = browser
-        tap.onSignedOut = { [weak activation] in activation?.signedOut() }
-        tap.onStartAgain = { [weak activation] in activation?.startAgain() }
+        self.presence = presence
+        self.reminder = reminder
+        staff.onForgotten = { [weak self, weak activation, weak tap] in
+            tap?.leave()
+            self?.forgetPresence()
+            activation?.forgetDevice()
+        }
+        tap.onMe = { [weak self, weak tap] me in
+            let offset = tap?.api.clock.currentOffset ?? 0
+            self?.reminder.apply(me, offset: offset)
+            // The widget and the lock-screen counter (M16-47) follow the same answer.
+            self?.presence.apply(me, offset: offset)
+        }
+        // EVERY signed-out path clears the reminder, the widget's share and the counter (M16-46
+        // trigger 3, M16-47): the home screen's 401, a tap's 401 (its problem screen and its
+        // "Start again"), and the quiet /me after a tap.
+        tap.onSignedOut = { [weak self, weak activation] in
+            self?.forgetPresence()
+            activation?.signedOut()
+        }
+        tap.onPresenceGone = { [weak self] in self?.forgetPresence() }
+        tap.onStartAgain = { [weak self, weak activation] in
+            self?.forgetPresence()
+            activation?.startAgain()
+        }
         activation.onRelaunch = { [weak self] in
             Task { await self?.boot() }
         }
@@ -50,7 +79,12 @@ final class AppModel: ObservableObject {
             activation: ActivationModel(client: client, keys: SecureEnclaveKeyFactory(), store: KeychainActivationStore(),
                                         reader: reader),
             tap: TapModel(client: client, reader: reader, location: OneShotLocation(), browser: browser),
-            browser: browser)
+            browser: browser, presence: .shared, reminder: StaffNotifier.shared)
+    }
+
+    private func forgetPresence() {
+        reminder.cancel()
+        presence.clear()
     }
 
     func launch() async {
@@ -64,6 +98,10 @@ final class AppModel: ObservableObject {
     private func boot() async {
         await activation.start()
         launched = true
+        if activation.device == nil {
+            // No activated phone (the Android twin's NotActivated): nothing may say "at work".
+            forgetPresence()
+        }
         if let d = activation.device, activation.screen == .activated {
             tap.enter(d)
         }
@@ -115,6 +153,8 @@ final class AppModel: ObservableObject {
             // A result that came back while the app was away is shown first; the NEXT return goes
             // home. (A plaque link never reaches here: linkArrived cleared returnHome.)
             if activation.screen == .activated, tap.showUnseenResult() {
+                // The result stays; the reminder, the widget and the counter catch up with it.
+                Task { [weak self] in await self?.tap.syncPresence() }
                 return
             }
             guard let d = activation.device else {
@@ -139,4 +179,12 @@ final class AppModel: ObservableObject {
             break
         }
     }
+}
+
+/// What AppModel needs of the reminder (consumer-side interface, §7; the tests pass a fake).
+protocol ReminderScheduling: AnyObject {
+    /// Follows one /me answer.
+    func apply(_ me: MeResponse?, offset: TimeInterval)
+    /// Takes the pending and the delivered reminder away.
+    func cancel()
 }

@@ -4416,6 +4416,17 @@ type Querier interface {
 	// first row and filtered 150 001 rows away (90 ms a page); bare, it reads the page (0.8 ms).
 	// TestEmployeeDirectory_TheBoundIsTheIndexsNotAFilter pins it.
 	ListDirectoryEmployees(ctx context.Context, arg ListDirectoryEmployeesParams) ([]ListDirectoryEmployeesRow, error)
+	// The person's latest "delete my account" request from the staff app (M16-37), for the People
+	// card: at most one instant, none when they never asked. From the trail itself -- the request
+	// writes no other row. TENANT SCOPE (section 4.5): explicit predicate beside RLS; the target is the
+	// employee id as the trail writes it.
+	//
+	// WHAT IT CLOSED comes from the row's own detail (tenant.deletionDetail), never from the person's
+	// status now: a person deactivated when they asked kept their credentials, and one deactivated
+	// since was signed out when they asked. signed_out is "a revoked count is not 0" -- compared as
+	// text, so a detail of another shape reads false instead of failing the cast (ListAPIBudgetAlerts'
+	// lesson); deactivated is the detail's flag.
+	ListEmployeeDeletionRequests(ctx context.Context, arg ListEmployeeDeletionRequestsParams) ([]ListEmployeeDeletionRequestsRow, error)
 	// One page of the queue, newest first.
 	//
 	// THE COLUMN LIST IS ListPanelTransactions' LIST, and the reason is section 4.7:
@@ -5441,6 +5452,17 @@ type Querier interface {
 	// The scope's events of the range after the cursor and up to the window's end, seq <= S0, in
 	// (punch_time, seq) order -- one more than the caller hands out. The same columns as ListPunchEvents.
 	ListPunchHistory(ctx context.Context, arg ListPunchHistoryParams) ([]ListPunchHistoryRow, error)
+	// M16-37: the business's "delete my account" requests of the last @window_days days, newest first,
+	// for the list beside the week's signals (it is not a signal of the week: the window is the
+	// database's clock, not the week picked). From the trail itself -- the request writes no other row.
+	// It reads audit_log, not transactions: no evidence column is anywhere near it.
+	//
+	// The person is named as the business stores them now (a LEFT JOIN: the trail row stands even if
+	// the name cannot be read; employees rows are never deleted, ADR 0010). The join compares the id
+	// as TEXT, the trail's own spelling, so no target is ever cast to a uuid. TENANT SCOPE (section
+	// 4.5): explicit tenant_id on both tables beside RLS. Rides audit_log_tenant_at_idx (tenant_id, at
+	// DESC). @row_limit is the screen's cap plus one (ledger.anomalyReadLimit).
+	ListRecentDeletionRequests(ctx context.Context, arg ListRecentDeletionRequestsParams) ([]ListRecentDeletionRequestsRow, error)
 	// ONE person's last seven records (M12-19, panel redesign D3): the People card's strip of
 	// mini dockets -- day, direction, time, the engine's verdict word and, when a manager has
 	// since decided a flag, the decision.
@@ -6070,6 +6092,21 @@ type Querier interface {
 	// retirement (staffapi.go) then sees it. activated_at says whether the person has ever
 	// activated (K-15: an activated person's new address gets no invitation).
 	LockEmployeeForAPI(ctx context.Context, arg LockEmployeeForAPIParams) (LockEmployeeForAPIRow, error)
+	// SERIALISE ONE PERSON'S DELETION REQUESTS (M16-37's repeat rule). A deactivated person keeps their
+	// app device (T59), so they can ask again and again; a repeat inside RecentDeletionRequestExists'
+	// window writes nothing. That is a READ-THEN-DECIDE, and without a lock two concurrent requests both
+	// read "none yet" and both write (LockAPIDeactivationBudget's argument: READ COMMITTED takes a fresh
+	// snapshot per statement, and a transaction-scoped advisory lock is released only after its COMMIT
+	// is visible). It is the transaction's FIRST statement, before the revokes' row locks.
+	//
+	// THE KEY IS NAMESPACED ('deletion-request:' keeps it apart from LockEmployeeForTap's bare
+	// "<tenant>:<employee>" and every other key) and taken by this statement alone, so it joins no lock
+	// cycle; a hash collision serialises two unrelated requests and mixes nothing.
+	//
+	// IT READS THE PERSON'S ROW and takes the lock in the SELECT LIST (LockAPIDeactivationBudget's §4.5
+	// shape): explicit tenant_id beside RLS, and a person not on this business's roster returns NO ROW
+	// and takes no lock.
+	LockEmployeeForDeletionRequest(ctx context.Context, arg LockEmployeeForDeletionRequestParams) (LockEmployeeForDeletionRequestRow, error)
 	// The same row as GetEmployeeEmail, ROW-LOCKED FOR UPDATE until the transaction ends
 	// (M10 EM-6, step 2 of internal/domain/tenant.Staff.ChangeEmail).
 	//
@@ -6566,6 +6603,11 @@ type Querier interface {
 	ReadWebhookBucket(ctx context.Context, arg ReadWebhookBucketParams) (ReadWebhookBucketRow, error)
 	// A new address for THIS endpoint; its key is unchanged.
 	ReaddressWebhookEndpoint(ctx context.Context, arg ReaddressWebhookEndpointParams) (int64, error)
+	// Did this person already ask, in the last @window_seconds (the repeat rule's window)? Read under
+	// LockEmployeeForDeletionRequest, after it, so a request committed by the holder before is seen.
+	// `at` is the database's clock (00005's DEFAULT) and so is now(). TENANT SCOPE (section 4.5):
+	// explicit predicate beside RLS; rides audit_log_tenant_target_idx.
+	RecentDeletionRequestExists(ctx context.Context, arg RecentDeletionRequestExistsParams) (bool, error)
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is

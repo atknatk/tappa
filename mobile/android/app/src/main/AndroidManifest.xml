@@ -124,6 +124,22 @@
             android:exported="false" />
 
         <!--
+          The home-screen widget (2026-11-24). Exported because the launcher's host delivers
+          APPWIDGET_UPDATE; it filters that one action and only redraws from the app's own stored
+          state: it reads nothing from the broadcast and makes no request.
+        -->
+        <receiver
+            android:name=".staff.PresenceWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/taptime_widget_info" />
+        </receiver>
+
+        <!--
           emoji2's EmojiCompatInitializer (through Compose ui) asks the system font provider,
           on most phones Google Play services, for a downloadable emoji font at start, and that
           provider may fetch it from Google: an unasked-for Google dependency (ADR 0045 §2.2,

@@ -611,3 +611,8 @@ Kararın kendisi değişmez; M14'ün etkisi:
   (`oauth_grants`, `oauth_codes`, `oauth_tokens`) CLAUDE.md §6'nın beşlisini taşır ve RLS izolasyon testi
   filtresiz sorguyla koşar (`TestOAuthRLS_TenantIsolation`). Cross-tenant: bir işletmenin tokenı öbürünün
   hiçbir verisine ulaşmaz (`internal/handler/api`'nin `TestOAuthAPI_AnotherBusinessIsNeverReached`).
+
+## Not — ADR 0051 (2026-11-25, M16-50)
+
+Md. 7: Faz H'de **anahtarsız, tenant'lar arası tarayan yeni bir çözümleyici yoktur** — `resolve_pending_business_erasures` önerisi geri çekildi (ADR 0051 §2.9.7). Yeni iki
+çözümleyici (`resolve_staff_password_targets`, `resolve_staff_signin_candidates`) adresle çözer — `resolve_admin_by_email`'in (`00011`) deseni, en eski önce, en çok 3 satır.

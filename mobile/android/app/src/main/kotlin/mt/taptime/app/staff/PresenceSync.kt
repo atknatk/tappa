@@ -16,7 +16,12 @@ import mt.taptime.app.wire.Presence
 /** The reminder's port: one pending alarm with a fixed identity. */
 interface ReminderPort {
     /** Sets (or moves) THE reminder to [atLocalMs] on the phone's clock, with its words' clocks. */
-    fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?)
+    /**
+     * [lastLocalMs] is the latest moment a snoozed reminder may fire: the server's staleAt less
+     * the reminder's 30-minute clip (M16-45) -- past it the next tap is a new check-in, so "clock
+     * out?" would be false.
+     */
+    fun schedule(atLocalMs: Long, inSinceLocal: String, shiftEndsAtLocal: String?, lastLocalMs: Long)
     fun cancel()
 }
 
@@ -32,6 +37,9 @@ interface StaffSwitches {
     val remind: Boolean
     val timer: Boolean
 }
+
+/** The reminder's clip before staleAt (M16-45's remindBeforeStale), for a snoozed reminder too. */
+const val SNOOZE_CLIP_MS = 30L * 60 * 1000
 
 class PresenceSync(
     private val reminder: ReminderPort,
@@ -49,7 +57,7 @@ class PresenceSync(
         val nowServer = nowLocalMs + offsetMs
         val remindAt = presence?.remindAtMs
         if (presence != null && switches.remind && remindAt != null && remindAt > nowServer) {
-            reminder.schedule(remindAt - offsetMs, presence.inSinceLocal, presence.shiftEndsAtLocal)
+            reminder.schedule(remindAt - offsetMs, presence.inSinceLocal, presence.shiftEndsAtLocal, presence.staleAtMs - offsetMs - SNOOZE_CLIP_MS)
         } else {
             reminder.cancel()
         }

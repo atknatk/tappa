@@ -637,13 +637,19 @@ func TestObservability_EveryAuditWriteFailureUsesTheAlertedMsg(t *testing.T) {
 //
 // One named exception: the recovery worker's outcome write (adminresetoutcome.go attemptOutcome)
 // runs on the worker's own clock (clock.step), which is not a request context; its bound is the
-// shutdown drain's budget, and detaching it would let a write outlive the drain.
+// shutdown drain's budget, and detaching it would let a write outlive the drain. The owner-notice
+// worker's write (ownernotice.go write) is the same shape: its ctx descends from the job's base, which
+// is context.WithoutCancel of the request at submission (OwnerNotices.Submit), and is bounded by the
+// drain's budget (boundedBy) so Drain can return inside it.
 //
 // ⚠️ COUNTED LIMIT: syntactic. A ctx detached in another function and passed in, or a variable
 // reassigned after its detach, is judged by the name the call uses in this function only.
 func TestObservability_AuditWritesAreDetachedFromTheRequest(t *testing.T) {
 	t.Parallel()
-	exempt := map[string]bool{"internal/handler/adminresetoutcome.go:attemptOutcome": true}
+	exempt := map[string]bool{
+		"internal/handler/adminresetoutcome.go:attemptOutcome": true,
+		"internal/handler/ownernotice.go:write":                true,
+	}
 
 	isSel := func(e ast.Expr, pkg, name string) bool {
 		sel, ok := e.(*ast.SelectorExpr)

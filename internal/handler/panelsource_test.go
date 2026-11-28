@@ -82,8 +82,10 @@ var panelTemplates = map[string]bool{
 var nonPanelTemplates = map[string]string{
 	"components/devtools.templ": "the development-only tap simulator strip; it renders on the tap " +
 		"screens and only in a development deployment",
-	"email/message.templ":          "an e-mail body, read in a mail client and not in the panel",
-	"pages/activate.templ":         "the activation screens (CLAUDE.md §9: changed only on request)",
+	"email/message.templ":  "an e-mail body, read in a mail client and not in the panel",
+	"pages/activate.templ": "the activation screens (CLAUDE.md §9: changed only on request)",
+	"pages/myhours.templ": "the employee's own My hours page in the phone's browser (M16-32); a staff " +
+		"screen on the tap surface, outside the panel",
 	"pages/tap.templ":              "the employee's tap screen (CLAUDE.md §9: changed only on request)",
 	"pages/livescreen.templ":       "the live QR screen a venue's tablet or TV shows (M16-20), not the panel",
 	"pages/result.templ":           "the employee's result screen (CLAUDE.md §9: changed only on request)",

@@ -276,6 +276,20 @@ type AnomalyLostPlaque struct {
 	Last         time.Time
 }
 
+// DeletionRequestWindow is how far back the screen lists the staff app's "delete my account"
+// requests (M16-37: "the last 90 days' list"), by the database's clock -- not the week picked: a
+// request is a letter the business owes an answer to within a month, not a signal of a week.
+const DeletionRequestWindow = 90
+
+// AnomalyDeletionRequest is one "delete my account" request of the last DeletionRequestWindow days,
+// read from its trail row (employee.deletion_requested). EmployeeName is the person's name now, ""
+// when it could not be read; At is the database's clock (audit_log.at).
+type AnomalyDeletionRequest struct {
+	EmployeeID   uuid.UUID
+	EmployeeName string
+	At           time.Time
+}
+
 // AnomalyPlaque is one wall tag's counter gaps.
 type AnomalyPlaque struct {
 	// TagUID is the plaque's own identifier. It is NOT a secret -- it travels in the
@@ -452,6 +466,9 @@ type Anomalies struct {
 	// LostPlaques are this business's lost plaques a holding peer's staff touched this week (M11
 	// API-1c). Empty for a business in no holding.
 	LostPlaques []AnomalyLostPlaque
+	// DeletionRequests are the staff app's "delete my account" requests of the last
+	// DeletionRequestWindow days, newest first (M16-37) -- whatever week is picked.
+	DeletionRequests []AnomalyDeletionRequest
 
 	// The five "…and there are more" flags. Each is true when its listing hit
 	// AnomalyRowCap, which is detected by asking for one row more than can be used --
@@ -466,6 +483,8 @@ type Anomalies struct {
 	// MorePolicies is its twin for the rule breakdown.
 	MorePolicies bool
 	MoreLost     bool
+	// MoreDeletionRequests is the deletion request list's twin.
+	MoreDeletionRequests bool
 
 	// TogetherWithinSeconds and TogetherMinDays are the pair listing's own thresholds,
 	// carried to the screen so it can print them. A list filtered by a constant the
@@ -841,6 +860,26 @@ func (r *Reader) Anomalies(ctx context.Context, tenantID uuid.UUID, f ReportFilt
 		// the bucket's place in an order by count and sid can say what the peer's evidence showed.
 		if body.Totals.Partner > 0 {
 			body.Policies = append(body.Policies, AnomalyPolicyRule{Partner: true, Records: body.Totals.Partner})
+		}
+
+		// M16-37: the deletion requests of the last 90 days, from the trail. A failed read fails the
+		// screen with the rest (§4.6): an empty list would say "nobody asked".
+		deletions, err := q.ListRecentDeletionRequests(ctx, store.ListRecentDeletionRequestsParams{
+			TenantID:   tenantID,
+			WindowDays: DeletionRequestWindow,
+			RowLimit:   anomalyReadLimit(),
+		})
+		if err != nil {
+			return fmt.Errorf("list recent deletion requests: %w", err)
+		}
+		deletions, body.MoreDeletionRequests = trimAnomalyRows(deletions)
+		body.DeletionRequests = make([]AnomalyDeletionRequest, 0, len(deletions))
+		for _, d := range deletions {
+			row := AnomalyDeletionRequest{EmployeeName: deref(d.EmployeeName), At: d.At}
+			if d.EmployeeID != nil {
+				row.EmployeeID = *d.EmployeeID
+			}
+			body.DeletionRequests = append(body.DeletionRequests, row)
 		}
 
 		body.Queried = true
