@@ -287,6 +287,9 @@
     <string name="home_settings">Settings</string>
     <string name="shift_usual">Usual shift: %1$s–%2$s · %3$s</string>
     <string name="shift_usual_overnight">Usual shift: %1$s–%2$s (next day) · %3$s</string>
+    <string name="shift_usual_no_venue">Usual shift: %1$s–%2$s</string>
+    <string name="shift_usual_overnight_no_venue">Usual shift: %1$s–%2$s (next day)</string>
+    <string name="shift_next_day">(next day)</string>
     <string name="shift_today_ends">Today\'s shift ends at %1$s</string>
     <string name="settings_label">Settings</string>
     <string name="settings_remind">Remind me to clock out</string>

@@ -847,6 +847,35 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(staff.sent, [], "an older server's answer has no sent claims")
     }
 
+    // MARK: The usual shift (M16-48)
+
+    /// [G48-d]: a night shift says "(next day)" -- Today's sentence and Settings' row -- and a day
+    /// shift never does; no home venue (K-14) names none and leaves no separator.
+    func testANightShiftSaysNextDay() {
+        let day = UsualShift(start: "09:00", end: "17:00", overnight: false, venue: "St Julians")
+        let night = UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "St Julians")
+        XCTAssertEqual(StaffCopy.usualShiftLine(night), StaffCopy.t("Usual shift: 18:00–02:00 (next day) · St Julians",
+                                                                    "Olağan vardiya: 18:00–02:00 (ertesi gün) · St Julians"))
+        XCTAssertEqual(StaffCopy.usualShiftLine(day), StaffCopy.t("Usual shift: 09:00–17:00 · St Julians", "Olağan vardiya: 09:00–17:00 · St Julians"))
+        XCTAssertEqual(StaffCopy.nextDay(night), StaffCopy.t("(next day)", "(ertesi gün)"))
+        XCTAssertNil(StaffCopy.nextDay(day))
+        let bare = UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "")
+        XCTAssertEqual(StaffCopy.usualShiftLine(bare), StaffCopy.t("Usual shift: 18:00–02:00 (next day)", "Olağan vardiya: 18:00–02:00 (ertesi gün)"))
+    }
+
+    /// [G48-c]: /me's shift is read as given -- null when the owner has not marked shifts real,
+    /// set whatever My hours says (the Settings row needs `shift` alone).
+    func testTheShiftIsReadWhateverMyHoursSays() async {
+        server.meBody["shift"] = ["start": "18:00", "end": "02:00", "overnight": true, "venue": "St Julians"]
+        server.meBody["hoursWeeks"] = 0
+        await app.launch()
+        XCTAssertEqual(tap.me?.shift, UsualShift(start: "18:00", end: "02:00", overnight: true, venue: "St Julians"))
+        XCTAssertEqual(tap.me?.hoursWeeks, 0)
+        server.meBody["shift"] = nil
+        await tap.home()
+        XCTAssertNil(tap.me?.shift)
+    }
+
     /// The card's line under the send button, and every outcome's full words (M16-44).
     func testTheSheetSaysTheCardsWords() {
         XCTAssertEqual(StaffCopy.skip, StaffCopy.t("You can skip this.", "Bunu atlayabilirsin."))

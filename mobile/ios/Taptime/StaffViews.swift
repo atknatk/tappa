@@ -225,7 +225,7 @@ private struct TodayView: View {
                     }
                 } else {
                     Text(StaffCopy.notInBody).font(Typeface.display(22, .bold))
-                    if let s = me?.shift { Text("\(s.start)–\(s.end)" + (s.venue.isEmpty ? "" : " · \(s.venue)")).font(Typeface.display(13)).opacity(0.75) }
+                    if let s = me?.shift { Text(StaffCopy.usualShiftLine(s)).font(Typeface.display(13)).opacity(0.75) }
                 }
             }
             .foregroundColor(Palette.paper)
@@ -644,13 +644,23 @@ private struct SettingsView: View {
                     }
                 }
             }
+            // M16-48: only while the owner marked shifts real (`shift` set) -- whatever My hours says.
             if let s = me?.shift {
                 Section(StaffCopy.shift) {
                     HStack {
-                        Label { Text(StaffCopy.usualShift) } icon: { IconSquare(symbol: "clock.fill") }
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(StaffCopy.usualShift)
+                                if !s.venue.isEmpty { Text(s.venue).font(.caption).foregroundColor(.secondary) }
+                            }
+                        } icon: { IconSquare(symbol: "clock.fill") }
                         Spacer()
-                        Text("\(s.start)–\(s.end)").font(Typeface.mono(15)).foregroundColor(.secondary)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(s.start)–\(s.end)").font(Typeface.mono(15)).foregroundColor(.secondary)
+                            if let n = StaffCopy.nextDay(s) { Text(n).font(.caption).foregroundColor(.secondary) }
+                        }
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
             Section(StaffCopy.thisPhone) {

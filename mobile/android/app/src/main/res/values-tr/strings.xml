@@ -196,6 +196,9 @@
     <string name="home_settings">Ayarlar</string>
     <string name="shift_usual">Olağan vardiya: %1$s–%2$s · %3$s</string>
     <string name="shift_usual_overnight">Olağan vardiya: %1$s–%2$s (ertesi gün) · %3$s</string>
+    <string name="shift_usual_no_venue">Olağan vardiya: %1$s–%2$s</string>
+    <string name="shift_usual_overnight_no_venue">Olağan vardiya: %1$s–%2$s (ertesi gün)</string>
+    <string name="shift_next_day">(ertesi gün)</string>
     <string name="shift_today_ends">Bugünkü vardiyanın bitişi: %1$s</string>
     <string name="settings_label">Ayarlar</string>
     <string name="settings_remind">Çıkışı bana hatırlat</string>

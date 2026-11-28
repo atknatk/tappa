@@ -134,6 +134,8 @@ class IosCopyTest {
         "delete_your_employer",
         // M16-38: the privacy notice's row and the deactivated person's deletion words.
         "settings_privacy_policy", "delete_body_deactivated",
+        // M16-48: the usual shift's sentence, with and without a venue, and Settings' "(next day)".
+        "shift_usual", "shift_usual_overnight", "shift_usual_no_venue", "shift_usual_overnight_no_venue", "shift_next_day",
         "remind_title", "remind_body", "remind_body_shift", "remind_snooze",
     )
 

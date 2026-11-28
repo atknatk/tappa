@@ -189,6 +189,18 @@ enum StaffCopy {
     }
     static var shift: String { t("Shift", "Vardiya") }
     static var usualShift: String { t("Usual shift", "Her zamanki vardiya") }
+    /// The usual shift as a sentence (M16-48; Android's shift_usual*): the server's clocks and
+    /// venue; a night shift says "(next day)" after its end; no home venue (K-14), no " · ".
+    static func usualShiftLine(_ s: UsualShift) -> String {
+        switch (s.overnight, s.venue.isEmpty) {
+        case (true, false): return t("Usual shift: \(s.start)–\(s.end) (next day) · \(s.venue)", "Olağan vardiya: \(s.start)–\(s.end) (ertesi gün) · \(s.venue)")
+        case (false, false): return t("Usual shift: \(s.start)–\(s.end) · \(s.venue)", "Olağan vardiya: \(s.start)–\(s.end) · \(s.venue)")
+        case (true, true): return t("Usual shift: \(s.start)–\(s.end) (next day)", "Olağan vardiya: \(s.start)–\(s.end) (ertesi gün)")
+        case (false, true): return t("Usual shift: \(s.start)–\(s.end)", "Olağan vardiya: \(s.start)–\(s.end)")
+        }
+    }
+    /// Settings' row: "(next day)" under the clocks, for a night shift only.
+    static func nextDay(_ s: UsualShift) -> String? { s.overnight ? t("(next day)", "(ertesi gün)") : nil }
     static var thisPhone: String { t("This phone", "Bu telefon") }
     static var language: String { t("Language", "Dil") }
     static var languageSub: String { t("The phone's language, or one you choose", "Telefonun dili ya da seçtiğin bir dil") }

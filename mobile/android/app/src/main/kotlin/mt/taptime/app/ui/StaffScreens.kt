@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import mt.taptime.app.R
 import mt.taptime.app.staff.ClaimWords
+import mt.taptime.app.staff.ShiftWords
 import mt.taptime.app.staff.StaffFlow
 import mt.taptime.app.wire.HoursRecord
 import mt.taptime.app.wire.HoursReply
@@ -79,9 +80,7 @@ private fun clock(ms: Long): Pair<String, String> {
 }
 
 @Composable
-private fun shiftLine(s: UsualShift): String =
-    if (s.overnight) stringResource(R.string.shift_usual_overnight, s.start, s.end, s.venue)
-    else stringResource(R.string.shift_usual, s.start, s.end, s.venue)
+private fun shiftLine(s: UsualShift): String = ShiftWords.line(s).let { stringResource(it.id, *it.args.toTypedArray()) }
 
 // --- Today ---------------------------------------------------------------------------------
 
@@ -567,11 +566,15 @@ fun SettingsContent(
     }
     if (notificationsOff) Banner(stringResource(R.string.settings_notifications_off), Tone.WARN)
 
+    // M16-48: only while the owner marked shifts real (`shift` set) -- whatever My hours says.
     me.shift?.let { s ->
         SectionLabel(stringResource(R.string.settings_shift_label))
         Surface(radius = 22.dp) {
-            ListRow(Icons.CLOCK, stringResource(R.string.settings_usual), s.venue.takeIf { it.isNotEmpty() }) {
-                BasicText("${s.start}–${s.end}", style = text(15.sp, FontWeight.SemiBold, mono = true))
+            ListRow(Icons.CLOCK, stringResource(R.string.settings_usual), ShiftWords.venue(s)) {
+                Column(horizontalAlignment = Alignment.End) {
+                    BasicText(ShiftWords.clocks(s), style = text(15.sp, FontWeight.SemiBold, mono = true))
+                    ShiftWords.nextDay(s)?.let { BasicText(stringResource(it), style = text(12.sp, color = Muted)) }
+                }
             }
         }
     }
