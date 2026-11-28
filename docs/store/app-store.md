@@ -94,6 +94,9 @@ Signing and the first install are the user's (Xcode, automatic signing, team `P6
 4. App Store Connect → the app's beta-testing tab (Apple's beta service; its product name fits the
    repository's test-name pattern, `cmd/tappa/testnames_test.go:95`, so it is not spelled here) → the build → export compliance is answered by the Info.plist
    key → add the internal testers group. Internal testing needs no review; external testing
-   needs Beta App Review and the §4 notes.
+   needs Beta App Review and the §4 notes. **Done 2026-11-28:** internal group *Everva*,
+   automatic distribution on (every Xcode upload reaches it; the setting cannot be changed later),
+   two team users invited (names and addresses only in App Store Connect); build 1.0.0 (1)
+   *Ready to Test*, which expires 90 days after upload.
 5. Next build: raise `CURRENT_PROJECT_VERSION` (and `MARKETING_VERSION` for a new release).
    App Store Connect refuses a build number it has already seen for that version.
