@@ -62,12 +62,16 @@ import mt.taptime.app.wire.UsualShift
 /** What the last claim send answered, for the sheet's or the tab's line. */
 enum class ClaimNotice { SENT, EXPIRED, RESOLVED, NOT_ACTIVE, STILL_OPEN, NETWORK }
 
+/**
+ * The tab bar's tabs, in order. M16-33: with My hours off ([hours] false: /me's hoursWeeks is 0)
+ * there is no My hours tab -- no way into it at all.
+ */
 @Composable
-fun tabLabels() = mapOf(
-    Tab.TODAY to stringResource(R.string.tab_today),
-    Tab.HOURS to stringResource(R.string.tab_hours),
-    Tab.SETTINGS to stringResource(R.string.tab_settings),
-)
+fun tabLabels(hours: Boolean): Map<Tab, String> = buildMap {
+    put(Tab.TODAY, stringResource(R.string.tab_today))
+    if (hours) put(Tab.HOURS, stringResource(R.string.tab_hours))
+    put(Tab.SETTINGS, stringResource(R.string.tab_settings))
+}
 
 @Composable
 private fun duration(minutes: Int): String = stringResource(R.string.hours_duration, minutes / 60, minutes % 60)
@@ -341,7 +345,7 @@ private fun toneOf(state: String): Tone? = when (state) {
 /** My hours: the week switcher, the counted total, the seven days and the chosen day's timeline. */
 @Composable
 fun HoursContent(
-    hoursWeeks: Int, reply: HoursReply?, records: List<HoursRecord>, busy: Boolean, network: Boolean,
+    reply: HoursReply?, records: List<HoursRecord>, busy: Boolean, network: Boolean,
     onPrev: () -> Unit, onNext: () -> Unit, onMore: () -> Unit, onRetry: () -> Unit,
 ) {
     val locale = LocalConfiguration.current.locales[0]
@@ -355,16 +359,6 @@ fun HoursContent(
                 WeekArrow(Icons.CHEVRON_RIGHT, stringResource(R.string.hours_next), reply.hasNext && !busy, onNext)
             }
         }
-    }
-    if (hoursWeeks <= 0) {
-        Surface(radius = 22.dp) {
-            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconTile(Icons.CLOCK)
-                BasicText(stringResource(R.string.hours_off_title), style = text(18.sp, FontWeight.Bold))
-                BasicText(stringResource(R.string.hours_off_body), style = text(14.sp, color = Muted))
-            }
-        }
-        return
     }
     if (network && reply == null) {
         Banner(stringResource(R.string.p_network_title), Tone.ALERT)

@@ -28,7 +28,6 @@ final class StaffModel: ObservableObject {
     @Published private(set) var records: [HoursResponse.Record] = []
     @Published private(set) var hoursBusy = false
     @Published private(set) var hoursFailed = false
-    @Published private(set) var hoursOff = false
     // Settings
     @Published var remind = StaffNotifier.enabled
     @Published private(set) var notificationsOff = false
@@ -56,7 +55,12 @@ final class StaffModel: ObservableObject {
 
     // MARK: Tabs
 
+    /// M16-33: My hours exists only while the employer has it on (hoursWeeks > 0); off, the app has
+    /// no way into it -- no tab, no card.
+    nonisolated static func hoursOn(_ me: MeResponse?) -> Bool { (me?.hoursWeeks ?? 0) > 0 }
+
     func show(_ t: Tab) {
+        if t == .hours && !StaffModel.hoursOn(me) { return }
         tab = t
         switch t {
         case .today: Task { await refreshToday() }
@@ -95,8 +99,10 @@ final class StaffModel: ObservableObject {
 
     func loadHours(week: String?, after: String?) async {
         guard let id = tap.identity else { return }
-        hoursOff = (me?.hoursWeeks ?? 0) <= 0
-        guard !hoursOff else { return }
+        guard StaffModel.hoursOn(me) else {
+            hoursTurnedOff()
+            return
+        }
         hoursBusy = true
         hoursFailed = false
         defer { hoursBusy = false }
@@ -115,12 +121,25 @@ final class StaffModel: ObservableObject {
             records = cursor == nil ? r.records : records + r.records
             hours = r
         } catch AppAPIError.refused(.notFound, _) {
-            hoursOff = true
-            hours = nil
+            // The employer turned My hours off while it was open (M16-33): the screen closes, it
+            // says why, and /me is read again so the tab goes too.
+            hoursTurnedOff()
+            notice = StaffCopy.hoursOff
+            await tap.syncPresence()
         } catch AppAPIError.unauthenticated {
             signedOut()
         } catch {
             hoursFailed = true
+        }
+    }
+
+    /// My hours is off: nothing of it is kept and its screen, if showing, gives way to Today.
+    func hoursTurnedOff() {
+        hours = nil
+        records = []
+        week = nil
+        if tab == .hours {
+            tab = .today
         }
     }
 

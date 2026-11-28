@@ -411,8 +411,6 @@
     <string name="today_week">Counted this week</string>
     <string name="hours_chip_open">%1$d open</string>
     <string name="hours_day_empty">No records this day.</string>
-    <string name="hours_off_title">My hours isn\'t on yet</string>
-    <string name="hours_off_body">Your employer can turn it on in Taptime. Until then your manager has your records.</string>
     <string name="sheet_hour">Hour</string>
     <string name="sheet_minute">Minute</string>
     <string name="sheet_sending">Sending…</string>

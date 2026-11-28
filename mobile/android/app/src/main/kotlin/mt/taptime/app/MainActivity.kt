@@ -354,7 +354,7 @@ class MainActivity : ComponentActivity() {
             is Screen.SetUp -> SetUpScreen(s.name, null, hasReader = nfc != null)
             is Screen.Home -> {
                 BackHandler(enabled = s.claims != null && !s.busy) { screen = s.copy(claims = null, notice = null, problem = null) }
-                StaffShell(Tab.TODAY, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
+                StaffShell(Tab.TODAY, tabLabels(hours = s.me.hoursWeeks > 0), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
                     val list = s.claims
                     if (list != null && s.index < list.size) {
                         ClaimSheet(list[s.index], s.index, list.size, s.sent, s.notice, s.problem, s.busy,
@@ -370,8 +370,8 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Hours -> {
                 BackHandler { goHome(s.me) }
-                StaffShell(Tab.HOURS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName)) {
-                    HoursContent(s.me.hoursWeeks, s.reply, s.records, s.busy, s.network,
+                StaffShell(Tab.HOURS, tabLabels(hours = s.me.hoursWeeks > 0), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName)) {
+                    HoursContent(s.reply, s.records, s.busy, s.network,
                         onPrev = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, -7)), null, append = false) } },
                         onNext = { s.reply?.let { loadHours(s.copy(week = shiftWeek(it.week, 7)), null, append = false) } },
                         onMore = { s.reply?.nextCursor?.let { loadHours(s, it, append = true) } },
@@ -380,7 +380,7 @@ class MainActivity : ComponentActivity() {
             }
             is Screen.Settings -> {
                 BackHandler(enabled = !s.busy) { if (s.confirm != null) screen = s.copy(confirm = null) else goHome(s.me) }
-                StaffShell(Tab.SETTINGS, tabLabels(), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
+                StaffShell(Tab.SETTINGS, tabLabels(hours = s.me.hoursWeeks > 0), onTab = { goTab(it, s.me) }, wordmark = getString(R.string.wordmark), business = s.me.businessName.ifEmpty { s.me.brand.name.orEmpty() }, initials = initialsOf(s.me.employeeName), overlay = {
                     val business = s.me.businessName.ifEmpty { s.me.brand.name ?: getString(R.string.delete_your_employer) }
                     when (s.confirm) {
                         "signout" -> ConfirmDialog(
@@ -462,7 +462,8 @@ class MainActivity : ComponentActivity() {
                 is Screen.Home -> s.copy(me = me)
                 is Screen.SetUp -> homeOf(me)
                 is Screen.Settings -> s.copy(me = me)
-                is Screen.Hours -> s.copy(me = me)
+                // My hours turned off meanwhile: no tab, so no screen (M16-33).
+                is Screen.Hours -> if (me.hoursWeeks > 0) s.copy(me = me) else homeOf(me)
                 else -> s
             }
         }
@@ -510,17 +511,19 @@ class MainActivity : ComponentActivity() {
         val busy = s.copy(busy = true, network = false)
         screen = busy
         work({ staff.hours(s.week, after) }, failed = { busy.copy(busy = false, network = true) }) { r ->
+            if (r == StaffFlow.Answer.Off) {
+                // The employer turned My hours off while it was open (M16-33): the screen closes,
+                // the toast says why, and goHome reads /me again so the tab goes too.
+                android.widget.Toast.makeText(this, R.string.hours_off, android.widget.Toast.LENGTH_LONG).show()
+                goHome(s.me.copy(hoursWeeks = 0))
+                return@work
+            }
             screen = when (r) {
                 is StaffFlow.Answer.Ok -> busy.copy(
                     week = r.value.week, reply = r.value,
                     records = if (append) busy.records + r.value.records else r.value.records, busy = false,
                 )
                 is StaffFlow.Answer.Restarted -> busy.copy(week = r.value.week, reply = r.value, records = r.value.records, busy = false)
-                StaffFlow.Answer.Off -> {
-                    android.widget.Toast.makeText(this, R.string.hours_off, android.widget.Toast.LENGTH_LONG).show()
-                    syncPresence()
-                    Screen.Hours(s.me.copy(hoursWeeks = 0), busy = false)
-                }
                 StaffFlow.Answer.SignedOut -> { clearPresence(); activationEntry(Problem.SIGNED_OUT) }
                 else -> busy.copy(busy = false, network = true)
             }
@@ -546,9 +549,8 @@ class MainActivity : ComponentActivity() {
     private fun goTab(tab: Tab, me: MeReply) {
         when (tab) {
             Tab.TODAY -> if (screen !is Screen.Home) goHome(me)
-            Tab.HOURS -> if (screen !is Screen.Hours) {
-                if (me.hoursWeeks > 0) loadHours(Screen.Hours(me), null, append = false) else screen = Screen.Hours(me, busy = false)
-            }
+            // M16-33: off, there is no tab to press; a stale press does nothing.
+            Tab.HOURS -> if (screen !is Screen.Hours && me.hoursWeeks > 0) loadHours(Screen.Hours(me), null, append = false)
             Tab.SETTINGS -> if (screen !is Screen.Settings) screen = settingsOf(me)
         }
     }

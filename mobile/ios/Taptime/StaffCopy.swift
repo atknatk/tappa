@@ -39,11 +39,8 @@ enum StaffCopy {
     }
 
     // My hours
-    static var hoursOffTitle: String { t("My hours isn't on yet", "Saatlerim henüz açık değil") }
-    static var hoursOffBody: String {
-        t("Your employer can turn it on in Taptime. Until then your manager has your records.",
-          "İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.")
-    }
+    /// Said on Today when the employer turned My hours off while it was open (M16-33).
+    static var hoursOff: String { t("Your employer has turned My hours off.", "İşvereniniz Saatlerim özelliğini kapattı.") }
     static func openChip(_ n: Int) -> String { t("\(n) open", "Açık giriş: \(n)") }
     static func awaiting(_ d: String) -> String { t("Waiting for your manager, not counted yet: \(d).", "Müdür onayı bekleyen, henüz sayılmayan: \(d).") }
     static func openNote(_ n: Int) -> String {

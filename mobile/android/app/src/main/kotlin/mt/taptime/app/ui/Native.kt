@@ -287,7 +287,7 @@ private fun TabBar(tab: Tab, labels: Map<Tab, String>, onTab: (Tab) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Palette.Paper)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
-            for (t in Tab.entries) {
+            for (t in labels.keys) { // the tabs given, in their order (M16-33: My hours may be absent)
                 val on = t == tab
                 val path = when (t) { Tab.TODAY -> Icons.HOME; Tab.HOURS -> Icons.CLOCK; Tab.SETTINGS -> Icons.GEAR }
                 Column(

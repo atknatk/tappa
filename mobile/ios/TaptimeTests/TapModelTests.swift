@@ -847,6 +847,41 @@ final class TapModelTests: XCTestCase {
         XCTAssertEqual(staff.sent, [], "an older server's answer has no sent claims")
     }
 
+    // MARK: My hours off (M16-33)
+
+    /// With hoursWeeks 0 there is no way into My hours: the tab cannot be chosen and nothing is read.
+    func testMyHoursOffHasNoWayIn() async throws {
+        server.meBody["hoursWeeks"] = 0
+        await app.launch()
+        XCTAssertFalse(StaffModel.hoursOn(tap.me))
+        let staff = app.staff
+        staff.show(.hours)
+        XCTAssertEqual(staff.tab, .today)
+        await staff.loadHours(week: nil, after: nil)
+        XCTAssertTrue(server.hoursBodies.isEmpty, "nothing is read")
+        XCTAssertFalse(server.seen.contains { $0.path == AppClient.Path.hours })
+        XCTAssertFalse(StaffModel.hoursOn(nil), "an older server's /me: off")
+    }
+
+    /// The employer turns it off while it is open: not_found closes the screen, Today says why, and
+    /// /me is read again so the tab goes too.
+    func testNotFoundClosesMyHoursAndReadsMeAgain() async {
+        server.meBody["hoursWeeks"] = 4
+        await app.launch()
+        let staff = app.staff
+        staff.tab = .hours
+        server.meBody["hoursWeeks"] = 0 // what the next /me says; hoursPages empty = 404 not_found
+        let mes = mePaths
+        await staff.loadHours(week: nil, after: nil)
+        XCTAssertEqual(staff.tab, .today)
+        XCTAssertNil(staff.hours)
+        XCTAssertFalse(staff.hoursFailed, "not a network problem")
+        XCTAssertEqual(staff.notice, StaffCopy.hoursOff)
+        XCTAssertEqual(mePaths, mes + 1, "/me read again")
+        XCTAssertFalse(StaffModel.hoursOn(tap.me))
+        XCTAssertEqual(activation.screen, .activated)
+    }
+
     // MARK: The usual shift (M16-48)
 
     /// [G48-d]: a night shift says "(next day)" -- Today's sentence and Settings' row -- and a day

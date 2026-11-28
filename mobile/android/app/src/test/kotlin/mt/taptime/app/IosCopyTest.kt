@@ -114,7 +114,7 @@ class IosCopyTest {
         "hours_dir_in", "hours_dir_out", "hours_state_approved", "hours_state_waiting", "hours_state_rejected",
         "hours_state_repeat", "hours_channel_manual", "hours_channel_qr", "hours_channel_qr_live",
         "hours_claim_pending", "hours_claim_approved", "hours_claim_rejected", "hours_prev", "hours_next",
-        "hours_more", "hours_off_title", "hours_off_body", "hours_chip_open",
+        "hours_more", "hours_off", "hours_chip_open",
         "claim_lead_out_today", "claim_lead_out_yesterday", "claim_lead_out_earlier",
         "claim_lead_in_today", "claim_lead_in_yesterday", "claim_lead_in_earlier",
         "claim_question_out", "claim_question_in", "claim_send", "claim_sent", "claim_window_hint", "claim_outside",

@@ -278,11 +278,13 @@ class FakeAppServer(
     var hoursWeek = "2026-11-16"
     val hoursPages = LinkedHashMap<String, String>()
     val hoursBodies = mutableListOf<String>()
+    var hoursOff = false
 
     /** apphours.go's boundary: another week is 400; a cursor not issued for this walk is 400. */
     private fun hours(ex: HttpExchange, body: ByteArray) {
         signedRead(ex, "POST", "/app/v1/hours", body) ?: return unauthenticated(ex)
         hoursBodies += String(body)
+        if (hoursOff) return error(ex, 404, "not_found") // the employer turned My hours off (M16-31)
         val m = MiniJson.decodeObject(String(body))
         if (m["week"] != hoursWeek) return error(ex, 400, "bad_request")
         val page = hoursPages[(m["after"] as? String) ?: ""] ?: return error(ex, 400, "bad_request")

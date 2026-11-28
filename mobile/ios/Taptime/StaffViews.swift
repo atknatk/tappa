@@ -136,13 +136,16 @@ struct StaffRootView: View {
             .tabItem { Label(StaffCopy.tabToday, systemImage: "house") }
             .tag(StaffModel.Tab.today)
 
-            NavigationView {
-                HoursView(staff: staff)
-                    .navigationTitle(StaffCopy.tabHours)
+            // M16-33: with My hours off (hoursWeeks 0) there is no way into it at all.
+            if StaffModel.hoursOn(me) {
+                NavigationView {
+                    HoursView(staff: staff)
+                        .navigationTitle(StaffCopy.tabHours)
+                }
+                .navigationViewStyle(.stack)
+                .tabItem { Label(StaffCopy.tabHours, systemImage: "clock") }
+                .tag(StaffModel.Tab.hours)
             }
-            .navigationViewStyle(.stack)
-            .tabItem { Label(StaffCopy.tabHours, systemImage: "clock") }
-            .tag(StaffModel.Tab.hours)
 
             NavigationView {
                 SettingsView(staff: staff, me: me, name: name)
@@ -154,6 +157,10 @@ struct StaffRootView: View {
         }
         .tint(Palette.green)
         .preferredColorScheme(.light)
+        // My hours turned off while its tab was showing (a fresh /me): the tab is gone, so is the screen.
+        .onChange(of: StaffModel.hoursOn(me)) { on in
+            if !on { staff.hoursTurnedOff() }
+        }
         .sheet(isPresented: Binding(get: { staff.claims != nil }, set: { if !$0 { staff.closeSheet() } })) {
             if let list = staff.claims, staff.claimIndex < list.count {
                 ClaimSheet(staff: staff, claim: list[staff.claimIndex], index: staff.claimIndex, count: list.count)
@@ -340,16 +347,7 @@ private struct HoursView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if staff.hoursOff {
-            Card {
-                VStack(alignment: .leading, spacing: 8) {
-                    IconSquare(symbol: "clock")
-                    Text(StaffCopy.hoursOffTitle).font(Typeface.display(18, .bold))
-                    Text(StaffCopy.hoursOffBody).font(Typeface.display(14)).foregroundColor(muted)
-                }
-                .padding(20)
-            }
-        } else if let h = staff.hours {
+        if let h = staff.hours {
             Text(weekLabel(h)).font(Typeface.mono(13, bold: true)).foregroundColor(muted).padding(.horizontal, 4).padding(.top, -6)
             summary(h)
             dayChips(h)

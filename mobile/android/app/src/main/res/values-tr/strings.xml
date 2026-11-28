@@ -320,8 +320,6 @@
     <string name="today_week">Bu hafta sayılan</string>
     <string name="hours_chip_open">Açık giriş: %1$d</string>
     <string name="hours_day_empty">Bu gün kayıt yok.</string>
-    <string name="hours_off_title">Saatlerim henüz açık değil</string>
-    <string name="hours_off_body">İşletmen bunu Taptime panelinden açabilir. O zamana kadar kayıtların müdüründe.</string>
     <string name="sheet_hour">Saat</string>
     <string name="sheet_minute">Dakika</string>
     <string name="sheet_sending">Gönderiliyor…</string>
