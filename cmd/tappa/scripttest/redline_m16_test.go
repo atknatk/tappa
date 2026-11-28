@@ -269,6 +269,9 @@ func TestRedline_M16_MobileLogCalls(t *testing.T) {
 		m16Android + "kotlin/r7_venue.kt":   "Lo~~g.d(TAG, \"tap at ${r.ven~~ue}\")\n",
 		m16iOS + "r7_name.swift":            "pri~~nt(\"hello \\(me.employee~~Name)\")\n",
 		m16Android + "kotlin/r7_records.kt": "print~~ln(\"page ${reply.rec~~ords}\")\n",
+		// M16-44: the claimed time and the clock of the record it is for.
+		m16iOS + "r7_claimed.swift":        "log~~ger.debug(\"sent \\(s.claimed~~At)\")\n",
+		m16Android + "kotlin/r7_anchor.kt": "Lo~~g.i(TAG, \"record ${c.anchor~~At}\")\n",
 	}
 	green := map[string]string{
 		m16iOS + "Tap.swift": "logger.info(\"tap sent, verdict \\(verdict)\")\nprint(\"exchanges \\(count)\")\n" +

@@ -2645,8 +2645,11 @@ report FAIL R7 "Imza / nonce / challenge / acik anahtar / onay bagi uygulama yuz
 # kayitlari -- workedMinutes · venue · employeeName · records. GURULTU OLCULDU (2026-11-28): bu dort
 # kelimenin R7M_CALLEE + R7M_WINDOW ile R7M_SRC'de tek basina isabeti 0; tam tarama eklemeden once
 # ve sonra cikis 0, sonrasinda R7 FAIL bolumu yok. Pin: TestRedline_M16_MobileLogCalls.
+# M16-44 EKI (unutulan saat talebi): claimedAt · anchorAt -- kisinin talep ettigi saat ve talebin
+# kaydinin saati. GURULTU OLCULDU (2026-11-28): R7M_SRC'de tek basina isabet 0 (Go'nun ClaimedAt
+# alanlari buyuk harfli slog yontemleriyle loglanir, R7M_CALLEE'ye girmez). Pin: ayni test.
 R7M_CALLEE='(?:(?:^|[^.\w])(?:os_log|NSLog|print|println|debugPrint|dump|fatalError|preconditionFailure|assertionFailure)|\bSwift\.(?:print|debugPrint|dump)|\bSystem\.(?:out|err)\.print(?:ln|f)?|\b(?:Timber|Napier)\.\w+|\b\w*(?:log|Log|logger|Logger)(?:\.\w+)?\.(?:trace|debug|info|notice|log|warning|error|critical|fault|v|d|i|w|e|wtf|println))(?:\(|\s*\{)'
-R7M_TRIGGERS="$R7_TRIGGERS|signature|\\bsig\\b|nonce|(pair(ing)?|approval|activation)_?code|e_?mail|latitude|longitude|coordinate|\\blat\\b|\\blng\\b|cookie|(ndef|sun)_?url|workedMinutes|venue|employeeName|records"
+R7M_TRIGGERS="$R7_TRIGGERS|signature|\\bsig\\b|nonce|(pair(ing)?|approval|activation)_?code|e_?mail|latitude|longitude|coordinate|\\blat\\b|\\blng\\b|cookie|(ndef|sun)_?url|workedMinutes|venue|employeeName|records|claimedAt|anchorAt"
 R7M_WINDOW='(?:[^()]|\([^()]*\)|\\\(|\.format\(|\(\s*format:)*'
 R7M_PATTERN="$R7M_CALLEE$R7M_WINDOW(?i:$R7M_TRIGGERS)"
 # KAPSAM: SRC eksi scripts/ (2026-11-18, main birlestirmesi). Kalip Swift/Kotlin/Go cagri
